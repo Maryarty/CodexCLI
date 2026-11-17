@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex CLI on rtwk — target architecture</title>
+<style>
+body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1100px; margin: 0 auto; padding: 24px; color: #1d1d1f; background: #fafafa; }
+h1 { font-size: 28px; } h2 { margin-top: 40px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
+.diagram { background: #fff; border: 1px solid #e3e3e3; border-radius: 10px; padding: 16px; overflow-x: auto; }
+.note { color: #666; font-size: 14px; }
+@media (prefers-color-scheme: dark) { body { background: #161618; color: #e8e8ea; } .diagram { background: #1f1f22; border-color: #333; } code { background: #2a2a2e; } h2 { border-color: #333; } a { color: #7ab7ff; } }
+</style></head><body>
+<h1>Codex CLI on rtwk — target architecture (design to review)</h1>
+<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003 (plain model, <code>apply -&gt; Effects</code>, chosen on the trade-offs in research/state-approaches.md), in review with the person.</p>
+<h2>1. System context</h2>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  user([User at a terminal])
+  subgraph rtwkapp[&quot;codex-rtwk (new, codex-rs/tui-rtwk)&quot;]
+    ui[&quot;rtwk app: screens, dialogs, keys&quot;]
+    st[&quot;App state&quot;]
+    sess[&quot;Session layer: app-server client task&quot;]
+  end
+  subgraph backend[&quot;Codex backend (reused as is)&quot;]
+    asc[&quot;codex-app-server-client: InProcess / Remote / Cloud&quot;]
+    srv[&quot;app-server + codex-core&quot;]
+  end
+  model[(Model API)]
+  oracle[&quot;codex-tui (oracle, untouched): behaviour spec, tests, snapshots&quot;]
+  rtwk[&quot;rtwk framework (path dep, RTWK_REF)&quot;]
+  user &lt;--&gt;|keys, mouse, paste / frames| ui
+  ui --&gt; st
+  st --&gt; ui
+  sess --&gt;|events| st
+  st --&gt;|actions, RPC| sess
+  sess &lt;--&gt; asc --&gt; srv &lt;--&gt; model
+  rtwk -.-&gt; ui
+  oracle -.-&gt;|carried over: reusable code + behaviour| rtwkapp</pre></div>
+<h2>2. Who owns what</h2>
+<div class="diagram"><pre class="mermaid">flowchart TB
+  subgraph R[&quot;rtwk owns (never re-implemented in the app)&quot;]
+    r1[&quot;frame loop, frame pacing, terminal I/O, input decoding&quot;]
+    r2[&quot;widget tree, rebuild, layout, paint, damage diff&quot;]
+    r3[&quot;widget state: scroll, focus, text editing, selection, animation&quot;]
+    r4[&quot;coalescing work from other threads, list virtualization&quot;]
+    r5[&quot;navigation, dialogs, popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
+  end
+  subgraph A[&quot;the app owns&quot;]
+    a1[&quot;application state: threads, turns, streams, approvals, settings, account, agents&quot;]
+    a2[&quot;rules: what an event or an action changes, stale-result dropping&quot;]
+    a3[&quot;derived values: counts, totals, filters, what a screen shows&quot;]
+    a4[&quot;screens: which rtwk widgets, laid out how, bound to which keys&quot;]
+  end
+  subgraph B[&quot;the backend owns&quot;]
+    b1[&quot;sessions, model calls, tools, sandbox, config files, auth&quot;]
+  end</pre></div>
+<h2>3. Crate and module layout</h2>
+<div class="diagram"><pre class="mermaid">flowchart TB
+  subgraph crate[&quot;codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)&quot;]
+    main[&quot;main.rs: CLI, config, tokio runtime, start client, run_app_with&quot;]
+    app[&quot;app.rs: CodexApp (root state) + Msg&quot;]
+    subgraph session[&quot;session/&quot;]
+      client[&quot;client task: notifications and requests to Msg&quot;]
+      threads[&quot;threads: per-thread state, buffering, replay&quot;]
+      stream[&quot;streaming: deltas, commit rules (carried-over chunking)&quot;]
+      appr[&quot;approvals: pending requests with ids&quot;]
+    end
+    commands[&quot;commands/: 69 slash commands, parsing, queue rules&quot;]
+    keymap[&quot;keymap/: tui.keymap config to rtwk Shortcuts, vim mode&quot;]
+    theme[&quot;theme.rs&quot;]
+    root[&quot;ui/view.rs: Theme, providers, Navigator, routes&quot;]
+    subgraph screens[&quot;screens/ (one directory per slice)&quot;]
+      s1[&quot;chat, cells, composer, popovers, transcript, select&quot;]
+      s2[&quot;approvals, settings, pager, backtrack, resume, status, usage&quot;]
+      s3[&quot;agents, sidebar, dialogs, pets, voice, ui_tree&quot;]
+      s4[&quot;onboarding, startup, import&quot;]
+    end
+    inline[&quot;inline/: inline screen mode (last)&quot;]
+    tests[&quot;tests/: screens per slice, session, scenarios, perf/&quot;]
+  end
+  subgraph reuse[&quot;carried over from codex-tui (copied, non-UI)&quot;]
+    c1[&quot;app_server_session, app_command (protocol seam)&quot;]
+    c2[&quot;keymap parsing, chunking, markdown_copy, clipboard OS side&quot;]
+    c3[&quot;analytics data, thread/update/session helpers&quot;]
+  end
+  subgraph deps[&quot;dependencies&quot;]
+    d1[&quot;codex-app-server-client / -protocol, codex-core config, arg0&quot;]
+    d2[&quot;rtwk, rtwk-rich, rtwk-data, rtwk-tokio, rtwk-test, rtwk-term&quot;]
+  end
+  reuse --&gt; session
+  reuse --&gt; keymap
+  main --&gt; app --&gt; root --&gt; screens
+  app --&gt; session
+  screens --&gt; commands
+  screens --&gt; keymap
+  crate --&gt; deps</pre></div>
+<h2>4. Runtime: an event from the backend reaches the screen</h2>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+  participant AS as app-server
+  participant T as session client task (tokio)
+  participant CH as AppCx::channel
+  participant M as App state
+  participant V as view(&amp;state)
+  participant R as rtwk
+  AS-&gt;&gt;T: notification (thread_id, turn_id, item_id, delta)
+  T-&gt;&gt;CH: Msg::Thread(id, Event)
+  Note over CH: rtwk coalesces everything sent before the next flush
+  CH-&gt;&gt;M: apply(event) for each item, in order
+  M-&gt;&gt;M: Versioned slices it touched bump their revision
+  CH-&gt;&gt;V: one view run for all items
+  V-&gt;&gt;V: memo subtrees whose revisions did not move are reused
+  V-&gt;&gt;R: widget tree
+  R-&gt;&gt;R: rebuild changed elements, layout, paint, diff
+  Note over R: the terminal shows the frame</pre></div>
+<h2>5. Runtime: a user action and a late reply</h2>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+  participant U as user
+  participant R as rtwk (Focus, Shortcuts)
+  participant H as handler cx.on
+  participant M as App state
+  participant S as AppCx::spawn / session
+  participant AS as app-server
+  U-&gt;&gt;R: key (e.g. Enter in the composer)
+  R-&gt;&gt;H: action
+  H-&gt;&gt;M: apply(Submit) changes state (draft to turn, gen = 7)
+  M--&gt;&gt;H: Effects: Rpc(start turn, request id 7)
+  H-&gt;&gt;S: the shell runs the effect
+  S-&gt;&gt;AS: request
+  U-&gt;&gt;R: switches thread (gen becomes 8)
+  AS--&gt;&gt;S: reply for 7
+  S-&gt;&gt;M: Msg::Reply(id 7)
+  M-&gt;&gt;M: id 7 is stale: dropped
+  Note over M: rule: every async result carries its id, apply drops stale ones</pre></div>
+<h2>6. App state shape</h2>
+<div class="diagram"><pre class="mermaid">classDiagram
+  class CodexApp {
+    session: Session
+    threads: ThreadId to Thread map
+    active: ThreadId
+    nav: NavState
+    composer: ComposerState
+    settings: Settings
+    account: Account
+    agents: AgentsState
+  }
+  class Thread {
+    transcript: settled cells, append-only
+    tail: the one live cell, optional
+    pending_approvals: list of Approval
+    status: Running/Idle/Error
+    tokens: Usage
+    rev: u64
+  }
+  class Approval {
+    request_id
+    kind: Exec, Patch, Permissions, Mcp, UserInput
+  }
+  class Session {
+    backend
+    connection
+    rate_limits
+    next_request_id
+  }
+  class Settings {
+    theme
+    keymap
+    config view
+  }
+  class NavState {
+    route
+    dialogs
+    popover
+  }
+  CodexApp --&gt; Thread
+  Thread --&gt; Approval
+  CodexApp --&gt; Session
+  CodexApp --&gt; Settings
+  CodexApp --&gt; NavState</pre></div>
+<p>Derived (computed, never stored by hand): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows.</p>
+<h2>7. Navigation map (screens of architecture.md §1)</h2>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; prompts{{&quot;S05 startup prompts&quot;}} --&gt; chat
+  chat[&quot;S10 main chat (home)&quot;]
+  chat --&gt;|Ctrl+T, /diff| pager[&quot;S16 pager&quot;]
+  chat --&gt;|/resume, /fork| resume[&quot;S18 resume picker&quot;]
+  chat --&gt;|/usage| usage[&quot;S20 usage dashboard&quot;]
+  chat --&gt;|/agents| agents[&quot;S21 agents center&quot;]
+  chat --&gt;|/import| imp[&quot;S06 import&quot;]
+  chat --&gt;|ui_tree| uit[&quot;S26 ui_tree viewer&quot;]
+  chat -.dialog.-&gt; appr{{&quot;S13 approvals&quot;}}
+  chat -.dialog.-&gt; sel{{&quot;S14 selection dialogs&quot;}}
+  chat -.dialog.-&gt; set{{&quot;S15 settings&quot;}}
+  chat -.dialog.-&gt; stat{{&quot;S19 /status&quot;}}
+  chat -.dialog.-&gt; small{{&quot;S23 small dialogs&quot;}}
+  chat -.popover.-&gt; pop([&quot;S12 / @ $ popovers&quot;])
+  chat -.mode.-&gt; bt([&quot;S17 backtrack&quot;])
+  chat -.part.-&gt; side([&quot;S22 sidebar, side panes&quot;])
+  chat -.part.-&gt; pets([&quot;S24 pets&quot;])
+  chat -.part.-&gt; voice([&quot;S25 voice&quot;])</pre></div>
+<h2>8. Main chat screen: widget tree</h2>
+<div class="diagram"><pre class="mermaid">flowchart TB
+  scaffold[&quot;Scaffold (theme, focus scope, Shortcuts from keymap)&quot;]
+  scaffold --&gt; row[&quot;Row&quot;]
+  row --&gt; sidebar[&quot;Sidebar (S22): TabBar + panes, slide animation&quot;]
+  row --&gt; col[&quot;Column (main)&quot;]
+  col --&gt; list[&quot;Transcript: ListView.builder over thread.transcript + tail; SelectionArea (S11 cells: MarkdownView, DiffView, CodeView)&quot;]
+  col --&gt; banners[&quot;Banners: backend / connection&quot;]
+  col --&gt; pending[&quot;Pending input preview, queued messages&quot;]
+  col --&gt; working[&quot;Working indicator: Spinner, elapsed, interrupt hint&quot;]
+  col --&gt; composer[&quot;Composer: TextArea (+ vim from keymap), attachments&quot;]
+  col --&gt; footer[&quot;Footer hints + status line&quot;]
+  scaffold -.overlay.-&gt; popovers[&quot;Popovers: / @ $ (OptionList, CommandPalette)&quot;]
+  scaffold -.overlay.-&gt; dialogs[&quot;Dialogs: approvals, selection, settings (show_dialog)&quot;]</pre></div>
+<h2>9. Tests, parity and performance</h2>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  subgraph fixtures[&quot;one set of fixtures&quot;]
+    fm[&quot;mocked model (core_test_support wiremock SSE)&quot;]
+    ks[&quot;key scripts, recorded event streams&quot;]
+  end
+  subgraph unit[&quot;inside codex-rtwk&quot;]
+    t1[&quot;state tests: events in, state out, races&quot;]
+    t2[&quot;screen tests: rtwk_test::Tester at oracle sizes&quot;]
+  end
+  subgraph pty[&quot;both binaries in a pty (rtwk-term)&quot;]
+    o[&quot;codex (oracle)&quot;]
+    p[&quot;codex-rtwk&quot;]
+  end
+  fixtures --&gt; unit
+  fixtures --&gt; pty
+  pty --&gt; cmp[&quot;checkpoints compared, side by side on failure&quot;]
+  pty --&gt; perf[&quot;perf/drive.py: 11 scenarios, interleaved A/B&quot;]
+  perf --&gt; rep[&quot;report.html: distributions, ratios, side-by-side casts, milestone trend&quot;]
+  snaps[&quot;oracle .snap files&quot;] -.-&gt;|visual reference, deltas listed per slice| t2</pre></div>
+<h2>10. Migration waves (tm <code>tui-rtwk</code>)</h2>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  w0[&quot;W0: research, architecture, this design, skeleton&quot;] --&gt; w1[&quot;W1 foundation: session core, slash commands, keymap, scenario harness, perf baseline of the original, refs&quot;]
+  w1 --&gt; w2[&quot;W2 main chat (critical path): layout, cells and streaming, composer, popovers, transcript, selection dialog, perf milestone&quot;]
+  w2 --&gt; w3[&quot;W3 screens in parallel: 17 slices, 4-5 agents&quot;]
+  w3 --&gt; w4[&quot;W4: inline mode, rtwk gaps, parity sweep, final perf report&quot;]</pre></div>
+<h2>Open points on this design</h2>
+<ol><li>App state (§4–§6) per ADR-003; the person reviews the trade-off analysis (<code>research/state-approaches.md</code>).</li><li>Which reusable codex-tui modules are copied in W1 vs with their screen (§3 "carried over") — from reuse-map.csv per slice.</li><li>Sidebar and side panes as part of the chat screen (§8) or a split layout of their own.</li></ol>
+<p class="note">Generated from design.md by design_html.py. Diagrams drawn by Mermaid (loaded from a CDN).</p>
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "default", flowchart: { useMaxWidth: true }, securityLevel: "strict" });
+</script>
+</body></html>

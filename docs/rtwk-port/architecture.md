@@ -3,6 +3,8 @@
 tm: `tui-rtwk` (root); this document is the deliverable of `port-design`.
 Oracle: `codex-rs/tui` at [ORACLE_REF](ORACLE_REF), never edited. rtwk: the
 checkout `/Users/admin/Documents/dev_projects/rtwk` at [RTWK_REF](RTWK_REF).
+The target architecture drawn: [design.md](design.md) /
+[design.html](design.html) (regenerate with `python3 -I docs/rtwk-port/design_html.py`).
 Phase 1: one to one in functionality with the oracle. Phase 2: Codex Desktop
 features ([desktop-gap.md](research/desktop-gap.md)). Phase 3: our own.
 
@@ -38,7 +40,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk`, its own Cargo workspace; rtwk by path at `RTWK_REF`; codex-rs workspace, lockfile, Bazel and CI untouched |
 | ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + `Msg` + `view(&App, &mut ViewCx)` + `cx.on`, routes, rtwk widgets |
-| ADR-003 | app state | a plain model owned by the rtwk app: one writer on the UI thread, `apply` per feature with request ids, derived values via `ViewCx::memo`; no state library, no published snapshot |
+| ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut Model, Ev) -> Effects` per feature with request ids, derived values via `ViewCx::memo` on versioned slices; entities+notify as reserve; chosen on per-approach trade-offs |
 | ADR-004 | screens and content | ~28 screens (§1) as routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
 | ADR-006 | input | rtwk `Focus` / `Shortcuts` / `KeyBindings`; Codex's keymap config read into them; input never frozen by an RPC |
@@ -203,27 +205,59 @@ results in by message. Variant E (an entity + notify pattern written by
 hand) measured 8.1 allocs/delta, 2.5 ms against C's 7.3 and 2.4 ms; its
 risk is a forgotten notify (a stale view), a recurring bug class in Zed.
 
-**Decision (2026-11-17, on the survey's evidence): C, the plain model.**
+**Trade-offs of the approach families** ([state-approaches.md](research/state-approaches.md):
+for each — why it exists, what it solves, what it brings, eight Codex cases,
+verdict; matrix in §10):
+
+| family | solves | brings | verdict |
+|---|---|---|---|
+| 1 plain model, whole-view rerun, `ViewCx::memo` | views and derived values cannot go stale (a kept subtree can use only its keys — otherwise no compile); `apply` is a plain function, deterministic tests; cheapest (7.3 allocs/delta) | root view reruns each changed frame; a wrong revision key or a misused `unchanged()` gives a stale subtree; `update` grows large | **core** |
+| 2 reducers + effects as data (redux-style, Crux) | late replies are events; race tests need no runtime | boilerplate, indirection; crates dead or breaking each minor | **partial**: take its `apply -> Effects` boundary |
+| 3 fine-grained signals (reactive_graph, dioxus-signals, futures-signals) | automatic dependency tracking; only subscribers rebuild | untracked reads go stale silently; cross-thread read panic; lost batch notification; six silent rules; 2.1–5.7x cost | does not fit |
+| 4 entities + notify / diffs (Zed, eyeball, rtwk `Select`) | panel isolation at family 1's cost (8.1) | a forgotten notify is a stale view (44 Zed PRs); derived state synced by observers | **reserve** |
+| 5 actors (ractor, kameo, actix) | isolating services | UI sees only snapshots; `Send` everywhere; no order across mailboxes | not for UI state |
+| 6 ECS (bevy_ecs) | iterating many entities per tick | schedule decides order; unread messages dropped silently | does not fit |
+| 7 incremental computation (salsa) | heavy derived results on demand | nothing pushes, a view cannot follow it; cancellation by panic | not now; maybe one heavy query later |
+| 8 streams / Rx | `switch_map`-style dropping of stale results | a second scheduler beside rtwk's; state hidden in closures | ingress only, not a store |
+
+**Decision (2026-11-17): family 1 with family 2's effect boundary; family 4
+as the reserve.** Reasons: (1) it removes the desync bug class (~22 points of
+the oracle's fix history, bug-classes.md) with the narrowest failure mode —
+one wrong memo key, and many mistakes do not compile; (2) request ids and
+race tests are cheapest with one writer and a pure `apply`; (3) it is rtwk's
+own model, the cheapest measured, and what Helix, gitui, yazi and iced do.
+
 - Rust structs owned by the rtwk `AppView`; one writer, the UI thread.
-- Per feature `apply(&mut Model, Ev)`, threads keyed by `ThreadId`; events
-  enter through one `AppCx::channel`; RPC replies carry their request or
-  generation id and `apply` drops stale ones.
-- Derived values are pure functions computed in the view and kept by
-  `ViewCx::memo` keyed on per-slice revisions; a value that would cost O(n)
-  per event (counts, totals) is maintained in `apply` and covered by a test
-  that recomputes it from scratch.
-- Tests feed events and assert the model, with no UI; screen tests on top.
+- Per feature `apply(&mut Model, Ev) -> Effects`, threads keyed by
+  `ThreadId`; events enter through one `AppCx::channel`; effects (RPCs,
+  config writes) are values the shell runs with `AppCx::spawn`, their
+  results come back as events carrying the request or generation id, and
+  `apply` drops stale ones. Tests: events in, model and effects out, no UI.
+- Every thread's model is kept current as its events arrive, so switching
+  threads needs no replay in the UI; the user-visible behaviour of the
+  oracle's replay-on-switch (what a switched-to thread shows) is the parity
+  target. Reconnect/resume still replays from the backend.
+- Derived values are pure functions computed in the view (measured cheap:
+  10 derived values scanning 1,000 threads add 9 µs per frame) and kept by
+  `ViewCx::memo` on per-slice revisions; slices are `Versioned<T>` whose
+  `get_mut` bumps the revision. A counter kept in `apply` is allowed only
+  inside one collection type, with a test that recomputes it.
+- Rules: `unchanged()` is banned in feature code (CI grep); long lists use
+  `ListView` builders; only mounted screens render; memoise one level per
+  region; a per-release budget test on the scale scenario.
 - Flows (approvals, onboarding) are plain enums; `statig` only if a flow
-  outgrows them. Config and connection state may follow a tokio `watch`
-  through `rtwk_tokio`.
-- Reserve, not used now: E (per-thread entities with `notify` inside
-  `update`, followed through `Select`) for a panel that must rebuild without
-  the root view, should profiling show the root view costs too much.
-  Not chosen: reactive_graph/reactive_stores (2–6x cost, silent stale reads
-  on untracked dependencies), the other libraries of the survey.
+  outgrows them. Config and connection state may follow a tokio `watch`.
+- Switch a panel to the reserve (entities + notify inside `update`,
+  followed through `Select`) only if a phase-2 profile shows the root view
+  above ~1 ms per frame after these rules.
+- Measured scaling (state-approaches.md §11): 12–19 µs per frame at 1,000
+  threads / 30 panels; the cost grows with the square of memo calls (81 →
+  9.5 µs, 331 → 97 µs, 1,031 → 648 µs) because rtwk's memo cache is a
+  linearly searched `Vec` (rtwk crates/rtwk/src/app.rs:812-819) — reported
+  to rtwk with the nested-memo release (an outer memo hit releases the inner
+  entries).
 - Later, not phase 1: per-thread sequence numbers in app-server
-  notifications would let replay and reconnect deduplicate without
-  comparing content (a backend change).
+  notifications would let reconnect deduplicate without comparing content.
 
 **Off-thread readers: none need a snapshot**
 ([off-thread-state.md](research/off-thread-state.md)). In the oracle,
