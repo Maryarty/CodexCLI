@@ -1,0 +1,313 @@
+id,area,title,entry,src_lines,snapshots,interactions,render_needs,notes
+term.inline-viewport,terminal,Inline viewport (default non-fullscreen mode),tui.rs:730,3696,10,-,"inline viewport at bottom of terminal, custom ratatui Terminal fork with viewport relocation/resizing",chat history is written above the viewport into native scrollback; viewport = live tail + bottom pane
+term.history-insertion,terminal,Insert finalized history lines into scrollback,insert_history.rs:46,2025,5,-,"DECSTBM scroll regions (SetScrollRegion), wrap policy, OSC8 hyperlink rows, inline images",most architecture-critical piece; needs a way to emit raw rows above an inline viewport
+term.resize-reflow,terminal,Resize reflow: rebuild scrollback from source cells,app/resize_reflow.rs:1,2139,0,resize events,re-render all HistoryCells at new width and re-write scrollback,scrollback is a derived cache; capped by resize_reflow_cap
+term.alt-screen-fullscreen,terminal,Owned/fullscreen screen mode (alt screen + mouse),tui.rs:881,911,0,"mouse wheel, selection, drag","alt screen, mouse 1000/1002/1003/1006, own transcript viewport","/tui picks Inline vs Fullscreen for next launch; two complete render paths (app/owned_transcript.rs, transcript_view/)"
+term.alt-screen-overlay,terminal,Temporary alt screen for pager overlays (inline mode),tui.rs:1165,911,0,-,"alt screen enter/leave, viewport save/restore","used by transcript overlay, diff pager, analytics"
+term.suspend-ctrl-z,terminal,"Suspend / resume (Ctrl+Z, SIGTSTP)",tui/job_control.rs:62,284,0,Ctrl+Z reserved key,"restore terminal modes, raise SIGTSTP, re-init on SIGCONT",unix only; ctrl-z cannot be rebound
+term.bracketed-paste,terminal,Bracketed paste,tui.rs:261,0,0,Event::Paste,-,feeds composer paste handling + paste-burst fallback
+term.keyboard-enhancement,terminal,Kitty keyboard enhancement flags + key mode detection,tui/keyboard_modes.rs:235,1228,0,disambiguate/report events,-,tmux/Windows fallbacks; key hint labels depend on it
+term.focus-events,terminal,Focus change events,tui.rs:25,0,0,FocusGained/Lost,-,drives notifications only when unfocused
+term.sync-update,terminal,Synchronized output frames + frame scheduling,tui.rs:19,462,0,-,"frame scheduling/coalescing, rate limiter",FrameRequester API used by all animations
+term.osc8-hyperlinks,terminal,OSC 8 hyperlinks,terminal_hyperlinks.rs:9,2330,2,mouse hover/click on links,"OSC8 cell-level hyperlinks, HyperlinkLine/Paragraph widgets","must survive wrapping, scrollback insertion and overlay copy"
+term.osc9-notifications,terminal,Desktop notifications (OSC 9 / BEL),notifications/mod.rs:25,547,0,-,"OSC 9 / BEL writes, focus gating",config tui.notifications
+term.osc52-clipboard,terminal,"Clipboard copy (native, tmux, WSL, OSC 52)",clipboard_copy.rs:1,3354,7,"Ctrl+O copy, /copy, copy-on-select","native clipboard, OSC52 (screen/tmux wrapped), HTML clipboard","background worker, SSH heuristics"
+term.clipboard-paste-image,terminal,Clipboard image paste + right-click paste,clipboard_paste.rs:5,1449,0,"Ctrl+V, right-click, middle-click, path drop",image decode + temp file,
+term.mouse,terminal,"Mouse support (wheel, click, drag, hover, right-click)",tui/event_stream.rs:315,648,0,"scroll, click, drag select, hover links, divider drag, composer click",mouse capture,mouse.rs files across composer/textarea/analytics/transcript
+term.probe-colors,terminal,"Terminal probing (OSC 10/11 colors, DA1, cursor pos)",terminal_probe.rs:3,3801,1,-,query/response parser with deadline; default fg/bg for contrast,style::readable_color_on adapts to probed palette
+term.osc-title,terminal,Terminal title (OSC 0) with configurable items,terminal_title.rs:39,911,8,/title picker,"OSC 0 writes, spinner in title",
+term.images-kitty-sixel-iterm,terminal,Inline images (kitty graphics / sixel / iTerm2),pets/image_protocol.rs:31,2673,5,-,"kitty graphics, sixel encoder, tmux passthrough","hard to port; pets, view_image cells, generated images, visualizations"
+term.tmux-wsl-screen,terminal,tmux / WSL / screen adaptations,tui/tmux.rs:23,897,0,-,"passthrough wrapping, keyboard fallback",
+term.windows-console,terminal,Windows console specifics,tui/windows_console.rs:4,729,0,-,"vt enable, key sequence repair",
+term.panic-restore,terminal,Panic hook and terminal restore,tui.rs:423,490,0,-,"restore modes on exit, stderr capture",
+term.screen-reader,terminal,Screen reader / accessibility mode,screen_reader.rs:20,404,1,-,linear/low-motion rendering,
+term.motion-reduce,terminal,Reduced-motion preference,system_motion.rs:13,237,0,-,animation gating,
+term.session-lock,terminal,OS session lock detection (voice ends),session_lock.rs:21,372,0,-,OS lock monitors,see voice.md
+term.external-editor,terminal,External editor handoff ($EDITOR),external_editor.rs:19,676,0,editor binding,"leave raw mode, spawn editor, restore",
+app.shell,app,"App event loop, thread routing, event dispatch",app.rs:489,134328,242,"all TuiEvent routing, ~600 AppEvent variants","frame loop, history flush, draw",130k lines under app/
+app.startup-draft,app,Startup draft (composer before app-server ready),startup_draft.rs:58,4300,6,typing while connecting,early composer render,
+app.startup-error,app,Startup error / daemon recovery screens,daemon_recovery.rs:30,3510,5,retry/restart choices,selection screen,
+app.multi-backend,app,Multi-backend sessions (local/cloud/remote) and banners,app/backend_registry.rs:13,1848,4,change host / choose cloud env bindings,banners above composer,fork-specific
+app.exit-summary,app,Exit summary (token usage + resume hint),app/exit_summary.rs:11,169,2,-,plain lines,
+app.update-check,app,Update checks / update action,updates.rs:25,768,0,-,-,
+app.server-version-notice,app,Server version mismatch notice,app/server_version_notice.rs:7,68,0,-,-,
+onboarding.screen,onboarding,"Onboarding host (step stack, own mini event loop)",onboarding/onboarding_screen.rs:71,1260,35,"Enter/Esc/arrows, Ctrl+C","ratatui draw, step state machine",runs before App
+onboarding.welcome,onboarding,Welcome step (animated),onboarding/welcome.rs:33,222,1,any key,ascii animation,
+onboarding.auth,onboarding,Sign in (ChatGPT browser / device code / API key),onboarding/auth.rs:309,2994,23,"up/down/enter, text input, paste","text input, spinner, hyperlinks",largest onboarding module
+onboarding.gateway,onboarding,Gateway picker + OAuth device prompt,onboarding/gateway.rs:41,841,0,"list, text fields",list + inputs,
+onboarding.bedrock,onboarding,Amazon Bedrock credentials + GovCloud guidance,onboarding/bedrock.rs:44,1380,2,list + inputs,list + input,
+onboarding.gcp,onboarding,GCP (Vertex) setup,onboarding/gcp.rs:28,401,0,list + inputs,list + input,
+onboarding.trust-directory,onboarding,Directory trust prompt,onboarding/trust_directory.rs:30,635,10,1/2/Enter/Esc,selection list,
+onboarding.cwd-prompt,onboarding,Resume/fork working directory prompt,cwd_prompt.rs:113,587,6,list,standalone screen,
+onboarding.model-migration,onboarding,Model migration notice screen,model_migration.rs:142,683,3,list/enter,standalone screen with markdown,
+onboarding.update-prompt,onboarding,Update prompt (update/skip),update_prompt.rs:51,367,2,list,standalone screen,release builds only
+onboarding.unarchive-prompt,onboarding,Unarchive session prompt,unarchive_prompt.rs:38,417,2,list,standalone screen,
+onboarding.oss-selection,onboarding,OSS provider selection (LM Studio / Ollama),oss_selection.rs:331,546,4,list/enter/esc,alt screen standalone,enters alt screen directly
+onboarding.hooks-review,onboarding,Startup hooks review,startup_hooks_review.rs:40,538,3,list,standalone selection view,
+onboarding.external-config-migration,onboarding,Import from other agent (Claude Code) migration flow,external_agent_config_migration/mod.rs:82,2654,8,"checkbox list, source picker","multi-select, previews",also via /import
+onboarding.windows-sandbox,onboarding,Windows sandbox setup prompts,chatwidget/windows_sandbox_prompts.rs:9,589,7,list,popups,
+onboarding.security-setup,onboarding,Security setup flow,security_setup.rs:18,237,4,,popup,
+chat.widget,chat,ChatWidget: transcript tail + bottom pane,chatwidget.rs:487,92449,441,protocol notifications,"active cell tail, bottom pane stacking",39k non-test lines
+chat.rendering-layout,chat,Chat vertical layout,chatwidget/rendering.rs:502,1317,9,,"column layout, flex heights",
+chat.session-header,chat,Session header card,history_cell/session.rs:381,16,0,,bordered card,
+chat.protocol-events,chat,Protocol event handling,chatwidget/protocol.rs:4,1694,13,,,
+chat.interrupt,chat,Interrupt turn (Esc / Ctrl+C),chatwidget/interrupts.rs:19,299,6,"Esc, Ctrl+C",,
+chat.queued-input,chat,Queued user messages while turn runs,chatwidget/input_queue.rs:17,1752,11,"Tab queue, edit queued",preview list above composer,
+chat.status-indicator,chat,"Working indicator (spinner, shimmer, elapsed, hint)",status_indicator_widget.rs:41,1090,11,-,spinner/shimmer animation,
+chat.status-line,chat,Configurable status line,bottom_pane/status_line.rs:25,7594,57,/statusline,single-line styled footer,external providers discovered from disk
+chat.footer,chat,"Composer footer (hints, quit reminder, esc hint)",bottom_pane/footer.rs:166,3638,25,"?, Esc, Ctrl+C twice",responsive single-line footer,
+chat.shortcut-overlay,chat,Shortcut help ('?'),bottom_pane/shortcut_overlay.rs:39,1003,7,? toggles,multi-line footer replacement,
+chat.effort-ignition,chat,Reasoning effort ignition animation + shortcuts,bottom_pane/effort_ignition.rs:44,1685,2,effort +/- keys,"animation, colored footer",
+chat.turn-tips,chat,Turn tips / tooltips,turn_tip.rs:15,1645,7,-,,
+chat.empty-state-animation,chat,Empty-state animation (procedural lighting) + Daybreak,empty_state_animation.rs:26,1571,17,-,per-cell colored animation,
+chat.goal,chat,Thread goal display + menu,chatwidget/goal_menu.rs:9,1149,3,/goal,popup + status,
+chat.plan-mode,chat,Plan mode + implement-plan prompt,chatwidget/plan_implementation.rs:9,209,2,"/plan, mode cycling",popup + plan cells,
+chat.review-mode,chat,Review flows,chatwidget/review_popups.rs:10,172,53,popups,list with search,
+chat.compaction,chat,Context compaction progress,chatwidget/compaction.rs:6,57,3,/compact,cell,
+chat.recap,chat,Thread recap,app/recap.rs:36,1898,4,/recap,recap + loading cell,
+chat.side-conversation,chat,Side conversation docked pane,app/side.rs:25,2883,6,"focus keys, divider drag",two-pane layout,fork-specific
+chat.sidebar,chat,"Sidebar (documents, files, links) with slide animation",app/sidebar.rs:27,5275,0,"pane focus/resize/zoom keys, divider mouse","fullscreen only, sliding animation, markdown preview, tab strip",fork-specific
+chat.read-only-thread,chat,Read-only thread notice,chatwidget/read_only.rs:6,68,10,,,
+chat.provider-error,chat,Provider error + safety buffering/recourse/misalignment,chatwidget/provider_error.rs:12,1357,16,,banner + popup,
+chat.mcp-startup,chat,MCP startup status,chatwidget/mcp_startup.rs:23,257,5,,,
+chat.reconnect,chat,Reconnect/retry banners,chatwidget/reconnect.rs:9,1693,0,,,
+chat.rate-limits,chat,Rate limit warnings / reset credits,chatwidget/rate_limits.rs:4,1570,12,,popup + notice,
+chat.copy-last,chat,"Copy last response (Ctrl+O, /copy picker)",chatwidget/copy_picker.rs:10,1562,19,,list + clipboard,
+chat.transcript-export,chat,Export transcript as markdown,chatwidget/transcript_export.rs:8,620,3,/export,path prompt,
+chat.reasoning-replay,chat,Reasoning summary and replay,app/reasoning_replay.rs:14,554,6,,,
+chat.user-verification,chat,User verification flow,app/user_verification.rs:27,1012,0,,,
+chat.tool-lifecycle,chat,Tool call lifecycle to active cells,chatwidget/tool_lifecycle.rs:11,1628,30,,,
+composer.chat-composer,composer,ChatComposer (multiline input + popups + history),bottom_pane/chat_composer.rs:598,25997,125,"Enter submit, Shift+Enter newline, Tab queue, Esc, history","wrapped textarea with cursor, popups, footer",
+composer.textarea,composer,"TextArea editor (emacs bindings, kill ring, undo)",bottom_pane/textarea.rs:145,8759,24,"word/line motions, kill/yank, mouse select","wrapped text, atomic elements, hyperlinks",
+composer.vim-mode,composer,"Vim mode (normal/insert/visual, operators, text objects, search, registers)",bottom_pane/textarea/vim.rs:8,3157,16,"/vim toggle, hjkl, operators, /search","cursor shape, mode indicator",
+composer.paste-burst,composer,Paste-burst detection,bottom_pane/paste_burst.rs:174,938,20,fast char stream heuristics,-,for terminals without bracketed paste
+composer.large-paste-placeholder,composer,Large paste placeholders,bottom_pane/chat_composer/paste_input.rs:15,328,20,large paste,atomic placeholder element,
+composer.image-attachments,composer,Image attachments ([Image #N]),bottom_pane/chat_composer/attachment_state.rs:21,398,3,"Ctrl+V, path paste",placeholders,
+composer.history,composer,Composer history,bottom_pane/chat_composer_history.rs:40,1628,0,Up/Down,-,
+composer.history-search,composer,Reverse history search,bottom_pane/chat_composer/history_search.rs:78,1374,11,Ctrl+R,"footer query, inline preview",
+composer.undo-redo,composer,Edit history undo/redo,bottom_pane/chat_composer/edit_history.rs:37,1476,0,undo/redo bindings,-,
+composer.draft-restore,composer,Draft state and restore,bottom_pane/chat_composer/draft_state.rs:11,1106,0,,,
+composer.sparkle,composer,Composer sparkle effect,bottom_pane/chat_composer/sparkle.rs:74,1592,13,-,per-cell particle animation,cosmetic
+composer.warning-notice,composer,Inline composer warning,bottom_pane/chat_composer/warning_notice.rs:8,277,0,,,
+composer.mouse,composer,Composer mouse handling,bottom_pane/chat_composer/mouse.rs:26,895,0,"click, drag, double-click",,
+composer.agents-navigation,composer,Subagent navigation from composer,bottom_pane/chat_composer/agents_navigation.rs:8,1832,2,,footer hint,
+composer.slash-popup,popup,Slash command popup (fuzzy filter),bottom_pane/command_popup.rs:30,2114,14,"type /, Up/Down, Tab, Enter",popup above composer,
+composer.file-mention-popup,popup,@ file search popup,bottom_pane/file_search_popup.rs:22,1387,0,"type @, arrows, Tab/Enter","popup, async fuzzy results",
+composer.mentions-v2,popup,"Mentions v2 popup (files, skills, plugins, apps, tasks; tabs)",bottom_pane/mentions_v2/popup.rs:27,2584,7,"type @ or $, switch mode",multi-source popup,
+composer.skill-popup,popup,Skill popup ($skill),bottom_pane/skill_popup.rs:28,590,13,type $,popup,
+composer.voice-strip,composer,Voice strip + realtime voice,bottom_pane/voice_strip.rs:23,3275,30,"voice toggle, mute",level meter animation,audio I/O outside TUI
+composer.split-flap,composer,Realtime split-flap display,chatwidget/realtime_split_flap.rs:28,706,0,-,split-flap animation,cosmetic
+composer.ide-context,composer,IDE context integration,ide_context.rs:1,2334,67,/ide,status chip; IPC,non-render IPC (unix socket / windows pipe)
+composer.quick-dials,composer,Quick dials / saved presets,chatwidget/quick_dials.rs:34,763,11,open_presets binding,"popup, editor",
+composer.assistant-directives,composer,Assistant directives parsing,assistant_directives.rs:16,665,1,,,
+view.list-selection,bottom-pane-view,"ListSelectionView (generic picker: search, tabs, columns, side content)",bottom_pane/list_selection_view.rs:1286,5980,15,"arrows, PgUp/PgDn, number keys, type-to-search, Enter, Esc, mouse","scrollable list, wrapped descriptions, disabled rows, side preview",backbone of ~60 popups (211 SelectionViewParams uses)
+view.approval-overlay,bottom-pane-view,ApprovalOverlay (exec / patch / permissions / MCP),bottom_pane/approval_overlay.rs:602,3200,31,"y/a/n/d/esc, fullscreen view, thread jump","diff preview, command highlight, options",
+view.mcp-elicitation,bottom-pane-view,McpServerElicitationOverlay (MCP form),bottom_pane/mcp_server_elicitation.rs:1502,2875,8,"tab fields, text, options",form,
+view.request-user-input,bottom-pane-view,RequestUserInputOverlay (model questions),bottom_pane/request_user_input/mod.rs:1170,5533,33,"up/down, numbers, notes, paging",options + notes textarea,
+view.async-questions,bottom-pane-view,AsyncQuestions (non-blocking question stack),bottom_pane/async_questions/input.rs:138,2188,21,"prompt-stack nav, skip",stacked cards,fork-specific
+view.app-link,bottom-pane-view,AppLinkView (connect ChatGPT app),bottom_pane/app_link_view.rs:711,2285,5,"enter, esc","link rows, hyperlinks",
+view.custom-prompt,bottom-pane-view,CustomPromptView (text prompt),bottom_pane/custom_prompt_view.rs:221,813,3,"type, Enter, Esc",textarea,
+view.feedback-note,bottom-pane-view,FeedbackNoteView,bottom_pane/feedback_note_view.rs:181,1607,22,"type, Enter, Esc",textarea + consent,
+view.multi-select,bottom-pane-view,MultiSelectPicker,bottom_pane/multi_select_picker.rs:523,1196,2,"Space, reorder, Enter",checkbox rows + preview,
+view.status-line-setup,bottom-pane-view,StatusLineSetupView (/statusline),bottom_pane/status_line_setup.rs:467,1813,12,"Space, reorder",multi-select + live preview,
+view.title-setup,bottom-pane-view,TerminalTitleSetupView (/title),bottom_pane/title_setup.rs:370,627,8,as status line setup,,
+view.skills-toggle,bottom-pane-view,SkillsToggleView,bottom_pane/skills_toggle_view.rs:197,1017,4,"Space, search",checkbox list,
+view.experimental-features,bottom-pane-view,ExperimentalFeaturesView,bottom_pane/experimental_features_view.rs:231,1417,18,Space,checkbox list,
+view.hooks-browser,bottom-pane-view,HooksBrowserView (/hooks),bottom_pane/hooks_browser_view.rs:574,2343,17,"drill-down, toggle",multi-level list + detail,
+view.memories-settings,bottom-pane-view,MemoriesSettingsView,bottom_pane/memories_settings_view.rs:274,517,5,toggle,,
+view.user-verification,bottom-pane-view,UserVerificationView,bottom_pane/user_verification.rs:173,610,9,enter/esc,,
+view.warnings,bottom-pane-view,WarningsView (/warnings),bottom_pane/warnings_view.rs:25,986,31,"scroll, copy",scrolling text,
+view.config-panel,bottom-pane-view,"ConfigPanel (/config, tabbed settings with sub-pickers)",config_panel/input.rs:91,4582,19,"arrows, toggle, nested pickers",bordered panel; sub-pickers,
+view.keymap-capture,bottom-pane-view,KeymapCaptureView,keymap_setup/capture.rs:135,458,19,raw key capture,,
+view.keymap-debug,bottom-pane-view,KeymapDebugView,keymap_setup/debug.rs:152,251,19,key echo,,
+view.keymap-picker,bottom-pane-view,Keymap setup picker,keymap_setup/picker.rs:52,3415,19,list + nested menus,list selection views,
+view.agents-overview,bottom-pane-view,AgentsOverviewView (/agents command center),app/agents_overview_view.rs:619,12659,45,"arrows, filters, open, new, mouse","dashboard list, groups, usage, badges",
+view.provider-editor,bottom-pane-view,Provider editor / list,app/provider/editor.rs:328,2015,4,form fields,form,
+view.daemon-menu,bottom-pane-view,Daemon menu (/daemon),app/daemon_menu.rs:29,605,9,list,,
+view.view-stack,bottom-pane-view,ViewStack / CenteredView / DialogOverlay,bottom_pane/view_stack.rs:32,496,0,Esc pops,views replace composer; centered dialog in owned mode,
+view.actionable-banner,bottom-pane-view,InlineBanner above composer,bottom_pane/actionable_banner.rs:31,291,19,action keys,,
+view.unified-exec-footer,bottom-pane-view,Unified exec footer (background terminals),bottom_pane/unified_exec_footer.rs:17,149,12,"/ps, /stop",,
+popup.model-picker,popup,Model & reasoning effort picker,chatwidget/model_popups.rs:18,1601,20,"list select, Esc",ListSelectionView,
+popup.permissions,popup,Permissions / approval mode popup + full access confirm,chatwidget/permission_popups.rs:14,1792,17,"list select, Esc",ListSelectionView,
+popup.theme-picker,popup,Syntax theme picker with live preview,theme_picker.rs:312,659,1,"list select, Esc",list + live code preview,
+popup.pets,popup,Pet picker with animated preview,pets/picker.rs:28,1076,2,"list select, Esc",list + image preview,
+popup.skills-menu,popup,Skills action menu,chatwidget/skills.rs:28,468,6,"list select, Esc",ListSelectionView,
+popup.plugins,popup,"Plugins browser (marketplaces, detail, install/upgrade)",chatwidget/plugin_catalog.rs:99,3099,19,"list, tabs, text prompt",ListSelectionView,3.1k lines; many loading/error variants
+popup.apps,popup,Apps / connectors list,chatwidget/connectors.rs:51,512,3,"list select, Esc",ListSelectionView,
+popup.usage,popup,Usage popup + reset flow,chatwidget/usage.rs:17,2427,6,"list select, Esc",ListSelectionView,
+popup.worktrees,popup,Worktree browser / managed worktree actions,chatwidget/worktree_picker.rs:16,2025,15,"list select, Esc",ListSelectionView,
+popup.copy-picker,popup,Copy to clipboard picker,chatwidget/copy_picker.rs:10,117,4,"list select, Esc",ListSelectionView,
+popup.voice-settings,popup,Voice / sound device / channel pickers,chatwidget/realtime_settings.rs:12,897,13,"list select, Esc",ListSelectionView,
+popup.tui-mode,popup,TUI mode (Inline / Fullscreen),chatwidget/tui_mode_picker.rs:11,201,1,"list select, Esc",ListSelectionView,
+popup.archive-delete-confirm,popup,Archive / Delete session confirmations,chatwidget/slash_dispatch.rs:249,1452,3,"list select, Esc",ListSelectionView,
+popup.quit-confirm,popup,Quit and stop running sessions,app/event_dispatch.rs:1305,0,0,"list select, Esc",ListSelectionView,inline in event_dispatch
+popup.task-running,popup,Task is still running choice,app/input.rs:631,933,0,"list select, Esc",ListSelectionView,
+popup.goal-replace,popup,Goal replace / resume prompts,app/thread_goal_actions.rs:320,468,14,"list select, Esc",ListSelectionView,
+popup.daybreak-turn-on,popup,Turn on Daybreak for next request,chatwidget/turn_runtime.rs:457,373,14,"list select, Esc",ListSelectionView,
+popup.cloud-environment,popup,Cloud environment picker,app/cloud_environments.rs:11,135,0,"list select, Esc",ListSelectionView,
+popup.subagents,popup,Subagents switcher,app/session_lifecycle.rs:238,2239,2,"list select, Esc",ListSelectionView,
+popup.statusline-provider,popup,Status line provider picker,app/statusline_picker.rs:40,642,3,"list select, Esc",ListSelectionView,
+popup.feedback,popup,Feedback rating + consent,bottom_pane/feedback_view.rs:28,568,6,"list select, Esc",ListSelectionView,
+popup.session-unavailable,popup,Unable to resume session error,app/session_picker.rs:135,147,0,"list select, Esc",ListSelectionView,
+popup.windows-sandbox,popup,Windows sandbox prompts,chatwidget/windows_sandbox_prompts.rs:9,328,7,"list select, Esc",ListSelectionView,
+popup.misalignment-policy,popup,Chat paused as a precaution,chatwidget/misalignment_policy.rs:10,459,8,"list select, Esc",ListSelectionView,
+popup.debug-config,popup,/debug-config layers,debug_config.rs:24,1470,4,"list select, Esc",text cell,
+overlay.transcript-pager,overlay,"Transcript pager overlay (Ctrl+T, inline mode)",pager_overlay/transcript.rs:17,2344,4,"j/k, PgUp/PgDn, g/G, /, q/Esc, wheel","alt screen, scrolling, live tail sync, search",
+overlay.static-pager,overlay,"Static pager overlay (diff, long output)",pager_overlay.rs:422,607,4,same,"alt screen, scrolling","used by /diff, approval fullscreen"
+overlay.analytics,overlay,"Analytics dashboard (usage charts, tasks, plan, chats, models, tokens)",analytics.rs:8,13811,33,"section tabs, mouse, scroll","charts, tables, heatmap; alt screen",12.5k lines hidden subsystem; opened by /usage
+overlay.backtrack,overlay,"Backtrack (Esc Esc): pick earlier prompt, revert, edit",app_backtrack.rs:59,1664,1,"Esc, Esc, Left/Right, Enter, Ctrl+T","highlighted prompt, composer restore",
+overlay.diff-view,overlay,/diff git diff viewer,get_git_diff.rs:51,3699,23,pager keys,"syntax-highlighted diff, line numbers, wrapping",
+overlay.inline-visualization,overlay,Inline visualization viewer,inline_visualization/viewer.rs:19,1029,6,"arrows, esc",images / ui_tree,
+overlay.ui-tree,overlay,UI tree renderer (model-emitted declarative UI),ui_tree.rs:7,1982,5,,declarative widgets,hidden subsystem
+overlay.sidebar-chooser,overlay,Sidebar chooser,sidebar_chooser.rs:37,854,0,,,
+transcript.viewport,transcript,Owned-screen transcript viewport,transcript_view.rs:50,11158,41,"scroll, selection, follow","virtualized layout, anchors, wrap caches",fullscreen only; very large
+transcript.selection-copy,transcript,Mouse selection + copy-on-select,transcript_view/selection.rs:108,3240,21,"drag, double/triple-click, copy mode",selection highlight over styled cells,markdown-aware copy
+transcript.select-mode,transcript,Keyboard select mode,transcript_view/select_mode.rs:19,2485,2,"vim-like motions, y",cursor overlay,
+transcript.search,transcript,Transcript find,transcript_view/search.rs:72,3176,6,"/, n/N, Esc",match highlighting + footer,
+transcript.chrome,transcript,"Disclosure, turn details, sticky prompt header, follow button, footer",transcript_view/bookmark.rs:6,4025,11,"click disclosure, jump","sticky header, follow button",
+transcript.thread-transcript,transcript,Thread transcript projection,thread_transcript.rs:30,1740,4,,,
+transcript.resume-preview,transcript,Transcript preview in resume picker,resume_picker_transcript_preview.rs:32,802,0,,,
+resume.picker,resume,Resume / fork session picker,resume_picker.rs:99,13685,20,"search, arrows, paging, sources, archive, Enter, mouse","full-screen table or inline layout, previews, relative times",
+status.card,status,/status card,status/card.rs:970,5260,24,-,"bordered card, progress bars",
+status.rate-limits,status,Rate limit bars,status/rate_limits.rs:29,556,0,,progress bars,
+streaming.controller,streaming,Streaming controller (deltas to commit ticks),streaming/controller.rs:590,3740,5,-,"adaptive chunking, live tail vs history commit",
+streaming.markdown-stream,streaming,"Markdown streaming (fences, table holdback, prose preview)",markdown_stream.rs:30,3033,3,-,incremental markdown,
+markdown.renderer,markdown,Markdown renderer,markdown_render.rs:84,11373,27,-,"pulldown-cmark to Lines, width-aware tables, hyperlinks",
+markdown.math,markdown,Math rendering,markdown_render/math.rs:20,485,14,-,unicode math layout,
+markdown.mermaid,markdown,Mermaid diagram as text,markdown_render/mermaid.rs:19,302,7,-,box drawing,
+markdown.syntax-highlight,markdown,Syntax highlighting + themes + wrapping utils,render/highlight.rs:60,4760,12,-,"theme coloring, contrast",
+diff.render,diff,Diff rendering,diff_render.rs:116,2766,23,-,"fills, highlighted diff, contrast",
+keymap.ctx-app,keymap,"Keymap context: App (panes, sidebar, transcript open/find/select, warnings, editor, copy, clear, vim, agents)",keymap.rs:105,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-chat,keymap,"Keymap context: Chat (presets, voice, interrupt, effort, permission cycle, queue edit, prompt stack)",keymap.rs:160,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-composer,keymap,"Keymap context: Composer (submit, queue, shortcuts, history search, undo/redo)",keymap.rs:200,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-editor,keymap,Keymap context: Editor textarea,keymap.rs:220,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-vim,keymap,Keymap context: Vim normal/operator/text-object,keymap.rs:249,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-pager,keymap,Keymap context: Pager,keymap.rs:334,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-list,keymap,Keymap context: List navigation,keymap.rs:403,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-agents,keymap,Keymap context: Agents command center,keymap.rs:480,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.ctx-approval,keymap,Keymap context: Approval,keymap.rs:512,0,0,"configurable (tui.keymap.*), chords/leader",-,RuntimeKeymap
+keymap.runtime,keymap,"Runtime keymap: config, chords, leader, conflicts, reserved keys",keymap.rs:88,8289,0,chord hints,-,
+cell.plain,history-cell,Plain lines cell,history_cell/base.rs:28,27,0,-,wrapped styled lines,
+cell.labeled-tool,history-cell,Labeled tool cell,history_cell/base.rs:44,17,0,-,label + wrapped lines,
+cell.web-hyperlink,history-cell,Web hyperlink cell,history_cell/base.rs:75,31,0,-,OSC8,
+cell.prefixed-wrapped,history-cell,Prefixed wrapped text cell,history_cell/base.rs:113,44,0,-,gutter + wrapping,
+cell.composite,history-cell,Composite cell,history_cell/base.rs:150,119,0,-,composition,
+cell.user,history-cell,User message cell,history_cell/messages.rs:230,176,5,-,"shaded block, mention highlight",
+cell.agent-message,history-cell,Agent message cell,history_cell/messages.rs:533,59,5,-,"markdown, bullet gutter",
+cell.agent-markdown,history-cell,Agent markdown cell (source-backed reflow),history_cell/messages.rs:757,174,5,-,"markdown rewrap, math, mermaid, tables",
+cell.streaming-agent-tail,history-cell,Streaming agent tail,history_cell/messages.rs:818,49,0,-,live tail,
+cell.reasoning-summary,history-cell,Reasoning summary cell,history_cell/messages.rs:480,98,0,-,dim markdown,
+cell.exec,history-cell,"Exec cell (command, output preview, spinner, exploring groups)",exec_cell/render.rs:212,625,5,-,"spinner, command highlight, truncated output",
+cell.unified-exec-interaction,history-cell,Unified exec interaction cell,history_cell/exec.rs:26,108,0,-,,
+cell.unified-exec-processes,history-cell,Background terminals list,history_cell/exec.rs:147,128,12,-,list,
+cell.patch,history-cell,Patch cell (edited files with diffs),history_cell/patches.rs:28,63,32,-,"diff, highlight",
+cell.patch-failure,history-cell,Patch failure cell,history_cell/patches.rs:108,75,0,-,error text,
+cell.view-image,history-cell,View image cell,history_cell/patches.rs:198,77,0,-,inline image or placeholder,
+cell.image-generation,history-cell,Image generation cell,history_cell/patches.rs:340,77,0,-,inline image + link,
+cell.mcp-tool-call,history-cell,MCP tool call cell,history_cell/mcp.rs:353,338,13,-,"spinner, result preview, images",
+cell.mcp-inventory-loading,history-cell,MCP inventory loading cell,history_cell/mcp.rs:811,41,0,-,spinner,
+cell.dynamic-tool-call,history-cell,Dynamic tool call cell,history_cell/dynamic.rs:175,157,0,-,"spinner, text",
+cell.web-search,history-cell,Web search cell,history_cell/search.rs:127,126,0,-,spinner,
+cell.computer-activity,history-cell,Computer-use activity cell,history_cell/computer_activity.rs:121,234,13,-,,
+cell.hook,history-cell,Hook run cell,history_cell/hook_cell.rs:345,276,40,-,"spinner, expandable",
+cell.proposed-plan,history-cell,Proposed plan cell,history_cell/plans.rs:182,68,32,-,markdown,
+cell.proposed-plan-stream,history-cell,Proposed plan stream cell,history_cell/plans.rs:212,25,0,-,streaming markdown,
+cell.streaming-plan-tail,history-cell,Streaming plan tail,history_cell/plans.rs:63,39,0,-,live tail,
+cell.plan-update,history-cell,Plan update checklist cell,history_cell/plans.rs:241,164,0,-,checkbox glyphs,
+cell.final-message-separator,history-cell,Final message separator,history_cell/separators.rs:143,147,0,-,rule with timing,
+cell.session-header,history-cell,Session header card,history_cell/session.rs:381,108,0,-,bordered card,
+cell.session-info,history-cell,Session info cell,history_cell/session.rs:152,30,0,-,,
+cell.session-notice,history-cell,Session notice cell,history_cell/session.rs:96,10,0,-,,
+cell.forked-thread,history-cell,Forked thread notice,history_cell/session.rs:110,10,4,-,,
+cell.clear-screen-header,history-cell,Clear-screen header,history_cell/session.rs:298,18,0,-,,
+cell.tooltip,history-cell,Tooltip cell,history_cell/session.rs:67,36,4,-,,
+cell.update-available,history-cell,Update available notice,history_cell/notices.rs:29,79,0,-,hyperlinks,
+cell.safety-access-block,history-cell,Safety access block notice,history_cell/notices.rs:219,69,0,-,,
+cell.deprecation-notice,history-cell,Deprecation notice,history_cell/notices.rs:288,53,0,-,,
+cell.interruption-notice,history-cell,Interruption notice,history_cell/notices.rs:350,13,4,-,,
+cell.thread-recap-loading,history-cell,Recap loading cell,history_cell/notices.rs:386,42,0,-,spinner,
+cell.thread-recap,history-cell,Thread recap cell,history_cell/notices.rs:439,85,0,-,markdown,
+cell.startup-warnings,history-cell,Startup warnings cell,history_cell/startup_warnings.rs:52,100,0,-,,
+cell.warning,history-cell,Warning cell,history_cell/warnings.rs:58,44,0,-,,
+cell.delegated-message,history-cell,Delegated (subagent) message cell,history_cell/delegated_message.rs:49,66,0,-,,
+cell.request-user-input-result,history-cell,Request-user-input result cell,history_cell/request_user_input.rs:14,170,0,-,,
+cell.agent-status,history-cell,Agent status feed cell,app/agent_status_feed.rs:33,40,0,-,,
+cell.file,history-cell,Sidebar file/document cell,app/sidebar_document.rs:34,36,0,-,markdown preview,
+cell.split-flap-transcript,history-cell,Split-flap transcript cell,chatwidget/realtime_split_flap.rs:255,247,0,-,animation,
+cell.status,history-cell,Status card cell,status/card.rs:970,583,24,-,bordered card,
+cell.approval-decision,history-cell,Approval decision cells (approved/denied/guardian),history_cell/approvals.rs:46,351,25,-,styled lines,
+cell.activity-group,history-cell,Activity groups (collapsed tool activity),history_cell/activity_group.rs:11,605,0,"focus_activity, expand",expandable group in owned transcript,fork-specific
+cell.spoken-artifacts,history-cell,Spoken artifacts / local and web link annotation,history_cell/spoken_artifacts.rs:14,865,3,click links,OSC8,
+slash.model,other,/model - choose what model and reasoning effort to use,chatwidget/slash_dispatch.rs:375,0,0,"typed after '/', popup selection, optional inline args",depends on target,opens popup.model-picker
+slash.presets,other,/presets - run or save reusable prompts and slash commands,chatwidget/slash_dispatch.rs:379,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.daybreak,other,/daybreak - turn Daybreak on or off,chatwidget/slash_dispatch.rs:208,0,7,"typed after '/', popup selection, optional inline args",depends on target,
+slash.ide,other,"/ide - include current selection, open files, and other context from your IDE",chatwidget/slash_dispatch.rs:571,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.permissions,other,/permissions - choose what Codex is allowed to do,chatwidget/slash_dispatch.rs:415,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.keymap,other,/keymap - remap TUI shortcuts,chatwidget/slash_dispatch.rs:424,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.vim,other,/vim - toggle Vim mode for the composer,chatwidget/slash_dispatch.rs:421,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.setup-default-sandbox,other,/setup-default-sandbox - set up elevated agent sandbox,chatwidget/slash_dispatch.rs:427,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.experimental,other,/experimental - toggle experimental features,chatwidget/slash_dispatch.rs:475,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.approve,other,/approve - approve one retry of a recent auto-review denial,chatwidget/slash_dispatch.rs:478,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.memories,other,/memories - configure memory use and generation,chatwidget/slash_dispatch.rs:481,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.skills,other,/skills - use skills to improve how Codex performs specific tasks,chatwidget/slash_dispatch.rs:530,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.import,other,"/import - import setup, this project, and recent chats from Claude Code",chatwidget/slash_dispatch.rs:533,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.hooks,other,/hooks - view and manage lifecycle hooks,chatwidget/slash_dispatch.rs:537,0,0,"typed after '/', popup selection, optional inline args",depends on target,view.hooks-browser
+slash.review,other,/review - review my current changes and find issues,chatwidget/slash_dispatch.rs:364,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.rename,other,/rename - rename the current thread,chatwidget/slash_dispatch.rs:370,0,3,"typed after '/', popup selection, optional inline args",depends on target,
+slash.new,other,/new - start a new chat during a conversation,chatwidget/slash_dispatch.rs:244,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.archive,other,/archive - archive this session,chatwidget/slash_dispatch.rs:247,0,2,"typed after '/', popup selection, optional inline args",depends on target,
+slash.delete,other,/delete - permanently delete this session,chatwidget/slash_dispatch.rs:280,0,1,"typed after '/', popup selection, optional inline args",depends on target,
+slash.resume,other,/resume - resume a saved chat,chatwidget/slash_dispatch.rs:312,0,0,"typed after '/', popup selection, optional inline args",depends on target,opens resume.picker
+slash.fork,other,/fork - fork the current chat,chatwidget/slash_dispatch.rs:315,0,0,"typed after '/', popup selection, optional inline args",depends on target,resume picker in fork mode
+slash.worktree,other,/worktree - start or continue a conversation in a new worktree,chatwidget/slash_dispatch.rs:318,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.app,other,/app - continue this session in the Desktop app,chatwidget/slash_dispatch.rs:321,0,1,"typed after '/', popup selection, optional inline args",depends on target,
+slash.init,other,/init - create an AGENTS.md file with instructions for Codex,chatwidget/slash_dispatch.rs:331,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.compact,other,/compact - summarize conversation to prevent hitting the context limit,chatwidget/slash_dispatch.rs:335,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.config,other,/config - configure Codex preferences,chatwidget/slash_dispatch.rs:583,0,0,"typed after '/', popup selection, optional inline args",depends on target,view.config-panel
+slash.recap,other,/recap - summarize the current conversation now,chatwidget/slash_dispatch.rs:354,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.plan,other,/plan - switch to Plan mode,chatwidget/slash_dispatch.rs:382,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.voice,other,/voice - start or stop voice; use /voice settings to choose a voice,chatwidget/slash_dispatch.rs:400,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.goal,other,/goal - set or view the goal for a long-running task,chatwidget/slash_dispatch.rs:385,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.agents,other,/agents - open the agent command center,chatwidget/slash_dispatch.rs:409,0,0,"typed after '/', popup selection, optional inline args",depends on target,view.agents-overview
+slash.side,other,/side - start a side conversation,chatwidget/slash_dispatch.rs:406,0,1,"typed after '/', popup selection, optional inline args",depends on target,
+slash.btw,other,/btw - start a side conversation,chatwidget/slash_dispatch.rs:406,0,0,"typed after '/', popup selection, optional inline args",depends on target,alias of Side
+slash.copy,other,/copy - copy the last response or part of it,chatwidget/slash_dispatch.rs:490,0,4,"typed after '/', popup selection, optional inline args",depends on target,
+slash.export,other,/export - export the conversation as markdown,chatwidget/slash_dispatch.rs:493,0,3,"typed after '/', popup selection, optional inline args",depends on target,
+slash.raw,other,/raw - toggle raw scrollback mode for copy-friendly terminal selection,chatwidget/slash_dispatch.rs:496,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.tui,other,/tui - choose the TUI mode for the next launch,chatwidget/slash_dispatch.rs:500,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.diff,other,/diff - show git diff (including untracked files),chatwidget/slash_dispatch.rs:501,0,0,"typed after '/', popup selection, optional inline args",depends on target,overlay.diff-view
+slash.mention,other,/mention - mention a file,chatwidget/slash_dispatch.rs:527,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.status,other,/status - show current session configuration and token usage,chatwidget/slash_dispatch.rs:542,0,0,"typed after '/', popup selection, optional inline args",depends on target,inserts status card
+slash.daemon,other,/daemon - Manage the local background server,chatwidget/slash_dispatch.rs:540,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.warnings,other,/warnings - view retained warnings and diagnostic details,chatwidget/slash_dispatch.rs:541,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.cd,other,/cd - change the current working directory,chatwidget/slash_dispatch.rs:557,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.pwd,other,/pwd - show the current working directory,chatwidget/slash_dispatch.rs:560,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.usage,other,/usage - view account usage or use a usage limit reset,chatwidget/slash_dispatch.rs:566,0,0,"typed after '/', popup selection, optional inline args",depends on target,analytics overlay or usage popup
+slash.debug-config,other,/debug-config - show config layers and requirement sources for debugging,chatwidget/slash_dispatch.rs:574,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.title,other,/title - configure which items appear in the terminal title,chatwidget/slash_dispatch.rs:577,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.statusline,other,/statusline - configure which items appear in the status line,chatwidget/slash_dispatch.rs:580,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.theme,other,/theme - choose a syntax highlighting theme,chatwidget/slash_dispatch.rs:586,0,0,"typed after '/', popup selection, optional inline args",depends on target,popup.theme-picker
+slash.pets,other,/pets - choose or hide the terminal pet,chatwidget/slash_dispatch.rs:589,0,2,"typed after '/', popup selection, optional inline args",depends on target,popup.pets
+slash.mcp,other,/mcp - list MCP tools; /mcp verbose or /mcp login <name> [--environment <id>],chatwidget/slash_dispatch.rs:604,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.apps,other,/apps - manage apps,chatwidget/slash_dispatch.rs:607,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.plugins,other,/plugins - browse plugins,chatwidget/slash_dispatch.rs:610,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.logout,other,/logout - log out of Codex,chatwidget/slash_dispatch.rs:487,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.quit,other,/quit - exit Codex,chatwidget/slash_dispatch.rs:484,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.exit,other,/exit - exit Codex,chatwidget/slash_dispatch.rs:484,0,0,"typed after '/', popup selection, optional inline args",depends on target,alias of Quit
+slash.feedback,other,/feedback - send logs to maintainers or save a ZIP,chatwidget/slash_dispatch.rs:241,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.rollout,other,/rollout - print the rollout file path,chatwidget/slash_dispatch.rs:613,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.ps,other,/ps - list background terminals,chatwidget/slash_dispatch.rs:592,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.stop,other,/stop - stop all background terminals,chatwidget/slash_dispatch.rs:595,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.clear,other,/clear - clear the terminal and start a new chat,chatwidget/slash_dispatch.rs:309,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.test-approval,other,/test-approval - test approval request,chatwidget/slash_dispatch.rs:626,0,0,"typed after '/', popup selection, optional inline args",depends on target,debug only
+slash.subagents,other,/subagents - switch between this session's subagents,chatwidget/slash_dispatch.rs:412,0,0,"typed after '/', popup selection, optional inline args",depends on target,
+slash.debug-m-drop,other,/debug-m-drop - DO NOT USE,chatwidget/slash_dispatch.rs:598,0,0,"typed after '/', popup selection, optional inline args",depends on target,debug only
+slash.debug-m-update,other,/debug-m-update - DO NOT USE,chatwidget/slash_dispatch.rs:601,0,0,"typed after '/', popup selection, optional inline args",depends on target,debug only
+pets.ambient,pets,Terminal pet (animated companion via kitty/sixel),pets/ambient.rs:47,4074,2,/pets,"image placement over viewport, frames, asset packs",4k lines; needs image protocol support
+pets.asset-pack,pets,Pet asset packs / catalog,pets/asset_pack.rs:4,663,0,,image frames,
+analytics.panels,analytics,Analytics sections,analytics/dashboard.rs:21,12551,33,keys+mouse per section,"text plots, heatmaps, tables",
+analytics.plot,analytics,Plot engine,analytics/plot.rs:24,2022,12,,braille/block plotting,
+other.tooltips,other,Startup tooltips / announcements,tooltips.rs:49,794,4,-,,
+other.public-widgets,other,Public widgets (composer input),public_widgets/composer_input.rs:20,150,0,,,exported for other crates
+other.session-log,other,Session log,session_log.rs:84,314,0,,,
+other.renderable-trait,other,Renderable trait + UI consts,render/renderable.rs:16,2729,0,,"render(area,buf), desired_height(width), cursor_pos",every view implements it
