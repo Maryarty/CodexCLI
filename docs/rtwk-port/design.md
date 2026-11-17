@@ -45,7 +45,7 @@ flowchart TB
     r2["widget tree, rebuild, layout, paint, damage diff"]
     r3["widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)"]
     r4["coalescing work from other threads, list virtualization"]
-    r5["navigation and dialog widgets (barrier, focus return, transitions), popovers, rich content: Markdown, Diff, Code, charts, images"]
+    r5["dialog widgets (Dialog, ModalBarrier, FocusScope, show_dialog for captured confirms), popovers, rich content: Markdown, Diff, Code, charts, images"]
   end
   subgraph A["the app owns"]
     a1["application state: threads, turns, streams, approvals, settings, account, agents"]
@@ -173,7 +173,7 @@ classDiagram
     tokens: Versioned Usage
   }
   class ThreadUi {
-    UI module, R14 allowlist, not the model
+    field of CodexApp, written by R14-allowlisted UI modules, not seen by apply
     composer: TextEditingController
     scroll, selection controllers
   }
@@ -306,8 +306,13 @@ Plus the resume/reconnect-mid-turn test (transcript equals the snapshot).
 
 ## 7. Navigation map (screens of architecture.md §1)
 
-Routes are `NavState.route`, a model enum the root view matches; dialogs are
-the modal layer over the head of `NavState.modals` / thread approvals.
+Routes are `NavState.route`, a model enum the root view matches (no rtwk
+plain-model example uses `Navigator`). Live dialogs (approvals, elicitations,
+user input, `/status`, startup prompts) are the modal layer over the head of
+`NavState.modals` / thread approvals, as in rtwk-weather. Dialogs whose content
+is captured at open and that return a value (confirms, prompts, fixed pickers)
+use `show_dialog` from the opening widget with `opened` / `closed(ticket,
+value)` handlers, as in rtwk triage's shipping view.
 
 ```mermaid
 flowchart LR
@@ -347,7 +352,8 @@ flowchart TB
   col --> composer["Composer: TextArea over the ThreadUi controller, attachments (G12: atomic elements, kill ring, vim, paste-burst)"]
   col --> footer["Footer hints + status line (ui_tree elements)"]
   scaffold -.overlay.-> popovers["Popovers: / @ $ (Autocomplete, OptionList, CommandPalette)"]
-  scaffold -.modal layer.-> dialogs["Modal layer: Stack + ModalBarrier + Dialog for the head of nav.modals / thread approvals"]
+  scaffold -.modal layer.-> dialogs["Modal layer: Stack + ModalBarrier + FocusScope(Dialog) for the head of nav.modals / thread approvals (live dialogs)"]
+  composer -.show_dialog.-> confirm["Captured dialogs: confirm, prompt, fixed picker; closed(ticket, value) to the model"]
 ```
 
 ## 9. Tests, parity and performance

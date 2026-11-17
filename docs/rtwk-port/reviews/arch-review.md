@@ -165,7 +165,7 @@ Verdict: **ready after fixes.** The direction (screen first, plain model, family
 ## Resolution (orchestrator, 2026-11-17)
 
 Every finding is fixed in the docs unless marked otherwise.
-- **B1:** architecture.md ADR-002 has the tree, "Routes and dialogs come from the model" and the widget table. design.md is changed in §2 r5, §6 NavState, §7 and §8.
+- **B1:** reworked on the person's request after checking the twk and rtwk examples. twk's Dart StatefulWidget apps use `Navigator` + `showDialog`. rtwk plain-model apps use no `Navigator`, and they make dialogs either as a modal layer from the model (rtwk-weather, triage corpus view) or as widget-owned `show_dialog` with a ticketed close (triage's shipping view, delete.rs:50 + app.rs:105-118). The rule: route = model enum; live dialogs = modal layer; dialogs captured at open that return a value = `show_dialog` + `opened`/`closed(ticket, value)`. It is in architecture.md ADR-002 "Routes and dialogs" and the widget table, and in design.md §2 r5, §6 NavState/ThreadUi, §7 and §8.
 - **M1:** ADR-002 has a new "Per-thread widget state" decision: `ThreadUi` controllers, and composer = rtwk `TextArea` + gap G12. design.md §6 has the ThreadUi class; §5 takes the text from ThreadUi.
 - **M2:** R14's enforcement is widened. SC6a is relabelled CAUGHT in architecture.md, design §6b, state-bug-classes.md (correction note) and reports/data. The report is rebuilt: fix set 20 / 33 / 2, issues 8 / 21 / 5.
 - **M3:** R1 lists every spawn path, and each subscription captures its epoch. ADR-002 and ADR-003 now say: the shell runs the client through rtwk-tokio.

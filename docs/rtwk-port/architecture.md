@@ -159,20 +159,57 @@ codex-rtwk main ─ arg0_dispatch_or_else → multi-thread tokio runtime → app
           └ root view: match app.nav.route { Onboarding(..) | Trust | Chat | Pager | Resume | Usage | Agents | … }
              └ screens = functions of &CodexApp built of rtwk widgets
              └ modal layer: Stack + ModalBarrier + Dialog for the head of the model's modal queue
+             └ show_dialog from the opening widget for confirms/prompts captured at open (ticketed close)
              └ popovers via the overlay, toasts
 ```
 
-**Routes and dialogs come from the model** (arch-review B1). The route is a
-model enum (`NavState.route`); the root view matches on it and builds the
-screen from `&CodexApp`. Dialogs and approvals are a layer in the view
-(`Stack` + `ModalBarrier` + `Dialog`) built from the model's modal queue,
-head first (state-approaches.md §2 (d)), as rtwk-weather does. rtwk's
-`Navigator` and `show_dialog` are imperative — a route builder gets only
-`&mut BuildCx` (rtwk navigation/navigator.rs:78) and `show_dialog` is called
-from a component's `Cx` (rtwk-overlay/src/dialog.rs:301) — so they cannot
-read `&CodexApp`, and an overlay stack beside the model's queue would be a
-second source of truth (oracle bug bc969b651). They are used only for UI-only
-flows that read no app data (a confirm inside one widget).
+**Routes and dialogs** (arch-review B1, checked against the examples).
+
+How the examples do it:
+- twk (Dart, the original rtwk is ported from; `packages/twk/example`):
+  StatefulWidget apps. `files.dart:98` puts a `Navigator` at the root and
+  pushes a `PageRoute<Settings>` with the value copied in, awaiting the
+  result (`:813`). Its dialogs use `await showDialog<T>` (`:674`,
+  settings.dart:95): the content is built from values captured at open, and
+  the result is applied with `setState` behind an `if mounted` check.
+- rtwk apps on `run_app` with a plain model have no `Navigator` (none in
+  crates/rtwk/examples, rtwk-weather, monitor/agent_chat; only rtwk's own
+  nav_chrome tests use it). They make dialogs in two ways:
+  1. **Widget-owned `show_dialog`.** triage's shipping view
+     (examples/triage/main.rs:10 → native.rs:88, delete.rs:50) works like
+     this. A `DeleteButton` widget opens the dialog and passes in only the
+     id. It reports `opened` and `closed(id, answer)` to the model through
+     handlers. The model notes `pending_delete = Some(id)` (app.rs:105) and
+     drops a stale close (`if self.pending_delete != Some(id)`, app.rs:118),
+     which is a ticket check.
+  2. **A modal layer built from the model.** Here the view draws `Stack` +
+     `ModalBarrier` + `FocusScope(Dialog)` when the model holds a prompt and
+     excludes focus from the body. triage's corpus view does this
+     (app.rs:410-431, view.rs:82), and so does rtwk-weather
+     (src/ui/view.rs:18-20, :132, :429).
+- Both rtwk apps also keep their `TextEditingController` and
+  `SelectionController` fields right in the app struct (triage app.rs:58-63).
+
+The rule for Codex:
+- **Routes are a model enum** (`NavState.route`). The root view matches on
+  it and builds the screen from `&CodexApp`. Every full-screen Codex screen
+  reads live data: the pager follows the transcript, and resume, usage and
+  agents load asynchronously or update live. A `Navigator` route builder
+  sees only `&mut BuildCx` (rtwk navigation/navigator.rs:78), and the
+  examples show no plain-model app that uses one.
+- **A dialog whose content is live app data uses the modal layer** (way 2).
+  Approvals, elicitations, request-user-input, `/status`, the agents
+  switcher, startup prompts and anything else the backend can change or
+  resolve while it is open belong here. The queue in the model is the only
+  source. When the backend resolves a request, it disappears from the screen
+  (oracle bug bc969b651, an overlay that kept its own queue).
+- **A dialog whose content is captured at open and that returns a value uses
+  `show_dialog`** (way 1, triage's shipping form). Examples: a confirm, a
+  text prompt, and a selection over a fixed list. The opening widget reports
+  `opened` and `closed(ticket, value)` through handlers. The model holds the
+  ticket and drops a stale close, as triage's `finish_delete` does. If the
+  choices of such a dialog load asynchronously (S14 model list), it is live,
+  so it goes to the modal layer instead.
 
 | need | rtwk |
 |---|---|
@@ -180,7 +217,8 @@ flows that read no app data (a confirm inside one widget).
 | message content | rtwk-rich `MarkdownView`, `DiffView`, `CodeView` |
 | composer | `TextArea` over a per-thread `TextEditingController` (`TextField` for single-line inputs); `Autocomplete` for caret-anchored popovers; what TextArea lacks is gap G12 |
 | lists, pickers, commands | `SelectionList<K>`, `OptionList`, `CommandPalette`, `Table<T>`, `TreeView<T>`, `TabBar` |
-| approvals, settings | modal layer (`Stack` + `ModalBarrier` + `Dialog`) from the model's queue + the widgets above |
+| approvals, live dialogs | modal layer (`Stack` + `ModalBarrier` + `FocusScope(Dialog)`) from the model's queue + the widgets above |
+| confirms, prompts, fixed pickers | `show_dialog` from the opening widget, `opened`/`closed(ticket, value)` handlers to the model (rtwk triage) |
 | progress, working | `Spinner`, `ProgressBar`, rtwk-animation |
 | analytics | rtwk-data `Chart`, `BarChart`, `Sparkline` |
 | pets, images | rtwk-rich `Image` |
@@ -207,7 +245,9 @@ text in its state or a shared `TextEditingController`
 (rtwk-editing/src/text_area.rs:174-327), `SelectionList<K>` in a
 `SelectionController<K>`. Per-thread UI controllers (`TextEditingController`,
 scroll and selection controllers) live in a `ThreadUi` map keyed by
-`ThreadId`, inside an R14-allowlisted UI module, outside the pure model. On a
+`ThreadId`: a field of `CodexApp` (rtwk triage keeps its controllers in the
+app struct too, app.rs:58-63), written only by UI modules on the R14
+allowlist, and outside `ThreadModel`, which is what `apply` sees. On a
 switch the subtree is keyed by ThreadId and reuses that thread's controllers,
 so A→B→A keeps the draft and kill buffer (SC2b). Text the model needs
 (submit, queue) enters `apply` as an intent on submit; the model never mirrors
@@ -551,8 +591,11 @@ lays out all text.
 a2dbf130c) found what had to be decided before the skeleton. Decided on its
 evidence, in the text above:
 
-1. Routes and dialogs (B1): route = model enum, dialogs = modal layer from
-   the model's queue; rtwk `Navigator`/`show_dialog` only for UI-only flows.
+1. Routes and dialogs (B1, checked against the twk and rtwk examples):
+   route = model enum (no rtwk plain-model app uses `Navigator`); live
+   dialogs = modal layer from the model's queue (rtwk-weather, triage corpus
+   view); dialogs captured at open that return a value = widget-owned
+   `show_dialog` with a ticketed close (triage's shipping view).
 2. Per-thread widget state and the composer (M1): `ThreadUi` controllers;
    composer = rtwk `TextArea` + gap G12 built in rtwk.
 3. Effect runner and runtime (M3, m10): the shell, through rtwk-tokio;

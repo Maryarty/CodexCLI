@@ -42,7 +42,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     r2[&quot;widget tree, rebuild, layout, paint, damage diff&quot;]
     r3[&quot;widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)&quot;]
     r4[&quot;coalescing work from other threads, list virtualization&quot;]
-    r5[&quot;navigation and dialog widgets (barrier, focus return, transitions), popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
+    r5[&quot;dialog widgets (Dialog, ModalBarrier, FocusScope, show_dialog for captured confirms), popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
   end
   subgraph A[&quot;the app owns&quot;]
     a1[&quot;application state: threads, turns, streams, approvals, settings, account, agents&quot;]
@@ -154,7 +154,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     tokens: Versioned Usage
   }
   class ThreadUi {
-    UI module, R14 allowlist, not the model
+    field of CodexApp, written by R14-allowlisted UI modules, not seen by apply
     composer: TextEditingController
     scroll, selection controllers
   }
@@ -254,7 +254,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   bp --&gt; poss([&quot;still possible: product logic, conventions&quot;])</pre></div>
 <p>Mandatory tests the rules imply: switch round-trip (A→B→A), end-path matrix (complete / interrupt / fail × feature), event-permutation property tests, lifecycle × intent table, <code>Model::assert_consistent()</code> after every event. Lints (own <code>clippy.toml</code>; crate-wide deny, <code>#[allow]</code> only on allowlisted modules, a CI grep rejects other allows): every spawn path outside the shell (<code>AppCx::spawn</code>, <code>Cx::spawn</code>, rtwk-tokio spawn/subscribe/follow, <code>std::thread::spawn</code>, <code>tokio::spawn</code>, <code>AppCx::channel</code>), <code>Obs</code>/<code>use_state</code>/ hand-written <code>State</code>/controllers outside UI-only modules, <code>Instant::now</code>/<code>SystemTime::now</code> in views, blocking IO in <code>apply</code>/views. Plus the resume/reconnect-mid-turn test (transcript equals the snapshot).</p>
 <h2>7. Navigation map (screens of architecture.md §1)</h2>
-<p>Routes are <code>NavState.route</code>, a model enum the root view matches; dialogs are the modal layer over the head of <code>NavState.modals</code> / thread approvals.</p>
+<p>Routes are <code>NavState.route</code>, a model enum the root view matches (no rtwk plain-model example uses <code>Navigator</code>). Live dialogs (approvals, elicitations, user input, <code>/status</code>, startup prompts) are the modal layer over the head of <code>NavState.modals</code> / thread approvals, as in rtwk-weather. Dialogs whose content is captured at open and that return a value (confirms, prompts, fixed pickers) use <code>show_dialog</code> from the opening widget with <code>opened</code> / <code>closed(ticket, value)</code> handlers, as in rtwk triage's shipping view.</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
   start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, GovCloud, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; chat
   chat[&quot;S10 main chat (home); composer usable as a draft while Session is Starting&quot;]
@@ -288,7 +288,8 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   col --&gt; composer[&quot;Composer: TextArea over the ThreadUi controller, attachments (G12: atomic elements, kill ring, vim, paste-burst)&quot;]
   col --&gt; footer[&quot;Footer hints + status line (ui_tree elements)&quot;]
   scaffold -.overlay.-&gt; popovers[&quot;Popovers: / @ $ (Autocomplete, OptionList, CommandPalette)&quot;]
-  scaffold -.modal layer.-&gt; dialogs[&quot;Modal layer: Stack + ModalBarrier + Dialog for the head of nav.modals / thread approvals&quot;]</pre></div>
+  scaffold -.modal layer.-&gt; dialogs[&quot;Modal layer: Stack + ModalBarrier + FocusScope(Dialog) for the head of nav.modals / thread approvals (live dialogs)&quot;]
+  composer -.show_dialog.-&gt; confirm[&quot;Captured dialogs: confirm, prompt, fixed picker; closed(ticket, value) to the model&quot;]</pre></div>
 <h2>9. Tests, parity and performance</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   subgraph fixtures[&quot;one set of fixtures&quot;]
