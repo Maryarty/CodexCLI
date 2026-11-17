@@ -11,7 +11,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 @media (prefers-color-scheme: dark) { body { background: #161618; color: #e8e8ea; } .diagram { background: #1f1f22; border-color: #333; } code { background: #2a2a2e; } h2 { border-color: #333; } a { color: #7ab7ff; } }
 </style></head><body>
 <h1>Codex CLI on rtwk — target architecture (design to review)</h1>
-<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003 (plain model, <code>apply -&gt; Effects</code>, chosen on the trade-offs in research/state-approaches.md), in review with the person.</p>
+<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003, accepted by the person 2026-11-17: plain model, thread-scoped <code>apply -&gt; Effects</code>, intents on shared state as values, rules R1–R14 (§6b).</p>
 <h2>1. System context</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   user([User at a terminal])
@@ -97,17 +97,18 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 <div class="diagram"><pre class="mermaid">sequenceDiagram
   participant AS as app-server
   participant T as session client task (tokio)
-  participant CH as AppCx::channel
-  participant M as App state
+  participant IN as ingress router (UI thread)
+  participant TM as ThreadModel of thread X
   participant V as view(&amp;state)
   participant R as rtwk
-  AS-&gt;&gt;T: notification (thread_id, turn_id, item_id, delta)
-  T-&gt;&gt;CH: Msg::Thread(id, Event)
-  Note over CH: rtwk coalesces everything sent before the next flush
-  CH-&gt;&gt;M: apply(event) for each item, in order
-  M-&gt;&gt;M: Versioned slices it touched bump their revision
-  CH-&gt;&gt;V: one view run for all items
-  V-&gt;&gt;V: memo subtrees whose revisions did not move are reused
+  AS-&gt;&gt;T: notification (thread X, turn, item, delta)
+  T-&gt;&gt;IN: ThreadEv for X, stamped with X&#x27;s attach epoch
+  Note over IN: R1 drops events of an older epoch
+  IN-&gt;&gt;TM: apply(ThreadModel X, ThreadEv, ThreadFx X)
+  Note over TM: R3 it can touch only thread X. R4 transcript upsert by (TurnId, ItemId), so a repeat updates and never duplicates
+  TM-&gt;&gt;TM: Versioned slices it touched bump their revision
+  IN-&gt;&gt;V: one view run for everything applied this flush
+  V-&gt;&gt;V: derived values computed (R7), memo subtrees with unchanged revisions reused
   V-&gt;&gt;R: widget tree
   R-&gt;&gt;R: rebuild changed elements, layout, paint, diff
   Note over R: the terminal shows the frame</pre></div>
@@ -116,66 +117,126 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   participant U as user
   participant R as rtwk (Focus, Shortcuts)
   participant H as handler cx.on
-  participant M as App state
-  participant S as AppCx::spawn / session
+  participant M as model apply
+  participant SH as shell (the only place that spawns)
   participant AS as app-server
-  U-&gt;&gt;R: key (e.g. Enter in the composer)
+  U-&gt;&gt;R: Enter in the composer of thread X
   R-&gt;&gt;H: action
-  H-&gt;&gt;M: apply(Submit) changes state (draft to turn, gen = 7)
-  M--&gt;&gt;H: Effects: Rpc(start turn, request id 7)
-  H-&gt;&gt;S: the shell runs the effect
-  S-&gt;&gt;AS: request
-  U-&gt;&gt;R: switches thread (gen becomes 8)
-  AS--&gt;&gt;S: reply for 7
-  S-&gt;&gt;M: Msg::Reply(id 7)
-  M-&gt;&gt;M: id 7 is stale: dropped
-  Note over M: rule: every async result carries its id, apply drops stale ones</pre></div>
+  H-&gt;&gt;M: Intent Submit for thread X (R10, a value in the same ordered stream)
+  M-&gt;&gt;M: TurnState Idle to Running (R5), pending ticket 7 for (X, RequestId) (R3, R13)
+  M--&gt;&gt;SH: Effects: Rpc start turn, ticket 7
+  SH-&gt;&gt;AS: request
+  U-&gt;&gt;R: switches to thread Y
+  AS--&gt;&gt;SH: reply for ticket 7
+  SH-&gt;&gt;M: Reply of T for ticket 7
+  M-&gt;&gt;M: pending.resolve(reply) checks the ticket (R1): still current, so applied to X only
+  Note over M: had the turn been interrupted, the ticket would be gone and the reply dropped by construction</pre></div>
 <h2>6. App state shape</h2>
 <div class="diagram"><pre class="mermaid">classDiagram
   class CodexApp {
     session: Session
-    threads: ThreadId to Thread map
+    threads: ThreadId to ThreadModel map
     active: ThreadId
     nav: NavState
-    composer: ComposerState
     settings: Settings
     account: Account
     agents: AgentsState
   }
-  class Thread {
-    transcript: settled cells, append-only
-    tail: the one live cell, optional
-    pending_approvals: list of Approval
-    status: Running/Idle/Error
-    tokens: Usage
-    rev: u64
+  class ThreadModel {
+    draft and queue: per thread (R2)
+    transcript: ordered map by TurnId and ItemId, upsert (R4)
+    turn: TurnState (R5)
+    pending: map of ThreadId and RequestId to ticket (R1, R3)
+    approvals: list of Approval
+    tokens: Versioned Usage
+  }
+  class TurnState {
+    Idle
+    Running(RunningTurn: streams, hooks, prompts, reviews)
+  }
+  class Remote {
+    Loading
+    Loaded(value, fetched_at, generation)
+    Failed
   }
   class Approval {
-    request_id
+    id: ApprovalId (R13)
     kind: Exec, Patch, Permissions, Mcp, UserInput
   }
   class Session {
     backend
-    connection
-    rate_limits
-    next_request_id
-  }
-  class Settings {
-    theme
-    keymap
-    config view
+    connection: watch
+    rate_limits: Remote (R6)
+    attach_epoch per thread (R1)
   }
   class NavState {
     route
     dialogs
-    popover
+    selection: by item key, not index (R11)
   }
-  CodexApp --&gt; Thread
-  Thread --&gt; Approval
+  CodexApp --&gt; ThreadModel
+  ThreadModel --&gt; TurnState
+  ThreadModel --&gt; Approval
   CodexApp --&gt; Session
-  CodexApp --&gt; Settings
+  Session --&gt; Remote
   CodexApp --&gt; NavState</pre></div>
-<p>Derived (computed, never stored by hand): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows.</p>
+<p>Derived (functions of the model, never stored, R7): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows, <code>can_submit</code> and other predicates (R8). Not allowed: app data in rtwk widget-local state (<code>Obs</code>, <code>use_state</code>) — R14; IO in <code>apply</code> or views — R12; the clock read in views — R11.</p>
+<h2>6b. Bug classes removed by construction (ADR-003, accepted 2026-11-17)</h2>
+<p>Checked on codex-tui's real history (research/state-bug-classes.md; the report for openai/codex developers: <a href="reports/tui-bug-classes.html">reports/tui-bug-classes.html</a>). Of 55 state-mechanism fix commits: 28 impossible by construction, 25 caught by a mandatory test, 2 still possible.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  subgraph bugs[&quot;bug sub-class in codex-tui&quot;]
+    b1[&quot;late or superseded reply applied&quot;]
+    b2[&quot;thread switch loses or mixes state&quot;]
+    b3[&quot;event or reply routed to the wrong thread&quot;]
+    b4[&quot;duplicate items after resume or reconnect&quot;]
+    b5[&quot;turn state left behind after the turn ends&quot;]
+    b6[&quot;widget holds a stale copy of app state&quot;]
+    b7[&quot;derived value or flag kept by hand&quot;]
+    b8[&quot;response vs notification order&quot;]
+    b9[&quot;user input races a backend transition&quot;]
+    b10[&quot;selection index past changed data, loading vs empty&quot;]
+    b11[&quot;blocking IO on the event path&quot;]
+    b13[&quot;wrong id or id scope&quot;]
+  end
+  subgraph rules[&quot;rule&quot;]
+    r1[&quot;R1 tickets on replies, spawn only in shell, attach epoch&quot;]
+    r2[&quot;R2 per-thread data in ThreadModel&quot;]
+    r3[&quot;R3 thread-scoped apply and effects&quot;]
+    r4[&quot;R4 transcript upsert by TurnId, ItemId&quot;]
+    r5[&quot;R5 transient state inside TurnState Running&quot;]
+    r14[&quot;R14 no app data in widget state&quot;]
+    r7[&quot;R7 R8 derived as functions, lifecycles as enums&quot;]
+    r9[&quot;R9 first-arrival upsert, confirm local changes&quot;]
+    r10[&quot;R10 intents as values in the event stream&quot;]
+    r11[&quot;R11 R6 keyed selection, Remote of T, clock as input&quot;]
+    r12[&quot;R12 no IO in apply or views&quot;]
+    r13[&quot;R13 newtype per id kind&quot;]
+  end
+  b1 --&gt; r1
+  b2 --&gt; r2
+  b3 --&gt; r3
+  b4 --&gt; r4
+  b5 --&gt; r5
+  b6 --&gt; r14
+  b7 --&gt; r7
+  b8 --&gt; r9
+  b9 --&gt; r10
+  b10 --&gt; r11
+  b11 --&gt; r12
+  b13 --&gt; r13
+  r1 --&gt; imp([&quot;impossible: types, privacy, lints&quot;])
+  r3 --&gt; imp
+  r4 --&gt; imp
+  r5 --&gt; imp
+  r14 --&gt; imp
+  r13 --&gt; imp
+  r2 --&gt; cau([&quot;caught: mandatory tests&quot;])
+  r7 --&gt; cau
+  r9 --&gt; cau
+  r10 --&gt; cau
+  r11 --&gt; cau
+  r12 --&gt; cau</pre></div>
+<p>Mandatory tests the rules imply: switch round-trip (A→B→A), end-path matrix (complete / interrupt / fail × feature), event-permutation property tests, lifecycle × intent table, <code>Model::assert_consistent()</code> after every event. Lints: <code>AppCx::spawn</code> outside the shell, <code>Obs</code>/<code>use_state</code> outside UI-only modules, <code>Instant::now</code>/<code>SystemTime::now</code> in views, blocking IO in <code>apply</code>/views.</p>
 <h2>7. Navigation map (screens of architecture.md §1)</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; prompts{{&quot;S05 startup prompts&quot;}} --&gt; chat
@@ -237,7 +298,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   w2 --&gt; w3[&quot;W3 screens in parallel: 17 slices, 4-5 agents&quot;]
   w3 --&gt; w4[&quot;W4: inline mode, rtwk gaps, parity sweep, final perf report&quot;]</pre></div>
 <h2>Open points on this design</h2>
-<ol><li>App state (§4–§6) per ADR-003; the person reviews the trade-off analysis (<code>research/state-approaches.md</code>).</li><li>Which reusable codex-tui modules are copied in W1 vs with their screen (§3 "carried over") — from reuse-map.csv per slice.</li><li>Sidebar and side panes as part of the chat screen (§8) or a split layout of their own.</li></ol>
+<ol><li>App state (§4–§6b) per accepted ADR-003; the exact module split of <code>ThreadModel</code> and the shell is settled in the skeleton.</li><li>Which reusable codex-tui modules are copied in W1 vs with their screen (§3 "carried over") — from reuse-map.csv per slice.</li><li>Sidebar and side panes as part of the chat screen (§8) or a split layout of their own.</li></ol>
 <p class="note">Generated from design.md by design_html.py. Diagrams drawn by Mermaid (loaded from a CDN).</p>
 <script type="module">
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";

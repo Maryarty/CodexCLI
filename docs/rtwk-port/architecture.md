@@ -220,8 +220,8 @@ verdict; matrix in §10):
 | 7 incremental computation (salsa) | heavy derived results on demand | nothing pushes, a view cannot follow it; cancellation by panic | not now; maybe one heavy query later |
 | 8 streams / Rx | `switch_map`-style dropping of stale results | a second scheduler beside rtwk's; state hidden in closures | ingress only, not a store |
 
-**Decision (2026-11-17): family 1 with family 2's effect boundary; family 4
-as the reserve.** Reasons: (1) with the rules R1–R14 below it removes state bugs
+**Decision (2026-11-17, accepted by the person): family 1 with family 2's
+effect boundary; family 4 as the reserve; rules R1–R14 binding.** Reasons: (1) with the rules R1–R14 below it removes state bugs
 as a class on the oracle's real history (state-bug-classes.md) with the
 narrowest failure mode — many mistakes do not compile; (2) request ids and
 race tests are cheapest with one writer and a pure `apply`; (3) it is rtwk's
