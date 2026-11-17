@@ -1,8 +1,10 @@
 # Rules for every agent of the CodexCLI fleet ({FORK})
 
 You are `{FORK}`. The tm hook supplies your session and subagent identity.
-Your prompt carries only your task; the working rules are in your agent file
-(`.claude/agents/codex-porter.md` or `codex-reviewer.md`) and here.
+Your prompt carries only your task; the brief is the task's description in
+tm, the working rules are in your agent file and here. The whole process (for
+the orchestrator): `docs/rtwk-port/process.md` — read only the section this
+file points to.
 
 ## What the port is
 - `codex-rs/tui` (ratatui) is the oracle at the commit in
@@ -11,29 +13,65 @@ Your prompt carries only your task; the working rules are in your agent file
   (read the sections your task names, by heading).
 - rtwk API: `docs/rtwk-port/refs/` first (generated; grep it), rtwk source in
   ranges only for what the references do not answer. rtwk is read-only here;
-  a gap goes into your handover as "rtwk needs: …".
-- Never edit `codex-rs/tui/**` unless your task's area names the file.
+  a gap goes into your handover as "rtwk needs: …" and into the parity pack as
+  a delta, not a workaround.
+- The oracle's files, snapshots and tests for a screen: its rows in
+  `docs/rtwk-port/refs/codex-registry.csv`. The oracle binary for pty
+  scenarios: `~/.cache/codexcli/oracle-bin/` (never build codex-tui yourself).
+- Never edit `codex-rs/tui/**`, `codex-rs/Cargo.toml` or `codex-rs/Cargo.lock`.
+
+## A slice is done when (process.md §4)
+1. **Tests first**: your first commit is `<alias>: parity tests (red)` —
+   screen tests at the oracle's size with expected values from the oracle
+   (its `.snap` text, its assertions), state tests (events in, model and
+   effects out). Stubs with `todo!()` are fine in it. Then the code.
+2. **Every oracle test** of your oracle files is mapped: ported (named after
+   it) / n/a with a reason / delta.
+3. **Parity pack** `docs/rtwk-port/parity/<alias>.md` (format: process.md
+   §4.3): oracle-test map, snapshots, visual deltas (kind from
+   `parity/delta-kinds.md` or NEW, cause, the differing rows of both sides,
+   proposal), pty scenarios `<alias>-<name>` and their result (or "n/a until
+   scenario-harness"), rules extended, rtwk needs.
+4. **ADR-002 conditions** hold: screen/dialog widgets
+   `impl_widget!(stateful eq …)`; `show_dialog` callers and the request
+   presenter under the `Navigator`; providers fixed, `Navigator` keyed; no
+   decision from a same-flush `read`; routes and dialogs take ids, not data.
+5. **ADR-003 R1–R14** hold: no `#[allow(clippy::disallowed_…)]` outside the
+   allowlisted modules; new events, intents or lifecycle states extend the
+   mandatory tests (R2 switch round-trip, R4 snapshot, R5 end-path matrix, R7
+   `assert_consistent`, R8 lifecycle × intent, R9/R10 permutations).
+6. Checks green (below); copied oracle code keeps a comment naming its file.
 
 ## Checks: scoped while you work, full once at the end
-- While iterating: `~/.cache/rtwk/acargo nextest run -p codex-tui-rtwk
-  --status-level fail --final-status-level fail --hide-progress-bar` (add
-  `-E 'test(<filter>)'`), `acargo clippy -q -p codex-tui-rtwk --all-targets
-  -- -D warnings`.
-- Before `task_done`, once: `acargo fmt -p codex-tui-rtwk -- --check`, the
-  crate's whole nextest run, clippy as above. A long one through
+All from `codex-rs/tui-rtwk` (its own workspace), through `~/.cache/rtwk/acargo`.
+- While iterating: `acargo nextest run --status-level fail
+  --final-status-level fail --hide-progress-bar -E 'test(<filter>)'`,
+  `acargo clippy -q --all-targets -- -D warnings`.
+- Before `task_done`, once: `acargo fmt -- --check`, the crate's whole nextest
+  run, clippy as above, your own pty scenarios. Anything long through
   `~/.cache/rtwk/bgrun.sh`.
+- nextest `FLAKY`: name the test and its log in the handover; investigate
+  when it covers what you changed.
 - Name anything that was red when you arrived, separately from your results.
 
 ## Where your work lives
 - Stay inside your task's area; widen it with `task_update` (listing the
-  existing entries) only for files no live claim covers. Shared registration
-  files (`codex-rs/tui-rtwk/src/lib.rs`, a parent `mod.rs`,
-  `codex-rs/Cargo.toml`) belong to the task that names them.
-- Commit on your worktree branch, staging by path. Never merge into main,
-  never merge another branch into yours.
+  existing entries) only for files no live claim covers. Never edit `lib.rs`,
+  a parent `mod.rs` or a root event/intent enum: add variants to your
+  screen's own sub-enum; a change needed elsewhere goes into the handover.
+- A new dependency: a separate commit with `Cargo.toml` + `Cargo.lock`, named
+  in the handover.
+- Do not commit `docs/rtwk-port/refs/codex-registry.csv` or
+  `parity/delta-kinds.md`: the orchestrator rebuilds them.
+- Commit on your worktree branch, staging by path, messages `<alias>: …`.
+  Never merge (not the integration branch, not a sibling's branch); rebase
+  onto the integration tip only when the orchestrator asks. Never push.
+- Never accept or reject in tm, your own work included.
 - Read the `notes` tm hands you on each call before your next edit.
 
 ## Handover
-`task_done` with deliverables: the commits, a result summary (what was done vs
-the task, codex-tui behaviours covered and the ones left with reasons, parity
-tests and their bites, rtwk gaps found, risks, what others must change).
+`task_done` with deliverables: the commits, the parity pack path, and a
+result summary (what was done vs the task, oracle behaviours covered and the
+ones left with reasons, tests and their bites, deltas and NEW kinds, rtwk
+gaps, risks, what others must change). A fix round answers each review
+finding by `path:line` and commit.
