@@ -18,8 +18,8 @@ built), [rtwk-for-codex.md](research/rtwk-for-codex.md) (what rtwk offers),
 | # | decision | in one line |
 |---|---|---|
 | ADR-001 | code organization | a framework-neutral frontend seam inside `codex-tui` (feature `frontend-api`, additive files), all rtwk code in a new crate `codex-rs/tui-rtwk` |
-| ADR-002 | who owns the loop | rtwk, as Flutter's engine does; the Codex controller runs as an async task on the UI thread |
-| ADR-003 | state management | the Bloc pattern: Codex's controller (App + ChatWidget + BottomPane logic, async handlers kept) is the store; widgets follow its published view models through `rtwk-state` |
+| ADR-002 | who owns the loop | rtwk owns the frame loop; the Codex controller runs as an async task on the UI thread (provisional until ADR-003) |
+| ADR-003 | state management | **open** — chosen among Rust-world solutions by the round-2 research (tm `state-research`), not by analogy with another ecosystem |
 | ADR-004 | content model | cells keep producing `ratatui-core` `Line`/`Span`/`Style` (data only); one rtwk widget paints them |
 | ADR-005 | screen modes | owned alt-screen mode first (Codex's default), inline scrollback mode second |
 | ADR-006 | input | rtwk decodes; keys reach the controller as crossterm `KeyEvent` values (types only) |
@@ -64,7 +64,7 @@ terminal.
 | engine + `runApp` | `run_app_with(state, view, RunOptions{mode, ..})`, `AppHost::pump` | `codex-rtwk` main; `ScreenMode::FullScreen` (owned) or `Inline` |
 | `StatelessWidget` / `StatefulWidget` + `State` | `AnyWidget`, `StatefulWidget`, `State`, `Cx` | widgets per region; local state = scroll, hover, animation phase |
 | `InheritedWidget`, Provider | `rtwk::provider` (`read`, `watch`, `select`) | theme, keymap, config projections |
-| `flutter_bloc`: `BlocProvider`, `BlocSelector` | `rtwk_state::store_provider`, `Select` over a `Source<R>` | the Codex controller's published view models |
+| (external store) | `rtwk_state::store_provider`, `Select` over a `Source<R>` | how whatever ADR-003 picks reaches the widgets |
 | `Future` / `Stream` / `StreamBuilder` | `cx.spawn`, `rtwk-tokio` `subscribe`, hooks `use_stream` | backend I/O on tokio, the controller task |
 | `CustomPainter` | `CustomPaint` + `CellPainter` (rtwk-widgets/layout/custom_paint.rs) | the legacy bridge (ADR-009) |
 | `Navigator`, `showDialog`, `Overlay` | rtwk-overlay | bottom-pane view stack, popups, pager overlays |
@@ -132,16 +132,33 @@ threads as today.
 
 **Alternatives.** Codex's loop drives rtwk per Draw (max fidelity, but rtwk
 reduced to a painter and no public API for an externally driven tree in
-rtwk); rewriting the controller as pure update + effects (TEA proper: ~1,100
-awaits re-cut — after parity, if ever). A controller on a tokio worker
+rtwk). Whether the controller keeps its async handlers or is re-cut into
+synchronous updates with effects is ADR-003's question; this ADR is revisited
+with it. A controller on a tokio worker
 (`Send` everywhere, locks across awaits) is the fallback if the UI-thread task
 fails the skeleton's spike.
 
-## ADR-003 — State management: Bloc over rtwk-state
+## ADR-003 — State management (OPEN)
 
-**Decision.** The Codex controller is the **store** (Flutter's Bloc; in Rust
-terms the Elm/TEA family — one owner, a message enum, effects as async
-work). Concretely:
+**Status.** Open. Round 1 (research/state-management.md) recommended an
+Elm-style single store with effects as data, followed through rtwk-state,
+but assumed handler bodies move into a synchronous `update`; the Codex
+controller has 320 `async fn` and 1,111 `.await` in `app/` alone. Round 2
+(tm `state-research`, research/state-v2.md) compares Rust-world solutions —
+TEA with async tasks (iced, relm4, tui-realm), Crux, fine-grained signals
+(reactive_graph, Dioxus signals, futures-signals, Xilem), Redux/Flux stores,
+tokio actors (ractor, kameo), incremental helpers (salsa), ECS — on scored
+criteria with prototypes of the finalists, and the person decides.
+
+What holds whatever wins: rtwk imposes no state manager and an external
+store reaches widgets through `rtwk_state::Source` / `Select` /
+`store_provider` and `Obs` without core changes (rtwk docs/guide/state.md).
+The draft below was written before round 2 and is kept only as one
+candidate's shape (an async controller publishing immutable view models);
+it is not the decision.
+
+**Draft (superseded by round 2).** The Codex controller is the store (one
+owner, a message enum, effects as async work). Concretely:
 
 - **Events** in: `AppEvent` (kept verbatim, 335 variants), backend
   notifications, `TuiEvent`s. Widgets dispatch with the existing
@@ -165,13 +182,8 @@ work). Concretely:
   and cursor, picker selection, transcript scroll and selection, copy mode.
   Moving those into rtwk widgets is post-parity work.
 
-**Why.** It is what Codex already is (a single owner fed by a message bus)
-with the model separated from the view, which is exactly the separation a
-retained framework needs; rtwk's own guide maps Bloc to `Select` /
-`store_provider` and measured them (1 wake and 1 rebuild per 100-write burst,
-docs/guide/state.md). Signals (reactive_graph) lost on ordering and
-migration cost; actor frameworks and Redux crates on maintenance and fit
-(research/state-management.md §3–4).
+Measured in rtwk for any external store: `Select` / `store_provider` give 1
+wake and 1 rebuild per 100-write burst (docs/guide/state.md).
 
 ## ADR-004 — Content model: ratatui-core text as data
 
@@ -286,7 +298,7 @@ codex-rs/tui-rtwk/
   Cargo.toml    codex-tui {features = [frontend-api]}, rtwk crates by path, ratatui-core
   src/lib.rs
   src/host.rs   rtwk app: screen mode, input → TuiEvent, frame on publish
-  src/store.rs  ModelStore: Source/Select over published view models
+  (state integration: after ADR-003 is decided, not in the skeleton)
   src/convert.rs ratatui-core Style/Line/Span → rtwk; rtwk key → crossterm KeyEvent
   src/bridge.rs  CellPainter over a ratatui Buffer
   src/views/lines.rs LinesView
@@ -324,6 +336,7 @@ the UI keeps drawing.
 
 ## Open decisions for the person
 
+0. ADR-003: the state-management solution, after the round-2 research.
 1. ADR-001: seam in `codex-tui` + separate crate (recommended) vs a full
    copy of `codex-tui`.
 2. ADR-005: owned mode first (recommended) vs inline first.
