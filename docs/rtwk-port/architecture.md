@@ -29,7 +29,15 @@ carried over (copied) into `tui-rtwk`: the rows that
 [reuse-map.md](research/reuse-map.md) marks REUSE (protocol seam
 `app_server_session`/`app_command`, keymap, clipboard OS side,
 markdown_copy, chunking, analytics data, thread/update/session helpers) and
-the non-UI part of ADAPT rows, adjusted to the app model. Its UI code is not
+the non-UI part of ADAPT rows, adjusted to the app model — minus the content
+renderers (history_cell, markdown_render, diff_render, wrapping, textarea),
+which rtwk widgets replace (ADR-004, ADR-006). A carried file brings its
+dependency closure: each module it imports is carried too or replaced by an
+app/rtwk counterpart (e.g. `markdown_copy` → `clipboard_copy` and
+`terminal_hyperlinks` are replaced; `analytics/data.rs` loses
+`FrameRequester`; `keymap` needs `key_hint`, which is re-expressed over rtwk
+keys, not crossterm). reuse-map Top-10 #1, #4, #5, #7, #8, #9 are superseded
+by this document (arch-review M7). Its UI code is not
 carried over, wrapped or bridged: no seam in codex-tui, no ratatui painter;
 screens are built of rtwk widgets. codex-tui itself stays untouched as the
 oracle: behaviour spec, tests to re-express, snapshots as the visual
@@ -38,10 +46,10 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 
 | # | decision | in one line |
 |---|---|---|
-| ADR-001 | crate and pins | `codex-rs/tui-rtwk`, its own Cargo workspace; rtwk by path at `RTWK_REF`; codex-rs workspace, lockfile, Bazel and CI untouched |
-| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + `Msg` + `view(&App, &mut ViewCx)` + `cx.on`, routes, rtwk widgets |
-| ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut Model, Ev) -> Effects` per feature with request ids, derived values via `ViewCx::memo` on versioned slices; entities+notify as reserve; chosen on per-approach trade-offs |
-| ADR-004 | screens and content | ~28 screens (§1) as routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
+| ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
+| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; route = model enum matched in the view; dialogs = a modal layer built from the model's queue; rtwk widgets |
+| ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`; entities+notify as reserve; chosen on per-approach trade-offs |
+| ADR-004 | screens and content | 24 screen-map rows (§1) as model routes, modal layer and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
 | ADR-006 | input | rtwk `Focus` / `Shortcuts` / `KeyBindings`; Codex's keymap config read into them; input never frozen by an RPC |
 | ADR-007 | parity | functional (screen tests + pty scenarios against the oracle) and visual (oracle snapshots and captures as the reference, deltas listed per screen) |
@@ -64,12 +72,12 @@ Screen map (sources: codex-tui-surface.md §1–§13; ids are the plan's):
 | id | screen | kind | oracle |
 |---|---|---|---|
 | S01 | update prompt | route before main | update_prompt.rs |
-| S02 | onboarding: welcome, auth (browser, device code, API key) | routes | onboarding/welcome.rs, auth.rs, auth/ |
+| S02 | onboarding: welcome, auth (browser, device code, API key), GovCloud guidance | routes | onboarding/welcome.rs, auth.rs, auth/ |
 | S03 | onboarding: provider, gateway, Bedrock, GCP setup | routes | onboarding/gateway*.rs, bedrock.rs, gcp.rs, provider_setup.rs |
 | S04 | directory trust | route | onboarding/trust_directory.rs |
 | S05 | startup prompts: cwd, model migration, startup hooks, unarchive, OSS provider, daemon recovery, startup error, Windows sandbox | dialogs | cwd_prompt.rs, model_migration.rs, startup_hooks_review.rs, unarchive_prompt.rs, oss_selection.rs, daemon_recovery.rs, startup_error.rs |
 | S06 | import from other agents (`/import`) | route | external_agent_config_migration/ |
-| S10 | **main chat**: transcript, banners, pending input, working indicator, composer, footer, status line | home route | chatwidget/, bottom_pane/, transcript_view/, app/owned_transcript.rs |
+| S10 | **main chat**: transcript, banners, pending input, working indicator, composer (usable as a startup draft before the session is ready), footer, status line (incl. `ui_tree` elements) | home route | chatwidget/, bottom_pane/, transcript_view/, app/owned_transcript.rs |
 | S11 | streaming and history cells (~48 kinds), markdown, diff, exec output | transcript items | history_cell/, streaming/, markdown_render/, diff_render.rs |
 | S12 | composer popovers: `/` commands, `@` files, mentions, `$` skills, history search | popovers | command_popup.rs, file_search_popup.rs, mentions_v2/, skill_popup.rs, chat_composer/history_search*.rs |
 | S13 | approvals: exec, permissions, patch, MCP elicitation, request-user-input, async questions | dialogs | approval_overlay.rs, mcp elicitation, request_user_input |
@@ -85,7 +93,7 @@ Screen map (sources: codex-tui-surface.md §1–§13; ids are the plan's):
 | S23 | small dialogs: shortcut overlay, warnings, daemon menu, app link, custom prompt, user verification, feedback (+ note, consent) | dialogs | bottom_pane/* |
 | S24 | pets | overlay | pets/ |
 | S25 | voice / realtime strip and settings | part of S10 + dialogs | voice_strip.rs, chatwidget/realtime*.rs |
-| S26 | `ui_tree` and visualization viewer | route | ui_tree/ |
+| S26 | `ui_tree` status-line elements (part of the S10 footer) and inline visualization (an S11 content kind) — not a route | parts of S10/S11 | ui_tree/, inline_visualization.rs |
 | S27 | inline mode (screen mode, not a screen) | mode | tui.rs, insert_history.rs, app/resize_reflow.rs |
 
 Behaviour without a screen of its own is carried by the screen that needs
@@ -108,51 +116,107 @@ leaves the repository. Joining the codex-rs workspace (and a `--frontend
 rtwk` switch in `codex`) is decided at the end of phase 1, when rtwk can be
 referenced by git or registry.
 
-**Check in the skeleton.** Path dependencies on crates that inherit
-`workspace = true` fields from codex-rs resolve from an outside workspace;
-the cold build fits `bgrun`; worktrees reach rtwk (`.claude/worktrees/rtwk`
-symlink).
+**What the layout needs to resolve** (arch-review M6, checked with
+`cargo metadata` on a scratch workspace):
+- codex-rs's `[patch.crates-io]` (codex-rs/Cargo.toml:684-700: crossterm,
+  sqlx, tungstenite, v8, …) is not applied to another workspace, so
+  tui-rtwk's Cargo.toml copies it verbatim; a check diffs the two.
+- A fresh lockfile hits a yanked `spin 0.9.8`, so tui-rtwk's Cargo.lock is
+  seeded from codex-rs/Cargo.lock and refreshed at each upstream merge. With
+  both, it resolves: tokio stays single, rtwk adds no crossterm.
+- `.github/scripts/verify_cargo_workspace_manifests.py` (repo-checks CI)
+  walks every Cargo.toml under codex-rs. The crate stays at
+  `codex-rs/tui-rtwk` and satisfies it: package name `codex-tui-rtwk`, its
+  own `[workspace.package]` (version, edition, license) and
+  `[workspace.lints]`, `[lints] workspace = true`, no `[features]` or
+  feature toggles on codex crates. The skeleton runs the script.
+- The pin is checked, not a convention: a test (or build script) compares
+  `git -C <rtwk> rev-parse HEAD` with `RTWK_REF`.
+- tui-rtwk has its own `clippy.toml` (otherwise codex-rs/clippy.toml's
+  ratatui entries apply) carrying the R-rule lints.
+
+**Check in the skeleton.** The above resolves and builds cold within
+`bgrun`; worktrees reach rtwk (`.claude/worktrees/rtwk` symlink).
 
 ## ADR-002 — App structure: a Flutter-style rtwk app
 
 Template: `/Users/admin/Documents/dev_projects/rtwk-weather` (5k lines):
 `model.rs` (domain types), `app.rs` (the app struct, `Msg` from background
-work, methods that change state and start work), `ui/view.rs`
-(`view(&App, &mut ViewCx<App>) -> AnyWidget`, callbacks `cx.on(|app, cx| ..)`
-and `cx.on_with`), `theme.rs`, `tests/screens.rs` (`rtwk_test::Tester` over
+work), `ui/view.rs` (`view(&App, &mut ViewCx<App>) -> AnyWidget`, callbacks
+`cx.on(|app, cx| ..)` and `cx.on_with`; its dialog is drawn in the view as
+`Stack` + `ModalBarrier` + `Dialog`, view.rs:18-20, :132, :429), `theme.rs`,
+`tests/screens.rs` (`rtwk_test::Tester` over
 `overlay::App::new(AppView::new(app, view))` on made-up data). Background
 results arrive as `Msg` values carrying an id (`Slot.id`), and stale ones are
-dropped.
+dropped. Unlike rtwk-weather, state changes go through `apply` (ADR-003), not
+methods that also start work.
 
 ```
-codex-rtwk main ─ CLI, config, tokio runtime (rtwk-tokio), app-server client
- └ run_app: overlay::App → AppView(CodexApp, view)
-    └ Theme · Localizations · providers (config projection, keymap)
-       └ Navigator: onboarding/* · chat (home) · pager · resume · usage · agents · ...
-          └ screens = functions of &CodexApp built of rtwk widgets
-             dialogs via show_dialog, popovers via the overlay, toasts
+codex-rtwk main ─ arg0_dispatch_or_else → multi-thread tokio runtime → app-server client
+ └ run_app_with on the block_on thread, runtime entered (rtwk-tokio)
+    └ overlay::App → AppView(CodexApp, view)
+       └ Theme · Localizations · providers (config projection, keymap)
+          └ root view: match app.nav.route { Onboarding(..) | Trust | Chat | Pager | Resume | Usage | Agents | … }
+             └ screens = functions of &CodexApp built of rtwk widgets
+             └ modal layer: Stack + ModalBarrier + Dialog for the head of the model's modal queue
+             └ popovers via the overlay, toasts
 ```
+
+**Routes and dialogs come from the model** (arch-review B1). The route is a
+model enum (`NavState.route`); the root view matches on it and builds the
+screen from `&CodexApp`. Dialogs and approvals are a layer in the view
+(`Stack` + `ModalBarrier` + `Dialog`) built from the model's modal queue,
+head first (state-approaches.md §2 (d)), as rtwk-weather does. rtwk's
+`Navigator` and `show_dialog` are imperative — a route builder gets only
+`&mut BuildCx` (rtwk navigation/navigator.rs:78) and `show_dialog` is called
+from a component's `Cx` (rtwk-overlay/src/dialog.rs:301) — so they cannot
+read `&CodexApp`, and an overlay stack beside the model's queue would be a
+second source of truth (oracle bug bc969b651). They are used only for UI-only
+flows that read no app data (a confirm inside one widget).
 
 | need | rtwk |
 |---|---|
 | transcript | `ListView` with an item builder over the model's cells (rtwk mounts only visible items: virtualization is the default, not a task); `SelectionArea` for selection and copy |
 | message content | rtwk-rich `MarkdownView`, `DiffView`, `CodeView` |
-| composer | `TextArea` (`TextField` for single-line inputs) |
-| lists, pickers, commands | `SelectionList`, `OptionList`, `CommandPalette`, `Table`, `Tree`, `TabBar` |
-| approvals, settings | `show_dialog` + the widgets above |
+| composer | `TextArea` over a per-thread `TextEditingController` (`TextField` for single-line inputs); `Autocomplete` for caret-anchored popovers; what TextArea lacks is gap G12 |
+| lists, pickers, commands | `SelectionList<K>`, `OptionList`, `CommandPalette`, `Table<T>`, `TreeView<T>`, `TabBar` |
+| approvals, settings | modal layer (`Stack` + `ModalBarrier` + `Dialog`) from the model's queue + the widgets above |
 | progress, working | `Spinner`, `ProgressBar`, rtwk-animation |
 | analytics | rtwk-data `Chart`, `BarChart`, `Sparkline` |
 | pets, images | rtwk-rich `Image` |
 | keys | `Focus`, `Shortcuts`, `KeyBindings` |
 
-- Backend events: one task owns the app-server client and turns server
-  notifications and requests into `Msg` sent through `AppCx::channel`; the
-  app handles each `Msg` on the UI thread. RPCs are started from callbacks
-  and answer with a `Msg` carrying the request id.
+- Backend events: the shell owns the app-server client
+  (`AppServerRequestHandle`, app-server-client/src/lib.rs:366-372) and runs
+  it through `TokioApp::spawn_tokio` / `subscribe` (rtwk-tokio/src/host.rs:28,
+  :43); `AppCx::spawn` polls a `!Send` future without tokio's reactor and is
+  not used for RPCs. Notifications, server requests, RPC replies and user
+  intents enter one ordered ingress stream (R10) and reach `apply` on the UI
+  thread; handlers never apply directly. Replies carry their ticket (R1).
 - rtwk owns widget state (scroll, focus, text editing, selection, hover,
   animation); the app model holds only application state (§ADR-003).
+  Per-thread widget state that must survive a thread switch (composer text,
+  scroll and selection controllers) lives in `ThreadUi`, see below.
 - Standalone pre-app screens of the oracle (onboarding, trust, prompts)
-  become routes of the same app, shown before the chat route.
+  become routes of the same app, shown before the chat route; the composer is
+  usable as a startup draft while `Session` is `Starting` (submit waits for
+  `Ready` through R10's ordering).
+
+**Per-thread widget state (arch-review M1).** rtwk's `TextArea` keeps its
+text in its state or a shared `TextEditingController`
+(rtwk-editing/src/text_area.rs:174-327), `SelectionList<K>` in a
+`SelectionController<K>`. Per-thread UI controllers (`TextEditingController`,
+scroll and selection controllers) live in a `ThreadUi` map keyed by
+`ThreadId`, inside an R14-allowlisted UI module, outside the pure model. On a
+switch the subtree is keyed by ThreadId and reuses that thread's controllers,
+so A→B→A keeps the draft and kill buffer (SC2b). Text the model needs
+(submit, queue) enters `apply` as an intent on submit; the model never mirrors
+the draft. The composer is rtwk `TextArea`; what it lacks for Codex (atomic
+elements such as `[Image #1]`, kill ring and yank, vim mode, paste-burst
+detection, history recall; Ctrl+Y is redo in rtwk) is rtwk gap G12, built in
+rtwk. Codex's pure composer logic (paste-burst detector, mention codec,
+history store) is carried as ADAPT. Until G12 lands, S10 lists the missing
+behaviours as deltas.
 
 ## ADR-003 — App state
 
@@ -228,25 +292,45 @@ race tests are cheapest with one writer and a pure `apply`; (3) it is rtwk's
 own model, the cheapest measured, and what Helix, gitui, yazi and iced do.
 
 - Rust structs owned by the rtwk `AppView`; one writer, the UI thread.
-- Per feature `apply(&mut Model, Ev) -> Effects`, threads keyed by
-  `ThreadId`; events enter through one `AppCx::channel`; effects (RPCs,
-  config writes) are values the shell runs with `AppCx::spawn`, their
-  results come back as events carrying the request or generation id, and
-  `apply` drops stale ones. Tests: events in, model and effects out, no UI.
+- Per thread `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)`; app-scoped
+  state (account, rate limits, app-level MCP startup, settings, navigation)
+  `apply_app(&mut CodexApp, AppEv, &mut AppFx)`. Backend events, replies and
+  intents enter one ordered ingress stream (one `AppCx::channel` sender;
+  handlers send their intents into it too, so an intent never overtakes an
+  event already received, R10). Effects (RPCs, config writes) are values the
+  shell runs through rtwk-tokio (`TokioApp::spawn_tokio` / `subscribe`);
+  their results come back as events carrying their ticket, and `apply` drops
+  stale ones. Tests: events in, model and effects out, no UI.
+- Two kinds of pending request, kept apart: `outgoing: (ThreadId, Ticket) ->
+  Ctx` for our RPCs, and `server_requests: (ConnEpoch, ThreadId,
+  ServerRequestId) -> Approval` for requests the user answers (approvals,
+  elicitations, user input). Request ids are unique only per connection
+  (6f47fcb0b), so the connection epoch is part of the key; an approval reply
+  goes through the originating connection's handle; entries of an old epoch
+  are dropped when the epoch changes.
+- A thread/read or resume snapshot replaces the affected turns wholesale
+  (snapshot wins); it is never merged by id with live entries, because the
+  backend synthesises ids when it rebuilds history (`item-N`, `rollout-N`,
+  app-server-protocol/src/protocol/thread_history.rs:1600-1606, :1724-1728).
 - Every thread's model is kept current as its events arrive, so switching
   threads needs no replay in the UI; the user-visible behaviour of the
   oracle's replay-on-switch (what a switched-to thread shows) is the parity
   target. Reconnect/resume still replays from the backend.
 - Derived values are pure functions computed in the view (measured cheap:
   10 derived values scanning 1,000 threads add 9 µs per frame) and kept by
-  `ViewCx::memo` on per-slice revisions; slices are `Versioned<T>` whose
-  `get_mut` bumps the revision. A counter kept in `apply` is allowed only
-  inside one collection type, with a test that recomputes it.
+  `ViewCx::memo`. Memo deps are moved into the cache and its build is a `fn`
+  pointer seeing only `&D` (rtwk app.rs:805-839), so the data travels with
+  the key: deps are cheap per-row values or `(rev, Rc<T>)` over structurally
+  shared items. `Versioned<T>` (an app type, not rtwk's) bumps `rev` on
+  `get_mut`. A counter kept in `apply` is allowed only inside one collection
+  type, with a test that recomputes it.
 - Rules: `unchanged()` is banned in feature code (CI grep); long lists use
   `ListView` builders; only mounted screens render; memoise one level per
   region; a per-release budget test on the scale scenario.
 - Flows (approvals, onboarding) are plain enums; `statig` only if a flow
-  outgrows them. Config and connection state may follow a tokio `watch`.
+  outgrows them. Config and connection changes enter as events (the shell
+  `subscribe`s to the `watch`); no `watch` is read in a view or followed into
+  an `Obs`.
 - Switch a panel to the reserve (entities + notify inside `update`,
   followed through `Select`) only if a phase-2 profile shows the root view
   above ~1 ms per frame after these rules.
@@ -284,9 +368,12 @@ the model has one owner and no published copy.
 rules removes no sub-class as a class (it only removes the oracle's
 mechanism for 15 commits). Of the 508 bug-flavoured fix commits, ~11% are
 state-mechanism bugs (the earlier "~22–32%" counted tests, build, backend and
-layout fixes too). With R1–R14: 28 (5.5% of 508) impossible by
-construction, 25 (4.9%) caught by a mandatory test, 2 still possible; of 34
-state issues, 13 impossible, 16 caught, 5 possible. A hand-written single
+layout fixes too). With R1–R14, as corrected by arch-review M2/M4 (SC6a
+moved to caught: R14 is a lint over known escape routes, not a type
+guarantee; SC4a's live+replay case 6107b9886 moved to caught: snapshots
+replace, ids do not merge): 20 (3.9% of 508) impossible by construction, 33
+(6.5%) caught by a mandatory test or lint, 2 still possible; of 34 state
+issues, 8 impossible, 21 caught, 5 possible (SC6a issues and #2886 moved). A hand-written single
 reducer (every change an Action) removes no more than this mix — the oracle
 already has a 335-variant `AppEvent` dispatcher and still had every class,
 because state lived in widget copies — so only intents that touch shared or
@@ -296,20 +383,24 @@ cross-thread state are values (R10).
 
 | rule | what | enforced by |
 |---|---|---|
-| R1 | requests return `Reply<T>` readable only through `pending.resolve(reply)` (ticket check); `AppCx::spawn` only in the shell (its `then` gets `&mut App`, rtwk app.rs:1001); transport events carry the thread's attach epoch, one ingress router drops older epochs | module privacy + `clippy::disallowed_methods` |
-| R2 | per-thread data only in `ThreadModel`; per-thread views keyed by ThreadId through one `thread_scope` helper | switch round-trip property test |
-| R3 | `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)`; thread RPCs only via `ThreadFx` (stamps its id); pending keyed `(ThreadId, RequestId)`; intents carry their target ThreadId | types |
-| R4 | transcript = ordered map keyed `(TurnId, ItemId)` with upsert, one projection from protocol events | type API (no push) |
+| R1 | requests return `Reply<T>` readable only through `pending.resolve(reply)` (ticket check); effects run only in `shell`: every spawn path (`AppCx::spawn`, `Cx::spawn`, `TokioApp::{spawn_tokio,subscribe,subscribe_with,follow}`, `rtwk_tokio::{spawn_tokio,subscribe,follow}`, `std::thread::spawn`, `tokio::spawn`, `AppCx::channel`) is banned elsewhere; each subscription captures its attach epoch when created and stamps every event with that constant; one ingress router drops older epochs | module privacy + `clippy::disallowed_methods` (crate-wide deny, `#[allow]` only on `shell`, CI grep rejects other allows) |
+| R2 | per-thread data only in `ThreadModel`, per-thread UI controllers only in `ThreadUi`; per-thread views keyed by ThreadId through one `thread_scope` helper | switch round-trip property test |
+| R3 | `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)`; thread RPCs only via `ThreadFx` (stamps its id); `outgoing` keyed `(ThreadId, Ticket)`, `server_requests` keyed `(ConnEpoch, ThreadId, ServerRequestId)`; intents carry their target ThreadId | types |
+| R4 | transcript = ordered map keyed `(TurnId, ItemId)` with upsert, one projection from protocol events; a resume/read snapshot replaces the affected turns wholesale, never merged by id | type API (no push) + resume/reconnect-mid-turn test (transcript equals the snapshot) |
 | R5 | `TurnState { Idle, Running(RunningTurn{..}) }`: transient state inside the variant, the end transition consumes it | types + end-path matrix test |
 | R6 | `Remote<T> { Loading, Loaded{value, fetched_at, generation}, Failed }` | types |
 | R7 | derived values are functions, never stored; any cache is a memo on `Versioned<T>` or checked by `Model::assert_consistent()` after every event in tests | test harness |
 | R8 | lifecycles as enums, predicates as functions of them, outcomes as enums not bools | lifecycle × intent table test |
 | R9 | entities created/upserted from whichever of response or notification comes first; local mutations wait for confirmation | event-permutation property test |
-| R10 | intents touching backend-shared or cross-thread state are values in the same ordered stream as backend events | permutation test |
+| R10 | intents touching backend-shared or cross-thread state are values sent into the same ingress sender as backend events; apply order = arrival order | permutation test |
 | R11 | lists use rtwk's keyed `SelectionList<K>`; the clock is a model input | lint on `Instant::now`/`SystemTime::now` in views |
 | R12 | no IO in `apply` or views; IO only in effects run by the shell | `disallowed_methods` lint |
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
-| R14 | app data never enters rtwk local state (`Obs`, `use_state`) outside an allowlist of UI-only modules | `clippy::disallowed_types` |
+| R14 | app data never enters rtwk local state outside an allowlist of UI-only modules (incl. `ThreadUi`); screens take app data only as `&CodexApp` or memo deps | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`, controller constructors; CI grep: no `impl State for` / `impl StatefulWidget for` outside UI-only modules — a lint, so SC6a is caught, not impossible |
+
+Clippy's `disallowed_*` lists are crate-wide: each rule that says "outside
+X" is a crate-wide deny with `#[allow(clippy::disallowed_…)]` on the
+allowlisted modules, plus a CI grep that rejects such allows anywhere else.
 
 ## ADR-004 — Screens and content
 
@@ -338,7 +429,7 @@ committed through `Static`, after the rtwk gaps it needs (G1, G2, G5, G7).
 rtwk decodes the terminal (kitty flags, bracketed paste, mouse, focus,
 resize). Keys are handled by rtwk `Focus`, `Shortcuts` and `KeyBindings`.
 Codex's keymap configuration (`tui.keymap.*`: 9 contexts, chords, a leader
-key, vim mode) is read into those bindings, so user configs keep working;
+key, vim mode — the editing side of vim is G12) is read into those bindings, so user configs keep working;
 the oracle's keymap tests are the spec. Input is never frozen while an RPC
 is in flight (the person, 2026-11-17). Ctrl+Z suspends; the external editor
 suspends the app. Typeahead quarantine before security prompts needs G8.
@@ -358,7 +449,7 @@ suspends the app. Typeahead quarantine before security prompts needs G8.
    reference a slice is reviewed against, side by side. Byte equality is not
    required; every difference is listed in the slice (ADR-004) and accepted
    or fixed.
-4. **Registry.** `docs/rtwk-port/refs/codex-registry.csv`: screen id →
+4. **Registry** (created in W1, tm `port-refs`). `docs/rtwk-port/refs/codex-registry.csv`: screen id →
    oracle files, snapshots, tests → status (`todo` / `built` /
    `parity-accepted`).
 
@@ -376,33 +467,47 @@ code. No speed claim from a microbenchmark alone.
 
 ## ADR-009 — Migration order
 
-1. **Foundation.** Skeleton (below); session core: app-server client task,
-   thread start/resume, streaming into the model, approvals round trip,
-   slash command dispatch; perf baseline of the original; scenario harness.
-2. **Main chat screen** S10 + S11 + S12 (critical path).
-3. **Screen slices in parallel** (4–5 `codex-porter` agents in worktrees,
-   rtwk-weather manner): S13–S26, pre-app routes S01–S06.
-4. **Inline mode** S27 and the rtwk gaps it needs; parity sweep over the
+Wave labels match design.md §10.
+
+0. **W0** research, architecture, its verification (arch-review), process
+   design (a separate session). No code.
+1. **W1 foundation.** Skeleton (below); session core: app-server client in
+   the shell, thread start/resume, streaming into the model, approvals round
+   trip, slash command dispatch; perf baseline of the original; scenario
+   harness; refs registry.
+2. **W2 main chat screen** S10 + S11 + S12 + S14 (the generic selection
+   dialog the chat screen opens) — critical path.
+3. **W3 screen slices in parallel** (4–5 `codex-porter` agents in worktrees,
+   rtwk-weather manner): 18 slices — S13, S15–S25, pre-app routes S01–S06.
+4. **W4 inline mode** S27 and the rtwk gaps it needs; parity sweep over the
    registry; performance report.
 
 ## Skeleton (tm `port-skeleton`)
 
 ```
-codex-rs/tui-rtwk/          own workspace, binary codex-rtwk
-  Cargo.toml                codex crates by path, rtwk by path (RTWK_REF)
-  src/main.rs               CLI, config, tokio runtime, app-server client, run_app
-  src/app.rs                CodexApp (model), Msg, methods
-  src/backend.rs            client task: notifications → Msg over AppCx::channel
+codex-rs/tui-rtwk/          own workspace, package codex-tui-rtwk, binary codex-rtwk
+  Cargo.toml                codex crates by path, rtwk by path; codex-rs [patch] copied;
+                            [workspace.package]/[workspace.lints]; passes the manifest script
+  Cargo.lock                seeded from codex-rs/Cargo.lock
+  clippy.toml               R1/R11/R12/R14 disallowed lists
+  src/main.rs               arg0_dispatch_or_else → runtime → client → run_app_with (runtime entered)
+  src/app.rs                CodexApp (model), ingress events, apply_app
+  src/threads/              ThreadModel, apply, ThreadFx (empty transcript upsert)
+  src/shell.rs              the only spawner: client via TokioApp::spawn_tokio/subscribe, epoch stamping
   src/theme.rs
-  src/ui/view.rs            root: Theme, Navigator, routes
+  src/ui/view.rs            root: Theme, route match, modal layer
+  src/ui/thread_ui.rs       ThreadUi controllers (R14 allowlist)
   src/ui/chat.rs            empty chat screen: transcript ListView, TextArea, footer
   tests/screens.rs          Tester over the app on a fake backend
+  tests/pin.rs              rtwk HEAD == RTWK_REF; [patch] equals codex-rs's
 ```
 
 Done when: `codex-rtwk` starts against the in-process app-server, shows the
 empty chat screen, sends one prompt to the mocked model and shows the
-streamed answer as plain text, quits; `tests/screens.rs` green; the codex-rs
-workspace and lockfile untouched.
+streamed answer as plain text, quits; `tests/screens.rs` and `tests/pin.rs`
+green; clippy with the R-rule lists clean;
+`verify_cargo_workspace_manifests.py` passes; the codex-rs workspace and
+lockfile untouched.
 
 ## rtwk gaps (work in the rtwk repository, its own tm)
 
@@ -417,8 +522,9 @@ workspace and lockfile untouched.
 | G9 selection, search and copy-source over a virtualized transcript | S10, S16 |
 | G10 tmux probes (mouse option, pane-local graphics) | S10, S24 |
 | G11 clipboard breadth (native, WSL, X11 PRIMARY beyond OSC 52) | copy |
-| rtwk-state: reactive_graph cross-thread panic, `batch` loss (the issue file) | ADR-003 option A |
-| rtwk-state: `Select` notified inside a frame wakes the loop again (app-state-aopt.md §5) | ADR-003 option A |
+| G12 `TextArea`: atomic elements, kill ring and yank, vim mode, paste-burst, history recall (arch-review M1) | S10 composer |
+| rtwk-state: reactive_graph cross-thread panic, `batch` loss (the issue file) | rtwk quality; family 3, not used by the port |
+| rtwk-state: `Select` notified inside a frame wakes the loop again (app-state-aopt.md §5) | ADR-003 reserve (family 4) |
 
 G3 (a `!Send` controller task) and G6 (shared width model with Codex's
 renderers) no longer apply: there is no carried-over controller and rtwk
@@ -438,6 +544,22 @@ lays out all text.
 5. Fork-specific areas (agents center, sidebar, analytics, `ui_tree`) are
    large and lightly documented.
 6. Windows: rtwk's evidence is partial.
+
+## Decided after the architecture review (2026-11-17, for the person to confirm)
+
+[reviews/arch-review.md](reviews/arch-review.md) (independent Opus review of
+a2dbf130c) found what had to be decided before the skeleton. Decided on its
+evidence, in the text above:
+
+1. Routes and dialogs (B1): route = model enum, dialogs = modal layer from
+   the model's queue; rtwk `Navigator`/`show_dialog` only for UI-only flows.
+2. Per-thread widget state and the composer (M1): `ThreadUi` controllers;
+   composer = rtwk `TextArea` + gap G12 built in rtwk.
+3. Effect runner and runtime (M3, m10): the shell, through rtwk-tokio;
+   `run_app_with` on the `arg0` runtime's block_on thread.
+4. Crate location and resolution (M6): stays `codex-rs/tui-rtwk`, passes
+   manifest policy, copies `[patch]`, seeds its lockfile, checks the pin.
+5. Carried code (M7): REUSE minus content renderers, with dependency closure.
 
 ## Open decisions for the person
 

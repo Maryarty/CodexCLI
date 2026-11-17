@@ -173,6 +173,15 @@ same bug can still be written (see §1.1).
 | R13 | One newtype per id kind (`ThreadId`, `TurnId`, `ItemId`, `CallId`, `ApprovalId`, `ReviewId`, `RequestId`); composite keys where an id is unique only in a scope | types | SC13 |
 | R14 | App data never enters rtwk local state: `rtwk_framework::Obs` (obs.rs:23) and `rtwk_hooks::use_state` (primitives.rs:44) are allowed only in an allowlist of UI-only modules | `clippy::disallowed_types` | SC6a |
 
+**Corrected by the architecture review** (../reviews/arch-review.md M2, M4;
+2026-11-17): SC6a is CAUGHT, not IMPOSSIBLE — R14 is a lint over known escape
+routes (hand-written `State`, controllers, `Rc` clones, `TokioApp::follow`),
+not a type guarantee; SC4a's live-vs-replayed case (6107b9886, issue #2886)
+is CAUGHT — the backend synthesises ids on history rebuild, so a resume
+snapshot replaces its turns and a test checks it. Corrected totals: fix set
+20 / 33 / 2; issues 8 / 21 / 5 (reports/data updated, report rebuilt). The
+paragraph below is the original count.
+
 Totals after the rules (fix set, 55 state-mechanism commits): IMPOSSIBLE 28,
 CAUGHT 25, STILL POSSIBLE 2 (SC6b2 1, SC7c 1). Outside the fix set (23):
 10 / 12 / 1. Issues (34): 13 / 16 / 5 (SC6b2 4, SC4b 1). As a share of the

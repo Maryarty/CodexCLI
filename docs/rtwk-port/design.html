@@ -11,7 +11,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 @media (prefers-color-scheme: dark) { body { background: #161618; color: #e8e8ea; } .diagram { background: #1f1f22; border-color: #333; } code { background: #2a2a2e; } h2 { border-color: #333; } a { color: #7ab7ff; } }
 </style></head><body>
 <h1>Codex CLI on rtwk — target architecture (design to review)</h1>
-<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003, accepted by the person 2026-11-17: plain model, thread-scoped <code>apply -&gt; Effects</code>, intents on shared state as values, rules R1–R14 (§6b).</p>
+<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003, accepted by the person 2026-11-17: plain model, thread-scoped <code>apply -&gt; Effects</code>, intents on shared state as values, rules R1–R14 (§6b). Corrected after the independent review <a href="reviews/arch-review.md">reviews/arch-review.md</a>: routes and dialogs from the model (§2, §7, §8), <code>ThreadUi</code> for per-thread widget state (§6), the shell spawns through rtwk-tokio (§4, §5), split pending maps (§6), counts in §6b.</p>
 <h2>1. System context</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   user([User at a terminal])
@@ -40,15 +40,15 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   subgraph R[&quot;rtwk owns (never re-implemented in the app)&quot;]
     r1[&quot;frame loop, frame pacing, terminal I/O, input decoding&quot;]
     r2[&quot;widget tree, rebuild, layout, paint, damage diff&quot;]
-    r3[&quot;widget state: scroll, focus, text editing, selection, animation&quot;]
+    r3[&quot;widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)&quot;]
     r4[&quot;coalescing work from other threads, list virtualization&quot;]
-    r5[&quot;navigation, dialogs, popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
+    r5[&quot;navigation and dialog widgets (barrier, focus return, transitions), popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
   end
   subgraph A[&quot;the app owns&quot;]
     a1[&quot;application state: threads, turns, streams, approvals, settings, account, agents&quot;]
     a2[&quot;rules: what an event or an action changes, stale-result dropping&quot;]
     a3[&quot;derived values: counts, totals, filters, what a screen shows&quot;]
-    a4[&quot;screens: which rtwk widgets, laid out how, bound to which keys&quot;]
+    a4[&quot;screens: which rtwk widgets, laid out how, bound to which keys; which route and which modal are shown&quot;]
   end
   subgraph B[&quot;the backend owns&quot;]
     b1[&quot;sessions, model calls, tools, sandbox, config files, auth&quot;]
@@ -56,28 +56,28 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 <h2>3. Crate and module layout</h2>
 <div class="diagram"><pre class="mermaid">flowchart TB
   subgraph crate[&quot;codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)&quot;]
-    main[&quot;main.rs: CLI, config, tokio runtime, start client, run_app_with&quot;]
-    app[&quot;app.rs: CodexApp (root state) + Msg&quot;]
-    subgraph session[&quot;session/&quot;]
-      client[&quot;client task: notifications and requests to Msg&quot;]
-      threads[&quot;threads: per-thread state, buffering, replay&quot;]
+    main[&quot;main.rs: arg0 dispatch, tokio runtime, start client, run_app_with (runtime entered)&quot;]
+    app[&quot;app.rs: CodexApp (root state), ingress events, apply_app&quot;]
+    subgraph session[&quot;shell + threads/&quot;]
+      client[&quot;shell.rs: the only spawner; client via rtwk-tokio spawn_tokio / subscribe; epoch stamping&quot;]
+      threads[&quot;threads/: per-thread models and apply (no replay)&quot;]
       stream[&quot;streaming: deltas, commit rules (carried-over chunking)&quot;]
-      appr[&quot;approvals: pending requests with ids&quot;]
+      appr[&quot;approvals: server requests keyed by connection epoch&quot;]
     end
     commands[&quot;commands/: 69 slash commands, parsing, queue rules&quot;]
     keymap[&quot;keymap/: tui.keymap config to rtwk Shortcuts, vim mode&quot;]
     theme[&quot;theme.rs&quot;]
-    root[&quot;ui/view.rs: Theme, providers, Navigator, routes&quot;]
+    root[&quot;ui/view.rs: Theme, providers, route match, modal layer; ui/thread_ui.rs: ThreadUi controllers&quot;]
     subgraph screens[&quot;screens/ (one directory per slice)&quot;]
       s1[&quot;chat, cells, composer, popovers, transcript, select&quot;]
       s2[&quot;approvals, settings, pager, backtrack, resume, status, usage&quot;]
-      s3[&quot;agents, sidebar, dialogs, pets, voice, ui_tree&quot;]
-      s4[&quot;onboarding, startup, import&quot;]
+      s3[&quot;agents, sidebar, dialogs, pets, voice&quot;]
+      s4[&quot;update prompt S01, onboarding S02-S04, startup prompts S05, import S06&quot;]
     end
-    inline[&quot;inline/: inline screen mode (last)&quot;]
+    inline[&quot;inline/: inline screen mode S27 (last)&quot;]
     tests[&quot;tests/: screens per slice, session, scenarios, perf/&quot;]
   end
-  subgraph reuse[&quot;carried over from codex-tui (copied, non-UI)&quot;]
+  subgraph reuse[&quot;carried over from codex-tui (copied, non-UI; REUSE minus renderers, with dependency closure)&quot;]
     c1[&quot;app_server_session, app_command (protocol seam)&quot;]
     c2[&quot;keymap parsing, chunking, markdown_copy, clipboard OS side&quot;]
     c3[&quot;analytics data, thread/update/session helpers&quot;]
@@ -96,17 +96,17 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 <h2>4. Runtime: an event from the backend reaches the screen</h2>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
   participant AS as app-server
-  participant T as session client task (tokio)
+  participant T as shell subscription (tokio, rtwk-tokio)
   participant IN as ingress router (UI thread)
   participant TM as ThreadModel of thread X
   participant V as view(&amp;state)
   participant R as rtwk
   AS-&gt;&gt;T: notification (thread X, turn, item, delta)
-  T-&gt;&gt;IN: ThreadEv for X, stamped with X&#x27;s attach epoch
-  Note over IN: R1 drops events of an older epoch
+  T-&gt;&gt;IN: ThreadEv for X, stamped with the epoch captured when this subscription was created
+  Note over IN: R1 drops events of an older epoch. User intents enter the same stream (R10)
   IN-&gt;&gt;TM: apply(ThreadModel X, ThreadEv, ThreadFx X)
-  Note over TM: R3 it can touch only thread X. R4 transcript upsert by (TurnId, ItemId), so a repeat updates and never duplicates
-  TM-&gt;&gt;TM: Versioned slices it touched bump their revision
+  Note over TM: R3 it can touch only thread X. R4 transcript upsert by (TurnId, ItemId), so a repeat updates and never duplicates. A resume snapshot replaces its turns wholesale
+  TM-&gt;&gt;TM: Versioned slices it touched bump their rev (memo deps carry rev plus Rc data)
   IN-&gt;&gt;V: one view run for everything applied this flush
   V-&gt;&gt;V: derived values computed (R7), memo subtrees with unchanged revisions reused
   V-&gt;&gt;R: widget tree
@@ -117,18 +117,21 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   participant U as user
   participant R as rtwk (Focus, Shortcuts)
   participant H as handler cx.on
+  participant IN as ingress stream
   participant M as model apply
-  participant SH as shell (the only place that spawns)
+  participant SH as shell (the only place that spawns, rtwk-tokio)
   participant AS as app-server
   U-&gt;&gt;R: Enter in the composer of thread X
   R-&gt;&gt;H: action
-  H-&gt;&gt;M: Intent Submit for thread X (R10, a value in the same ordered stream)
-  M-&gt;&gt;M: TurnState Idle to Running (R5), pending ticket 7 for (X, RequestId) (R3, R13)
+  H-&gt;&gt;IN: Intent Submit for thread X, text from ThreadUi (R10)
+  IN-&gt;&gt;M: in arrival order, after events already received
+  M-&gt;&gt;M: TurnState Idle to Running (R5), outgoing ticket 7 for (X, Ticket) (R3, R13)
   M--&gt;&gt;SH: Effects: Rpc start turn, ticket 7
   SH-&gt;&gt;AS: request
   U-&gt;&gt;R: switches to thread Y
   AS--&gt;&gt;SH: reply for ticket 7
-  SH-&gt;&gt;M: Reply of T for ticket 7
+  SH-&gt;&gt;IN: Reply of T for ticket 7
+  IN-&gt;&gt;M: Reply of T for ticket 7
   M-&gt;&gt;M: pending.resolve(reply) checks the ticket (R1): still current, so applied to X only
   Note over M: had the turn been interrupted, the ticket would be gone and the reply dropped by construction</pre></div>
 <h2>6. App state shape</h2>
@@ -143,12 +146,17 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     agents: AgentsState
   }
   class ThreadModel {
-    draft and queue: per thread (R2)
-    transcript: ordered map by TurnId and ItemId, upsert (R4)
+    queue: submitted messages (R2)
+    transcript: ordered map by TurnId and ItemId, upsert; snapshot replaces (R4)
     turn: TurnState (R5)
-    pending: map of ThreadId and RequestId to ticket (R1, R3)
-    approvals: list of Approval
+    outgoing: ThreadId and Ticket to Ctx (R1, R3)
+    server_requests: ConnEpoch, ThreadId, ServerRequestId to Approval (R3, R13)
     tokens: Versioned Usage
+  }
+  class ThreadUi {
+    UI module, R14 allowlist, not the model
+    composer: TextEditingController
+    scroll, selection controllers
   }
   class TurnState {
     Idle
@@ -160,35 +168,38 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     Failed
   }
   class Approval {
-    id: ApprovalId (R13)
+    id: ServerRequestId scoped by ConnEpoch (R13)
     kind: Exec, Patch, Permissions, Mcp, UserInput
   }
   class Session {
+    state: Starting, Ready, Failed
     backend
-    connection: watch
+    conn_epoch: ConnEpoch, changes arrive as events
     rate_limits: Remote (R6)
     attach_epoch per thread (R1)
   }
   class NavState {
-    route
-    dialogs
+    route: Route enum, matched by the root view
+    modals: queue, head shown by the modal layer
     selection: by item key, not index (R11)
   }
   CodexApp --&gt; ThreadModel
   ThreadModel --&gt; TurnState
   ThreadModel --&gt; Approval
+  CodexApp ..&gt; ThreadUi : view keyed by ThreadId
   CodexApp --&gt; Session
   Session --&gt; Remote
   CodexApp --&gt; NavState</pre></div>
-<p>Derived (functions of the model, never stored, R7): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows, <code>can_submit</code> and other predicates (R8). Not allowed: app data in rtwk widget-local state (<code>Obs</code>, <code>use_state</code>) — R14; IO in <code>apply</code> or views — R12; the clock read in views — R11.</p>
+<p>Derived (functions of the model, never stored, R7): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows, <code>can_submit</code> and other predicates (R8). Not allowed: app data in rtwk widget-local state (<code>Obs</code>, <code>use_state</code>, hand-written <code>State</code>, controllers) outside UI-only modules — R14; IO in <code>apply</code> or views — R12; the clock read in views — R11. <code>ThreadUi</code> holds per-thread controllers (composer text, scroll, selection) so A→B→A keeps them; the model never mirrors the draft — the text enters <code>apply</code> as an intent on submit. App-scoped events (account, rate limits, app-level MCP startup) go through <code>apply_app(&amp;mut CodexApp, AppEv, &amp;mut AppFx)</code>.</p>
 <h2>6b. Bug classes removed by construction (ADR-003, accepted 2026-11-17)</h2>
-<p>Checked on codex-tui's real history (research/state-bug-classes.md; the report for openai/codex developers: <a href="reports/tui-bug-classes.html">reports/tui-bug-classes.html</a>). Of 55 state-mechanism fix commits: 28 impossible by construction, 25 caught by a mandatory test, 2 still possible.</p>
+<p>Checked on codex-tui's real history (research/state-bug-classes.md; the report for openai/codex developers: <a href="reports/tui-bug-classes.html">reports/tui-bug-classes.html</a>). Of 55 state-mechanism fix commits: 20 impossible by construction, 33 caught by a mandatory test or lint, 2 still possible (after arch-review M2/M4: SC6a is caught by R14's lint, not impossible; the live+replayed case of SC4a, 6107b9886, is caught by the snapshot-replaces test).</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
   subgraph bugs[&quot;bug sub-class in codex-tui&quot;]
     b1[&quot;late or superseded reply applied&quot;]
     b2[&quot;thread switch loses or mixes state&quot;]
     b3[&quot;event or reply routed to the wrong thread&quot;]
-    b4[&quot;duplicate items after resume or reconnect&quot;]
+    b4[&quot;duplicate items within a stream&quot;]
+    b4r[&quot;duplicates of live vs replayed items after resume&quot;]
     b5[&quot;turn state left behind after the turn ends&quot;]
     b6[&quot;widget holds a stale copy of app state&quot;]
     b7[&quot;derived value or flag kept by hand&quot;]
@@ -197,14 +208,16 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     b10[&quot;selection index past changed data, loading vs empty&quot;]
     b11[&quot;blocking IO on the event path&quot;]
     b13[&quot;wrong id or id scope&quot;]
+    bp[&quot;refetch policy, distinct items with same text, one bool for two outcomes&quot;]
   end
   subgraph rules[&quot;rule&quot;]
-    r1[&quot;R1 tickets on replies, spawn only in shell, attach epoch&quot;]
-    r2[&quot;R2 per-thread data in ThreadModel&quot;]
-    r3[&quot;R3 thread-scoped apply and effects&quot;]
+    r1[&quot;R1 tickets on replies, spawn only in shell, epoch captured per subscription&quot;]
+    r2[&quot;R2 per-thread data in ThreadModel, controllers in ThreadUi&quot;]
+    r3[&quot;R3 thread-scoped apply and effects, connection-scoped server requests&quot;]
     r4[&quot;R4 transcript upsert by TurnId, ItemId&quot;]
+    r4s[&quot;R4 resume snapshot replaces its turns&quot;]
     r5[&quot;R5 transient state inside TurnState Running&quot;]
-    r14[&quot;R14 no app data in widget state&quot;]
+    r14[&quot;R14 no app data in widget state (lint)&quot;]
     r7[&quot;R7 R8 derived as functions, lifecycles as enums&quot;]
     r9[&quot;R9 first-arrival upsert, confirm local changes&quot;]
     r10[&quot;R10 intents as values in the event stream&quot;]
@@ -216,6 +229,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   b2 --&gt; r2
   b3 --&gt; r3
   b4 --&gt; r4
+  b4r --&gt; r4s
   b5 --&gt; r5
   b6 --&gt; r14
   b7 --&gt; r7
@@ -224,29 +238,32 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   b10 --&gt; r11
   b11 --&gt; r12
   b13 --&gt; r13
-  r1 --&gt; imp([&quot;impossible: types, privacy, lints&quot;])
+  r1 --&gt; imp([&quot;impossible: types, privacy&quot;])
   r3 --&gt; imp
   r4 --&gt; imp
   r5 --&gt; imp
-  r14 --&gt; imp
+  r11 --&gt; imp
   r13 --&gt; imp
-  r2 --&gt; cau([&quot;caught: mandatory tests&quot;])
+  r2 --&gt; cau([&quot;caught: mandatory tests, lints&quot;])
+  r4s --&gt; cau
+  r14 --&gt; cau
   r7 --&gt; cau
   r9 --&gt; cau
   r10 --&gt; cau
-  r11 --&gt; cau
-  r12 --&gt; cau</pre></div>
-<p>Mandatory tests the rules imply: switch round-trip (A→B→A), end-path matrix (complete / interrupt / fail × feature), event-permutation property tests, lifecycle × intent table, <code>Model::assert_consistent()</code> after every event. Lints: <code>AppCx::spawn</code> outside the shell, <code>Obs</code>/<code>use_state</code> outside UI-only modules, <code>Instant::now</code>/<code>SystemTime::now</code> in views, blocking IO in <code>apply</code>/views.</p>
+  r12 --&gt; cau
+  bp --&gt; poss([&quot;still possible: product logic, conventions&quot;])</pre></div>
+<p>Mandatory tests the rules imply: switch round-trip (A→B→A), end-path matrix (complete / interrupt / fail × feature), event-permutation property tests, lifecycle × intent table, <code>Model::assert_consistent()</code> after every event. Lints (own <code>clippy.toml</code>; crate-wide deny, <code>#[allow]</code> only on allowlisted modules, a CI grep rejects other allows): every spawn path outside the shell (<code>AppCx::spawn</code>, <code>Cx::spawn</code>, rtwk-tokio spawn/subscribe/follow, <code>std::thread::spawn</code>, <code>tokio::spawn</code>, <code>AppCx::channel</code>), <code>Obs</code>/<code>use_state</code>/ hand-written <code>State</code>/controllers outside UI-only modules, <code>Instant::now</code>/<code>SystemTime::now</code> in views, blocking IO in <code>apply</code>/views. Plus the resume/reconnect-mid-turn test (transcript equals the snapshot).</p>
 <h2>7. Navigation map (screens of architecture.md §1)</h2>
+<p>Routes are <code>NavState.route</code>, a model enum the root view matches; dialogs are the modal layer over the head of <code>NavState.modals</code> / thread approvals.</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
-  start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; prompts{{&quot;S05 startup prompts&quot;}} --&gt; chat
-  chat[&quot;S10 main chat (home)&quot;]
+  start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, GovCloud, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; chat
+  chat[&quot;S10 main chat (home); composer usable as a draft while Session is Starting&quot;]
+  chat -.modal while Starting.-&gt; prompts{{&quot;S05 startup prompts&quot;}}
   chat --&gt;|Ctrl+T, /diff| pager[&quot;S16 pager&quot;]
   chat --&gt;|/resume, /fork| resume[&quot;S18 resume picker&quot;]
   chat --&gt;|/usage| usage[&quot;S20 usage dashboard&quot;]
   chat --&gt;|/agents| agents[&quot;S21 agents center&quot;]
   chat --&gt;|/import| imp[&quot;S06 import&quot;]
-  chat --&gt;|ui_tree| uit[&quot;S26 ui_tree viewer&quot;]
   chat -.dialog.-&gt; appr{{&quot;S13 approvals&quot;}}
   chat -.dialog.-&gt; sel{{&quot;S14 selection dialogs&quot;}}
   chat -.dialog.-&gt; set{{&quot;S15 settings&quot;}}
@@ -256,21 +273,22 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   chat -.mode.-&gt; bt([&quot;S17 backtrack&quot;])
   chat -.part.-&gt; side([&quot;S22 sidebar, side panes&quot;])
   chat -.part.-&gt; pets([&quot;S24 pets&quot;])
-  chat -.part.-&gt; voice([&quot;S25 voice&quot;])</pre></div>
+  chat -.part.-&gt; voice([&quot;S25 voice&quot;])
+  chat -.part.-&gt; uit([&quot;S26 ui_tree in the status line, inline visualization in cells&quot;])</pre></div>
 <h2>8. Main chat screen: widget tree</h2>
 <div class="diagram"><pre class="mermaid">flowchart TB
   scaffold[&quot;Scaffold (theme, focus scope, Shortcuts from keymap)&quot;]
   scaffold --&gt; row[&quot;Row&quot;]
   row --&gt; sidebar[&quot;Sidebar (S22): TabBar + panes, slide animation&quot;]
   row --&gt; col[&quot;Column (main)&quot;]
-  col --&gt; list[&quot;Transcript: ListView.builder over thread.transcript + tail; SelectionArea (S11 cells: MarkdownView, DiffView, CodeView)&quot;]
+  col --&gt; list[&quot;Transcript: ListView::builder(count, item) over thread.transcript + tail; SelectionArea (S11 cells: MarkdownView, DiffView, CodeView)&quot;]
   col --&gt; banners[&quot;Banners: backend / connection&quot;]
   col --&gt; pending[&quot;Pending input preview, queued messages&quot;]
   col --&gt; working[&quot;Working indicator: Spinner, elapsed, interrupt hint&quot;]
-  col --&gt; composer[&quot;Composer: TextArea (+ vim from keymap), attachments&quot;]
-  col --&gt; footer[&quot;Footer hints + status line&quot;]
-  scaffold -.overlay.-&gt; popovers[&quot;Popovers: / @ $ (OptionList, CommandPalette)&quot;]
-  scaffold -.overlay.-&gt; dialogs[&quot;Dialogs: approvals, selection, settings (show_dialog)&quot;]</pre></div>
+  col --&gt; composer[&quot;Composer: TextArea over the ThreadUi controller, attachments (G12: atomic elements, kill ring, vim, paste-burst)&quot;]
+  col --&gt; footer[&quot;Footer hints + status line (ui_tree elements)&quot;]
+  scaffold -.overlay.-&gt; popovers[&quot;Popovers: / @ $ (Autocomplete, OptionList, CommandPalette)&quot;]
+  scaffold -.modal layer.-&gt; dialogs[&quot;Modal layer: Stack + ModalBarrier + Dialog for the head of nav.modals / thread approvals&quot;]</pre></div>
 <h2>9. Tests, parity and performance</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   subgraph fixtures[&quot;one set of fixtures&quot;]
@@ -293,12 +311,12 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   snaps[&quot;oracle .snap files&quot;] -.-&gt;|visual reference, deltas listed per slice| t2</pre></div>
 <h2>10. Migration waves (tm <code>tui-rtwk</code>)</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
-  w0[&quot;W0: research, architecture, this design, skeleton&quot;] --&gt; w1[&quot;W1 foundation: session core, slash commands, keymap, scenario harness, perf baseline of the original, refs&quot;]
-  w1 --&gt; w2[&quot;W2 main chat (critical path): layout, cells and streaming, composer, popovers, transcript, selection dialog, perf milestone&quot;]
-  w2 --&gt; w3[&quot;W3 screens in parallel: 17 slices, 4-5 agents&quot;]
+  w0[&quot;W0: research, architecture, this design, arch-review, process design&quot;] --&gt; w1[&quot;W1 foundation: skeleton, session core, slash commands, keymap, scenario harness, perf baseline of the original, refs&quot;]
+  w1 --&gt; w2[&quot;W2 main chat (critical path): S10 layout, S11 cells and streaming, composer, S12 popovers, transcript, S14 selection dialog, perf milestone&quot;]
+  w2 --&gt; w3[&quot;W3 screens in parallel: 18 slices (S13, S15-S25, S01-S06), 4-5 agents&quot;]
   w3 --&gt; w4[&quot;W4: inline mode, rtwk gaps, parity sweep, final perf report&quot;]</pre></div>
 <h2>Open points on this design</h2>
-<ol><li>App state (§4–§6b) per accepted ADR-003; the exact module split of <code>ThreadModel</code> and the shell is settled in the skeleton.</li><li>Which reusable codex-tui modules are copied in W1 vs with their screen (§3 "carried over") — from reuse-map.csv per slice.</li><li>Sidebar and side panes as part of the chat screen (§8) or a split layout of their own.</li></ol>
+<ol><li>App state (§4–§6b) per accepted ADR-003 and the arch-review fixes; the exact module split of <code>ThreadModel</code>, <code>ThreadUi</code> and the shell is settled in the skeleton.</li><li>Which reusable codex-tui modules are copied in W1 vs with their screen (§3 "carried over") — from reuse-map.csv per slice.</li><li>Sidebar and side panes as part of the chat screen (§8) or a split layout of their own.</li></ol>
 <p class="note">Generated from design.md by design_html.py. Diagrams drawn by Mermaid (loaded from a CDN).</p>
 <script type="module">
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
