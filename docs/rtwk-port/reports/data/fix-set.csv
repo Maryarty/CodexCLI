@@ -1,0 +1,509 @@
+hash,full_sha,upstream,date,subject,primary_class_by_subject,files_top,areas,state_subclass
+0184dfa6a,0184dfa6a48f0110dd9c6835522492908e5abcf3,upstream,2026-11-16,Fix the missing label style in the mention truncation test (#61762),wrap_rect,bottom_pane,bottompane_state,
+e649c6d74,e649c6d74c92c638658af8f08290a1ea81d6872f,upstream,2026-11-15,Fix Unicode grapheme highlighting in history search (#61725),unicode,bottom_pane,bottompane_state,
+03cb32941,03cb329415f3abd4216181443405ef32d5da8143,upstream,2026-11-15,Fix status detail truncation for wide Unicode characters (#61692),unicode,status_indicator_widget,other_ui,
+641e2e362,641e2e362ca781b8fe350c396441d49e34dab35e,upstream,2026-11-13,Ignore stale workspace headline requests and archived messages (#61411),state_ui,app;workspace_messages_tests;chatwidget;app_event;workspace_messages,other_ui;controller_state,SC1
+5ca2007ab,5ca2007abe0f514f62c14e333075fb1faf968cc4,upstream,2026-11-13,Expose thread costs in statusline state and reject stale usage reads (#61410),state_ui,app;chatwidget;app_event,transcript;controller_state,SC1
+2bb2e20d6,2bb2e20d6aa8ded4d6da6babebb3b61b3c50efb7,upstream,2026-11-12,Fix fork parent metadata in reconstructed TUI sessions (#61183),state_ui,app;session_state,controller_state,SC2a
+6107b9886,6107b9886c114702e5c1cfd1c1b54f7c48bfaf49,upstream,2026-11-09,Avoid duplicate assistant messages when resuming Cloud threads (#60335),race,app;chatwidget,transcript;controller_state,SC4a
+ffdf2dadd,ffdf2daddb2051ffff1cbb38ce4b07660467c693,upstream,2026-11-09,Suppress stale cloud stream disconnects after reopening a thread (#60327),sched_perf,app;dynamic_tools_tests;onboarding,other_ui;controller_state,SC1
+ee51bb132,ee51bb132e8e530869e5cf352b1597b99bedb7d4,upstream,2026-11-08,Fix MCP startup tracking when attaching to shared app servers (#60280),other,app;chatwidget,controller_state,
+054128c9d,054128c9d9324bf48cd1d280bad9a0f4488595e1,upstream,2026-11-05,Fix TUI assistant messages interrupted by tool execution (#59700),race,app;history_cell;chatwidget;app_event,transcript;controller_state,SC4a
+44252e3f5,44252e3f5de6349b9f2b034ce7d7815b7df9c382,upstream,2026-11-05,Fix reasoning summary restoration in the TUI (#59698),other,app;chatwidget,controller_state,
+7accd2795,7accd27956b5827662bf395a9a1da1717672790b,upstream,2026-11-02,Fix Escape handling in memory reset confirmation (#58971),keys,chatwidget;bottom_pane,bottompane_state,
+8a17396d1,8a17396d137e07bdc0795bc50577dd90d734548e,upstream,2026-11-02,Fix live stream reflow at the allocated conversation width (#58927),resize,transcript_view;app;chatwidget,layout_text;transcript;controller_state,
+964aeda62,964aeda6273f67f633a2f0f198158471ef095547,upstream,2026-10-25,Fix transcript selection input routing and preserve composer drafts (#57224),scrollback,app;keymap;tui;app_backtrack;bottom_pane;pager_overlay,terminal_layer;transcript;bottompane_state;input_keys;controller_state,SC9
+430a16799,430a16799d90e296fb27b1e94f206023902b7e56,upstream,2026-10-21,Preserve thread model settings across resume and revert (#55923),state_ui,app,controller_state,B
+7389eebf4,7389eebf45df47895b386334bc1c5b9809eb9605,upstream,2026-10-20,Fix TUI permission selection and session state handling (#55682),state_ui,app;chatwidget;named_session_lookup;named_session_lookup_tests,controller_state,SC9
+0d337e5fe,0d337e5fe78860b25053bb2eb37c3876e566c428,upstream,2026-10-19,Fix recall of command-line initial prompts in the TUI (#55372),other,app;chatwidget;bottom_pane,bottompane_state;controller_state,
+c313eb75f,c313eb75fd932f9a3b05461a2a227d7a7f7f06f0,upstream,2026-10-15,Prevent duplicate assistant messages around interleaved commands (#54365),race,app;chatwidget,transcript;controller_state,SC4a
+76ed3b484,76ed3b484d62ccceb9fa512ff4dd139f421814c3,upstream,2026-10-14,Fix session lookup and resume after rollout compression (#54008),state_ui,lib,other_ui,B
+97c1f6289,97c1f628983a401b14fefc2b2b2573806c4e9931,upstream,2026-10-11,Fix startup draft recovery for pending Vim Replace keys (#53148),keys,bottom_pane;startup_recovery_tests,layout_text;other_ui;bottompane_state;input_keys,
+9a59289fb,9a59289fbea0e7e829c06aecfdd627651854da0f,upstream,2026-10-09,Fix races in remote environment and session replacement tests (#52591),race,app,controller_state,N
+745d86552,745d86552113399ed90f2e4ee5d700f5c5c6f483,upstream,2026-10-07,Align Bazel release builds with Cargo and fix platform compatibility (#51848),other,main,other_ui,
+c8949e55c,c8949e55c28a97eb2770971eb3c6a918bdefd9af,upstream,2026-10-05,Ignore stale refresh responses in agents overview tests (#51064),state_ui,app,controller_state,SC1
+595534314,595534314f7636b52da3a066aded5be87bbd9888,upstream,2026-10-01,Use descriptor-safe helpers for executable test fixtures (#50018),keys,tui/tests;get_git_diff;external_editor,other_ui,
+596ae94fb,596ae94fb00f8325d6bf835a9ebdc90baab4ad33,upstream,2026-09-30,Classify SQLite corruption using typed error codes (#49710),other,startup_error;lib,other_ui,
+3620b2caf,3620b2caf8afecfcedd5c5c9520c0d239c880f26,upstream,2026-09-30,Detect SQLite corruption during startup and preserve recovery backups (#49701),other,chatwidget,controller_state,
+c248f6d48,c248f6d48b97eb4a2aa56147a0b11b7d763278b9,upstream,2026-09-29,Fix model provider lookup for TUI history (#49171),state_ui,app_server_session,controller_state,B
+4c8cf3964,4c8cf3964dc0ae324222b77cc907940f0aedbb8a,upstream,2026-09-27,Fix SGR mouse reporting for Windows terminal capture (#48799),compat,tui,terminal_layer,
+67a709665,67a709665ac7b50311b93e32612c9a8281684787,upstream,2026-09-27,Fix the session-start helper call in the command center test (#48646),keys,app,controller_state,
+7b7d93440,7b7d934408e6df20950a7a2501a669650279ab06,upstream,2026-09-26,Fix TUI math rendering for zero and big wedge expressions (#48551),render,markdown_render,layout_text,
+0fbf0bedc,0fbf0bedc25d0effec4b758030772468339d315c,upstream,2026-09-26,Fix ChatGPT browser sign-in for local app servers (#48502),other,lib;onboarding,other_ui,
+6e1ab4d29,6e1ab4d294cdf1d2606a91bf1acf6de0f0959c7a,upstream,2026-09-26,"Fix Mermaid shape, relationship, and state description parsing (#48489)",keys,markdown_render,layout_text,
+1f17a0a04,1f17a0a04b5c53ef2ea89b7d874764139321b26a,upstream,2026-09-25,Prevent stale voice answers from reappearing during speech recovery (#47975),state_ui,chatwidget,controller_state,SC1
+2c087a0cc,2c087a0cc2ef1d731086a1d0cb0081bdd792cc4d,upstream,2026-09-22,Fix Escape navigation in read-only agent sessions (#47320),keys,app;app_backtrack,transcript;controller_state,
+bf7c87a7b,bf7c87a7b7bdb1b65cbfdca06d15713d3aa20b01,upstream,2026-09-22,Ignore stale thread-close notifications after resuming a thread (#47155),link,app,controller_state,SC1
+79d2144ec,79d2144ec698497f710be77e5288b162c72bb11f,upstream,2026-09-19,Standardize TUI picker presentation and fix wrapping boundaries (#46691),wrap_rect,app;snapshots;theme_picker;chatwidget;pets;keymap_setup;theme_picker_model_tests;bottom_pane,layout_text;terminal_layer;transcript;bottompane_state;input_keys;controller_state,
+1bd1bfa7c,1bd1bfa7ca4cd15f0dbf5efb8a28b9142c961d37,upstream,2026-09-17,Fix daemon socket isolation checks for private tmp mounts (#46125),other,app,controller_state,
+16f59db96,16f59db96eaa260eb2863974e4e6dea6bcca6bb3,upstream,2026-09-17,Pause TUI events in the agents overview regression test (#46104),state_ui,app,controller_state,N
+ffae97921,ffae979216bfbe94070bd21868d1695277105a63,upstream,2026-09-16,Revert the current thread when editing an earlier TUI prompt (#45845),other,app;snapshots;chatwidget;app_server_session;app_backtrack;app_event,transcript;controller_state,SC8b
+5fb3b7e40,5fb3b7e401cc7fa5b95549ee5b2ecfbcb755ba91,upstream,2026-09-14,Fix fuzzy match scoring within Unicode lowercase expansions (#45475),unicode,bottom_pane,bottompane_state,
+b876f8898,b876f889818e99b371e3078e3f499d75164c13bb,upstream,2026-09-14,Fix clipboard routing for tmux and SSH sessions (#45457),compat,snapshots;chatwidget;clipboard_copy,terminal_layer;transcript;controller_state,
+b83105710,b83105710695b70b6d96a64d1e4612bdf68d5f92,upstream,2026-09-09,Clear stale transcript history when switching threads (#43994),scrollback,app;app_event,controller_state,SC2a
+095da4b7e,095da4b7e8b70b01afb5c6131ef926dcb8c0d85d,upstream,2026-09-08,Fix transcript viewer restoration and half-page scrolling (#43889),scrollback,app;tui;custom_terminal_test_support;custom_terminal;pager_overlay,terminal_layer;transcript;controller_state,
+6fee98cc8,6fee98cc85a69ee44a856121cac0f64505cf48d0,upstream,2026-09-08,Expand TUI regression coverage for realtime voice conversations (#43645),paste,app;chatwidget,transcript;controller_state,
+a44454656,a44454656459437fc8e2ffa9eca0646537b1fdfd,upstream,2026-09-07,Remove a stale transcript field assignment from the TUI (#43584),scrollback,chatwidget,controller_state,
+b04ed4c50,b04ed4c50c5cebb198074c3e5aaf712b989313cc,upstream,2026-09-07,Initialize `cwd` in TUI resume and fork test fixtures (#43419),state_ui,app,controller_state,N
+8e6a44b42,8e6a44b428e31f91b21edc97904fcdf4f0931ade,upstream,2026-09-04,Fix the worktrees experimental feature test fixture (#42682),paste,chatwidget,bottompane_state,
+99660ab3c,99660ab3c7b861c916e467581fa9b8723504d66b,upstream,2026-08-23,Add regression coverage for patch approval paging (#40169),state_ui,app;snapshots,bottompane_state;controller_state,N
+0841d9bba,0841d9bba5e53104caa86eda39c9974afe63a639,upstream,2026-08-17,Hang soft-break whitespace in the TUI composer (#39022),state_ui,bottom_pane,layout_text,L
+c0d59bf61,c0d59bf6147c83d067e257e858b928f81820ab50,upstream,2026-08-14,Fix the missing resume picker history mode import (#38608),state_ui,resume_picker,bottompane_state,N
+3b3a91ccf,3b3a91ccf0cb09fc8f713385d6eaae98e8919162,upstream,2026-08-14,Fix resume transcript preview line selection (#38605),scrollback,resume_picker_transcript_preview;resume_picker_transcript_preview_tests;resume_picker,transcript;bottompane_state,SC14
+4343b2bdc,4343b2bdc4e7eb95880a230e588bd07d9f181c2f,upstream,2026-08-13,Add app-server support for reverting paginated threads (#38440),other,app;chatwidget,controller_state,
+4ffeddcbc,4ffeddcbcc0dd72251433abff1ca9423e8017008,upstream,2026-08-06,Fix subagent MCP startup status settling (#37344),state_ui,app,controller_state,SC5a
+8922a784f,8922a784fe6aa80683fe97c2dcdfdc361478aa7f,upstream,2026-08-03,Harden the TUI focus palette regression test (#36759),state_ui,tui/tests,other_ui,N
+3725f02cf,3725f02cf38d856bc82bb46dd68ab61bb96ec6fc,upstream,2026-07-29,Fix TUI layout for halfwidth Japanese sound marks (#35962),wrap_rect,line_truncation_tests;snapshots;width;history_cell;text_formatting;live_wrap;line_truncation;bottom_pane;markdown_render_tests;markdown_render;wrapping;status;terminal_hyperlinks,layout_text;terminal_layer;other_ui;transcript;bottompane_state,
+e1895710a,e1895710addb863acf335ef18b4c43b128439567,upstream,2026-07-29,Fix TUI input queue handling during MCP startup (#35957),race,app;chatwidget,controller_state,SC7b
+bbad09a83,bbad09a83b1fd9d7e507d688fcd266a7889d7df6,upstream,2026-07-21,Fix Windows TUI navigation key handling (#34625),compat,tui,terminal_layer;other_ui,
+5c18cc0ac,5c18cc0acc3734f0e78e422a7fd94ea4a2be652e,upstream,2026-07-20,Clear stale Guardian reviews when turns end (#34371),race,chatwidget,controller_state,SC5a
+4d7a5c7c7,4d7a5c7c7394b687ebcb67e634528b2b8c5578d9,upstream,2026-07-19,Avoid liveness races when starting side conversations (#34199),race,app;app_server_session,controller_state,SC8a
+b556ce3fe,b556ce3fecaafbd13db8253c82a949647a480f64,upstream,2026-07-15,Fix skill completion around bound mentions with suffixes (#33237),other,bottom_pane,bottompane_state,
+fca8c00f1,fca8c00f11bdbfaabed6bae2cb3765fcbd106fe8,upstream,2026-07-14,Fix TUI status visibility around streamed output (#33105),sched_perf,chatwidget,controller_state,
+f46b53bd8,f46b53bd85c10c2afbd44b8922164c49d582c2c3,upstream,2026-07-09,fix(tui): hide empty reasoning summaries (#31652),other,history_cell;chatwidget;thread_transcript,transcript;controller_state,
+7b4e70d56,7b4e70d567ca2c15b2db8ac16c729e894843cdd3,upstream,2026-07-06,"Revert ""[core] Support interleaved response items"" (#31261)",race,chatwidget,controller_state,N
+850da19dc,850da19dc4e12827b6dbe991d59cffafd4d032ec,upstream,2026-06-28,fix(tui): clear completed safety buffering prompt (#30490),other,chatwidget,controller_state,SC5a
+6db576895,6db576895a808608d65578f9d704971601c23c9b,upstream,2026-06-22,fix(config): address permission profile review follow-ups (#29479),state_ui,chatwidget,controller_state,N
+5c0fbf349,5c0fbf34925041ac94a267aa17237e4e07b0ce42,upstream,2026-06-22,[codex] Fix usage-limit reset copy and state (#28793),link,app;chatwidget;app_event;slash_command,other_ui;controller_state,SC6a
+cb15c6476,cb15c647608ea848713837e4b49975e5a1481051,upstream,2026-06-16,Revert thread recencyAt for sidebar ordering (#28655),race,app;app_server_session;resume_picker,bottompane_state;controller_state,N
+3ded84648,3ded846488481570aca1c4b2022aa6921e7bf625,upstream,2026-06-16,fix(tui): highlight C++ module files (#28554),render,snapshots;render;diff_render,layout_text;other_ui,
+76135cbe7,76135cbe7ec8dbcc165aa1f2bd21358f9f1c6571,upstream,2026-06-16,fix(tui): restore TUI after suspend (#28342),suspend,tui;terminal_probe,terminal_layer,
+44403dd3d,44403dd3ddff55753af49dd9eba1351c28dc256a,upstream,2026-06-12,tui: clear stale hook row after turn completion (#27619),race,chatwidget,controller_state,SC5a
+3691fe5b7,3691fe5b76ccfa84835936c63efffb053dc8e6c6,upstream,2026-06-10,fix: Auto-recover from corrupted sqlite databases (#26859),other,startup_error;lib,other_ui,
+8a299fb70,8a299fb7043b645cecb50b239beb7d0e9e4ac7e7,upstream,2026-06-09,fix: Prevent /review crash when entering Esc on steer message (#22879),keys,app;chatwidget;app_server_session,controller_state,
+4ca2e436e,4ca2e436e50951baa1ea74246fe09bbbff1fda4a,upstream,2026-06-08,fix(tui): linkify complete bare URLs with tildes (#27088),link,snapshots;markdown_text_merge;markdown_render_tests;markdown_render;lib,layout_text;other_ui,
+9e0d7f02c,9e0d7f02c9416c46dde6e571068a0fb03a4facdf,upstream,2026-06-08,fix: preserve auto review across config and delegation (#26230),state_ui,app;debug_config,other_ui;controller_state,B
+5a440c03f,5a440c03f2f3393169c5df517d1fd8eee969e45e,upstream,2026-06-07,fix(tui): scope MCP startup status by thread (#26639),state_ui,app;chatwidget,controller_state,SC3
+679a944db,679a944dbcdd5de1e745172268eb9e050d0d6034,upstream,2026-06-05,fix(tui): restore cancelled prompt cursor at end (#26457),cursor,chatwidget;bottom_pane,bottompane_state,
+713192381,713192381b74f09f4b92f3ed410da067461d5cd0,upstream,2026-06-05,fix(tui): Windows composer background (#26181),compat,tui;terminal_palette;terminal_probe,terminal_layer,
+841f057f2,841f057f2d2647441cfd3fa586f3f5d06f89d599,upstream,2026-06-05,fix(tui): avoid doubled blank rows while streaming (#26636),render,history_cell,transcript,
+fb0993dd3,fb0993dd3b68315408eaa109924c63f434e85382,upstream,2026-06-05,Fix `/goal` usage text for control commands (#26551),other,app;chatwidget;goal_display,other_ui;controller_state,
+8285cd278,8285cd278babadc98458194fb2dbc3ae7f00429c,upstream,2026-06-03,fix(tui): add reasoning effort fallback shortcuts (#25623),keys,snapshots;keymap;chatwidget,bottompane_state;input_keys,
+a2a9e767f,a2a9e767f7fc5c4fa9dc6c91c6907612dda72cf3,upstream,2026-06-03,Fix multiline paste in /goal edit (#26047),paste,chatwidget;bottom_pane,bottompane_state;input_keys,
+4e540b107,4e540b107690989ea20832f85cd7f121492f5b74,upstream,2026-06-01,fix(tui): clarify footer shortcut overlay hints (#25625),scrollback,bottom_pane,bottompane_state,
+f2e7b462a,f2e7b462a932c654f8c9810387a73c12bd4e198f,upstream,2026-05-29,[codex] Fix Vim normal mode editing (#25022),other,snapshots;keymap;keymap_setup;bottom_pane,layout_text;input_keys,
+bf72be592,bf72be59278e23002a352a53207182985cabb9d0,upstream,2026-05-28,fix(config): use deny for Unix socket permissions (#24970),other,debug_config,other_ui,
+2e0c4f497,2e0c4f4977a042c90505ac5465a924192b198872,upstream,2026-05-28,fix(tui): prevent repository-configured code execution in /diff (#24954),render,get_git_diff,other_ui,
+090144e0e,090144e0eca3978b3ebf29bc376a48b3d37523c5,upstream,2026-05-27,[codex] Fix hyperlink-aware key-value table rendering (#24825),link,markdown_render,layout_text,
+f0f483e8b,f0f483e8b2a2630bf8dfa5f8451e81eba20def6c,upstream,2026-05-27,[codex] Remove stale composer narrative doc references (#24641),state_ui,bottom_pane,bottompane_state;input_keys,N
+8fcf2ad93,8fcf2ad931b90589dd29a571f367e3185d26bbe0,upstream,2026-05-27,fix: Preserve draft text when completing argument-taking slash commands (#23950),state_ui,bottom_pane,bottompane_state,SC14
+5314f5509,5314f55097c2c56e4ca60e98ce6f4c9f755fc12f,upstream,2026-05-27,fix: run standalone updates noninteractively (#24637),other,history_cell;update_action,other_ui;transcript,
+aa184548b,aa184548b1ee0a559fba7be658240053e270e16f,upstream,2026-05-27,fix(tui): complete vim word-end and line-end behavior (#24380),other,snapshots;keymap;keymap_setup;bottom_pane,layout_text;input_keys,
+833c19ed5,833c19ed53a8db3c0d1ceb6b174958e847e7c68c,upstream,2026-05-26,fix(tui): keep raw output above composer in zellij (#24593),compat,snapshots;tui;insert_history,terminal_layer,
+8a4a537e4,8a4a537e4471efbc62ec54b6a57c90a421b19b74,upstream,2026-05-26,fix(tui): avoid modifyOtherKeys for unknown tmux formats (#24371),compat,tui,terminal_layer,
+599416d73,599416d733378dff0557abb2c642ffb6af0670fd,upstream,2026-05-25,fix(tui): prevent macos stderr from corrupting composer (#24459),compat,tui;lib,terminal_layer;other_ui,
+14d80e55c,14d80e55cd8e83b38b673db5cd3d1401773fe49a,upstream,2026-05-25,fix(tui): improve multiline markdown list readability (#24351),render,snapshots;history_cell;streaming;markdown_render_tests;markdown_render;markdown_stream;insert_history,layout_text;terminal_layer;other_ui;transcript,
+20d1b7674,20d1b7674d4604e411bdeea6eaea05cfcb932c78,upstream,2026-05-25,fix(tui): improve markdown table column allocation (#24346),render,snapshots;markdown_render_tests;markdown_render,layout_text,
+acd851e89,acd851e89f31a74c2140f167dcb922dc08becc44,upstream,2026-05-22,fix(tui): restore Windows VT before TUI renders (#24082),compat,tui,terminal_layer,
+5a6e90599,5a6e90599434137b677b7224d995932183844646,upstream,2026-05-21,Fix auto-review permission profile override (#23956),state_ui,app,controller_state,N
+7c3cc1db8,7c3cc1db81a46a4f3ceeca1d7d50df0f7d10d09c,upstream,2026-05-20,Fix thread settings clippy failure (#23724),wrap_rect,chatwidget,controller_state,
+e43a2e297,e43a2e297fe72285890e0f04f9f1aece843c2338,upstream,2026-05-19,Fix stale background terminal poll events (#23231),sched_perf,chatwidget,controller_state,B
+27c4c67b1,27c4c67b15935ba76234f64aa9b0c8252a6207c1,upstream,2026-05-19,Fix: TUI starting in wrong CWD (#23538),other,app;app_server_session;resume_picker;lib,other_ui;bottompane_state;controller_state,
+40be41763,40be41763c94a76755c8d18754502e4a9403fb8f,upstream,2026-05-19,fix(tui): preserve modified enter in plan questions (#23536),keys,bottom_pane,bottompane_state,
+a66712c95,a66712c95d63ab4fbd6f2faf67df4ba99b4485e3,upstream,2026-05-18,fix(tui): warn on unsupported iTerm2 pet versions (#23371),compat,chatwidget;pets,other_ui;controller_state,
+bb43044cb,bb43044cbac4351b90d7d3dd52e74f15bc5f4cb0,upstream,2026-05-18,fix(tui): show shutdown feedback on exit (#23323),suspend,app;chatwidget;bottom_pane,bottompane_state;controller_state,
+deb159d9f,deb159d9ffb848b60a9c63ab9d2ce014d7093b0f,upstream,2026-05-18,Fix TUI stream cleanup after turn errors (#23128),sched_perf,chatwidget,controller_state,
+66af21786,66af2178656f8b385e1c61ec84148576ce955a81,upstream,2026-05-14,Fix /review mode MCP startup render issue (#21624),render,chatwidget,controller_state,
+5a0296251,5a02962519d1b373d300f72eee6b6ab0010d7a77,upstream,2026-05-14,fix(tui): render network approval history by target (#22229),render,history_cell;chatwidget;bottom_pane;pager_overlay,transcript;bottompane_state;controller_state,
+5d7e6a250,5d7e6a2503fc71f09cea71bfca9e193e0c3fd215,upstream,2026-05-13,[codex] Fix TUI wrapping for external borrowed slices (#21235),wrap_rect,wrapping,layout_text,
+e16b4e46d,e16b4e46d47ae15a3e85e4b2388ac65adb679d7c,upstream,2026-05-11,fix(tui): handle hidden app git directives (#21946),wrap_rect,app;chatwidget;app_server_session;git_action_directives;app_event;resume_picker;lib,other_ui;transcript;bottompane_state;controller_state,
+1e65b3e0a,1e65b3e0af32cc6b29bd7bb2e326f50c4d212e93,upstream,2026-05-11,Fix goal update and add `/goal edit` command in TUI (#21954),other,app;chatwidget;app_event,controller_state,
+c03eb20d8,c03eb20d8dacf7bdf237a0688d969d95c67048fe,upstream,2026-05-11,Fix side conversation config inheritance (#22106),other,app;app_server_session,controller_state,
+cac535445,cac53544555af8eb8f2d3862d4b92ae6386ef06f,upstream,2026-05-10,fix(tui): preserve Shift+Enter in tmux csi-u panes (#21943),compat,tui,terminal_layer,
+53468b97f,53468b97f6eded34f9e593ef6d9d9f0b2ddb303a,upstream,2026-05-09,fix(tui): improve light-mode selection contrast (#21950),state_ui,style;external_agent_config_migration;keymap_setup;bottom_pane,other_ui;bottompane_state;input_keys,L
+f27cf9db0,f27cf9db0974d344d78e7e0b47e7c812776b1395,upstream,2026-05-09,fix(tui): preserve wrapped prose beside URLs (#21760),wrap_rect,snapshots;history_cell;chatwidget;markdown_render_tests;wrapping;insert_history,layout_text;terminal_layer;transcript,
+a8488fec5,a8488fec5ef27216cae96e24eec2f18ef2374ed7,upstream,2026-05-06,Revert state DB injection and agent graph store (#21481),state_ui,resume_picker;lib,other_ui;bottompane_state,N
+5a4b2702f,5a4b2702f2c621ecb5a0a46877845eaf7ff38092,upstream,2026-05-06,fix(tui): clear first inline viewport render (#21450),scrollback,tui,terminal_layer,
+6b7d6cafa,6b7d6cafa046077985800a09aa9ad4ad5a594c5c,upstream,2026-05-06,fix(tui): persist ctrl-c draft via app event (#21397),keys,chatwidget;bottom_pane,bottompane_state;controller_state,N
+e97610cf3,e97610cf3bd3f45e4ef5d1b76eb44a869fac0b50,upstream,2026-05-06,fix(tui): keep Ctrl-C stashed drafts after /clear (#21351),keys,chatwidget;bottom_pane,bottompane_state;controller_state,SC14
+332b8b2c7,332b8b2c742d3a4d210ca7362658ae25fd562568,upstream,2026-05-05,fix build (#21261),other,resume_picker,bottompane_state,
+bb2257e3f,bb2257e3f5f5ae466b0f9648d7563d394add15fb,upstream,2026-05-05,[codex] fix TUI turn items view fixtures (#21243),race,resume_picker,bottompane_state,N
+a3a09dfc9,a3a09dfc9b90b0a37e175b3c8e6f14336adeec8c,upstream,2026-05-05,fix(tui): external editor expansion for same-size large pastes (#21190),paste,bottom_pane,bottompane_state,
+394242e95,394242e95bff8392e77792cc92114acc590b2c66,upstream,2026-05-05,[codex] Fix fork --last cwd filtering (#21089),other,lib,other_ui,
+1feaa7d85,1feaa7d85bad6e4020471cd9d17518c7193c90ab,upstream,2026-05-05,[codex] Fix TUI large paste placeholder numbering after Ctrl+C (#21091),paste,bottom_pane,bottompane_state,
+69283aa1c,69283aa1c0b63166c42ab235d3f0ccb61f179a14,upstream,2026-05-05,fix(tui): make /copy work inside tmux without passthrough (#20207),compat,clipboard_copy,terminal_layer,
+36912ce3d,36912ce3de1c039f7faaddd509d0465ff644e6c1,upstream,2026-05-04,fix(tui): use shared paste burst interval on Windows (#18914),compat,bottom_pane,input_keys,
+87d2235b5,87d2235b5470d8969b51d80278a46aa30703eeab,upstream,2026-05-04,fix(tui): support modified backspace/delete keys (#21058),keys,keymap;bottom_pane,layout_text;input_keys,
+127434cd8,127434cd8b968ca3d830ea78106dcb1506bcd843,upstream,2026-05-01,fix(tui): bound startup terminal probes (#20654),other,tui;custom_terminal;terminal_palette;terminal_probe;lib,terminal_layer;other_ui,
+ff66b3c7e,ff66b3c7eb82efd87d1e2840e11b704f25149092,upstream,2026-05-01,fix(tui): restore alt-enter newline alias (#20535),keys,snapshots;keymap;keymap_setup,input_keys,
+5de7992ee,5de7992ee58631e5f06f37f86634f8505a9c9a3d,upstream,2026-04-30,fix(tui): set persist_extended_history: false (#20502),other,app_server_session,controller_state,
+31f8813e3,31f8813e3edd4bc0385ce6a07b1bde8d36613576,upstream,2026-04-30,fix: show correct Bedrock runtime endpoint in /status (#20275),paste,app;chatwidget;tui/Cargo.toml;status,other_ui;bottompane_state;controller_state,
+e20391e56,e20391e5674106ffbdd3640424b910753112e103,upstream,2026-04-29,[mcp] Fix plugin MCP approval policy. (#19537),state_ui,debug_config,other_ui,B
+640a1b23e,640a1b23ea6b98e170b7f0ad8908fcfe5dfdfa91,upstream,2026-04-28,Fix plan mode nudge test after task completion signature change (#20045),other,chatwidget,controller_state,
+a03658410,a0365841049f1c9fbddec7e739602aa6a2bab46b,upstream,2026-04-28,fix(tui): let esc exit empty shell mode (#19986),suspend,bottom_pane,bottompane_state,
+5591912f0,5591912f0bf176257f71b3efbd37ee4479dfdfaf,upstream,2026-04-25,fix(tui): reflow scrollback on terminal resize (#18575),resize,app;model_migration;width;history_cell;external_agent_config_migration;tui;chatwidget;streaming;transcript_reflow;cwd_prompt;tui/tests;app_backtrack;custom_terminal;update_prompt;pager_overlay;app_event;resume_picker;render;resize_reflow_cap;lib;onboarding;markdown_stream;insert_history,layout_text;terminal_layer;other_ui;transcript;bottompane_state;controller_state,
+c10f95dda,c10f95ddac7b35095d334dece2ebcf69bcde61fc,upstream,2026-04-24,Update models.json and related fixtures (#19323),state_ui,chatwidget,controller_state,N
+3f8c06e45,3f8c06e457e1d2d9faa907738e97c0c5d3ab5bd5,upstream,2026-04-23,Fix /review interrupt and TUI exit wedges (#18921),suspend,app,controller_state,
+17ae90604,17ae906048d1ad9682b6f94f1513ba5f807cd038,upstream,2026-04-23,Fix auto-review config compatibility across protocol and SDK (#19113),state_ui,app;debug_config,other_ui;controller_state,B
+9955eacd2,9955eacd22e2ddf3e2096e2baa7609c6c93b2f6a,upstream,2026-04-22,tui: fix approvals popup disabled shortcut test (#19072),keys,chatwidget,controller_state,
+6368f506b,6368f506b70fe43b92208ab796c7207c7a1dfb26,upstream,2026-04-21,fix: windows snapshot for external_agent_config_migration::tests::prompt_snapshot did not match windows output (#18915),compat,snapshots,,
+be7578550,be75785504ff152fa6333e380a2d50642f42fba0,upstream,2026-04-21,fix: fully revert agent identity runtime wiring (#18757),paste,local_chatgpt_auth,other_ui,
+1101dec9a,1101dec9ae6c54e0403ac109f5a0f92108a8d0f8,upstream,2026-04-21,fix(tui): disable enhanced keys for VS Code WSL (#18741),compat,tui,terminal_layer,
+0f1c9b896,0f1c9b896308d8a8b45ba957f6bbe9f8f50c7b80,upstream,2026-04-20,Fix exec inheritance of root shared flags (#18630),sched_perf,lib;cli,other_ui,
+cebe57b72,cebe57b723e22ffd3f5f46d6c376f90ea3ffb2c5,upstream,2026-04-20,fix(tui): keep /copy aligned with rollback (#18739),link,chatwidget;app_backtrack,controller_state,
+cc96a03f1,cc96a03f105ae6af03f1593a167dd7dd8c9d7b47,upstream,2026-04-20,Fix stale model test fixtures (#18719),state_ui,app;snapshots;chatwidget,bottompane_state;controller_state,N
+370bed4bf,370bed4bf4a0f5c5158ade9bfe8c0e13f773e724,upstream,2026-04-17,fix: trust-gate project hooks and exec policies (#14718),other,app;onboarding,other_ui;controller_state,
+2dd6734dd,2dd6734dd34661235289d55a21d188f8d65aea02,upstream,2026-04-17,fix(tui): use BEL for terminal title updates (#18261),other,terminal_title,terminal_layer,
+baaf42b2e,baaf42b2e4f885361ddde2176e76c99e2dc544e0,upstream,2026-04-16,fix: model menu pop (#18154),state_ui,chatwidget;bottom_pane,bottompane_state;controller_state,SC7c
+ab8256853,ab82568536d63528e6222eba32661ca329a674ca,upstream,2026-04-16,Fix invalid TUI resume hints (#18059),state_ui,app,controller_state,B
+8475d5165,8475d51655a3eb922f84a8737e998a00a693d21d,upstream,2026-04-16,fix(tui): remove duplicate context statusline item (#18054),race,chatwidget;bottom_pane,bottompane_state;controller_state,N
+6adba99f4,6adba99f4d1205c554bf82ac42dd36c1740332b4,upstream,2026-04-16,Stabilize Bazel tests (timeout tweaks and flake fixes) (#17791),paste,app;tui/tests,other_ui;controller_state,
+4cd85b28d,4cd85b28d2713289d5940b6cb967894277a17419,upstream,2026-04-16,Fix MCP startup cancellation through app server (#18078),race,app;app_server_session,controller_state,B
+17d94bd1e,17d94bd1e32f8f75676a0927ca297031f4b7d7ae,upstream,2026-04-15,[docs] Revert extra changes from PR 17848 (#18003),other,tui/BUILD.bazel,other_ui,
+bc969b651,bc969b6516f2fb7a4817b665ab1507f4f4beedc2,upstream,2026-04-15,Dismiss stale app-server requests after remote resolution (#15134),state_ui,app;chatwidget;bottom_pane,bottompane_state;controller_state,SC6a
+7e7b35b4d,7e7b35b4d296cd19280b5468814323db0d68c1a7,upstream,2026-04-15,fix: propagate log db (#17953),other,lib;onboarding,other_ui,
+706f830dc,706f830dc6c7234ace6a84e5d2ebffbf28dbbd5e,upstream,2026-04-14,Fix remote skill popup loading (#17702),state_ui,app;chatwidget;bottom_pane,bottompane_state;controller_state,SC6a
+81c0bcc92,81c0bcc9215e61b422f31e2f3443f0ac64fa68bc,upstream,2026-04-14,fix: Revert danger-full-access denylist-only mode (#17732),other,debug_config,other_ui,
+495ed22df,495ed22dfb04e25b0d269d86cec87fd8fc6bca99,upstream,2026-04-13,guardian timeout fix pr 3 - ux touch for timeouts (#17557),paste,history_cell;chatwidget,transcript;controller_state,
+7c43f8bb5,7c43f8bb5e263c8509905fce2692909d2c15cc20,upstream,2026-04-13,Fix tui compilation (#17691),other,updates,other_ui,
+313ad29ad,313ad29ad794c1b177f3cf74bbf1461ca88eb0e0,upstream,2026-04-13,Fix TUI compaction item replay (#17657),other,chatwidget,controller_state,N
+7c797c654,7c797c6544ae97d3ebfac52d31a00d72f5dba5a3,upstream,2026-04-13,Suppress duplicate compaction and terminal wait events (#17601),race,chatwidget,controller_state,SC4a
+3f62b5cc6,3f62b5cc6166ee88c3b3994f6a442185c0ab2c8c,upstream,2026-04-13,fix: dedup compact (#17643),race,chatwidget,controller_state,SC4a
+0bdeab330,0bdeab330b378fa3df4296d3354c4dbc821eecca,upstream,2026-04-11,fix(tui): recall accepted slash commands locally (#17336),other,chatwidget;bottom_pane,bottompane_state;controller_state,
+e9e7ef3d3,e9e7ef3d366fdb95c24d24fea734b0fa47d79fc4,upstream,2026-04-10,Fix thread/list cwd filtering for Windows verbatim paths (#17414),compat,resume_picker;lib,other_ui;bottompane_state,
+b11478149,b114781495f97aa11d2831f81f27f2634842ab24,upstream,2026-04-10,fix(permissions): fix symlinked writable roots in sandbox permissions (#15981),link,lib,other_ui,
+930e5adb7,930e5adb7eae9a9fd35f9649ddc192e6308d3bbc,upstream,2026-04-10,"Revert ""Option to Notify Workspace Owner When Usage Limit is Reached"" (#17391)",other,app;history_cell;chatwidget;app_command;app_server_session;bottom_pane;app_event;lib;status,other_ui;transcript;bottompane_state;controller_state,
+a3be74143,a3be74143ab7a1d9641b234ffb11f826cee471e1,upstream,2026-04-10,"fix(guardian, app-server): introduce guardian review ids (#17298)",state_ui,chatwidget,controller_state,SC13
+36586eafe,36586eafedf31b59306fe288d44ff6b218b38598,upstream,2026-04-08,Fix stale thread-name resume lookups (#16646),state_ui,chatwidget,controller_state,B
+e794457a5,e794457a5906106ee13ee6a8328d33b0f6552298,upstream,2026-04-08,"fix(debug-config, guardian): fix /debug-config rendering and guardian… (#17138)",render,debug_config,other_ui,
+5c95e4588,5c95e4588e229cdda2484d1290ed15c1492ec5c3,upstream,2026-04-08,Fix TUI crash when resuming the current thread (#17086),other,app,controller_state,SC14
+359e17a85,359e17a852b70eec7108ca25669c6141af2c78c2,upstream,2026-04-07,fix(tui): reduce startup and new-session latency (#17039),sched_perf,app;chatwidget;app_server_session;app_event;lib;status,other_ui;controller_state,
+2b9bf5d3d,2b9bf5d3d43e39811d9f8db8d65b79bc2f7c12e9,upstream,2026-04-07,Fix missing resume hint on zero-token exits (#16987),suspend,app,controller_state,
+4294031a9,4294031a93b14d71f613dd089df3ef711ede3da3,upstream,2026-04-06,Fix resume picker timestamp labels and stability (#16822),paste,snapshots;resume_picker,bottompane_state,SC10a
+ab58141e2,ab58141e22512bec1c47714502c9396b1921ace1,upstream,2026-04-06,Fix TUI fast mode toggle regression (#16833),other,chatwidget,controller_state,
+82b061afb,82b061afb21a87b6b3ed3b4e79480ed1e8bf4d9e,upstream,2026-04-06,Fix CJK word navigation in the TUI composer (#16829),unicode,bottom_pane,layout_text,
+3d8cdac79,3d8cdac7978d6414a6164399d7b0d6c9f44c8b33,upstream,2026-04-03,fix(tui): sort skill mentions by display name first (#16710),other,bottom_pane,bottompane_state,
+cc8fd0ff6,cc8fd0ff65b603133304db268dd4b7a86b304dc3,upstream,2026-04-03,Fix stale /copy output after commentary-only turns (#16648),link,chatwidget,controller_state,SC6c
+cb9fb562a,cb9fb562a46c2217ff0386bb487932db828b3cda,upstream,2026-04-02,fix: address unused variable on windows (#16633),compat,tui,terminal_layer,
+0bd31dc38,0bd31dc382bd1c33dc2bb6b97069c76aa10ba14b,upstream,2026-04-02,fix(tui): handle zellij redraw and composer rendering (#16578),compat,tui;bottom_pane;custom_terminal;lib;insert_history,layout_text;terminal_layer;other_ui;bottompane_state,
+9bb7f0a69,9bb7f0a6947c06fdebc99151bbeff570a11d5657,upstream,2026-04-02,Fix fork source display in /status (expose forked_from_id in app server) (#16596),state_ui,app;app_server_session;resume_picker,bottompane_state;controller_state,B
+57b98bc4c,57b98bc4cdce713824fed159614a107814315a4d,upstream,2026-04-02,Fix stale turn steering during TUI review follow-ups (#16588),race,app,controller_state,SC8b
+c0f2fed67,c0f2fed67e54cd6ca700e94161989f2f338adf8d,upstream,2026-04-02,Fix resume picker stale thread names (#16601),state_ui,resume_picker,bottompane_state,B
+cb8dc18a6,cb8dc18a64d1457d660357bae6bf7cdca896dca8,upstream,2026-04-02,Fix resume picker initial loading state (#16591),state_ui,resume_picker,bottompane_state,SC10a
+e19b35136,e19b35136417d151ce09ca4a59d42dbdee4d7d09,upstream,2026-04-01,Fix paste-driven bottom pane completion teardown (#16202),paste,bottom_pane,bottompane_state,
+cb9ef06ec,cb9ef06eccb5ccf514cc07eb77f93ef21f74b89a,upstream,2026-04-01,Fix TUI app-server permission profile conversions (#16284),other,app;chatwidget;app_server_approval_conversions;lib,other_ui;bottompane_state;controller_state,
+74d714913,74d7149130fc0b63e48cb8b151afa15f14d2e8ab,upstream,2026-04-01,"Fix regression: ""not available in TUI"" error message (#16273)",other,app,controller_state,
+30f6786d6,30f6786d62e54a2a5a35520b0e4701f364d8f112,upstream,2026-04-01,fix(guardian): make GuardianAssessmentEvent.action strongly typed (#16448),other,history_cell;chatwidget,transcript;controller_state,
+dedd1c386,dedd1c386a9bb2b4031d26b0494217a20868fb7a,upstream,2026-03-31,fix: suppress status card expect_used warnings after #16351 (#16378),state_ui,status,other_ui,N
+ae057e0bb,ae057e0bb9f3cde31c54fcca59a78456f7805282,upstream,2026-03-31,Fix stale /status rate limits in active TUI sessions (#16201),state_ui,app;chatwidget;app_server_session;app_event;status,other_ui;controller_state,SC6b2
+38e648ca6,38e648ca67802d5f2fb23f9b3bd3f200cdb067fa,upstream,2026-03-29,Fix tui_app_server ghost subagent entries in /agent (#16110),render,app,controller_state,
+54d3ad1ed,54d3ad1edea9414ba87ffe164191fed69d79ed96,upstream,2026-03-29,Fix app-server TUI MCP startup warnings regression (#16041),other,app;chatwidget,controller_state,
+46b653e73,46b653e73c7900cc7fb2e06effc5cf305541aa76,upstream,2026-03-28,Fix skills picker scrolling in tui app server (#16109),state_ui,bottom_pane,bottompane_state,SC10b
+bede1d9e2,bede1d9e23202e2fce23b2ad6d154255672a675b,upstream,2026-03-28,fix(tui): refresh footer on collaboration mode changes (#16026),state_ui,snapshots,,SC6a
+937cb5081,937cb5081df1ac9c458a7bcd784e9878ac924a47,upstream,2026-03-25,fix: fix old system bubblewrap compatibility without falling back to vendored bwrap (#15693),wrap_rect,lib,other_ui,
+7eb9e75b8,7eb9e75b864db7c2e6d8e4b68811ecf4843ea914,upstream,2026-03-23,fix: main tui (#15557),other,chatwidget,controller_state,
+d1088158b,d1088158b8cc230c14613cea9467fc3ad4ff100a,upstream,2026-03-23,fix: fall back to vendored bubblewrap when system bwrap lacks --argv0 (#15338),wrap_rect,app,controller_state,
+86982ca1f,86982ca1f93c2e18711dd192eb2989f91f6814a1,upstream,2026-03-18,"Revert ""fix: harden plugin feature gating"" (#15102)",other,app,controller_state,
+580f32ad2,580f32ad2ab642e3fe9661bce838d972f8989663,upstream,2026-03-18,fix: harden plugin feature gating (#15020),other,app,controller_state,
+0d1539e74,0d1539e74c28c7de9a6c471c7e96d77f15dfcd6e,upstream,2026-03-17,fix(linux-sandbox): prefer system /usr/bin/bwrap when available (#14963),wrap_rect,app,controller_state,
+d37dcca7e,d37dcca7e080a8d397f37f8bf4bf695d40f7d88e,upstream,2026-03-17,Revert tui code so it does not rely on in-process app server (#14899),other,app;tui/Cargo.toml;lib,other_ui;controller_state,
+029aab556,029aab5563caed2f2bbea8a1815a42cbf22b79a2,upstream,2026-03-15,fix(core): preserve tool_params for elicitations (#14769),other,bottom_pane,bottompane_state,
+69c8a1ef9,69c8a1ef9e7c5a3c447ea8b0f01ec5d3a068693d,upstream,2026-03-13,Fix Windows CI assertions for guardian and Smart Approvals (#14645),compat,chatwidget,controller_state,
+722e8f08e,722e8f08e173472095fe001b7cfeb96b62acde95,upstream,2026-03-10,unifying all image saves to /tmp to bug-proof (#14149),image,chatwidget,controller_state,
+566e4cee4,566e4cee4bd067aeae95591430cffb71e8ede228,upstream,2026-03-09,[apps] Fix apps enablement condition. (#14011),other,chatwidget;bottom_pane,bottompane_state;controller_state,
+c1f3ef16e,c1f3ef16ec57ccf64c32411b3a2927bc57d80465,upstream,2026-03-09,fix(plugin): Also load curated plugins for TUI. (#14050),other,app,controller_state,
+e8d7ede83,e8d7ede83cf09c99134866f19e5378c546d53191,upstream,2026-03-07,Fix TUI context window display before first TokenCount (#13896),other,app;chatwidget,controller_state,
+92f754162,92f7541624810406d5c3d1c424147bcfa458efce,upstream,2026-03-07,fix(ci) fix guardian ci (#13911),other,chatwidget,controller_state,
+25fa97416,25fa9741660dfc95fffb23b67e52af4f56e30187,upstream,2026-03-06,fix: support managed network allowlist controls (#12752),other,debug_config,other_ui,
+4c9b1c38f,4c9b1c38f6da7555081f5b6c607577c8b7dbccd1,upstream,2026-03-05,fix(tui) remove config check for trusted setting (#11874),other,lib,other_ui,
+e15e191ff,e15e191ff76c17ac6045c6e9df9a725372ffa590,upstream,2026-03-05,fix(tui): clean up pending steer preview wrapping (#13642),wrap_rect,bottom_pane,bottompane_state,
+ee2e3c415,ee2e3c415b93207695fcc0b7eb07c9b3777164e2,upstream,2026-03-05,Fix codespell warning about pre-selects (#13605),other,theme_picker,bottompane_state,
+333663921,33366392133a8b1d9026acf528cde493519d6352,upstream,2026-03-04,[apps] Fix the issue where apps is not enabled after codex resume. (#13533),state_ui,chatwidget,controller_state,SC6a
+98923e53c,98923e53ccd0481925cb26f7146e80a6a4c42405,upstream,2026-03-04,fix(tui): decode ANSI alpha-channel encoding in syntax themes (#13382),render,render,layout_text,
+e6b2e3a9f,e6b2e3a9f7ab3e87626db8de34632d3d61c083b8,upstream,2026-03-04,fix: bad merge (#13461),other,app;chatwidget,controller_state,
+e4a202ea5,e4a202ea52439fd14f2eddd465c0e9824f8d1fb6,upstream,2026-03-04,fix: pending messages in `/agent` (#13240),state_ui,app;chatwidget;bottom_pane,bottompane_state;controller_state,SC2b
+2a5bcc053,2a5bcc053f2518dea692480e78b709cfe1125c8a,upstream,2026-03-02,fix: esc in `/agent` (#13131),keys,bottom_pane,bottompane_state,
+b08bdd91e,b08bdd91e347011cdde1a32cb20bda8e64ccf004,upstream,2026-03-02,fix: `/status` when sub-agent (#13130),state_ui,chatwidget,controller_state,SC6a
+74e5150b1,74e5150b1e23e69c0c83ae267f88b659fd6f3b1b,upstream,2026-02-28,fix: package `models.json` for Bazel tests (#13129),state_ui,tui/BUILD.bazel;tui/tests,other_ui,N
+e6032eb0b,e6032eb0b74c8330752d063ac7f9646c9547f3bb,upstream,2026-02-27,Fix CLI feedback link (#13086),link,bottom_pane,bottompane_state,
+c3c75878e,c3c75878e86e23694f189cfd7fe4cc5939842a45,upstream,2026-02-27,fix(tui): theme-aware diff backgrounds with fallback behavior (#13037),render,snapshots;theme_picker;render;diff_render,layout_text;other_ui;bottompane_state,
+3b5996f98,3b5996f988c35ef282e04df7b7f311a83b562363,upstream,2026-02-27,fix(tui): promote windows terminal diff ansi16 to truecolor (#13016),compat,snapshots;diff_render,other_ui,
+d09a7535e,d09a7535edee7a5b9cf3df4e4069af3392c60663,upstream,2026-02-27,fix: use AbsolutePathBuf for permission profile file roots (#12970),other,bottom_pane,bottompane_state,
+f0a85ded1,f0a85ded1867072d5b4963b8be3be1ef4f216549,upstream,2026-02-26,fix: ctrl c sub agent (#12911),keys,app,controller_state,
+4f4566810,4f456681067d8a8ab1dc1cf5e2a4fec9d3a11227,upstream,2026-02-25,"Revert ""Add skill approval event/response (#12633)"" (#12811)",state_ui,chatwidget,controller_state,N
+ddfa032eb,ddfa032eb8506eeb21b4f00f12f0836f06e8a6b0,upstream,2026-02-24,fix: chatwidget was not honoring approval_id for an ExecApprovalRequestEvent (#12746),state_ui,app;chatwidget,controller_state,SC13
+448fb6ac2,448fb6ac22ba580802db3a734ba303b370d6daa1,upstream,2026-02-24,fix: clarify the value of SkillMetadata.path (#12729),other,chatwidget;bottom_pane,bottompane_state;controller_state,
+74cebceed,74cebceed7e4a826d355ff66daea7b635a83aba7,upstream,2026-02-24,Fix @mention token parsing in chat composer (#12643),state_ui,bottom_pane,bottompane_state,SC14
+0679e70bf,0679e70bfce35d589363df24c49abd75ff98b10a,upstream,2026-02-24,fix: replay after `/agent` (#12663),other,app;chatwidget,controller_state,SC2a
+50953ea39,50953ea39ad7a2c675a411b1175ad8f93806414a,upstream,2026-02-23,fix: show command running in background terminal in details under status indicator (#12549),state_ui,status_indicator_widget;chatwidget;bottom_pane,other_ui;bottompane_state;controller_state,L
+be4203023,be4203023d0514abcfba94a0f2aacb592d72c3dc,upstream,2026-02-24,fix(tui): queue steer Enter while final answer is still streaming to prevent dead state (#12569),keys,chatwidget,controller_state,SC9
+48e08a156,48e08a156133c5f53bbfdcafd13e0dd03379cb6a,upstream,2026-02-23,fix(tui): recover on owned wrap mapping mismatch (#12609),wrap_rect,wrapping,layout_text,
+bfe622f49,bfe622f4955b8a25ad64253b7ebb4f80a452c904,upstream,2026-02-23,fix: add ellipsis for truncated status indicator (#12540),wrap_rect,status_indicator_widget;snapshots;chatwidget;line_truncation;bottom_pane;lib,layout_text;other_ui;bottompane_state,
+a606e8585,a606e85859e88c56ba47fe8c2884fd15358ef722,upstream,2026-02-23,"tweaked /clear to support clear + new chat, also fix minor bug for macos terminal (#12520)",compat,app;custom_terminal;app_event;slash_command,terminal_layer;other_ui;controller_state,
+9d826a20c,9d826a20c69e5f3dc6c2196e8e7fbce7912ec5f3,upstream,2026-02-23,fix: TUI constraint (#12571),other,chatwidget,controller_state,
+2ba2c57af,2ba2c57af4b548512a749a6947341452a16b3521,upstream,2026-02-21,fix(tui): preserve URL clickability across all TUI views (#12067),state_ui,model_migration;snapshots;history_cell;bottom_pane;custom_terminal;pager_overlay;markdown_render;onboarding;wrapping;status;insert_history;exec_cell,layout_text;terminal_layer;other_ui;transcript;bottompane_state,L
+a5d0757ed,a5d0757ed15b4b53c216510c5bcfa4ecf3ca196e,upstream,2026-02-20,fix(tui): queued-message edit shortcut unreachable in some terminals (#12240),keys,chatwidget;bottom_pane,bottompane_state;controller_state,
+28c008906,28c0089060b06bf73118ba906f198a1ca8630ad6,upstream,2026-02-20,fix(network-proxy): add unix socket allow-all and update seatbelt rules (#11368),other,debug_config,other_ui,
+08f689843,08f689843f48f20c075179b9a279649cb55fbe9e,upstream,2026-02-16,Fixed screen reader regression in CLI (#11860),other,status_indicator_widget,other_ui,
+abeafbdca,abeafbdca17f6102099ac5b792761b6883c52d35,upstream,2026-02-12,fix: dont show NUX for upgrade-target models that are hidden (#11679),state_ui,app,controller_state,SC14
+b4ffb2eb5,b4ffb2eb5852d451388f8d4d928e4fec762e1b78,upstream,2026-02-12,fix(tui): increase paste burst char interval on Windows to 30ms (#9348),compat,bottom_pane,input_keys,
+847a6092e,847a6092e6ec3c345ef58fb23063dc8c5c77309a,upstream,2026-02-10,fix: reduce usage of `open_if_present`  (#11344),other,app;resume_picker;lib,other_ui;bottompane_state;controller_state,
+c4b771a16,c4b771a16fdfae90ada1a901809eece1f7ef1b13,upstream,2026-02-10,Fix: update parallel tool call exec approval to approve on request id (#11162),state_ui,chatwidget;bottom_pane,bottompane_state;controller_state,SC13
+d1df3bd63,d1df3bd63be25f958ddaf0ba40e8a5f7a8179377,upstream,2026-02-09,"Revert ""Revert ""Update models.json"""" (#11256)",state_ui,chatwidget,controller_state,N
+a3e4bd3bc,a3e4bd3bc0086d424e35b349086e5f6d7459a7d9,upstream,2026-02-09,fix(tui): tab submits when no task running in steer mode (#10035),keys,tui/tooltips.txt;bottom_pane,other_ui;bottompane_state,
+2bdf9617b,2bdf9617bbf2aeedac065c097a4b524886fb05e1,upstream,2026-02-09,fix(tui): keep unified exec summary on working line (#10962),other,status_indicator_widget;chatwidget;bottom_pane,other_ui;bottompane_state,
+f88667042,f88667042e0b9197bcdeb726feac58308e51f4ad,upstream,2026-02-09,TUI: fix request_user_input wrapping for long option labels (#11123),wrap_rect,bottom_pane,bottompane_state,
+13de74429,13de7442965c2b59df46e21287585ba57d8de71d,upstream,2026-02-09,fix: do not show closed agents in `/agent` (#11175),other,app,controller_state,
+d68e9c0f1,d68e9c0f197c7fe8071f8298d3da1a90705f605a,upstream,2026-02-08,fix(tui): rehydrate drafts and restore image placeholders (#9040),image,bottom_pane,bottompane_state,SC14
+5d2702f6b,5d2702f6b897cec9d51ceafbd8547564d49d573c,upstream,2026-02-06,fix(tui): conditionally restore status indicator using message phase (#10947),state_ui,chatwidget,controller_state,SC7a
+84bce2b8e,84bce2b8e64bfd03645fc8be1cc8b71719cfc66d,upstream,2026-02-06,TUI/Core: preserve duplicate skill/app mention selection across submit + resume (#10855),race,chatwidget;bottom_pane;lib;mention_codec,layout_text;other_ui;bottompane_state;controller_state,SC14
+ddd09a936,ddd09a9368b7c0fae99c8475fed43c149b6c4821,upstream,2026-02-05,fix: announcement in prio (#10783),other,tooltips,other_ui,
+3582b74d0,3582b74d018c3b472fd28e1482efe277af80ab4a,upstream,2026-02-05,fix(auth): isolate chatgptAuthTokens concept to auth manager and app-server (#10423),other,app;lib;onboarding;status,other_ui;controller_state,
+5c0fd62ff,5c0fd62ff10bd6abff9ff41884b303c0290d7fa4,upstream,2026-02-05,fix(tui): fix resume_picker_orders_by_updated_at test (#10769),race,resume_picker,bottompane_state,N
+7b28b350e,7b28b350e17c8a000fb3f3fde1f4a1a5f99dd9ad,upstream,2026-02-05,fix(tui): flush input buffer on init to prevent early exit on Windows (#10729),compat,tui,terminal_layer,
+4ed8d74aa,4ed8d74aab66f261fb08c4ad55fda936ff92e533,upstream,2026-02-04,fix: ensure status indicator present earlier in exec path (#10700),state_ui,chatwidget,controller_state,SC7a
+d876f3b94,d876f3b94fa76c9d169d032112592233ab5568f8,upstream,2026-02-04,fix(tui): restore working shimmer after preamble output (#10701),other,chatwidget,controller_state,SC7a
+d589ee05b,d589ee05b169af83f97d9603bcdf8eada77732c9,upstream,2026-02-04,Fix jitter in TUI apps/connectors picker  (#10593),state_ui,chatwidget;bottom_pane,layout_text;bottompane_state;controller_state,L
+8dd41e229,8dd41e229b43d44004ab8f1a90b9a788344f3bcc,upstream,2026-02-02,Fixed sandbox mode inconsistency if untrusted is selected (#10415),other,lib,other_ui,
+1096d6453,1096d6453c096a1860ba8e2595729cc69e2e312b,upstream,2026-02-02,Fix plan implementation prompt reappearing after /agent thread switch (#10447),other,chatwidget,controller_state,SC2a
+9327e99b2,9327e99b2816d839ff0049dd3741611ae57cb1c9,upstream,2026-01-31,Fix minor typos in comments and documentation (#10287),other,bottom_pane,bottompane_state,
+13e85b154,13e85b1549ae08c824a16cce57c194837d922cce,upstream,2026-01-31,fix: update file search directory when session CWD changes (#9279),wrap_rect,app;file_search,other_ui;controller_state,
+2457bb3c4,2457bb3c404e4c092eef52ff9b2538b01623a17d,upstream,2026-01-30,Fix deploy (#10251),other,app,controller_state,
+2d9ac8227,2d9ac8227ae43ef7232b4f4422efc16cf0105bfb,upstream,2026-01-29,fix: /approvals -> /permissions (#10184),state_ui,tui/tooltips.txt,other_ui,N
+e70592f85,e70592f85ad2c86aaa5e45754d9e2dc89a8ab113,upstream,2026-01-28,fix: ignore key release events during onboarding (#10131),keys,onboarding,other_ui,
+be33de3f8,be33de3f8768a47f426761fa6cc017aef9716135,upstream,2026-01-28,fix(tui) reorder personality command (#10134),race,slash_command,other_ui,N
+337643b00,337643b00a385b6980112dd7dcfcc172765e77be,upstream,2026-01-28,Fix: Render MCP image outputs regardless of ordering (#9815),image,history_cell,transcript,
+509ff1c64,509ff1c643e0b45366fc5d77c78279ca29b71448,upstream,2026-01-26,Fixing main and make plan mode reasoning effort medium (#9980),other,bottom_pane,bottompane_state,
+86adf5323,86adf53235f3885dace914a53b00d67daa4e76eb,upstream,2026-01-26,fix: handle all web_search actions and in progress invocations (#9960),other,history_cell;chatwidget,transcript;controller_state,
+73bd84dee,73bd84dee025f365bf7a0d8309e38bdb4004962e,upstream,2026-01-27,fix: try to fix freezes 2 (#9951),other,app,controller_state,
+32b062d0e,32b062d0e190943af7463f0f1aa257ce4977008a,upstream,2026-01-27,fix: use `brew upgrade --cask codex` to avoid warnings and ambiguity (#9823),other,update_action,other_ui,
+f29a0defa,f29a0defa2329cf2477d80ccee67b3d6c86d0a2a,upstream,2026-01-26,fix: remove cli tooltip references to custom prompts (#9901),other,tui/tooltips.txt,other_ui,
+6316e5749,6316e57497d049abb25b9b5318e7219e95c30ff4,upstream,2026-01-26,Fix up config disabled err msg (#9916),other,app,controller_state,
+f1240ff4f,f1240ff4fe485cc268e750d14b3890427ecda1ca,upstream,2026-01-21,fix(tui) turn timing incremental (#9599),race,tui2:chatwidget;chatwidget,controller_state,SC14
+13358fa13,13358fa1314444a050bfa9b4c596c55de5e0795b,upstream,2026-01-21,fix: nit tui on terminal interactions (#9602),other,chatwidget,controller_state,
+6e9a31def,6e9a31def1198cc257f27645652ab151ff728c7b,upstream,2026-01-21,fix going up and down on questions after writing notes (#9596),other,bottom_pane,bottompane_state,
+79c5bf983,79c5bf9835a98f527cc6708504708f228fc3d755,upstream,2026-01-20,Fixed config merging issue with profiles (#9509),other,lib;tui2:lib,other_ui,
+3078eedb2,3078eedb24897837770661595bca2e09a0f36dd2,upstream,2026-01-19,fix(tui) fix user message light mode background (#9407),other,style,other_ui,
+3788e2cc0,3788e2cc0f787bcda90a7cd6ad5aba9acf89c05d,upstream,2026-01-19,Fixed stale link to MCP documentation (#9490),link,history_cell;tui2:history_cell,transcript,
+a803467f5,a803467f526c1a5a4c92d13d47da78512f4c9efe,upstream,2026-01-18,Fixed TUI regression related to image paste in WSL (#9473),compat,clipboard_paste;tui2:clipboard_paste,input_keys,
+c87a7d904,c87a7d90437baa2b46a34e41d1fe319431ddddd7,upstream,2026-01-18,fix(tui2): running /mcp was not printing any output until another event triggered a flush (#9457),other,tui2:app,controller_state,
+764f3c7d0,764f3c7d03b25a477659afd956a288e322396dfe,upstream,2026-01-16,fix(tui) Defer backtrack trim until rollback confirms (#9401),other,app;tui2:app;app_backtrack;tui2:app_backtrack,controller_state,SC8b
+a6324ab34,a6324ab34b4956eae06487a6dc1c8c6d55f2a1fd,upstream,2026-01-15,fix(tui): only show 'Worked for' separator when actual work was performed (#8958),sched_perf,history_cell;tui2:chatwidget;chatwidget;tui2:history_cell,transcript;controller_state,
+749b58366,749b58366cba43940471474ac8983ab99f5add63,upstream,2026-01-15,Revert empty paste image handling (#9318),paste,app;chatwidget,controller_state,
+5f1054877,5f10548772e351d8bad5daafe7ef15cdd00bcd96,upstream,2026-01-15,Revert recent styling change for input prompt placeholder text (#9307),state_ui,bottom_pane;tui2:bottom_pane,bottompane_state,N
+27da8a68d,27da8a68d37115d104785c062fca5fd5f5568acc,upstream,2026-01-14,fix(tui): disable double-press quit shortcut (#9220),keys,tui2:chatwidget;chatwidget;bottom_pane;tui2:bottom_pane,bottompane_state;controller_state,
+0471ddbe7,0471ddbe7433a670cd3c1f4f7bd274a0d023822a,upstream,2026-01-14,fix(tui2): align Steer submit keys (#9218),keys,bottom_pane;tui2:bottom_pane,bottompane_state,
+7532f3469,7532f34699fca93fc52cbb1ae77d153a70488382,upstream,2026-01-14,fix: drop double waiting header in TUI (#9145),other,history_cell;chatwidget,transcript;controller_state,
+ce49e9284,ce49e9284823aca7e398b30ae76e1a4144ccbf23,upstream,2026-01-13,fix(tui): harden paste-burst state transitions (#9124),paste,bottom_pane;tui2:bottom_pane,bottompane_state,
+4c673086b,4c673086bc5b4b04ac859d3ec06632cb0ce70724,upstream,2026-01-13,fix: integration test for #9011 (#9166),other,tui/BUILD.bazel;tui2/tests;tui/tests;tui/Cargo.toml;tui2/BUILD.bazel;tui2/Cargo.toml,other_ui,
+2cd1a0a45,2cd1a0a45e8552dced0241ae024ffc354208a8ad,upstream,2026-01-13,fix: report an appropriate error in the TUI for malformed rules (#9011),other,app;tui2:app_event;tui2:app;tui2:chatwidget;chatwidget;app_event;lib;tui2:lib,other_ui;controller_state,
+3c711f3d1,3c711f3d160f939aa668052f82535f3dbb3da9e6,upstream,2026-01-13,Fix spinner/Esc interrupt when MCP startup completes mid-turn (#8661),keys,tui2:chatwidget;chatwidget,controller_state,
+58e8f75b2,58e8f75b276bbc6bae5bde633137ceee399db6d9,upstream,2026-01-13,fix(tui): document paste-burst state machine (#9020),paste,bottom_pane;tui2:bottom_pane,layout_text;bottompane_state;input_keys,
+57ba758df,57ba758df533ffceedaeee3c3eef5ea1b281fa1d,upstream,2026-01-13,Fix queued messages during /review (#9122),race,chatwidget,controller_state,SC7b
+12779c7c0,12779c7c07f36578d25ef793fbb814a1b26c77f9,upstream,2026-01-13,fix(tui): show in-flight coalesced tool calls in transcript overlay (#8246),scrollback,snapshots;history_cell;tui2:chatwidget;chatwidget;app_backtrack;tui2:app_backtrack;pager_overlay;tui2:pager_overlay;tui2:history_cell,transcript;controller_state,
+fbe883318,fbe883318d89c320903261cd6ab228d7ebcbd2aa,upstream,2026-01-09,fix(app-server): set originator header from initialize (re-revert) (#8988),other,lib;tui2:lib,other_ui,
+7daaabc79,7daaabc795d5edd9dcab964bcce67456071d46fd,upstream,2026-01-09,fix: add tui.alternate_screen config and --no-alt-screen CLI flag for Zellij scrollback (#8555),compat,tui;tui2:tui;lib;cli;tui2:lib;tui2:cli,terminal_layer;other_ui,
+5c380d5b1,5c380d5b1e8a30f415a9ee461095d2d6f768dd58,upstream,2026-01-09,"Revert ""fix(app-server): set originator header from initialize JSON-RPC request"" (#8986)",other,lib;tui2:lib,other_ui,
+ea56186c2,ea56186c2b53a591500aba3da6d5d3302ad06598,upstream,2026-01-09,fix(app-server): set originator header from initialize JSON-RPC request (#8873),other,lib;tui2:lib,other_ui,
+0f8bb4579,0f8bb4579bd7c0ea905df7124b3a42835159b023,upstream,2026-01-07,fix: windows can now paste non-ascii multiline text (#8774),compat,bottom_pane;tui2:bottom_pane,layout_text;bottompane_state;input_keys,
+66450f044,66450f04457faffbe97f6ae725bd95b589d26f39,upstream,2026-01-07,fix: implement 'Allow this session' for apply_patch approvals (#8451),state_ui,tui2:chatwidget;chatwidget;bottom_pane;tui2:bottom_pane,bottompane_state,B
+124a09e57,124a09e577c818c0fe2a5b76cf2cfb925f625d92,upstream,2026-01-07,fix: handle /review arguments in TUI (#8823),state_ui,tui2:chatwidget;chatwidget;bottom_pane;tui2:bottom_pane,bottompane_state;controller_state,SC14
+8b4d27dfc,8b4d27dfcdc0343efb68a00cb77aea1f126ced5a,upstream,2026-01-06,fix: truncate long approval prefixes when rendering (#8734),wrap_rect,tui2:chatwidget;chatwidget;bottom_pane;tui2:bottom_pane,bottompane_state;controller_state,
+4c3d2a5bb,4c3d2a5bbe38346cdfc112b49b34be1ce654aea7,upstream,2026-01-05,fix: render cwd-relative paths in tui (#8771),render,tui2:diff_render;diff_render,other_ui,
+567821305,567821305831fc506efdecb9c39cdc8ddbddd6fe,upstream,2026-01-04,fix(tui2): render copy pill at viewport bottom (#8716),link,tui2:transcript_copy_ui,transcript,
+279283fe0,279283fe02bf0ce7f93a160db34dd8cf9c8f42c8,upstream,2026-01-03,fix(tui2): avoid scroll stickiness at cell boundaries (#8695),other,tui2:app;tui2:tui,other_ui;controller_state,
+19525efb2,19525efb22cabf968952cf542b7cac6738939efb,upstream,2026-01-03,fix: brighten transcript copy affordance (#8697),link,tui2:transcript_copy_ui,transcript,
+972b5853a,972b5853a07069953d45864af6787aacf708d638,upstream,2025-12-23,fix: fix test that was writing temp file to cwd instead of TMPDIR (#8493),other,tui2:diff_render;diff_render,other_ui,
+282854932,2828549323284128ac1d2a862f866951aad41348,upstream,2025-12-22,fix(tui2): start transcript selection on drag (#8466),scrollback,tui2:app;tui2:transcript_selection,transcript;controller_state,
+310f2114a,310f2114ae8fc519ba71e49c3e77e3f965f5c727,upstream,2025-12-22,fix(tui2): fix screen corruption (#8463),other,tui2:tui,terminal_layer,
+7d0c5c7bd,7d0c5c7bd5da912b7a0bd826f4ebd41361391344,upstream,2025-12-22,fix(tui2): copy transcript selection outside viewport (#8449),link,tui2:app;tui2/docs;tui2:transcript_selection;tui2:lib,other_ui;transcript;controller_state,
+4e6d6cd79,4e6d6cd7982d2be3a0adb007585f93f06e23bc63,upstream,2025-12-22,fix(tui2): constrain transcript mouse selection bounds (#8419),scrollback,tui2:app,controller_state,
+ba835c3c3,ba835c3c36b2610a23043edeb05c8d32542c3898,upstream,2025-12-18,Fix tests (#8299),other,chatwidget,controller_state,
+42b8f28ee,42b8f28ee8114718fdffc3b43c828ff23bb0361d,upstream,2025-12-16,Fixed resume matching to respect case insensitivity when using WSL mount points (#8000),compat,tui2:resume_picker;resume_picker,bottompane_state,
+3a32716e1,3a32716e1cd025486e4e28ca5abf013775555101,upstream,2025-12-17,fix tui2 compile error (#8124),other,tui2:update_prompt,other_ui,
+b53889aed,b53889aed50e6cbe125e491e069833bb07ed0bf9,upstream,2025-12-16,"Revert ""feat: unified exec footer"" (#8109)",state_ui,history_cell;chatwidget;bottom_pane,transcript;bottompane_state;controller_state,N
+fc5341193,fc53411938f6b99ceb777c8047a8cc3dc9541f31,upstream,2025-12-15,fix: Don't trigger keybindings view on input burst (#7980),paste,bottom_pane,bottompane_state,
+c3d5102f7,c3d5102f73bcb9dce6234d69a5cf6269adfdad90,upstream,2025-12-14,chore: fix tooltip typos and align tone (#8047),other,tui/tooltips.txt;tui2/tooltips.txt,other_ui,
+642b7566d,642b7566dfc75485260250fb464bec3400caf87a,upstream,2025-12-12,fix: introduce AbsolutePathBuf as part of sandbox config (#7856),other,tui2:chatwidget;chatwidget;tui/Cargo.toml;tui2/Cargo.toml,other_ui;controller_state,
+c978b6e22,c978b6e22246d03461e39b9ec3323df4b5643a1b,upstream,2025-12-12,fix: restore MCP startup progress messages in TUI (fixes #7827) (#7828),other,chatwidget,controller_state,SC11
+b99ce883f,b99ce883fefe242f4d9a87099538a8facc7f8061,upstream,2025-12-12,fix: break tui (#7876),other,tui,terminal_layer,
+9287be762,9287be762ef45e4405859685e959f67e73d6336c,upstream,2025-12-11,fix(tui): show xhigh reasoning warning for gpt-5.2 (#7910),other,tui2:chatwidget;chatwidget,controller_state,
+95f7d37ec,95f7d37ec68bb54cc6bae29566dca8103b788699,upstream,2025-12-11,Fix misleading 'maximize' high effort description on xhigh models (#7874),keys,tui2:chatwidget;chatwidget,controller_state,
+36610d975,36610d975a3e92252178f5e1cb3adab60c593d4e,upstream,2025-12-11,Fix toasts on Windows under WSL 2 (#7137),compat,tui;notifications;lib,terminal_layer;other_ui,
+703bf12b3,703bf12b36ce327787004ce111c5d6b9bea33318,upstream,2025-12-11,fix: dont quit on 'q' in onboarding ApiKeyEntry state (#7869),keys,onboarding,other_ui,
+bb8fdb20d,bb8fdb20dc24e7650dfb4551173c1b87a3a20a29,upstream,2025-12-11,"Revert ""Only show Worked for after the final assistant message"" (#7884)",other,status_indicator_widget;chatwidget;bottom_pane,terminal_layer;other_ui;bottompane_state;controller_state,
+dca7f4cb6,dca7f4cb60fa6cdebb5c71e1b71c628c0773effb,upstream,2025-12-11,fix(stuff) (#7855),other,tui2:chatwidget;chatwidget,,
+057250020,057250020a7bdc75b74132010fd178e4569efd7a,upstream,2025-12-10,Fixed regression that broke fuzzy matching for slash commands (#7859),other,bottom_pane,bottompane_state,
+1a5809624,1a5809624d3909128d016fa3a28ff38f217fbc9c,upstream,2025-12-11,fix: Prevent slash command popup from activating on invalid inputs (#7704),state_ui,bottom_pane,bottompane_state,SC14
+933e247e9,933e247e9f68f11ec4d89a39654b381c778b8f2e,upstream,2025-12-09,Fix transcript pager page continuity (#7363),scrollback,pager_overlay,transcript,
+4a3e9ed88,4a3e9ed88d0d4a2624df8dfc97b600aac9b28b3e,upstream,2025-12-09,fix(tui): add missing Ctrl+n/Ctrl+p support to ListSelectionView (#7629),keys,bottom_pane,bottompane_state,
+cfda44b98,cfda44b98bd4174c0cf609e4723d8c372547b2d1,upstream,2025-12-08,fix wrap behavior for long commands (#7655),wrap_rect,bottom_pane,bottompane_state,
+056c2ee27,056c2ee2765aa951f74a7e8ad5f40e503baa2712,upstream,2025-12-08,fix: update URLs to use HTTPS in model migration prompts (#7705),state_ui,model_migration;snapshots,other_ui,N
+b8eab7ce9,b8eab7ce901762cafd11239c69b6fb58939afdbf,upstream,2025-12-04,fix: taking plan type from usage endpoint instead of thru auth token (#7610),other,chatwidget;status,other_ui;controller_state,
+28dcdb566,28dcdb566ad0052c616b40efda1ad852cbb04970,upstream,2025-12-05,Fix `handle_shortcut_overlay_key` for cross-platform consistency (#7583),scrollback,bottom_pane,bottompane_state,
+ce0b38c05,ce0b38c05613bda491b3aed0dfd9f9dca4c6e558,upstream,2025-12-04,FIX: WSL Paste image does not work (#6793),compat,clipboard_paste;bottom_pane;key_hint,bottompane_state;input_keys,
+70b97790b,70b97790bec00bce43eae326200742e76d719339,upstream,2025-12-04,fix: wrap long exec lines in transcript overlay (#7481),scrollback,pager_overlay;exec_cell,other_ui;transcript,
+3395ebd96,3395ebd96ef50d459287e0d2303e89360b18b57a,upstream,2025-12-04,fix(tui): limit user shell output by screen lines (#7448),other,exec_cell,other_ui,
+7f068cfbc,7f068cfbcca0b0028ac23625e4097a93f9beeacf,upstream,2025-12-03,fix: main (#7546),other,app,controller_state,
+00ef9d378,00ef9d37842d4e6fcb38f4ab31c33f55b7d48b53,upstream,2025-12-02,fix(tui) Support image paste from clipboard on native Windows (#7514),compat,chatwidget,controller_state,
+ad9eeeb28,ad9eeeb28762277f7e6fa2a8c17aa3121f28e855,upstream,2025-12-02,Ensure duplicate-length paste placeholders stay distinct (#7431),paste,bottom_pane,bottompane_state,
+32e4a3a4d,32e4a3a4d79b3e8ae000ae8d9ab576438538188a,upstream,2025-12-01,fix(tui): handle WSL clipboard image paths (#3990),compat,clipboard_paste,input_keys,
+2845e2c00,2845e2c0065c1b04253180735c59df24dd21b8ca,upstream,2025-11-25,fix: drop conversation when `/new` (#7297),other,app,controller_state,
+523dabc1e,523dabc1eee4797a3d59fabe7208e5a83c662bc7,upstream,2025-11-24,fix: custom prompt expansion with large pastes (#7154),paste,bottom_pane,bottompane_state,
+3ea33a061,3ea33a06165018a83d6838e36eea938c55e4ccdf,upstream,2025-11-21,fix(tui): Fail when stdin is not a terminal (#6382),other,tui,terminal_layer,
+a8a6cbdd1,a8a6cbdd1ce8ca3ba8f1184ede6c401078240d31,upstream,2025-11-20,fix: route feedback issue links by category (#6840),link,bottom_pane,bottompane_state,
+888c6dd9e,888c6dd9e76564bafb6109d8b6f407d1ef07a78f,upstream,2025-11-20,fix: command formatting for user commands (#7002),other,chatwidget;exec_cell,other_ui;controller_state,
+72a1453ac,72a1453ac5b4ee60f19876542b7d7203e83cde62,upstream,2025-11-19,"Revert ""[core] add optional status_code to error events (#6865)"" (#6955)",state_ui,chatwidget,controller_state,N
+692989c27,692989c2770065baafe57d7b6edc89bbd7c61273,upstream,2025-11-20,fix(context left after review): review footer context after `/review` (#5610),state_ui,chatwidget;bottom_pane,bottompane_state;controller_state,SC6a
+73488657c,73488657cbad42004ab9406433678a40fde50374,upstream,2025-11-19,fix label (#6892),other,history_cell,transcript,
+793063070,793063070b34d97e81a21d187f1fefa50158a1b8,upstream,2025-11-18,fix: typos in model picker (#6859),state_ui,app;model_migration;snapshots;history_cell;chatwidget;status,other_ui;transcript;controller_state,N
+a75321a64,a75321a64c990275ed4368bf26a5334c9ddfa0a7,upstream,2025-11-18,fix: add more fields to ThreadStartResponse and ThreadResumeResponse (#6847),state_ui,app;history_cell;chatwidget,transcript;controller_state,B
+9275e9336,9275e933648dc3e47fc0a84aa707fc734da4d2aa,upstream,2025-11-18,Fix tests so they don't emit an extraneous `config.toml` in the source tree (#6853),other,onboarding,other_ui,
+28ebe1c97,28ebe1c97a0c7cd01388890c66b6e77286c98518,upstream,2025-11-17,"fix(windows) shell_command on windows, minor parsing (#6811)",compat,exec_command,other_ui,
+8bebe86a4,8bebe86a47aebb262643208b8cf242caa275831d,upstream,2025-11-17,Fix TUI issues with Alt-Gr on Windows (#6799),compat,bottom_pane;key_hint,layout_text;bottompane_state;input_keys,
+702238f00,702238f0043b3bbc95bd97ba5131eea6e1160e5a,upstream,2025-11-17,Fix AltGr/backslash input on Windows Codex terminal (#6720),compat,bottom_pane,layout_text,
+db2aa57d7,db2aa57d73b265acc4f14b67c2cad0ab620dd49e,upstream,2025-11-13,[app-server] small fixes for JSON schema export and one-of types (#6614),other,chatwidget,controller_state,
+ba74cee6f,ba74cee6f7d057fecba024aedb22a17f673bbf3f,upstream,2025-11-13,fix model picker wrapping (#6589),wrap_rect,bottom_pane,layout_text;bottompane_state,
+ad09c138b,ad09c138b9c913a89a1f63f45ace15f2a01a698b,upstream,2025-11-12,Fixed status output to use auth information from AuthManager (#6529),state_ui,chatwidget;status,other_ui;controller_state,SC6b1
+52e97b9b6,52e97b9b6b0428323d3222361763971d9c4a32c9,upstream,2025-11-10,Fix wayland image paste error (#4824),paste,chatwidget,controller_state,
+788badd22,788badd221d58a659003d4e416704c6f442bf098,upstream,2025-11-10,fix: update brew auto update version check (#6238),other,app;history_cell;update_action;updates;update_prompt;lib,other_ui;transcript;controller_state,
+131c38436,131c384361506c9d5e2976f896a9ed26d10dbcc5,upstream,2025-11-10,Fix warning message phrasing (#6446),other,chatwidget,controller_state,
+1bd2d7a65,1bd2d7a659d1e1a4bb987d6d61c2cc1ebf752a40,upstream,2025-11-06,tui: fix backtracking past /status (#6335),state_ui,history_cell;app_backtrack,transcript;controller_state,SC14
+dbad5eeec,dbad5eeec6c0554eb342ffb713e5b6669a121e65,upstream,2025-11-06,chore: fix grammar mistakes (#6326),other,chatwidget,controller_state,
+e658c6c73,e658c6c73bd1725fe96ae5269f66985fa1579603,upstream,2025-11-03,fix: `--search` shouldn't show deprecation message (#6180),other,lib,other_ui,
+a1ee10b43,a1ee10b43815a10da3ac09111d793d3ded1b0dc7,upstream,2025-11-03,fix: improve usage URLs in status card and snapshots (#6111),state_ui,status,other_ui,N
+5fcf923c1,5fcf923c19ea0ef62164602528ec483850738d76,upstream,2025-11-02,fix: pasting api key stray character (#4903),keys,onboarding,other_ui,
+9a638dbf4,9a638dbf4e5ce769b4a4ce0864d17a5f15e99d2b,upstream,2025-10-30,fix(tui): propagate errors in insert_history_lines_to_writer (#4266),scrollback,tui;chatwidget;tui/tests;insert_history,terminal_layer;controller_state,
+4d6a42a62,4d6a42a62288351eee4a7302e9d274635aea6f7e,upstream,2025-10-27,fix image drag drop (#5794),image,bottom_pane,bottompane_state;input_keys,
+c72b2ad76,c72b2ad76657fd1100159043e01c5840ff156b82,upstream,2025-10-24,adding messaging for stale rate limits + when no rate limits are cached (#5570),state_ui,chatwidget;status,other_ui;controller_state,N
+3059373e0,3059373e06af9595ded892cdb62d05105adc592b,upstream,2025-10-23,fix: resume lookup for gitignored CODEX_HOME (#5311),state_ui,file_search,other_ui,B
+ed32da04d,ed32da04d7baaf0e61c0beb4c15b91c497115d6b,upstream,2025-10-23,Fix IME submissions dropping leading digits (#4359),paste,bottom_pane,bottompane_state;input_keys,
+ab95eaa35,ab95eaa35689ab84c3eb47c36be9d436879eeec0,upstream,2025-10-20,fix(tui): Update WSL instructions (#5307),compat,onboarding,other_ui,
+58159383c,58159383c4964b8bc196b533d121b70c04d3f0d1,upstream,2025-10-20,fix terminal corruption that could happen when onboarding and update banner (#5269),other,app;history_cell;tui/Cargo.toml;updates;update_prompt;lib,other_ui;transcript;controller_state,
+8044b5533,8044b55335ee903a49e72461d0e1ce573bca7041,upstream,2025-10-20,fix: warn when --add-dir would be ignored (#5351),other,additional_dirs;lib,other_ui,
+c81e1477a,c81e1477ae6f07fcdc7e81d3316e1692c460dadb,upstream,2025-10-18,fix: improve custom prompt documentation and actually use prompt descriptions (#5332),keys,bottom_pane,bottompane_state,
+11c019d6c,11c019d6c5de998022330f29ba040642174c0a98,upstream,2025-10-18,fix: handle missing resume session id gracefully (#5329),race,lib,other_ui,B
+98c6dfa53,98c6dfa53711c499a989309c30b0fe38bfa54590,upstream,2025-10-18,fix: diff_buffers clear-to-end when deleting wide graphemes (#4921),unicode,custom_terminal,terminal_layer,
+0e08dd605,0e08dd6055da1f1eb58a0ac0a15acfb038878029,upstream,2025-10-17,fix: switch rate limit reset handling to timestamps (#5304),paste,status,other_ui,
+4b01f0f50,4b01f0f50a640192e37c492464e4f76e9cc80fb6,upstream,2025-10-16,fix: tui default trusted settings should respect workspace write config (#3341),other,tui/Cargo.toml;lib,other_ui,
+86ba27092,86ba270926eacf4f4cd499b26e4e4e37fdcb1820,upstream,2025-10-15,fix: skip /init when AGENTS.md already exists (#5242),other,chatwidget,controller_state,
+57584d6f3,57584d6f341ead766242a59186e168c7ab299587,upstream,2025-10-14,fix: the 7 omitted lines issue (#5141),other,history_cell;chatwidget;exec_cell,other_ui;transcript,
+ddcaf3dcc,ddcaf3dccd7a817b6307bff61a4604c4dff27621,upstream,2025-10-09,tui: fix crash when alt+bksp past unicode nbsp (#5016),unicode,bottom_pane,layout_text,
+95b41dd7f,95b41dd7f18b85a696758e3efe242c8880e9755a,upstream,2025-10-09,tui: fix wrapping in trust_directory (#5007),wrap_rect,chatwidget;test_backend;bottom_pane;render;diff_render;onboarding;wrapping,layout_text;terminal_layer;other_ui;bottompane_state,
+bf82353f4,bf82353f451dd71a1a9696fc595444fca04cc6d6,upstream,2025-10-09,tui: fix wrapping in user approval decisions (#5008),wrap_rect,history_cell;chatwidget;bottom_pane;pager_overlay,transcript;bottompane_state,
+430023668,43002366814cdab3c1e93cdb83e5b06ef72b4181,upstream,2025-10-08,revert /name for now (#4978),other,app;chatwidget;bottom_pane;app_event;resume_picker;slash_command,other_ui;bottompane_state;controller_state,
+f4bc03d7c,f4bc03d7c049aaec020d431498949dfb6523f32e,upstream,2025-10-08,tui: fix off-by-16 in terminal_palette (#4967),wrap_rect,terminal_palette,terminal_layer,
+876d4f450,876d4f450af2da406cbabc5196449558f8b9bedf,upstream,2025-10-08,bug: fix CLI UP/ENTER (#4944),keys,chatwidget;bottom_pane,bottompane_state;controller_state,
+4b0f5eb6a,4b0f5eb6a825578b43a8605ed07e9981009e70aa,upstream,2025-10-07,tui: wrapping bugfix (#4674),wrap_rect,history_cell;wrapping,layout_text;transcript,
+b16c985ed,b16c985ed23441f2937cfb576e8aebf4c411ae4e,upstream,2025-10-07,cli: fix zsh completion (#4692),other,cli,other_ui,
+36f1cca1b,36f1cca1b131e61592dc5a4ca3e5351bcf8d23e0,upstream,2025-10-05,fix: windows instructions (#4807),compat,onboarding,other_ui,
+fae0e6c52,fae0e6c52c7da6786700a85ed7cd90925684ff73,upstream,2025-10-03,Fix reasoning effort title (#4694),other,chatwidget,controller_state,
+1e4541b98,1e4541b982c508cde72a9c94de9ce8cd2252099e,upstream,2025-10-02,Fix tab+enter regression on slash commands (#4639),keys,bottom_pane,bottompane_state,
+c0a84473a,c0a84473a44773e9468b15c82c57b61faf737d8f,upstream,2025-10-02,"fix false ""task complete"" state during agent message (#4627)",state_ui,chatwidget;bottom_pane,bottompane_state;controller_state,SC7a
+b07aafa5f,b07aafa5f55b74eadaaff404d871f4dc7694a389,upstream,2025-10-02,Fix status usage ratio (#4584),state_ui,status,other_ui,N
+5881c0d6d,5881c0d6d4165c1e26ac0471f66367d38063dac0,upstream,2025-09-30,fix: remove mcp-types from app server protocol (#4537),other,app;chatwidget;app_backtrack;tui/Cargo.toml;lib;onboarding;status,other_ui;controller_state,
+c64da4ff7,c64da4ff719fd12ab09a04c8f4c4e8d8527021df,upstream,2025-09-29,Fixes (#4458),other,chatwidget;ui_consts;bottom_pane,layout_text;terminal_layer;bottompane_state;input_keys,
+d15253415,d15253415a80e6d718b37319797356d8fe42ef1c,upstream,2025-09-29,fix clear-to-end being emitted at the end of a row (#4447),other,custom_terminal,terminal_layer,
+bcf2bc0aa,bcf2bc0aa5fb45c91ddaa9111cd85fe6a931361f,upstream,2025-09-27,fix(tui): make `?` work again (#4362),other,chatwidget;bottom_pane;key_hint,terminal_layer;bottompane_state;input_keys;controller_state,
+7355ca48c,7355ca48c5a9b4d54dac25d2bf220354109af10c,upstream,2025-09-25,fix (#4251),other,chatwidget;status,other_ui;controller_state,
+affb5fc1d,affb5fc1d01bd270f2831ce0f1d1f6654a8af344,upstream,2025-09-25,fix bug when resizing to a smaller width (#4248),wrap_rect,bottom_pane,bottompane_state,
+acc2b63df,acc2b63dfbe8e4783ef837828ebb32bcc3af1153,upstream,2025-09-25,Fix error message (#4204),other,chatwidget,controller_state,
+103adcdf2,103adcdf2d05fac262e67f244360ab1aef2f58ee,upstream,2025-09-25,fix: esc w/ queued messages overwrites draft in composer (#4237),keys,chatwidget;bottom_pane,bottompane_state;controller_state,SC14
+51c465bdd,51c465bddce82e397660d6cd7a4d93da03db099e,upstream,2025-09-23,fix: usage data tweaks (#4082),other,history_cell,transcript,
+4e0550b99,4e0550b99563f83121c6724aa1501cb288f20085,upstream,2025-09-22,fix codex resume message at end of session (#3957),state_ui,main;tui/Cargo.toml,other_ui,N
+f54a49157,f54a49157b15729440a8dd5bd5e0e517b09f3a31,upstream,2025-09-22,Fix pager overlay clear between pages (#3952),scrollback,snapshots;pager_overlay,terminal_layer;transcript,
+8bc73a2bf,8bc73a2bfd2a5fcaaff586a23e6f5f9bf7a7f722,upstream,2025-09-22,Fix branch mode prompt for /review (#4061),state_ui,chatwidget,controller_state,B
+76a9b1167,76a9b1167848c9c774bd59eb374ee1c96dcbc3fb,upstream,2025-09-22,Tui: fix backtracking (#4020),other,app;app_backtrack,controller_state,SC6c
+ff389dc52,ff389dc52f257d60d1978d34938dc7ab3cefdd15,upstream,2025-09-19,fix alignment in slash command popup (#3937),state_ui,bottom_pane,bottompane_state,L
+45bccd36b,45bccd36b038a28b23663189cc6f7557e49e06d0,upstream,2025-09-15,fix permissions alignment,other,bottom_pane,bottompane_state,
+0de154194,0de154194dc2b57bd82a351c8ef82c95e3329bb3,upstream,2025-09-15,fix: change MIN_ANIMATION_HEIGHT so show_animation is calculated correctly (#3656),wrap_rect,onboarding,other_ui,
+cf63cbf15,cf63cbf1533ea9801782ce4241e0cedcac3942e6,upstream,2025-09-15,fix stray login url characters persisting in login (#3639),other,onboarding,other_ui,
+2d52e3b40,2d52e3b40a07d69ec90bd7c7909184a22d370c62,upstream,2025-09-15,"Fix codex resume so flags (cd, model, search, etc.) still work (#3625)",sched_perf,cli,other_ui,
+26f1246a8,26f1246a895b272ae0823144c46cba1f22a4d721,upstream,2025-09-14,"Revert ""refactor transcript view to handle HistoryCells"" (#3614)",scrollback,app;snapshots;history_cell;app_backtrack;pager_overlay;lib;backtrack_helpers,other_ui;transcript;controller_state,
+182390621,18239062159256d162a212e88059647f06f34802,upstream,2025-09-14,fix(tui): update full-auto to default preset (#3608),state_ui,lib,other_ui,B
+51f88fd04,51f88fd04a5791f107d295da341896cfcee4e929,upstream,2025-09-14,Fix swiftfox model selector (#3598),state_ui,new_model_popup,bottompane_state,SC14
+8d56d2f65,8d56d2f655fd1d45d53a7c66a01f3e063dcf0069,upstream,2025-09-12,fix: NIT None reasoning effort (#3536),other,lib,other_ui,
+8408f3e8e,8408f3e8ed40b5b348f94d450787801cd27acd20,upstream,2025-09-12,Fix NUX UI (#3534),other,app;history_cell;chatwidget;new_model_popup,transcript;bottompane_state;controller_state,
+bba567cee,bba567cee91c86d7e0f911587a91ded7a705b70a,upstream,2025-09-12,bug: fix model save (#3525),state_ui,app;chatwidget,controller_state,SC14
+64e6c4afb,64e6c4afbbcb154d331d64a682b5b641c8007271,upstream,2025-09-10,fix: remove empty file: chatwidget_stream_tests.rs (#3356),sched_perf,chatwidget_stream_tests;lib,other_ui;controller_state,
+2a76a08a9,2a76a08a9e048a8f2798e36b8cb2160ad59cbc2e,upstream,2025-09-09,fix: include rollout_path in NewConversationResponse (#3352),other,history_cell;chatwidget;tui/tests,other_ui;transcript;controller_state,
+742feaf40,742feaf40f5fd03796afcf17f8f500c0706cc78c,upstream,2025-09-04,tui: fix approval dialog for large commands (#3087),state_ui,user_approval_widget;history_cell;chatwidget;render,layout_text;transcript;bottompane_state;controller_state,L
+91708bb03,91708bb031ded2611ccbfa4b37afbf372109c364,upstream,2025-09-04,fix: fix serde_as annotation and verify with test (#3170),other,tui/tests,other_ui,
+1e82bf9d9,1e82bf9d98f69a89ac84bd91ac71d3da4d8f52af,upstream,2025-09-04,tui: avoid panic when active exec cell area is zero height (#3133),wrap_rect,chatwidget,controller_state,
+d489690ef,d489690efe7f678fd156263b1b954999d8983047,upstream,2025-09-03,TUI: fix MCP docs hyperlink in empty_mcp_output (#2907),link,history_cell,transcript,
+0d5ffb000,0d5ffb000e190a4666337de24d9bcad8ba443eb8,upstream,2025-09-02,tui: fix occasional UI flicker (#2918),render,tui,terminal_layer,
+46e35a234,46e35a2345ceadecb37a5c972561fa2c998868f8,upstream,2025-09-02,tui: fix extra blank lines in streamed agent messages (#3065),render,app,controller_state,
+7ac6194c2,7ac6194c225caa6dc31f7d318be99b5be2c7364f,upstream,2025-09-03,Bug fix: ignore Enter on empty input to avoid queuing blank messages (#3047),render,chatwidget;bottom_pane,bottompane_state;controller_state,
+5d2d3002e,5d2d3002ef52cbb63aafc00f0c8883f160b80633,upstream,2025-08-28,fix: specify --profile to `cargo clippy` in CI (#2871),wrap_rect,lib,other_ui,
+3f8184034,3f8184034f12e2c03013273505259999acd03423,upstream,2025-08-28,Fix CI release build (#2864),other,slash_command,other_ui,
+3e309805a,3e309805ae34308a16f3ee1eb2147d67286c1f26,upstream,2025-08-27,fix cursor after suspend (#2690),suspend,tui,terminal_layer,
+488a40211,488a40211abd382cf5b7b9969886b02076189a88,upstream,2025-08-27,fix (most) doubled lines and hanging list markers (#2789),other,streaming;markdown;markdown_stream,layout_text;other_ui,
+bd65c4db8,bd65c4db87886c21895ee0d25f6389f899217e56,upstream,2025-08-27,Fix crash when backspacing placeholders adjacent to multibyte text (#2674),unicode,bottom_pane,bottompane_state,
+b367790d9,b367790d9b960e804e3f001457d0ea18f528e87d,upstream,2025-08-26,fix emoji spacing (#2735),unicode,history_cell;chatwidget,transcript;controller_state,
+435154ce9,435154ce93f07a38367b9fc370411ece80d20f7d,upstream,2025-08-26,fix transcript lines being added to diff view (#2721),scrollback,app;snapshots;transcript_app;app_backtrack;pager_overlay;lib,other_ui;transcript;controller_state,
+fb3f6456c,fb3f6456cff9e4ea98fe72a0bd10b2d59ce8aa10,upstream,2025-08-27,fix issue #2713: adding support for alt+ctrl+h to delete backward word (#2717),keys,bottom_pane,layout_text,
+a4d34235b,a4d34235bcdc0517d8905070d27676752f7ce2cb,upstream,2025-08-25,[fix] emoji padding (#2702),unicode,history_cell;chatwidget,transcript;controller_state,
+907afc942,907afc94255e72811b45569d440e9b6692c38d8f,upstream,2025-08-25,Fix esc (#2661),keys,app;chatwidget;bottom_pane,bottompane_state;controller_state,
+568d6f819,568d6f819f3d74b84a6fd886c02174975be86baa,upstream,2025-08-25,fix: use backslash as path separator on Windows (#2684),compat,history_cell,transcript,
+5fa7d46dd,5fa7d46ddf4a035288cc5afadfe883a597ac4287,upstream,2025-08-22,tui: fix resize on wezterm (#2600),resize,tui,terminal_layer,
+cdc77c10f,cdc77c10fb337ff3626f635ccf0844c70dec96d5,upstream,2025-08-22,Fix/tui windows multiline paste (#2544),compat,bottom_pane,bottompane_state,
+bc298e47c,bc298e47cabc80c00a08cef8828cff9c1a9b519a,upstream,2025-08-19,Fix: Sign in appear even if using other providers. (#2475),other,app,controller_state,
+0d6678936,0d6678936f83e9fbaa239a00938647ebf1501e41,upstream,2025-08-19,fix apply patch when only one file is rendered (#2468),render,snapshots;chatwidget;diff_render,other_ui;controller_state,
+7b4313bf3,7b4313bf311e221b8b52d7168d51928cca8b931b,upstream,2025-08-19,fix: fix missing spacing in review decision response (#2457),state_ui,user_approval_widget,bottompane_state,N
+16f11a89d,16f11a89d8c08105f54fa35b3915e9543b9a728f,upstream,2025-08-20,Fix #2429 Tweak the cursor position after tab completion (#2442),cursor,bottom_pane,bottompane_state,
+096bca2fa,096bca2fa26d9155c61b3327ff8ff65090687a1b,upstream,2025-08-19,fix: exclude sysprompt etc from context left % (#2446),other,bottom_pane,bottompane_state,
+2aad3a13b,2aad3a13b832f6ffe6a841ac340812f1f9da5035,upstream,2025-08-18,fix: remove shutdown_flag param to run_login_server() (#2399),sched_perf,onboarding,other_ui,
+d5b42ba1a,d5b42ba1ac89cbe7f694a28e3a6e6adb33bf0cdd,upstream,2025-08-18,fix: make ShutdownHandle a private field of LoginServer (#2396),other,onboarding,other_ui,
+d58df2828,d58df2828683763ec59249e34d507afd3765add5,upstream,2025-08-18,fix: change `shutdown_flag` from `Arc<AtomicBool>` to `tokio::sync::Notify` (#2394),sched_perf,onboarding,other_ui,
+6e8c055fd,6e8c055fd50e9b88f00b77891cde185ed23c2676,upstream,2025-08-18,fix: async-ify login flow (#2393),race,onboarding,other_ui,SC11
+db30a6f5d,db30a6f5d86650ae7c5a3d40975c7c4e9daf98af,upstream,2025-08-19,Fix #2391 Add Ctrl+H as backspace keyboard shortcut (#2412),keys,bottom_pane,layout_text,
+da69d50c6,da69d50c6046712a7c3996cc5a15fb9ecf6cb282,upstream,2025-08-18,fix: stop using ANSI blue (#2421),render,user_approval_widget;history_cell;tui/styles.md;bottom_pane;onboarding,other_ui;transcript;bottompane_state,
+5bce369c4,5bce369c4d24d8b408260969ff4832d0819dced4,upstream,2025-08-18,fix: clean up styles & colors and define in styles.md (#2401),render,history_cell;tui/styles.md;colors;bottom_pane;shimmer;lib;onboarding,other_ui;transcript;bottompane_state,
+b58149888,b581498882377e4066fd7a31baee963108290167,upstream,2025-08-17,fix: introduce EventMsg::TurnAborted (#2365),race,chatwidget,controller_state,B
+d26224472,d262244725282e30a6b8537c257a73394d74461a,upstream,2025-08-15,fix: introduce codex-protocol crate (#2355),other,history_cell;chatwidget;tui/Cargo.toml,other_ui;transcript;controller_state,
+45d6c7468,45d6c74682d37032543713c577ad70c33075feb0,upstream,2025-08-15,tui: align diff display by always showing sign char and keeping fixed gutter (#2353),render,snapshots;diff_render,other_ui,
+7038827bf,7038827bf436e0cb2ebb9e7d4489ea66db0d6774,upstream,2025-08-14,fix bash commands being incorrectly quoted in display (#2313),wrap_rect,history_cell;chatwidget,transcript;controller_state,
+c991c6ef8,c991c6ef8559adce5314907b8bfd41ceb7bb3962,upstream,2025-08-12,Fix frontend test (#2247),other,chatwidget,controller_state,
+6c254ca3e,6c254ca3e7bb7e30cbcc51dfc26c9591de09460f,upstream,2025-08-12,Fix release build (#2244),other,updates,other_ui,
+320f150c6,320f150c680598fe17269f5caf1b9d4660af06e2,upstream,2025-08-11,fix: update ctrl-z to suspend tui (#2113),suspend,app;chatwidget;tui/Cargo.toml,other_ui;controller_state,
+ae81fbf83,ae81fbf83f882371308ce4ea5dcc334cb28d6164,upstream,2025-08-11,fix: remove unused import in release mode (#2201),other,app,controller_state,
+a191945ed,a191945ed696c2e0a61d33995a474e5fd9446b24,upstream,2025-08-11,fix: token usage display and context calculation (#2117),other,bottom_pane,bottompane_state,
+216e9e2ed,216e9e2ed0aa9ea1f476ade611c76183d540a7b8,upstream,2025-08-08,Fix rust build on windows (#2019),compat,tui,terminal_layer,
+c3a8ab851,c3a8ab8511a0a6a87b438b0febe62bb52ce9cd45,upstream,2025-08-08,Fix multiline exec command rendering (#2023),render,history_cell,transcript,
+52e12f2b6,52e12f2b6cd730780f976d72c044593709aabec9,upstream,2025-08-07,"Revert ""Streaming markdown (#1920)"" (#1981)",render,app;history_cell;chatwidget;markdown;chatwidget_stream_tests;tui/tests;bottom_pane;app_event;lib;markdown_stream;insert_history,layout_text;terminal_layer;other_ui;transcript;bottompane_state;controller_state,
+cd06b28d8,cd06b28d8466349b79bea098e05fd4e1d22972c0,upstream,2025-08-07,"fix: default to credits from ChatGPT auth, when possible (#1971)",other,history_cell,transcript,
+7d6715958,7d67159587d7485ce0cddb6ed8d7433e8f195627,upstream,2025-08-07,fix: public load_auth() fn always called with include_env_var=true (#1961),other,lib,other_ui,
+f74fe7af7,f74fe7af7b66714e4148fde6856bb6a7fac3eb7f,upstream,2025-08-07,fix: fix mistaken bitwise OR in #1949 (#1957),other,bottom_pane,layout_text,
+28395df95,28395df957dbbe2acd4944ef4c42501eb013f8d3,upstream,2025-08-07,[fix] fix absolute and % token counts (#1931),other,history_cell,transcript,
+8a980399c,8a980399c5f3941768b8e91e79e0b449d8eec8de,upstream,2025-08-07,fix cursor file name insert (#1896),cursor,bottom_pane,bottompane_state,
+af8c1cdf1,af8c1cdf12ca0418ee253abb43a0849da15fd571,upstream,2025-08-07,fix meta+b meta+f (option+left/right) (#1895),other,bottom_pane,layout_text,
+eaf2fb5b4,eaf2fb5b4f76f62ede52af9053d827c1959b8c68,upstream,2025-08-05,fix: fully enumerate EventMsg in chatwidget.rs (#1866),other,history_cell;chatwidget,transcript;controller_state,
+966d957fa,966d957faf364ebd30df1db991081f9b039bbab4,upstream,2025-08-05,fixes no git repo warning (#1863),other,app,controller_state,
+d365cae07,d365cae0771855d2ac2bddc90ef04b60ca872e7e,upstream,2025-08-05,"fix: when using `--oss`, ensure correct configuration is threaded through correctly (#1859)",wrap_rect,lib,other_ui,
+78a1d49fa,78a1d49fac0fbc150e5e862fd3f24c8af50e393c,upstream,2025-08-03,fix command duration display (#1806),other,chatwidget,controller_state,
+8360c6a3e,8360c6a3ec83d0aa5d208b7a7eeb619c4ce27cad,upstream,2025-08-01,fix insert_history modifier handling (#1774),scrollback,history_cell;insert_history,terminal_layer;transcript,
+b67c485d8,b67c485d84eba0d087203a850762da0cfe3361f9,upstream,2025-08-01,ci fix (#1782),other,app,controller_state,
+d787434aa,d787434aa81c097f242b39c1101ec7f09afa8a72,upstream,2025-07-31,"fix: always send KeyEvent, we now check kind in the handler (#1772)",keys,app,controller_state,
+9aa11269a,9aa11269a56828f6c2f43cd664dec278509e52c2,upstream,2025-07-31,Fix double-scrolling in approval model (#1754),state_ui,app,controller_state,L
+861ba8640,861ba8640356139ba15eebb89abc164a7b86d97d,upstream,2025-07-31,Show error message after panic (#1752),other,lib,other_ui,
+2d2df891b,2d2df891bb2c1087a68fff6b9a219421097c189f,upstream,2025-07-28,fix: long lines incorrectly wrapped (#1710),wrap_rect,insert_history,terminal_layer,
+80c19ea77,80c19ea77c41d520312b05cd71eaa323a045766b,upstream,2025-07-28,Fix approval workflow (#1696),state_ui,user_approval_widget;chatwidget;bottom_pane,bottompane_state;controller_state,SC14
+910225585,9102255854eab4310d7d90ab64215bf3f2e06850,upstream,2025-07-28,fix: move arg0 handling out of codex-linux-sandbox and into its own crate (#1697),other,main;tui/Cargo.toml,other_ui,
+7ecd3153a,7ecd3153a8e89834ab6237cad601fad265f6c2c8,upstream,2025-07-28,fix: correctly wrap history items (#1685),wrap_rect,tui/Cargo.toml;insert_history,terminal_layer;other_ui,
+c66c99c5b,c66c99c5b544a3334a3ee84c3cf28187438e7715,upstream,2025-07-25,fix: crash on resize (#1683),resize,app,controller_state,
+75b400809,75b40080947b8c142853a391e73d7a99fa089a39,upstream,2025-07-25,fix: paste with newlines (#1682),paste,app,controller_state,
+b4ab7c1b7,b4ab7c1b7325fef16fb2c15f78d9b41dd1d3485b,upstream,2025-07-23,Flaky CI fix (#1647),other,app;chatwidget,controller_state,
+d5a2148de,d5a2148deb836400c1af1292d0fa7cc7d86f19d4,upstream,2025-07-18,Fix ctrl+c interrupt while streaming (#1617),keys,chatwidget,controller_state,
+16eafd02a,16eafd02ad539ddb984a4b6b7ca589b981769932,upstream,2025-07-10,fix: remove reference to /compact until it is implemented (#1503),other,bottom_pane,bottompane_state,
+fd67a0086,fd67a0086c0bf8feca987bc77ded4bba8097bb37,upstream,2025-07-08,"Fix Unicode handling in chat_composer ""@"" token detection (#1467)",unicode,bottom_pane,bottompane_state,
+531ce7626,531ce7626ff76414f8c5ed0eff7e18137921b5fc,upstream,2025-06-24,fix: pretty-print the sandbox config in the TUI/exec modes (#1376),other,history_cell;tui/Cargo.toml,other_ui;transcript,
+a32d305ae,a32d305ae6a8c8680932b5259f7dd7e5a086db26,upstream,2025-05-29,fix: update UI treatment of slash command menu to match that of the TS CLI (#1161),state_ui,bottom_pane,bottompane_state,N
+a768a6a41,a768a6a41d02248ee795c941af88e283f8c81c9d,upstream,2025-05-28,fix: introduce ResponseInputItem::McpToolCallOutput variant (#1151),state_ui,history_cell;chatwidget;tui/Cargo.toml;conversation_history_widget,other_ui;transcript;controller_state,B
+6b5b184f2,6b5b184f21504c99eeeee56b9d607eb8576f96db,upstream,2025-05-24,fix: TUI was not honoring --skip-git-repo-check correctly (#1105),wrap_rect,app,controller_state,
+89ef4efdc,89ef4efdcf033a3b0085328be5d144a292e5d50d,upstream,2025-05-23,fix: overhaul how we spawn commands under seccomp/landlock on Linux (#1086),other,main;tui/Cargo.toml,other_ui,
+1c6a3f109,1c6a3f1097c00d578908572b54a376f82ecd9ab7,upstream,2025-05-17,fix: artifacts from previous frames were bleeding through in TUI (#989),render,conversation_history_widget,other_ui,
+f8b6b1db8,f8b6b1db81120660b809ab9104b7c80cf26b69d7,upstream,2025-05-17,fix: ensure the first user message always displays after the session info (#988),state_ui,chatwidget;conversation_history_widget,other_ui;controller_state,SC9
+f9143d036,f9143d03614969219e1bb3c77523ff3912047697,upstream,2025-05-16,fix: do not let Tab keypress flow through to composer when used to toggle focus (#977),keys,chatwidget,controller_state,
+67ac8ef60,67ac8ef6055eb9bfecf80c70c6a9e9c6150b315b,upstream,2025-05-16,fix: use text other than 'TODO' as test example (#969),other,markdown,other_ui,
+3fdf9df13,3fdf9df1335ac9501e3fb0e61715359145711e8b,upstream,2025-05-15,chore: introduce AppEventSender to help fix clippy warnings and update to Rust 1.87 (#948),wrap_rect,app;status_indicator_widget;user_approval_widget;app_event_sender;chatwidget;scroll_event_helper;bottom_pane;lib,other_ui;bottompane_state;controller_state,
+0b9ef93da,0b9ef93da519be9f988bd860ecb48777e5efb76e,upstream,2025-05-14,fix: properly wrap lines in the Rust TUI (#937),wrap_rect,conversation_history_widget,other_ui,
+a5f3a3482,a5f3a348275a67b15f752c21a7ecc99dc1a1b670,upstream,2025-05-13,fix: change EventMsg enum so every variant takes a single struct (#925),other,chatwidget,controller_state,
+e6c206d19,e6c206d19d4e9e2735e96d05b2fd3e1b92b36d44,upstream,2025-05-13,fix: tighten up some logic around session timestamps and ids (#922),paste,history_cell;chatwidget;tui/Cargo.toml;conversation_history_widget,other_ui;transcript;controller_state,
+55142e3e6,55142e3e6caddd1e613b71bcb89385ce5cc708bf,upstream,2025-05-12,"fix: use ""thinking"" instead of ""codex reasoning"" as the label for reasoning events in the TUI (#905)",other,history_cell,transcript,
+a1f51bf91,a1f51bf91bddf1c7cca6dfb2c2bc4484a44e7b98,upstream,2025-05-10,fix: fix border style for BottomPane (#893),render,status_indicator_widget;chatwidget;bottom_pane,other_ui;bottompane_state;controller_state,
+699ec5a87,699ec5a87f09796d17c0202cd92a1dd4d8b4f3f5,upstream,2025-05-08,fix: remove wrapping in Rust TUI that was incompatible with scrolling math (#868),wrap_rect,conversation_history_widget,other_ui,
+a134bdde4,a134bdde49d5839fc4d4c8bb55e2d672441da669,upstream,2025-05-04,fix: is_inside_git_repo should take the directory as a param (#809),wrap_rect,lib,other_ui,
+cd12f0c24,cd12f0c24a04c6affa3a11cdf381e31d61e6c457,upstream,2025-05-04,fix: TUI should use cwd from Config (#808),other,history_cell;chatwidget;conversation_history_widget,other_ui;transcript;controller_state,
+0a00b5ed2,0a00b5ed294e4595402c08968952e990e72140f9,upstream,2025-04-29,fix: overhaul SandboxPolicy and config loading in Rust (#732),other,lib;cli,other_ui,
+77e291804,77e291804910494de82403c46fd8676d7f3082a8,upstream,2025-04-28,fix: drop d as keyboard shortcut for scrolling in the TUI (#704),keys,conversation_history_widget,other_ui,
+b0ba65a93,b0ba65a936278f7dc037176de0977b719d6ec252,upstream,2025-04-25,fix: write logs to ~/.codex/log instead of /tmp (#669),other,lib,other_ui,

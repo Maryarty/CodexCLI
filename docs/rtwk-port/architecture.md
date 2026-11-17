@@ -221,9 +221,9 @@ verdict; matrix in §10):
 | 8 streams / Rx | `switch_map`-style dropping of stale results | a second scheduler beside rtwk's; state hidden in closures | ingress only, not a store |
 
 **Decision (2026-11-17): family 1 with family 2's effect boundary; family 4
-as the reserve.** Reasons: (1) it removes the desync bug class (~22 points of
-the oracle's fix history, bug-classes.md) with the narrowest failure mode —
-one wrong memo key, and many mistakes do not compile; (2) request ids and
+as the reserve.** Reasons: (1) with the rules R1–R14 below it removes state bugs
+as a class on the oracle's real history (state-bug-classes.md) with the
+narrowest failure mode — many mistakes do not compile; (2) request ids and
 race tests are cheapest with one writer and a pure `apply`; (3) it is rtwk's
 own model, the cheapest measured, and what Helix, gitui, yazi and iced do.
 
@@ -279,8 +279,37 @@ the model has one owner and no published copy.
 4. Races are tested: late RPC replies, thread switches mid-stream, resize
    mid-stream, approvals arriving during a dialog.
 
-With these, ~32% of the oracle's historical fixes go away as a class
-([bug-classes.md](research/bug-classes.md)).
+**Checked on the real bug history** ([state-bug-classes.md](research/state-bug-classes.md):
+159 commits and 42 issues read, root cause per item). The design *without*
+rules removes no sub-class as a class (it only removes the oracle's
+mechanism for 15 commits). Of the 508 bug-flavoured fix commits, ~11% are
+state-mechanism bugs (the earlier "~22–32%" counted tests, build, backend and
+layout fixes too). With R1–R14: 28 (5.5% of 508) impossible by
+construction, 25 (4.9%) caught by a mandatory test, 2 still possible; of 34
+state issues, 13 impossible, 16 caught, 5 possible. A hand-written single
+reducer (every change an Action) removes no more than this mix — the oracle
+already has a 335-variant `AppEvent` dispatcher and still had every class,
+because state lived in widget copies — so only intents that touch shared or
+cross-thread state are values (R10).
+
+**Rules (binding; state-bug-classes.md §4 has enforcement details):**
+
+| rule | what | enforced by |
+|---|---|---|
+| R1 | requests return `Reply<T>` readable only through `pending.resolve(reply)` (ticket check); `AppCx::spawn` only in the shell (its `then` gets `&mut App`, rtwk app.rs:1001); transport events carry the thread's attach epoch, one ingress router drops older epochs | module privacy + `clippy::disallowed_methods` |
+| R2 | per-thread data only in `ThreadModel`; per-thread views keyed by ThreadId through one `thread_scope` helper | switch round-trip property test |
+| R3 | `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)`; thread RPCs only via `ThreadFx` (stamps its id); pending keyed `(ThreadId, RequestId)`; intents carry their target ThreadId | types |
+| R4 | transcript = ordered map keyed `(TurnId, ItemId)` with upsert, one projection from protocol events | type API (no push) |
+| R5 | `TurnState { Idle, Running(RunningTurn{..}) }`: transient state inside the variant, the end transition consumes it | types + end-path matrix test |
+| R6 | `Remote<T> { Loading, Loaded{value, fetched_at, generation}, Failed }` | types |
+| R7 | derived values are functions, never stored; any cache is a memo on `Versioned<T>` or checked by `Model::assert_consistent()` after every event in tests | test harness |
+| R8 | lifecycles as enums, predicates as functions of them, outcomes as enums not bools | lifecycle × intent table test |
+| R9 | entities created/upserted from whichever of response or notification comes first; local mutations wait for confirmation | event-permutation property test |
+| R10 | intents touching backend-shared or cross-thread state are values in the same ordered stream as backend events | permutation test |
+| R11 | lists use rtwk's keyed `SelectionList<K>`; the clock is a model input | lint on `Instant::now`/`SystemTime::now` in views |
+| R12 | no IO in `apply` or views; IO only in effects run by the shell | `disallowed_methods` lint |
+| R13 | a newtype per id kind; composite keys where an id is scoped | types |
+| R14 | app data never enters rtwk local state (`Obs`, `use_state`) outside an allowlist of UI-only modules | `clippy::disallowed_types` |
 
 ## ADR-004 — Screens and content
 
