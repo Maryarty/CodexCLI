@@ -5,8 +5,9 @@ changed before the migration starts. Text decisions: [architecture.md](architect
 Rendered: [design.html](design.html). App state follows ADR-003, accepted by the person
 2026-11-17: plain model, thread-scoped `apply -> Effects`, intents on shared
 state as values, rules R1–R14 (§6b). Corrected after the independent review
-[reviews/arch-review.md](reviews/arch-review.md): routes and dialogs from the
-model (§2, §7, §8), `ThreadUi` for per-thread widget state (§6), the shell
+[reviews/arch-review.md](reviews/arch-review.md): navigation and dialogs as in
+twk — `Navigator` + `PageRoute`, `show_dialog`, live data through
+`rtwk::provider` projections of the model (§2, §3, §7, §8), `ThreadUi` for per-thread widget state (§6), the shell
 spawns through rtwk-tokio (§4, §5), split pending maps (§6), counts in §6b.
 
 ## 1. System context
@@ -45,13 +46,13 @@ flowchart TB
     r2["widget tree, rebuild, layout, paint, damage diff"]
     r3["widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)"]
     r4["coalescing work from other threads, list virtualization"]
-    r5["dialog widgets (Dialog, ModalBarrier, FocusScope, show_dialog for captured confirms), popovers, rich content: Markdown, Diff, Code, charts, images"]
+    r5["navigation (Navigator, PageRoute), dialogs (show_dialog), providers, popovers, rich content: Markdown, Diff, Code, charts, images"]
   end
   subgraph A["the app owns"]
     a1["application state: threads, turns, streams, approvals, settings, account, agents"]
     a2["rules: what an event or an action changes, stale-result dropping"]
     a3["derived values: counts, totals, filters, what a screen shows"]
-    a4["screens: which rtwk widgets, laid out how, bound to which keys; which route and which modal are shown"]
+    a4["screens: which rtwk widgets, laid out how, bound to which keys; which model projections are provided"]
   end
   subgraph B["the backend owns"]
     b1["sessions, model calls, tools, sandbox, config files, auth"]
@@ -74,7 +75,7 @@ flowchart TB
     commands["commands/: 69 slash commands, parsing, queue rules"]
     keymap["keymap/: tui.keymap config to rtwk Shortcuts, vim mode"]
     theme["theme.rs"]
-    root["ui/view.rs: Theme, providers, route match, modal layer; ui/thread_ui.rs: ThreadUi controllers"]
+    root["ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers"]
     subgraph screens["screens/ (one directory per slice)"]
       s1["chat, cells, composer, popovers, transcript, select"]
       s2["approvals, settings, pager, backtrack, resume, status, usage"]
@@ -159,7 +160,6 @@ classDiagram
     session: Session
     threads: ThreadId to ThreadModel map
     active: ThreadId
-    nav: NavState
     settings: Settings
     account: Account
     agents: AgentsState
@@ -197,18 +197,12 @@ classDiagram
     rate_limits: Remote (R6)
     attach_epoch per thread (R1)
   }
-  class NavState {
-    route: Route enum, matched by the root view
-    modals: queue, head shown by the modal layer
-    selection: by item key, not index (R11)
-  }
   CodexApp --> ThreadModel
   ThreadModel --> TurnState
   ThreadModel --> Approval
   CodexApp ..> ThreadUi : view keyed by ThreadId
   CodexApp --> Session
   Session --> Remote
-  CodexApp --> NavState
 ```
 
 Derived (functions of the model, never stored, R7): per-thread unread and
@@ -306,19 +300,19 @@ Plus the resume/reconnect-mid-turn test (transcript equals the snapshot).
 
 ## 7. Navigation map (screens of architecture.md §1)
 
-Routes are `NavState.route`, a model enum the root view matches (no rtwk
-plain-model example uses `Navigator`). Live dialogs (approvals, elicitations,
-user input, `/status`, startup prompts) are the modal layer over the head of
-`NavState.modals` / thread approvals, as in rtwk-weather. Dialogs whose content
-is captured at open and that return a value (confirms, prompts, fixed pickers)
-use `show_dialog` from the opening widget with `opened` / `closed(ticket,
-value)` handlers, as in rtwk triage's shipping view.
+As in twk: the root is a `Navigator` (home: chat) under a `MultiProvider` of
+model projections. Screens (solid arrows) are `PageRoute`s pushed by the
+widget that opens them and read live data with `select` / `watch`. Dialogs
+(dotted) open with `show_dialog` from the asking widget. Backend requests
+(approvals, elicitations, user input, startup prompts) open through the
+request presenter and close themselves when the model drops the request.
+Routes and dialogs get ids; results return to the model as ticketed events.
 
 ```mermaid
 flowchart LR
   start((start)) --> upd["S01 update prompt"] --> onb["S02-S03 onboarding: welcome, auth, GovCloud, provider"] --> trust["S04 directory trust"] --> chat
   chat["S10 main chat (home); composer usable as a draft while Session is Starting"]
-  chat -.modal while Starting.-> prompts{{"S05 startup prompts"}}
+  chat -.presenter while Starting.-> prompts{{"S05 startup prompts"}}
   chat -->|Ctrl+T, /diff| pager["S16 pager"]
   chat -->|/resume, /fork| resume["S18 resume picker"]
   chat -->|/usage| usage["S20 usage dashboard"]
@@ -341,7 +335,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  scaffold["Scaffold (theme, focus scope, Shortcuts from keymap)"]
+  scaffold["Navigator home route: Scaffold (theme, focus scope, Shortcuts from keymap)"]
   scaffold --> row["Row"]
   row --> sidebar["Sidebar (S22): TabBar + panes, slide animation"]
   row --> col["Column (main)"]
@@ -352,8 +346,9 @@ flowchart TB
   col --> composer["Composer: TextArea over the ThreadUi controller, attachments (G12: atomic elements, kill ring, vim, paste-burst)"]
   col --> footer["Footer hints + status line (ui_tree elements)"]
   scaffold -.overlay.-> popovers["Popovers: / @ $ (Autocomplete, OptionList, CommandPalette)"]
-  scaffold -.modal layer.-> dialogs["Modal layer: Stack + ModalBarrier + FocusScope(Dialog) for the head of nav.modals / thread approvals (live dialogs)"]
-  composer -.show_dialog.-> confirm["Captured dialogs: confirm, prompt, fixed picker; closed(ticket, value) to the model"]
+  scaffold -.show_dialog.-> dialogs["Dialogs: selection, settings, confirms, /status from the asking widget; answers as ticketed events"]
+  scaffold -.presenter.-> reqs["Request presenter: show_dialog for the head of the model's request queue (approvals, elicitation, user input); closes when the model drops it"]
+  scaffold -.push.-> routes["PageRoutes over chat: pager, resume, usage, agents (select / watch projections)"]
 ```
 
 ## 9. Tests, parity and performance

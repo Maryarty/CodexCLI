@@ -47,9 +47,9 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | # | decision | in one line |
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
-| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; route = model enum matched in the view; dialogs = a modal layer built from the model's queue; rtwk widgets |
+| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
 | ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`; entities+notify as reserve; chosen on per-approach trade-offs |
-| ADR-004 | screens and content | 24 screen-map rows (§1) as model routes, modal layer and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
+| ADR-004 | screens and content | 24 screen-map rows (§1) as pushed routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
 | ADR-006 | input | rtwk `Focus` / `Shortcuts` / `KeyBindings`; Codex's keymap config read into them; input never frozen by an RPC |
 | ADR-007 | parity | functional (screen tests + pty scenarios against the oracle) and visual (oracle snapshots and captures as the reference, deltas listed per screen) |
@@ -156,60 +156,90 @@ codex-rtwk main ─ arg0_dispatch_or_else → multi-thread tokio runtime → app
  └ run_app_with on the block_on thread, runtime entered (rtwk-tokio)
     └ overlay::App → AppView(CodexApp, view)
        └ Theme · Localizations · providers (config projection, keymap)
-          └ root view: match app.nav.route { Onboarding(..) | Trust | Chat | Pager | Resume | Usage | Agents | … }
-             └ screens = functions of &CodexApp built of rtwk widgets
-             └ modal layer: Stack + ModalBarrier + Dialog for the head of the model's modal queue
-             └ show_dialog from the opening widget for confirms/prompts captured at open (ticketed close)
-             └ popovers via the overlay, toasts
+          └ MultiProvider: projections of the model (Rc slices) + app Handlers
+             └ Navigator (home: chat) — PageRoutes pushed: pager · resume · usage · agents · import · onboarding/*
+                └ screens: rtwk widgets reading projections with select / watch
+                └ request presenter: show_dialog for the head of the model's request queue
+                └ show_dialog from the asking widget; popovers via the overlay, toasts
 ```
 
-**Routes and dialogs** (arch-review B1, checked against the examples).
+**Routes and dialogs: as in twk** (the person, 2026-11-17, after the
+examples were compared; arch-review B1).
 
-How the examples do it:
-- twk (Dart, the original rtwk is ported from; `packages/twk/example`):
-  StatefulWidget apps. `files.dart:98` puts a `Navigator` at the root and
-  pushes a `PageRoute<Settings>` with the value copied in, awaiting the
-  result (`:813`). Its dialogs use `await showDialog<T>` (`:674`,
-  settings.dart:95): the content is built from values captured at open, and
-  the result is applied with `setState` behind an `if mounted` check.
-- rtwk apps on `run_app` with a plain model have no `Navigator` (none in
-  crates/rtwk/examples, rtwk-weather, monitor/agent_chat; only rtwk's own
-  nav_chrome tests use it). They make dialogs in two ways:
-  1. **Widget-owned `show_dialog`.** triage's shipping view
-     (examples/triage/main.rs:10 → native.rs:88, delete.rs:50) works like
-     this. A `DeleteButton` widget opens the dialog and passes in only the
-     id. It reports `opened` and `closed(id, answer)` to the model through
-     handlers. The model notes `pending_delete = Some(id)` (app.rs:105) and
-     drops a stale close (`if self.pending_delete != Some(id)`, app.rs:118),
-     which is a ticket check.
-  2. **A modal layer built from the model.** Here the view draws `Stack` +
-     `ModalBarrier` + `FocusScope(Dialog)` when the model holds a prompt and
-     excludes focus from the body. triage's corpus view does this
-     (app.rs:410-431, view.rs:82), and so does rtwk-weather
-     (src/ui/view.rs:18-20, :132, :429).
-- Both rtwk apps also keep their `TextEditingController` and
-  `SelectionController` fields right in the app struct (triage app.rs:58-63).
+twk, the Dart original that rtwk is ported from, does it this way
+(`packages/twk/example`):
+- The app root is a `Navigator` (files.dart:98). Screens are pushed as
+  `PageRoute<T>`, and the result is awaited on pop (files.dart:813, the
+  settings screen; guides/flutter_list.dart).
+- A dialog is `await showDialog<T>` with `closeDialog(context, value)`
+  (settings.dart:95, recipes.dart:18).
+- Screens read shared state through a provider above the app:
+  `ChangeNotifierProvider` at the root, `context.select` / `read` below it
+  (provider/counter.dart).
 
-The rule for Codex:
-- **Routes are a model enum** (`NavState.route`). The root view matches on
-  it and builds the screen from `&CodexApp`. Every full-screen Codex screen
-  reads live data: the pager follows the transcript, and resume, usage and
-  agents load asynchronously or update live. A `Navigator` route builder
-  sees only `&mut BuildCx` (rtwk navigation/navigator.rs:78), and the
-  examples show no plain-model app that uses one.
-- **A dialog whose content is live app data uses the modal layer** (way 2).
-  Approvals, elicitations, request-user-input, `/status`, the agents
-  switcher, startup prompts and anything else the backend can change or
-  resolve while it is open belong here. The queue in the model is the only
-  source. When the backend resolves a request, it disappears from the screen
-  (oracle bug bc969b651, an overlay that kept its own queue).
-- **A dialog whose content is captured at open and that returns a value uses
-  `show_dialog`** (way 1, triage's shipping form). Examples: a confirm, a
-  text prompt, and a selection over a fixed list. The opening widget reports
-  `opened` and `closed(ticket, value)` through handlers. The model holds the
-  ticket and drops a stale close, as triage's `finish_delete` does. If the
-  choices of such a dialog load asynchronously (S14 model list), it is live,
-  so it goes to the modal layer instead.
+rtwk has all three under the same names: `Navigator`, `PageRoute`,
+`NavigatorState::push -> DialogResult<T>` (rtwk navigation/navigator.rs:714,
+:1223, :1637); `show_dialog` / `close_dialog` (rtwk-overlay/src/dialog.rs:301);
+`rtwk::provider::{Provider, MultiProvider, read, watch, select}` (the port of
+twk's provider, rtwk-provider/src/lib.rs).
+
+Codex does the same, on top of the plain model of ADR-003:
+- **Shape.** The root view is a `MultiProvider` of read-only projections of
+  the model (thread slices as `Rc<T>`, approvals, settings, session) and of
+  the app's `Handler`s. Its child is a `Navigator` whose home is the chat
+  screen.
+- **Screens.** The pager, resume, usage, agents, import and onboarding
+  steps are pushed as `PageRoute`s by the widget that opens them
+  (`Navigator::of(cx).push`). A route reads its live data with `select` /
+  `watch`, so the pager follows the transcript while it is open.
+- **Dialogs.** Selection, settings, confirms, prompts, `/status` and the
+  small dialogs open with `show_dialog` from the widget that asks, as twk
+  and rtwk triage do (examples/triage/delete.rs:50).
+- **Arguments are ids, not data (R14).** A route or dialog gets ids (thread,
+  request, item) and reads data through the providers. Only a dialog that
+  edits a value copies it at open, as its draft, and returns it on close.
+  This is twk's settings screen.
+- **Results return to the model as events.** A pop result or dialog answer
+  goes through a `Handler` as an intent carrying its ticket or request id.
+  The model drops a stale one (R1), as triage's `finish_delete` checks
+  `pending_delete` (app.rs:105-118).
+- **Backend-initiated dialogs** (approvals, elicitations, request-user-input,
+  startup prompts) open through a presenter widget under the `Navigator`.
+  This is twk's listener pattern, `BlocListener` in Flutter terms. The
+  presenter `select`s the head of the model's request queue and calls
+  `show_dialog` when a new id appears. The dialog `select`s its request and
+  closes itself when the model no longer holds it, e.g. when another client
+  resolved it. So the model's queue stays the only source, and the
+  rtwk overlay holds only the id (the oracle bug bc969b651 was an overlay
+  that kept its own queue).
+- **Navigation state is rtwk's.** It is widget state (ADR-002) and is not
+  mirrored into the model. Where a rule needs to know the open screen, a
+  `NavigatorObserver` reports route changes as events.
+- **Verified by a prototype** ([research/nav-proto.md](research/nav-proto.md),
+  14 tests; until then rtwk had no `Navigator` under an `AppView` with
+  providers above it). It checked:
+  - pushed routes follow model changes (from handlers and channel items)
+    after the view reruns;
+  - the stack and route-local `State` survive the rerun, and home gets new
+    props while covered;
+  - open-on-event, close-on-resolve and the ticketed answer work, and focus
+    returns to the screen;
+  - `push::<T>` returns its pop result;
+  - `select` isolates rebuilds.
+
+  Conditions, binding:
+  1. Screen and dialog widgets are `impl_widget!(stateful eq …)`; without
+     `eq` a route rebuilds on every view run.
+  2. The request presenter and every `show_dialog` caller sit under the
+     `Navigator`. Above it the dialog falls back to the `overlay::App`
+     overlay above the providers, and its content cannot find them.
+  3. The provider list is fixed and the `Navigator` carries a `GlobalKey`.
+     A changed provider list remounts it and silently drops the stack.
+  4. The handlers provider has `.update_should_notify(|_, _| false)`
+     (handlers are never `==` across view runs). A widget never decides from
+     a `read` in the same flush as a handler change, because the projection
+     lags the model until the view reruns. The presenter never reopens the
+     last id it showed. Backend request ids are unique (R13).
 
 | need | rtwk |
 |---|---|
@@ -217,8 +247,8 @@ The rule for Codex:
 | message content | rtwk-rich `MarkdownView`, `DiffView`, `CodeView` |
 | composer | `TextArea` over a per-thread `TextEditingController` (`TextField` for single-line inputs); `Autocomplete` for caret-anchored popovers; what TextArea lacks is gap G12 |
 | lists, pickers, commands | `SelectionList<K>`, `OptionList`, `CommandPalette`, `Table<T>`, `TreeView<T>`, `TabBar` |
-| approvals, live dialogs | modal layer (`Stack` + `ModalBarrier` + `FocusScope(Dialog)`) from the model's queue + the widgets above |
-| confirms, prompts, fixed pickers | `show_dialog` from the opening widget, `opened`/`closed(ticket, value)` handlers to the model (rtwk triage) |
+| screens | `Navigator` + `PageRoute`, pushed by the opening widget; data through `rtwk::provider` `select` / `watch` |
+| dialogs, approvals | `show_dialog` + `Dialog` (from the asking widget, or the request presenter for backend requests); answers to the model through `Handler`s with their ticket |
 | progress, working | `Spinner`, `ProgressBar`, rtwk-animation |
 | analytics | rtwk-data `Chart`, `BarChart`, `Sparkline` |
 | pets, images | rtwk-rich `Image` |
@@ -236,7 +266,7 @@ The rule for Codex:
   Per-thread widget state that must survive a thread switch (composer text,
   scroll and selection controllers) lives in `ThreadUi`, see below.
 - Standalone pre-app screens of the oracle (onboarding, trust, prompts)
-  become routes of the same app, shown before the chat route; the composer is
+  become routes pushed over the chat screen at start; the composer is
   usable as a startup draft while `Session` is `Starting` (submit waits for
   `Ready` through R10's ordering).
 
@@ -333,7 +363,7 @@ own model, the cheapest measured, and what Helix, gitui, yazi and iced do.
 
 - Rust structs owned by the rtwk `AppView`; one writer, the UI thread.
 - Per thread `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)`; app-scoped
-  state (account, rate limits, app-level MCP startup, settings, navigation)
+  state (account, rate limits, app-level MCP startup, settings)
   `apply_app(&mut CodexApp, AppEv, &mut AppFx)`. Backend events, replies and
   intents enter one ordered ingress stream (one `AppCx::channel` sender;
   handlers send their intents into it too, so an intent never overtakes an
@@ -436,7 +466,7 @@ cross-thread state are values (R10).
 | R11 | lists use rtwk's keyed `SelectionList<K>`; the clock is a model input | lint on `Instant::now`/`SystemTime::now` in views |
 | R12 | no IO in `apply` or views; IO only in effects run by the shell | `disallowed_methods` lint |
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
-| R14 | app data never enters rtwk local state outside an allowlist of UI-only modules (incl. `ThreadUi`); screens take app data only as `&CodexApp` or memo deps | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`, controller constructors; CI grep: no `impl State for` / `impl StatefulWidget for` outside UI-only modules — a lint, so SC6a is caught, not impossible |
+| R14 | app data never enters rtwk local state outside an allowlist of UI-only modules (incl. `ThreadUi`); screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`, controller constructors; a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
 
 Clippy's `disallowed_*` lists are crate-wide: each rule that says "outside
 X" is a crate-wide deny with `#[allow(clippy::disallowed_…)]` on the
@@ -535,7 +565,7 @@ codex-rs/tui-rtwk/          own workspace, package codex-tui-rtwk, binary codex-
   src/threads/              ThreadModel, apply, ThreadFx (empty transcript upsert)
   src/shell.rs              the only spawner: client via TokioApp::spawn_tokio/subscribe, epoch stamping
   src/theme.rs
-  src/ui/view.rs            root: Theme, route match, modal layer
+  src/ui/view.rs            root: Theme, MultiProvider (model projections, handlers), Navigator (home: chat), request presenter
   src/ui/thread_ui.rs       ThreadUi controllers (R14 allowlist)
   src/ui/chat.rs            empty chat screen: transcript ListView, TextArea, footer
   tests/screens.rs          Tester over the app on a fake backend
@@ -563,6 +593,9 @@ lockfile untouched.
 | G10 tmux probes (mouse option, pane-local graphics) | S10, S24 |
 | G11 clipboard breadth (native, WSL, X11 PRIMARY beyond OSC 52) | copy |
 | G12 `TextArea`: atomic elements, kill ring and yank, vim mode, paste-burst, history recall (arch-review M1) | S10 composer |
+| G13 `show_dialog` without a Navigator falls back to the `overlay::App` overlay above the app's providers (nav-proto gap 1) | dialogs; workaround: presenter under the Navigator |
+| G14 a provider projection lags the model until the view reruns; no same-flush read (nav-proto gap 2) | presenters; workaround: never decide from a same-flush read |
+| G15 changing the provider list silently drops an unkeyed Navigator's stack (nav-proto gap 3) | root; workaround: fixed list + `GlobalKey` |
 | rtwk-state: reactive_graph cross-thread panic, `batch` loss (the issue file) | rtwk quality; family 3, not used by the port |
 | rtwk-state: `Select` notified inside a frame wakes the loop again (app-state-aopt.md §5) | ADR-003 reserve (family 4) |
 
@@ -591,11 +624,13 @@ lays out all text.
 a2dbf130c) found what had to be decided before the skeleton. Decided on its
 evidence, in the text above:
 
-1. Routes and dialogs (B1, checked against the twk and rtwk examples):
-   route = model enum (no rtwk plain-model app uses `Navigator`); live
-   dialogs = modal layer from the model's queue (rtwk-weather, triage corpus
-   view); dialogs captured at open that return a value = widget-owned
-   `show_dialog` with a ticketed close (triage's shipping view).
+1. Routes and dialogs (B1) — the person: "as in twk": `Navigator` +
+   `PageRoute`, `show_dialog`, live data through `rtwk::provider`
+   projections of the model; ids as arguments; results back as ticketed
+   events; a presenter for backend requests. Verified by a prototype
+   (`research/nav-proto.md`, 14 tests) with four binding conditions
+   (`eq` widgets, presenter under the Navigator, fixed providers + keyed
+   Navigator, no same-flush decisions); rtwk gaps G13–G15, none blocking.
 2. Per-thread widget state and the composer (M1): `ThreadUi` controllers;
    composer = rtwk `TextArea` + gap G12 built in rtwk.
 3. Effect runner and runtime (M3, m10): the shell, through rtwk-tokio;

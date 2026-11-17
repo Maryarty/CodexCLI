@@ -11,7 +11,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 @media (prefers-color-scheme: dark) { body { background: #161618; color: #e8e8ea; } .diagram { background: #1f1f22; border-color: #333; } code { background: #2a2a2e; } h2 { border-color: #333; } a { color: #7ab7ff; } }
 </style></head><body>
 <h1>Codex CLI on rtwk — target architecture (design to review)</h1>
-<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003, accepted by the person 2026-11-17: plain model, thread-scoped <code>apply -&gt; Effects</code>, intents on shared state as values, rules R1–R14 (§6b). Corrected after the independent review <a href="reviews/arch-review.md">reviews/arch-review.md</a>: routes and dialogs from the model (§2, §7, §8), <code>ThreadUi</code> for per-thread widget state (§6), the shell spawns through rtwk-tokio (§4, §5), split pending maps (§6), counts in §6b.</p>
+<p>What the finished phase-1 app looks like, drawn to be looked at, weighed and changed before the migration starts. Text decisions: <a href="architecture.md">architecture.md</a>. Rendered: <a href="design.html">design.html</a>. App state follows ADR-003, accepted by the person 2026-11-17: plain model, thread-scoped <code>apply -&gt; Effects</code>, intents on shared state as values, rules R1–R14 (§6b). Corrected after the independent review <a href="reviews/arch-review.md">reviews/arch-review.md</a>: navigation and dialogs as in twk — <code>Navigator</code> + <code>PageRoute</code>, <code>show_dialog</code>, live data through <code>rtwk::provider</code> projections of the model (§2, §3, §7, §8), <code>ThreadUi</code> for per-thread widget state (§6), the shell spawns through rtwk-tokio (§4, §5), split pending maps (§6), counts in §6b.</p>
 <h2>1. System context</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   user([User at a terminal])
@@ -42,13 +42,13 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     r2[&quot;widget tree, rebuild, layout, paint, damage diff&quot;]
     r3[&quot;widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)&quot;]
     r4[&quot;coalescing work from other threads, list virtualization&quot;]
-    r5[&quot;dialog widgets (Dialog, ModalBarrier, FocusScope, show_dialog for captured confirms), popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
+    r5[&quot;navigation (Navigator, PageRoute), dialogs (show_dialog), providers, popovers, rich content: Markdown, Diff, Code, charts, images&quot;]
   end
   subgraph A[&quot;the app owns&quot;]
     a1[&quot;application state: threads, turns, streams, approvals, settings, account, agents&quot;]
     a2[&quot;rules: what an event or an action changes, stale-result dropping&quot;]
     a3[&quot;derived values: counts, totals, filters, what a screen shows&quot;]
-    a4[&quot;screens: which rtwk widgets, laid out how, bound to which keys; which route and which modal are shown&quot;]
+    a4[&quot;screens: which rtwk widgets, laid out how, bound to which keys; which model projections are provided&quot;]
   end
   subgraph B[&quot;the backend owns&quot;]
     b1[&quot;sessions, model calls, tools, sandbox, config files, auth&quot;]
@@ -67,7 +67,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     commands[&quot;commands/: 69 slash commands, parsing, queue rules&quot;]
     keymap[&quot;keymap/: tui.keymap config to rtwk Shortcuts, vim mode&quot;]
     theme[&quot;theme.rs&quot;]
-    root[&quot;ui/view.rs: Theme, providers, route match, modal layer; ui/thread_ui.rs: ThreadUi controllers&quot;]
+    root[&quot;ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers&quot;]
     subgraph screens[&quot;screens/ (one directory per slice)&quot;]
       s1[&quot;chat, cells, composer, popovers, transcript, select&quot;]
       s2[&quot;approvals, settings, pager, backtrack, resume, status, usage&quot;]
@@ -140,7 +140,6 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     session: Session
     threads: ThreadId to ThreadModel map
     active: ThreadId
-    nav: NavState
     settings: Settings
     account: Account
     agents: AgentsState
@@ -178,18 +177,12 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     rate_limits: Remote (R6)
     attach_epoch per thread (R1)
   }
-  class NavState {
-    route: Route enum, matched by the root view
-    modals: queue, head shown by the modal layer
-    selection: by item key, not index (R11)
-  }
   CodexApp --&gt; ThreadModel
   ThreadModel --&gt; TurnState
   ThreadModel --&gt; Approval
   CodexApp ..&gt; ThreadUi : view keyed by ThreadId
   CodexApp --&gt; Session
-  Session --&gt; Remote
-  CodexApp --&gt; NavState</pre></div>
+  Session --&gt; Remote</pre></div>
 <p>Derived (functions of the model, never stored, R7): per-thread unread and running, total tokens, sidebar filter results, agents-center counts, footer hints, what the status line shows, <code>can_submit</code> and other predicates (R8). Not allowed: app data in rtwk widget-local state (<code>Obs</code>, <code>use_state</code>, hand-written <code>State</code>, controllers) outside UI-only modules — R14; IO in <code>apply</code> or views — R12; the clock read in views — R11. <code>ThreadUi</code> holds per-thread controllers (composer text, scroll, selection) so A→B→A keeps them; the model never mirrors the draft — the text enters <code>apply</code> as an intent on submit. App-scoped events (account, rate limits, app-level MCP startup) go through <code>apply_app(&amp;mut CodexApp, AppEv, &amp;mut AppFx)</code>.</p>
 <h2>6b. Bug classes removed by construction (ADR-003, accepted 2026-11-17)</h2>
 <p>Checked on codex-tui's real history (research/state-bug-classes.md; the report for openai/codex developers: <a href="reports/tui-bug-classes.html">reports/tui-bug-classes.html</a>). Of 55 state-mechanism fix commits: 20 impossible by construction, 33 caught by a mandatory test or lint, 2 still possible (after arch-review M2/M4: SC6a is caught by R14's lint, not impossible; the live+replayed case of SC4a, 6107b9886, is caught by the snapshot-replaces test).</p>
@@ -254,11 +247,11 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   bp --&gt; poss([&quot;still possible: product logic, conventions&quot;])</pre></div>
 <p>Mandatory tests the rules imply: switch round-trip (A→B→A), end-path matrix (complete / interrupt / fail × feature), event-permutation property tests, lifecycle × intent table, <code>Model::assert_consistent()</code> after every event. Lints (own <code>clippy.toml</code>; crate-wide deny, <code>#[allow]</code> only on allowlisted modules, a CI grep rejects other allows): every spawn path outside the shell (<code>AppCx::spawn</code>, <code>Cx::spawn</code>, rtwk-tokio spawn/subscribe/follow, <code>std::thread::spawn</code>, <code>tokio::spawn</code>, <code>AppCx::channel</code>), <code>Obs</code>/<code>use_state</code>/ hand-written <code>State</code>/controllers outside UI-only modules, <code>Instant::now</code>/<code>SystemTime::now</code> in views, blocking IO in <code>apply</code>/views. Plus the resume/reconnect-mid-turn test (transcript equals the snapshot).</p>
 <h2>7. Navigation map (screens of architecture.md §1)</h2>
-<p>Routes are <code>NavState.route</code>, a model enum the root view matches (no rtwk plain-model example uses <code>Navigator</code>). Live dialogs (approvals, elicitations, user input, <code>/status</code>, startup prompts) are the modal layer over the head of <code>NavState.modals</code> / thread approvals, as in rtwk-weather. Dialogs whose content is captured at open and that return a value (confirms, prompts, fixed pickers) use <code>show_dialog</code> from the opening widget with <code>opened</code> / <code>closed(ticket, value)</code> handlers, as in rtwk triage's shipping view.</p>
+<p>As in twk: the root is a <code>Navigator</code> (home: chat) under a <code>MultiProvider</code> of model projections. Screens (solid arrows) are <code>PageRoute</code>s pushed by the widget that opens them and read live data with <code>select</code> / <code>watch</code>. Dialogs (dotted) open with <code>show_dialog</code> from the asking widget. Backend requests (approvals, elicitations, user input, startup prompts) open through the request presenter and close themselves when the model drops the request. Routes and dialogs get ids; results return to the model as ticketed events.</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
   start((start)) --&gt; upd[&quot;S01 update prompt&quot;] --&gt; onb[&quot;S02-S03 onboarding: welcome, auth, GovCloud, provider&quot;] --&gt; trust[&quot;S04 directory trust&quot;] --&gt; chat
   chat[&quot;S10 main chat (home); composer usable as a draft while Session is Starting&quot;]
-  chat -.modal while Starting.-&gt; prompts{{&quot;S05 startup prompts&quot;}}
+  chat -.presenter while Starting.-&gt; prompts{{&quot;S05 startup prompts&quot;}}
   chat --&gt;|Ctrl+T, /diff| pager[&quot;S16 pager&quot;]
   chat --&gt;|/resume, /fork| resume[&quot;S18 resume picker&quot;]
   chat --&gt;|/usage| usage[&quot;S20 usage dashboard&quot;]
@@ -277,7 +270,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   chat -.part.-&gt; uit([&quot;S26 ui_tree in the status line, inline visualization in cells&quot;])</pre></div>
 <h2>8. Main chat screen: widget tree</h2>
 <div class="diagram"><pre class="mermaid">flowchart TB
-  scaffold[&quot;Scaffold (theme, focus scope, Shortcuts from keymap)&quot;]
+  scaffold[&quot;Navigator home route: Scaffold (theme, focus scope, Shortcuts from keymap)&quot;]
   scaffold --&gt; row[&quot;Row&quot;]
   row --&gt; sidebar[&quot;Sidebar (S22): TabBar + panes, slide animation&quot;]
   row --&gt; col[&quot;Column (main)&quot;]
@@ -288,8 +281,9 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   col --&gt; composer[&quot;Composer: TextArea over the ThreadUi controller, attachments (G12: atomic elements, kill ring, vim, paste-burst)&quot;]
   col --&gt; footer[&quot;Footer hints + status line (ui_tree elements)&quot;]
   scaffold -.overlay.-&gt; popovers[&quot;Popovers: / @ $ (Autocomplete, OptionList, CommandPalette)&quot;]
-  scaffold -.modal layer.-&gt; dialogs[&quot;Modal layer: Stack + ModalBarrier + FocusScope(Dialog) for the head of nav.modals / thread approvals (live dialogs)&quot;]
-  composer -.show_dialog.-&gt; confirm[&quot;Captured dialogs: confirm, prompt, fixed picker; closed(ticket, value) to the model&quot;]</pre></div>
+  scaffold -.show_dialog.-&gt; dialogs[&quot;Dialogs: selection, settings, confirms, /status from the asking widget; answers as ticketed events&quot;]
+  scaffold -.presenter.-&gt; reqs[&quot;Request presenter: show_dialog for the head of the model&#x27;s request queue (approvals, elicitation, user input); closes when the model drops it&quot;]
+  scaffold -.push.-&gt; routes[&quot;PageRoutes over chat: pager, resume, usage, agents (select / watch projections)&quot;]</pre></div>
 <h2>9. Tests, parity and performance</h2>
 <div class="diagram"><pre class="mermaid">flowchart LR
   subgraph fixtures[&quot;one set of fixtures&quot;]
