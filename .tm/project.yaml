@@ -1,0 +1,6 @@
+# This repository's project in tm, written by
+# `tm project use`. Committed on purpose: it is what lets
+# the CLI and the claim hook agree on which project this
+# checkout means, instead of each guessing.
+version: 1
+project: 01a1ea45-00a4-7ea5-98e4-0a7250732dcd  # CodexCLI
