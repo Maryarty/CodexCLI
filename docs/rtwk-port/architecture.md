@@ -150,6 +150,13 @@ TEA with async tasks (iced, relm4, tui-realm), Crux, fine-grained signals
 tokio actors (ractor, kameo), incremental helpers (salsa), ECS — on scored
 criteria with prototypes of the finalists, and the person decides.
 
+The person's criteria (2026-11-17): Codex's state handling today is
+home-grown and mixes state logic with UI; the goal is the best standard Rust
+solution with a clean separation of state/logic from UI that fits rtwk.
+Restructuring the controller is acceptable — the port may carry Codex's
+behaviour rather than its code. ADR-001 (logic shared in codex-tui behind a
+seam) and ADR-002 are therefore revisited together with ADR-003.
+
 What holds whatever wins: rtwk imposes no state manager and an external
 store reaches widgets through `rtwk_state::Source` / `Select` /
 `store_provider` and `Obs` without core changes (rtwk docs/guide/state.md).
