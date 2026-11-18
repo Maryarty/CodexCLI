@@ -58,26 +58,74 @@ pub struct Picker {
 impl Picker {
     /// The picker for `pets` (the built-in and custom ones, without the
     /// disable row) with `current` configured.
-    pub fn build(current: Option<&str>, pets: Vec<Pet>) -> Self {
-        let _ = (current, &pets);
+    pub fn build(current: Option<&str>, mut pets: Vec<Pet>) -> Self {
+        pets.sort_by(|left, right| left.name.cmp(&right.name));
+        pets.insert(
+            0,
+            Pet {
+                selector: DISABLED.to_string(),
+                name: String::new(),
+                description: None,
+                legacy_selector: None,
+            },
+        );
+        let preferred = current.unwrap_or(DEFAULT);
+        let cursor = pets
+            .iter()
+            .position(|pet| pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred))
+            .unwrap_or(0);
         Self {
             pets,
             current: current.map(str::to_owned),
-            cursor: 0,
+            cursor,
             query: String::new(),
             preview: None,
         }
     }
 
-    /// The rows shown, as indices into `pets`.
+    /// The rows shown, as indices into `pets`: those whose search value
+    /// (the selector; the disable row answers to its own words) has the
+    /// query in it.
     pub fn visible(&self) -> Vec<usize> {
-        (0..self.pets.len()).collect()
+        let query = self.query.trim().to_lowercase();
+        self.pets
+            .iter()
+            .enumerate()
+            .filter(|(_, pet)| {
+                let value = if pet.selector == DISABLED {
+                    "disable disabled hide hidden off none"
+                } else {
+                    pet.selector.as_str()
+                };
+                value.to_lowercase().contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect()
     }
 
     /// The row is the configured pet.
     pub fn is_current(&self, pet: &Pet) -> bool {
-        let _ = pet;
-        false
+        self.current.as_deref().is_some_and(|current| {
+            current == pet.selector || pet.legacy_selector.as_deref() == Some(current)
+        })
+    }
+
+    /// The row under the cursor.
+    pub fn highlighted(&self) -> Option<&Pet> {
+        self.visible()
+            .get(self.cursor)
+            .and_then(|index| self.pets.get(*index))
+    }
+
+    /// Asks for the preview of the row under the cursor
+    /// (`on_selection_changed`): its selector, if it changed.
+    fn highlight(&mut self) -> Option<String> {
+        let selector = self.highlighted()?.selector.clone();
+        if self.preview.as_ref().map(|(shown, _)| shown) == Some(&selector) {
+            return None;
+        }
+        self.preview = Some((selector.clone(), Preview::Loading));
+        Some(selector)
     }
 }
 
@@ -121,16 +169,70 @@ pub enum Intent {
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
+    let _ = fx;
     match ev {
-        Ev::Opened(_) | Ev::PreviewReady(_) => {}
+        Ev::Opened(mut picker) => {
+            picker.preview = None;
+            if let Some(selector) = picker.highlight() {
+                model.previews.push(selector);
+            }
+            model.open = Some(picker);
+        }
+        Ev::PreviewReady(selector) => {
+            if let Some(picker) = &mut model.open
+                && let Some((shown, state)) = &mut picker.preview
+                && *shown == selector
+            {
+                *state = Preview::Ready;
+            }
+        }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
+    let _ = fx;
+    let Some(picker) = &mut model.open else {
+        return;
+    };
     match intent {
-        Intent::Move(_) | Intent::Search(_) | Intent::Pick | Intent::Close => {}
+        Intent::Move(delta) => {
+            let len = picker.visible().len();
+            if len > 0 {
+                picker.cursor = (picker.cursor as i64 + i64::from(delta)).rem_euclid(len as i64) as usize;
+                if let Some(selector) = picker.highlight() {
+                    model.previews.push(selector);
+                }
+            }
+        }
+        Intent::Search(query) => {
+            picker.query = query;
+            picker.cursor = 0;
+            if let Some(selector) = picker.highlight() {
+                model.previews.push(selector);
+            }
+        }
+        Intent::Pick => {
+            if let Some(pet) = picker.highlighted() {
+                let choice = if pet.selector == DISABLED {
+                    Choice::Disabled
+                } else {
+                    Choice::Selected(pet.selector.clone())
+                };
+                model.chosen.push(choice);
+                model.open = None;
+            }
+        }
+        Intent::Close => {
+            if picker.query.is_empty() {
+                model.open = None;
+            } else {
+                picker.query.clear();
+                picker.cursor = 0;
+                if let Some(selector) = picker.highlight() {
+                    model.previews.push(selector);
+                }
+            }
+        }
     }
 }
 
@@ -183,8 +285,23 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
+/// The seed form of this screen's events: `{"kind":"picker","current":..,
+/// "pets":[{"selector":..,"name":..,"description":..,"legacy_selector":..}]}`
+/// (the built-in and custom pets; the disable row is the picker's own).
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    Picker {
+        #[serde(default)]
+        current: Option<String>,
+        pets: Vec<Pet>,
+    },
+}
+
 /// A script's `screen` step for this directory.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    let SeedEv::Picker { current, pets } = seed;
+    Ok(Ev::Opened(Picker::build(current.as_deref(), pets)))
 }

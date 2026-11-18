@@ -39,6 +39,17 @@ impl Section {
         Section::Sessions,
         Section::TextSelection,
     ];
+
+    /// The group's name as the oracle's search sees it (`ConfigSection::title`).
+    fn search_title(self) -> &'static str {
+        match self {
+            Section::Appearance => "Appearance",
+            Section::Notifications => "Notifications",
+            Section::Input => "Input",
+            Section::Sessions => "Sessions",
+            Section::TextSelection => "Text selection",
+        }
+    }
 }
 
 /// What a row of the panel edits (`ConfigToggle` / `ConfigEditor`).
@@ -84,6 +95,21 @@ pub enum Value {
     Unavailable,
 }
 
+impl Value {
+    /// The value column as the oracle's search sees it
+    /// (`ConfigSettingValue::label`); what the view shows is its own table.
+    fn search_label(&self) -> String {
+        match self {
+            Value::Toggle(true) => "[x] On".to_string(),
+            Value::Toggle(false) => "[ ] Off".to_string(),
+            Value::Choice(label) => format!("{label} ›"),
+            Value::Configure => "Configure ›".to_string(),
+            Value::Test => "Send in 5s".to_string(),
+            Value::Unavailable => "Unavailable".to_string(),
+        }
+    }
+}
+
 /// One setting of the panel; the texts are the catalogue's (the oracle builds
 /// them from its config).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -126,8 +152,29 @@ impl ConfigPanel {
 
     /// The rows shown, as indices into `rows`.
     pub fn visible(&self) -> Vec<usize> {
-        let _ = self;
-        Vec::new()
+        let query = self.query.trim().to_lowercase();
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                if query.is_empty() {
+                    row.section == self.section()
+                } else {
+                    // `config_panel/render.rs`: the row's `search_value`.
+                    format!(
+                        "{} {} {} {} {}",
+                        row.section.search_title(),
+                        row.label,
+                        row.value.search_label(),
+                        row.keywords,
+                        row.description
+                    )
+                    .to_lowercase()
+                    .contains(&query)
+                }
+            })
+            .map(|(index, _)| index)
+            .collect()
     }
 }
 
@@ -171,13 +218,38 @@ pub struct StatusLineSetup {
 impl StatusLineSetup {
     /// The rows shown, as indices into `items`.
     pub fn visible(&self) -> Vec<usize> {
-        (0..self.items.len()).collect()
+        let query: Vec<char> = self.query.trim().to_lowercase().chars().collect();
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                // `multi_select_picker.rs`: a fuzzy match on the name.
+                let name = item.id.replace('_', " ").to_lowercase();
+                let mut rest = query.iter().peekable();
+                for c in name.chars() {
+                    if rest.peek() == Some(&&c) {
+                        rest.next();
+                    }
+                }
+                rest.peek().is_none()
+            })
+            .map(|(index, _)| index)
+            .collect()
     }
 
     /// The status line the enabled items make, in order (`status_line_for_items`).
     pub fn preview(&self) -> String {
-        let _ = self;
-        String::new()
+        self.items
+            .iter()
+            .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
+            .map(|item| {
+                self.values
+                    .get(&item.id)
+                    .unwrap_or(&item.placeholder)
+                    .as_str()
+            })
+            .collect::<Vec<_>>()
+            .join(" · ")
     }
 }
 
@@ -207,6 +279,13 @@ pub struct KeymapPicker {
     pub tabs: Vec<KeymapTab>,
     pub tab: usize,
     pub cursor: usize,
+}
+
+impl KeymapPicker {
+    /// The actions of the tab shown.
+    pub fn items(&self) -> &[ActionItem] {
+        &self.tabs[self.tab].items
+    }
 }
 
 /// The settings dialog open now.
@@ -278,20 +357,152 @@ pub enum Intent {
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
-        Ev::Opened(open) => model.open = Some(open),
+        Ev::Opened(open) => {
+            if let Open::Theme(picker) = &open {
+                model.syntax_theme = picker.original.clone();
+            }
+            model.open = Some(open);
+        }
     }
 }
 
+/// `index + delta` on a ring of `len` rows.
+fn wrap(index: usize, delta: i32, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (index as i64 + i64::from(delta)).rem_euclid(len as i64) as usize
+}
+
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {
-        Intent::Tab(_)
-        | Intent::Move(_)
-        | Intent::Search(_)
-        | Intent::Activate
-        | Intent::Toggle
-        | Intent::Reorder(_)
-        | Intent::Close => {}
+    let _ = fx;
+    let Some(open) = &mut model.open else {
+        return;
+    };
+    match (open, intent) {
+        (Open::Config(panel), Intent::Tab(delta)) => {
+            panel.tab = wrap(panel.tab, delta, Section::ALL.len());
+            panel.cursor = 0;
+        }
+        (Open::Keymap(picker), Intent::Tab(delta)) => {
+            picker.tab = wrap(picker.tab, delta, picker.tabs.len());
+            picker.cursor = 0;
+        }
+        (Open::Config(panel), Intent::Move(delta)) => {
+            panel.cursor = wrap(panel.cursor, delta, panel.visible().len());
+        }
+        (Open::Theme(picker), Intent::Move(delta)) => {
+            picker.cursor = wrap(picker.cursor, delta, picker.themes.len());
+            if let Some(theme) = picker.themes.get(picker.cursor) {
+                model.syntax_theme = Some(theme.clone());
+            }
+        }
+        (Open::StatusLine(setup), Intent::Move(delta)) => {
+            setup.cursor = wrap(setup.cursor, delta, setup.visible().len());
+        }
+        (Open::Keymap(picker), Intent::Move(delta)) => {
+            picker.cursor = wrap(picker.cursor, delta, picker.items().len());
+        }
+        (Open::Config(panel), Intent::Search(query)) => {
+            panel.query = query;
+            panel.cursor = 0;
+        }
+        (Open::StatusLine(setup), Intent::Search(query)) => {
+            setup.query = query;
+            setup.cursor = 0;
+        }
+        (Open::Config(panel), Intent::Activate) => {
+            let Some(row) = panel
+                .visible()
+                .get(panel.cursor)
+                .copied()
+                .and_then(|index| panel.rows.get_mut(index))
+            else {
+                return;
+            };
+            let id = row.id;
+            match &mut row.value {
+                Value::Toggle(enabled) => {
+                    *enabled = !*enabled;
+                    model.edits.push(Edit::Toggled(id, *enabled));
+                }
+                Value::Choice(_) | Value::Configure => model.edits.push(Edit::Editor(id)),
+                Value::Test => model.edits.push(Edit::TestNotification),
+                Value::Unavailable => {}
+            }
+        }
+        (Open::Theme(picker), Intent::Activate) => {
+            if let Some(theme) = picker.themes.get(picker.cursor).cloned() {
+                model.syntax_theme = Some(theme.clone());
+                model.edits.push(Edit::ThemeSelected(theme));
+                model.open = None;
+            }
+        }
+        (Open::StatusLine(setup), Intent::Activate) => {
+            let items = setup
+                .items
+                .iter()
+                .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
+                .map(|item| item.id.clone())
+                .collect();
+            let use_theme_colors = setup
+                .items
+                .iter()
+                .any(|item| item.id == USE_THEME_COLORS && item.enabled);
+            model.edits.push(Edit::StatusLineSaved {
+                items,
+                use_theme_colors,
+            });
+            model.open = None;
+        }
+        (Open::Keymap(picker), Intent::Activate) => {
+            if let Some(item) = picker.items().get(picker.cursor) {
+                model.edits.push(Edit::KeymapPicked(item.name.clone()));
+            }
+        }
+        (Open::StatusLine(setup), Intent::Toggle) => {
+            // An item with an action of its own is not a toggle; none here.
+            if let Some(item) = setup
+                .visible()
+                .get(setup.cursor)
+                .copied()
+                .and_then(|index| setup.items.get_mut(index))
+            {
+                item.enabled = !item.enabled;
+            }
+        }
+        (Open::StatusLine(setup), Intent::Reorder(delta)) => {
+            if !setup.query.trim().is_empty() {
+                return;
+            }
+            let at = setup.cursor;
+            let to = match at.checked_add_signed(delta.signum() as isize) {
+                Some(to) if to < setup.items.len() => to,
+                _ => return,
+            };
+            if setup.items[at].orderable && setup.items[to].orderable {
+                setup.items.swap(at, to);
+                setup.cursor = to;
+            }
+        }
+        (Open::Config(panel), Intent::Close) => {
+            if panel.query.is_empty() {
+                model.open = None;
+            } else {
+                panel.query.clear();
+                panel.cursor = 0;
+            }
+        }
+        (Open::Theme(picker), Intent::Close) => {
+            model.syntax_theme = picker.original.clone();
+            model.open = None;
+        }
+        (Open::StatusLine(_), Intent::Close) => {
+            model.edits.push(Edit::StatusLineCancelled);
+            model.open = None;
+        }
+        (Open::Keymap(_), Intent::Close) => model.open = None,
+        _ => {}
     }
 }
 
@@ -344,8 +555,121 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
+/// One action of the status-line catalogue (`StatusLineItem` with its
+/// description and preview placeholder).
+#[derive(Clone, Debug, serde::Deserialize)]
+struct CatalogueItem {
+    id: String,
+    description: String,
+    placeholder: String,
+}
+
+/// The seed forms of this screen's events (`kind`): `config_panel` with its
+/// `rows`; `theme_picker` with `themes` and the `current` one;
+/// `status_line` with `use_theme_colors`, the `selected` ids in order, the
+/// `catalogue` and the runtime `values`; `keymap` with its `tabs`.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    ConfigPanel {
+        rows: Vec<Row>,
+    },
+    ThemePicker {
+        themes: Vec<String>,
+        #[serde(default)]
+        current: Option<String>,
+    },
+    StatusLine {
+        use_theme_colors: bool,
+        selected: Vec<String>,
+        catalogue: Vec<CatalogueItem>,
+        #[serde(default)]
+        values: BTreeMap<String, String>,
+    },
+    Keymap {
+        tabs: Vec<KeymapTab>,
+    },
+}
+
+/// `StatusLineSetupView::new`: the selected items first, in order and
+/// enabled, then the rest disabled; "use theme colors" leads.
+fn status_line(
+    use_theme_colors: bool,
+    selected: &[String],
+    catalogue: Vec<CatalogueItem>,
+    values: BTreeMap<String, String>,
+) -> StatusLineSetup {
+    let mut items = vec![SetupItem {
+        id: USE_THEME_COLORS.to_string(),
+        description: String::new(),
+        enabled: use_theme_colors,
+        orderable: false,
+        section_break_after: true,
+        placeholder: String::new(),
+    }];
+    let item = |entry: &CatalogueItem, enabled: bool| SetupItem {
+        id: entry.id.clone(),
+        description: entry.description.clone(),
+        enabled,
+        orderable: true,
+        section_break_after: false,
+        placeholder: entry.placeholder.clone(),
+    };
+    let mut used: Vec<&str> = Vec::new();
+    for id in selected {
+        if used.contains(&id.as_str()) {
+            continue;
+        }
+        if let Some(entry) = catalogue.iter().find(|entry| &entry.id == id) {
+            used.push(entry.id.as_str());
+            items.push(item(entry, true));
+        }
+    }
+    for entry in &catalogue {
+        if !used.contains(&entry.id.as_str()) {
+            items.push(item(entry, false));
+        }
+    }
+    StatusLineSetup {
+        items,
+        values,
+        cursor: 0,
+        query: String::new(),
+    }
+}
+
 /// A script's `screen` step for this directory: the dialog `value` opens.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    Ok(Ev::Opened(match seed {
+        SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
+        SeedEv::ThemePicker { themes, current } => {
+            let cursor = current
+                .as_ref()
+                .and_then(|name| themes.iter().position(|theme| theme == name))
+                .unwrap_or(0);
+            Open::Theme(ThemePicker {
+                themes,
+                cursor,
+                original: current,
+            })
+        }
+        SeedEv::StatusLine {
+            use_theme_colors,
+            selected,
+            catalogue,
+            values,
+        } => Open::StatusLine(status_line(use_theme_colors, &selected, catalogue, values)),
+        SeedEv::Keymap { tabs } => {
+            if tabs.is_empty() {
+                return Err(crate::screens::SeedError::Bad("no tabs".into()));
+            }
+            Open::Keymap(KeymapPicker {
+                tabs,
+                tab: 0,
+                cursor: 0,
+            })
+        }
+    }))
 }

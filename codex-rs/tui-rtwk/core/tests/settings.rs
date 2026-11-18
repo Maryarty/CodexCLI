@@ -343,10 +343,9 @@ fn keymap_dump(sandbox: &Sandbox) -> String {
 #[test]
 fn picker_content_snapshot() {
     let sandbox = Sandbox::play(KEYMAP).expect("plays");
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../tui/src/snapshots/codex_tui__keymap_setup__tests__keymap_picker_first_actions.snap",
+    let text = include_str!(
+        "../../../tui/src/snapshots/codex_tui__keymap_setup__tests__keymap_picker_first_actions.snap"
     );
-    let text = std::fs::read_to_string(path).expect("oracle snapshot");
     let want = text.splitn(3, "---\n").nth(2).expect("body").trim_end();
     assert_eq!(keymap_dump(&sandbox), want);
 }
