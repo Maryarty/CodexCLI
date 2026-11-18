@@ -221,6 +221,58 @@ fn a_turn_that_fails_to_start_still_sends_the_next_queued_message() {
     assert_eq!(turns[0].1, "two");
 }
 
+/// After a `Lagged` gap the end of a turn can be seen before the reply that
+/// starts it: the reply is then what finds the turn already over.
+#[test]
+fn a_queued_message_goes_out_when_the_turn_end_was_seen_before_its_start_reply() {
+    let mut app = ready();
+    let fx = submit(&mut app, "one");
+    let (ticket, _) = start_turns(&fx).remove(0);
+    submit(&mut app, "two");
+    let fx = notification(&mut app, turn_completed(T, "turn-1"));
+    assert!(start_turns(&fx).is_empty(), "the start is still pending");
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::turn_started(ThreadId::new(T), TurnId::new("turn-1")),
+        ),
+    );
+    let turns = start_turns(&fx);
+    assert_eq!(turns.len(), 1, "the queue must not stall");
+    assert_eq!(turns[0].1, "two");
+    assert!(thread(&app).queue.is_empty());
+    assert!(!thread(&app).is_running(), "the ended turn is not revived");
+}
+
+#[test]
+fn a_later_submit_does_not_overtake_older_queued_text() {
+    let mut app = ready();
+    let fx = submit(&mut app, "one");
+    let (ticket, _) = start_turns(&fx).remove(0);
+    submit(&mut app, "two");
+    notification(&mut app, turn_completed(T, "turn-1"));
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::turn_started(ThreadId::new(T), TurnId::new("turn-1")),
+        ),
+    );
+    assert_eq!(start_turns(&fx)[0].1, "two");
+    // "two" is starting: "three" waits behind it.
+    let fx = submit(&mut app, "three");
+    assert!(start_turns(&fx).is_empty());
+    assert_eq!(thread(&app).queue, vec!["three".to_string()]);
+}
+
+#[test]
+fn a_lagged_gap_is_a_failure_the_view_words() {
+    let mut app = ready();
+    notification(&mut app, BackendEv::Lagged(3));
+    assert_eq!(thread(&app).last_error, Some(Failure::Lagged(3)));
+}
+
 #[test]
 fn a_reply_with_a_spent_ticket_is_dropped() {
     let mut app = ready();

@@ -390,10 +390,67 @@ fn adr010_no_user_visible_literal_outside_the_string_tables() {
             "Button::new(\"",
             "Button::new(format!(\"",
             "Span::new(\"",
+            "Span::new(format!(\"",
+            "Span::styled(\"",
+            "Span::styled(format!(\"",
+            "Text::styled(\"",
+            "Text::styled(format!(\"",
+            "Text::rich(\"",
+            "Text::rich_line(\"",
+            ".title(format!(\"",
+            ".title(&format!(\"",
+            ".placeholder(format!(\"",
+            ".label(format!(\"",
+            ".hint(format!(\"",
+            ".tooltip(\"",
+            "const TITLE",
+            "const LABEL",
+            "const HINT",
+            "const PLACEHOLDER",
         ],
-        |name| {
-            name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs")
-        },
+        in_the_tables,
     );
+    assert!(found.is_empty(), "ADR-010: {found:#?}");
+}
+
+fn in_the_tables(name: &str) -> bool {
+    name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs")
+}
+
+/// A `format!` whose literal holds words is user-visible text (or becomes
+/// it): it belongs in a table as a `Msg`. The shell and the tables are
+/// exempt; ids and column layouts (`"turn-{n}"`, `"{:<11} {}"`) hold no
+/// word of three letters outside the braces.
+#[test]
+fn adr010_no_format_literal_with_words_outside_the_tables() {
+    let mut found = Vec::new();
+    for (name, text) in sources() {
+        if in_the_tables(&name) || is_shell(&name) {
+            continue;
+        }
+        for (index, line) in code_lines(&text) {
+            let mut rest = line;
+            while let Some(at) = rest.find("format!(\"") {
+                rest = &rest[at + "format!(\"".len()..];
+                let literal = rest.split('"').next().unwrap_or_default();
+                let mut outside = String::new();
+                let mut depth = 0;
+                for c in literal.chars() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' if depth > 0 => depth -= 1,
+                        _ if depth == 0 => outside.push(c),
+                        _ => {}
+                    }
+                }
+                let has_word = outside
+                    .split(|c: char| !c.is_alphabetic())
+                    .any(|word| word.chars().count() >= 3);
+                if has_word {
+                    found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+                }
+            }
+        }
+    }
     assert!(found.is_empty(), "ADR-010: {found:#?}");
 }
