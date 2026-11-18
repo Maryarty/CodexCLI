@@ -13,13 +13,14 @@ use std::time::Duration;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::agents::{DirKeys, Ev, Intent as AgentsIntent, Notice};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use codex_tui_rtwk::shell::fake::FakeWorkspace;
 use codex_tui_rtwk::shell::rpc::{Ids, USAGE_TIMED_OUT, USAGE_TIMEOUT, answer, answer_with};
-use codex_tui_rtwk::shell::search::{Latest, SEARCH_DEBOUNCE};
+use codex_tui_rtwk::shell::search::{Gate, Latest, SEARCH_DEBOUNCE};
 use codex_tui_rtwk::shell::workspace::{
-    Boxed, Checkout, Facts, Workspace, backend_ev, directories, worktree,
+    Boxed, Checkout, Facts, Workspace, account, backend_ev, directories, worktree,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -201,7 +202,7 @@ fn a_failing_source_leaves_the_list_failed_inline() {
             if ok {
                 Ok(page(&[("a1", 100, "/p")]))
             } else {
-                Err("down".to_owned())
+                Err("down".into())
             }
         }
     }));
@@ -243,7 +244,7 @@ fn the_usage_fetch_gives_up_as_the_oracle_does() {
     assert_eq!(USAGE_TIMEOUT, Duration::from_secs(65));
     let mut app = CodexApp::new();
     let command = usage_command(&mut app);
-    let pending = std::future::pending::<Result<Value, String>>;
+    let pending = std::future::pending::<Result<Value, ServerError>>;
     let reply = runtime().block_on(answer_with(
         command,
         LOCAL,
@@ -328,9 +329,12 @@ fn checkout() -> Checkout {
 }
 
 /// The server's `thread/start` answers with the task in the checkout.
-fn started(request: &ClientRequest) -> Result<Value, String> {
+fn started(request: &ClientRequest) -> Result<Value, ServerError> {
     let wire = serde_json::to_value(request).unwrap();
-    assert_eq!(wire["method"], "thread/start");
+    if wire["method"] != "thread/start" {
+        // The unsubscribe after a failed bind.
+        return Ok(json!({}));
+    }
     let cwd = wire["params"]["cwd"].as_str().unwrap_or("/none").to_owned();
     Ok(json!({"thread": thread_json("new-1", 500, &cwd)}))
 }
@@ -338,7 +342,7 @@ fn started(request: &ClientRequest) -> Result<Value, String> {
 fn make_worktree(
     workspace: &Arc<FakeWorkspace>,
     cwd: Option<&str>,
-    send: impl Fn(ClientRequest) -> std::future::Ready<Result<Value, String>>,
+    send: impl Fn(ClientRequest) -> std::future::Ready<Result<Value, ServerError>>,
 ) -> AppEv {
     runtime().block_on(worktree(
         workspace.clone(),
@@ -487,21 +491,30 @@ fn job(label: &'static str) -> Boxed<Option<&'static str>> {
     Box::pin(async move { Some(label) })
 }
 
+/// No wall clock: the pause is a gate the test opens (`Gate`), so the
+/// tests hold under any machine load.
 #[test]
 fn the_search_waits_before_it_asks_the_server() {
+    use futures::FutureExt as _;
     assert_eq!(SEARCH_DEBOUNCE, Duration::from_millis(180));
     let mut app = CodexApp::new();
     open(&mut app);
     let command = searches(&mut app, "a").remove(0);
-    let mut latest = Latest::new(Duration::from_millis(300));
-    let started = std::time::Instant::now();
-    let answered = runtime().block_on(latest.wrap(&command, job("a")));
-    assert_eq!(answered, Some("a"));
-    assert!(
-        started.elapsed() >= Duration::from_millis(300),
-        "answered after {:?}",
-        started.elapsed()
-    );
+    let gate = Gate::new();
+    let mut latest = Latest::paused_by(&gate);
+    let mut waiting = latest.wrap(&command, job("a"));
+    runtime().block_on(async {
+        // Polled a few times, it is still held back.
+        for _ in 0..5 {
+            assert!(
+                (&mut waiting).now_or_never().is_none(),
+                "asked before the pause"
+            );
+            tokio::task::yield_now().await;
+        }
+        gate.release();
+        assert_eq!(waiting.await, Some("a"));
+    });
 }
 
 #[test]
@@ -510,30 +523,41 @@ fn a_newer_search_drops_the_pending_one() {
     open(&mut app);
     let both = searches(&mut app, "ab");
     assert_eq!(both.len(), 2, "one search per keystroke: {both:?}");
-    let mut latest = Latest::new(Duration::from_millis(100));
+    let gate = Gate::new();
+    let mut latest = Latest::paused_by(&gate);
     let first = latest.wrap(&both[0], job("a"));
     let second = latest.wrap(&both[1], job("ab"));
-    let (first, second) = runtime().block_on(async { tokio::join!(first, second) });
-    assert_eq!(first, None, "the older search never asks");
-    assert_eq!(second, Some("ab"));
+    runtime().block_on(async {
+        let both = tokio::spawn(async move { tokio::join!(first, second) });
+        gate.release();
+        let (first, second) = both.await.expect("joined");
+        assert_eq!(first, None, "the older search never asks");
+        assert_eq!(second, Some("ab"));
+    });
 }
 
 #[test]
 fn other_commands_neither_wait_nor_drop_a_search() {
+    use futures::FutureExt as _;
     let mut app = CodexApp::new();
     let list = open(&mut app);
     let search = searches(&mut app, "a").remove(0);
-    let mut latest = Latest::new(Duration::from_secs(5));
-    let pending = latest.wrap(&search, job("search"));
-    let at_once = latest.wrap(&list, job("list"));
+    let gate = Gate::new();
+    let mut latest = Latest::paused_by(&gate);
+    let mut pending = latest.wrap(&search, job("search"));
+    let mut at_once = latest.wrap(&list, job("list"));
     runtime().block_on(async {
-        let listed = tokio::time::timeout(Duration::from_secs(1), at_once).await;
-        assert_eq!(listed.ok(), Some(Some("list")), "a list is not held back");
-        let searched = tokio::time::timeout(Duration::from_millis(100), pending).await;
+        assert_eq!(
+            (&mut at_once).now_or_never(),
+            Some(Some("list")),
+            "a list is not held back"
+        );
         assert!(
-            searched.is_err(),
+            (&mut pending).now_or_never().is_none(),
             "the search is still waiting, not dropped"
         );
+        gate.release();
+        assert_eq!(pending.await, Some("search"));
     });
 }
 
@@ -560,7 +584,7 @@ mod live {
     }
 
     pub fn start(
-        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+        script: impl Fn(&Value) -> Option<Result<Value, ServerError>> + Send + Sync + 'static,
     ) -> Live {
         start_sized(100, 30, script)
     }
@@ -568,28 +592,43 @@ mod live {
     pub fn start_sized(
         width: u16,
         height: u16,
-        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+        script: impl Fn(&Value) -> Option<Result<Value, ServerError>> + Send + Sync + 'static,
     ) -> Live {
-        start_with(width, height, false, script)
+        start_with(width, height, false, script, |_| {})
     }
 
     /// On `pump_app`, which gives the app the frame loop's handle: only
     /// there does a quit end the loop.
     pub fn start_quittable(
-        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+        script: impl Fn(&Value) -> Option<Result<Value, ServerError>> + Send + Sync + 'static,
     ) -> Live {
-        start_with(100, 30, true, script)
+        start_with(100, 30, true, script, |_| {})
+    }
+
+    /// The scripted backend with the history search held at the gate: its
+    /// first page goes out when the test opens it.
+    pub fn start_held(
+        script: impl Fn(&Value) -> Option<Result<Value, ServerError>> + Send + Sync + 'static,
+    ) -> (Live, Gate) {
+        let gate = Gate::new();
+        let held = gate.clone();
+        let live = start_with(100, 30, false, script, move |fake| {
+            fake.hold_searches(&held);
+        });
+        (live, gate)
     }
 
     fn start_with(
         width: u16,
         height: u16,
         quittable: bool,
-        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+        script: impl Fn(&Value) -> Option<Result<Value, ServerError>> + Send + Sync + 'static,
+        prepare: impl FnOnce(&FakeHandle),
     ) -> Live {
         let guard = rtwk_tokio::enter(runtime());
         let (server, fake) = FakeServer::new();
         fake.respond(script);
+        prepare(&fake);
         let app = UiApp::new(Backend::Fake(server)).with_start_agents(true);
         let mut t = Tester::with(Options::new().size(width, height));
         if quittable {
@@ -606,6 +645,15 @@ mod live {
     }
 
     impl Live {
+        /// Lets everything that is ready run: the frame loop and the
+        /// shell's tasks, until a few rounds in a row change nothing.
+        pub fn settle(&mut self) {
+            for _ in 0..10 {
+                self.t.pump_for(ms(20));
+                std::thread::yield_now();
+            }
+        }
+
         pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
             for _ in 0..400 {
                 self.t.pump_for(ms(20));
@@ -619,7 +667,7 @@ mod live {
     }
 }
 
-fn server(request: &Value) -> Option<Result<Value, String>> {
+fn server(request: &Value) -> Option<Result<Value, ServerError>> {
     match request["method"].as_str()? {
         "thread/list" if !request["params"]["sectionId"].is_null() => Some(Ok(page(&[]))),
         "thread/list" => Some(Ok(if request["params"]["sourceKinds"] == json!([]) {
@@ -688,7 +736,7 @@ fn the_shell_reads_the_directory_keys_of_the_listed_tasks() {
 /// search dropped), while the model's text is the typed text at once.
 #[test]
 fn typing_a_word_asks_the_server_once() {
-    let mut h = live::start(server);
+    let (mut h, gate) = live::start_held(server);
     h.wait_for("the tasks", |s| s.contains("Interactive task"));
     let fake = h.fake.clone();
     let scans = move || {
@@ -701,13 +749,21 @@ fn typing_a_word_asks_the_server_once() {
     };
     let before = scans();
     h.t.press("/");
+    // The search line has the focus once it is on the screen; each key is
+    // typed after the one before it shows.
+    h.wait_for("the search line", |s| s.contains("Search \u{203a}"));
     h.t.press("e");
+    h.wait_for("the first letter", |s| s.contains("Search \u{203a} e"));
     h.t.press("x");
     h.wait_for("the typed text", |s| s.contains("Search \u{203a} ex"));
     assert_eq!(scans(), before, "nothing is asked before the pause");
-    h.wait_for("the search", |_| scans() > before);
-    std::thread::sleep(Duration::from_millis(300));
-    // One request per source, for the one search that was left.
+    // The pause ends: only the search that was left asks, once per source.
+    // The earlier keystrokes' searches were dropped when the next one came
+    // (they never reach the gate's far side), so the two requests of the
+    // last one, one per source, are all there ever is.
+    gate.release();
+    h.wait_for("both sources asked", |_| scans() >= before + 2);
+    h.settle();
     assert_eq!(scans() - before, 2, "{:?}", h.fake.requests());
 }
 
@@ -719,8 +775,9 @@ fn ctrl_c_closes_a_line_first_then_quits() {
     let mut h = live::start_quittable(server);
     h.wait_for("the tasks", |s| s.contains("Interactive task"));
     h.t.press("/");
+    h.wait_for("the search line", |s| s.contains("Search \u{203a}"));
     h.t.press("e");
-    h.wait_for("the search line", |s| s.contains("Search \u{203a} e"));
+    h.wait_for("the letter", |s| s.contains("Search \u{203a} e"));
     h.t.press("ctrl+c");
     h.wait_for("the line closed", |s| !s.contains("Search \u{203a}"));
     assert!(h.t.is_running(), "the first Ctrl+C only closed the line");
@@ -798,13 +855,21 @@ fn lifecycle_failure_dialogs() {
             if method == format!("thread/{verb}") {
                 return Some(Err(format!(
                     "failed to {verb} session: thread/{verb} failed: no rollout found for thread id 00000000-0000-0000-0000-000000000001 (code -32600)"
-                )));
+                )
+                .into()));
             }
             server(request)
         });
         h.wait_for("the task", |s| s.contains("Interactive task"));
         h.t.press(key);
-        h.t.pump_for(Duration::from_millis(50));
+        // The confirmation is up before its option is chosen: a key that
+        // arrives earlier would go to the list.
+        let title = if key == "a" {
+            "Archive \u{201c}"
+        } else {
+            "Permanently delete \u{201c}"
+        };
+        h.wait_for("the confirmation", |s| s.contains(title));
         h.t.press("2");
         if key == "backspace" {
             h.t.press("enter");
@@ -814,4 +879,118 @@ fn lifecycle_failure_dialogs() {
         let expected = oracle_snap::rows(&path);
         oracle_snap::assert_same(snapshot, &oracle_snap::screen(&h.t), &expected);
     }
+}
+
+// ---- the account (oracle: `SessionAccount::from`, read at bootstrap), so the
+// usage the highlighted task shows is fetched
+
+fn account_body(kind: &str) -> Value {
+    match kind {
+        "business" => json!({
+            "account": {"type": "chatgpt", "email": "a@b.c", "planType": "business"},
+            "requiresOpenaiAuth": true
+        }),
+        _ => json!({"account": null, "requiresOpenaiAuth": true}),
+    }
+}
+
+#[test]
+fn the_account_read_reaches_the_center() {
+    let mut app = CodexApp::new();
+    let asked = std::sync::Mutex::new(Vec::new());
+    let ev = runtime().block_on(account(Ids::default(), |request| {
+        asked
+            .lock()
+            .unwrap()
+            .push(serde_json::to_value(&request).unwrap());
+        std::future::ready(Ok(account_body("business")))
+    }));
+    run(&mut app, ev.expect("an event"));
+    let asked = asked.into_inner().unwrap();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0]["method"], "account/read");
+    assert!(
+        asked[0]["params"].get("refreshToken").is_none(),
+        "false is not serialized"
+    );
+    assert!(agents(&app).backend_auth);
+    assert_eq!(
+        agents(&app).plan,
+        Some(serde_json::from_value(json!("business")).unwrap())
+    );
+}
+
+/// A read that fails tells the center nothing: usage stays off.
+#[test]
+fn a_failed_account_read_sends_nothing() {
+    let ev = runtime().block_on(account(Ids::default(), |_| {
+        std::future::ready(Err::<Value, ServerError>("offline".into()))
+    }));
+    assert!(ev.is_none());
+}
+
+/// Live: the shell asks for the account as the connection comes up, and
+/// the highlighted task's usage is then fetched (it was never before).
+#[test]
+fn the_live_center_fetches_the_usage_of_the_highlighted_task() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "account/read" => Some(Ok(account_body("business"))),
+        "account/usage/read" => Some(Err("no usage in this test".into())),
+        _ => server(request),
+    });
+    h.wait_for("the tasks", |s| s.contains("Interactive task"));
+    let fake = h.fake.clone();
+    h.wait_for("the usage request", |_| {
+        fake.requests()
+            .iter()
+            .any(|request| request["method"] == "account/usage/read")
+    });
+    let requests = h.fake.requests();
+    assert!(requests.iter().any(|r| r["method"] == "account/read"));
+    let usage = requests
+        .iter()
+        .find(|r| r["method"] == "account/usage/read")
+        .expect("asked");
+    assert_eq!(usage["params"]["threadId"], "Interactive task");
+}
+
+/// `agents_overview_new.rs`: a started task that cannot be bound to its
+/// checkout is unsubscribed (`thread_unsubscribe`) before the error shows.
+#[test]
+fn a_task_that_cannot_be_bound_is_unsubscribed() {
+    let workspace = Arc::new(FakeWorkspace::default());
+    workspace.set_create(Ok(checkout()));
+    workspace.set_bind(Err(
+        "The server did not apply the worktree directory.".into()
+    ));
+    let sent = std::sync::Mutex::new(Vec::new());
+    let ev = make_worktree(&workspace, None, |request| {
+        let wire = serde_json::to_value(&request).unwrap();
+        let answer = match wire["method"].as_str() {
+            Some("thread/start") => started(&request),
+            _ => Ok(json!({})),
+        };
+        sent.lock().unwrap().push(wire);
+        std::future::ready(answer)
+    });
+    assert!(matches!(notice_of(ev), Some(Notice::Error(_))));
+    let sent = sent.into_inner().unwrap();
+    let methods: Vec<&str> = sent.iter().filter_map(|r| r["method"].as_str()).collect();
+    assert_eq!(methods, ["thread/start", "thread/unsubscribe"]);
+    assert_eq!(sent[1]["params"]["threadId"], "new-1");
+}
+
+/// A task that is bound is not unsubscribed.
+#[test]
+fn a_bound_task_stays_subscribed() {
+    let workspace = Arc::new(FakeWorkspace::default());
+    workspace.set_create(Ok(checkout()));
+    let sent = std::sync::Mutex::new(Vec::new());
+    let _ = make_worktree(&workspace, None, |request| {
+        sent.lock()
+            .unwrap()
+            .push(serde_json::to_value(&request).unwrap());
+        std::future::ready(started(&request))
+    });
+    assert_eq!(sent.into_inner().unwrap().len(), 1);
 }

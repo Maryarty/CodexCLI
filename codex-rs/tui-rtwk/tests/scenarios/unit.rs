@@ -221,6 +221,35 @@ fn the_cursor_and_the_row_count_are_compared() {
     assert!(diffs.iter().any(|d| d.contains("cursor")), "{diffs:?}");
 }
 
+/// A cursor that is hidden on both sides is nowhere: where the terminal
+/// parked it is not compared (the oracle and codex-rtwk park it differently
+/// when they hide it).
+#[test]
+fn a_cursor_hidden_on_both_sides_is_not_compared() {
+    let mut a = shot(&["x"], (1, 0));
+    let mut b = shot(&["x"], (7, 3));
+    a.cursor_visible = false;
+    b.cursor_visible = false;
+    let diffs = compare(&a, &b, &Normalize::new(), false);
+    assert!(diffs.is_empty(), "{diffs:?}");
+}
+
+/// Visible on one side only is still a difference, and so is a different
+/// position while both are visible.
+#[test]
+fn a_cursor_visible_on_one_side_or_at_another_place_differs() {
+    let a = shot(&["x"], (1, 0));
+    let mut hidden = shot(&["x"], (7, 3));
+    hidden.cursor_visible = false;
+    let diffs = compare(&a, &hidden, &Normalize::new(), false);
+    assert!(diffs.iter().any(|d| d.contains("cursor")), "{diffs:?}");
+    let diffs = compare(&hidden, &a, &Normalize::new(), false);
+    assert!(diffs.iter().any(|d| d.contains("cursor")), "{diffs:?}");
+    let moved = shot(&["x"], (2, 0));
+    let diffs = compare(&a, &moved, &Normalize::new(), false);
+    assert!(diffs.iter().any(|d| d.contains("cursor")), "{diffs:?}");
+}
+
 #[test]
 fn the_scrollback_counts_only_when_asked() {
     let mut a = shot(&["x"], (0, 0));

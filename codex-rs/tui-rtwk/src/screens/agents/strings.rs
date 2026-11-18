@@ -258,7 +258,7 @@ pub const EN: Strings = Strings {
         ("x", "Stop"),
         ("a", "Archive"),
         ("h", "Hide"),
-        ("backspace", "Delete"),
+        ("delete", "Delete"),
         ("p", "Pin/unpin"),
     ],
     help_entries_view: [("f3", "Search"), ("g", "Group")],

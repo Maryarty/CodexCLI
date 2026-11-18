@@ -18,17 +18,20 @@ use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::ids::TurnId;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::agents::DirKeys;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::shell::IngressTx;
 use crate::shell::rpc::Ids;
 use crate::shell::rpc::answer;
+use crate::shell::search::Gate;
 use crate::shell::search::Latest;
 use crate::shell::workspace::Boxed;
 use crate::shell::workspace::Checkout;
 use crate::shell::workspace::Facts;
 use crate::shell::workspace::Workspace;
+use crate::shell::workspace::account;
 use crate::shell::workspace::backend_ev;
 use crate::shell::workspace::directories;
 use crate::shell::workspace::worktree;
@@ -51,12 +54,14 @@ pub(crate) struct Shared {
     responder: Option<Responder>,
     /// The wire requests that went out, as JSON, in order.
     requests: Vec<serde_json::Value>,
+    /// History searches wait for this gate instead of the debounce's clock.
+    search_gate: Option<Gate>,
 }
 
 /// What the scripted server answers to a wire request (as JSON): `None`
 /// leaves it unanswered.
 pub type Responder =
-    Arc<dyn Fn(&serde_json::Value) -> Option<Result<serde_json::Value, String>> + Send + Sync>;
+    Arc<dyn Fn(&serde_json::Value) -> Option<Result<serde_json::Value, ServerError>> + Send + Sync>;
 
 /// A scripted machine: the directory keys it knows, the outcome of creating
 /// a worktree, and what was asked of it.
@@ -208,13 +213,22 @@ impl FakeHandle {
     /// Answers the wire requests of the screens with `responder`.
     pub fn respond(
         &self,
-        responder: impl Fn(&serde_json::Value) -> Option<Result<serde_json::Value, String>>
+        responder: impl Fn(&serde_json::Value) -> Option<Result<serde_json::Value, ServerError>>
         + Send
         + Sync
         + 'static,
     ) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.responder = Some(Arc::new(responder));
+        }
+    }
+
+    /// Holds the first page of every history search at `gate` instead of
+    /// the debounce's 180 ms: it goes out when the test opens the gate (no
+    /// wall clock in the test). Set before the app starts.
+    pub fn hold_searches(&self, gate: &Gate) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.search_gate = Some(gate.clone());
         }
     }
 
@@ -280,7 +294,23 @@ pub(crate) async fn run(
         emit(backend_ev(facts));
     }
     let ids = Ids::default();
-    let mut latest = Latest::default();
+    let gate = shared
+        .lock()
+        .ok()
+        .and_then(|guard| guard.search_gate.clone());
+    let mut latest = gate
+        .as_ref()
+        .map_or_else(Latest::default, Latest::paused_by);
+    // As the host does once connected: the account is read, for the usage.
+    if let Some(responder) = shared.lock().ok().and_then(|guard| guard.responder.clone()) {
+        let (ingress, ids, log) = (ingress.clone(), ids.clone(), shared.clone());
+        tokio::spawn(async move {
+            let send = request_sender(log, responder);
+            if let Some(ev) = account(ids, send).await {
+                let _ = ingress.send(Ingress { epoch, ev });
+            }
+        });
+    }
     while let Some(command) = commands.recv().await {
         let scripted = {
             let Ok(mut guard) = shared.lock() else {
@@ -352,19 +382,7 @@ pub(crate) async fn run(
                 let log = shared.clone();
                 let held = other.clone();
                 let work: Boxed<Option<()>> = Box::pin(async move {
-                    let send = move |request: ClientRequest| {
-                        let json = serde_json::to_value(&request).unwrap_or_default();
-                        if let Ok(mut guard) = log.lock() {
-                            guard.requests.push(json.clone());
-                        }
-                        let answered = responder(&json);
-                        async move {
-                            match answered {
-                                Some(result) => result,
-                                None => std::future::pending().await,
-                            }
-                        }
-                    };
+                    let send = request_sender(log, responder);
                     match other {
                         Command::Worktree { cwd, .. } => {
                             let ev = worktree(workspace, cwd, ids, send).await;
@@ -386,5 +404,26 @@ pub(crate) async fn run(
                 tokio::spawn(latest.wrap(&held, work));
             }
         }
+    }
+}
+
+/// The client of the fake: it logs the request and answers it as the
+/// responder says (unanswered stays pending).
+fn request_sender(
+    log: Arc<Mutex<Shared>>,
+    responder: Responder,
+) -> impl Fn(ClientRequest) -> Boxed<Result<serde_json::Value, ServerError>> {
+    move |request: ClientRequest| {
+        let json = serde_json::to_value(&request).unwrap_or_default();
+        if let Ok(mut guard) = log.lock() {
+            guard.requests.push(json.clone());
+        }
+        let answered = responder(&json);
+        Box::pin(async move {
+            match answered {
+                Some(result) => result,
+                None => std::future::pending().await,
+            }
+        })
     }
 }

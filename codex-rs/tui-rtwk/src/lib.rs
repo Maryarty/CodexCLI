@@ -29,6 +29,50 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// The text `--help`, `-h`, `help`, `--version` or `-V` asks for, if the
+    /// command line asks for one: what the oracle's `codex` prints, for the
+    /// top level and the `agents` subcommand. The first such word wins, as
+    /// in clap; `--version` of a subcommand is no answer (the oracle's
+    /// subcommands have none, and the parse says so).
+    pub fn early_answer(args: impl IntoIterator<Item = String>) -> Option<&'static str> {
+        use shell::help;
+        let mut agents = false;
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--help" => {
+                    return Some(if agents {
+                        help::AGENTS_LONG
+                    } else {
+                        help::TOP_LONG
+                    });
+                }
+                "-h" => {
+                    return Some(if agents {
+                        help::AGENTS_SHORT
+                    } else {
+                        help::TOP_SHORT
+                    });
+                }
+                "-V" | "--version" if !agents => return Some(help::VERSION),
+                "help" if !agents => {
+                    return match args.next().as_deref() {
+                        None => Some(help::TOP_LONG),
+                        Some("agents") => Some(help::AGENTS_LONG),
+                        Some(_) => None,
+                    };
+                }
+                "agents" => agents = true,
+                // The value of a flag is not a word of the command line.
+                "-m" | "--model" | "--locale" => {
+                    args.next();
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
         let mut args = args.into_iter();

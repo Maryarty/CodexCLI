@@ -15,6 +15,7 @@ use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessAppServerRequestHandle;
 use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_client::InProcessServerEvent;
+use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_arg0::Arg0DispatchPaths;
@@ -28,6 +29,9 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::wire;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
@@ -39,6 +43,7 @@ use codex_tui_rtwk::shell::search::Latest;
 use codex_tui_rtwk::shell::workspace::Boxed;
 use codex_tui_rtwk::shell::workspace::Facts;
 use codex_tui_rtwk::shell::workspace::Workspace;
+use codex_tui_rtwk::shell::workspace::account;
 use codex_tui_rtwk::shell::workspace::backend_ev;
 use codex_tui_rtwk::shell::workspace::directories;
 use codex_tui_rtwk::shell::workspace::worktree;
@@ -175,6 +180,8 @@ async fn run(
         cloud: false,
         worktrees: local,
     };
+    // `tui.status_line_use_colors`: whether the tasks get their own colour.
+    let thread_colors = args.config.tui_status_line_use_colors;
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(args.config.codex_home.to_path_buf()));
     // Boxed: the start future is large, and the pump should not carry it inline.
     let started = match Box::pin(InProcessAppServerClient::start(args)).await {
@@ -187,11 +194,19 @@ async fn run(
     let mut held = HandBack::new(started, done);
     emit(&ingress, epoch, AppEv::Connected);
     emit(&ingress, epoch, backend_ev(facts));
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(AgentsEv::ThreadColors(thread_colors))),
+    );
     let Some(handle) = held.get().map(|client| client.request_handle()) else {
         return;
     };
     let ids = Ids::default();
     let mut inflight: FuturesUnordered<Boxed<Option<AppEv>>> = FuturesUnordered::new();
+    // As the oracle's bootstrap: the account is read, so the center knows
+    // the plan and whether usage can be fetched.
+    inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     // The history search's debounce: the oracle waits 180 ms and a newer
     // search drops the pending one.
     let mut latest = Latest::default();
@@ -250,15 +265,7 @@ fn work(
     workspace: Arc<dyn Workspace>,
     model: Option<String>,
 ) -> Boxed<Option<AppEv>> {
-    let send = move |request: ClientRequest| -> Boxed<Result<serde_json::Value, String>> {
-        let handle = handle.clone();
-        Box::pin(async move {
-            handle
-                .request_typed::<serde_json::Value>(request)
-                .await
-                .map_err(|error| error.to_string())
-        })
-    };
+    let send = sender(handle);
     match command {
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
@@ -272,6 +279,29 @@ fn work(
                 .await
                 .map(|(ticket, reply)| AppEv::Reply(ticket, reply))
         }),
+    }
+}
+
+/// The client of the shell's effects: one request over the in-process
+/// handle. A server's refusal keeps its JSON-RPC code (the pin read tells
+/// "no pins" by it); the message is the client's own text.
+fn sender(
+    handle: InProcessAppServerRequestHandle,
+) -> impl Fn(ClientRequest) -> Boxed<Result<serde_json::Value, ServerError>> {
+    move |request: ClientRequest| {
+        let handle = handle.clone();
+        Box::pin(async move {
+            handle
+                .request_typed::<serde_json::Value>(request)
+                .await
+                .map_err(|error| ServerError {
+                    code: match &error {
+                        TypedRequestError::Server { source, .. } => Some(source.code),
+                        _ => None,
+                    },
+                    message: error.to_string(),
+                })
+        })
     }
 }
 
