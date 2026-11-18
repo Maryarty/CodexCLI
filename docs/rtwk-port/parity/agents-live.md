@@ -184,3 +184,41 @@ reason was checked to be the only difference).
   is consumed until the request ends) is the shell's: in tui-rtwk the center stays
   live, `Esc` leaves, `Enter` and `n` are held by core's gate (`blocked`).
 - rtwk: G35 (SelectionList: page/move call, wrap, key table) and G36 (TabBar).
+
+## Shell side (task `agents-live-shell`)
+
+Done (tests: `tests/shell_agents.rs` on the scripted backend, `core/tests/agents_live.rs`):
+directory and repository keys, backend facts, the worktree command, discovery
+from both sources (`shell::rpc`), the 65 s usage timeout, the failure dialogs,
+seeded notices and fixtures, the voice badge, `plan_bills_in_dollars`, and:
+
+- The history search's debounce (`shell::search::Latest`, oracle
+  `search_agents_overview`): the first page of a search waits 180 ms, a newer
+  search drops the pending one, other commands neither wait nor drop; used by
+  the host pump and the scripted backend. Tests: `the_search_waits_before_it_asks_the_server`,
+  `a_newer_search_drops_the_pending_one`, `other_commands_neither_wait_nor_drop_a_search`,
+  `typing_a_word_asks_the_server_once` (bite shown by removing the abort and the delay).
+- The pinned section is read with the first page of the list (core
+  `sources.rs`: two more `thread/list` requests sorted by `section_position`,
+  `Page.pins`): ranks, pinned tasks outside the recent page are rows, a server
+  that refuses has no pins, the help then offers `p Pin/unpin`. Gap: one page
+  of 100 per source (the oracle follows `next_cursor`); the client's failure text
+  is read for `(code -32602..-32600)` because the shell's client closure gives text.
+- `codex agents` starts no thread on connect (`CodexApp::start_thread_on_connect`,
+  set by `with_start_agents`), so no `Untitled task` row exists.
+- Ctrl+C: closes a search or rename line, otherwise quits (oracle `on_ctrl_c`
+  NotHandled -> the app quits); an empty list keeps the keys (focus moves to
+  the screen root), so Shift+Tab leaves a filter without tasks.
+
+Pending (owner, reason): `overview_thread_colors_*` (reuse-carry: the syntect
+theme palette behind `thread_color` is not carried, nothing is invented);
+`live_center_pages_visible_rows_while_reconnecting` (rtwk G35).
+
+Pty scenario `agents` (codex-rtwk against the pinned oracle), checkpoints
+`overview second-row help help-closed filter-needs-you filter-all after-exit`:
+all rows equal except (1) `help`: the Delete key reads `backspace` where the
+oracle's binary reads `delete` (oracle `key_hint.rs` prints `backspace` under
+`cfg(test)` only: the snapshots and our tests say `backspace`, the binary says
+`delete`; the columns of the help widen with it), and (2) the cursor position
+of a hidden cursor, which `tests/support/compare.rs` compares (oracle leaves it
+where it last drew; unobservable).
