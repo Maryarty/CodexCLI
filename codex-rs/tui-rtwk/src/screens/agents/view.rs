@@ -21,10 +21,10 @@ use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier}
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    BorderType, BoxWidget, Center as Middle, Column, ConstrainedBox, CrossAxisAlignment, Divider, EdgeInsets,
+    BorderType, BoxWidget, Center as Middle, Column, CrossAxisAlignment, Divider, EdgeInsets,
     Expanded, MainAxisSize, Padding, Row, SizedBox, VerticalDivider,
 };
-use rtwk::layout::{BoxConstraints, UNBOUNDED};
+use rtwk::overlay::Dialog;
 use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Attrs, Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign, TextWrap};
@@ -1082,8 +1082,7 @@ pub fn confirm_dialog(
         note(strings.select_hint, &look.dim),
     ];
     // The panel is 72 cells wide at most and two cells in from the screen.
-    let limits = BoxConstraints::new(0, 72, 0, UNBOUNDED);
-    inset(Middle::new(ConstrainedBox::new(limits, panel(look, rows))))
+    inset(Middle::new(Dialog::bare(panel(look, rows)).max_width(72)))
 }
 
 /// The dialog of a refused removal (oracle: the `LifecycleHeader` selection
@@ -1110,5 +1109,5 @@ pub fn failure_dialog(look: &Look, strings: &Strings, failure: &Failure) -> AnyW
         gap(1),
         note(strings.select_hint, &look.dim),
     ]);
-    panel(look, rows)
+    Dialog::bare(panel(look, rows)).into()
 }
