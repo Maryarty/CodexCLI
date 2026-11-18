@@ -19,25 +19,167 @@ pub const KIND: Kind = Kind::Route;
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    /// The root sessions of the command center, in the order the backend
+    /// listed them (oracle: `AgentsOverviewView::rows`).
+    pub tasks: Vec<Task>,
+    /// The highlighted task (the first when none is).
+    pub selected: Option<ThreadId>,
+    pub filter: Filter,
+}
+
+/// One root session (oracle: `agents_overview_threads`, the rows of
+/// `shared_overview_shows_only_root_sessions`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Task {
+    pub id: String,
+    pub title: String,
+    pub status: Status,
+    pub model: Option<String>,
+    pub reasoning: Option<String>,
+    pub cwd: String,
+    pub prompt: String,
+    /// The subagent that needs attention, when one does.
+    pub child: Option<Child>,
+}
+
+/// The backend's thread status (oracle: `ThreadStatus`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    Idle,
+    Active,
+    NotLoaded,
+}
+
+/// A subagent of a task and what it waits for.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Child {
+    pub name: String,
+    #[serde(default)]
+    pub last_message: Option<String>,
+    #[serde(default)]
+    pub waits: Vec<Wait>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Wait {
+    Approval,
+    Response,
+}
+
+/// The tab row's filters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    All,
+    NeedsYou,
+    Working,
+    Ready,
+    Inactive,
+}
+
+/// What a task needs of the user (oracle: the overview's attention groups).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Attention {
+    NeedsYou,
+    Working,
+    Ready,
+    Inactive,
+}
+
+impl Task {
+    /// A waiting subagent makes the task need the user; otherwise the
+    /// thread's status decides.
+    pub fn attention(&self) -> Attention {
+        if self.child.as_ref().is_some_and(|child| !child.waits.is_empty()) {
+            return Attention::NeedsYou;
+        }
+        match self.status {
+            Status::Active => Attention::Working,
+            Status::Idle => Attention::Ready,
+            Status::NotLoaded => Attention::Inactive,
+        }
+    }
+}
+
+impl Model {
+    /// How many tasks need `attention`.
+    pub fn count(&self, attention: Attention) -> usize {
+        self.tasks
+            .iter()
+            .filter(|task| task.attention() == attention)
+            .count()
+    }
+
+    /// The tasks the filter keeps.
+    pub fn visible(&self) -> Vec<&Task> {
+        self.tasks
+            .iter()
+            .filter(|task| match self.filter {
+                Filter::All => true,
+                Filter::NeedsYou => task.attention() == Attention::NeedsYou,
+                Filter::Working => task.attention() == Attention::Working,
+                Filter::Ready => task.attention() == Attention::Ready,
+                Filter::Inactive => task.attention() == Attention::Inactive,
+            })
+            .collect()
+    }
+
+    /// The highlighted task: the selected one, else the first visible.
+    pub fn highlighted(&self) -> Option<&Task> {
+        let visible = self.visible();
+        self.selected
+            .as_ref()
+            .and_then(|id| visible.iter().copied().find(|task| task.id == id.as_str()))
+            .or_else(|| visible.first().copied())
+    }
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
-/// root `ScreenEv`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+/// root `ScreenEv`. The seed form is `{"listed":[..]}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ev {
+    /// The backend listed the root sessions.
+    Listed(Vec<Task>),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
+pub enum Intent {
+    /// Move the highlight to this task.
+    Select(ThreadId),
+    SetFilter(Filter),
+}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::Listed(tasks) => {
+            model.tasks = tasks;
+            let known = model
+                .selected
+                .as_ref()
+                .is_some_and(|id| model.tasks.iter().any(|task| task.id == id.as_str()));
+            if !known {
+                model.selected = None;
+            }
+        }
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {}
+    let _ = fx;
+    match intent {
+        Intent::Select(id) => {
+            if model.tasks.iter().any(|task| task.id == id.as_str()) {
+                model.selected = Some(id);
+            }
+        }
+        Intent::SetFilter(filter) => model.filter = filter,
+    }
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -89,10 +231,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// A script's `screen` step for this directory: the event `value` stands for
-/// (`fixtures::script`). None is seedable yet; the slice gives its events a
-/// serde form here and reads it, so the shared loader never changes.
+/// A script's `screen` step for this directory: the event in its serde form.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))
 }

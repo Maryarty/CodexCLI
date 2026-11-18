@@ -1,9 +1,66 @@
-//! Screen tests of the `usage` slot. A slice adds its tests here, with its
-//! snapshots in `tests/snapshots/usage/`.
+//! Screen tests of S20, the `/usage` dashboard. The oracle's wide summary
+//! snapshot (140x44) is compared by the rows ours draws (header, tabs, the
+//! profile block, the five numbers, the activity title, the footer); the rows
+//! of the activity heat map, the insights and the plugin list are listed as
+//! missing in the parity pack. Oracle: `codex-rs/tui/src/analytics/` and
+//! `analytics_tests.rs`.
 
-use crate::common::slot;
+#[path = "oracle_snap/mod.rs"]
+mod oracle_snap;
+
+use crate::common::{Harness, start_sized};
+
+const SUMMARY: &str =
+    "analytics/snapshots/codex_tui__analytics__tests__summary__summary_daily_wide.snap";
+const PANELS: &str = "snapshots/codex_tui__analytics__tests__analytics_loading_errors_and_empty_reports_stay_independent.snap";
+
+fn open(entry: &str, width: u16, height: u16) -> Harness {
+    let mut h = start_sized(true, width, height);
+    h.open_debug_row("usage", Some(entry));
+    h
+}
+
+fn rows_at(rows: &[String], at: &[usize]) -> Vec<String> {
+    at.iter()
+        .map(|i| rows.get(*i).cloned().unwrap_or_default())
+        .collect()
+}
 
 #[test]
-fn usage_slot_is_registered_and_empty() {
-    slot("usage");
+fn summary_daily_wide_header_numbers_and_footer() {
+    let h = open("overview", 140, 44);
+    let ours = oracle_snap::screen(&h.t);
+    let oracle = oracle_snap::rows(SUMMARY);
+    // Row 2 is the rule under the tabs; the oracle's `g Daily` row, the heat
+    // map and the insight blocks are missing (parity pack).
+    let rows: Vec<usize> = vec![0, 1, 8, 9, 10, 12, 13, 15, 16, 41, 42, 43];
+    let footer = oracle.len();
+    assert!(footer >= 43, "oracle snapshot has {footer} rows");
+    oracle_snap::assert_same(
+        "summary_daily_wide",
+        &rows_at(&ours, &rows),
+        &rows_at(&oracle, &rows),
+    );
+}
+
+#[test]
+fn analytics_loading_errors_and_empty_reports_stay_independent() {
+    let h = open("panel_states", 60, 12);
+    oracle_snap::assert_fragment(
+        "analytics_loading_errors_and_empty_reports_stay_independent",
+        &oracle_snap::screen(&h.t),
+        0,
+        &oracle_snap::rows(PANELS),
+    );
+}
+
+/// The tab row's digit keys pick the report (oracle: `navigation_tests`).
+#[test]
+fn digit_keys_pick_the_report() {
+    let mut h = open("overview", 140, 44);
+    h.press("2");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Lifetime tokens"), "{screen}");
+    h.press("1");
+    assert!(h.t.screen().contains("Lifetime tokens"), "{}", h.t.screen());
 }
