@@ -13,6 +13,7 @@ use rtwk::app::AppCx;
 
 use crate::l10n::Lang;
 use crate::shell;
+use crate::ui::presenter;
 use crate::ui::presenter::Presenter;
 use crate::ui::thread_ui::ThreadUiMap;
 
@@ -78,6 +79,8 @@ impl UiApp {
             return;
         };
         self.follow_core();
+        self.ui.presenter.event();
+        presenter::present(self, cx);
         shell::run_effects(self, fx);
     }
 
