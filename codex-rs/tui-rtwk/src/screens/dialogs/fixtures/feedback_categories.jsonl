@@ -1,0 +1,4 @@
+# /feedback: how was this?
+# Oracle data: chatwidget/tests/popups_and_settings.rs feedback_selection_popup_snapshot
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"dialogs","ev":{"kind":"feedback_categories"}}

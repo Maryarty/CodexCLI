@@ -17,27 +17,223 @@ pub const NAME: &str = "pets";
 pub const ID: &str = "S24";
 pub const KIND: Kind = Kind::Part;
 
+/// The pet that means "no pet" (`pets::DISABLED_PET_ID`).
+pub const DISABLED: &str = "disabled";
+/// The pet the picker preselects when none is configured (`DEFAULT_PET_ID`).
+pub const DEFAULT: &str = "codex";
+
+/// One row of the picker (`PetPickerEntry`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Pet {
+    pub selector: String,
+    /// The name shown; empty for the "disable" row, which the view words.
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The id older configs stored for a custom pet.
+    #[serde(default)]
+    pub legacy_selector: Option<String>,
+}
+
+/// What the preview beside the list is doing (`PetPickerPreviewStatus`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Preview {
+    Loading,
+    Ready,
+}
+
+/// The `/pets` picker (`pets/picker.rs`: `build_pet_picker_params`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Picker {
+    /// Disabled row first, the rest by name.
+    pub pets: Vec<Pet>,
+    /// The pet in the config, if any.
+    pub current: Option<String>,
+    pub cursor: usize,
+    pub query: String,
+    /// The pet whose preview is shown, and its state.
+    pub preview: Option<(String, Preview)>,
+}
+
+impl Picker {
+    /// The picker for `pets` (the built-in and custom ones, without the
+    /// disable row) with `current` configured.
+    pub fn build(current: Option<&str>, mut pets: Vec<Pet>) -> Self {
+        pets.sort_by(|left, right| left.name.cmp(&right.name));
+        pets.insert(
+            0,
+            Pet {
+                selector: DISABLED.to_string(),
+                name: String::new(),
+                description: None,
+                legacy_selector: None,
+            },
+        );
+        let preferred = current.unwrap_or(DEFAULT);
+        let cursor = pets
+            .iter()
+            .position(|pet| pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred))
+            .unwrap_or(0);
+        Self {
+            pets,
+            current: current.map(str::to_owned),
+            cursor,
+            query: String::new(),
+            preview: None,
+        }
+    }
+
+    /// The rows shown, as indices into `pets`: those whose search value
+    /// (the selector; the disable row answers to its own words) has the
+    /// query in it.
+    pub fn visible(&self) -> Vec<usize> {
+        let query = self.query.trim().to_lowercase();
+        self.pets
+            .iter()
+            .enumerate()
+            .filter(|(_, pet)| {
+                let value = if pet.selector == DISABLED {
+                    "disable disabled hide hidden off none"
+                } else {
+                    pet.selector.as_str()
+                };
+                value.to_lowercase().contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// The row is the configured pet.
+    pub fn is_current(&self, pet: &Pet) -> bool {
+        self.current.as_deref().is_some_and(|current| {
+            current == pet.selector || pet.legacy_selector.as_deref() == Some(current)
+        })
+    }
+
+    /// The row under the cursor.
+    pub fn highlighted(&self) -> Option<&Pet> {
+        self.visible()
+            .get(self.cursor)
+            .and_then(|index| self.pets.get(*index))
+    }
+
+    /// Asks for the preview of the row under the cursor
+    /// (`on_selection_changed`): its selector, if it changed.
+    fn highlight(&mut self) -> Option<String> {
+        let selector = self.highlighted()?.selector.clone();
+        if self.preview.as_ref().map(|(shown, _)| shown) == Some(&selector) {
+            return None;
+        }
+        self.preview = Some((selector.clone(), Preview::Loading));
+        Some(selector)
+    }
+}
+
+/// What the picker's owner was asked (`AppEvent`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// `PetSelected`.
+    Selected(String),
+    /// `PetDisabled`.
+    Disabled,
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    pub open: Option<Picker>,
+    /// `PetPreviewRequested`, in order.
+    pub previews: Vec<String>,
+    pub chosen: Vec<Choice>,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    Opened(Picker),
+    /// The preview of a pet finished loading.
+    PreviewReady(String),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
+pub enum Intent {
+    /// Up / Down; wraps.
+    Move(i32),
+    Search(String),
+    /// Enter.
+    Pick,
+    /// Esc: clears the search, then closes.
+    Close,
+}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::Opened(mut picker) => {
+            picker.preview = None;
+            if let Some(selector) = picker.highlight() {
+                model.previews.push(selector);
+            }
+            model.open = Some(picker);
+        }
+        Ev::PreviewReady(selector) => {
+            if let Some(picker) = &mut model.open
+                && let Some((shown, state)) = &mut picker.preview
+                && *shown == selector
+            {
+                *state = Preview::Ready;
+            }
+        }
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {}
+    let _ = fx;
+    let Some(picker) = &mut model.open else {
+        return;
+    };
+    match intent {
+        Intent::Move(delta) => {
+            let len = picker.visible().len();
+            if len > 0 {
+                picker.cursor = (picker.cursor as i64 + i64::from(delta)).rem_euclid(len as i64) as usize;
+                if let Some(selector) = picker.highlight() {
+                    model.previews.push(selector);
+                }
+            }
+        }
+        Intent::Search(query) => {
+            picker.query = query;
+            picker.cursor = 0;
+            if let Some(selector) = picker.highlight() {
+                model.previews.push(selector);
+            }
+        }
+        Intent::Pick => {
+            if let Some(pet) = picker.highlighted() {
+                let choice = if pet.selector == DISABLED {
+                    Choice::Disabled
+                } else {
+                    Choice::Selected(pet.selector.clone())
+                };
+                model.chosen.push(choice);
+                model.open = None;
+            }
+        }
+        Intent::Close => {
+            if picker.query.is_empty() {
+                model.open = None;
+            } else {
+                picker.query.clear();
+                picker.cursor = 0;
+                if let Some(selector) = picker.highlight() {
+                    model.previews.push(selector);
+                }
+            }
+        }
+    }
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -89,10 +285,23 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// A script's `screen` step for this directory: the event `value` stands for
-/// (`fixtures::script`). None is seedable yet; the slice gives its events a
-/// serde form here and reads it, so the shared loader never changes.
+/// The seed form of this screen's events: `{"kind":"picker","current":..,
+/// "pets":[{"selector":..,"name":..,"description":..,"legacy_selector":..}]}`
+/// (the built-in and custom pets; the disable row is the picker's own).
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    Picker {
+        #[serde(default)]
+        current: Option<String>,
+        pets: Vec<Pet>,
+    },
+}
+
+/// A script's `screen` step for this directory.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    let SeedEv::Picker { current, pets } = seed;
+    Ok(Ev::Opened(Picker::build(current.as_deref(), pets)))
 }

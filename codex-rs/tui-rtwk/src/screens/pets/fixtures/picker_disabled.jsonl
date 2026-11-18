@@ -1,0 +1,4 @@
+# The /pets picker with terminal pets disabled.
+# Oracle data: pets/picker.rs picker_marks_disabled_pet_as_current
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"pets","ev":{"kind":"picker","current":"disabled","pets":[{"selector":"bsod","name":"BSOD"},{"selector":"codex","name":"Codex"},{"selector":"dewey","name":"Dewey"},{"selector":"fireball","name":"Fireball"},{"selector":"null-signal","name":"Null Signal"},{"selector":"rocky","name":"Rocky"},{"selector":"seedy","name":"Seedy"},{"selector":"stacky","name":"Stacky"}]}}

@@ -25,7 +25,7 @@ use crate::ui::view::Hs;
 pub struct MenuDialog;
 
 pub struct MenuDialogState {
-    menu: Option<Menu>,
+    shown: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,7 +45,7 @@ impl StatefulWidget for MenuDialog {
     type State = MenuDialogState;
 
     fn create_state(&self) -> MenuDialogState {
-        MenuDialogState { menu: None }
+        MenuDialogState { shown: false }
     }
 }
 
@@ -56,22 +56,19 @@ impl State for MenuDialogState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
-        let menu = select::<ScreenStates, Option<Menu>, _>(cx, |states| states.select.menu.clone());
-        if menu.is_none() && self.menu.is_some() {
+        let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu.is_some());
+        if !present && self.shown {
             close_dialog::<_, ()>(cx, None);
         }
-        self.menu = menu;
+        self.shown = present;
     }
 
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
         match msg {
+            // The model drops the menu on a pick; the dialog closes with it.
             Msg::Pick(index) => {
-                if self.menu.as_ref().is_none_or(|menu| index >= menu.len()) {
-                    return Rebuild::No;
-                }
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Pick(index)));
-                close_dialog(cx, Some(()));
             }
             Msg::Close => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Close));
@@ -82,7 +79,8 @@ impl State for MenuDialogState {
     }
 
     fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(menu) = &self.menu else {
+        let menu = select::<ScreenStates, Option<Menu>, _>(cx, |states| states.select.menu.clone());
+        let Some(menu) = &menu else {
             return AnyWidget::default();
         };
         let tokens = theme::Tokens::of(cx);

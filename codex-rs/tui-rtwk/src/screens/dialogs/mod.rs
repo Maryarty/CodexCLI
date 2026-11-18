@@ -1,66 +1,82 @@
-//! `dialogs`: the view half of the slot of S23 (small dialogs), the `mock-dialogs` task's to fill. It
-//! holds the empty form the skeleton registers: a screen widget, its opener
-//! and the debug-menu entries. Its model part, events, intents and RPCs are
-//! core's `codex_tui_rtwk_core::screens::dialogs`. Nothing outside these two
-//! directories (bar their test files) needs an edit when it grows.
+//! `dialogs`: the view half of S23 (the small dialogs): the shortcut overlay,
+//! the warnings viewer and the feedback flow. They share one host widget that
+//! reads which dialog the model holds (`core::screens::dialogs::Open`) through
+//! a provider projection and returns what the user does as intents.
+//! Oracle: `bottom_pane/shortcut_overlay.rs`, `warnings_view.rs`,
+//! `feedback_view.rs`.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
-use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+mod dialog;
+mod feedback;
+mod shortcuts;
+mod warnings;
 
-use codex_tui_rtwk_core::screens::dialogs::{ID, NAME};
+use rtwk::AnyWidget;
+use rtwk::Cx;
+use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: one entry per dialog worth
+/// opening, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    let entries = [
+        (
+            "shortcut_overlay",
+            "the shortcut overlay, list page",
+            include_str!("fixtures/shortcut_overlay.jsonl"),
+        ),
+        (
+            "warnings",
+            "the warnings viewer, two warnings",
+            include_str!("fixtures/warnings.jsonl"),
+        ),
+        (
+            "warnings_long",
+            "the warnings viewer, a long text",
+            include_str!("fixtures/warnings_long.jsonl"),
+        ),
+        (
+            "feedback_categories",
+            "/feedback: how was this?",
+            include_str!("fixtures/feedback_categories.jsonl"),
+        ),
+        (
+            "feedback_consent",
+            "/feedback: include logs?",
+            include_str!("fixtures/feedback_consent.jsonl"),
+        ),
+        (
+            "feedback_consent_windows",
+            "/feedback: include logs, Windows",
+            include_str!("fixtures/feedback_consent_windows.jsonl"),
+        ),
+    ];
+    entries
+        .into_iter()
+        .map(|(name, description, script)| DebugEntry {
+            name,
+            description,
+            script,
+            open: EntryOpen::Dialog(|_| dialog::SmallDialog.into()),
+        })
+        .collect()
 }
 
-/// Opens the dialog from the widget that asks (`show_dialog`); the result
-/// returns to the model through a handler, as an intent with its ticket.
+/// Opens the dialog from the widget that asks (`show_dialog`); it reads the
+/// dialog the model holds, and what the user does returns as intents.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    let title = strings::of(cx).title;
     show_dialog(
         cx,
-        move |_| Dialog::new(Screen).title(title).into(),
+        move |_| dialog::SmallDialog.into(),
         DialogOptions::default(),
     )
 }
 
-/// Opens the empty form of this slot (debug menu).
+/// Opens the dialogs with no seeded model (debug menu): nothing to show.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|lang| Dialog::new(Screen).title(strings::title(lang)).into())
-}
-
-/// The empty screen widget of this slot.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
-
-/// Widget state: ids, drafts and controllers only (R14).
-#[derive(Debug)]
-pub struct ScreenState;
-
-impl StatefulWidget for Screen {
-    type State = ScreenState;
-
-    fn create_state(&self) -> ScreenState {
-        ScreenState
-    }
-}
-
-impl_widget!(stateful eq Screen);
-
-impl State for ScreenState {
-    type Widget = Screen;
-    type Msg = ();
-
-    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let shared = crate::l10n::strings::of(cx);
-        Text::new(shared.empty_slot(NAME, ID).to_string()).into()
-    }
+    DebugOpen::Dialog(|_| AnyWidget::default())
 }

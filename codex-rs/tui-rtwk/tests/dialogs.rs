@@ -5,12 +5,11 @@
 pub mod oracle {
     //! The oracle's snapshot text and the comparison with an rtwk screen.
     //!
-    //! codex-tui draws these views as bottom-pane panes (no frame); tui-rtwk
-    //! shows them in a `Dialog` (frame, title, its own cursor marker).
-    //! `assert_rows` therefore compares the oracle's non-blank rows, trimmed,
-    //! as an ordered subsequence of the screen's rows, and the cursor marker
-    //! `› ` of the oracle is dropped (delta N01 in the parity pack: the cursor
-    //! row is highlighted by style). Rows must otherwise match byte for byte.
+    //! codex-tui draws these views as bottom-pane panes. `assert_rows`
+    //! compares the oracle's non-blank rows, trimmed, byte for byte (the
+    //! cursor marker `› ` included), as an ordered subsequence of the
+    //! screen's rows. No visual difference is accepted: a test that stays red
+    //! shows what the view still draws differently.
 
     // Reading the oracle's `.snap` is the one IO of a test (R12 is about src).
     #![allow(clippy::disallowed_methods)]
@@ -33,20 +32,62 @@ pub mod oracle {
             .unwrap_or_default()
             .replace("\r\n", "\n")
             .lines()
-            .map(|line| line.trim_end().to_string())
+            .map(|line| squeeze_wide(unquote(line).trim_end()))
             .filter(|line| !line.trim().is_empty())
             .collect()
     }
 
+    /// A `TestBackend` snapshot writes each row as a quoted string.
+    fn unquote(line: &str) -> &str {
+        line.strip_prefix('"')
+            .and_then(|line| line.strip_suffix('"'))
+            .unwrap_or(line)
+    }
+
+    /// The oracle's snapshot writer prints the empty second cell of a wide
+    /// character as a space (`日 本 語`); the text itself has none.
+    fn squeeze_wide(line: &str) -> String {
+        let wide = |c: char| ('\u{2e80}'..='\u{ffff}').contains(&c) && c != '\u{2022}';
+        let chars: Vec<char> = line.chars().collect();
+        let mut out = String::new();
+        for (i, c) in chars.iter().enumerate() {
+            let between = *c == ' '
+                && i > 0
+                && i + 1 < chars.len()
+                && wide(chars[i - 1])
+                && wide(chars[i + 1]);
+            if !between {
+                out.push(*c);
+            }
+        }
+        out
+    }
+
     /// Every oracle row is on the screen, in order (see the module docs).
     pub fn assert_rows(screen: &str, path: &str) {
+        assert_rows_except(screen, path, &[]);
+    }
+
+    /// As `assert_rows`, for the oracle rows that are not `skip`: a row of
+    /// the surrounding chat (the composer) that the dialog does not draw.
+    pub fn assert_rows_except(screen: &str, path: &str, skip: &[&str]) {
+        let want: Vec<String> = rows(path)
+            .into_iter()
+            .filter(|row| !skip.contains(&row.trim()))
+            .collect();
+        assert_sequence(screen, path, &want);
+    }
+
+    /// Every row of `want` is on the screen, in order; `label` names where
+    /// the rows come from.
+    pub fn assert_sequence(screen: &str, label: &str, want: &[String]) {
         let lines: Vec<&str> = screen.lines().collect();
         let mut at = 0;
-        for row in rows(path) {
-            let row = row.trim().strip_prefix("› ").unwrap_or(row.trim()).trim();
+        for row in want {
+            let row = row.trim();
             let Some(found) = lines[at..].iter().position(|line| line.contains(row)) else {
                 panic!(
-                    "oracle row {row:?} ({path}) not found after line {at}; the screen:\n{screen}"
+                    "oracle row {row:?} ({label}) not found after line {at}; the screen:\n{screen}"
                 );
             };
             at += found + 1;
@@ -54,9 +95,197 @@ pub mod oracle {
     }
 }
 
-use crate::common::slot;
+use crate::common::{Harness, ms, start_sized};
+use oracle::{assert_rows, assert_rows_except};
+
+fn open(width: u16, height: u16, entry: &str) -> Harness {
+    let mut h = start_sized(true, width, height);
+    h.open_debug_row("dialogs", Some(entry));
+    h.t.pump_for(ms(800));
+    h
+}
+
+fn closed(h: &mut Harness, title: &str) {
+    h.t.pump_for(ms(800));
+    assert!(!h.t.screen().contains(title), "{}", h.t.screen());
+}
+
+const SHORTCUTS: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__chat_composer__tests__footer_mode_shortcut_overlay.snap";
+const KEYBOARD: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__shortcut_overlay__tests__shortcut_keyboard_base.snap";
+const COMPOSER_ROW: &str = "› Ask Codex to do anything";
+
+// bottom_pane/chat_composer.rs: footer_mode_shortcut_overlay (the composer row
+// is the chat's, not the overlay's).
+#[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
+fn footer_mode_shortcut_overlay() {
+    let h = open(120, 24, "shortcut_overlay");
+    assert_rows_except(&h.t.screen(), SHORTCUTS, &[COMPOSER_ROW]);
+}
+
+// shortcut_overlay_tests.rs: shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list
+#[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
+fn shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list() {
+    let mut h = open(120, 30, "shortcut_overlay");
+    assert!(
+        h.t.screen()
+            .lines()
+            .any(|row| row.contains("Paste image") && row.contains("⌃v")),
+        "{}",
+        h.t.screen()
+    );
+    h.press("tab");
+    h.t.pump_for(ms(200));
+    assert_rows(&h.t.screen(), KEYBOARD);
+    h.press("tab");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("Paste image"), "{}", h.t.screen());
+}
 
 #[test]
-fn dialogs_slot_is_registered_and_empty() {
-    slot("dialogs");
+fn shortcut_overlay_closes_on_question_mark_and_on_escape() {
+    for key in ["?", "escape"] {
+        let mut h = open(120, 24, "shortcut_overlay");
+        h.press(key);
+        closed(&mut h, "Keyboard shortcuts");
+    }
+}
+
+// bottom_pane/warnings_view_tests.rs: warning_pages_wrap_and_scroll_long_diagnostics
+// (snapshot warnings_narrow; the oracle's pane is 40 wide, the dialog 44).
+#[test]
+fn warnings_narrow() {
+    let h = open(44, 14, "warnings_long");
+    assert_rows(
+        &h.t.screen(),
+        "bottom_pane/snapshots/codex_tui__bottom_pane__warnings_view__tests__warnings_narrow.snap",
+    );
+}
+
+#[test]
+fn warning_pages_wrap_and_scroll_long_diagnostics() {
+    let mut h = open(44, 14, "warnings_long");
+    h.press("end");
+    h.t.pump_for(ms(200));
+    assert!(
+        h.t.screen().contains("END OF DIAGNOSTIC"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("right");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("Unknown setting"), "{}", h.t.screen());
+    h.press("left");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("Long diagnostic"), "{}", h.t.screen());
+}
+
+// warning_pages_copy_only_the_current_diagnostic: the pages' text and title.
+#[test]
+fn warning_pages_show_the_current_diagnostic_and_its_source() {
+    let mut h = open(100, 16, "warnings");
+    let screen = h.t.screen();
+    for row in [
+        "Warnings · 1 of 2 · MCP · example",
+        "MCP example could not connect",
+        "Sign in again using codex mcp login example",
+        "k keep & next · esc dismiss & close · ⌃o copy · ←/→ warning",
+    ] {
+        assert!(screen.contains(row), "{row}\n{screen}");
+    }
+    h.press("right");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    for row in [
+        "Warnings · 2 of 2 · Startup",
+        "Unknown setting `old_option`",
+        "Remove it from config.toml",
+    ] {
+        assert!(screen.contains(row), "{row}\n{screen}");
+    }
+}
+
+// warnings_keep_current_and_next_without_dismissing_unvisited_pages
+#[test]
+fn warnings_keep_and_next_moves_on_and_the_last_keep_closes() {
+    let mut h = open(100, 16, "warnings");
+    h.press("k");
+    h.t.pump_for(ms(200));
+    assert!(h.t.screen().contains("2 of 2"), "{}", h.t.screen());
+    h.press("k");
+    closed(&mut h, "Warnings");
+}
+
+#[test]
+fn warnings_close_on_escape_and_on_f2() {
+    for key in ["escape", "f2"] {
+        let mut h = open(100, 16, "warnings");
+        h.press(key);
+        closed(&mut h, "Warnings ·");
+    }
+}
+
+// chatwidget/tests/popups_and_settings.rs: feedback_selection_popup_snapshot
+#[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
+fn feedback_selection_popup_snapshot() {
+    let h = open(100, 24, "feedback_categories");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__feedback_selection_popup.snap",
+    );
+}
+
+#[test]
+fn a_feedback_category_leads_to_the_consent_step() {
+    let mut h = open(100, 24, "feedback_categories");
+    h.press("down");
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Include logs and session history?"),
+        "{screen}"
+    );
+    assert!(!screen.contains("How was this?"), "{screen}");
+}
+
+// bottom_pane/feedback_view.rs: feedback_upload_consent_lists_doctor_report
+// and ..._lists_windows_sandbox_log_when_included (the header), and the
+// options of feedback_consent_params.
+#[test]
+fn feedback_upload_consent_lists_doctor_report() {
+    let h = open(100, 30, "feedback_consent");
+    assert_rows(
+        &h.t.screen(),
+        "bottom_pane/snapshots/codex_tui__bottom_pane__feedback_view__tests__feedback_upload_consent_lists_doctor_report.snap",
+    );
+    let screen = h.t.screen();
+    for row in [
+        "1. Yes  Include session logs and diagnostics in the report",
+        "2. No   Keep only your note and report metadata",
+        "enter select · esc back",
+    ] {
+        assert!(screen.contains(row), "{row}\n{screen}");
+    }
+}
+
+#[test]
+fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
+    let h = open(100, 30, "feedback_consent_windows");
+    assert_rows(
+        &h.t.screen(),
+        "bottom_pane/snapshots/codex_tui__bottom_pane__feedback_view__tests__feedback_upload_consent_lists_windows_sandbox_log_when_included.snap",
+    );
+}
+
+#[test]
+fn the_consent_answer_closes_the_flow_and_escape_goes_back() {
+    let mut h = open(100, 30, "feedback_consent");
+    h.press("2");
+    closed(&mut h, "Include logs and session history?");
+    let mut h = open(100, 30, "feedback_consent");
+    h.press("escape");
+    closed(&mut h, "Include logs and session history?");
 }

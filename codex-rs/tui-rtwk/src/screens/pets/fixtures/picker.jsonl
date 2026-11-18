@@ -1,0 +1,4 @@
+# The /pets picker with no pet configured.
+# Oracle data: pets/picker.rs, chatwidget slash_pets_picker
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"pets","ev":{"kind":"picker","pets":[{"selector":"bsod","name":"BSOD"},{"selector":"codex","name":"Codex"},{"selector":"dewey","name":"Dewey"},{"selector":"fireball","name":"Fireball"},{"selector":"null-signal","name":"Null Signal"},{"selector":"rocky","name":"Rocky"},{"selector":"seedy","name":"Seedy"},{"selector":"stacky","name":"Stacky"}]}}

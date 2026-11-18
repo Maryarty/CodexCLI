@@ -270,6 +270,88 @@ fn struct_fields<'a>(text: &'a str, name: &str) -> Vec<(usize, &'a str)> {
     fields
 }
 
+/// The types core's screens export (their models, rows, menus, cards,
+/// prompts): application data a widget `State` never holds a copy of (R14;
+/// the value is read with `select` in `build`). The per-screen plumbing types
+/// are no data.
+fn screen_model_types() -> Vec<String> {
+    let plumbing = [
+        "Ev",
+        "Intent",
+        "Command",
+        "Reply",
+        "Ctx",
+        "ThreadEv",
+        "Kind",
+        "SeedError",
+    ];
+    let mut types = Vec::new();
+    for (name, text) in sources() {
+        if !name.starts_with("core/src/screens/") {
+            continue;
+        }
+        for (_, line) in code_lines(&text) {
+            let declared = line
+                .trim()
+                .trim_start_matches("pub(crate) ")
+                .trim_start_matches("pub ");
+            for keyword in ["struct ", "enum "] {
+                if let Some(rest) = declared.strip_prefix(keyword) {
+                    let name = ident(rest);
+                    if !plumbing.contains(&name.as_str()) {
+                        types.push(name);
+                    }
+                }
+            }
+        }
+    }
+    types.sort();
+    types.dedup();
+    types
+}
+
+/// Whether `line` names one of `types` as a whole word.
+fn names_type(line: &str, types: &[String]) -> bool {
+    line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|word| types.iter().any(|ty| ty == word))
+}
+
+#[test]
+fn r14_widget_state_fields_hold_no_screen_model_types() {
+    let types = screen_model_types();
+    assert!(
+        types.iter().any(|ty| ty == "Menu"),
+        "the scan sees core's screens"
+    );
+    let mut found = Vec::new();
+    for (name, text) in sources() {
+        if !(name.starts_with("src/ui/") || name.starts_with("src/screens/")) {
+            continue;
+        }
+        for state in state_struct_names(&text) {
+            for (index, line) in struct_fields(&text, &state) {
+                if names_type(line, &types) {
+                    found.push(format!("{name}:{}: {line}", index + 1));
+                }
+            }
+        }
+    }
+    assert!(found.is_empty(), "R14: {found:#?}");
+}
+
+/// The rule bites: the copied menu of the first S14 dialog (G5) is caught.
+#[test]
+fn r14_the_screen_scan_catches_a_copied_menu() {
+    let text = "pub struct MenuDialogState {\n    menu: Option<Menu>,\n    shown: bool,\n}\n\
+                impl State for MenuDialogState {}\n";
+    let types = vec!["Menu".to_string()];
+    let caught = struct_fields(text, "MenuDialogState")
+        .into_iter()
+        .filter(|(_, line)| names_type(line, &types))
+        .count();
+    assert_eq!(caught, 1);
+}
+
 #[test]
 fn r14_widget_state_fields_hold_no_model_types() {
     // `State` structs under src/ui and src/screens: no model type in a field.
