@@ -303,7 +303,8 @@ Layers: core files (model, apply, protocol mapping; no rtwk) and view files
 rtwk: widgets and refs entries (docs/rtwk-port/refs/…); gaps that apply (G…) →
       listed as deltas, not worked around.
 Carry: reuse-map rows copied (REUSE/ADAPT) with their dependency closure.
-Manner: copy <finished slice path>.
+rtwk: per mechanism the widget/controller to use (named API) and its
+      reference or gallery page; never "copy <landed screen>".
 Area: <paths>. Out of scope: <…>.
 Evidence: screen tests, oracle map, deltas, pty scenario <name> | n/a until
           scenario-harness lands.
@@ -438,7 +439,7 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 | landing a slice | the orchestrator: sanity check only (crate tree, codex-rs untouched, layer and rules tests, the porter's checks) | a red check, a layer or rules test failing, codex-rs touched |
 | each batch (one hand-out round) | `codex-reviewer`, Sonnet, over the batch diff | a defect; a missing pack item; an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
 | a batch with a risky slice: skeleton, session-core, chat-nav, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
-| the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or the manner; a rule enforced only on paper |
+| the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or from rtwk's standard means; a rule enforced only on paper |
 | the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |
 
 What does **not** block landing: visual deltas of a decided kind, deltas
@@ -576,7 +577,8 @@ and rtwk's measurement:
   slices are sized to fit (§A3) instead of chained.
 - **Lean starts.** Briefs in tm and short (§A4.1); shared rules in the
   fleet-brief and agent files, not in prompts; references (`refs/`, the
-  registry) before oracle and rtwk source; a finished slice as the manner.
+  registry) before oracle and rtwk source; rtwk's reference and gallery as
+  the model for a view, never a landed screen.
 - **No double checks.** A porter runs the crate's full check once before
   `task_done`; the candidate check runs once per candidate; the scenario
   suite and perf only at wave end. No porter waits on its own long command:

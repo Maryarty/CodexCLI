@@ -18,8 +18,10 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
 ## Start
 1. `memory_task_start` then `task_start` on your task; read the returned
    brief (`.tm/fleet-brief.md`) whole once, and the notes. The task's
-   description is your brief (goal, oracle rows, sections, area, manner,
-   evidence). Do not load tm skills.
+   description is your brief (goal, oracle rows, sections, area, the rtwk
+   widgets to use, evidence). Read process.md, the fleet brief and the rtwk
+   skill from the MAIN checkout /Users/admin/Documents/dev_projects/CodexCLI
+   (they change during the day; your worktree may hold a stale copy). Do not load tm skills.
 2. Read `docs/rtwk-port/process.md` Part 1 §2–§4 once (the concept map,
    the eight steps of translating a screen, the worked example) and work by
    its steps; read `docs/rtwk-port/architecture.md` only at the sections your
@@ -31,8 +33,15 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
    widths, truncation), find the rtwk widget or controller that owns it; the
    oracle's behaviour is the spec, its mechanics are not. A brief that names
    a mechanism rtwk owns loses to rtwk: follow rtwk, say so in the handover.
-3. A finished slice shows the manner (the brief names it): copy it, renamed
-   for yours, its parity pack included.
+3. How to build a view: rtwk's standard means only. Look the widget up in
+   the reference (the rtwk skill, its Flutter mapping and references/) and,
+   when needed, the gallery (pages under the pin's crates/rtwk-gallery/src/pages
+   and the skill's gallery Code snippets). Landed screens are NOT a model for
+   building a view (several are hand-made and being reworked); read them only
+   for wiring. "rtwk cannot" is a verdict only after you ran the widget
+   against the oracle's rows in a probe test, never from reading its source;
+   then: an rtwk-gaps row with the route tried and a pending(Gxx) test, no
+   local helper unless the person approved it.
 4. A fix round: the review's findings are the task's last review round
    (`task_start` returns them); fix them in the same worktree, answer each.
 

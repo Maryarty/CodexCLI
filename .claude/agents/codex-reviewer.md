@@ -64,7 +64,7 @@ not load tm skills.
   A re-review after a fix round reads only the fix commits and the open
   findings.
 - A wave review (Opus): the wave's diff on the integration branch for drift
-  from the architecture and the first slice's manner; the R-rule audit (each
+  from the architecture and from rtwk's standard means; the R-rule audit (each
   rule → its lint, test or type in code → present / not yet) and each
   sub-class counted "caught" in `research/state-bug-classes.md` → its test
   exists. Write the audit where the prompt says.
