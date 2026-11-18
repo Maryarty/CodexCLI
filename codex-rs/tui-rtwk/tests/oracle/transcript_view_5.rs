@@ -4,363 +4,939 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit;
+use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: transcript_view/source_cell_tests.rs (6 screen-level tests here; 1 state tests left to chat-live)
 // ORACLE transcript_view/source_cell_tests.rs:20 reasoning_copy_joins_soft_wraps_and_retains_the_existing_rendering kind=ui owner=chat-live
 #[test]
 fn reasoning_copy_joins_soft_wraps_and_retains_the_existing_rendering() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no transcript-only reasoning entry: a ReasoningSummaryCell has no script shape or debug entry, and the chat draws no 36-column transcript cell yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(36, 24).live().open();
+    // The oracle compares the painted cells with the paragraph render of the same lines;
+    // until the owner has a snapshot of that render, the literal words of the content are checked in order.
+    s.assert_in_order(&["Investigate", "resize."]);
 }
 
 // ORACLE transcript_view/source_cell_tests.rs:39 plan_copy_retains_checkboxes_but_omits_wrapping_gutters kind=ui owner=chat-live
 #[test]
 fn plan_copy_retains_checkboxes_but_omits_wrapping_gutters() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no plan-update entry: the chat has no update_plan cell and no script shape for a plan",
+    );
+    let s = Screen::build(Owner::ChatLive).size(38, 24).live().open();
+    s.assert_in_order(&[
+        "• Updated Plan",
+        "Preserve the existing",
+        "✔ Replace the terminal",
+    ]);
 }
 
 // ORACLE transcript_view/source_cell_tests.rs:118 recap_copy_preserves_hard_lines_and_reflows_only_soft_wraps kind=ui owner=chat-live
 #[test]
 fn recap_copy_preserves_hard_lines_and_reflows_only_soft_wraps() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no thread-recap entry: a ThreadRecapHistoryCell with a next action has no script shape, and the chat draws no recap yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.assert_in_order(&[
+        "The café review is paused at https://example.com/review/42.",
+        "An indented hard line.",
+        "Next: Review https://example.com/integration/report before continuing.",
+    ]);
+    let before = s.shot();
+    s.resize(32, 24);
+    s.resize(12, 24);
+    s.resize(80, 24);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/source_cell_tests.rs:187 recap_tabs_preserve_url_wrapping_and_source_across_resize kind=ui owner=chat-live
 #[test]
 fn recap_tabs_preserve_url_wrapping_and_source_across_resize() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no thread-recap entry with a leading tab and a URL: no script shape, and the chat draws no recap yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let before = s.shot();
+    s.resize(32, 24);
+    s.assert_row(0, "  ↳ Recap:      ");
+    s.assert_row(1, "           https://example.com");
+    s.resize(80, 24);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/source_cell_tests.rs:227 selected_recap_remains_visible_when_resize_cannot_fit_its_gutter kind=snap owner=chat-live snap=codex_tui__transcript_view__text__source_cell_tests__owned_recap_selected_narrow
 #[test]
 fn selected_recap_remains_visible_when_resize_cannot_fit_its_gutter() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no thread-recap entry and no drag selection over a transcript cell yet; the oracle joins the narrow frames of two recaps in one snapshot",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.drag(0, 0, 45, 0);
+    s.resize(12, 24);
+    s.assert_snap("owned_recap_selected_narrow");
 }
 
 // ORACLE transcript_view/source_cell_tests.rs:293 resize_restores_the_exact_styles_of_whitespace_omitted_by_wrapping kind=ui owner=chat-live
 #[test]
 fn resize_restores_the_exact_styles_of_whitespace_omitted_by_wrapping() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no styled-span entry (bold, red background, italic, dim and underlined spans across wrapped spaces) and no transcript cell at 24 columns yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(24, 2).live().open();
+    s.assert_row(0, "alpha  beta gamma");
+    s.assert_text_style("alpha", "bold");
+    s.assert_style(5, 0, "bg=Red");
+    s.assert_text_style("beta", "italic");
+    s.assert_text_style("gamma", "underlined");
 }
 
 // ---- oracle: transcript_view/table_copy_tests.rs (3 screen-level tests here; 4 state tests left to chat-live)
 // ORACLE transcript_view/table_copy_tests.rs:101 table_cells_keep_inline_formatting_alignment_and_literal_pipes kind=ui owner=chat-live
 #[test]
 fn table_cells_keep_inline_formatting_alignment_and_literal_pipes() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the copied markdown of a table, re-rendered as HTML, at three widths (the clipboard payload of a selection), nothing drawn",
+    );
 }
 
 // ORACLE transcript_view/table_copy_tests.rs:118 header_only_and_empty_cells_keep_their_table_positions kind=ui owner=chat-live
 #[test]
 fn header_only_and_empty_cells_keep_their_table_positions() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the copied markdown of header-only and empty table cells (the clipboard payload of a selection), nothing drawn",
+    );
 }
 
 // ORACLE transcript_view/table_copy_tests.rs:163 empty_selected_rows_keep_copy_spacing_without_newline_highlights kind=snap owner=chat-live snap=codex_tui__transcript_view__markdown_copy_tests__tables__empty_selected_rows_keep_copy_spacing_without_newline_highlights
 #[test]
 fn empty_selected_rows_keep_copy_spacing_without_newline_highlights() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no markdown table entry (an AgentMarkdownCell with a table) and no drag selection that reverses the blank rows yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(80, 20).live().open();
+    s.drag(2, 0, 79, 19);
+    s.assert_snap("empty_selected_rows_keep_copy_spacing_without_newline_highlights");
 }
 
 // ---- oracle: transcript_view/text_tabs_tests.rs (5 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/text_tabs_tests.rs:15 styled_tabs_use_row_stops_including_the_gutter kind=snap owner=chat-live snap=codex_tui__transcript_view__text__tab_tests__styled_tab_stops_and_selection
 #[test]
 fn styled_tabs_use_row_stops_including_the_gutter() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no tabbed hyperlink entry with a styled prefix and two links, and no selection of a tab cell yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(35, 4).live().open();
+    s.drag(6, 1, 7, 1);
+    s.assert_snap("styled_tab_stops_and_selection");
 }
 
 // ORACLE transcript_view/text_tabs_tests.rs:69 tab_stops_restart_after_wrapping_and_resize_preserves_source_and_links kind=ui owner=chat-live
 #[test]
 fn tab_stops_restart_after_wrapping_and_resize_preserves_source_and_links() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no tabbed hyperlink entry (a link after a tab, wrapped at ten columns) and no resize of a transcript cell yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(10, 3).live().open();
+    let before = s.shot();
+    s.resize(40, 3);
+    s.resize(10, 3);
+    s.assert_same_rows(&before);
+    s.assert_link("X", "https://example.com/x");
 }
 
 // ORACLE transcript_view/text_tabs_tests.rs:102 leading_and_repeated_tabs_remain_selectable_below_one_tab_stop kind=ui owner=chat-live
 #[test]
 fn leading_and_repeated_tabs_remain_selectable_below_one_tab_stop() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with leading and repeated tabs before a wide grapheme, and no drag selection over tab cells yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(7, 4).live().open();
+    for width in 1u16..8 {
+        s.resize(width, 4);
+        s.assert_contains("X");
+        s.drag(0, 0, width - 1, 0);
+        for column in 0..width {
+            s.assert_style(usize::from(column), 0, "reversed");
+        }
+    }
 }
 
 // ORACLE transcript_view/text_tabs_tests.rs:131 ordinary_spaces_before_tabs_affect_the_stop_without_entering_the_gutter kind=ui owner=chat-live
 #[test]
 fn ordinary_spaces_before_tabs_affect_the_stop_without_entering_the_gutter() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with ordinary spaces before tabs in a 32-column row: no script shape yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(32, 4).live().open();
+    // The oracle's row 0 is the first row of the cell; the chat's transcript row may sit lower.
+    s.assert_text_at(8, 0, "X");
+    s.assert_text_at(24, 0, "Y");
 }
 
 // ORACLE transcript_view/text_tabs_tests.rs:150 hard_wrapped_tabs_keep_source_characters_and_actual_row_stops kind=snap owner=chat-live snap=codex_tui__transcript_view__text__tab_tests__hard_wrapped_tabs
 #[test]
 fn hard_wrapped_tabs_keep_source_characters_and_actual_row_stops() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no hard-wrap entry (a tabbed line at four columns, hard wrapped) and no transcript cell at that width yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(4, 4).live().open();
+    s.assert_snap("hard_wrapped_tabs");
 }
 
 // ---- oracle: transcript_view/text_tests.rs (11 screen-level tests here; 7 state tests left to chat-live)
 // ORACLE transcript_view/text_tests.rs:18 copying_wrapped_text_preserves_only_hard_newlines kind=ui owner=chat-live
 #[test]
 fn copying_wrapped_text_preserves_only_hard_newlines() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the selected copy text of a streamed code block at nine columns (the clipboard payload), nothing drawn",
+    );
 }
 
 // ORACLE transcript_view/text_tests.rs:65 scrolled_plaintext_selection_matches_painted_tab_and_word_boundaries kind=ui owner=chat-live
 #[test]
 fn scrolled_plaintext_selection_matches_painted_tab_and_word_boundaries() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no three-row entry (a hidden row, a tabbed row and a long sentence) and no one-row scroll of a transcript cell yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(15, 3).live().open();
+    s.wheel_down(0, 0, 1);
+    s.assert_text_at(8, 0, "B");
+    s.assert_text_at(0, 2, "w");
 }
 
 // ORACLE transcript_view/text_tests.rs:105 visible_rows_preserve_styles_and_wrapped_hyperlinks kind=ui owner=chat-live
 #[test]
 fn visible_rows_preserve_styles_and_wrapped_hyperlinks() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with a cyan hyperlinked word after plain text, and no one-row scroll that starts on the wrapped link",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(8, 2).live().open();
+    s.wheel_down(0, 0, 1);
+    s.assert_text_style("document", "fg=Cyan");
+    s.assert_link("document", "https://example.com/docs");
 }
 
 // ORACLE transcript_view/text_tests.rs:123 selection_highlights_wide_graphemes_without_trailing_padding kind=ui owner=chat-live
 #[test]
 fn selection_highlights_wide_graphemes_without_trailing_padding() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with a wide grapheme between plain letters, and no drag selection over it yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(8, 1).live().open();
+    s.drag(1, 0, 2, 0);
+    for column in [1usize, 2] {
+        s.assert_style(column, 0, "reversed");
+    }
+    for column in [0usize, 3, 4, 5, 6, 7] {
+        s.assert_style(column, 0, "plain");
+    }
 }
 
 // ORACLE transcript_view/text_tests.rs:140 selected_newlines_respect_wrapping_and_synthetic_rows kind=ui owner=chat-live
 #[test]
 fn selected_newlines_respect_wrapping_and_synthetic_rows() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with a disclosure control and a leading separator, and no selection that reverses the synthetic newline cell yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(10, 10).live().open();
+    s.drag(2, 1, 5, 2);
+    // The oracle's width-8 case: the newline cell after "alpha beta" is reversed at (6, 5).
+    s.assert_style(6, 5, "reversed");
 }
 
 // ORACLE transcript_view/text_tests.rs:171 offsets_can_reach_rows_after_u16_limit kind=ui owner=chat-live
 #[test]
 fn offsets_can_reach_rows_after_u16_limit() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry of 65,538 rows and no scroll past the u16 limit: the kit's wheel notch count is a u16 and no seed of that size exists",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(1, 1).live().open();
+    s.wheel_down(0, 0, u16::MAX);
+    s.wheel_down(0, 0, 2);
+    s.assert_text_at(0, 0, "x");
 }
 
 // ORACLE transcript_view/text_tests.rs:190 aligned_text_excludes_synthetic_leading_columns kind=snap owner=chat-live snap=wide
 #[test]
 fn aligned_text_excludes_synthetic_leading_columns() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no right-aligned hyperlinked entry ('wide') at eight columns: no script shape and no transcript cell yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(8, 1).live().open();
+    s.assert_snap("wide");
+    s.assert_link("wide", "https://example.com");
 }
 
 // ORACLE transcript_view/text_tests.rs:234 selected_revision_rewraps_both_directions_with_styles_and_indents kind=ui owner=chat-live
 #[test]
 fn selected_revision_rewraps_both_directions_with_styles_and_indents() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no adaptive-wrapped entry with a link and indents, and no drag selection of a revised entry: the chat has neither yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(10, 3).live().open();
+    let before = s.shot();
+    s.resize(24, 3);
+    s.assert_contains("alpha beta gamma");
+    s.assert_link("beta gamma", "https://example.com");
+    s.resize(10, 3);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/text_tests.rs:284 narrow_wrapping_keeps_joined_emoji_whole kind=ui owner=chat-live
 #[test]
 fn narrow_wrapping_keeps_joined_emoji_whole() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry with a joined emoji and a letter at two columns: no script shape yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(2, 2).live().open();
+    s.assert_text_at(0, 0, "👩‍💻");
 }
 
 // ORACLE transcript_view/text_tests.rs:302 fullscreen_markdown_keeps_a_fitting_url_on_one_row kind=snap owner=chat-live
 #[test]
 fn fullscreen_markdown_keeps_a_fitting_url_on_one_row() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no markdown answer entry with a URL at 44 columns, and no fullscreen transcript cell yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(44, 2).live().open();
+    s.assert_row(0, "• See the documentation at");
+    s.assert_row(1, "  https://example.com/docs/reference.");
 }
 
 // ORACLE transcript_view/text_tests.rs:356 command_and_output_copy_preserve_hard_lines_across_resize kind=snap owner=chat-live snap=compact_command_copy snap=detailed_command_copy
 #[test]
 fn command_and_output_copy_preserve_hard_lines_across_resize() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no exec-command entry (a printf command with two output lines) and no detailed-transcript toggle (ctrl+t) in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(32, 8).live().open();
+    s.resize(24, 8);
+    s.assert_snap("compact_command_copy");
+    s.keys("ctrl+t");
+    s.assert_snap("detailed_command_copy");
 }
 
 // ---- oracle: transcript_view_tests.rs (34 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE transcript_view_tests.rs:77 consecutive_user_prompts_share_one_background_block kind=snap owner=chat-live snap=consecutive_user_prompts_share_one_background_block
 #[test]
 fn consecutive_user_prompts_share_one_background_block() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat draws user prompts without the shared background block of consecutive prompts yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(32, 12)
+        .script(include_str!("fixtures/transcript_view_5/prompts.jsonl"))
+        .open();
+    s.assert_snap("consecutive_user_prompts_share_one_background_block");
 }
 
 // ORACLE transcript_view_tests.rs:115 prompt_adjacency_uses_cached_retained_presentations kind=ui owner=chat-live
 #[test]
 fn prompt_adjacency_uses_cached_retained_presentations() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts how often a test cell's layout is built (a render counter of the layout cache), not a drawn row",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:186 page_keys_follow_pager_scroll_bindings kind=snap owner=chat-live snap=page_keys_follow_pager_scroll_bindings
 #[test]
 fn page_keys_follow_pager_scroll_bindings() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no pager keymap in the chat: the oracle's frames run under the default, half-page, single-row and unbound bindings, which the kit cannot set in config",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 8)
+        .script(include_str!("fixtures/transcript_view_5/rows30.jsonl"))
+        .open();
+    let pre_scroll = s.shot();
+    s.keys("pageup");
+    s.assert_snap("page_keys_follow_pager_scroll_bindings");
+    s.keys("pagedown");
+    s.assert_same_rows(&pre_scroll);
 }
 
 // ORACLE transcript_view_tests.rs:257 terminal_output_disclosure_follows_live_history_and_keymap kind=ui owner=chat-live
 #[test]
 fn terminal_output_disclosure_follows_live_history_and_keymap() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no exec-command entry with eight output lines and no ctrl+t output disclosure hint in the chat yet; the open_transcript keymap cannot be set from the kit",
+    );
+    let s = Screen::build(Owner::ChatLive).size(72, 6).live().open();
+    s.assert_contains("+ 5 lines (⌃t to expand)");
 }
 
 // ORACLE transcript_view_tests.rs:336 terminal_output_disclosure_counts_only_revealable_lines kind=snap owner=chat-live snap=terminal_output_disclosure_counts_only_revealable_lines
 #[test]
 fn terminal_output_disclosure_counts_only_revealable_lines() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no exec-command entries (three, four, a clipped line, a command alone, 530,000 streamed lines): the oracle's five frames are joined in one snapshot and the chat has no output disclosure yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(64, 6).live().open();
+    s.assert_snap("terminal_output_disclosure_counts_only_revealable_lines");
 }
 
 // ORACLE transcript_view_tests.rs:394 startup_warning_keeps_first_visible_header_in_place kind=ui owner=chat-live
 #[test]
 fn startup_warning_keeps_first_visible_header_in_place() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no startup-warning entry (a skill manifest notice) and no session header kept in the live tail: no script shape yet",
+    );
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let before = s.shot();
+    // The warning arrives below the header and the header is then inserted above it: no script shape yet.
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view_tests.rs:425 hidden_initial_entries_do_not_add_a_separator_but_visible_entries_do kind=snap owner=chat-live
 #[test]
 fn hidden_initial_entries_do_not_add_a_separator_but_visible_entries_do() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no seed of hidden empty entries between visible ones with a live row 'Live': the oracle's empty cells have no script shape",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 5).live().open();
+    s.assert_row(0, "First");
+    s.assert_row(1, "");
+    s.assert_row(2, "Second");
+    s.assert_row(3, "");
+    s.assert_row(4, "Live");
+    let frame = s.shot();
+    s.wheel_up(0, 0, 100);
+    s.assert_same_rows(&frame);
 }
 
 // ORACLE transcript_view_tests.rs:447 reading_survives_prepend_and_new_output_then_returns_to_latest kind=snap owner=chat-live
 #[test]
 fn reading_survives_prepend_and_new_output_then_returns_to_latest() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no older page loaded from history and no new output arriving while the reader is up: no script shape, and the chat has no reading position yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 3).live().open();
+    s.wheel_up(0, 0, 2);
+    let before = s.shot();
+    // The older entry is loaded and new output arrives: no script shape yet.
+    s.assert_same_rows(&before);
+    s.keys("ctrl+end");
+    s.assert_row(0, "last line");
+    s.assert_row(1, "");
+    s.assert_row(2, "new output");
 }
 
 // ORACLE transcript_view_tests.rs:495 beginning_wait_keeps_live_content_through_new_output_prepend_and_resize kind=ui owner=chat-live
 #[test]
 fn beginning_wait_keeps_live_content_through_new_output_prepend_and_resize() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no history beginning wait (ctrl+home) and no streamed live tail in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+    s.keys("ctrl+home");
+    let before = s.shot();
+    // The older page arrives and the live tail streams new output: no script shape yet.
+    s.assert_same_rows(&before);
+    s.resize(12, 3);
+    s.resize(20, 2);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view_tests.rs:532 transcript_interaction_cancels_pending_beginning_without_losing_received_history kind=ui owner=chat-live
 #[test]
 fn transcript_interaction_cancels_pending_beginning_without_losing_received_history() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no history-loading state in the chat: a pending beginning wait is not built, so the wheel, page-up, F3 and ctrl+space interactions have nothing to cancel",
+    );
+    for interaction in ["wheel", "pageup", "f3", "ctrl+space"] {
+        let mut s = Screen::build(Owner::ChatLive).size(24, 3).live().open();
+        s.keys("ctrl+home");
+        match interaction {
+            "wheel" => {
+                s.wheel_up(0, 0, 1);
+            }
+            other => {
+                s.keys(other);
+            }
+        }
+        let before = s.shot();
+        // The older page is received after the interaction: no script shape yet.
+        s.assert_same_rows(&before);
+    }
 }
 
 // ORACLE transcript_view_tests.rs:578 returning_to_latest_cancels_beginning_intent_while_retaining_the_loaded_page kind=snap owner=chat-live
 #[test]
 fn returning_to_latest_cancels_beginning_intent_while_retaining_the_loaded_page() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no history-loading state and no beginning or latest keys (ctrl+home, alt+<, alt+shift+<, alt+shift+,) in the chat yet",
+    );
+    for (beginning, latest) in [
+        ("ctrl+home", "ctrl+end"),
+        ("alt+<", "alt+>"),
+        ("alt+shift+<", "alt+shift+>"),
+        ("alt+shift+,", "alt+shift+."),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+        s.keys(beginning);
+        s.keys(latest);
+        // The older page arrives: no script shape yet.
+        s.assert_row(0, "newest answer");
+        s.assert_row(1, "last line");
+        s.keys(beginning);
+    }
 }
 
 // ORACLE transcript_view_tests.rs:629 transcript_jumps_leave_typing_and_effort_shortcuts_to_the_composer kind=ui owner=chat-live
 #[test]
 fn transcript_jumps_leave_typing_and_effort_shortcuts_to_the_composer() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts that the transcript does not take the jump and typing keys (the handle_key result) and that its position stays latest, no row drawn",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:654 scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page_arrives kind=ui owner=chat-live
 #[test]
 fn scrolling_to_latest_cancels_beginning_and_keeps_selection_when_the_final_page_arrives() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no history-loading state and no triple-click selection in the chat; the final older page arrives from no script yet",
+    );
+    for wheel in [false, true] {
+        for select in [false, true] {
+            let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+            s.keys("ctrl+home");
+            if select {
+                s.click(0, 0);
+                s.click(0, 0);
+                s.click(0, 0);
+            }
+            if wheel {
+                s.wheel_down(0, 0, 1);
+            } else {
+                s.keys("pagedown");
+            }
+            // The final older page arrives and replaces the second entry: no script shape yet.
+            s.assert_contains("latest answer");
+        }
+    }
 }
 
 // ORACLE transcript_view_tests.rs:708 single_row_scrolling_crosses_an_entry_separator_in_both_directions kind=ui owner=chat-live
 #[test]
 fn single_row_scrolling_crosses_an_entry_separator_in_both_directions() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no two-entry transcript ('first', 'second') at one row, and no wheel scroll that crosses the separator yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 1).live().open();
+    s.wheel_up(0, 0, 1);
+    s.assert_row(0, "");
+    s.wheel_up(0, 0, 1);
+    s.assert_row(0, "first");
+    s.wheel_down(0, 0, 1);
+    s.assert_row(0, "");
+    s.wheel_down(0, 0, 1);
+    s.assert_row(0, "second");
 }
 
 // ORACLE transcript_view_tests.rs:723 selecting_within_an_edge_row_does_not_start_selection_autoscroll kind=snap owner=chat-live snap=horizontal_selection_at_edge_0
 #[test]
 fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no drag selection with edge autoscroll in the chat; the forty-row entry has no script shape until the selection exists",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 6)
+        .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+        .open();
+    s.wheel_up(0, 0, 12);
+    let before = s.shot();
+    s.mouse_down(0, 0);
+    s.wait(500);
+    s.assert_same_rows(&before);
+    s.mouse_drag(3, 0);
+    s.assert_same_rows(&before);
+    s.assert_snap("horizontal_selection_at_edge_0");
 }
 
 // ORACLE transcript_view_tests.rs:811 wheel_scrolling_pauses_selection_autoscroll_until_the_next_drag kind=snap owner=chat-live snap=wheel_stops_selection_autoscroll
 #[test]
 fn wheel_scrolling_pauses_selection_autoscroll_until_the_next_drag() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no drag selection with edge autoscroll and no wheel pause in the chat; the oracle joins the frames of both wheel directions in one snapshot",
+    );
+    for up in [true, false] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(20, 6)
+            .script(include_str!("fixtures/transcript_view_5/rows40.jsonl"))
+            .open();
+        s.wheel_up(0, 0, 12);
+        s.mouse_down(0, 2);
+        if up {
+            s.wheel_up(3, 0, 1);
+            s.mouse_drag(3, 0);
+        } else {
+            s.wheel_down(3, 5, 1);
+            s.mouse_drag(3, 5);
+        }
+        s.wait(500);
+        s.assert_snap("wheel_stops_selection_autoscroll");
+    }
 }
 
 // ORACLE transcript_view_tests.rs:879 only_visible_history_is_laid_out_and_repeated_frames_reuse_it kind=ui owner=chat-live
 #[test]
 fn only_visible_history_is_laid_out_and_repeated_frames_reuse_it() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts how many history entries are laid out (a render counter over ten thousand test cells), not a drawn row",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:906 selection_copies_source_across_wraps_and_survives_prepend kind=ui owner=chat-live
 #[test]
 fn selection_copies_source_across_wraps_and_survives_prepend() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the selected copy text across wraps and a prepend (the clipboard payload), nothing drawn",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:925 resize_keeps_the_logical_reading_anchor kind=ui owner=chat-live
 #[test]
 fn resize_keeps_the_logical_reading_anchor() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry replacement and no new output arriving while reading, and no reading anchor kept across a resize in the chat",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(10, 2).live().open();
+    s.wheel_up(0, 0, 2);
+    s.resize(20, 2);
+    // The entry is replaced by "final answer" and new output arrives: no script shape yet.
+    s.assert_row(0, "final answer");
+    s.assert_row(1, "");
+    s.assert_contains("New activity");
 }
 
 // ORACLE transcript_view_tests.rs:954 zero_sized_viewport_is_safe_and_empty_history_accepts_navigation kind=ui owner=chat-live
 #[test]
 fn zero_sized_viewport_is_safe_and_empty_history_accepts_navigation() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts that a zero-sized viewport and empty history take navigation without a panic and select nothing, no row drawn",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:987 mutable_history_formats_once_per_frame_and_refreshes_the_next_frame kind=snap owner=chat-live
 #[test]
 fn mutable_history_formats_once_per_frame_and_refreshes_the_next_frame() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no mutable transcript cell (its text changes between frames) and no transcript search (begin, paste, advance) in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(24, 5).live().open();
+    s.assert_row(0, "version 2 row 3");
+    s.assert_row(1, "version 2 row 4");
+    s.assert_row(2, "version 2 row 5");
+    s.assert_row(3, "version 2 row 6");
+    s.assert_row(4, "version 2 row 7");
+    // The transcript search of "version 2", then ctrl+n: the chat has no search yet.
+    s.keys("ctrl+f");
+    s.type_text("version 2");
+    s.keys("enter");
+    s.keys("ctrl+n");
+    s.assert_contains("version 3");
 }
 
 // ORACLE transcript_view_tests.rs:1037 selected_latest_content_keeps_new_activity_visible kind=snap owner=chat-live
 #[test]
 fn selected_latest_content_keeps_new_activity_visible() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no selection of the last entry and no status line with the navigation hint ('New activity · Enter/Ctrl+C copy · Esc clear selection') in the chat",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(24, 3).live().open();
+    s.click(0, 0);
+    s.click(0, 0);
+    s.click(0, 0);
+    s.wheel_down(0, 0, 10);
+    // New output arrives while the selection is held: no script shape yet.
+    s.assert_contains("New activity · Enter/Ctrl+C copy · Esc clear selection");
 }
 
 // ORACLE transcript_view_tests.rs:1050 live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest kind=snap owner=chat-live
 #[test]
 fn live_reader_survives_commit_new_tail_resize_and_selection_then_rejoins_latest() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no live tail that commits into history and streams a new tail, and no selection of live rows in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+    s.wheel_up(0, 0, 2);
+    let before = s.shot();
+    // The live tail commits to history and a new tail streams: no script shape yet.
+    s.assert_same_rows(&before);
+    s.resize(9, 2);
+    s.assert_contains("New activity");
+    s.click(0, 0);
+    s.click(0, 0);
+    s.click(0, 0);
+    s.resize(20, 2);
+    s.keys("esc");
+    s.assert_same_rows(&before);
+    s.keys("ctrl+end");
+    s.assert_row(0, "");
+    s.assert_row(1, "new tail");
 }
 
 // ORACLE transcript_view_tests.rs:1109 scrolling_out_of_held_live_content_releases_its_revision kind=ui owner=chat-live
 #[test]
 fn scrolling_out_of_held_live_content_releases_its_revision() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no live tail held while the reader is up, and no commit of the live rows into history in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(20, 2).live().open();
+    s.wheel_up(0, 0, 2);
+    // The live tail is committed to history: no script shape yet.
+    s.wheel_up(0, 0, 100);
+    s.wheel_down(0, 0, 100);
+    s.assert_contains("five");
 }
 
 // ORACLE transcript_view_tests.rs:1134 repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw kind=ui owner=chat-live
 #[test]
 fn repeated_resize_preserves_plain_and_markdown_passages_before_the_next_draw() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no plain or markdown passage entry (forty joined café words) and no reading position kept across repeated resizes in the chat",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(18, 3).live().open();
+    s.wheel_up(0, 0, 5);
+    let before = s.shot();
+    s.resize(34, 3);
+    s.assert_contains("café");
+    s.resize(12, 3);
+    s.assert_contains("café");
+    s.resize(18, 3);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view_tests.rs:1175 resizing_repeated_lines_keeps_the_same_occurrence kind=snap owner=chat-live
 #[test]
 fn resizing_repeated_lines_keeps_the_same_occurrence() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no entry of repeated lines and no replaced older group in the chat yet; the oracle's wide and narrow rows are inline snapshots",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(12, 2).live().open();
+    s.wheel_down(0, 0, 3);
+    s.resize(24, 2);
+    s.assert_row(0, "alpha beta gamma delta");
+    s.assert_row(1, "second occurrence ends");
+    s.resize(12, 2);
+    s.assert_row(0, "gamma delta");
+    s.assert_row(1, "second");
 }
 
 // ORACLE transcript_view_tests.rs:1208 resize_uses_the_passage_from_the_current_live_or_replaced_entry kind=ui owner=chat-live
 #[test]
 fn resize_uses_the_passage_from_the_current_live_or_replaced_entry() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no live tail revision and no replaced entry in the chat yet; the passage is the oracle's forty joined words",
+    );
+    for _kind in ["live", "replaced"] {
+        let mut s = Screen::build(Owner::ChatLive).size(18, 3).live().open();
+        s.wheel_up(0, 0, 5);
+        // The passage is revised as the live tail or as the replaced entry: no script shape yet.
+        let current = s.shot();
+        let first_word = s
+            .rows()
+            .first()
+            .and_then(|row| row.split_whitespace().next())
+            .unwrap_or("")
+            .to_string();
+        s.resize(34, 3);
+        s.assert_contains(&first_word);
+        s.resize(18, 3);
+        s.assert_same_rows(&current);
+    }
 }
 
 // ORACLE transcript_view_tests.rs:1268 history_prefetch_counts_rows_in_preceding_entries kind=ui owner=chat-live
 #[test]
 fn history_prefetch_counts_rows_in_preceding_entries() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the near-start flag of the history prefetch (near_start), not a drawn row",
+    );
 }
 
 // ORACLE transcript_view_tests.rs:1289 user_prompt_has_a_background_without_a_terminal_palette kind=snap owner=chat-live snap=user_prompt_has_a_background_without_a_terminal_palette
 #[test]
 fn user_prompt_has_a_background_without_a_terminal_palette() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat draws user prompts without a background block when the terminal has no palette yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(32, 8)
+        .script(include_str!("fixtures/transcript_view_5/one_prompt.jsonl"))
+        .open();
+    s.assert_snap("user_prompt_has_a_background_without_a_terminal_palette");
 }
 
 // ORACLE transcript_view_tests.rs:1315 spoken_prompt_selection_keeps_its_fallback_contrast kind=ui owner=chat-live
 #[test]
 fn spoken_prompt_selection_keeps_its_fallback_contrast() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no spoken prompt entry ('one' then 'next') and no drag selection over a prompt's rows with the fallback palette in the chat",
+    );
+    for detailed in [false, true] {
+        let mut s = Screen::build(Owner::ChatLive).size(20, 5).live().open();
+        if detailed {
+            s.keys("ctrl+t");
+        }
+        let rows = s.rows();
+        let first = rows
+            .iter()
+            .position(|row| row.contains("› one"))
+            .unwrap_or(0);
+        let second = rows
+            .iter()
+            .position(|row| row.contains("next"))
+            .unwrap_or(0);
+        let first16 = u16::try_from(first).unwrap_or(0);
+        let second16 = u16::try_from(second).unwrap_or(0);
+        s.drag(2, first16, 2, second16);
+        s.assert_style(0, first, "fg=Red");
+        s.assert_style(5, first, "fg=Rgb(238,238,238) bg=Rgb(68,68,68) reversed");
+    }
 }
 
 // ORACLE transcript_view_tests.rs:1391 tool_disclosure_hides_output kind=snap owner=chat-live
 #[test]
 fn tool_disclosure_hides_output() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no image-generation call entry and no F4 tool disclosure in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(40, 8).live().open();
+    s.assert_row(0, "▸ Image generation failed");
+    s.keys("f4 enter");
+    s.assert_row(0, "▾ Image generation failed");
+    s.assert_row(1, "  Image generation failed");
 }
 
 // ORACLE transcript_view_tests.rs:1425 tool_groups_expand_independently_inside_a_completed_turn kind=snap owner=chat-live
 #[test]
 fn tool_groups_expand_independently_inside_a_completed_turn() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no completed-turn entry (a prompt, a commentary message, two command groups, a web search and a final answer) and no per-group disclosure, search or selection in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(52, 22).live().open();
+    s.assert_row(0, "› Check why the service writes a diagnostic to");
+    s.assert_row(1, "  stderr each time it starts.");
+    s.assert_row(4, "▸ 3 previous messages");
+    s.assert_row(6, "• The path is valid.");
+    s.assert_row(8, "• The fixture is missing.");
+    s.resize(25, 3);
+    s.keys("f4 enter");
+    s.assert_contains("▾ 3 previous messages");
+    s.resize(52, 22);
+    s.assert_contains("Checking stderr.");
+    s.assert_contains("▸ Ran 2 commands");
+    s.assert_absent("Ran echo hello");
+    s.keys("down enter");
+    s.assert_contains("▾ Ran 2 commands");
+    s.assert_contains("Ran echo hello");
+    s.assert_contains("Ran echo world");
+    s.assert_absent("output sentinel");
+    s.keys("ctrl+f");
+    s.type_text("fixture is missing");
+    s.keys("enter");
+    s.click(0, 4);
+    s.assert_absent("Checking stderr.");
+    s.assert_absent("Ran 2 commands");
+    s.assert_contains("The fixture is missing.");
+    s.keys("esc");
+    s.keys("ctrl+t");
+    s.assert_contains("output sentinel");
 }
 
 // ORACLE transcript_view_tests.rs:1533 legacy_progress_stays_visible_until_a_final_answer kind=snap owner=chat-live
 #[test]
 fn legacy_progress_stays_visible_until_a_final_answer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no legacy progress entry (web search calls and an intermediate message) and no final-message separator or turn disclosure in the chat yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(52, 22).live().open();
+    s.assert_row(0, "› Check the fixture");
+    s.assert_row(3, "• Intermediate progress");
+    s.assert_row(5, "• Searched the web for fixture");
+    // A second search completes and the turn is grouped: no script shape yet.
+    s.assert_contains("⌕ 2 tool calls · Searched the web for docs");
+    s.keys("f4 enter");
+    s.assert_in_order(&["Searched the web for fixture", "Searched the web for docs"]);
+    s.assert_contains("▸ Worked for 2s");
+    s.assert_absent("Intermediate progress");
 }
 
 // ORACLE transcript_view_tests.rs:1626 live_search_group_keeps_its_summary_in_the_parked_pane kind=snap owner=chat-live
 #[test]
 fn live_search_group_keeps_its_summary_in_the_parked_pane() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no live exec command with two searches (rg -l TODO, then FIXME, in src) and no disclosure of a live tool group in the parked pane yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(40, 8).live().open();
+    s.assert_row(0, "⌕ Searching for TODO in src");
+    // The second search joins the group: no script shape yet.
+    s.assert_row(0, "⌕ 2 tool calls · Searching for FIXME");
+    s.click(4, 0);
+    s.assert_row(0, "▾ 2 tool calls · Searching for FIXME");
+    s.assert_row(1, "  Searching for TODO in src");
+    s.assert_row(2, "  Searching for FIXME in src");
 }

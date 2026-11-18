@@ -1,0 +1,2 @@
+# turn-2 completes with "Next reply".
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-2", "rootTurnId": null, "items": [{"type": "agentMessage", "moderation": null, "id": "turn-2-message", "text": "Next reply", "phase": "final_answer", "memoryCitation": null, "delivery": null, "questions": null}], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": 0}}}}

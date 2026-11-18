@@ -1,0 +1,3 @@
+# A thread named "Current project title".
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "thread/name/updated", "params": {"threadId": "thread-1", "threadName": "Current project title"}}}

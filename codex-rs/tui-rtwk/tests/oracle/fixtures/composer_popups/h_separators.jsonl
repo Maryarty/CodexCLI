@@ -1,0 +1,3 @@
+# Separators: history_search_paste_shows_separators (paste_tests.rs), the entries it records.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","git log","foobarbaz","foo↵bar⇥baz"]}}

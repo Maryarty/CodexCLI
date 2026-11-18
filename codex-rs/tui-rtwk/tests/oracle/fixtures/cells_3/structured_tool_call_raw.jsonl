@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs:495 structured_tool_cell_renders_raw_plain_text_without_prefix_or_style
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"call-raw","server":"search","tool":"find_docs","status":"completed","arguments":{"query":"raw mode"},"appContext":null,"mcpAppUi":null,"pluginId":null,"readOnlyHint":null,"result":{"content":[{"type":"text","text":"alpha\nbeta"}],"structuredContent":null,"_meta":null,"isError":false},"error":null,"durationMs":1},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

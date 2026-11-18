@@ -4,399 +4,930 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit;
+use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:2210 slash_copy_picker_remains_available_from_parent_owned_threads kind=ui owner=chat-nav-pane
 #[test]
 fn slash_copy_picker_remains_available_from_parent_owned_threads() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /copy picker (Whole response) is not built, and no seed sets a parent-owned thread with a transcript copy source",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/cop");
+    s.keys("tab");
+    s.assert_absent("Whole response");
+    s.keys("enter");
+    s.assert_contains("Whole response");
+    s.keys("1");
+    // The oracle also asserts that copying submits no agent turn (no core op): not drawn.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2383 slash_copy_reports_when_no_agent_response_exists kind=snap owner=chat-nav-pane snap=slash_copy_no_output_info_message
 #[test]
 fn slash_copy_reports_when_no_agent_response_exists() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /copy command and its no-output info cell are not built; the transcript-mode seed (Terminal) is not reachable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/copy");
+    s.keys("enter");
+    s.assert_snap("slash_copy_no_output_info_message");
+    s.assert_contains("No agent response to copy");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2400 slash_export_opens_destination_picker kind=snap owner=chat-nav-pane snap=slash_export_completion_message snap=slash_export_destination_picker snap=slash_export_filename_prompt
 #[test]
 fn slash_export_opens_destination_picker() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /export destination picker, the filename prompt and the export completion messages are not built; a thread id and a running turn cannot be seeded",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/export");
+    s.keys("tab");
+    s.keys("enter");
+    s.assert_snap("slash_export_destination_picker");
+    s.resize(100, 24);
+    s.assert_snap("slash_export_filename_prompt");
+    s.assert_snap("slash_export_completion_message");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2434 copy_action_reports_when_no_agent_response_exists kind=ui owner=chat-nav-pane
 #[test]
 fn copy_action_reports_when_no_agent_response_exists() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the copy key action (ctrl+o) and its no-output info cell are not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("ctrl+o");
+    s.assert_contains("No agent response to copy");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2450 keymap_capture_can_capture_current_copy_shortcut kind=ui owner=chat-nav-pane
 #[test]
 fn keymap_capture_can_capture_current_copy_shortcut() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the keymap capture view (opened from the keymap editor) is not built, so the copy key cannot be routed to capture black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/keymap");
+    s.keys("enter");
+    s.keys("ctrl+o");
+    // The oracle asserts the KeymapCaptured event (composer/submit, ctrl-o): not drawn.
+    s.assert_absent("No agent response to copy");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2483 slash_keymap_capture_can_capture_app_shortcuts kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_capture_can_capture_app_shortcuts() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the KeymapCaptured events (context, action, key, intent) that a capture sends for ctrl-t, ctrl-l and ctrl-g, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2515 slash_keymap_debug_opens_keypress_inspector kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_debug_opens_keypress_inspector() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /keymap debug keypress inspector is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/keymap debug");
+    s.keys("enter");
+    s.assert_contains("Keypress Inspector");
+    s.assert_contains("Waiting for a keypress");
+    s.keys("f4");
+    s.resize(100, 24);
+    s.assert_contains("global.focus_activity");
+    // The oracle asserts no transcript message and no core op: not checked here beyond the inspector rows.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2534 slash_keymap_debug_can_inspect_app_shortcuts kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_debug_can_inspect_app_shortcuts() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /keymap debug keypress inspector is not built; its action rows for the app shortcuts are not drawn",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(100, 24)
+        .live()
+        .open();
+    s.type_text("/keymap debug");
+    s.keys("enter");
+    s.keys("ctrl+t");
+    s.assert_contains("global.open_transcript (Open Transcript)");
+    s.keys("ctrl+l");
+    s.assert_contains("global.clear_terminal (Clear Terminal)");
+    s.keys("ctrl+g");
+    s.assert_contains("global.open_external_editor (Open External Editor)");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2561 slash_keymap_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_invalid_args_show_usage() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /keymap command's usage message is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/keymap nope");
+    s.keys("enter");
+    s.assert_contains("Usage: /keymap [debug]");
+    // The oracle then recalls "/keymap nope" into the composer after clearing it: the composer row is checked when the recall exists.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2581 copy_shortcut_can_be_remapped kind=ui owner=chat-nav-pane
 #[test]
 fn copy_shortcut_can_be_remapped() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the keymap seed (global.copy remapped to alt+v) is not registered: the port reads no key bindings from a config yet",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .keymap(&[("global.copy", "alt+v")])
+        .open();
+    s.keys("ctrl+o");
+    s.assert_absent("No agent response to copy");
+    s.keys("alt+v");
+    s.assert_contains("No agent response to copy");
+    // The oracle's paste-key half (ctrl+v, alt+v as PasteImage) is an action return, not drawn.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2653 legacy_image_paste_ignores_buffered_press_until_other_input kind=ui owner=chat-nav-pane
 #[test]
 fn legacy_image_paste_ignores_buffered_press_until_other_input() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the KeyEventAction returned for buffered paste key presses (PasteImage or None) and the suppress_image_paste_until timing, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2688 copy_shortcut_submits_markdown_and_reports_completion_once kind=snap owner=chat-nav-pane
 #[test]
 fn copy_shortcut_submits_markdown_and_reports_completion_once() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the copy action with a pending clipboard status (pending_copy), its confirmed completion and the unconfirmed notice are not built; the agent markdown seed is not reachable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("ctrl+o");
+    s.assert_snap("pending_copy");
+    s.assert_contains("Copied last message to clipboard");
+    s.assert_snap("unconfirmed_copy");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2816 queued_menu_slash_keeps_agent_turn_complete_notification kind=ui owner=chat-nav-pane
 #[test]
 fn queued_menu_slash_keeps_agent_turn_complete_notification() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a running turn (queued /model during a turn) cannot be seeded black-box; the /model Select Model popup is the visible half",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/model");
+    s.keys("tab");
+    s.assert_contains("Select Model");
+    // The oracle asserts the pending AgentTurnComplete notification and no core op: not drawn.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2833 slash_stop_submits_background_terminal_cleanup kind=ui owner=chat-nav-pane
 #[test]
 fn slash_stop_submits_background_terminal_cleanup() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "/stop is mapped to voice control in the port (core/src/commands/dispatch.rs), not background-terminal cleanup; the cleanup confirmation cell is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/stop");
+    s.keys("enter");
+    s.assert_contains("Stopping all background terminals.");
+    // The oracle asserts the CleanBackgroundTerminals op: not drawn.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2858 slash_new_with_name_requests_named_session kind=ui owner=chat-nav-pane
 #[test]
 fn slash_new_with_name_requests_named_session() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and NewSession{name} events sent for \"/new   Add User  \", nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2876 slash_clear_with_name_requests_named_session kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_with_name_requests_named_session() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and ClearUi{name} events sent for \"/clear   Add User  \", nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2894 slash_clear_after_ctrl_c_keeps_stashed_draft_recallable kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the stashed-draft history recall after ctrl+c and /clear needs a thread with a history entry (set_history_metadata seed), not reachable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("ok");
+    s.keys("enter");
+    s.type_text("explain why history recall lost this draft");
+    s.keys("ctrl+c");
+    s.type_text("/clear");
+    s.keys("enter");
+    s.keys("up");
+    s.assert_contains("explain why history recall lost this draft");
+    s.keys("up");
+    s.assert_contains("ok");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2926 slash_clear_is_disabled_while_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_is_disabled_while_task_running() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a running task (set_task_running) cannot be seeded black-box; the disabled /clear error cell is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/clear");
+    s.keys("enter");
+    s.assert_contains("'/clear' is disabled while a task is in progress.");
+    // The oracle asserts exactly one InsertHistoryCell and no follow-up event: the single cell is the drawn line.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2947 slash_archive_cancellation_keeps_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_archive_cancellation_keeps_task_running() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a running task seed and the archive confirmation popup are not reachable black-box; the popup text is the oracle's slash_archive_running_confirmation_popup",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/archive");
+    s.keys("enter");
+    s.keys("enter");
+    // The oracle asserts the popup is dismissed and the task still running, with no ArchiveCurrentThread
+    // or core op: the dismissed popup and the running status row are drawn, their text is not yet
+    // written here because the popup text is only in the snapshot of the next test.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2963 slash_memory_maintenance_reports_stubbed_feature kind=ui owner=chat-nav-pane
 #[test]
 fn slash_memory_maintenance_reports_stubbed_feature() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /debug-m-drop and /debug-m-update stub messages are not built",
+    );
+    for command in ["/debug-m-drop", "/debug-m-update"] {
+        let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+        s.type_text(command);
+        s.keys("enter");
+        s.assert_contains("Memory maintenance: Not available in TUI yet.");
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3041 slash_mcp_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_mcp_invalid_args_show_usage() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /mcp command's usage message is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/mcp full");
+    s.keys("enter");
+    s.assert_contains("Usage: /mcp [verbose | login <name>]");
+    // The oracle then recalls "/mcp full" into the composer: the composer row is checked when the recall exists.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3061 slash_memories_opens_memory_menu kind=ui owner=chat-nav-pane
 #[test]
 fn slash_memories_opens_memory_menu() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the memory menu (Use memories) is not built, and the MemoryTool feature seed is not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/memories");
+    s.keys("enter");
+    s.assert_contains("Use memories");
+    // The oracle asserts no event and no core op: not drawn.
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3095 slash_archive_confirmation_requests_current_thread_archive kind=snap owner=chat-nav-pane snap=slash_archive_confirmation_popup snap=slash_archive_running_confirmation_popup
 #[test]
 fn slash_archive_confirmation_requests_current_thread_archive() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /archive confirmation popup is not built; the running variant needs a running task seed (set_task_running), not reachable black-box",
+    );
+    // Not running: the idle popup, then down and enter confirms the archive.
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/archive");
+    s.keys("enter");
+    s.assert_snap("slash_archive_confirmation_popup");
+    s.keys("down");
+    s.keys("enter");
+    // Running: the same popup with the running text, from a running task seed.
+    let mut r = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    r.type_text("/archive");
+    r.keys("enter");
+    r.assert_snap("slash_archive_running_confirmation_popup");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3121 slash_delete_confirmation_requests_current_thread_delete kind=snap owner=chat-nav-pane snap=slash_delete_confirmation_command_center
 #[test]
 fn slash_delete_confirmation_requests_current_thread_delete() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /delete confirmation popup (command center) is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/delete");
+    s.keys("enter");
+    s.assert_snap("slash_delete_confirmation_command_center");
+    s.keys("down");
+    s.keys("enter");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3134 slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and ResumeSessionByIdOrName(\"my-saved-thread\") events and no core op, nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3155 slash_pets_opens_picker kind=snap owner=chat-nav-pane snap=slash_pets_picker
 #[test]
 fn slash_pets_opens_picker() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the pets picker needs pet image support (force_pet_image_support) seeded; no seed registers it, the pets screen is not reachable from a live chat black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/pets");
+    s.keys("enter");
+    s.assert_snap("slash_pets_picker");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3170 slash_pets_with_arg_selects_named_pet kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_with_arg_selects_named_pet() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and PetSelected{pet_id: chefito} events and no core op, nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3188 slash_pet_disable_aliases_work_on_unsupported_terminal kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pet_disable_aliases_work_on_unsupported_terminal() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and PetDisabled events and no core op for \"/pets disable\" and \"/pet hide\", nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3205 slash_pets_in_tmux_shows_notice_and_preserves_draft kind=snap owner=chat-nav-pane snap=slash_pets_unavailable_tmux_40
 #[test]
 fn slash_pets_in_tmux_shows_notice_and_preserves_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the tmux pets notice popup and the unsupported-terminal seed (force_tmux_pet_image_unsupported) are not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(40, 24).live().open();
+    s.type_text("Keep this draft");
+    // The oracle dispatches /pets while the draft stays in the composer; a black-box way to run
+    // the command with a draft kept is not in the kit yet (kit gap: no command dispatch seed).
+    s.assert_snap("slash_pets_unavailable_tmux_40");
+    s.assert_contains("Pets are unavailable in this tmux pane.");
+    s.assert_contains("outside tmux");
+    s.keys("esc");
+    s.assert_contains("Keep this draft");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3234 slash_pets_with_arg_on_unsupported_terminal_shows_notice_without_selection kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_with_arg_on_unsupported_terminal_shows_notice_without_selection() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the tmux pets notice popup and the unsupported-terminal seed (force_tmux_pet_image_unsupported) are not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/pets chefito");
+    s.keys("enter");
+    s.assert_contains("Pets are unavailable in this tmux pane.");
+    s.keys("enter");
+    // The oracle asserts the popup is dismissed by Enter and no selection event or core op: the dismissal is drawn below.
+    s.assert_absent("Pets are unavailable in this tmux pane.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3265 slash_pets_on_unsupported_terminal_shows_terminal_warning kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_on_unsupported_terminal_shows_terminal_warning() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the unsupported-terminal pets warning and its seed (force_terminal_pet_image_unsupported) are not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/pets");
+    s.keys("enter");
+    s.assert_contains("Pets aren’t available in this terminal.");
+    s.assert_contains("Kitty graphics or Sixel support");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3288 slash_pets_on_old_iterm2_shows_upgrade_warning kind=ui owner=chat-nav-pane
 #[test]
 fn slash_pets_on_old_iterm2_shows_upgrade_warning() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the old-iTerm2 pets warning and its seed (force_old_iterm2_pet_image_unsupported) are not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/pets");
+    s.keys("enter");
+    s.assert_contains("Pets require iTerm2 3.6 or newer.");
+    s.assert_contains("Upgrade iTerm2 to use terminal pets.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3319 slash_fork_with_name_requests_named_fork kind=ui owner=chat-nav-pane
 #[test]
 fn slash_fork_with_name_requests_named_fork() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the FollowTranscript and ForkCurrentSession{name: Add User} events, nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3353 slash_app_without_thread_id_shows_starting_error kind=snap owner=chat-nav-pane snap=slash_app_without_thread_id_shows_starting_error
 #[test]
 fn slash_app_without_thread_id_shows_starting_error() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /app command and its starting-error cell are not built; a live chat with no thread id is not seeded",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/app");
+    s.keys("enter");
+    s.assert_snap("slash_app_without_thread_id_shows_starting_error");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3367 slash_pwd_and_cwd_alias_display_current_working_directory_from_composer kind=snap owner=chat-nav-pane
 #[test]
 fn slash_pwd_and_cwd_alias_display_current_working_directory_from_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /pwd and /cwd info cells are not built; the side-conversation and running-task seeds are not reachable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/pwd");
+    s.keys("enter");
+    s.assert_contains("Current working directory: /tmp/project");
+    let mut side = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    side.type_text("/cwd");
+    side.keys("enter");
+    side.assert_contains("Current working directory: /tmp/project");
+    let mut usage = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    usage.type_text("/pwd x");
+    usage.keys("enter");
+    usage.assert_contains("Usage: /pwd");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3388 slash_cd_changes_current_session_after_replay_and_defaults_to_home kind=ui owner=chat-nav-pane
 #[test]
 fn slash_cd_changes_current_session_after_replay_and_defaults_to_home() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the ChangeWorkingDirectory{requested_cwd: /tmp, then ~} events and no core op after a replayed turn, nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3434 slash_cd_rejects_pending_input_and_unsupported_session_ownership kind=snap owner=chat-nav-pane
 #[test]
 fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /cd rejection messages need the session states new, queued input (seed not registered); the states are not reachable black-box",
+    );
+    // State \"new\": no session yet.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(200, 24)
+        .live()
+        .open();
+    s.type_text("/cd /tmp");
+    s.keys("enter");
+    s.assert_contains("The session must start before you can change its working directory.");
+    // State \"queued\": a queued input is pending.
+    let mut q = Screen::build(Owner::ChatNavPane)
+        .size(200, 24)
+        .live()
+        .open();
+    q.type_text("/cd /tmp");
+    q.keys("enter");
+    q.assert_contains(
+        "Changing directories requires an idle primary session without queued input.",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3474 slash_rollout_displays_current_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_displays_current_path() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the rollout path seed (current_rollout_path = /tmp/codex-test-rollout.jsonl) is not registered; the /rollout info cell is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/rollout");
+    s.keys("enter");
+    s.assert_contains("/tmp/codex-test-rollout.jsonl");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3491 slash_rollout_handles_missing_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_handles_missing_path() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the /rollout info cell for a missing rollout path is not built",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/rollout");
+    s.keys("enter");
+    s.assert_contains("not available");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3592 user_turn_carries_service_tier_after_fast_toggle kind=ui owner=chat-nav-pane
 #[test]
 fn user_turn_carries_service_tier_after_fast_toggle() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the Op::UserTurn service_tier sent to the core after the fast toggle, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3617 user_turn_preserves_flex_without_catalog_support kind=ui owner=chat-nav-pane
 #[test]
 fn user_turn_preserves_flex_without_catalog_support() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts current_service_tier and the Op::UserTurn service_tier (flex) sent to the core, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3650 model_switch_recomputes_catalog_default_service_tier kind=ui owner=chat-nav-pane
 #[test]
 fn model_switch_recomputes_catalog_default_service_tier() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts current_service_tier after set_model and the Op::UserTurn service_tier sent to the core, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3733 user_turn_sends_standard_override_after_fast_is_turned_off kind=ui owner=chat-nav-pane
 #[test]
 fn user_turn_sends_standard_override_after_fast_is_turned_off() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the OverrideTurnContext and PersistServiceTierSelection events and the Op::UserTurn service_tier sent to the core, not drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3811 raw_slash_command_reports_usage_for_invalid_arg kind=ui owner=chat-nav-pane
 #[test]
 fn raw_slash_command_reports_usage_for_invalid_arg() {
-    kit::todo();
+    kit::pending(Owner::ChatNavPane, "the /raw usage message is not built");
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("/raw status");
+    s.keys("enter");
+    s.assert_contains("Usage: /raw [on|off]");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3830 compact_queues_user_messages_snapshot kind=snap owner=chat-nav-pane snap=compact_queues_user_messages_snapshot
 #[test]
 fn compact_queues_user_messages_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a compact turn that refuses a steer (ActiveTurnNotSteerable) and the queued-message rows cannot be seeded black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 18).live().open();
+    s.type_text("Steer submitted while /compact was running.");
+    s.keys("enter");
+    s.assert_snap("compact_queues_user_messages_snapshot");
 }
 
-// ORACLE chatwidget/tests/slash_commands.rs:3863 transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts kind=snap owner=chat-nav-pane
+// ORACLE chatwidget/tests/slash_commands.rs:3863 transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts kind=snap owner=chat-nav-pane snap=transcript_copy_success snap=transcript_copy_unconfirmed snap=transcript_copy_failure
 #[test]
 fn transcript_copy_feedback_stays_in_the_footer_without_history_or_interrupts() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the transcript copy feedback in the footer (success, unconfirmed, failure) is not built; the copy results cannot be seeded black-box",
+    );
+    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.assert_snap("transcript_copy_success");
+    s.assert_snap("transcript_copy_unconfirmed");
+    s.assert_snap("transcript_copy_failure");
 }
 
 // ---- oracle: chatwidget/tests/sparkle_submission_tests.rs (1 screen-level tests here; 0 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/sparkle_submission_tests.rs:11 ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering kind=ui owner=chat-nav-pane
 #[test]
 fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the sparkle (braille glyph) animation of a fresh task on gpt-6-astra with starfield is not seeded; the kit has no any-of-glyphs assertion for the sparkle set",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("describe");
+    s.keys("enter");
+    // The oracle asserts the sparkle glyphs (⠁⠂⠄⠈⠐⠠⡀⢀) are drawn before the submit and gone after it:
+    // an any-of-set check the kit does not offer yet (kit gap, see the report).
 }
 
 // ---- oracle: chatwidget/tests/startup_submission_tests.rs (9 screen-level tests here; 2 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/startup_submission_tests.rs:6 host_switch_snapshot_preserves_buffered_typing kind=ui owner=chat-nav-pane
 #[test]
 fn host_switch_snapshot_preserves_buffered_typing() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a host switch with buffered typing (paste-burst disabled) needs a startup host seed; not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("draft x");
+    s.assert_contains("draft x");
+    let mut several = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    several.type_text("draft several keys");
+    several.assert_contains("draft several keys");
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:22 initial_prompt_recall_precedes_cross_session_history kind=snap owner=chat-nav-pane snap=initial_prompt_recalled_composer
 #[test]
 fn initial_prompt_recall_precedes_cross_session_history() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "an initial prompt (CURRENT_A) and its follow-up submission with a history seed (log 7) are not registered; the recall and the shared-history lookup are not reachable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("up");
+    s.assert_contains("CURRENT_B");
+    s.keys("up");
+    s.assert_contains("CURRENT_A");
+    s.assert_snap("initial_prompt_recalled_composer");
+    s.keys("up");
+    s.assert_contains("FOREIGN_X");
+    let mut single = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    single.keys("up");
+    single.assert_contains("CURRENT_A");
+    single.keys("up");
+    single.assert_contains("FOREIGN_X");
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:105 initial_prompt_image_preparation_preserves_recall_metadata kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_image_preparation_preserves_recall_metadata() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "an initial prompt with an image file (a 1x1 PNG in a temp dir) is not seedable: the kit has no file seed",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("up");
+    s.assert_contains("describe [Image #1]");
+    let mut leading = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    leading.keys("up");
+    leading.assert_contains("[Image #1] describe");
+    // The oracle asserts the recalled text, elements and local image attachment, and the UserTurn items: the attachment is visible as the placeholder only.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:204 initial_prompt_queued_before_session_is_recalled_once_after_dispatch kind=ui owner=chat-nav-pane
 #[test]
 fn initial_prompt_queued_before_session_is_recalled_once_after_dispatch() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "an initial prompt queued before the session starts (CURRENT_A) is not seedable; the queued-message pane is not registered",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("up");
+    s.assert_contains("CURRENT_A");
+    s.keys("up");
+    // The oracle then asserts a shared-history lookup at offset 0 (an event, not drawn).
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:231 rejected_initial_prompt_is_not_recorded_in_recall_history kind=ui owner=chat-nav-pane
 #[test]
 fn rejected_initial_prompt_is_not_recorded_in_recall_history() {
-    kit::todo();
+    kit::na(
+        Owner::ChatNavPane,
+        "asserts the LookupMessageHistoryEntry event after a closed submission channel rejects the initial prompt, and no submit op, nothing drawn",
+    );
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:252 startup_submission_waits_for_session_and_sends_exactly_once kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_waits_for_session_and_sends_exactly_once() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a startup submission waiting for a session (confirmed draft from a source screen) is not seedable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("confirmed before startup");
+    s.assert_contains("confirmed before startup");
+    s.keys("enter enter enter");
+    s.keys("ctrl+b");
+    s.keys("alt+f");
+    // The oracle then asserts the single UserTurn with that text and an empty composer after it:
+    // the sent turn is drawn in the transcript, the op is not drawn.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:288 startup_submission_escape_restores_editing_without_submitting kind=snap owner=chat-nav-pane
 #[test]
 fn startup_submission_escape_restores_editing_without_submitting() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup draft (keep the draft, cursor 4) and the rejected-startup Disconnected restricted input are not seedable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("keep the draft");
+    s.keys("esc");
+    s.assert_contains("keep the draft");
+    let mut rejected = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    rejected.keys("esc");
+    rejected.assert_contains("  ⌃c quit");
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:321 startup_submission_waits_for_protected_view_and_preserves_paste_provenance kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_waits_for_protected_view_and_preserves_paste_provenance() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a startup submission held behind an open approvals popup (open_approvals_popup) with a multi-line paste is not seedable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.paste("!echo hi\n# visible tail");
+    s.assert_contains("!echo hi");
+    s.assert_contains("# visible tail");
+    s.keys("esc");
+    s.keys("enter");
+    // The oracle's other payloads (leading spaces; 1000 x's) and its RunUserShellCommand / UserTurn ops are not drawn here.
 }
 
 // ORACLE chatwidget/tests/startup_submission_tests.rs:367 startup_submission_edit_or_disconnect_cancels_without_losing_draft kind=ui owner=chat-nav-pane
 #[test]
 fn startup_submission_edit_or_disconnect_cancels_without_losing_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "a confirmed startup draft that an edit, a disconnect or a parent-owned thread cancels is not seedable black-box",
+    );
+    let mut edit = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    edit.type_text("confirmed draft");
+    edit.paste(" edited");
+    edit.assert_contains("confirmed draft edited");
+    let mut kept = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    kept.type_text("confirmed draft");
+    kept.assert_contains("confirmed draft");
 }
 
 // ---- oracle: startup_draft_layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-nav-pane)
 // ORACLE startup_draft_layout_tests.rs:6 owned_startup_keeps_the_live_bottom_geometry kind=snap owner=chat-nav-pane snap=owned_startup_layout
 #[test]
 fn owned_startup_keeps_the_live_bottom_geometry() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup-owned layout (OwnedStartupLayout, status line and footer hint override) is not a screen the kit can seed",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
+    s.type_text("first line\nsecond line");
+    s.assert_snap("owned_startup_layout");
 }
 
 // ORACLE startup_draft_layout_tests.rs:37 new_startup_decoration_tracks_draft_and_session_action kind=ui owner=chat-nav-pane
 #[test]
 fn new_startup_decoration_tracks_draft_and_session_action() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup blossom decoration per draft and session action is not seedable black-box; the kit has no any-braille-glyph assertion (kit gap)",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 32).live().open();
+    s.type_text(" ");
+    // The oracle asserts the blossom glyphs (U+2801..U+28FF) are drawn for states [T, F, T, F, F, F, T].
 }
 
 // ORACLE startup_draft_layout_tests.rs:72 configured_welcome_opt_out_disables_blossom_and_clicks kind=ui owner=chat-nav-pane
 #[test]
 fn configured_welcome_opt_out_disables_blossom_and_clicks() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the welcome opt-out settings (config.toml animations / welcome) are not seedable by the kit; the blossom glyph check is a kit gap",
+    );
+    let _screen = Screen::build(Owner::ChatNavPane).size(80, 44).live().open();
+    // The oracle asserts the blossom glyphs per settings and effective config, and the blossom click handling:
+    // no kit seed writes config.toml, and no kit assertion checks an any-braille-glyph set (kit gap).
 }
 
 // ---- oracle: startup_draft_tests.rs (6 screen-level tests here; 14 state tests left to chat-nav-pane)
 // ORACLE startup_draft_tests.rs:69 startup_draft_renders_full_empty_and_multiline_composer_frames kind=snap owner=chat-nav-pane snap=empty snap=startup_draft_full_frames
 #[test]
 fn startup_draft_renders_full_empty_and_multiline_composer_frames() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the pre-session startup draft (session actions New, Resume, Fork; a 18-column narrow frame) is not seedable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
+    s.assert_snap_section("startup_draft_full_frames", "empty (48 columns)");
+    s.assert_snap_section("startup_draft_full_frames", "configured (48 columns)");
+    s.assert_snap_section("startup_draft_full_frames", "resuming (48 columns)");
+    s.assert_snap_section("startup_draft_full_frames", "forking (48 columns)");
+    s.assert_snap_section("startup_draft_full_frames", "multiline (48 columns)");
+    s.resize(18, 24);
+    s.assert_snap_section("startup_draft_full_frames", "narrow (18 columns)");
 }
 
 // ORACLE startup_draft_tests.rs:148 terminal_app_ssh_fallback_renders_inline_startup kind=snap owner=chat-nav-pane snap=terminal_app_ssh_startup
 #[test]
 fn terminal_app_ssh_fallback_renders_inline_startup() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the terminal-app-over-ssh inline startup (alt screen off) is not seedable black-box",
+    );
+    let s = Screen::build(Owner::ChatNavPane).size(48, 16).live().open();
+    s.assert_snap("terminal_app_ssh_startup");
 }
 
 // ORACLE startup_draft_tests.rs:205 startup_draft_clears_loading_status_when_starting_fresh kind=snap owner=chat-nav-pane snap=startup_draft_fresh_session_transitions
 #[test]
 fn startup_draft_clears_loading_status_when_starting_fresh() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup draft's loading status and its fresh-session transitions (resume and fork lookups, picker cancellation) are not seedable black-box",
+    );
+    let s = Screen::build(Owner::ChatNavPane).size(48, 24).live().open();
+    s.assert_snap_section(
+        "startup_draft_fresh_session_transitions",
+        "resume lookup fallback",
+    );
+    s.assert_snap_section(
+        "startup_draft_fresh_session_transitions",
+        "fork lookup fallback",
+    );
+    s.assert_snap_section(
+        "startup_draft_fresh_session_transitions",
+        "resume picker cancellation",
+    );
+    s.assert_snap_section(
+        "startup_draft_fresh_session_transitions",
+        "fork picker cancellation",
+    );
 }
 
 // ORACLE startup_draft_tests.rs:294 startup_draft_hydrates_its_header_without_moving_the_composer kind=ui owner=chat-nav-pane
 #[test]
 fn startup_draft_hydrates_its_header_without_moving_the_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup header's directory line (loading, then the configured cwd) is not seedable black-box",
+    );
+    let s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.assert_contains("directory: loading");
+    // The oracle then asserts the directory line equals the configured cwd, and that the composer height did not move: the cwd is not known to the kit.
 }
 
 // ORACLE startup_draft_tests.rs:690 startup_draft_applies_super_editor_keymap_without_inserting_pending_newline kind=snap owner=chat-nav-pane snap=startup_draft_safe_chord_guide
 #[test]
 fn startup_draft_applies_super_editor_keymap_without_inserting_pending_newline() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup draft with a super-z editor keymap and the F12 chord guide need the keymap seed (not registered) and the startup draft",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.type_text("draft");
+    s.type_text("x");
+    s.keys("super+z");
+    s.keys("f12");
+    s.wait(1000);
+    s.assert_snap("startup_draft_safe_chord_guide");
+    s.keys("e");
+    s.keys("enter");
 }
 
 // ORACLE startup_draft_tests.rs:770 startup_draft_waits_for_onboarding_before_accepting_input kind=snap owner=chat-nav-pane snap=startup_draft_onboarding_transition
 #[test]
 fn startup_draft_waits_for_onboarding_before_accepting_input() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatNavPane,
+        "the startup draft held behind onboarding (first login, search override, existing history) is not seedable black-box",
+    );
+    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("x");
+    s.paste("not a draft");
+    s.assert_snap("startup_draft_onboarding_transition");
 }

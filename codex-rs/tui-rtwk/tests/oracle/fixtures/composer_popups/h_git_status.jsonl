@@ -1,0 +1,3 @@
+# One entry for the no-match test (history_search.rs no_match_restores_preview).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["git status"]}}

@@ -1,0 +1,4 @@
+# oracle exec_cell/render.rs:1157.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "commandExecution", "id": "call-id", "command": "powershell.exe -Command Get-Content C:\\skills\\demo\\SKILL.md", "cwd": "/workspace", "processId": null, "source": "agent", "status": "inProgress", "commandActions": [{"type": "read", "command": "Get-Content C:\\skills\\demo\\SKILL.md", "name": "SKILL.md", "path": "C:\\skills\\demo\\SKILL.md"}], "aggregatedOutput": null, "exitCode": null, "durationMs": null}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

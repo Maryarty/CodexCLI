@@ -1,0 +1,4 @@
+# oracle diff_render.rs:1688.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "fileChange", "id": "p1", "changes": [{"path": "a.txt", "kind": {"type": "update", "movePath": null}, "diff": "--- original\n+++ modified\n@@ -1 +1 @@\n-one\n+one changed\n"}, {"path": "b.txt", "kind": {"type": "add"}, "diff": "new\n"}], "status": "completed"}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

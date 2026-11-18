@@ -1,0 +1,4 @@
+# oracle diff_render.rs:2699 (theme defaults).
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "fileChange", "id": "p1", "changes": [{"path": "demo.rs", "kind": {"type": "update", "movePath": null}, "diff": "--- original\n+++ modified\n@@ -1,3 +1,4 @@\n fn demo() {\n-    let s = \"hello\";\n+    let s = \"hello\n+world\";\n }\n"}], "status": "completed"}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

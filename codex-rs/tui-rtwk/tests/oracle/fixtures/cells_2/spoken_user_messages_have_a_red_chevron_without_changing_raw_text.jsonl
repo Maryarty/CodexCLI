@@ -1,0 +1,4 @@
+# Oracle data of codex-tui history_cell/messages_tests.rs:196 (the spoken flag has no wire field: the text alone is seeded) (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"userMessage","id":"user-1","clientId":null,"content":[{"type":"text","text":"  hello from voice","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

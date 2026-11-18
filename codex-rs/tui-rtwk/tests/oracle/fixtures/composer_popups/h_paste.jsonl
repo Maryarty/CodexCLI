@@ -1,0 +1,3 @@
+# Two git entries, oldest first: history_search_paste_tests.rs (composer_with_history).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","git log"]}}

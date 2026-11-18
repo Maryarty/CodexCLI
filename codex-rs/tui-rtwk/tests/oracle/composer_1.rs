@@ -4,305 +4,694 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit;
+use crate::kit::{self, Owner, Screen};
+
+const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has no sub-agent view, so the composer never draws its `Viewing sub-agent — direct input is disabled` placeholder";
+const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
+const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
+const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
+const NO_SHELL: &str = "shell mode is not built: a leading `!` does not switch the composer to shell mode, so the `Shell mode` footer label and the shell prompt are not drawn";
+const NO_PASTE: &str = "large paste folding is not built: a paste over 1000 chars does not show as the `[Pasted Content N chars]` placeholder in the composer";
+const NO_SKILLS: &str = "no seed for skill mentions: the chat screen has no skill catalog (set_skill_mentions), so no `$` skill popup, no bound skill mentions and no skill rows are drawn";
+const NO_PLUGINS: &str = "no seed for plugin mentions: the chat screen has no plugin catalog (set_plugin_mentions with mentions v2), so no `@` plugin popup and no plugin accent are drawn";
+const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
+const NO_LAYOUT: &str = "the composer footer collapse by width, the collaboration-mode indicator (Plan), the context-window percent and a running task with a queued draft are not built";
+
+/// Types `text`, then moves the cursor left `back` chars (the oracle's `set_cursor`).
+fn type_then_back(s: &mut Screen, text: &str, back: usize) {
+    s.type_text(text);
+    if back > 0 {
+        s.keys(&vec!["left"; back].join(" "));
+    }
+}
 
 // ---- oracle: bottom_pane/chat_composer.rs (50 screen-level tests here; 22 state tests left to chat-live)
 // ORACLE bottom_pane/chat_composer.rs:5087 parent_owned_thread_placeholder_snapshot kind=snap owner=chat-live snap=parent_owned_thread_placeholder
 #[test]
 fn parent_owned_thread_placeholder_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PARENT);
+    // The oracle draws the bare composer at 100 x 9 with a parent-owned thread set.
+    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.assert_snap("parent_owned_thread_placeholder");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5096 light_terminal_palette_renders_light_composer_snapshot kind=snap owner=chat-live snap=light_terminal_palette_composer
 #[test]
 fn light_terminal_palette_renders_light_composer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the kit sets no terminal default colours (fg 555753, bg ffffff), and the composer's light-palette background (244,244,244) is not built",
+    );
+    let s = Screen::build(Owner::ChatLive).size(48, 6).live().open();
+    s.assert_style(0, 1, "bg=Rgb(244,244,244)");
+    s.assert_snap("light_terminal_palette_composer");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5119 footer_hint_row_is_separated_from_composer kind=ui owner=chat-live
 #[test]
 fn footer_hint_row_is_separated_from_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the composer footer is not built: the `? for shortcuts` hint row on the bottom line, with a blank spacing row above it, is not drawn",
+    );
+    let s = Screen::build(Owner::ChatLive).size(40, 6).live().open();
+    s.assert_row_starts_with(5, "  ? for shortcuts");
+    s.assert_row(4, "");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5173 footer_flash_overrides_footer_hint_override kind=ui owner=chat-live
 #[test]
 fn footer_flash_overrides_footer_hint_override() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FLASH);
+    // The oracle's bottom row shows `FLASH` and not the hint override `K label`.
+    let s = Screen::build(Owner::ChatLive).size(60, 6).live().open();
+    s.assert_contains("FLASH");
+    s.assert_absent("K label");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5211 footer_flash_expires_and_falls_back_to_hint_override kind=ui owner=chat-live
 #[test]
 fn footer_flash_expires_and_falls_back_to_hint_override() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FLASH);
+    // The flash has expired: the bottom row shows the hint override `K label`, not `FLASH`.
+    let s = Screen::build(Owner::ChatLive).size(60, 6).live().open();
+    s.assert_contains("K label");
+    s.assert_absent("FLASH");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5294 footer_mode_snapshots kind=snap owner=chat-live snap=footer_mode_ctrl_c_quit snap=footer_mode_ctrl_c_then_esc_hint snap=footer_mode_esc_hint_backtrack snap=footer_mode_esc_hint_from_overlay snap=footer_mode_hidden_while_typing snap=footer_mode_history_search snap=footer_mode_history_search_unavailable snap=footer_mode_overlay_then_external_esc_hint snap=footer_mode_shell_command_absorbs_bang snap=footer_mode_shell_command_escape_exits_empty_mode snap=footer_mode_shortcut_overlay snap=footer_mode_shortcut_overlay_queue_submissions
 #[test]
 fn footer_mode_snapshots() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FOOTER);
+    // Each oracle snapshot is the bare composer; the setups without a key (an esc hint, a quit
+    // hint, queue submissions, a status line, a history result) have no path yet.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 21).live().open();
+    s.keys("?");
+    s.assert_snap("footer_mode_shortcut_overlay");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 21).live().open();
+    s.keys("?");
+    s.assert_snap("footer_mode_shortcut_overlay_queue_submissions");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("ctrl+c");
+    s.assert_snap("footer_mode_ctrl_c_quit");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("ctrl+c esc");
+    s.assert_snap("footer_mode_ctrl_c_then_esc_hint");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("? esc");
+    s.assert_snap("footer_mode_esc_hint_from_overlay");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("esc");
+    s.assert_snap("footer_mode_esc_hint_backtrack");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("?");
+    s.assert_snap("footer_mode_overlay_then_external_esc_hint");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("h");
+    s.assert_snap("footer_mode_hidden_while_typing");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("cargo test").keys("enter");
+    s.keys("ctrl+r");
+    s.type_text("c");
+    s.assert_snap("footer_mode_history_search");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("draft");
+    s.keys("ctrl+r");
+    s.type_text("git");
+    s.assert_snap("footer_mode_history_search_unavailable");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("!git status");
+    s.assert_snap("footer_mode_shell_command_absorbs_bang");
+
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("!").keys("esc");
+    s.assert_snap("footer_mode_shell_command_escape_exits_empty_mode");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5457 shell_command_uses_shell_accent_style kind=ui owner=chat-live
 #[test]
 fn shell_command_uses_shell_accent_style() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SHELL);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("!git status");
+    s.assert_style(0, 1, "fg=LightRed");
+    s.assert_text_at(0, 1, "!");
+    s.assert_text_style("Shell mode", "fg=LightRed");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5544 plugin_at_mentions_render_with_plugin_accent_snapshot kind=snap owner=chat-live snap=plugin_at_mentions_render_with_plugin_accent
 #[test]
 fn plugin_at_mentions_render_with_plugin_accent_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // The oracle's snapshot is two lines: `text:    › @sample plugin` and `magenta:   ^^^^^^^`
+    // (the seven cells of `@sample` are magenta); the kit compares the row and the style.
+    let s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
+    s.assert_row(1, "› @sample plugin");
+    s.assert_text_style("@sample", "fg=Magenta");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5595 recalled_plugin_at_mentions_keep_plugin_accent_style kind=ui owner=chat-live
 #[test]
 fn recalled_plugin_at_mentions_keep_plugin_accent_style() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // The oracle binds the `@sample` plugin mention (a picker's binding; typed text has none),
+    // submits it, clears the draft and recalls it with Up.
+    let mut s = Screen::build(Owner::ChatLive).size(40, 5).live().open();
+    s.type_text("@sample plugin").keys("enter");
+    s.keys("up");
+    s.assert_text_style("@sample", "fg=Magenta");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5631 status_line_hyperlink_marks_pr_number_cells kind=ui owner=chat-live
 #[test]
 fn status_line_hyperlink_marks_pr_number_cells() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for a status line with a PR number item linked to its pull request: the composer's status line is not built",
+    );
+    let s = Screen::build(Owner::ChatLive).size(40, 6).live().open();
+    s.assert_link("PR #20252", "https://github.com/openai/codex/pull/20252");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5668 deleting_prefix_keeps_bang_literal_on_submission kind=ui owner=chat-live
 #[test]
 fn deleting_prefix_keeps_bang_literal_on_submission() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SHELL);
+    // The oracle deletes the leading `Y` of `Yes! I agree.`, so the `!` is no shell prefix;
+    // the draft is submitted (Enter) or queued (Tab while a turn runs) as `! I agree.!`.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("Yes! I agree.")
+        .keys("home delete delete delete");
+    s.assert_has_row("› ! I agree.");
+    s.keys("end");
+    s.type_text("!");
+    s.keys("enter");
+    s.assert_contains("! I agree.!");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5708 deleting_prefix_keeps_bang_editable_snapshot kind=snap owner=chat-live snap=deleting_prefix_keeps_bang_literal
 #[test]
 fn deleting_prefix_keeps_bang_editable_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SHELL);
+    let mut s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
+    s.paste("Yes! I agree.").keys("home delete delete delete");
+    s.assert_snap("deleting_prefix_keeps_bang_literal");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5733 esc_exits_empty_shell_mode kind=ui owner=chat-live
 #[test]
 fn esc_exits_empty_shell_mode() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SHELL);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("!");
+    s.assert_text_at(0, 1, "!");
+    s.assert_contains("Shell mode");
+    s.keys("esc");
+    s.assert_absent("Shell mode");
+    s.assert_contains("Ask Codex to do anything");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5762 esc_keeps_shell_mode_when_paste_burst_flushes_pending_text kind=ui owner=chat-live
 #[test]
 fn esc_keeps_shell_mode_when_paste_burst_flushes_pending_text() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SHELL);
+    // `g` right after `!` is held as a paste burst; Esc flushes it and keeps the shell mode.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("!g");
+    s.keys("esc");
+    s.assert_has_row("!g");
+    s.assert_contains("Shell mode");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:5792 footer_collapse_snapshots kind=snap owner=chat-live snap=footer_collapse_empty_full snap=footer_collapse_empty_mode_cycle_with_context snap=footer_collapse_empty_mode_cycle_without_context snap=footer_collapse_empty_mode_only snap=footer_collapse_plan_empty_full snap=footer_collapse_plan_empty_mode_cycle_with_context snap=footer_collapse_plan_empty_mode_cycle_without_context snap=footer_collapse_plan_empty_mode_only snap=footer_collapse_plan_queue_full snap=footer_collapse_plan_queue_message_without_context snap=footer_collapse_plan_queue_mode_only snap=footer_collapse_plan_queue_short_with_context snap=footer_collapse_plan_queue_short_without_context snap=footer_collapse_queue_full snap=footer_collapse_queue_message_without_context snap=footer_collapse_queue_mode_only snap=footer_collapse_queue_short_with_context snap=footer_collapse_queue_short_without_context
 #[test]
 fn footer_collapse_snapshots() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_LAYOUT);
+    // Each oracle snapshot is the bare composer at its own width, 9 rows. The `queue` variants
+    // type `Test` while a turn runs; the `plan` variants set the Plan indicator.
+    let s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
+    s.assert_snap("footer_collapse_empty_full");
+
+    let s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
+    s.assert_snap("footer_collapse_empty_mode_cycle_with_context");
+
+    let s = Screen::build(Owner::ChatLive).size(44, 9).live().open();
+    s.assert_snap("footer_collapse_empty_mode_cycle_without_context");
+
+    let s = Screen::build(Owner::ChatLive).size(26, 9).live().open();
+    s.assert_snap("footer_collapse_empty_mode_only");
+
+    let s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
+    s.assert_snap("footer_collapse_plan_empty_full");
+
+    let s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
+    s.assert_snap("footer_collapse_plan_empty_mode_cycle_with_context");
+
+    let s = Screen::build(Owner::ChatLive).size(44, 9).live().open();
+    s.assert_snap("footer_collapse_plan_empty_mode_cycle_without_context");
+
+    let s = Screen::build(Owner::ChatLive).size(26, 9).live().open();
+    s.assert_snap("footer_collapse_plan_empty_mode_only");
+
+    let mut s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_queue_full");
+
+    let mut s = Screen::build(Owner::ChatLive).size(50, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_queue_short_with_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(40, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_queue_message_without_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(30, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_queue_short_without_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(20, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_queue_mode_only");
+
+    let mut s = Screen::build(Owner::ChatLive).size(120, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_plan_queue_full");
+
+    let mut s = Screen::build(Owner::ChatLive).size(50, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_plan_queue_short_with_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(40, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_plan_queue_message_without_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(30, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_plan_queue_short_without_context");
+
+    let mut s = Screen::build(Owner::ChatLive).size(20, 9).live().open();
+    s.type_text("Test");
+    s.assert_snap("footer_collapse_plan_queue_mode_only");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6031 esc_hint_stays_hidden_with_draft_content kind=ui owner=chat-live
 #[test]
 fn esc_hint_stays_hidden_with_draft_content() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FOOTER);
+    // With a draft, Esc does not raise the `esc again to edit previous message` hint.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("d");
+    s.keys("esc");
+    s.assert_has_row("› d");
+    s.assert_absent("esc again to edit previous message");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6060 empty_vim_insert_escape_enters_normal_without_esc_hint kind=snap owner=chat-live snap=vim_replace_mode
 #[test]
 fn empty_vim_insert_escape_enters_normal_without_esc_hint() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.assert_text_style("Vim: Insert", "fg=Green");
+    s.keys("esc");
+    s.assert_text_style("Vim: Normal", "fg=Magenta");
+    s.assert_absent("esc again to edit previous message");
+    s.keys("R");
+    s.assert_text_style("Vim: Replace", "fg=Cyan");
+
+    // The oracle's snapshot: vim on, `R`, then a paste over the large-paste threshold.
+    let mut r = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    r.keys("R");
+    r.paste(&"x".repeat(1001));
+    r.assert_snap("vim_replace_mode");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6123 slash_opens_command_popup_in_vim_insert_mode kind=ui owner=chat-live
 #[test]
 fn slash_opens_command_popup_in_vim_insert_mode() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    // The command popup's rows are the chat_commands slice's; this test asserts the draft and
+    // the mode, and the popup opens as the `/` is typed.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("/");
+    s.assert_has_row("› /");
+    s.assert_text_style("Vim: Insert", "fg=Green");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6155 slash_command_dispatches_after_vim_insert_slash kind=ui owner=chat-live
 #[test]
 fn slash_command_dispatches_after_vim_insert_slash() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("/diff");
+    s.assert_has_row("› /diff");
+    s.keys("enter");
+    s.assert_contains("Ask Codex to do anything");
+    s.assert_text_style("Vim: Insert", "fg=Green");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6190 inline_slash_command_dispatch_resets_vim_mode_to_insert kind=ui owner=chat-live
 #[test]
 fn inline_slash_command_dispatch_resets_vim_mode_to_insert() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("/plan investigate this").keys("enter");
+    s.assert_text_style("Vim: Insert", "fg=Green");
+    s.type_text("x").keys("esc");
+    s.type_text(".");
+    s.assert_has_row("› xx");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6236 bang_enters_shell_mode_in_vim_normal_mode kind=ui owner=chat-live
 #[test]
 fn bang_enters_shell_mode_in_vim_normal_mode() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("!");
+    s.assert_text_at(0, 1, "!");
+    s.assert_contains("Shell mode");
+    s.assert_text_style("Vim: Insert", "fg=Green");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6267 shell_command_can_be_typed_after_vim_normal_bang kind=ui owner=chat-live
 #[test]
 fn shell_command_can_be_typed_after_vim_normal_bang() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("! e c h o");
+    s.assert_has_row("!echo");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6342 clear_for_ctrl_c_preserves_pending_paste_history_entry kind=ui owner=chat-live
 #[test]
 fn clear_for_ctrl_c_preserves_pending_paste_history_entry() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PASTE);
+    // The oracle pastes 1005 chars: the draft shows the placeholder; Ctrl+C clears it; Up
+    // recalls the entry with the placeholder again.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.paste(&"x".repeat(1005));
+    s.assert_has_row("› [Pasted Content 1005 chars]");
+    s.keys("ctrl+c");
+    s.assert_contains("Ask Codex to do anything");
+    s.keys("up");
+    s.assert_has_row("› [Pasted Content 1005 chars]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6414 large_paste_numbering_reuses_after_ctrl_c_clear kind=ui owner=chat-live
 #[test]
 fn large_paste_numbering_reuses_after_ctrl_c_clear() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PASTE);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.paste(&"x".repeat(1004));
+    s.assert_has_row("› [Pasted Content 1004 chars]");
+    s.keys("ctrl+c");
+    s.assert_contains("Ask Codex to do anything");
+    s.paste(&"x".repeat(1004));
+    s.assert_has_row("› [Pasted Content 1004 chars]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6443 vim_mode_resets_to_insert_after_submission kind=ui owner=chat-live
 #[test]
 fn vim_mode_resets_to_insert_after_submission() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.assert_text_style("Vim: Normal", "fg=Magenta");
+    s.keys("i");
+    s.type_text("h");
+    s.keys("enter");
+    s.assert_text_style("Vim: Insert", "fg=Green");
+    s.assert_contains("Ask Codex to do anything");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6484 vim_mode_resets_to_insert_after_queued_submission kind=ui owner=chat-live
 #[test]
 fn vim_mode_resets_to_insert_after_queued_submission() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    // A turn is running, so Tab queues the draft.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("queued").keys("tab");
+    s.assert_text_style("Vim: Insert", "fg=Green");
+    s.assert_contains("queued");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6518 vim_mode_stays_insert_after_suppressed_submission kind=ui owner=chat-live
 #[test]
 fn vim_mode_stays_insert_after_suppressed_submission() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("/not-a-command");
+    s.keys("enter");
+    s.assert_has_row("› /not-a-command");
+    s.assert_text_style("Vim: Insert", "fg=Green");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6549 esc_switches_vim_insert_to_normal kind=ui owner=chat-live
 #[test]
 fn esc_switches_vim_insert_to_normal() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_VIM);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("i");
+    s.type_text("hey");
+    s.assert_text_style("Vim: Insert", "fg=Green");
+    s.assert_cursor(5, 1);
+    s.keys("esc");
+    s.assert_text_style("Vim: Normal", "fg=Magenta");
+    s.assert_cursor(4, 1);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6586 vim_insert_uses_bar_cursor_style kind=ui owner=chat-live
 #[test]
 fn vim_insert_uses_bar_cursor_style() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the cursor-shape escape the composer queues (default, then steady bar in vim insert, default again in normal and replace), a terminal state with no cell on the screen; the kit compares cells and the cursor position only",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6756 question_mark_only_toggles_on_first_char kind=ui owner=chat-live
 #[test]
 fn question_mark_only_toggles_on_first_char() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FOOTER);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let prompt = s.shot();
+    s.keys("?");
+    s.assert_rows_differ(&prompt);
+    s.keys("?");
+    s.assert_same_rows(&prompt);
+    s.type_text("h");
+    s.assert_has_row("› h");
+    s.keys("?");
+    s.assert_has_row("› h?");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6796 shift_question_mark_toggles_shortcut_overlay_when_empty kind=ui owner=chat-live
 #[test]
 fn shift_question_mark_toggles_shortcut_overlay_when_empty() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FOOTER);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    let prompt = s.shot();
+    s.keys("shift+?");
+    s.assert_rows_differ(&prompt);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:6822 question_mark_does_not_toggle_during_paste_burst kind=ui owner=chat-live
 #[test]
 fn question_mark_does_not_toggle_during_paste_burst() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FOOTER);
+    // The keys arrive as one burst, so the `?` is pasted text, not the overlay key.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("hi?there");
+    s.assert_has_row("› hi?there");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7128 skill_popup_targets_unbound_mention_left_of_bound_mention kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_left_of_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_left_of_bound_mention() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    // The oracle's seed: `$unbound-skill  $bound-skill continue` with the cursor in the
+    // unbound mention; Enter completes it, then `foo` is typed at the cursor.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("enter");
+    s.assert_has_row("› $unbound-skill  $bound-skill continue");
+    s.type_text("foo");
+    s.assert_has_row("› $unbound-skill foo $bound-skill continue");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7153 skill_popup_targets_unbound_mention_left_of_bound_mention_snapshot kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_left_of_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_left_of_bound_mention_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.assert_snap("skill_popup_targets_unbound_mention_left_of_bound_mention");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7162 skill_popup_prefers_confirmed_selections_within_match_tier kind=snap owner=chat-live snap=skill_popup_prefers_confirmed_selections_within_match_tier
 #[test]
 fn skill_popup_prefers_confirmed_selections_within_match_tier() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    // Confirming `$hello-statsig` twice and `$status` once, then typing `$stat`, selects `$status`.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("$hello-statsig").keys("enter");
+    s.type_text("$hello-statsig").keys("enter");
+    s.type_text("$status").keys("enter");
+    s.type_text("$stat");
+    s.assert_snap("skill_popup_prefers_confirmed_selections_within_match_tier");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7197 skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention_snapshot kind=snap owner=chat-live snap=skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention
 #[test]
 fn skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.assert_snap("skill_popup_targets_unbound_mention_right_of_adjacent_bound_mention");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7206 skill_popup_falls_back_from_bound_skill_with_path_suffix_snapshot kind=snap owner=chat-live snap=skill_popup_falls_back_from_bound_skill_with_path_suffix
 #[test]
 fn skill_popup_falls_back_from_bound_skill_with_path_suffix_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    // `$left  $bound/path` with the cursor after `$left  `.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "$left  $bound/path", 11);
+    s.assert_snap("skill_popup_falls_back_from_bound_skill_with_path_suffix");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7225 skill_popup_closes_after_trailing_space_snapshot kind=snap owner=chat-live snap=skill_popup_closes_after_trailing_space
 #[test]
 fn skill_popup_closes_after_trailing_space_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("$figma ");
+    s.assert_snap("skill_popup_closes_after_trailing_space");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7234 unified_mention_popup_falls_back_from_bound_plugin_on_right_snapshot kind=snap owner=chat-live snap=unified_mention_popup_falls_back_from_bound_plugin_on_right
 #[test]
 fn unified_mention_popup_falls_back_from_bound_plugin_on_right_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // `@left  @bound` with the cursor after `@left `.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "@left  @bound", 7);
+    s.assert_snap("unified_mention_popup_falls_back_from_bound_plugin_on_right");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7243 adjacent_plugin_completion_inserts_separator_snapshot kind=snap owner=chat-live snap=adjacent_plugin_completion_inserts_separator
 #[test]
 fn adjacent_plugin_completion_inserts_separator_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // `@sample@other` with the cursor on the bound `@sample`; Enter completes the other plugin.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "@sample@other", 6);
+    s.keys("enter");
+    s.assert_snap("adjacent_plugin_completion_inserts_separator");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7256 skill_completion_replaces_only_middle_adjacent_target kind=ui owner=chat-live
 #[test]
 fn skill_completion_replaces_only_middle_adjacent_target() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    // The oracle's seed: `$bound1 <middle> $bound2` with the cursor in the middle target.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("enter");
+    s.assert_has_row("› $bound1 $other $bound2");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7274 unified_completion_replaces_only_middle_adjacent_target kind=ui owner=chat-live
 #[test]
 fn unified_completion_replaces_only_middle_adjacent_target() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // The oracle's seed: `@bound1 <middle> @bound2` with the cursor in the middle target.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.keys("enter");
+    s.assert_has_row("› @bound1 @other @bound2");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7312 file_popup_ignores_shell_positional_parameter_snapshot kind=snap owner=chat-live snap=file_popup_ignores_shell_positional_parameter
 #[test]
 fn file_popup_ignores_shell_positional_parameter_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FILES);
+    // `@src  $1_suffix` with the cursor after `@src `: the file popup stays open.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "@src  $1_suffix", 10);
+    s.assert_snap("file_popup_ignores_shell_positional_parameter");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7328 file_popup_ignores_bare_shell_parameter_with_matching_skill_snapshot kind=snap owner=chat-live snap=file_popup_ignores_bare_shell_parameter_with_matching_skill
 #[test]
 fn file_popup_ignores_bare_shell_parameter_with_matching_skill_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FILES);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "@src  $_", 3);
+    s.assert_snap("file_popup_ignores_bare_shell_parameter_with_matching_skill");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7377 file_popup_ignores_unbindable_qualified_skill_snapshot kind=snap owner=chat-live snap=file_popup_ignores_unbindable_qualified_skill
 #[test]
 fn file_popup_ignores_unbindable_qualified_skill_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_FILES);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "@src  $1plugin:d", 11);
+    s.assert_snap("file_popup_ignores_unbindable_qualified_skill");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7393 skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot kind=snap owner=chat-live snap=skill_popup_preserves_normal_target_after_ambiguous_probe
 #[test]
 fn skill_popup_preserves_normal_target_after_ambiguous_probe_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "$1x  $plugin:d", 10);
+    s.assert_snap("skill_popup_preserves_normal_target_after_ambiguous_probe");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7446 skill_popup_accepts_digit_leading_skill_snapshot kind=snap owner=chat-live snap=skill_popup_accepts_digit_leading_skill
 #[test]
 fn skill_popup_accepts_digit_leading_skill_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("$1p");
+    s.assert_snap("skill_popup_accepts_digit_leading_skill");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7462 skill_popup_does_not_fuzzy_match_shell_variable_snapshot kind=snap owner=chat-live snap=skill_popup_does_not_fuzzy_match_shell_variable
 #[test]
 fn skill_popup_does_not_fuzzy_match_shell_variable_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("$HOME");
+    s.assert_snap("skill_popup_does_not_fuzzy_match_shell_variable");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7605 skill_popup_closes_between_spaces_before_plain_text_snapshot kind=snap owner=chat-live snap=skill_popup_closes_between_spaces_before_plain_text
 #[test]
 fn skill_popup_closes_between_spaces_before_plain_text_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_SKILLS);
+    // `$old  word` with the cursor after `$old `: the popup closes.
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    type_then_back(&mut s, "$old  word", 5);
+    s.assert_snap("skill_popup_closes_between_spaces_before_plain_text");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7783 plugin_mention_popup_snapshot kind=snap owner=chat-live snap=plugin_mention_popup
 #[test]
 fn plugin_mention_popup_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NO_PLUGINS);
+    // The oracle types `$sa` with the `Sample Plugin` mention set (plugin skills and an MCP server).
+    let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
+    s.type_text("$sa");
+    s.assert_snap("plugin_mention_popup");
 }
