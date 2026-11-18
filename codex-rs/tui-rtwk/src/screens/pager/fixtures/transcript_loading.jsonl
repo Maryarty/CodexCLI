@@ -1,0 +1,6 @@
+# The transcript pager with one cell, `recent transcript`, while the history is loading.
+# Oracle: pager_overlay/transcript_tests.rs transcript_overlay_snapshots_paginated_history_states (TestCell "recent transcript", TranscriptHistoryState::loading_older).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"recent transcript"}}}
+{"step":"screen","dir":"pager","ev":{"history":"loading_older"}}

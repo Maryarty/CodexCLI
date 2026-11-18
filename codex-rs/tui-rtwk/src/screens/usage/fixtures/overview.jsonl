@@ -1,0 +1,7 @@
+# The summary of `summary_daily_wide` (analytics/summary_tests.rs): a Plus
+# account, the five numbers, an empty year of activity, the insights and the
+# most used plugins and skills. The numbers are the snapshot's.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"name":"Example User","handle":"@example.user","plan":"Plus"}}}
+{"step":"screen","dir":"usage","ev":{"overview":{"ready":{"lifetime_tokens":142300000000,"peak_tokens":7000000000,"longest_chat_secs":158820,"current_streak_days":158,"longest_streak_days":160,"activity":{"weeks":52,"last_day":3,"cells":[[51,2,2],[51,3,2]],"months":[{"week":3,"label":"Oct"},{"week":7,"label":"Nov"},{"week":12,"label":"Dec"},{"week":16,"label":"Jan"},{"week":20,"label":"Feb"},{"week":24,"label":"Mar"},{"week":29,"label":"Apr"},{"week":33,"label":"May"},{"week":38,"label":"Jun"},{"week":42,"label":"Jul"},{"week":46,"label":"Aug"}]},"insights":[{"label":"Fast Mode","value":"37%"},{"label":"Most used reasoning","value":"high · 26%"},{"label":"Skills explored","value":"147"},{"label":"Total skills used","value":"13,190"},{"label":"Total chats","value":"21,482"}],"top":[{"name":"$review","runs":1142},{"name":"@GitHub","runs":1059}]}}}}
+{"step":"screen","dir":"usage","ev":{"as_of":"Sep 9, 2026"}}

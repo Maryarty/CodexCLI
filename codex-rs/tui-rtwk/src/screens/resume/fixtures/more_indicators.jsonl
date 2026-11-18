@@ -1,0 +1,5 @@
+# The five rows of `resume_picker_more_indicators`: item-N updated 5*N minutes
+# before the clock (the oracle selects the third and scrolls one row).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1700000000}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-000000000100","preview":"item-0","created":1700000000,"updated":1700000000},{"id":"00000000-0000-4000-8000-000000000101","preview":"item-1","created":1699996400,"updated":1699999700},{"id":"00000000-0000-4000-8000-000000000102","preview":"item-2","created":1699992800,"updated":1699999400},{"id":"00000000-0000-4000-8000-000000000103","preview":"item-3","created":1699989200,"updated":1699999100},{"id":"00000000-0000-4000-8000-000000000104","preview":"item-4","created":1699985600,"updated":1699998800}]}}}

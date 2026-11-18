@@ -19,25 +19,185 @@ pub const KIND: Kind = Kind::Route;
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    pub account: Option<Account>,
+    /// The overview's numbers (oracle: `analytics::summary`).
+    pub overview: Panel<Overview>,
+    /// The token history by day (oracle: `analytics::data::Remote`).
+    pub history: Panel<Vec<Day>>,
+    /// The credit history by day.
+    pub credits: Panel<Vec<Day>>,
+    /// The usage report's token series.
+    pub usage: Panel<Vec<Day>>,
+    /// The day the statistics are as of, `YYYY-MM-DD`.
+    pub as_of: Option<String>,
+    /// The report the user is on (`1`-`6` of the tab row).
+    pub report: Report,
+}
+
+/// The signed-in account (oracle: the dashboard's header and profile block).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Account {
+    pub name: String,
+    pub handle: String,
+    pub plan: String,
+}
+
+/// The reports of the tab row, in order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Report {
+    #[default]
+    Overview,
+    Usage,
+    Messages,
+    Plugins,
+    Skills,
+    Chats,
+}
+
+impl Report {
+    pub const ALL: [Report; 6] = [
+        Report::Overview,
+        Report::Usage,
+        Report::Messages,
+        Report::Plugins,
+        Report::Skills,
+        Report::Chats,
+    ];
+}
+
+/// What a report shows of one remote value (oracle: `analytics::data::Remote`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Panel<T> {
+    Loading,
+    /// The backend reported no history.
+    Unavailable,
+    /// The request failed.
+    Failed(Failure),
+    Ready(T),
+}
+
+// Not derived: a derive would ask `T: Default` of the payload.
+#[allow(clippy::derivable_impls)]
+impl<T> Default for Panel<T> {
+    fn default() -> Self {
+        Panel::Loading
+    }
+}
+
+/// Which request failed (the oracle keeps a fixed sentence per report).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Failure {
+    Analytics,
+    Credits,
+}
+
+/// The five numbers of the overview.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Overview {
+    pub lifetime_tokens: u64,
+    pub peak_tokens: u64,
+    pub longest_chat_secs: u64,
+    pub current_streak_days: u32,
+    pub longest_streak_days: u32,
+    /// The heat map of the last year (oracle: `activity_chart`).
+    #[serde(default)]
+    pub activity: Activity,
+    /// The "Activity insights" rows, label and shown value.
+    #[serde(default)]
+    pub insights: Vec<Insight>,
+    /// The most used plugins and skills.
+    #[serde(default)]
+    pub top: Vec<TopUse>,
+}
+
+/// The weeks of the heat map and its month marks; `cells` holds the days that
+/// have activity (week, weekday from Sunday, level 1..=4), the rest are empty.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Activity {
+    pub weeks: usize,
+    /// The weekday (from Sunday) of the last day: the last week has no cells
+    /// after it.
+    #[serde(default = "last_day_default")]
+    pub last_day: usize,
+    #[serde(default)]
+    pub months: Vec<MonthMark>,
+    #[serde(default)]
+    pub cells: Vec<(usize, usize, u8)>,
+}
+
+fn last_day_default() -> usize {
+    6
+}
+
+/// A month label over the week the month starts in.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MonthMark {
+    pub week: usize,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Insight {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct TopUse {
+    pub name: String,
+    pub runs: u64,
+}
+
+/// One day of a history.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Day {
+    /// `YYYY-MM-DD`.
+    pub date: String,
+    pub total: u64,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
-/// root `ScreenEv`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+/// root `ScreenEv`. Also the seed form: `{"account":{..}}`, `{"overview":
+/// {"ready":{..}}}`, `{"history":"loading"}`, `{"credits":{"failed":"credits"}}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ev {
+    Account(Account),
+    Overview(Panel<Overview>),
+    History(Panel<Vec<Day>>),
+    Credits(Panel<Vec<Day>>),
+    Usage(Panel<Vec<Day>>),
+    AsOf(String),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
+pub enum Intent {
+    /// A report of the tab row (`1`-`6`).
+    Report(Report),
+}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::Account(account) => model.account = Some(account),
+        Ev::Overview(panel) => model.overview = panel,
+        Ev::History(panel) => model.history = panel,
+        Ev::Credits(panel) => model.credits = panel,
+        Ev::Usage(panel) => model.usage = panel,
+        Ev::AsOf(date) => model.as_of = Some(date),
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {}
+    let _ = fx;
+    match intent {
+        Intent::Report(report) => model.report = report,
+    }
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -89,10 +249,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// A script's `screen` step for this directory: the event `value` stands for
-/// (`fixtures::script`). None is seedable yet; the slice gives its events a
-/// serde form here and reads it, so the shared loader never changes.
+/// A script's `screen` step for this directory: the event in its serde form.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))
 }

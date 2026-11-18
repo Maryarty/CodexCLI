@@ -1,0 +1,3 @@
+# `agents_overview_empty_narrow`: no tasks; the test opens it at 48 cells.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"listed":[]}}

@@ -6,7 +6,12 @@
 //! for it. Nothing else in this directory holds user-visible text (the rules
 //! test `adr010_no_user_visible_literal_outside_the_string_tables`).
 
+use rtwk::l10n::Arg;
 use rtwk::l10n::DependCx;
+use rtwk::l10n::Fmt;
+use rtwk::l10n::Msg;
+use rtwk::l10n::NumSyms;
+use rtwk::l10n::msg;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -17,10 +22,92 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    /// Oracle: `agent_center/render.rs`.
+    pub header: &'static str,
+    group: Msg<2>,
+    pub grouping_project: &'static str,
+    pub grouping_key: &'static str,
+    pub filters: [&'static str; 5],
+    filter_count: Msg<2>,
+    pub filter_keys: &'static str,
+    pub filter_label: &'static str,
+    /// Oracle: `agent_center/rows.rs`.
+    pub tasks: &'static str,
+    group_heading: Msg<2>,
+    group_heading_of: Msg<3>,
+    pub no_tasks: &'static str,
+    pub no_match: &'static str,
+    /// Oracle: `agents_overview_view.rs` `status` and `render_details`.
+    pub needs_input: &'static str,
+    pub working: &'static str,
+    pub ready: &'static str,
+    pub inactive: &'static str,
+    pub details: &'static str,
+    pub model: &'static str,
+    pub reasoning: &'static str,
+    pub unknown: &'static str,
+    pub project: &'static str,
+    agent: Msg<1>,
+    pub open_task: &'static str,
+    pub wait_approval: &'static str,
+    pub wait_response: &'static str,
+    pub prompt: &'static str,
+    pub no_prompt: &'static str,
+    /// Oracle: `agent_center/hints.rs` `center_footer_hints`.
+    pub key_help: &'static str,
+    pub help: &'static str,
+    pub key_back: &'static str,
+    pub back: &'static str,
+    pub key_move: &'static str,
+    pub move_: &'static str,
+    pub key_open: &'static str,
+    pub open: &'static str,
+    pub key_new: &'static str,
+    pub new: &'static str,
 }
 
-/// English: the oracle's text (the slice names the oracle file per group).
-pub const EN: Strings = Strings { title: "agents command center" };
+/// English: the oracle's text.
+pub const EN: Strings = Strings {
+    title: "agents command center",
+    header: "Agent command center",
+    group: msg!("  Group: {0}  {1}"),
+    grouping_project: "Project",
+    grouping_key: "g",
+    filters: ["All", "Needs you", "Working", "Ready", "Inactive"],
+    filter_count: msg!("{0} {1}"),
+    filter_keys: "tab/\u{21e7}tab",
+    filter_label: "filter",
+    tasks: "Tasks",
+    group_heading: msg!("{0}  {1}"),
+    group_heading_of: msg!("{0}  {1} of {2}"),
+    no_tasks: "No tasks yet",
+    no_match: "No matching tasks",
+    needs_input: "Needs input",
+    working: "Working",
+    ready: "Ready",
+    inactive: "Inactive",
+    details: "Task details",
+    model: "Model: ",
+    reasoning: "Reasoning: ",
+    unknown: "Unknown",
+    project: "Project",
+    agent: msg!("Agent: {0}"),
+    open_task: "Open task to review.",
+    wait_approval: "Waiting for approval.",
+    wait_response: "Waiting for your response.",
+    prompt: "Prompt",
+    no_prompt: "No prompt available.",
+    key_help: "?",
+    help: "help",
+    key_back: "esc",
+    back: "back",
+    key_move: "\u{2191}/\u{2193}",
+    move_: "move",
+    key_open: "enter",
+    open: "open",
+    key_new: "n",
+    new: "new",
+};
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
 
@@ -33,4 +120,33 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 /// menu's rows).
 pub fn title(lang: Lang) -> &'static str {
     TABLES.pick(lang).title
+}
+
+impl Strings {
+    pub fn group(&self, grouping: &str, key: &str, num: &NumSyms) -> String {
+        Fmt::new(self.group, [Arg::Text(grouping), Arg::Text(key)], num).to_string()
+    }
+
+    pub fn filter_count(&self, label: &str, count: usize, num: &NumSyms) -> String {
+        let count = u64::try_from(count).unwrap_or(0);
+        Fmt::new(self.filter_count, [Arg::Text(label), Arg::Int(count)], num).to_string()
+    }
+
+    pub fn group_heading(&self, heading: &str, shown: usize, total: usize, num: &NumSyms) -> String {
+        let shown = u64::try_from(shown).unwrap_or(0);
+        if shown as usize == total {
+            return Fmt::new(self.group_heading, [Arg::Text(heading), Arg::Int(shown)], num).to_string();
+        }
+        let total = u64::try_from(total).unwrap_or(0);
+        Fmt::new(
+            self.group_heading_of,
+            [Arg::Text(heading), Arg::Int(shown), Arg::Int(total)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn agent(&self, name: &str, num: &NumSyms) -> String {
+        Fmt::new(self.agent, [Arg::Text(name)], num).to_string()
+    }
 }

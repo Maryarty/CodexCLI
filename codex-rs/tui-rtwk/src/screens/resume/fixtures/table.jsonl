@@ -1,0 +1,6 @@
+# The rows of `resume_picker_table`: a cloud row (42 s old), an unread row
+# (35 min), a plain one (2 h); no cwd, no branch. The clock is the oracle's
+# `now`, here an arbitrary epoch second.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1700000000}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-000000000001","preview":"Fix resume picker timestamps","cloud":true,"created":1699999958,"updated":1699999958},{"id":"00000000-0000-4000-8000-000000000002","preview":"Investigate lazy pagination cap","unread":true,"created":1699997900,"updated":1699997900},{"id":"00000000-0000-4000-8000-000000000003","preview":"Explain the codebase","created":1699992800,"updated":1699992800}]}}}

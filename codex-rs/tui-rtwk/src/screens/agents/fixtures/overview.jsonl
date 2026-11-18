@@ -1,0 +1,6 @@
+# `shared_overview_shows_only_root_sessions` (app/agents_overview_tests.rs):
+# three root sessions in one project; the first has a child waiting for an
+# approval (so it needs the user), the second is working, the third is not
+# loaded. The oracle's data is the same with thread ids made up here.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"listed":[{"id":"r1","title":"Build the dashboard","status":"idle","model":"gpt-6.1-sol","reasoning":null,"cwd":"/tmp/project","prompt":"Build the dashboard","child":{"name":"Inspect keyboard shortcuts","waits":["approval"]}},{"id":"r2","title":"Repair authentication","status":"active","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Repair authentication","child":null},{"id":"r3","title":"Review yesterday's changes","status":"not_loaded","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Review yesterday's changes","child":null}]}}
