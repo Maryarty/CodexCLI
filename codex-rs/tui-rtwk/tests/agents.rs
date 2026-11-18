@@ -13,6 +13,7 @@ use crate::common::{Harness, start_sized};
 enum Owner {
     Keymap,
     CoreSeed,
+    Rtwk,
 }
 
 impl Owner {
@@ -20,6 +21,7 @@ impl Owner {
         match self {
             Owner::Keymap => "keymap",
             Owner::CoreSeed => "agents-live-shell",
+            Owner::Rtwk => "rtwk",
         }
     }
 }
@@ -392,12 +394,83 @@ fn live_center_columns() {
     assert_app(&h, "command_center__live_center_columns");
 }
 
-/// `live_center_pages_visible_rows_without_wrapping` (agent_center_tests.rs:387).
+/// The number of the task the highlight is on (`Paging task NN`).
+fn highlighted_task(h: &Harness) -> usize {
+    let screen = h.t.screen();
+    let row = screen
+        .lines()
+        .find(|line| line.trim_start().starts_with("\u{203a} ") && line.contains("Paging task"))
+        .unwrap_or_else(|| panic!("no highlighted task\n{screen}"));
+    let at = row.find("Paging task ").unwrap() + "Paging task ".len();
+    row[at..at + 2].parse().unwrap()
+}
+
+/// The paging flow of `live_center_pages_visible_rows_without_wrapping`
+/// (agent_center_tests.rs:387) on `count` tasks, with the search line open
+/// when `search`.
+fn pages_visible_rows(count: usize, search: bool, loop_key: &str, wraps: bool) {
+    let entry = if count == 5 { "paging5" } else { "paging30" };
+    let mut h = open(entry, 110, 18);
+    if search {
+        h.press("/");
+        h.t.paste("Paging");
+        h.settle();
+    }
+    assert_eq!(highlighted_task(&h), 0);
+    h.press("pagedown");
+    // Eleven visible rows: skip the next heading/gap, or clamp a short list.
+    assert_eq!(highlighted_task(&h), (count - 1).min(10));
+    let page_down = highlighted_task(&h);
+    h.press("pageup");
+    assert!(highlighted_task(&h) < page_down);
+    h.press("pageup");
+    assert_eq!(highlighted_task(&h), 0);
+    // Repeated pages eventually reach the last filtered task and stay there.
+    for _ in 0..count {
+        h.press(loop_key);
+    }
+    let last = highlighted_task(&h);
+    h.press("pagedown");
+    assert_eq!((last, highlighted_task(&h)), (count - 1, last));
+    if wraps {
+        // Down from the last task wraps to the first (`move_selection`).
+        h.press("down");
+        let screen = h.t.screen();
+        assert!(screen.lines().any(|line| line.trim_start().starts_with("/tmp/project")), "{screen}");
+    }
+}
+
+/// `live_center_pages_visible_rows_without_wrapping` (agent_center_tests.rs:387),
+/// the online flow: five tasks, then thirty tasks filtered by a search (the
+/// oracle's repeated pages are `ctrl+f`; here PageDown, see the next test).
 #[test]
 fn live_center_pages_visible_rows_without_wrapping() {
-    todo!(
-        "agents-live: needs the rtwk list's paging at screen level and a long fixture; not registered (mod.rs:36)"
-    )
+    pages_visible_rows(5, false, "pagedown", false);
+    pages_visible_rows(30, false, "pagedown", false);
+}
+
+/// The same flow of the oracle's second round while the center is offline
+/// (`connection_notice = "Reconnecting\u{2026}"`).
+#[test]
+fn live_center_pages_visible_rows_while_reconnecting() {
+    pending(
+        Owner::CoreSeed,
+        "the fixture scripts cannot seed `Notice::Reconnecting` (core/src/screens/agents/wire.rs `seed_ev` has no `notice` key)",
+    );
+    pages_visible_rows(30, true, "pagedown", false);
+}
+
+/// What the oracle's flow asks beyond the list rtwk gives: the repeated pages
+/// are `ctrl+f` (the list keymap's `page_down` default beside PageDown), and
+/// Down from the last task wraps to the first.
+#[test]
+fn live_center_page_keys_and_wrap_follow_the_list_keymap() {
+    pending(
+        Owner::Rtwk,
+        "rtwk's SelectionList binds only its own keys (selection_list.rs:951): the SelectionController has no page or move call, so `ctrl+f` / `ctrl+b` cannot reach its paging, and its Down clamps at the last row (`by`, selection_list.rs:506) where the oracle's wraps; page keys also do not reach it while the search line has the focus (gap rows in rtwk-gaps.md)",
+    );
+    pages_visible_rows(5, false, "ctrl+f", true);
+    pages_visible_rows(30, true, "ctrl+f", true);
 }
 
 /// `live_center_metadata_clips_at_grapheme_boundaries` (agent_center_tests.rs:449).

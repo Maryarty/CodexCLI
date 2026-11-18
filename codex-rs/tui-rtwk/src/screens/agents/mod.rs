@@ -331,6 +331,20 @@ fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> 
     }
 }
 
+/// Whether a key steps the highlight (`Some(true)` down): the list keymap's
+/// defaults beyond the arrows (oracle: `list.move_up`, `list.move_down`).
+fn step_of(key: &KeyPress) -> Option<bool> {
+    let ctrl = key.mods.contains(Mods::CTRL);
+    let alt = key.mods.contains(Mods::ALT);
+    match (key.ch, ctrl, alt) {
+        (Some('j' | 'n'), true, false) => Some(true),
+        (Some('k' | 'p'), true, false) => Some(false),
+        (Some('j'), false, false) => Some(true),
+        (Some('k'), false, false) => Some(false),
+        _ => None,
+    }
+}
+
 impl ScreenState {
     /// The keys go to what the mode shows once the frame that shows it is
     /// out: the widget a mode drops lets go of the focus with the frame, and
@@ -483,6 +497,17 @@ impl State for ScreenState {
                         send(AgentsIntent::Select(sel));
                         return Rebuild::No;
                     }
+                }
+                // The list keymap's other defaults for a step: `j`/`k` and
+                // Ctrl with N/P/J/K (the arrows are the list's own).
+                if !editing
+                    && !model.help
+                    && let Some(forward) = step_of(&key)
+                    && let Some(at) = center.selected_entry()
+                    && let Some(sel) = view::neighbour(&center, at, forward)
+                {
+                    send(AgentsIntent::Select(sel));
+                    return Rebuild::No;
                 }
                 if let Some(intent) = intent_of(&key, editing, model.help) {
                     send(intent);
