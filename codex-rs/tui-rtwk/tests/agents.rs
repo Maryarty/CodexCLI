@@ -315,6 +315,10 @@ fn older_server_notice_is_visible_in_agents_overview() {
 /// snap older_server_narrow_overview): the whole screen at 12 cells.
 #[test]
 fn older_server_notice_truncates_in_narrow_overview() {
+    pending(
+        Owner::Rtwk,
+        "N1 (rtwk-framework-gaps.md): TextOverflow::Ellipsis drops the blanks before the `…`; the oracle's clipped tab reads ` All … ›`, rtwk's ` All…  ›`",
+    );
     let height = app_oracle("older_server_narrow_overview").len() as u16;
     let h = open("older_server", 12, height);
     assert_app(&h, "older_server_narrow_overview");

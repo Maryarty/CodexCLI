@@ -1,8 +1,10 @@
 //! The command center's widgets, composed of rtwk primitives (`Row`,
-//! `Column`, `SizedBox`, `Text`, `ListView`, `GestureDetector`): the header
-//! with its tab strip, the grouped rows, the details pane, the footer. Every
-//! function takes what it draws (the core `Center`, the strings, the look)
-//! and the handlers for the mouse; none reads the model by itself.
+//! `Column`, `Expanded`, `Padding`, `Divider`, `Text`, `SelectionList`,
+//! `GestureDetector`): the header with its tab strip, the grouped rows, the
+//! details pane, the footer. Every function takes what it draws (the core
+//! `Center`, the strings, the look) and the handlers for the mouse; none
+//! reads the model by itself and none counts a width: `Text` cuts and wraps,
+//! the constraints give the room.
 //! Oracle: `app/agent_center/{render,rows,hints}.rs`,
 //! `app/agents_overview_view.rs` (`status`, `render_details`).
 
@@ -10,6 +12,7 @@ use std::rc::Rc;
 
 use rtwk::AnyWidget;
 use rtwk::Handler;
+use rtwk::LayoutBuilder;
 use rtwk::NotificationListener;
 use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
@@ -18,21 +21,27 @@ use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier}
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Positioned, Row, SizedBox,
+    BorderType, BoxWidget, Center as Middle, Column, ConstrainedBox, CrossAxisAlignment, Divider, EdgeInsets,
+    Expanded, MainAxisSize, Padding, Row, SizedBox, VerticalDivider,
 };
+use rtwk::layout::{BoxConstraints, UNBOUNDED};
 use rtwk::scroll::ScrollNotification;
-use rtwk::style::{Span, Style, ThemeData};
-use rtwk::text::{Text, TextAlign};
-use rtwk_core::style::Attrs;
+use rtwk::style::{Attrs, Span, Style, ThemeData};
+use rtwk::text::{Text, TextAlign, TextWrap};
 
 use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::{
     Action, Center, CenterRow, DetailLine, Failure, Group, GroupLabel, Grouping, Model,
-    RowData, Sel, display_directory,
+    Notice, RowData, Sel, display_directory,
 };
 
-use super::layout;
-
+use super::help::{self, Ink};
+use super::path;
+use super::soft;
+use super::strings::Strings;
+use super::tabs::Tabs;
+use super::usage;
+use crate::theme::ThreadPalette;
 /// What the screen's own state decides the view shows (the model holds none
 /// of it): the status tab, the help, the editing line and the confirmation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -61,9 +70,6 @@ pub struct Confirm {
     pub thread: String,
     pub action: Action,
 }
-use crate::theme::ThreadPalette;
-use super::strings::Strings;
-use super::usage;
 
 /// The styles of the screen, taken from the theme.
 #[derive(Clone)]
@@ -117,21 +123,59 @@ fn span(text: impl Into<String>, style: &Style) -> Span {
     Span::styled(text.into(), style.clone())
 }
 
+/// One row of spans, cut off with an ellipsis where the room ends.
 fn one(spans: Line) -> AnyWidget {
     Text::rich_line(spans).into()
 }
 
-fn blank() -> AnyWidget {
-    SizedBox::fixed(1, 1).into()
-}
-
-fn cell(width: i32, child: impl Into<AnyWidget>) -> AnyWidget {
+fn fixed(width: i32, child: impl Into<AnyWidget>) -> AnyWidget {
     SizedBox::new(Some(width), Some(1), Some(child.into())).into()
 }
 
-fn pad(width: usize) -> AnyWidget {
-    SizedBox::fixed(width as i32, 1).into()
+fn gap(width: i32) -> AnyWidget {
+    SizedBox::fixed(width, 1).into()
 }
+
+fn inset(child: impl Into<AnyWidget>) -> AnyWidget {
+    Padding::new(EdgeInsets::symmetric(2, 0), child).into()
+}
+
+/// A row that leaves its last cell free.
+fn short(child: impl Into<AnyWidget>) -> AnyWidget {
+    Padding::new(EdgeInsets::only(0, 0, 1, 0), child).into()
+}
+
+fn top(child: impl Into<AnyWidget>) -> AnyWidget {
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .child(child)
+        .into()
+}
+
+fn stacked(rows: Vec<AnyWidget>) -> AnyWidget {
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for row in rows {
+        column = column.child(row);
+    }
+    column.into()
+}
+
+/// The details pane's width and the gap before it; the two panes show from
+/// `TWO_PANES` cells of body (oracle: `center_layout`).
+const DETAILS_WIDTH: usize = 38;
+const GAP_WIDTH: i32 = 3;
+const TWO_PANES: i32 = 90;
+/// The hint of the filter strip shows from this width of header.
+const KEYS_FROM: i32 = 80;
+/// The list shows the status and age columns from this width.
+const METADATA: i32 = 57;
+const STATUS_COLUMN: i32 = 11;
+const AGE_COLUMN: i32 = 9;
+/// The width of the voice badge that ends a title.
+const BADGE: i32 = 8;
 
 /// How a row of the list is told apart: the list keeps its cursor by it.
 /// Headings and gaps are never the cursor's.
@@ -198,6 +242,7 @@ pub struct Scrolled {
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
 /// handlers of the lines they tell.
+#[derive(Clone)]
 pub struct Controls {
     pub selection: SelectionController<RowKey>,
     pub edit: TextEditingController,
@@ -248,134 +293,6 @@ fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
     }
 }
 
-/// The three header rows (oracle: `render`): title and grouping, the tab
-/// strip with the filter hint, the rule.
-#[allow(clippy::too_many_arguments)]
-pub fn header(
-    look: &Look,
-    strings: &Strings,
-    num: &NumSyms,
-    model: &Model,
-    ui: &Ui,
-    center: &Center,
-    width: usize,
-    taps: &Taps,
-) -> AnyWidget {
-    let inner = width.saturating_sub(4);
-    let title = one(vec![
-        span(strings.header, &look.bold),
-        span(
-            strings.group(
-                grouping_name(strings, model.grouping),
-                strings.grouping_key,
-                num,
-            ),
-            &look.dim,
-        ),
-    ]);
-    let labels: Vec<String> = strings
-        .filters
-        .iter()
-        .zip(center.tab_counts)
-        .map(|(label, count)| strings.filter_count(label, count, num))
-        .collect();
-    let editing = ui.editing();
-    let hint_text = format!("{} {}", strings.filter_keys, strings.filter_label);
-    let hint_width = layout::columns(&hint_text);
-    let show_hint = inner >= 80 && !editing;
-    let tabs_width = if show_hint {
-        inner.saturating_sub(hint_width + 2)
-    } else {
-        inner
-    };
-    let strip = layout::strip(&labels, ui.filter, tabs_width);
-    let mut tabs = Row::new();
-    let mut used = 0;
-    if strip.left {
-        tabs = tabs
-            .child(cell(1, one(vec![span(strings.tab_left, &look.dim)])))
-            .child(pad(1));
-        used += 2;
-    }
-    for (offset, shown) in strip.widths.iter().enumerate() {
-        let index = strip.start + offset;
-        let text = layout::ellipsize(&format!(" {} ", labels[index]), *shown);
-        let style = if index == ui.filter {
-            &look.tab
-        } else {
-            &look.dim
-        };
-        let tab = cell(*shown as i32, one(vec![span(text, style)]));
-        if offset > 0 {
-            tabs = tabs.child(pad(1));
-            used += 1;
-        }
-        tabs = tabs.child(tappable(taps.tabs.get(index), tab));
-        used += shown;
-    }
-    if strip.right {
-        let gap = (tabs_width - 1).saturating_sub(used);
-        tabs = tabs
-            .child(pad(gap))
-            .child(cell(1, one(vec![span(strings.tab_right, &look.dim)])));
-        used = tabs_width;
-    }
-    if show_hint {
-        tabs = tabs
-            .child(pad(tabs_width.saturating_sub(used) + 2))
-            .child(cell(
-                hint_width as i32,
-                one(vec![
-                    span(strings.filter_keys, &look.plain),
-                    span(format!(" {}", strings.filter_label), &look.muted),
-                ]),
-            ));
-    }
-    let rule = one(vec![span("\u{2500}".repeat(inner), &look.dim)]);
-    let indent = |child: AnyWidget| -> AnyWidget {
-        Row::new()
-            .child(pad(2))
-            .child(cell(inner as i32, child))
-            .into()
-    };
-    Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(indent(title))
-        .child(indent(
-            SizedBox::new(Some(inner as i32), Some(1), Some(tabs.into())).into(),
-        ))
-        .child(indent(rule))
-        .into()
-}
-
-/// A heading of the list (oracle: `render_center_rows`, the `Group` arm).
-fn heading(
-    look: &Look,
-    strings: &Strings,
-    model: &Model,
-    label: &GroupLabel,
-    count: &str,
-    width: usize,
-) -> AnyWidget {
-    let text = match label {
-        GroupLabel::Status(group) => match group {
-            Group::NeedsYou => strings.needs_input,
-            Group::Working => strings.working,
-            Group::Ready => strings.ready,
-            Group::Finished => strings.inactive,
-        }
-        .to_owned(),
-        GroupLabel::Pinned => strings.pinned.to_owned(),
-        GroupLabel::Model(name) => name.clone(),
-        GroupLabel::Path(path) => {
-            let shown = display_directory(path, model.home.as_deref());
-            let room = width.saturating_sub(layout::columns(count) + 2).min(64);
-            layout::center_truncate_path(&shown, room)
-        }
-    };
-    one(vec![span(format!("{text}  {count}"), &look.dim)])
-}
 
 /// The age column (oracle: `format_relative_time`).
 fn age(strings: &Strings, now: i64, updated: i64) -> String {
@@ -416,6 +333,120 @@ pub fn empty_text<'a>(strings: &'a Strings, model: &Model, no_rows: bool) -> &'a
     }
 }
 
+/// The three header rows (oracle: `render`): title and grouping, the tab
+/// strip with the filter hint, the rule.
+pub fn header(
+    look: &Look,
+    strings: &Strings,
+    num: &NumSyms,
+    model: &Model,
+    ui: &Ui,
+    center: &Center,
+    taps: &Taps,
+) -> AnyWidget {
+    let title = one(vec![
+        span(strings.header, &look.bold),
+        span(
+            strings.group(grouping_name(strings, model.grouping), strings.grouping_key, num),
+            &look.dim,
+        ),
+    ]);
+    let labels: Rc<[String]> = strings
+        .filters
+        .iter()
+        .zip(center.tab_counts)
+        .map(|(label, count)| strings.filter_count(label, count, num))
+        .collect();
+    let strip = Tabs {
+        labels,
+        active: ui.filter,
+        marks: (strings.tab_left, strings.tab_right),
+        styles: (look.tab.clone(), look.dim.clone()),
+        taps: taps.tabs.clone(),
+    }
+    .widget();
+    let hint = (!ui.editing()).then(|| {
+        one(vec![
+            span(strings.filter_keys, &look.plain),
+            span(format!(" {}", strings.filter_label), &look.muted),
+        ])
+    });
+    let tabs = LayoutBuilder::new(move |_, constraints| {
+        let mut row = Row::new().child(Expanded::new(1, strip.clone()));
+        if let Some(hint) = hint.clone().filter(|_| constraints.max_width >= KEYS_FROM) {
+            row = row.child(gap(2)).child(hint);
+        }
+        row.into()
+    });
+    let rule = Divider::new()
+        .kind(BorderType::Single)
+        .style(look.dim.clone())
+        .merge(false);
+    inset(stacked(vec![
+        title,
+        SizedBox::new(None, Some(1), Some(tabs.into())).into(),
+        rule.into(),
+    ]))
+}
+
+/// A heading of the list (oracle: `render_center_rows`, the `Group` arm);
+/// `width` is the room the row has.
+fn heading(
+    look: &Look,
+    strings: &Strings,
+    model: &Model,
+    label: &GroupLabel,
+    count: &str,
+    width: usize,
+) -> AnyWidget {
+    let text = match label {
+        GroupLabel::Status(group) => match group {
+            Group::NeedsYou => strings.needs_input,
+            Group::Working => strings.working,
+            Group::Ready => strings.ready,
+            Group::Finished => strings.inactive,
+        }
+        .to_owned(),
+        GroupLabel::Pinned => strings.pinned.to_owned(),
+        GroupLabel::Model(name) => name.clone(),
+        GroupLabel::Path(path) => {
+            path::fit_heading(&display_directory(path, model.home.as_deref()), count, width)
+        }
+    };
+    one(vec![span(format!("{text}  {count}"), &look.dim)])
+}
+
+/// The label of the "Show more" row (oracle: `render_center_rows`).
+fn show_more<'a>(strings: &'a Strings, model: &Model) -> &'a str {
+    if let Some(history) = &model.history {
+        if history.loading {
+            strings.searching_history
+        } else if history.failed {
+            strings.retry
+        } else {
+            strings.show_more_matches
+        }
+    } else if model.paging.loading {
+        strings.loading_more
+    } else if model.paging.failed {
+        strings.retry
+    } else {
+        strings.show_more
+    }
+}
+
+/// The status and age columns (oracle: `rows.rs` `columns`).
+fn metadata(cells: Row, status: (&str, &Style), age: (String, &Style)) -> Row {
+    cells
+        .child(gap(2))
+        .child(fixed(STATUS_COLUMN, Text::line(status.0.to_owned()).style(status.1.clone())))
+        .child(gap(2))
+        .child(fixed(
+            AGE_COLUMN,
+            Text::line(age.0).style(age.1.clone()).text_align(TextAlign::Right),
+        ))
+}
+
 /// One entry of the list as a one-row widget `width` cells wide.
 #[allow(clippy::too_many_arguments)]
 fn entry(
@@ -424,52 +455,29 @@ fn entry(
     model: &Model,
     center: &Center,
     index: usize,
-    width: usize,
+    width: i32,
     selected: bool,
     tap: Option<&Handler<PointerEvent>>,
 ) -> AnyWidget {
-    let inner = width.saturating_sub(1);
+    let fill = if selected { look.selection.clone() } else { look.plain.clone() };
+    let marker = if selected { "\u{203a}" } else { " " };
+    let boxed = |row: Row| BoxWidget::new().style(fill.clone()).child(row);
     match &center.entries[index] {
-        CenterRow::Gap => blank(),
-        CenterRow::Group { label, count } => cell(
-            inner as i32,
-            heading(look, strings, model, label, count, inner),
-        ),
+        CenterRow::Gap => gap(1),
+        CenterRow::Group { label, count } => short(heading(
+            look,
+            strings,
+            model,
+            label,
+            count,
+            usize::try_from(width - 1).unwrap_or(0),
+        )),
         CenterRow::ShowMore => {
-            let fill = if selected {
-                look.selection.clone()
-            } else {
-                look.plain.clone()
-            };
-            let label = if let Some(history) = &model.history {
-                if history.loading {
-                    strings.searching_history
-                } else if history.failed {
-                    strings.retry
-                } else {
-                    strings.show_more_matches
-                }
-            } else if model.paging.loading {
-                strings.loading_more
-            } else if model.paging.failed {
-                strings.retry
-            } else {
-                strings.show_more
-            };
-            let marker = if selected { "\u{203a}" } else { " " };
-            let row = BoxWidget::new().style(fill.clone()).child(cell(
-                width as i32,
-                one(vec![span(format!("{marker}   {label}"), &fill)]),
-            ));
-            tappable(tap, row.into())
+            let label = format!("{marker}   {}", show_more(strings, model));
+            tappable(tap, boxed(Row::new().child(Expanded::new(1, Text::line(label).style(fill.clone())))).into())
         }
         CenterRow::Task(at) => {
             let row = &center.rows[*at];
-            let fill = if selected {
-                look.selection.clone()
-            } else {
-                look.plain.clone()
-            };
             let (status_text, mut dot) = status(row, strings, look);
             let idle = matches!(row.group, Group::Ready | Group::Finished);
             if row.unread || idle {
@@ -481,10 +489,9 @@ fn entry(
             } else if selected {
                 dot = span(dot.text.to_string(), &fill);
             }
-            let metadata = inner >= 56;
-            let title_width = inner - 4 - if metadata { 24 } else { 0 };
+            let wide = width >= METADATA;
             let mut title = row.title().to_owned();
-            if row.unread && !idle && !metadata {
+            if row.unread && !idle && !wide {
                 title = format!("{status_text}: {title}");
             }
             if row.pinned && model.grouping == Grouping::Status {
@@ -495,48 +502,29 @@ fn entry(
             } else {
                 look.thread(&look.plain, row.id())
             };
-            let mut cells = Row::new()
-                .child(cell(
-                    1,
-                    one(vec![span(if selected { "\u{203a}" } else { " " }, &fill)]),
-                ))
-                .child(pad(1))
-                .child(cell(1, one(vec![dot])))
-                .child(pad(1));
+            let title = Text::line(title).style(title_style);
             // The row of the voice session ends its title column with a
             // badge (oracle: `render_rows`, `task.has_voice && title.width >= 8`).
-            let badge = row.has_voice && title_width >= 8;
-            cells = cells.child(cell(
-                (title_width - if badge { 8 } else { 0 }) as i32,
-                one(vec![span(title, &title_style)]),
-            ));
-            if badge {
-                cells = cells.child(cell(8, one(vec![span("  voice", &fill)])));
+            let title: AnyWidget = if row.has_voice {
+                Row::new()
+                    .child(Expanded::new(1, title))
+                    .child(fixed(BADGE, Text::line("  voice").style(fill.clone())))
+                    .into()
+            } else {
+                title.into()
+            };
+            let mut cells = Row::new()
+                .child(fixed(1, Text::line(marker).style(fill.clone())))
+                .child(gap(1))
+                .child(fixed(1, one(vec![dot])))
+                .child(gap(1))
+                .child(Expanded::new(1, title));
+            if wide {
+                let age_style = if selected { &fill } else { &look.dim };
+                let age = age(strings, model.now, row.updated_at);
+                cells = metadata(cells, (status_text, &fill), (age, age_style));
             }
-            if metadata {
-                let age_style = if selected {
-                    fill.clone()
-                } else {
-                    look.dim.clone()
-                };
-                cells = cells
-                    .child(pad(2))
-                    .child(cell(11, one(vec![span(status_text, &fill)])))
-                    .child(pad(2))
-                    .child(cell(
-                        9,
-                        Text::rich_line(vec![span(
-                            age(strings, model.now, row.updated_at),
-                            &age_style,
-                        )])
-                        .text_align(TextAlign::Right),
-                    ));
-            }
-            cells = cells.child(pad(1));
-            let boxed = BoxWidget::new()
-                .style(fill)
-                .child(cell(width as i32, cells));
-            tappable(tap, boxed.into())
+            tappable(tap, boxed(cells.child(gap(1))).into())
         }
     }
 }
@@ -544,169 +532,136 @@ fn entry(
 /// The list pane (oracle: `render_center_rows`): the column labels, the
 /// rows in a `SelectionList` (it keeps the cursor and the scroll, and takes
 /// the keys and the mouse), the overflow arrows.
-#[allow(clippy::too_many_arguments)]
 pub fn list(
     look: &Look,
     strings: &Strings,
     agents: &Shared<Model>,
     center: &Rc<Center>,
-    width: usize,
-    height: usize,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    let model = &**agents;
-    let inner = width.saturating_sub(1);
-    if center.entries.is_empty() {
-        let text = empty_text(strings, model, model.threads.is_empty());
-        return Column::new()
-            .child(cell(inner as i32, one(vec![span(text, &look.dim)])))
-            .into();
-    }
-    let padding = usize::from(height >= 3);
-    let viewport = height.saturating_sub(2 * padding);
-    let keys: Rc<Vec<RowKey>> = Rc::new(
-        (0..center.entries.len())
-            .map(|at| key_of(center, at))
-            .collect(),
+    let (look, strings, agents, center, controls, taps) = (
+        look.clone(),
+        *strings,
+        agents.clone(),
+        center.clone(),
+        controls.clone(),
+        taps.clone(),
     );
-    let builder = {
-        let (look, agents, center, taps, keys) = (
-            look.clone(),
-            agents.clone(),
-            center.clone(),
-            taps.clone(),
-            keys.clone(),
-        );
-        let strings = *strings;
-        let selection = controls.selection.clone();
-        move |index: usize| -> AnyWidget {
-            let paint = {
-                let (look, agents, center, taps) =
-                    (look.clone(), agents.clone(), center.clone(), taps.clone());
-                move |selected: bool| {
-                    entry(
-                        &look,
-                        &strings,
-                        &agents,
-                        &center,
-                        index,
-                        width,
-                        selected,
-                        taps.get(index),
-                    )
-                }
-            };
-            if !keys[index].selectable() {
-                return paint(false);
-            }
-            let (selection, key) = (selection.clone(), keys[index].clone());
-            ListenableBuilder::new(selection.listenable(), move |_, _| {
-                paint(selection.cursor().as_ref() == Some(&key))
-            })
-            .into()
+    LayoutBuilder::new(move |_, constraints| {
+        let width = constraints.max_width;
+        let model = &*agents;
+        if center.entries.is_empty() {
+            let text = empty_text(&strings, model, model.threads.is_empty());
+            return top(short(Text::line(text.to_owned()).style(look.dim.clone())));
         }
-    };
-    let mut rows = SelectionList::new(
-        keys.len(),
-        {
-            let keys = keys.clone();
-            move |index| keys[index].clone()
-        },
-        builder,
-    )
-    .controller(controls.selection.clone())
-    .item_enabled({
-        let keys = keys.clone();
-        move |index| keys[index].selectable()
-    })
-    .on_submitted(controls.open.clone())
-    .focus_node(controls.focus.clone())
-    .autofocus(true)
-    .item_extent(1)
-    .bar(false)
-    .idle_style(look.selection.clone())
-    .selected_style(Style::new())
-    .disabled_style(Style::new());
-    rows.enabled = true;
-    let scroll = controls.scroll.clone();
-    let rows = NotificationListener::<ScrollNotification>::new(SizedBox::new(
-        Some(width as i32),
-        Some(viewport as i32),
-        Some(rows.into()),
-    ))
-    .on_notification(move |note| {
-        scroll.set_value(Scrolled {
-            above: note.metrics.pixels > 0,
-            below: note.metrics.pixels < note.metrics.max_scroll_extent,
-        });
-        false
-    });
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    if padding > 0 {
-        let metadata = inner >= 56;
-        let title_width = inner - 4 - if metadata { 24 } else { 0 };
-        let strings = *strings;
-        let arrow = {
-            let (look, scroll) = (look.clone(), controls.scroll.clone());
-            move |down: bool| {
-                let look = look.clone();
-                ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
-                    let show = if down { scrolled.below } else { scrolled.above };
-                    cell(
-                        1,
-                        one(vec![span(
-                            if show {
-                                if down { "\u{2193}" } else { "\u{2191}" }
-                            } else {
-                                " "
-                            },
-                            &look.dim,
-                        )]),
-                    )
+        let keys: Rc<Vec<RowKey>> = Rc::new(
+            (0..center.entries.len())
+                .map(|at| key_of(&center, at))
+                .collect(),
+        );
+        let builder = {
+            let (look, agents, center, taps, keys, selection) = (
+                look.clone(),
+                agents.clone(),
+                center.clone(),
+                taps.clone(),
+                keys.clone(),
+                controls.selection.clone(),
+            );
+            move |index: usize| -> AnyWidget {
+                let paint = {
+                    let (look, agents, center, taps) =
+                        (look.clone(), agents.clone(), center.clone(), taps.clone());
+                    move |selected: bool| {
+                        entry(&look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                    }
+                };
+                if !keys[index].selectable() {
+                    return paint(false);
+                }
+                let (selection, key) = (selection.clone(), keys[index].clone());
+                ListenableBuilder::new(selection.listenable(), move |_, _| {
+                    paint(selection.cursor().as_ref() == Some(&key))
                 })
+                .into()
             }
         };
-        let mut labels = Row::new().child(arrow(false)).child(pad(3)).child(cell(
-            title_width as i32,
-            one(vec![span(strings.tasks, &look.dim)]),
-        ));
-        if metadata {
-            labels = labels
-                .child(pad(2))
-                .child(cell(11, one(vec![span(strings.status_header, &look.dim)])))
-                .child(pad(2))
-                .child(cell(
-                    9,
-                    Text::rich_line(vec![span(strings.updated_header, &look.dim)])
-                        .text_align(TextAlign::Right),
-                ));
-        }
-        column = column.child(cell(inner as i32, labels));
-        column = column.child(rows);
-        column = column.child(Row::new().child(arrow(true)));
-    } else {
-        column = column.child(rows);
-    }
-    column.into()
-}
-
-/// A text of the details, cut to `width` with an ellipsis.
-fn clip(text: &str, style: &Style, width: usize) -> Line {
-    vec![span(layout::ellipsize(text, width), style)]
-}
-
-fn wrapped(text: &str, style: &Style, width: usize) -> Vec<Line> {
-    text.split('\n')
-        .flat_map(|part| {
-            if part.trim().is_empty() {
-                vec![String::new()]
-            } else {
-                layout::wrap(part, width)
-            }
+        let rows = SelectionList::new(
+            keys.len(),
+            {
+                let keys = keys.clone();
+                move |index| keys[index].clone()
+            },
+            builder,
+        )
+        .controller(controls.selection.clone())
+        .item_enabled({
+            let keys = keys.clone();
+            move |index| keys[index].selectable()
         })
+        .on_submitted(controls.open.clone())
+        .focus_node(controls.focus.clone())
+        .autofocus(true)
+        .item_extent(1)
+        .bar(false)
+        .idle_style(look.selection.clone())
+        .selected_style(Style::new())
+        .disabled_style(Style::new());
+        let scroll = controls.scroll.clone();
+        let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(
+            move |note| {
+                scroll.set_value(Scrolled {
+                    above: note.metrics.pixels > 0,
+                    below: note.metrics.pixels < note.metrics.max_scroll_extent,
+                });
+                false
+            },
+        );
+        let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let tall = constraints.max_height >= 3;
+        if tall {
+            let mut labels = Row::new()
+                .child(arrow(&look, &controls.scroll, false))
+                .child(gap(3))
+                .child(Expanded::new(1, Text::line(strings.tasks).style(look.dim.clone())));
+            if width >= METADATA {
+                labels = metadata(
+                    labels,
+                    (strings.status_header, &look.dim),
+                    (strings.updated_header.to_owned(), &look.dim),
+                );
+            }
+            column = column.child(short(labels));
+        }
+        column = column.child(Expanded::new(1, rows));
+        if tall {
+            column = column.child(Row::new().child(arrow(&look, &controls.scroll, true)));
+        }
+        column.into()
+    })
+    .into()
+}
+
+/// The overflow arrow of an edge of the list: shown while rows lie beyond it.
+fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWidget {
+    let style = look.dim.clone();
+    ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
+        let show = if down { scrolled.below } else { scrolled.above };
+        let glyph = match (show, down) {
+            (false, _) => " ",
+            (true, true) => "\u{2193}",
+            (true, false) => "\u{2191}",
+        };
+        fixed(1, Text::line(glyph).style(style.clone()))
+    })
+    .into()
+}
+
+/// The rows a text of the details takes at the pane's width.
+fn flow(text: &str, style: &Style) -> Vec<Line> {
+    soft::rows(text, DETAILS_WIDTH)
+        .into_iter()
         .map(|row| vec![span(row, style)])
         .collect()
 }
@@ -717,66 +672,74 @@ fn bills_in_dollars(model: &Model) -> bool {
     model.plan_bills_in_dollars()
 }
 
-/// The details of the highlighted row (oracle: `render_details`).
+/// The details of the highlighted row (oracle: `render_details`): one row
+/// per line, the prompt kept to two rows and the activity to the rows left.
 pub fn details(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    row: &RowData,
-    model: &Model,
-    width: usize,
-    height: usize,
+    center: &Rc<Center>,
+    agents: &Shared<Model>,
 ) -> AnyWidget {
+    let (look, strings, num, center, agents) =
+        (look.clone(), *strings, num.clone(), center.clone(), agents.clone());
+    LayoutBuilder::new(move |_, constraints| {
+        let Some(row) = center.selected_row() else {
+            return AnyWidget::default();
+        };
+        let height = usize::try_from(constraints.max_height).unwrap_or(0);
+        let lines = detail_lines(&look, &strings, &num, row, &agents, height);
+        top(stacked(lines.into_iter().map(one).collect()))
+    })
+    .into()
+}
+
+fn detail_lines(
+    look: &Look,
+    strings: &Strings,
+    num: &NumSyms,
+    row: &RowData,
+    agents: &Shared<Model>,
+    height: usize,
+) -> Vec<Line> {
+    let model = &**agents;
     let (status_text, dot) = status(row, strings, look);
-    let mut lines: Vec<Line> = vec![
+    let pair = |label: &'static str, value: &str| {
+        vec![span(label, &look.dim), span(value, &look.plain)]
+    };
+    let mut head: Vec<Line> = vec![
         vec![span(strings.details, &look.bold)],
         Vec::new(),
-        clip(row.title(), &look.thread(&look.bold, row.id()), width),
+        vec![span(row.title(), &look.thread(&look.bold, row.id()))],
         vec![dot, span(" ", &look.plain), span(status_text, &look.plain)],
         Vec::new(),
-        clip_pair(strings.model, row.model(), look, width),
-        clip_pair(
-            strings.reasoning,
-            row.reasoning_effort.as_deref().unwrap_or(strings.unknown),
-            look,
-            width,
-        ),
+        pair(strings.model, row.model()),
+        pair(strings.reasoning, row.reasoning_effort.as_deref().unwrap_or(strings.unknown)),
         Vec::new(),
         vec![span(strings.project, &look.dim)],
     ];
-    let mut head: Vec<Line> = lines.split_off(0);
-    head.extend(wrapped(
-        &row.cwd,
-        &look.plain,
-        width,
-    ));
+    head.extend(flow(&row.cwd, &look.plain));
     let usage_lines = usage::lines(strings, num, &row.details.usage, bills_in_dollars(model));
     for line in &usage_lines {
-        head.push(vec![
-            span(line.label, &look.dim),
-            span(line.value.clone(), &look.plain),
-        ]);
+        head.push(pair(line.label, &line.value));
     }
     if let Some(branch) = &row.branch {
         head.push(Vec::new());
         head.push(vec![span(strings.branch, &look.dim)]);
-        head.extend(wrapped(branch, &look.plain, width));
+        head.extend(flow(branch, &look.plain));
     }
     let prompt_start = head.len();
     head.push(Vec::new());
     head.push(vec![span(strings.prompt, &look.dim)]);
     let prompt_text = codex_tui_core::screens::agents::preview_markdown(
-        row.details
-            .latest_prompt
-            .as_deref()
-            .unwrap_or(&row.preview),
+        row.details.latest_prompt.as_deref().unwrap_or(&row.preview),
     );
     let prompt_text = if prompt_text.is_empty() {
         strings.no_prompt.to_owned()
     } else {
         prompt_text
     };
-    let mut prompt = wrapped(&prompt_text, &look.plain, width);
+    let mut prompt = flow(&prompt_text, &look.plain);
     if prompt.len() > 2 {
         prompt.truncate(2);
         prompt[1] = vec![span(strings.elision, &look.dim)];
@@ -787,42 +750,31 @@ pub fn details(
     for line in &row.details.lines {
         match line {
             DetailLine::Blank => activity.push(Vec::new()),
-            DetailLine::Agent(name) => {
-                activity.push(vec![
-                    span(strings.agent_label, &look.dim),
-                    span(name.clone(), &look.plain),
-                ]);
-            }
+            DetailLine::Agent(name) => activity.push(pair(strings.agent_label, name)),
             DetailLine::NeedsAttention => {
-                activity.push(vec![span(strings.needs_attention, &look.red)])
+                activity.push(vec![span(strings.needs_attention, &look.red)]);
             }
-            DetailLine::Request(text) => activity.extend(wrapped(text, &look.plain, width)),
+            DetailLine::Request(text) => activity.extend(flow(text, &look.plain)),
             DetailLine::OpenToReview => activity.push(vec![span(strings.open_task, &look.dim)]),
             DetailLine::WaitingApproval => {
-                activity.push(vec![span(strings.wait_approval, &look.plain)])
+                activity.push(vec![span(strings.wait_approval, &look.plain)]);
             }
             DetailLine::WaitingResponse => {
-                activity.push(vec![span(strings.wait_response, &look.plain)])
+                activity.push(vec![span(strings.wait_response, &look.plain)]);
             }
             DetailLine::TaskError => activity.push(vec![span(strings.task_error, &look.plain)]),
             DetailLine::LatestActivity(header) => {
                 activity.push(vec![span(strings.latest_activity, &look.dim)]);
-                activity.extend(wrapped(header, &look.plain, width));
+                activity.extend(flow(header, &look.plain));
             }
         }
     }
     if let Some(message) = &row.details.last_message {
         activity.push(Vec::new());
         activity.push(vec![span(strings.last_message, &look.dim)]);
-        activity.extend(wrapped(message, &look.plain, width));
+        activity.extend(flow(message, &look.plain));
     }
-    let offline = matches!(
-        model.notice,
-        Some(
-            codex_tui_core::screens::agents::Notice::Reconnecting
-                | codex_tui_core::screens::agents::Notice::ReconnectFailed
-        )
-    );
+    let offline = matches!(model.notice, Some(Notice::Reconnecting | Notice::ReconnectFailed));
     if !offline && !activity.is_empty() {
         if !usage_lines.is_empty() && activity.len() > height.saturating_sub(lines.len()) {
             lines.truncate(prompt_start);
@@ -839,30 +791,12 @@ pub fn details(
         lines.extend(tail);
     }
     lines.truncate(height);
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    for line in lines {
-        column = column.child(cell(width as i32, one(line)));
-    }
-    column.into()
-}
-
-fn clip_pair(label: &str, value: &str, look: &Look, width: usize) -> Line {
-    let text = layout::ellipsize(&format!("{label}{value}"), width);
-    let split = if text.starts_with(label) {
-        label.len()
-    } else {
-        text.len()
-    };
-    let (head, tail) = text.split_at(split);
-    vec![span(head, &look.dim), span(tail, &look.plain)]
+    lines
 }
 
 /// The footer line: the hints, or the notice that replaces them.
 pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return: bool) -> Line {
-    use codex_tui_core::screens::agents::{Action, Notice};
-    let notice = match &model.notice {
+        let notice = match &model.notice {
         Some(Notice::Reconnecting) => Some(strings.reconnecting.to_owned()),
         Some(Notice::ReconnectFailed) => Some(strings.reconnect_failed.to_owned()),
         Some(Notice::Removing(Action::Archive)) => Some(strings.archiving.to_owned()),
@@ -922,18 +856,8 @@ fn hint_line(look: &Look, items: &[(&str, &str)]) -> Line {
 /// The search or rename row above the list: the label and a `TextField`
 /// that edits the controller's text (a search tells the model each change, a
 /// rename its text on Enter).
-pub fn editor(
-    look: &Look,
-    strings: &Strings,
-    ui: &Ui,
-    width: usize,
-    controls: &Controls,
-) -> AnyWidget {
-    let label = if ui.renaming {
-        strings.rename_label
-    } else {
-        strings.search_label
-    };
+pub fn editor(look: &Look, strings: &Strings, ui: &Ui, controls: &Controls) -> AnyWidget {
+    let label = if ui.renaming { strings.rename_label } else { strings.search_label };
     let label_style = look.cyan.clone().attrs(Attrs::BOLD);
     let mut field = TextField::new()
         .controller(controls.edit.clone())
@@ -946,21 +870,12 @@ pub fn editor(
     if !ui.renaming {
         field = field.on_changed(controls.search.clone());
     }
+    let row = Row::new()
+        .child(Text::line(label).style(label_style))
+        .child(Expanded::new(1, field));
     BoxWidget::new()
         .style(look.tab.clone())
-        .child(SizedBox::new(
-            Some(width as i32),
-            Some(1),
-            Some(
-                Row::new()
-                    .child(cell(
-                        layout::columns(label) as i32,
-                        one(vec![span(label, &label_style)]),
-                    ))
-                    .child(Expanded::new(1, field))
-                    .into(),
-            ),
-        ))
+        .child(SizedBox::new(None, Some(1), Some(row.into())))
         .into()
 }
 
@@ -974,72 +889,40 @@ pub fn body(
     agents: &Shared<Model>,
     ui: &Ui,
     center: &Rc<Center>,
-    areas: &layout::Areas,
     controls: &Controls,
     taps: &Taps,
 ) -> AnyWidget {
-    let model = &**agents;
     let editing = ui.editing();
-    let search_rows = usize::from(editing && areas.body_height > 0);
-    let list_height = areas.body_height - search_rows;
-    let mut pane = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    if search_rows > 0 {
-        pane = pane.child(editor(look, strings, ui, areas.list_width, controls));
+    let mut pane = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if editing {
+        pane = pane.child(editor(look, strings, ui, controls));
     }
     // The list gives the focus to the editing line while one is open.
-    let rows = list(
-        look,
-        strings,
-        agents,
-        center,
-        areas.list_width,
-        list_height,
-        controls,
-        &taps.rows,
+    let rows = list(look, strings, agents, center, controls, &taps.rows);
+    let pane: AnyWidget = pane
+        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing || ui.confirming)))
+        .into();
+    let details = details(look, strings, num, center, agents);
+    let rule = VerticalDivider::new()
+        .kind(BorderType::Single)
+        .style(look.dim.clone())
+        .merge(false);
+    let rule = SizedBox::new(
+        Some(GAP_WIDTH),
+        None,
+        Some(Padding::new(EdgeInsets::only(1, 0, 1, 0), rule).into()),
     );
-    pane = pane.child(ExcludeFocus::new(rows).excluding(editing || ui.confirming));
-    let mut row = Row::new()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(pad(areas.list_x))
-        .child(SizedBox::new(
-            Some(areas.list_width as i32),
-            Some(areas.body_height as i32),
-            Some(pane.into()),
-        ));
-    if let Some(_gap) = areas.gap_x {
-        let mut gap = Column::new().main_axis_size(MainAxisSize::Min);
-        for _ in 0..areas.body_height {
-            gap = gap.child(cell(
-                3,
-                Row::new()
-                    .child(pad(1))
-                    .child(cell(1, one(vec![span("\u{2502}", &look.dim)]))),
-            ));
+    inset(LayoutBuilder::new(move |_, constraints| {
+        if constraints.max_width < TWO_PANES {
+            return pane.clone();
         }
-        row = row.child(SizedBox::new(
-            Some(3),
-            Some(areas.body_height as i32),
-            Some(gap.into()),
-        ));
-        if let Some(selected) = center.selected_row() {
-            row = row.child(SizedBox::new(
-                Some(areas.details_width as i32),
-                Some(areas.body_height as i32),
-                Some(details(
-                    look,
-                    strings,
-                    num,
-                    selected,
-                    model,
-                    areas.details_width,
-                    areas.body_height,
-                )),
-            ));
-        }
-    }
-    SizedBox::new(None, Some(areas.body_height as i32), Some(row.into())).into()
+        Row::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Expanded::new(1, pane.clone()))
+            .child(rule.clone())
+            .child(SizedBox::new(Some(DETAILS_WIDTH as i32), None, Some(details.clone())))
+            .into()
+    }))
 }
 
 /// The footer row, inset two cells.
@@ -1049,30 +932,14 @@ pub fn footer_row(
     model: &Model,
     ui: &Ui,
     can_return: bool,
-    width: usize,
 ) -> AnyWidget {
-    let inner = width.saturating_sub(4);
-    Row::new()
-        .child(pad(2))
-        .child(cell(
-            inner as i32,
-            one(footer(look, strings, model, ui, can_return)),
-        ))
-        .into()
+    inset(one(footer(look, strings, model, ui, can_return)))
 }
 
 /// The shortcut help in place of the list and the details (oracle:
 /// `center_help_lines` and the `help` arm of `render`): three groups flowed
 /// into as many columns as the width holds, cut to the room with a note.
-pub fn help(
-    look: &Look,
-    strings: &Strings,
-    model: &Model,
-    center: &Center,
-    areas: &layout::Areas,
-    width: usize,
-) -> AnyWidget {
-    let inner = width.saturating_sub(4);
+pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> AnyWidget {
     let pair = |entries: &[(&str, &str)]| -> Vec<(String, String)> {
         entries
             .iter()
@@ -1089,58 +956,26 @@ pub fn help(
             (can_pin || *action != "Pin/unpin") && (model.worktrees || *action != "New worktree")
         })
         .collect();
-    let mut view = vec![(
-        strings.filter_keys.to_owned(),
-        strings.help_filter.to_owned(),
-    )];
+    let mut view = vec![(strings.filter_keys.to_owned(), strings.help_filter.to_owned())];
     view.extend(pair(&strings.help_entries_view));
+    let group = |title: &str, entries| help::Group { title: title.to_owned(), entries };
     let groups = [
-        layout::HelpGroup {
-            title: strings.help_navigate.to_owned(),
-            entries: pair(&strings.help_entries_navigate),
-        },
-        layout::HelpGroup {
-            title: strings.help_tasks.to_owned(),
-            entries: pair(&tasks),
-        },
-        layout::HelpGroup {
-            title: strings.help_view.to_owned(),
-            entries: view,
-        },
+        group(strings.help_navigate, pair(&strings.help_entries_navigate)),
+        group(strings.help_tasks, pair(&tasks)),
+        group(strings.help_view, view),
     ];
-    let paint = |ink: layout::Ink| match ink {
-        layout::Ink::Title => look.bold.clone(),
-        layout::Ink::Key => look.accent.clone(),
-        layout::Ink::Plain => look.plain.clone(),
+    let ink = Ink {
+        title: look.bold.clone(),
+        key: look.accent.clone(),
+        plain: look.plain.clone(),
+        dim: look.dim.clone(),
     };
-    let mut rows: Vec<Line> = vec![vec![span(strings.help_title, &look.bold)], Vec::new()];
-    rows.extend(layout::help_rows(&groups, inner).into_iter().map(|row| {
-        row.into_iter()
-            .map(|(ink, text)| span(text, &paint(ink)))
-            .collect()
-    }));
-    if rows.len() > areas.body_height {
-        rows.truncate(areas.body_height.saturating_sub(1));
-        rows.push(vec![span(strings.help_resize, &look.dim)]);
-    }
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    for row in rows {
-        column = column.child(cell(inner as i32, one(row)));
-    }
-    SizedBox::new(
-        None,
-        Some(areas.body_height as i32),
-        Some(
-            Row::new()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(pad(2))
-                .child(column)
-                .into(),
-        ),
-    )
-    .into()
+    let (title, resize) = (strings.help_title, strings.help_resize);
+    inset(LayoutBuilder::new(move |_, constraints| {
+        let room = |cells: i32| usize::try_from(cells).unwrap_or(0);
+        let size = (room(constraints.max_width), room(constraints.max_height));
+        help::help(title, &groups, size, resize, &ink)
+    }))
 }
 
 /// The name a confirmation asks about: the task's name or its preview, the
@@ -1161,20 +996,20 @@ fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String
         .to_owned()
 }
 
-/// A row of the confirmation as wide as the dialog: its spans, then blanks
-/// that clear what the screen shows below (oracle: the centered view clears
-/// its area).
-fn dialog_row(spans: Line, width: usize, fill: &Style) -> AnyWidget {
-    let used: usize = spans.iter().map(|span| layout::columns(&span.text)).sum();
-    let mut spans = spans;
-    spans.push(span(" ".repeat(width.saturating_sub(used)), fill));
-    cell(width as i32, one(spans))
+/// A line of a dialog, two cells in from its sides, wrapped by word.
+fn note(text: &str, style: &Style) -> AnyWidget {
+    inset(Text::new(text.to_owned()).style(style.clone()).wrap(TextWrap::Word))
+}
+
+/// A dialog's panel: its rows over a background that clears what lies below
+/// (oracle: the centered view clears its area).
+fn panel(look: &Look, rows: Vec<AnyWidget>) -> AnyWidget {
+    BoxWidget::new().style(look.plain.clone()).child(stacked(rows)).into()
 }
 
 /// The archive and delete confirmation: a centered panel over the screen
 /// (oracle: `CenteredView` with `SelectionViewParams::confirmation()`): the
 /// title and the description wrapped, the two rows, a hint.
-#[allow(clippy::too_many_arguments)]
 pub fn confirm_dialog(
     look: &Look,
     strings: &Strings,
@@ -1182,10 +1017,8 @@ pub fn confirm_dialog(
     model: &Model,
     center: &Center,
     confirm: &Confirm,
-    area: (usize, usize),
     controls: &Controls,
 ) -> AnyWidget {
-    let (width, height) = area;
     let name = confirm_name(strings, center, confirm);
     let (title, description, label) = match confirm.action {
         Action::Archive if model.cloud => (
@@ -1204,152 +1037,71 @@ pub fn confirm_dialog(
             strings.delete_label,
         ),
     };
-    let panel = width.saturating_sub(4).max(width.min(8)).min(72);
-    let inner = panel.saturating_sub(4);
-    let bold = look.bold.clone();
-    let mut header: Vec<(String, Style)> = layout::wrap(&title, inner)
-        .into_iter()
-        .map(|line| (line, bold.clone()))
-        .collect();
-    header.extend(
-        layout::wrap(description, inner)
-            .into_iter()
-            .map(|line| (line, look.dim.clone())),
-    );
-    let rows_at = 1 + header.len() + 2;
-    let total = (rows_at + 2 + 2).min(height);
-    let plain = look.plain.clone();
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    column = column.child(dialog_row(Vec::new(), panel, &plain));
-    for (line, style) in header {
-        column = column.child(dialog_row(
-            vec![span("  ", &plain), span(line, &style)],
-            panel,
-            &plain,
-        ));
-    }
-    column = column.child(dialog_row(Vec::new(), panel, &plain));
-    column = column.child(dialog_row(Vec::new(), panel, &plain));
     let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
-    let accent = look.accent.clone().attrs(Attrs::BOLD);
-    let builder = {
-        let selection = controls.confirm_selection.clone();
-        let plain = plain.clone();
-        move |index: usize| -> AnyWidget {
-            let (selection, labels, plain, accent) = (
-                selection.clone(),
-                labels.clone(),
-                plain.clone(),
-                accent.clone(),
-            );
-            ListenableBuilder::new(selection.listenable(), move |_, _| {
-                let selected = selection.cursor() == Some(index);
-                let style = if selected { &accent } else { &plain };
-                let marker = if selected { "\u{203a} " } else { "  " };
-                dialog_row(
-                    vec![span(
-                        format!("{marker}{}. {}", index + 1, labels[index]),
-                        style,
-                    )],
-                    panel,
-                    &plain,
-                )
-            })
-            .into()
-        }
-    };
-    let list = SelectionList::new(2, |index| index, builder)
-        .controller(controls.confirm_selection.clone())
-        .on_submitted(controls.confirm_pick.clone())
-        .focus_node(controls.confirm_focus.clone())
-        .autofocus(true)
-        .item_extent(1)
-        .bar(false)
-        .idle_style(Style::new())
-        .selected_style(Style::new())
-        .disabled_style(Style::new());
-    column = column.child(SizedBox::new(
-        Some(panel as i32),
-        Some(2),
-        Some(list.into()),
-    ));
-    column = column.child(dialog_row(Vec::new(), panel, &plain));
-    column = column.child(dialog_row(
-        vec![span("  ", &plain), span(strings.select_hint, &look.dim)],
-        panel,
-        &plain,
-    ));
-    let left = (width - panel) / 2;
-    let top = (height - total) / 2;
-    Positioned::new(SizedBox::new(
-        Some(panel as i32),
-        Some(total as i32),
-        Some(column.into()),
-    ))
-    .left(left as i32)
-    .top(top as i32)
-    .into()
+    let (selection, accent, plain) = (
+        controls.confirm_selection.clone(),
+        look.accent.clone().attrs(Attrs::BOLD),
+        look.plain.clone(),
+    );
+    let choices = SelectionList::new(2, |index| index, move |index: usize| -> AnyWidget {
+        let (selection, labels, accent, plain) =
+            (selection.clone(), labels.clone(), accent.clone(), plain.clone());
+        ListenableBuilder::new(selection.listenable(), move |_, _| {
+            let selected = selection.cursor() == Some(index);
+            let marker = if selected { "\u{203a} " } else { "  " };
+            let style = if selected { &accent } else { &plain };
+            Text::line(format!("{marker}{}. {}", index + 1, labels[index])).style(style.clone()).into()
+        })
+        .into()
+    })
+    .controller(controls.confirm_selection.clone())
+    .on_submitted(controls.confirm_pick.clone())
+    .focus_node(controls.confirm_focus.clone())
+    .autofocus(true)
+    .item_extent(1)
+    .bar(false)
+    .idle_style(Style::new())
+    .selected_style(Style::new())
+    .disabled_style(Style::new());
+    let blank = || gap(1);
+    let rows = vec![
+        blank(),
+        note(&title, &look.bold),
+        note(description, &look.dim),
+        blank(),
+        blank(),
+        SizedBox::new(None, Some(2), Some(choices.into())).into(),
+        blank(),
+        note(strings.select_hint, &look.dim),
+    ];
+    // The panel is 72 cells wide at most and two cells in from the screen.
+    let limits = BoxConstraints::new(0, 72, 0, UNBOUNDED);
+    inset(Middle::new(ConstrainedBox::new(limits, panel(look, rows))))
 }
 
 /// The dialog of a refused removal (oracle: the `LifecycleHeader` selection
 /// view of `run_agents_overview_action`): the verb in bold red, the server's
 /// error in red, the note that work may have stopped when the request was
 /// sent, and one row, `Back to agents`. It is the screen's whole content.
-pub fn failure_dialog(
-    look: &Look,
-    strings: &Strings,
-    failure: &Failure,
-    width: usize,
-) -> AnyWidget {
-    let plain = look.plain.clone();
-    let inner = width.saturating_sub(4).max(1);
+pub fn failure_dialog(look: &Look, strings: &Strings, failure: &Failure) -> AnyWidget {
     let title = match failure.action {
         Action::Archive => strings.failure_archive,
         Action::Delete => strings.failure_delete,
     };
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start);
-    let bold_red = look.red.clone().attrs(Attrs::BOLD);
-    column = column.child(dialog_row(
-        vec![span("  ", &plain), span(title, &bold_red)],
-        width,
-        &plain,
-    ));
-    for line in layout::wrap(&failure.error, inner) {
-        column = column.child(dialog_row(
-            vec![span("  ", &plain), span(line, &look.red)],
-            width,
-            &plain,
-        ));
-    }
-    if failure.attempted {
-        for line in layout::wrap(strings.failure_note, inner) {
-            column = column.child(dialog_row(
-                vec![span("  ", &plain), span(line, &look.dim)],
-                width,
-                &plain,
-            ));
-        }
-    }
-    column = column.child(dialog_row(Vec::new(), width, &plain));
-    column = column.child(dialog_row(Vec::new(), width, &plain));
     let accent = look.accent.clone().attrs(Attrs::BOLD);
-    column = column.child(dialog_row(
-        vec![span(
-            format!("\u{203a} 1. {}", strings.back_to_agents),
-            &accent,
-        )],
-        width,
-        &plain,
-    ));
-    column = column.child(dialog_row(Vec::new(), width, &plain));
-    column = column.child(dialog_row(
-        vec![span("  ", &plain), span(strings.select_hint, &look.dim)],
-        width,
-        &plain,
-    ));
-    column.into()
+    let mut rows = vec![
+        note(title, &look.red.clone().attrs(Attrs::BOLD)),
+        note(&failure.error, &look.red),
+    ];
+    if failure.attempted {
+        rows.push(note(strings.failure_note, &look.dim));
+    }
+    rows.extend([
+        gap(1),
+        gap(1),
+        one(vec![span(format!("\u{203a} 1. {}", strings.back_to_agents), &accent)]),
+        gap(1),
+        note(strings.select_hint, &look.dim),
+    ]);
+    panel(look, rows)
 }

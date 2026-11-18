@@ -14,7 +14,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
-use rtwk::layout::{Stack, StackFit};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Stack, StackFit};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
@@ -32,7 +32,10 @@ use crate::screens::EntryOpen;
 use crate::ui::seeded::Seeded;
 use crate::ui::view::Hs;
 
-mod layout;
+mod help;
+mod path;
+mod soft;
+mod tabs;
 pub mod strings;
 mod usage;
 mod view;
@@ -991,29 +994,23 @@ impl State for ScreenState {
         };
         let can_return = w.can_return;
         let body = LayoutBuilder::new(move |_, constraints| {
-            let width = usize::try_from(constraints.max_width).unwrap_or(0);
-            let height = usize::try_from(constraints.max_height).unwrap_or(0);
             let model = &*agents;
             if let Some(failure) = &model.failure {
-                return view::failure_dialog(&look, strings, failure, width);
+                return view::failure_dialog(&look, strings, failure);
             }
-            let areas = layout::areas(width, height);
-            let mut column = rtwk::layout::Column::new()
-                .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
-            if areas.header > 0 {
-                column = column.child(view::header(
-                    &look, strings, &num, model, &ui, &center, width, &taps,
-                ));
+            // The header takes three rows from six, the footer one from two.
+            let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+            if constraints.max_height >= 6 {
+                column = column.child(view::header(&look, strings, &num, model, &ui, &center, &taps));
             }
-            if ui.help {
-                column = column.child(view::help(&look, strings, model, &center, &areas, width));
+            let content = if ui.help {
+                view::help(&look, strings, model, &center)
             } else {
-                column = column.child(view::body(
-                    &look, strings, &num, &agents, &ui, &center, &areas, &controls, &taps,
-                ));
-            }
-            if areas.footer_row < height {
-                column = column.child(view::footer_row(&look, strings, model, &ui, can_return, width));
+                view::body(&look, strings, &num, &agents, &ui, &center, &controls, &taps)
+            };
+            column = column.child(Expanded::new(1, content));
+            if constraints.max_height >= 2 {
+                column = column.child(view::footer_row(&look, strings, model, &ui, can_return));
             }
             let Some(confirm) = &confirm else {
                 return column.into();
@@ -1021,16 +1018,7 @@ impl State for ScreenState {
             Stack::new()
                 .fit(StackFit::Expand)
                 .child(column)
-                .child(view::confirm_dialog(
-                    &look,
-                    strings,
-                    &num,
-                    model,
-                    &center,
-                    confirm,
-                    (width, height),
-                    &controls,
-                ))
+                .child(view::confirm_dialog(&look, strings, &num, model, &center, confirm, &controls))
                 .into()
         });
         Focus::new(body)
