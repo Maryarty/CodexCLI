@@ -5,12 +5,11 @@
 pub mod oracle {
     //! The oracle's snapshot text and the comparison with an rtwk screen.
     //!
-    //! codex-tui draws these views as bottom-pane panes (no frame); tui-rtwk
-    //! shows them in a `Dialog` (frame, title, its own cursor marker).
-    //! `assert_rows` therefore compares the oracle's non-blank rows, trimmed,
-    //! as an ordered subsequence of the screen's rows, and the cursor marker
-    //! `› ` of the oracle is dropped (delta N01 in the parity pack: the cursor
-    //! row is highlighted by style). Rows must otherwise match byte for byte.
+    //! codex-tui draws these views as bottom-pane panes. `assert_rows`
+    //! compares the oracle's non-blank rows, trimmed, byte for byte (the
+    //! cursor marker `› ` included), as an ordered subsequence of the
+    //! screen's rows. No visual difference is accepted: a test that stays red
+    //! shows what the view still draws differently.
 
     // Reading the oracle's `.snap` is the one IO of a test (R12 is about src).
     #![allow(clippy::disallowed_methods)]
@@ -33,9 +32,16 @@ pub mod oracle {
             .unwrap_or_default()
             .replace("\r\n", "\n")
             .lines()
-            .map(|line| squeeze_wide(line.trim_end()))
+            .map(|line| squeeze_wide(unquote(line).trim_end()))
             .filter(|line| !line.trim().is_empty())
             .collect()
+    }
+
+    /// A `TestBackend` snapshot writes each row as a quoted string.
+    fn unquote(line: &str) -> &str {
+        line.strip_prefix('"')
+            .and_then(|line| line.strip_suffix('"'))
+            .unwrap_or(line)
     }
 
     /// The oracle's snapshot writer prints the empty second cell of a wide
@@ -67,8 +73,11 @@ pub mod oracle {
     pub fn assert_rows_except(screen: &str, path: &str, skip: &[&str]) {
         let lines: Vec<&str> = screen.lines().collect();
         let mut at = 0;
-        for row in rows(path).into_iter().filter(|row| !skip.contains(&row.trim())) {
-            let row = row.trim().strip_prefix("› ").unwrap_or(row.trim()).trim();
+        for row in rows(path)
+            .into_iter()
+            .filter(|row| !skip.contains(&row.trim()))
+        {
+            let row = row.trim();
             let Some(found) = lines[at..].iter().position(|line| line.contains(row)) else {
                 panic!(
                     "oracle row {row:?} ({path}) not found after line {at}; the screen:\n{screen}"
@@ -95,9 +104,8 @@ fn closed(h: &mut Harness, title: &str) {
 }
 
 const SHORTCUTS: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__chat_composer__tests__footer_mode_shortcut_overlay.snap";
-const KEYBOARD: &str =
-    "bottom_pane/snapshots/codex_tui__bottom_pane__shortcut_overlay__tests__shortcut_keyboard_base.snap";
-const COMPOSER_ROW: &str = "Ask Codex to do anything";
+const KEYBOARD: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__shortcut_overlay__tests__shortcut_keyboard_base.snap";
+const COMPOSER_ROW: &str = "› Ask Codex to do anything";
 
 // bottom_pane/chat_composer.rs: footer_mode_shortcut_overlay (the composer row
 // is the chat's, not the overlay's).
@@ -151,7 +159,11 @@ fn warning_pages_wrap_and_scroll_long_diagnostics() {
     let mut h = open(44, 14, "warnings_long");
     h.press("end");
     h.t.pump_for(ms(200));
-    assert!(h.t.screen().contains("END OF DIAGNOSTIC"), "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("END OF DIAGNOSTIC"),
+        "{}",
+        h.t.screen()
+    );
     h.press("right");
     h.t.pump_for(ms(200));
     assert!(h.t.screen().contains("Unknown setting"), "{}", h.t.screen());
@@ -222,7 +234,10 @@ fn a_feedback_category_leads_to_the_consent_step() {
     h.press("enter");
     h.t.pump_for(ms(800));
     let screen = h.t.screen();
-    assert!(screen.contains("Include logs and session history?"), "{screen}");
+    assert!(
+        screen.contains("Include logs and session history?"),
+        "{screen}"
+    );
     assert!(!screen.contains("How was this?"), "{screen}");
 }
 

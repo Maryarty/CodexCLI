@@ -194,7 +194,87 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, intent, fx);
+    let _ = fx;
+    match intent {
+        Intent::Close => close(model),
+        Intent::ToggleKeyboard => {
+            if let Some(Open::Shortcuts(view)) = &mut model.open {
+                *view = match view {
+                    ShortcutView::List => ShortcutView::Keyboard,
+                    ShortcutView::Keyboard => ShortcutView::List,
+                };
+            }
+        }
+        Intent::Page(page) => apply_page(model, page),
+        Intent::PickCategory(index) => {
+            if let (Some(Open::Feedback(step @ Feedback::Category)), Some(category)) =
+                (&mut model.open, FeedbackCategory::ALL.get(index))
+            {
+                *step = Feedback::Consent {
+                    category: *category,
+                    attachments: Attachments::default(),
+                };
+            }
+        }
+        Intent::Consent(include_logs) => {
+            if let Some(Open::Feedback(Feedback::Consent { category, .. })) = &model.open {
+                model.note = Some(NoteRequest {
+                    category: *category,
+                    include_logs,
+                });
+                model.open = None;
+            }
+        }
+    }
+}
+
+/// Closes the dialog; a warnings viewer first records what the user decided
+/// (`WarningsView::close`): kept pages are kept, the other shown pages are
+/// dismissed, pages never shown are left alone.
+fn close(model: &mut Model) {
+    if let Some(Open::Warnings(warnings)) = model.open.take() {
+        let mut dismissed = Vec::new();
+        let mut kept = Vec::new();
+        for (index, entry) in warnings.entries.into_iter().enumerate() {
+            if warnings.kept.contains(&index) {
+                kept.push(entry);
+            } else if warnings.visited.contains(&index) {
+                dismissed.push(entry);
+            }
+        }
+        if !dismissed.is_empty() || !kept.is_empty() {
+            model.decided.push(Decision { dismissed, kept });
+        }
+    }
+    model.open = None;
+}
+
+/// `WarningsView::handle_key`: pages, keep and copy.
+fn apply_page(model: &mut Model, page: PageIntent) {
+    let Some(Open::Warnings(warnings)) = &mut model.open else {
+        return;
+    };
+    let last = warnings.entries.len().saturating_sub(1);
+    match page {
+        PageIntent::Previous => warnings.current = warnings.current.saturating_sub(1),
+        PageIntent::Next => warnings.current = (warnings.current + 1).min(last),
+        PageIntent::KeepAndNext => {
+            warnings.kept.insert(warnings.current);
+            if warnings.current >= last {
+                close(model);
+                return;
+            }
+            warnings.current += 1;
+        }
+        PageIntent::Copy => {
+            if let Some(entry) = warnings.page() {
+                let text = entry.details.clone();
+                model.copied.push(text);
+            }
+            return;
+        }
+    }
+    warnings.visited.insert(warnings.current);
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
