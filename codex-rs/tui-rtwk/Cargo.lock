@@ -3856,6 +3856,7 @@ name = "codex-tui-core"
 version = "0.0.0"
 dependencies = [
  "codex-app-server-protocol",
+ "codex-protocol",
  "pretty_assertions",
  "serde",
  "serde_json",
