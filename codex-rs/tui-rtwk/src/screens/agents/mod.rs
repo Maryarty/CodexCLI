@@ -644,6 +644,11 @@ impl ScreenState {
         let center = model.center_at(self.cursor().as_ref(), &self.lens());
         if let Some(entry) = center.selected_entry() {
             self.put_cursor(view::key_of(&center, entry));
+        } else if center.entries.is_empty() && self.selection.cursor().is_some() {
+            // Oracle (`reconcile_command_center_selection`): nothing
+            // selectable sets the selection to `usize::MAX`, so the first
+            // row is the highlight when rows come back.
+            self.selection.set_cursor(None);
         }
         let thread = center.selected_row().map(|row| row.id().to_owned());
         let usage_key = UsageKey {

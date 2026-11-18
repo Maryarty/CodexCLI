@@ -154,6 +154,36 @@ fn down_moves_the_highlight_and_the_details() {
     assert!(details.contains(&"● Working"), "{details:?}");
 }
 
+/// An empty filter drops the highlight; coming back to a filter with tasks
+/// puts it on the first row (oracle: `reconcile_command_center_selection`
+/// sets `selected` to `usize::MAX`; pty scenario `agents`, `filter-all`).
+#[test]
+fn filter_without_tasks_resets_the_highlight_to_the_first_row() {
+    let mut h = open("paging5", 100, 24);
+    let marked = |h: &Harness| {
+        h.t.screen()
+            .lines()
+            .find(|l| l.contains("\u{203a}"))
+            .map(|l| l.trim().to_owned())
+    };
+    let first = marked(&h);
+    assert!(first.is_some_and(|row| row.starts_with("\u{203a} \u{25cb} Paging task 00")));
+    h.press("down");
+    assert!(marked(&h).is_some_and(|row| row.contains("Paging task 01")));
+    h.press("tab");
+    assert!(
+        h.t.screen().contains("No matching tasks"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("shift+tab");
+    let screen = h.t.screen();
+    assert!(
+        marked(&h).is_some_and(|row| row.starts_with("\u{203a} \u{25cb} Paging task 00")),
+        "{screen}"
+    );
+}
+
 /// The footer's `⇧tab` (one column on darwin) written as the Linux snapshot
 /// writes it, `shift+tab` (six columns). The footer is right-aligned, so the
 /// five columns the label gains come out of the padding before it. A
