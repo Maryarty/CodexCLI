@@ -608,3 +608,302 @@ fn failed_background_worker_only_needs_attention_for_a_pending_request() {
         center.rows[0].details.lines
     );
 }
+
+fn notice(sandbox: &mut Sandbox, notice: Option<Notice>) {
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Notice(notice))));
+}
+
+/// `server_version_overview_notice_updates_and_clears`
+/// (agents_overview_tests.rs:110): the notice is the server's words about its
+/// version; a newer one replaces it and none clears it. The words are made by
+/// the shell (oracle: `update_server_version_overview_notice`); the screen
+/// holds them and paints them (the view's test is `older_server_notice_*`).
+#[test]
+fn server_version_overview_notice_updates_and_clears() {
+    let older = "Service v0.152.1 < Codex CLI v0.153.0";
+    let newer = "Service v0.151.0 < Codex CLI v0.153.0";
+    let mut sandbox = sandbox();
+    list(&mut sandbox, Vec::new());
+    notice(&mut sandbox, Some(Notice::ServerVersion(older.into())));
+    notice(&mut sandbox, Some(Notice::ServerVersion(newer.into())));
+    assert_eq!(
+        model(&sandbox).notice,
+        Some(Notice::ServerVersion(newer.into()))
+    );
+    notice(&mut sandbox, None);
+    assert_eq!(model(&sandbox).notice, None);
+}
+
+/// `overview_right_opens_current_or_highlighted_task`
+/// (agents_overview_tests.rs:394). Right opens the highlighted task: the core
+/// has no Right intent yet (Enter is `Accept`, the view's mapping is
+/// agents-live's), so the core's `Accept` stands for it. The highlighted
+/// task other than the current one resumes. The oracle sends the select for
+/// the current task too; the core emits no resume for it, so that half is red
+/// until agents-live says what opening the current task sends.
+#[test]
+fn overview_right_opens_current_or_highlighted_task() {
+    let [cur, other] = [1, 2].map(id);
+    let mut sandbox = sandbox();
+    list(
+        &mut sandbox,
+        vec![
+            thread(&cur, None, "Current", idle()),
+            thread(&other, None, "Other", idle()),
+        ],
+    );
+    current(&mut sandbox, &cur);
+    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(cur.clone())));
+    let mut m = model(&sandbox).clone();
+    let on_current: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+        .into_iter()
+        .map(|out| out.command)
+        .collect();
+    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(other.clone())));
+    let mut m = model(&sandbox).clone();
+    let on_other: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+        .into_iter()
+        .map(|out| out.command)
+        .collect();
+    assert_eq!(
+        on_other,
+        vec![Command::Resume {
+            thread: other.clone()
+        }]
+    );
+    assert_eq!(
+        on_current,
+        vec![Command::Resume {
+            thread: cur.clone()
+        }],
+        "agents-live: Accept on the current task emits no resume (core guard `model.current != thread`); oracle agents_overview_view.rs:447 sends SelectAgentsOverviewThread for it"
+    );
+}
+
+/// `overview_right_preserves_editors_and_offline_state`
+/// (agents_overview_tests.rs:435). Right is the view's key; while a rename
+/// edits, Right does nothing (oracle: the row filter on `rename_target`), where
+/// Enter commits. Needs a Right intent apart from `Accept`: agents-live.
+#[test]
+fn overview_right_preserves_editors_and_offline_state() {
+    todo!(
+        "agents-live: no Right intent (open) distinct from Accept; oracle agents_overview_view.rs:447 leaves a rename editor untouched on Right"
+    )
+}
+
+/// `overview_grouping_persists_across_config_reloads`
+/// (agents_overview_tests.rs:3243), the screen's part: `g` cycles the grouping
+/// Project, Directory, Status, Model, and each one's configured value is what
+/// the shell persists (`Directory` is view-local, never written). The config
+/// file, the reload and the persistence event are the app's: n/a, owner
+/// session-core.
+#[test]
+fn overview_grouping_persists_across_config_reloads() {
+    let mut sandbox = sandbox();
+    list(&mut sandbox, Vec::new());
+    for (selected, persisted) in [
+        (Grouping::Directory, None),
+        (Grouping::Status, Some("status")),
+        (Grouping::Model, Some("model")),
+        (Grouping::Project, Some("project")),
+    ] {
+        intent(&mut sandbox, AgentsIntent::CycleGrouping);
+        assert_eq!(model(&sandbox).grouping, selected);
+        assert_eq!(selected.persisted(), persisted);
+        if let Some(value) = persisted {
+            assert_eq!(Grouping::from_config(value), Some(selected));
+        }
+    }
+}
+
+/// `live_center_keeps_status_order_across_progress_refreshes`
+/// (agent_center_tests.rs:27), the order and the highlight: under the status
+/// grouping the tasks that need the user come first, then the working ones by
+/// update time (ties by id), then the rest; each progress refresh keeps the
+/// order and the highlight on the current task. The snapshot is the view's.
+#[test]
+fn live_center_keeps_status_order_across_progress_refreshes() {
+    let tasks = [1, 2, 3, 4, 5].map(id);
+    let working_at = |updated_at: i64| (working(), updated_at);
+    let rows = [
+        ("Alpha", working_at(10)),
+        ("Bravo", working_at(20)),
+        ("Charlie", working_at(20)),
+        ("Ready task", (idle(), 40)),
+        ("Needs input", (json!({"type": "systemError"}), 0)),
+    ];
+    let mut threads: Vec<Thread> = rows
+        .into_iter()
+        .zip(tasks.iter())
+        .map(|((name, (status, updated_at)), id)| {
+            let mut thread = thread(id, None, name, status);
+            // Future timestamps render as "now": the fixture is clock-independent.
+            thread.updated_at = 4_000_000_000 + updated_at;
+            thread
+        })
+        .collect();
+    threads.reverse();
+    let mut sandbox = sandbox();
+    current(&mut sandbox, &tasks[0]);
+    list(&mut sandbox, threads.clone());
+    intent(&mut sandbox, AgentsIntent::CycleGrouping);
+    intent(&mut sandbox, AgentsIntent::CycleGrouping);
+    assert_eq!(model(&sandbox).grouping, Grouping::Status);
+    assert_ids(
+        &sandbox,
+        &[&tasks[4], &tasks[1], &tasks[2], &tasks[0], &tasks[3]],
+    );
+    for (step, id) in [&tasks[0], &tasks[2], &tasks[1], &tasks[0]]
+        .into_iter()
+        .enumerate()
+    {
+        let thread = threads
+            .iter_mut()
+            .find(|thread| thread.id == *id)
+            .expect("a listed task");
+        thread.updated_at = 4_000_000_100 + step as i64;
+        thread.preview = format!("Progress update {step}");
+        threads.rotate_left(1);
+        list(&mut sandbox, threads.clone());
+        assert_eq!(ids(&sandbox)[1], *id, "step {step}");
+        assert_eq!(selected(&sandbox), tasks[0], "step {step}");
+    }
+}
+
+/// `live_center_rename_retains_target_when_status_leaves_filter`
+/// (agent_center_tests.rs:488): a rename keeps its target when the task's
+/// status moves it out of the filter; Enter commits the new name to that
+/// target; Esc leaves the rename and the highlight stays on the other task.
+/// The view's key handling (Esc, Enter) and the cursor shape are the view's.
+#[test]
+fn live_center_rename_retains_target_when_status_leaves_filter() {
+    let [target, other] = [1, 2].map(id);
+    let mut threads = vec![
+        thread(&target, None, "Tar\nget", idle()),
+        thread(&other, None, "Other", idle()),
+    ];
+    let mut sandbox = sandbox();
+    list(&mut sandbox, threads.clone());
+    // The third tab is the one the oracle's `Ready` filter stands for.
+    for _ in 0..3 {
+        intent(&mut sandbox, AgentsIntent::CycleFilter { back: false });
+    }
+    intent(
+        &mut sandbox,
+        AgentsIntent::Select(Sel::Task(target.clone())),
+    );
+    intent(&mut sandbox, AgentsIntent::BeginRename);
+    assert_eq!(
+        model(&sandbox).rename.as_ref().map(|r| r.target.clone()),
+        Some(target.clone())
+    );
+    threads[0].status = serde_json::from_value(json!({"type": "systemError"})).expect("a status");
+    list(&mut sandbox, threads.clone());
+    let group = model(&sandbox)
+        .center()
+        .rows
+        .iter()
+        .find(|row| row.id() == target)
+        .map(|row| row.group);
+    assert_ne!(group, Some(Group::Ready), "the target left the Ready tab");
+    assert!(
+        ids(&sandbox).contains(&target),
+        "the rename keeps the row visible"
+    );
+    assert_eq!(
+        model(&sandbox).rename.as_ref().map(|r| r.target.clone()),
+        Some(target.clone()),
+        "the rename keeps its target"
+    );
+    let text = model(&sandbox).rename.as_ref().map(|r| r.text.clone());
+    for _ in 0..text.map_or(0, |t| t.chars().count()) {
+        intent(&mut sandbox, AgentsIntent::Backspace);
+    }
+    intent(&mut sandbox, AgentsIntent::Type("Target!".into()));
+    let mut m = model(&sandbox).clone();
+    let outs: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+        .into_iter()
+        .map(|out| out.command)
+        .collect();
+    assert_eq!(
+        outs,
+        vec![Command::Rename {
+            thread: target.clone(),
+            name: "Target!".into(),
+        }]
+    );
+    intent(&mut sandbox, AgentsIntent::CancelEditing);
+    assert_eq!(model(&sandbox).rename, None);
+    assert_eq!(selected(&sandbox), other);
+}
+
+/// `backspace_edits_search_and_rename_without_deleting_tasks`
+/// (agent_center_tests.rs:817): Backspace edits the search line and the
+/// rename line, changes nothing else, and sends nothing.
+#[test]
+fn backspace_edits_search_and_rename_without_deleting_tasks() {
+    let task = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&task, None, "Task", idle())]);
+    intent(&mut sandbox, AgentsIntent::BeginSearch);
+    intent(&mut sandbox, AgentsIntent::Type("!".into()));
+    let mut m = model(&sandbox).clone();
+    assert!(update(&mut m, AgentsIntent::Backspace).is_empty());
+    assert_eq!(m.search, "");
+    intent(&mut sandbox, AgentsIntent::Backspace);
+    assert_eq!(model(&sandbox).search, "");
+    assert_ids(&sandbox, &[&task]);
+    intent(&mut sandbox, AgentsIntent::CancelEditing);
+    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(task.clone())));
+    intent(&mut sandbox, AgentsIntent::BeginRename);
+    intent(&mut sandbox, AgentsIntent::Type("!".into()));
+    let mut m = model(&sandbox).clone();
+    assert!(update(&mut m, AgentsIntent::Backspace).is_empty());
+    assert_eq!(m.rename.as_ref().map(|r| r.text.as_str()), Some("Task"));
+    intent(&mut sandbox, AgentsIntent::Backspace);
+    let rename = model(&sandbox).rename.clone().expect("a rename");
+    assert_eq!(rename.target, task);
+    assert_eq!(rename.text, "Task");
+    assert_ids(&sandbox, &[&task]);
+}
+
+/// `live_center_show_more_navigation_search_and_loading`
+/// (agent_center_tests.rs:886): the Show more row is reachable, Enter asks for
+/// the next page once, and a second Enter while it loads asks for nothing.
+/// The history search (`SearchAgentsOverview`) has no command in the core yet:
+/// it is the last assertion, a stub until agents-live adds it.
+#[test]
+fn live_center_show_more_navigation_search_and_loading() {
+    let task = id(1);
+    let mut sandbox = sandbox();
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Listed(Page {
+        threads: vec![thread(
+            &task,
+            None,
+            "Recent task",
+            json!({"type": "notLoaded"}),
+        )],
+        unread: Vec::new(),
+        next_cursor: Some("cursor-2".into()),
+        append: false,
+    }))));
+    assert!(model(&sandbox).paging.has_more);
+    intent(&mut sandbox, AgentsIntent::Move { forward: true });
+    let mut m = model(&sandbox).clone();
+    let first: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+        .into_iter()
+        .map(|out| out.command)
+        .collect();
+    assert_eq!(
+        first,
+        vec![Command::List {
+            cursor: Some("cursor-2".into())
+        }]
+    );
+    assert!(m.paging.loading);
+    let second = update(&mut m, AgentsIntent::Accept);
+    assert!(second.is_empty(), "no second page while one loads");
+    todo!(
+        "agents-live: SearchAgentsOverview (history search, oracle agent_center_tests.rs:886-930) has no Command in the core"
+    )
+}
