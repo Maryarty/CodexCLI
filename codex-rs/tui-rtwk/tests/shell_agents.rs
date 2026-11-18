@@ -23,6 +23,10 @@ use codex_tui_rtwk::shell::workspace::{
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
+#[path = "oracle_snap/mod.rs"]
+mod oracle_snap;
+
 const TIMESTAMP: i64 = 1_700_000_000;
 const LOCAL: Facts = Facts {
     cloud: false,
@@ -434,11 +438,19 @@ mod live {
     pub fn start(
         script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
     ) -> Live {
+        start_sized(100, 30, script)
+    }
+
+    pub fn start_sized(
+        width: u16,
+        height: u16,
+        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+    ) -> Live {
         let guard = rtwk_tokio::enter(runtime());
         let (server, fake) = FakeServer::new();
         fake.respond(script);
         let app = UiApp::new(Backend::Fake(server)).with_start_agents(true);
-        let mut t = Tester::with(Options::new().size(100, 30));
+        let mut t = Tester::with(Options::new().size(width, height));
         t.pump_widget(localized(root(app_view(app)), Lang::En));
         t.pump_for(ms(200));
         Live {
@@ -546,4 +558,38 @@ fn w_creates_a_worktree_and_opens_a_task_in_it() {
         .collect();
     assert_eq!(started[0]["params"]["cwd"], "/wt/abc/sub");
     assert_eq!(h.fake.workspace().bound().len(), 1);
+}
+
+/// `lifecycle_failure_dialogs` (agents_overview_actions_tests.rs:845, :1007),
+/// snapshots archive_task_failure and delete_task_failure: the server refuses
+/// the removal as the oracle's ephemeral task does; the dialog names the
+/// verb, the error, the note about stopped work and one row `Back to agents`.
+/// (Here, on the live shell: a debug row has no backend to refuse.)
+#[test]
+fn lifecycle_failure_dialogs() {
+    for (key, verb, snapshot) in [
+        ("a", "archive", "actions__archive_task_failure"),
+        ("backspace", "delete", "actions__delete_task_failure"),
+    ] {
+        let mut h = live::start_sized(80, 24, move |request| {
+            let method = request["method"].as_str()?;
+            if method == format!("thread/{verb}") {
+                return Some(Err(format!(
+                    "failed to {verb} session: thread/{verb} failed: no rollout found for thread id 00000000-0000-0000-0000-000000000001 (code -32600)"
+                )));
+            }
+            server(request)
+        });
+        h.wait_for("the task", |s| s.contains("Interactive task"));
+        h.t.press(key);
+        h.t.pump_for(Duration::from_millis(50));
+        h.t.press("2");
+        if key == "backspace" {
+            h.t.press("enter");
+        }
+        h.wait_for("the failure", |s| s.contains("Back to agents"));
+        let path = format!("app/snapshots/codex_tui__app__agents_overview__tests__{snapshot}.snap");
+        let expected = oracle_snap::rows(&path);
+        oracle_snap::assert_same(snapshot, &oracle_snap::screen(&h.t), &expected);
+    }
 }

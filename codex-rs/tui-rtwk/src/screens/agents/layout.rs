@@ -166,15 +166,24 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 /// The text cut to `width` cells with an ellipsis (oracle:
 /// `truncate_line_with_ellipsis_if_overflow`).
 pub fn ellipsize(text: &str, width: usize) -> String {
-    let room = isize::try_from(width).unwrap_or(isize::MAX);
-    fit_text(
+    if width == 0 {
+        return String::new();
+    }
+    if columns(text) <= width {
+        return text.to_owned();
+    }
+    // The text up to one cell short, trailing blanks kept, then the mark.
+    let room = isize::try_from(width - 1).unwrap_or(isize::MAX);
+    let mut cut = fit_text(
         &TextSegmenter::default(),
         text,
         room,
-        TextOverflow::Ellipsis,
-        "\u{2026}",
+        TextOverflow::Clip,
+        "",
     )
-    .into_owned()
+    .into_owned();
+    cut.push('\u{2026}');
+    cut
 }
 
 /// The end of `original` that fits `allowed` cells behind a `…`.

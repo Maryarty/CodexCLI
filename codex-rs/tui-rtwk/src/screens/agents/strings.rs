@@ -130,6 +130,12 @@ pub struct Strings {
     pub delete_label: &'static str,
     pub cancel: &'static str,
     pub select_hint: &'static str,
+    /// Oracle: `agents_overview_actions.rs` `run_agents_overview_action`, the
+    /// dialog of a refused removal.
+    pub failure_archive: &'static str,
+    pub failure_delete: &'static str,
+    pub failure_note: &'static str,
+    pub back_to_agents: &'static str,
 }
 
 /// English: the oracle's text.
@@ -268,6 +274,10 @@ pub const EN: Strings = Strings {
     delete_label: "Permanently delete task and child agents",
     cancel: "Cancel",
     select_hint: "enter select \u{b7} esc back",
+    failure_archive: "Could not archive task",
+    failure_delete: "Could not delete task",
+    failure_note: "Work may have stopped. Resume the task to continue, or retry the action.",
+    back_to_agents: "Back to agents",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

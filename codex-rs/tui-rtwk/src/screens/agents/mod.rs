@@ -171,6 +171,42 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 .into()
             }),
         },
+        DebugEntry {
+            name: "busy",
+            description: "no tasks, a worktree is being created",
+            script: include_str!("fixtures/busy.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: false,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
+            name: "older_server",
+            description: "no tasks, and the server is older than the client",
+            script: include_str!("fixtures/older_server.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: false,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
+            name: "paging30_offline",
+            description: "thirty tasks of two projects while the connection is lost",
+            script: include_str!("fixtures/paging30_offline.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
     ]
 }
 
@@ -278,6 +314,8 @@ pub struct ScreenState {
     confirm_selection: SelectionController<usize>,
     confirm_focus: FocusNode,
     confirming: bool,
+    /// The failure dialog shows (it takes the focus).
+    failing: bool,
     helping: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     listening: Option<Listening>,
@@ -334,6 +372,7 @@ impl StatefulWidget for Screen {
             confirm_selection: SelectionController::new(),
             confirm_focus: FocusNode::new(),
             confirming: false,
+            failing: false,
             helping: false,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
             listening: None,
@@ -483,6 +522,10 @@ impl State for ScreenState {
             }
             self.refocus_after_frame(cx);
         }
+        if model.failure.is_some() != self.failing {
+            self.failing = model.failure.is_some();
+            self.refocus_after_frame(cx);
+        }
         if model.help != self.helping {
             self.helping = model.help;
             self.refocus_after_frame(cx);
@@ -525,6 +568,16 @@ impl State for ScreenState {
         match msg {
             Msg::Key(key) => {
                 let editing = model.searching || model.rename.is_some();
+                if model.failure.is_some() {
+                    // The refusal's dialog has one row, `Back to agents`
+                    // (oracle: a selection view with `dismiss_on_select`).
+                    if matches!(key.code, KeyCode::Escape | KeyCode::Enter)
+                        || key.as_text().is_some_and(|text| text == "1")
+                    {
+                        send(AgentsIntent::DismissFailure);
+                    }
+                    return Rebuild::No;
+                }
                 if let Some(confirm) = &model.confirm {
                     // The confirmation takes every key (oracle: the view on
                     // top of the bottom pane): Esc and the digits answer, the
@@ -587,7 +640,9 @@ impl State for ScreenState {
                 }
             }
             Msg::Refocus => {
-                if model.confirm.is_some() {
+                if model.failure.is_some() {
+                    self.root_focus.request_focus();
+                } else if model.confirm.is_some() {
                     self.confirm_focus.request_focus();
                 } else if model.help {
                     self.root_focus.request_focus();
@@ -670,6 +725,9 @@ impl State for ScreenState {
             let width = usize::try_from(constraints.max_width).unwrap_or(0);
             let height = usize::try_from(constraints.max_height).unwrap_or(0);
             let model = &screens.agents;
+            if let Some(failure) = &model.failure {
+                return view::failure_dialog(&look, strings, failure, width);
+            }
             let areas = layout::areas(width, height);
             let mut column = rtwk::layout::Column::new()
                 .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);

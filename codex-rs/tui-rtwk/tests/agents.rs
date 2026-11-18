@@ -189,11 +189,7 @@ fn agents_overview_before_folder_consent_empty_center_rows() {
 /// holds back `n w o r x h a`; its footer says it is busy.
 #[test]
 fn overview_worktree_creation_busy_state() {
-    pending(
-        Owner::CoreSeed,
-        "the scripts cannot seed the busy and server-version notices (core/src/screens/agents/wire.rs `seed_ev` has no `notice` key); the body runs on the empty center and shows what the snapshot needs",
-    );
-    let mut h = open("empty_narrow", 80, 24);
+    let mut h = open("busy", 80, 24);
     for key in ["n", "w", "o", "r", "x", "h", "a"] {
         h.press(key);
     }
@@ -206,10 +202,6 @@ fn overview_worktree_creation_busy_state() {
 /// colours are off, and an unread dot is the primary blue.
 #[test]
 fn overview_thread_colors_match_footer_and_respect_color_suppression() {
-    pending(
-        Owner::CoreSeed,
-        "core's RowData has no thread colour and the screens' model has no `status_line_use_colors` setting; the oracle's snapshot is a dump of ratatui `Style` values of the selected dot, the unread dot and the title (colours of the thread, the unread blue, reversed bold on the selected row)",
-    );
     let h = open("columns", 100, 30);
     let screen = h.t.screen();
     assert!(screen.contains("\u{25cf} Failed task"), "{screen}");
@@ -218,11 +210,7 @@ fn overview_thread_colors_match_footer_and_respect_color_suppression() {
 /// the footer's last row is the notice.
 #[test]
 fn older_server_notice_is_visible_in_agents_overview() {
-    pending(
-        Owner::CoreSeed,
-        "the scripts cannot seed `Notice::ServerVersion(\"Service v0.152.1 < Codex CLI v0.153.0\")` (wire.rs `seed_ev` has no `notice` key)",
-    );
-    let h = open("empty_narrow", 80, 24);
+    let h = open("older_server", 80, 24);
     let rows = oracle_snap::screen(&h.t);
     assert_eq!(
         rows.last().map(String::as_str),
@@ -234,12 +222,8 @@ fn older_server_notice_is_visible_in_agents_overview() {
 /// snap older_server_narrow_overview): the whole screen at 12 cells.
 #[test]
 fn older_server_notice_truncates_in_narrow_overview() {
-    pending(
-        Owner::CoreSeed,
-        "the scripts cannot seed `Notice::ServerVersion` (wire.rs `seed_ev` has no `notice` key)",
-    );
     let height = app_oracle("older_server_narrow_overview").len() as u16;
-    let h = open("empty_narrow", 12, height);
+    let h = open("older_server", 12, height);
     assert_app(&h, "older_server_narrow_overview");
 }
 
@@ -373,31 +357,9 @@ fn delete_task_confirmation_and_failure_snapshots() {
     assert!(screen.contains("Deleting"), "{screen}");
 }
 
-/// The failure dialogs of the lifecycle tests (`archive_task_failure`,
-/// `delete_task_failure`; agents_overview_actions_tests.rs:845, :1007): the
-/// server refuses the removal, the dialog names the verb, the error and, when
-/// the request was attempted, the note about stopped work, with one row
-/// `Back to agents`.
-#[test]
-fn lifecycle_failure_dialogs() {
-    pending(
-        Owner::CoreSeed,
-        "core keeps a failed removal as `Notice::Error` text in the footer (refresh.rs:211, `let _ = action`) and has no failure to show as a dialog (action, error, attempted); the dialog's rows are the oracle's `LifecycleHeader` + one `Back to agents` row",
-    );
-    for (key, snapshot) in [
-        ("a", "actions__archive_task_failure"),
-        ("backspace", "actions__delete_task_failure"),
-    ] {
-        let mut h = open("confirm", 80, 24);
-        h.press(key);
-        h.press("2");
-        if key == "backspace" {
-            h.press("enter");
-        }
-        h.settle();
-        assert_app(&h, snapshot);
-    }
-}
+// `lifecycle_failure_dialogs` (agents_overview_actions_tests.rs:845, :1007):
+// the failure is a backend answer of the live server, so it is proven on the
+// live shell, in tests/shell_agents.rs (a debug row has no backend).
 
 /// `modal_consumes_input_and_finishes_after_input_closes` (agents_overview_action_progress_tests.rs:17),
 /// snapshots archive_progress and delete_progress: while the removal runs the
@@ -406,10 +368,6 @@ fn lifecycle_failure_dialogs() {
 /// are the live shell's: here the model's gate lets Esc leave, see the parity pack.)
 #[test]
 fn modal_consumes_input_and_finishes_after_input_closes() {
-    pending(
-        Owner::CoreSeed,
-        "core's `Intent::Confirmed(true)` (core/src/screens/agents/update.rs:101) does not hide the removed task while the request runs; the oracle hides it at once (`prepare_agents_overview_removal` + `hidden_threads`, a failure unhides it): the screen shows 3 tasks and `All 3` where archive_progress has 2. Every other row and the footer match",
-    );
     let age = |row: &str| -> String {
         // `[0-9]+d ago` with its padding is `[age]` in the snapshot.
         let Some(end) = row.find("d ago") else {
@@ -464,10 +422,6 @@ fn live_center_columns() {
     assert!(screen.contains("\u{25cf} Error: Failed task"), "{screen}");
     let mut h = open("columns", 160, 22);
     h.settle();
-    pending(
-        Owner::CoreSeed,
-        "the `voice` badge of a task whose child has the voice session (`activate_voice_for_thread`) needs a flag on core's RowData and a seed step for it; every other row of live_center_columns is the oracle's",
-    );
     assert_app(&h, "command_center__live_center_columns");
 }
 
@@ -487,6 +441,11 @@ fn highlighted_task(h: &Harness) -> usize {
 /// when `search`.
 fn pages_visible_rows(count: usize, search: bool, loop_key: &str, wraps: bool) {
     let entry = if count == 5 { "paging5" } else { "paging30" };
+    paging_flow(entry, count, search, loop_key, wraps);
+}
+
+/// The flow on the debug entry `entry` (`count` tasks).
+fn paging_flow(entry: &str, count: usize, search: bool, loop_key: &str, wraps: bool) {
     let mut h = open(entry, 110, 18);
     if search {
         h.press("/");
@@ -536,10 +495,10 @@ fn live_center_pages_visible_rows_without_wrapping() {
 #[test]
 fn live_center_pages_visible_rows_while_reconnecting() {
     pending(
-        Owner::CoreSeed,
-        "the fixture scripts cannot seed `Notice::Reconnecting` (core/src/screens/agents/wire.rs `seed_ev` has no `notice` key)",
+        Owner::Rtwk,
+        "page keys do not reach the list while the search line has the focus, and a cursor the app moves does not scroll the list: `SelectionList` keeps its `ListController` private (G35 in rtwk-gaps.md, selection_list.rs:351, :503). The fixture seeds the reconnecting notice (`paging30_offline`); the oracle's flow fails at its first PageDown (the highlight moves to task 10, the list stays on 00..09)",
     );
-    pages_visible_rows(30, true, "pagedown", false);
+    paging_flow("paging30_offline", 30, true, "pagedown", false);
 }
 
 /// What the oracle's flow asks beyond the list rtwk gives: the repeated pages

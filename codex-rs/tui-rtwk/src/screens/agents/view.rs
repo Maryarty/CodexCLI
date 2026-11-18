@@ -27,8 +27,8 @@ use rtwk_core::style::Attrs;
 
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::agents::{
-    Action, Center, CenterRow, Confirm, DetailLine, Group, GroupLabel, Grouping, Model, RowData,
-    Sel, display_directory,
+    Action, Center, CenterRow, Confirm, DetailLine, Failure, Group, GroupLabel, Grouping, Model,
+    RowData, Sel, display_directory,
 };
 
 use super::layout;
@@ -449,11 +449,17 @@ fn entry(
                 ))
                 .child(pad(1))
                 .child(cell(1, one(vec![dot])))
-                .child(pad(1))
-                .child(cell(
-                    title_width as i32,
-                    one(vec![span(title, &title_style)]),
-                ));
+                .child(pad(1));
+            // The row of the voice session ends its title column with a
+            // badge (oracle: `render_rows`, `task.has_voice && title.width >= 8`).
+            let badge = row.has_voice && title_width >= 8;
+            cells = cells.child(cell(
+                (title_width - if badge { 8 } else { 0 }) as i32,
+                one(vec![span(title, &title_style)]),
+            ));
+            if badge {
+                cells = cells.child(cell(8, one(vec![span("  voice", &fill)])));
+            }
             if metadata {
                 let age_style = if selected {
                     fill.clone()
@@ -654,10 +660,8 @@ fn wrapped(text: &str, style: &Style, width: usize) -> Vec<Line> {
 
 /// Whether the account's plan is billed directly in dollars (oracle:
 /// `PlanType::Ent26`), which hides the credits and shows the native cost.
-/// The plan is a protocol type a view never names: core has to answer this
-/// (handover: `Model::plan_bills_in_dollars`); until it does, no plan is.
-fn bills_in_dollars(_model: &Model) -> bool {
-    false
+fn bills_in_dollars(model: &Model) -> bool {
+    model.plan_bills_in_dollars()
 }
 
 /// The details of the highlighted row (oracle: `render_details`).
@@ -1240,4 +1244,65 @@ pub fn confirm_dialog(
     .left(left as i32)
     .top(top as i32)
     .into()
+}
+
+/// The dialog of a refused removal (oracle: the `LifecycleHeader` selection
+/// view of `run_agents_overview_action`): the verb in bold red, the server's
+/// error in red, the note that work may have stopped when the request was
+/// sent, and one row, `Back to agents`. It is the screen's whole content.
+pub fn failure_dialog(
+    look: &Look,
+    strings: &Strings,
+    failure: &Failure,
+    width: usize,
+) -> AnyWidget {
+    let plain = look.plain.clone();
+    let inner = width.saturating_sub(4).max(1);
+    let title = match failure.action {
+        Action::Archive => strings.failure_archive,
+        Action::Delete => strings.failure_delete,
+    };
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
+    let bold_red = look.red.clone().attrs(Attrs::BOLD);
+    column = column.child(dialog_row(
+        vec![span("  ", &plain), span(title, &bold_red)],
+        width,
+        &plain,
+    ));
+    for line in layout::wrap(&failure.error, inner) {
+        column = column.child(dialog_row(
+            vec![span("  ", &plain), span(line, &look.red)],
+            width,
+            &plain,
+        ));
+    }
+    if failure.attempted {
+        for line in layout::wrap(strings.failure_note, inner) {
+            column = column.child(dialog_row(
+                vec![span("  ", &plain), span(line, &look.dim)],
+                width,
+                &plain,
+            ));
+        }
+    }
+    column = column.child(dialog_row(Vec::new(), width, &plain));
+    column = column.child(dialog_row(Vec::new(), width, &plain));
+    let accent = look.accent.clone().attrs(Attrs::BOLD);
+    column = column.child(dialog_row(
+        vec![span(
+            format!("\u{203a} 1. {}", strings.back_to_agents),
+            &accent,
+        )],
+        width,
+        &plain,
+    ));
+    column = column.child(dialog_row(Vec::new(), width, &plain));
+    column = column.child(dialog_row(
+        vec![span("  ", &plain), span(strings.select_hint, &look.dim)],
+        width,
+        &plain,
+    ));
+    column.into()
 }
