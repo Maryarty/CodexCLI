@@ -4,6 +4,7 @@
 //! Oracle: `codex-rs/tui/src/resume_picker.rs` (`render_list`, `search_line`,
 //! `render_picker_footer`) and `resume_picker/layout.rs` (the chrome).
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 

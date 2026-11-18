@@ -3,6 +3,7 @@
 //! compares the rows with the oracle's `.snap` (`tests/oracle_snap`).
 //! Oracle: `codex-rs/tui/src/pager_overlay.rs` and `pager_overlay/transcript_tests.rs`.
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 

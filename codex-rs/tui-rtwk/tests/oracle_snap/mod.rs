@@ -65,8 +65,7 @@ pub fn section(rel: &str, name: &str) -> Vec<String> {
         body[start + 1..]
             .iter()
             .take_while(|line| !(line.starts_with("--- ") && line.ends_with(" ---")))
-            .cloned()
-            .collect::<Vec<_>>(),
+            .cloned(),
     )
 }
 

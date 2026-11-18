@@ -37,7 +37,7 @@ pub struct Strings {
 
 /// English: the oracle's text.
 pub const EN: Strings = Strings {
-    title: "Pager",
+    title: "transcript pager",
     transcript_title: "T R A N S C R I P T",
     navigation: " ↑/↓ to scroll · pgup/pgdn to page · home/end to jump",
     close_static: " q close",

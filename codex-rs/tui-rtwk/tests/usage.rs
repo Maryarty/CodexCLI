@@ -2,6 +2,7 @@
 //! snapshot (140x44) is compared whole; the panel snapshot is the four
 //! panels' messages. Oracle: `codex-rs/tui/src/analytics/`.
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 

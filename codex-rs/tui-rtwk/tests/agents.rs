@@ -2,6 +2,7 @@
 //! `codex-rs/tui/src/app/agents_overview_tests.rs` (the snapshots under
 //! `snapshots/codex_tui__app__agents_overview__tests__*.snap`).
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 

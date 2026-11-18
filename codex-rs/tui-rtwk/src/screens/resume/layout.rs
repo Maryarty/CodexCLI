@@ -268,12 +268,12 @@ enum Mode {
     KeyOnly,
 }
 
-const HINT_PAD: usize = 1;
-const HINT_GAP: usize = 3;
+const LEFT_PAD: usize = 1;
+const GAP_WIDTH: usize = 3;
 const COMPACT_BREAKPOINT: usize = 120;
 
 fn fit(hints: &[&Hint], mode: Mode, w: usize) -> Option<String> {
-    let total = HINT_PAD
+    let total = LEFT_PAD
         + hints
             .iter()
             .enumerate()
@@ -283,16 +283,16 @@ fn fit(hints: &[&Hint], mode: Mode, w: usize) -> Option<String> {
                     Mode::Compact => 1 + width(&hint.compact),
                     Mode::KeyOnly => 0,
                 };
-                width(&hint.key) + label + if i == 0 { 0 } else { HINT_GAP }
+                width(&hint.key) + label + if i == 0 { 0 } else { GAP_WIDTH }
             })
             .sum::<usize>();
     if total > w {
         return None;
     }
-    let mut text = " ".repeat(HINT_PAD);
+    let mut text = " ".repeat(LEFT_PAD);
     for (i, hint) in hints.iter().enumerate() {
         if i > 0 {
-            text.push_str(&" ".repeat(HINT_GAP));
+            text.push_str(&" ".repeat(GAP_WIDTH));
         }
         text.push_str(&hint.key);
         match mode {

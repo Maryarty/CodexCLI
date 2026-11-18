@@ -1,0 +1,4 @@
+# `agents_overview_attention`: a task whose child waits for an approval and a
+# response (the child's last message shows), and an inactive one.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"agents","ev":{"listed":[{"id":"r1","title":"Repair authentication","status":"idle","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Repair authentication","child":{"name":"Check dependencies","last_message":"Which dependency version should I use?","waits":["approval","response"]}},{"id":"r2","title":"Investigate parser","status":"not_loaded","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Investigate parser","child":null}]}}

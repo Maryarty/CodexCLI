@@ -239,7 +239,7 @@ fn summary_lines(model: &Model, overview: &Overview, strings: &Strings, num: &Nu
     }
     lines.push(at(pad(text(months, Look::Dim), 1)));
     for (day, weekday) in strings.weekdays.iter().enumerate() {
-        let mut row = text(format!("{weekday}"), Look::Dim);
+        let mut row = text(weekday.to_string(), Look::Dim);
         for week in 0..weeks {
             if week + 1 == overview.activity.weeks && day > overview.activity.last_day {
                 break;
@@ -422,7 +422,7 @@ impl State for ScreenState {
             let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
             for line in lines {
                 let spans: Vec<Span> = if line.is_empty() {
-                    vec![Span::new(" ")]
+                    vec![Span::new(strings.blank)]
                 } else {
                     line.into_iter().map(|(t, look)| Span::styled(t, style(look))).collect()
                 };

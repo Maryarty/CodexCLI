@@ -393,7 +393,7 @@ impl State for ScreenState {
             let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
             for line in lines {
                 let spans: Vec<Span> = if line.is_empty() {
-                    vec![Span::new(" ")]
+                    vec![Span::new(strings.blank)]
                 } else {
                     line.into_iter()
                         .map(|(text, look)| Span::styled(text, style(look)))

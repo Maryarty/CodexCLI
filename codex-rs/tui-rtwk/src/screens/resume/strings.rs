@@ -21,6 +21,8 @@ use crate::screens::resume::layout::Age;
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strings {
+    /// An empty line, one cell wide.
+    pub blank: &'static str,
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
     /// Oracle: `SessionPickerAction::title`.
@@ -84,6 +86,7 @@ pub struct Strings {
 
 /// English: the oracle's text.
 pub const EN: Strings = Strings {
+    blank: " ",
     title: "resume and fork picker",
     header: "Resume a previous session",
     search_hint: "Type to search",

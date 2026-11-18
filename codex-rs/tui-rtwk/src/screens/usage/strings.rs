@@ -20,6 +20,8 @@ use crate::l10n::lang;
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strings {
+    /// An empty line, one cell wide.
+    pub blank: &'static str,
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
     /// Oracle: `render.rs`: the heading, with and without a plan.
@@ -61,6 +63,7 @@ pub struct Strings {
 
 /// English: the oracle's text.
 pub const EN: Strings = Strings {
+    blank: " ",
     title: "/usage dashboard",
     heading: "Usage",
     heading_plan: msg!("Usage · {0}"),
