@@ -60,7 +60,8 @@ not load tm skills.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
   defect, a missing pack item, a broken condition or rule, or work outside
   the area, a re-implemented rtwk mechanism, or a visual delta without a
-  researched rtwk route.
+  researched rtwk route, or a local workaround where a gap row + pending(Gxx)
+  belongs.
   A re-review after a fix round reads only the fix commits and the open
   findings.
 - A wave review (Opus): the wave's diff on the integration branch for drift

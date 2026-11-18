@@ -40,8 +40,11 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
    building a view (several are hand-made and being reworked); read them only
    for wiring. "rtwk cannot" is a verdict only after you ran the widget
    against the oracle's rows in a probe test, never from reading its source;
-   then: an rtwk-gaps row with the route tried and a pending(Gxx) test, no
-   local helper unless the person approved it.
+   then: an rtwk-gaps row (route tried, the differing rows, a minimal probe)
+   and a pending(Gxx) test; the slice is handed over with it (it counts as
+   done for that gap); no local helper or workaround. Name the gap in your
+   handover: the orchestrator tells the person, who decides whether rtwk
+   gets it (the person, 2026-11-18).
 4. A fix round: the review's findings are the task's last review round
    (`task_start` returns them); fix them in the same worktree, answer each.
 

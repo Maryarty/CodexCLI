@@ -28,8 +28,10 @@ read only the subsection this file points to.
   up in the reference (rtwk skill + references) and, when needed, the gallery
   (rtwk-gallery pages and their Code snippets). Never copy a landed screen's
   view code — several are hand-made. "rtwk cannot" only after running the
-  widget against the oracle's rows; then a gap row + pending(Gxx), no local
-  helper without the person's approval. Read process.md, this brief and the
+  widget against the oracle's rows; then a gap row (route tried, differing
+  rows, minimal probe) + a pending(Gxx) test, the slice handed over with it,
+  no local helper or workaround; the orchestrator tells the person, who
+  decides whether rtwk gets it. Read process.md, this brief and the
   skill from the main checkout, not a stale worktree copy.
 - The oracle's look and behaviour are the spec; no visual delta is accepted
   (the person, 2026-11-18). Never propose "accept" and never settle for the

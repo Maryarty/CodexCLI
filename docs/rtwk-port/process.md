@@ -197,7 +197,11 @@ Oracle: `bottom_pane/list_selection_view.rs` — `ListSelectionView`, a
   the oracle's tests. A brief or research note that names a mechanism rtwk
   already owns is wrong: follow rtwk and say so in the handover (the person,
   2026-11-18).
-- No workaround for an rtwk gap: a delta and "rtwk needs".
+- No workaround for an rtwk gap. A gap is real only after the rtwk widget
+  ran against the oracle's rows; then a row in `rtwk-gaps.md` (route tried,
+  differing rows, minimal probe) and the test marked `pending(Gxx)`; the
+  slice is handed over with it. The orchestrator tells the person, who
+  decides whether rtwk gets it (the person, 2026-11-18).
 - No edit of codex-tui: it stays the oracle.
 
 # Appendix A — running the slices through the fleet
