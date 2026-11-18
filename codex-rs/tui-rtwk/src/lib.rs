@@ -22,6 +22,8 @@ pub struct Cli {
     pub debug_screens: bool,
     /// `--locale`: the language of the app's text, over the environment's.
     pub locale: Option<rtwk::l10n::Locale>,
+    /// `-m` / `--model`: the model for the new thread, over the config's.
+    pub model: Option<String>,
 }
 
 impl Cli {
@@ -31,16 +33,27 @@ impl Cli {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
+                "-m" | "--model" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    cli.model = Some(value);
+                }
                 "--locale" => {
                     let value = args
                         .next()
                         .ok_or_else(|| anyhow::anyhow!("--locale needs a value"))?;
                     cli.locale = Some(parse_locale(&value)?);
                 }
-                other => match other.strip_prefix("--locale=") {
-                    Some(value) => cli.locale = Some(parse_locale(value)?),
-                    None => anyhow::bail!("unknown argument: {other}"),
-                },
+                other => {
+                    if let Some(value) = other.strip_prefix("--locale=") {
+                        cli.locale = Some(parse_locale(value)?);
+                    } else if let Some(value) = other.strip_prefix("--model=") {
+                        cli.model = Some(value.to_string());
+                    } else {
+                        anyhow::bail!("unknown argument: {other}");
+                    }
+                }
             }
         }
         Ok(cli)

@@ -253,6 +253,33 @@ pub fn turn_completed(thread: &str, turn_id: &str) -> BackendEv {
     ))
 }
 
+/// `turn/completed` of a failed turn.
+pub fn turn_failed(thread: &str, turn_id: &str) -> BackendEv {
+    note(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread.to_string(),
+            turn: turn(turn_id, TurnStatus::Failed),
+        },
+    ))
+}
+
+/// The server's `error` notification: why a turn goes wrong.
+pub fn turn_error(thread: &str, turn_id: &str, message: &str, will_retry: bool) -> BackendEv {
+    note(ServerNotification::Error(
+        codex_app_server_protocol::ErrorNotification {
+            error: codex_app_server_protocol::TurnError {
+                message: message.to_string(),
+                codex_error_info: None,
+                additional_details: None,
+                misalignment: None,
+            },
+            will_retry,
+            thread_id: thread.to_string(),
+            turn_id: turn_id.to_string(),
+        },
+    ))
+}
+
 /// A `item/tool/requestUserInput` server request, the simplest kind that
 /// carries a thread id.
 /// `serverRequest/resolved`, as the server sends it when a request is

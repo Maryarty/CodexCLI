@@ -164,6 +164,19 @@ pub enum ThreadEv {
         turn: TurnId,
         end: TurnEnd,
     },
+    /// The server's `error` notification (not one it will retry): why a
+    /// turn goes wrong, kept for the status line.
+    TurnError {
+        message: String,
+    },
+}
+
+/// Why the last turn or start went wrong. A server's message is shown as
+/// it is; the bare failure is worded by the string table, not here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Failure {
+    Message(String),
+    TurnFailed,
 }
 
 /// One thread's model.
@@ -182,7 +195,7 @@ pub struct ThreadModel {
     pub queue: Vec<String>,
     /// The per-thread parts of the screen slots.
     pub slots: ThreadSlots,
-    pub last_error: Option<String>,
+    pub last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
     pub last_ended: Option<TurnId>,
 }
@@ -290,6 +303,12 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 },
             },
         )),
+        ServerNotification::Error(n) if !n.will_retry => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::TurnError {
+                message: n.error.message.clone(),
+            },
+        )),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
         ServerNotification::ItemCompleted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
         ServerNotification::AgentMessageDelta(n) => Some((
@@ -369,7 +388,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(message)) => {
                     model.turn = TurnState::Idle;
-                    model.last_error = Some(message);
+                    model.last_error = Some(Failure::Message(message));
                     send_next(model, fx);
                 }
                 (ThreadCtx::Screen(ctx), Answer::Screen(reply)) => {
@@ -382,6 +401,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::Screen(ev) => screens::apply_thread_ev(&mut model.slots, ev, fx),
+        ThreadEv::TurnError { message } => model.last_error = Some(Failure::Message(message)),
         ThreadEv::TurnStarted { turn } => start_turn(model, turn),
         ThreadEv::ItemUpsert { key, item } => model.transcript.upsert(key, item),
         ThreadEv::AgentDelta { key, delta } => model.transcript.append_agent(key, &delta),
@@ -391,8 +411,8 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.last_ended = Some(turn);
             if ends_running {
                 model.turn = TurnState::Idle;
-                if end == TurnEnd::Failed {
-                    model.last_error = Some("the turn failed".to_string());
+                if end == TurnEnd::Failed && model.last_error.is_none() {
+                    model.last_error = Some(Failure::TurnFailed);
                 }
                 send_next(model, fx);
             }

@@ -304,7 +304,8 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             if let Some(id) = app.session.active.clone() {
                 let message = format!("the backend dropped {skipped} events");
                 if let Some(thread) = app.threads.get_mut(&id) {
-                    Rc::make_mut(thread).last_error = Some(message);
+                    Rc::make_mut(thread).last_error =
+                        Some(crate::threads::Failure::Message(message));
                 }
             }
         }

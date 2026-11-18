@@ -143,6 +143,8 @@ pub struct InProcess {
     /// Receives the client when the backend future ends or is aborted, so
     /// that `main` shuts it down (see `HandBack`).
     pub done: oneshot::Sender<InProcessAppServerClient>,
+    /// `--model`: the model of the thread, over the config's.
+    pub model: Option<String>,
 }
 
 impl Connector for InProcess {
@@ -164,7 +166,7 @@ async fn run(
     mut commands: UnboundedReceiver<Command>,
     epoch: ConnEpoch,
 ) {
-    let InProcess { args, done } = spec;
+    let InProcess { args, done, model } = spec;
     let started = match InProcessAppServerClient::start(args).await {
         Ok(client) => client,
         Err(error) => {
@@ -201,7 +203,12 @@ async fn run(
                 Some(Command::RejectRequest { key, .. }) => reject(client, &key).await,
                 Some(command) => {
                     next_id += 1;
-                    inflight.push(request(command, handle.clone(), RequestId::Integer(next_id)));
+                    inflight.push(request(
+                        command,
+                        handle.clone(),
+                        RequestId::Integer(next_id),
+                        model.clone(),
+                    ));
                 }
             },
             Some((ticket, reply)) = inflight.next(), if !inflight.is_empty() => {
@@ -217,13 +224,17 @@ async fn request(
     command: Command,
     handle: InProcessAppServerRequestHandle,
     request_id: RequestId,
+    model: Option<String>,
 ) -> (Ticket, Reply) {
     match command {
         Command::StartThread { ticket, .. } => {
             let reply = match handle
                 .request_typed::<ThreadStartResponse>(ClientRequest::ThreadStart {
                     request_id,
-                    params: ThreadStartParams::default(),
+                    params: ThreadStartParams {
+                        model,
+                        ..ThreadStartParams::default()
+                    },
                 })
                 .await
             {

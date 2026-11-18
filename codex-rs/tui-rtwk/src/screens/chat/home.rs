@@ -18,7 +18,7 @@ use crate::app::{Session, SessionSlice};
 use crate::ids::{ThreadId, Ticket};
 use crate::l10n::strings as l10n;
 use crate::theme;
-use crate::threads::{Item, ThreadModel};
+use crate::threads::{Failure, Item, ThreadModel};
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -124,7 +124,12 @@ impl State for ChatState {
             (Session::Failed(message), _, _) => {
                 Text::new(strings.error(message).to_string()).style(tokens.error())
             }
-            (_, _, Some(message)) => Text::new(strings.error(message).to_string()).style(tokens.error()),
+            (_, _, Some(Failure::Message(message))) => {
+                Text::new(strings.error(message).to_string()).style(tokens.error())
+            }
+            (_, _, Some(Failure::TurnFailed)) => {
+                Text::new(strings.chat.turn_failed).style(tokens.error())
+            }
             (Session::Starting, _, _) => Text::new(strings.chat.starting).style(tokens.dim()),
             (Session::Ready, true, _) => Text::new(strings.chat.working).style(tokens.accent()),
             (Session::Ready, false, _) => Text::new(strings.chat.ready).style(tokens.dim()),

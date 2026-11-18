@@ -15,9 +15,9 @@ use codex_tui_rtwk::rpc::Reply;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
-    turn_started, user_item,
+    turn_error, turn_failed, turn_started, user_item,
 };
-use codex_tui_rtwk::threads::{self, Item, ItemKey, TurnEnd, TurnState};
+use codex_tui_rtwk::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
 
 const T: &str = "thread-1";
 
@@ -212,7 +212,10 @@ fn a_turn_that_fails_to_start_still_sends_the_next_queued_message() {
     let (ticket, _) = start_turns(&fx).remove(0);
     submit(&mut app, "two");
     let fx = run(&mut app, AppEv::Reply(ticket, Reply::failed("refused")));
-    assert_eq!(thread(&app).last_error.as_deref(), Some("refused"));
+    assert_eq!(
+        thread(&app).last_error,
+        Some(Failure::Message("refused".into()))
+    );
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].1, "two");
@@ -404,4 +407,35 @@ fn a_second_request_waits_behind_the_first() {
         app.requests.head().map(|r| r.key.id.clone()),
         Some(ServerRequestId::new("8"))
     );
+}
+
+/// A failed turn says why: the server's `error` notification carries the
+/// message, which the status line shows instead of a bare "the turn failed".
+#[test]
+fn a_failed_turn_keeps_the_servers_error_message() {
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(&mut app, turn_error(T, "turn-1", "no network", false));
+    notification(&mut app, turn_failed(T, "turn-1"));
+    assert_eq!(
+        thread(&app).last_error,
+        Some(Failure::Message("no network".into()))
+    );
+    assert_eq!(thread(&app).turn, TurnState::Idle);
+}
+
+#[test]
+fn a_failed_turn_without_a_message_says_so_plainly() {
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(&mut app, turn_failed(T, "turn-1"));
+    assert_eq!(thread(&app).last_error, Some(Failure::TurnFailed));
+}
+
+#[test]
+fn an_error_that_will_be_retried_is_not_shown() {
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    notification(&mut app, turn_error(T, "turn-1", "reconnecting", true));
+    assert_eq!(thread(&app).last_error, None);
 }

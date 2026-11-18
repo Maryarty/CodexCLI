@@ -28,6 +28,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     let backend = Backend::Connector(Box::new(in_process::InProcess {
         args,
         done: done_tx,
+        model: cli.model.clone(),
     }));
     let app = CodexApp::new(backend)
         .with_debug_screens(cli.debug_screens)
