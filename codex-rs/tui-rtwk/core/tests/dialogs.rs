@@ -134,10 +134,9 @@ fn keep_on_the_last_page_closes_the_viewer() {
 
 #[test]
 fn no_decision_is_recorded_when_nothing_was_shown_or_kept() {
-    let mut sandbox = Sandbox::play(
-        r#"{"step":"screen","dir":"dialogs","ev":{"kind":"warnings","entries":[]}}"#,
-    )
-    .expect("plays");
+    let mut sandbox =
+        Sandbox::play(r#"{"step":"screen","dir":"dialogs","ev":{"kind":"warnings","entries":[]}}"#)
+            .expect("plays");
     send(&mut sandbox, DialogIntent::Close);
     assert!(sandbox.app().screens.dialogs.decided.is_empty());
 }
