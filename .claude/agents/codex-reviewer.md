@@ -49,11 +49,18 @@ not load tm skills.
     widget in `shell`, UI-only state in `UiApp.ui`, mock state from a fixture
     script through core `apply`; a crossing no rule catches is a FIX plus a
     finding for the missing rule;
+  - rtwk first (process.md §5): no app-side shadow of widget state (scroll
+    offset, cursor index, edit buffer, page height handed to core), no state
+    written during build, no carried oracle helper or retyped mechanism that
+    an rtwk widget/controller already provides (SelectionList, TextField,
+    TabBar, ListController, rtwk-unicode widths/TextOverflow) — a FIX naming
+    the rtwk API to use;
   - area kept: no `lib.rs`/`mod.rs`/root-enum edits outside it; codex-tui,
     `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
   defect, a missing pack item, a broken condition or rule, or work outside
-  the area, or a visual delta without a researched rtwk route.
+  the area, a re-implemented rtwk mechanism, or a visual delta without a
+  researched rtwk route.
   A re-review after a fix round reads only the fix commits and the open
   findings.
 - A wave review (Opus): the wave's diff on the integration branch for drift

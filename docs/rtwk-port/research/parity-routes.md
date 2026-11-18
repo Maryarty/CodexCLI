@@ -167,6 +167,13 @@ indices}, footer) and `bottom_pane: Vec<ViewKey>`.
 
 ## Item 3 — G6: resume, agents, usage lists; pager estimate
 
+> **SUPERSEDED 2026-11-18 (the person).** The carried `ensure_selected_visible`
+> + `jump_to_index` route below copies the oracle's mechanics. Lists are rtwk
+> `SelectionList` + `SelectionController` (keys, paging, scroll to cursor,
+> click, wheel built in), filters `TextField`; no app-side scroll offset; widths
+> and ellipsis from rtwk-unicode, no carried `text_formatting.rs`/`width.rs`.
+> process.md §5; tm reflections 01a1eeb7, 01a1eebb.
+
 **Oracle.** `resume_picker.rs:2274` `ensure_selected_visible`: `scroll_top` is an
 *item* index, grown until `scroll_top..=selected` fits the content rows. `:2515-2519`
 `has_more_above/below`: `↑ more`/`↓ more` take list rows. `:3281-3365`: 1–2 line

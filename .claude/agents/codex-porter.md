@@ -27,6 +27,10 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
    one `.claude/skills/rtwk/references/` file that matches the widget (`grep`
    `references/widgets.md` or `guides/widgets-by-need.md` first); open rtwk
    source in ranges, only for what they do not answer.
+   Before writing any mechanism (scroll, selection, paging, editing, tabs,
+   widths, truncation), find the rtwk widget or controller that owns it; the
+   oracle's behaviour is the spec, its mechanics are not. A brief that names
+   a mechanism rtwk owns loses to rtwk: follow rtwk, say so in the handover.
 3. A finished slice shows the manner (the brief names it): copy it, renamed
    for yours, its parity pack included.
 4. A fix round: the review's findings are the task's last review round

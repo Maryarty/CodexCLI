@@ -187,6 +187,16 @@ Oracle: `bottom_pane/list_selection_view.rs` — `ListSelectionView`, a
   outside the shell.
 - No re-implementation of what rtwk owns (frames, coalescing, layout,
   virtualization, scroll, focus, editing).
+- No copy of the oracle's mechanics. The spec is the oracle's behaviour and
+  look, never how it gets there: its scroll offsets, selection indices, edit
+  buffers, width and truncation helpers are ratatui-era plumbing. For every
+  mechanism, first the rtwk widget or controller that does it
+  (`SelectionList`/`SelectionController`, `ListView`/`ListController`,
+  `TextField`/`TextEditingController`, `TabBar`, rtwk-unicode widths and
+  `TextOverflow`); only what rtwk lacks is ours, as a small function held to
+  the oracle's tests. A brief or research note that names a mechanism rtwk
+  already owns is wrong: follow rtwk and say so in the handover (the person,
+  2026-11-18).
 - No workaround for an rtwk gap: a delta and "rtwk needs".
 - No edit of codex-tui: it stays the oracle.
 
