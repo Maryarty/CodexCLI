@@ -100,6 +100,10 @@ test should use `syn` (dev-dependency) and compare token streams.
 
 Prod lines at the tag. "map" is the reuse-map category (at c6a41e32).
 
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** The row for `text_formatting.rs` + `width.rs` (carried by path for display widths and truncation) is dropped: widths and
+> end ellipsis come from rtwk-unicode and `TextOverflow::Ellipsis`; a missing helper is our own small function held to the oracle's tests
+> of it (not the carried file). Only the domain formatters of the other rows stay.
+
 | oracle file | map | prod | route | layer | oracle tests |
 |---|---|---|---|---|---|
 | `app/agents_overview.rs` | ADAPT | 1345 | (c): `AgentsOverviewState`, open, refresh apply, attach, stop → core `screens/agents` model + intents, shell effects | core / shell | via `agents_overview_tests.rs` |
@@ -248,6 +252,8 @@ Order, each step its own commit after `oracle-0170` lands:
    rules of the crate that includes them. Features match codex-tui's for
    the dependencies the included files use.
 2. **For `agents-live` (VS1):**
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** In this list drop `text_formatting.rs` + `width.rs` (see the note above the table in §2.1); rows use rtwk-unicode widths and `TextOverflow`.
+
    - `app_server_event_targets.rs` (core, after §4.1) and
      `text_formatting.rs` + `width.rs` (UI) by path;
    - the core fragments of §2.2 into `screens/agents`, with their drift

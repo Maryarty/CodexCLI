@@ -81,6 +81,11 @@ close watcher is needed.
   (`rtwk-widgets/src/layout/box_.rs:269`, `text/widgets.rs:375`). The attrs reach
   the text only through `DefaultTextStyle` (**proved**: without it only blank
   cells reversed).
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** "The window is the carried pure `scroll_state.rs`" is the oracle's mechanics. Use `SelectionList` + `SelectionController`
+> (selection, wrap, PageUp/PageDown, Home/End, scroll to cursor, click, wheel); `compute_desc_col` is replaced by rtwk
+> layout (`Row` with `IntrinsicWidth`/measured column) unless a proof shows it cannot equal the oracle's rows. The sketch below
+> (`PickerState { scroll: ScrollState }`) is superseded the same way.
+
 - **Window.** Up to 8 *items* from `scroll_top`; the pane height is the sum of
   their wrapped heights (`measure_rows_height`, `selection_popup_common.rs:650`).
   A `Column` of the window gives exactly that. The window is the carried pure
@@ -154,6 +159,9 @@ indices}, footer) and `bottom_pane: Vec<ViewKey>`.
   panel and compare its snapshot; name any glyph difference per chart. Own slice.
 - **D6 toolbar mouse:** `GestureDetector::on_tap` per tab
   (`rtwk-widgets/src/gestures/gesture_detector.rs:211`) → the keys' intent.
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** D7 is dropped: no carried `text_formatting::truncate_text` and no `unicode-segmentation` dependency for it. End ellipsis is
+> `TextOverflow::Ellipsis` with `.ellipsis("...")` where the oracle prints three dots; widths from rtwk-unicode.
+
 - **D7 graphemes:** carry `text_formatting::truncate_text`
   (`tui/src/text_formatting.rs:78`, `"..."`) verbatim with `unicode-segmentation`
   (already in `Cargo.lock`; separate dependency commit). Not `Text` ellipsis:
@@ -248,6 +256,9 @@ pane grows. `slash_input.rs:288-336`: Tab completes `/name ` and runs nothing (o
   (bold) and `disabled` (dim).
 - **Pane.** `BottomPane` builds `Column[composer_row, popup_rows]` while open, so
   the transcript shrinks.
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** The popup cursor and window are a rtwk `SelectionController` (no carried `ScrollState`, no cursor in chat widget state); only the
+> popup-open decision (`popup::active`, domain) and Tab-completes-never-runs stay ours.
+
 - **State.** The cursor is chat widget state (carried `ScrollState`). Enter sends
   `Intent::Run(cmd id)`. Tab writes `"/{name} "` to the controller and runs
   nothing, except `/skills`.
@@ -289,6 +300,9 @@ popup key. The oracle is strictly ordered. Test a fast `Down`+`x`.
 
 **rtwk route.** A Picker header variant:
 - header: `Column[Text::rich(bold), Text(dim)]`;
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** The tab strip is rtwk `TabBar` (or its composed look, equal to the oracle's rows), not a Row of Texts with a visible slice from the
+> carried `selection_tabs.rs` helper; the query ellipsis is `TextOverflow::Ellipsis`, not a carried oracle ellipsis.
+
 - tabs: `Row` of `Text(" label ")`, the active one `BoxWidget.style(active_tab)
   + DefaultTextStyle`. The visible tab slice comes from the carried pure helper
   of `selection_tabs.rs`;
@@ -302,6 +316,9 @@ ranking stay core: carry `search_mode.rs`, `candidate.rs`, `search_catalog.rs`
 
 **Tests.** `default_unified_mention_popup`, `plugin_mention_popup` and the
 `mentions_v2/render_tests.rs` set (incl. the `active_tab_style` check) as full
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** Do not drive `scrolling_mentions_shifts_rendered_window` through a carried `ScrollState`: assert the rendered window
+> against the rtwk controller's behaviour (`SelectionController` scroll to cursor).
+
 rows; `scrolling_mentions_shifts_rendered_window` via the carried `ScrollState`.
 
 **Gap.** None.
@@ -358,6 +375,11 @@ Layers: views in `src/screens/<d>`; shared UI widgets in `src/ui/`; tokens in
 `src/ui/picker/`), model logic in core. Core has no rtwk and gives `PickerSpec`s,
 view ids and candidates.
 
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** The carried `ScrollState` and `compute_desc_col`/`ColumnWidthMode` are the oracle's mechanics. First the rtwk
+> controllers: `SelectionList` + `SelectionController` / `ListController` for selection, wrap, paging and scroll to cursor;
+> widths and ellipsis from rtwk-unicode. Only what a proof shows rtwk cannot do (a window of N *items* of variable wrapped
+> height) is our own small function held to the oracle's tests, named in the handover with the route tried.
+
 1. **`ui-pane`** (first, small; blocks 2 and 3; needs the ADR-002 amendment).
    `BottomPane`, `Picker` (+ carried `ScrollState`, `compute_desc_col`),
    `footer_line`/`key_chip`, tokens `selection`/`panel_surface`/`key_hint`/
@@ -371,6 +393,9 @@ view ids and candidates.
 3. **`chat-nav-pane`** (after 1). Composer key hook; `/`, `@` v2, `$` and file
    popups as pane rows; Tab completes, never runs (G3); footer modes (N5, N8, N6);
    the `Item::Notice` cell (N7); D10 triggers.
+> **SUPERSEDED 2026-11-18 (rtwk first, process.md §5).** "carried `truncate_text` (dependency commit)" is dropped: end ellipsis through `TextOverflow::Ellipsis` /
+> rtwk-unicode; see the SUPERSEDED note at item 3 and D7.
+
 4. **`routes-lists`** (parallel with 1; needs only tokens). `ItemList`; resume
    and agents on it; usage `LayoutBuilder` gaps; pager `~` and percent; carried
    `truncate_text` (dependency commit); D9 in core. Then **`usage-panels`**
