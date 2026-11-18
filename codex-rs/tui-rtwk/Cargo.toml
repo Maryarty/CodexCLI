@@ -9,6 +9,7 @@ members = ["host", "core"]
 [workspace.dependencies]
 rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk" }
 rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-core" }
+rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-term" }
 rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-test" }
 rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-tokio" }
 
@@ -86,6 +87,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+rtwk-term = { workspace = true }
 rtwk-test = { workspace = true }
 
 [profile.dev]
@@ -138,3 +140,10 @@ path = "tests/theme.rs"
 [[test]]
 name = "fixtures"
 path = "tests/fixtures.rs"
+
+# The pty scenarios: both binaries against one mocked model, compared at
+# checkpoints. Opt-in (every scenario test is #[ignore]); see
+# tests/scenarios/README.md.
+[[test]]
+name = "scenarios"
+path = "tests/scenarios/main.rs"

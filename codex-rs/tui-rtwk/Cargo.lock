@@ -3911,6 +3911,7 @@ dependencies = [
  "pretty_assertions",
  "rtwk",
  "rtwk-core",
+ "rtwk-term",
  "rtwk-test",
  "rtwk-tokio",
  "serde_json",
