@@ -1,0 +1,15 @@
+{"scenario":"agents","mock":"text-100","seed":"agents-3","size":[120,40],"oracle_args":["-c","analytics.enabled=false","agents","--no-daemon"],"rtwk_args":["agents"],"timeout_ms":15000}
+{"check":"overview","until":"Refactor the parser module"}
+{"sleep_ms":2000}
+{"key":"down"}
+{"check":"second-row"}
+{"send":"?"}
+{"check":"help"}
+{"key":"esc"}
+{"check":"help-closed"}
+{"key":"tab"}
+{"check":"filter-needs-you"}
+{"key":"backtab"}
+{"check":"filter-all"}
+{"key":"ctrl-c"}
+{"wait_exit":true}
