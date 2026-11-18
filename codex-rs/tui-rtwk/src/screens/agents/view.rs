@@ -686,7 +686,7 @@ pub fn details(
     agents: &Shared<Model>,
 ) -> AnyWidget {
     let (look, strings, num, center, agents) =
-        (look.clone(), *strings, num.clone(), center.clone(), agents.clone());
+        (look.clone(), *strings, *num, center.clone(), agents.clone());
     LayoutBuilder::new(move |_, constraints| {
         let Some(row) = center.selected_row() else {
             return AnyWidget::default();
