@@ -1,0 +1,127 @@
+#!/bin/bash
+# core-upstream-check: does the UI-free core (codex-rs/tui-rtwk/core, package
+# `codex-tui-core`) pass codex-rs's own conventions, as if it were a member of
+# the codex-rs workspace?
+#
+# It copies codex-rs (without target/ and tui-rtwk/) into a temp dir outside the
+# repo, adds the core there as a workspace member, and runs, with codex-rs's
+# own clippy.toml, rustfmt.toml, rust-toolchain.toml and [workspace.lints]:
+#   1. .github/scripts/verify_cargo_workspace_manifests.py (its package-name rule
+#      only reads top-level directories, so the script checks that rule for the
+#      core as a top-level `tui-core` itself)
+#   2. cargo fmt --check (the core only)
+#   3. cargo check --all-targets
+#   4. cargo clippy --no-deps --all-targets -D warnings, plus -D
+#      clippy::print_stdout and -D clippy::print_stderr (codex-tui's lib.rs
+#      denies them; the core is a library that never prints)
+#   5. cargo test (the core's own tests)
+# The real codex-rs/Cargo.toml, Cargo.lock and the core are never touched; the
+# scratch copy is deleted at the end (CORE_UPSTREAM_KEEP=1 keeps it).
+#
+# Usage: tools/rtwk-port/core-upstream-check/core-upstream-check [--no-test]
+# Env:   CORE_UPSTREAM_TARGET  target dir reused between runs
+#                              (default ~/.cache/codexcli/core-upstream-target)
+#        CORE_UPSTREAM_CARGO   cargo command (default ~/.cache/rtwk/acargo)
+# A long build: run it through ~/.cache/rtwk/bgrun.sh.
+set -euo pipefail
+
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+cargo=${CORE_UPSTREAM_CARGO:-$HOME/.cache/rtwk/acargo}
+export CARGO_TARGET_DIR=${CORE_UPSTREAM_TARGET:-$HOME/.cache/codexcli/core-upstream-target}
+export CARGO_INCREMENTAL=0
+run_tests=1
+[ "${1:-}" = "--no-test" ] && run_tests=0
+
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/core-upstream-check.XXXXXX")
+cleanup() {
+  if [ -n "${CORE_UPSTREAM_KEEP:-}" ]; then
+    echo "kept scratch copy: $scratch"
+  else
+    rm -rf "$scratch"
+  fi
+}
+trap cleanup EXIT
+
+echo "== scratch copy of codex-rs in $scratch"
+mkdir -p "$scratch/.github/scripts"
+cp "$repo/.github/scripts/verify_cargo_workspace_manifests.py" "$scratch/.github/scripts/"
+rsync -a --exclude target --exclude tui-rtwk --exclude .git "$repo/codex-rs/" "$scratch/codex-rs/"
+
+echo "== add the core as a codex-rs member"
+# The core sits where it sits in the checkout (tui-rtwk/core), so the relative
+# paths of its tests reach what they reach there: the oracle's snapshots in
+# codex-rs/tui and the view fixtures (jsonl) of the UI package, copied below.
+core_src="$repo/codex-rs/tui-rtwk/core"
+core_dst="$scratch/codex-rs/tui-rtwk/core"
+rsync -a --exclude target "$core_src/" "$core_dst/"
+rsync -a --include '*/' --include 'fixtures/***' --exclude '*' \
+  "$repo/codex-rs/tui-rtwk/src/screens/" "$scratch/codex-rs/tui-rtwk/src/screens/"
+# codex-rs's own clippy.toml governs the core here; the core's extra R1/R11/R12
+# lint file belongs to the port's workspace.
+rm -f "$core_dst/clippy.toml"
+python3 -I - "$scratch/codex-rs" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+dest = "tui-rtwk/core"
+
+# The core's manifest: path dependencies of the port's workspace become
+# `workspace = true` entries, as every codex-rs crate has them.
+core = root / dest / "Cargo.toml"
+text = core.read_text()
+text = re.sub(r'(?m)^codex-app-server-protocol = \{ path = .*\}$',
+              'codex-app-server-protocol = { workspace = true }', text)
+text = re.sub(r'(?m)^serde = \{ version = "1", features = \["derive"\] \}$',
+              'serde = { workspace = true, features = ["derive"] }', text)
+text = re.sub(r'(?m)^serde_json = "1"$', 'serde_json = { workspace = true }', text)
+text = re.sub(r'(?m)^pretty_assertions = "[^"]*"$',
+              'pretty_assertions = { workspace = true }', text)
+core.write_text(text)
+
+# The workspace manifest of the scratch copy: member and dependency entry.
+ws = root / "Cargo.toml"
+text = ws.read_text()
+assert 'members = [\n' in text and 'codex-tui = { path = "tui" }\n' in text
+text = text.replace('members = [\n', f'members = [\n    "{dest}",\n', 1)
+text = text.replace('codex-tui = { path = "tui" }\n',
+                    f'codex-tui = {{ path = "tui" }}\ncodex-tui-core = {{ path = "{dest}" }}\n', 1)
+
+# The package-name rule of the policy script reads top-level directories only
+# (`codex-<dir>`); the core's place upstream is `codex-rs/tui-core`.
+name = re.search(r'(?m)^name = "([^"]+)"', core.read_text()).group(1)
+assert name == "codex-tui-core", f"package name {name} is not codex-<dir> for codex-rs/tui-core"
+ws.write_text(text)
+PY
+
+fail=0
+step() {
+  echo "== $1"
+  shift
+  if ! "$@"; then
+    echo "FAILED: $*"
+    fail=1
+  fi
+}
+
+cd "$scratch/codex-rs"
+step "manifest policy (verify_cargo_workspace_manifests.py)" \
+  python3 "$scratch/.github/scripts/verify_cargo_workspace_manifests.py"
+# (rustfmt.toml names nightly-only options; the stable toolchain warns for each file)
+fmt_check() { $cargo fmt -p codex-tui-core -- --check 2> >(grep -v '^Warning: can.t set' >&2); }
+step "cargo fmt --check" fmt_check
+step "cargo check --all-targets" $cargo check -q -p codex-tui-core --all-targets
+step "cargo clippy --all-targets (codex-rs lints + print bans)" \
+  $cargo clippy -q -p codex-tui-core --no-deps --all-targets -- -D warnings \
+  -D clippy::print_stdout -D clippy::print_stderr
+if [ "$run_tests" = 1 ]; then
+  step "cargo test" $cargo test -q -p codex-tui-core
+fi
+
+if [ "$fail" = 0 ]; then
+  echo "core-upstream-check: PASS"
+else
+  echo "core-upstream-check: FAIL"
+  exit 1
+fi
