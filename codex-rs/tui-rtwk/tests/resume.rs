@@ -44,7 +44,7 @@ const WIDE_FOR_80_LIST: u16 = 82;
 const LIST_AT_13: usize = 3;
 
 #[test]
-fn resume_picker_table() {
+fn mixed_backend_resume_table_snapshot() {
     let mut h = open("table", WIDE_FOR_80_LIST, 22);
     // The oracle's test selects the second row (`state.selected = 1`).
     h.press("down");
@@ -57,7 +57,7 @@ fn resume_picker_table() {
 }
 
 #[test]
-fn resume_picker_more_indicators() {
+fn session_list_more_indicators_snapshot() {
     let h = open("more_indicators", WIDE_FOR_80_LIST, 13);
     oracle_snap::assert_fragment(
         "resume_picker_more_indicators",

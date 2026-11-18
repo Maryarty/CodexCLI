@@ -34,7 +34,7 @@ fn shared_overview_shows_only_root_sessions() {
 }
 
 #[test]
-fn agents_overview_attention() {
+fn agents_overview_details_show_available_attention_without_expanding_rows() {
     let (expected, height) = oracle("agents_overview_attention");
     let h = open("attention", 96, height);
     oracle_snap::assert_same(
@@ -45,7 +45,7 @@ fn agents_overview_attention() {
 }
 
 #[test]
-fn agents_overview_empty_narrow() {
+fn empty_command_center_can_open_resume_picker() {
     let (expected, height) = oracle("agents_overview_empty_narrow");
     let h = open("empty_narrow", 48, height);
     oracle_snap::assert_same(

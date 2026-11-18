@@ -73,7 +73,7 @@ fn transcript_overlay_snapshots_paginated_history_states() {
 }
 
 #[test]
-fn transcript_overlay_completed_stream() {
+fn transcript_overlay_history_rebuild_preserves_only_the_live_tail() {
     let h = open("transcript_completed_stream", 40, 10);
     oracle_snap::assert_same(
         "transcript_overlay_completed_stream",
