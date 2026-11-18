@@ -6,19 +6,27 @@
 //! Oracle: `app/agent_center/{render,rows,hints}.rs`,
 //! `app/agents_overview_view.rs` (`status`, `render_details`).
 
+use std::rc::Rc;
+
+use rtwk::AnyWidget;
 use rtwk::Handler;
+use rtwk::NotificationListener;
+use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::editing::{TextEditingController, TextField};
+use rtwk::focus::FocusNode;
+use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, MainAxisSize, Row, SizedBox};
-use rtwk::scroll::{ListController, ListView};
+use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign};
-use rtwk::AnyWidget;
 use rtwk_core::style::Attrs;
 
+use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::agents::{
-    Center, CenterRow, DetailLine, GroupLabel, Grouping, Group, Model, RowData, display_directory,
-    format_tokens_compact,
+    Center, CenterRow, DetailLine, Group, GroupLabel, Grouping, Model, RowData, Sel,
+    display_directory, format_tokens_compact,
 };
 
 use super::layout;
@@ -78,9 +86,75 @@ fn pad(width: usize) -> AnyWidget {
     SizedBox::fixed(width as i32, 1).into()
 }
 
+/// How a row of the list is told apart: the list keeps its cursor by it.
+/// Headings and gaps are never the cursor's.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RowKey {
+    Gap(usize),
+    Group(usize),
+    Task(String),
+    ShowMore,
+}
+
+impl RowKey {
+    /// The highlight this key stands for; none for a heading or a gap.
+    pub fn into_sel(self) -> Option<Sel> {
+        match self {
+            Self::Task(id) => Some(Sel::Task(id)),
+            Self::ShowMore => Some(Sel::ShowMore),
+            Self::Gap(_) | Self::Group(_) => None,
+        }
+    }
+
+    fn selectable(&self) -> bool {
+        matches!(self, Self::Task(_) | Self::ShowMore)
+    }
+}
+
+/// The key of entry `index` of the list.
+pub fn key_of(center: &Center, index: usize) -> RowKey {
+    match &center.entries[index] {
+        CenterRow::Gap => RowKey::Gap(index),
+        CenterRow::Group { .. } => RowKey::Group(index),
+        CenterRow::Task(at) => RowKey::Task(center.rows[*at].id().to_owned()),
+        CenterRow::ShowMore => RowKey::ShowMore,
+    }
+}
+
+/// The task or "Show more" row next to entry `from` the way `forward` goes.
+pub fn neighbour(center: &Center, from: usize, forward: bool) -> Option<Sel> {
+    let keys = (0..center.entries.len()).map(|index| key_of(center, index));
+    let found = if forward {
+        keys.skip(from + 1).find(RowKey::selectable)
+    } else {
+        keys.take(from).rev().find(RowKey::selectable)
+    };
+    found.and_then(RowKey::into_sel)
+}
+
+/// Where the list is scrolled to: whether rows lie above and below the
+/// window (the overflow arrows).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Scrolled {
+    pub above: bool,
+    pub below: bool,
+}
+
+/// What the widget keeps for rtwk's widgets: the controllers and the
+/// handlers of the lines they tell.
+pub struct Controls {
+    pub selection: SelectionController<RowKey>,
+    pub edit: TextEditingController,
+    pub focus: FocusNode,
+    pub scroll: Rc<ValueNotifier<Scrolled>>,
+    pub open: Handler<RowKey>,
+    pub search: Handler<Rc<str>>,
+    pub submit: Handler<Rc<str>>,
+}
+
 /// What the screen is told by a click: the handlers the widget made.
 pub struct Taps {
-    pub rows: Vec<Handler<PointerEvent>>,
+    pub rows: Rc<Vec<Handler<PointerEvent>>>,
     pub tabs: Vec<Handler<PointerEvent>>,
 }
 
@@ -141,7 +215,7 @@ pub fn header(
         .collect();
     let editing = model.searching || model.rename.is_some();
     let hint_text = format!("{} {}", strings.filter_keys, strings.filter_label);
-    let hint_width = hint_text.chars().count();
+    let hint_width = layout::columns(&hint_text);
     let show_hint = inner >= 80 && !editing;
     let tabs_width = if show_hint { inner.saturating_sub(hint_width + 2) } else { inner };
     let strip = layout::strip(&labels, model.filter, tabs_width);
@@ -206,7 +280,7 @@ fn heading(
         GroupLabel::Model(name) => name.clone(),
         GroupLabel::Path(path) => {
             let shown = display_directory(path, model.home.as_deref());
-            let room = width.saturating_sub(count.chars().count() + 2).min(64);
+            let room = width.saturating_sub(layout::columns(count) + 2).min(64);
             layout::center_truncate_path(&shown, room)
         }
     };
@@ -256,6 +330,7 @@ fn entry(
     center: &Center,
     index: usize,
     width: usize,
+    selected: bool,
     tap: Option<&Handler<PointerEvent>>,
 ) -> AnyWidget {
     let inner = width.saturating_sub(1);
@@ -265,7 +340,6 @@ fn entry(
             cell(inner as i32, heading(look, strings, model, label, count, inner))
         }
         CenterRow::ShowMore => {
-            let selected = center.show_more_selected;
             let fill = if selected { look.selection.clone() } else { look.plain.clone() };
             let label = if model.paging.loading {
                 strings.loading_more
@@ -283,7 +357,6 @@ fn entry(
         }
         CenterRow::Task(at) => {
             let row = &center.rows[*at];
-            let selected = center.selected == Some(*at);
             let fill = if selected { look.selection.clone() } else { look.plain.clone() };
             let (status_text, mut dot) = status(row, strings, look);
             let idle = matches!(row.group, Group::Ready | Group::Finished);
@@ -329,18 +402,20 @@ fn entry(
 }
 
 /// The list pane (oracle: `render_center_rows`): the column labels, the
-/// scrolling rows, the overflow arrows.
+/// rows in a `SelectionList` (it keeps the cursor and the scroll, and takes
+/// the keys and the mouse), the overflow arrows.
 #[allow(clippy::too_many_arguments)]
 pub fn list(
     look: &Look,
     strings: &Strings,
-    model: &Model,
-    center: &Center,
+    screens: &Rc<ScreenStates>,
+    center: &Rc<Center>,
     width: usize,
     height: usize,
-    controller: &ListController,
-    taps: &Taps,
+    controls: &Controls,
+    taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
+    let model = &screens.agents;
     let inner = width.saturating_sub(1);
     if center.entries.is_empty() {
         let text = empty_text(strings, model, model.threads.is_empty());
@@ -350,20 +425,83 @@ pub fn list(
     }
     let padding = usize::from(height >= 3);
     let viewport = height.saturating_sub(2 * padding);
-    let rows: Vec<AnyWidget> = (0..center.entries.len())
-        .map(|index| entry(look, strings, model, center, index, width, taps.rows.get(index)))
-        .collect();
-    let list = SizedBox::new(
+    let keys: Rc<Vec<RowKey>> = Rc::new((0..center.entries.len()).map(|at| key_of(center, at)).collect());
+    let builder = {
+        let (look, screens, center, taps, keys) =
+            (look.clone(), screens.clone(), center.clone(), taps.clone(), keys.clone());
+        let strings = *strings;
+        let selection = controls.selection.clone();
+        move |index: usize| -> AnyWidget {
+            let paint = {
+                let (look, screens, center, taps) =
+                    (look.clone(), screens.clone(), center.clone(), taps.clone());
+                move |selected: bool| {
+                    entry(&look, &strings, &screens.agents, &center, index, width, selected, taps.get(index))
+                }
+            };
+            if !keys[index].selectable() {
+                return paint(false);
+            }
+            let (selection, key) = (selection.clone(), keys[index].clone());
+            ListenableBuilder::new(selection.listenable(), move |_, _| {
+                paint(selection.cursor().as_ref() == Some(&key))
+            })
+            .into()
+        }
+    };
+    let mut rows = SelectionList::new(
+        keys.len(),
+        {
+            let keys = keys.clone();
+            move |index| keys[index].clone()
+        },
+        builder,
+    )
+    .controller(controls.selection.clone())
+    .item_enabled({
+        let keys = keys.clone();
+        move |index| keys[index].selectable()
+    })
+    .on_submitted(controls.open.clone())
+    .focus_node(controls.focus.clone())
+    .autofocus(true)
+    .item_extent(1)
+    .bar(false)
+    .idle_style(look.selection.clone())
+    .selected_style(Style::new())
+    .disabled_style(Style::new());
+    rows.enabled = true;
+    let scroll = controls.scroll.clone();
+    let rows = NotificationListener::<ScrollNotification>::new(SizedBox::new(
         Some(width as i32),
         Some(viewport as i32),
-        Some(ListView::new(rows).item_extent(1).controller(controller.clone()).into()),
-    );
+        Some(rows.into()),
+    ))
+    .on_notification(move |note| {
+        scroll.set_value(Scrolled {
+            above: note.metrics.pixels > 0,
+            below: note.metrics.pixels < note.metrics.max_scroll_extent,
+        });
+        false
+    });
     let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
     if padding > 0 {
         let metadata = inner >= 56;
         let title_width = inner - 4 - if metadata { 24 } else { 0 };
+        let strings = *strings;
+        let arrow = {
+            let (look, scroll) = (look.clone(), controls.scroll.clone());
+            move |down: bool| {
+            let look = look.clone();
+            ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
+                let show = if down { scrolled.below } else { scrolled.above };
+                cell(1, one(vec![span(if show { if down { "\u{2193}" } else { "\u{2191}" } } else { " " }, &look.dim)]))
+            })
+            }
+        };
         let mut labels = Row::new()
-            .child(pad(4))
+            .child(arrow(false))
+            .child(pad(3))
             .child(cell(title_width as i32, one(vec![span(strings.tasks, &look.dim)])));
         if metadata {
             labels = labels
@@ -377,8 +515,11 @@ pub fn list(
                 ));
         }
         column = column.child(cell(inner as i32, labels));
+        column = column.child(rows);
+        column = column.child(Row::new().child(arrow(true)));
+    } else {
+        column = column.child(rows);
     }
-    column = column.child(list);
     column.into()
 }
 
@@ -506,9 +647,8 @@ pub fn details(
 
 fn clip_pair(label: &str, value: &str, look: &Look, width: usize) -> Line {
     let text = layout::ellipsize(&format!("{label}{value}"), width);
-    let split = label.chars().count().min(text.chars().count());
-    let head: String = text.chars().take(split).collect();
-    let tail: String = text.chars().skip(split).collect();
+    let split = if text.starts_with(label) { label.len() } else { text.len() };
+    let (head, tail) = text.split_at(split);
     vec![span(head, &look.dim), span(tail, &look.plain)]
 }
 
@@ -560,21 +700,33 @@ fn hint_line(look: &Look, items: &[(&str, &str)]) -> Line {
     line
 }
 
-/// The search or rename row above the list.
-pub fn editor(look: &Look, strings: &Strings, model: &Model, width: usize) -> AnyWidget {
-    let (label, text) = match &model.rename {
-        Some(rename) => (strings.rename_label, rename.text.as_str()),
-        None => (strings.search_label, model.search.as_str()),
-    };
-    let available = width.saturating_sub(label.chars().count() + 1);
-    let skip = text.chars().count().saturating_sub(available);
-    let shown: String = text.chars().skip(skip).collect();
+/// The search or rename row above the list: the label and a `TextField`
+/// that edits the controller's text (a search tells the model each change, a
+/// rename its text on Enter).
+pub fn editor(look: &Look, strings: &Strings, model: &Model, width: usize, controls: &Controls) -> AnyWidget {
+    let label = if model.rename.is_some() { strings.rename_label } else { strings.search_label };
     let label_style = look.cyan.clone().attrs(Attrs::BOLD);
+    let mut field = TextField::new()
+        .controller(controls.edit.clone())
+        .style(look.tab.clone())
+        .focused_style(look.tab.clone())
+        .key_hints(false)
+        .autofocus(true)
+        .on_submitted(controls.submit.clone());
+    if model.rename.is_none() {
+        field = field.on_changed(controls.search.clone());
+    }
     BoxWidget::new()
         .style(look.tab.clone())
-        .child(cell(
-            width as i32,
-            one(vec![span(label, &label_style), span(shown, &look.tab)]),
+        .child(SizedBox::new(
+            Some(width as i32),
+            Some(1),
+            Some(
+                Row::new()
+                    .child(cell(layout::columns(label) as i32, one(vec![span(label, &label_style)])))
+                    .child(Expanded::new(1, field))
+                    .into(),
+            ),
         ))
         .into()
 }
@@ -586,20 +738,21 @@ pub fn body(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    model: &Model,
-    center: &Center,
+    screens: &Rc<ScreenStates>,
+    center: &Rc<Center>,
     areas: &layout::Areas,
-    controller: &ListController,
+    controls: &Controls,
     taps: &Taps,
 ) -> AnyWidget {
+    let model = &screens.agents;
     let editing = model.searching || model.rename.is_some();
     let search_rows = usize::from(editing && areas.body_height > 0);
     let list_height = areas.body_height - search_rows;
     let mut pane = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
     if search_rows > 0 {
-        pane = pane.child(editor(look, strings, model, areas.list_width));
+        pane = pane.child(editor(look, strings, model, areas.list_width, controls));
     }
-    pane = pane.child(list(look, strings, model, center, areas.list_width, list_height, controller, taps));
+    pane = pane.child(list(look, strings, screens, center, areas.list_width, list_height, controls, &taps.rows));
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(pad(areas.list_x))

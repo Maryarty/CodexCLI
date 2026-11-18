@@ -52,6 +52,7 @@ fn a_click_selects_the_row_under_it() {
     );
     let (x, y) = find(&h, "Repair authentication");
     h.t.click(x, y);
+    h.settle();
     assert!(
         highlighted(&h).contains("Repair authentication"),
         "{}",

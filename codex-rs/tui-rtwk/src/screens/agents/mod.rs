@@ -6,19 +6,20 @@
 //! holds the keys, the mouse and the widget state, `view.rs` the widgets.
 //! Oracle: `tui/src/app/agent_center/` and `app/agents_overview_view.rs`.
 
-use std::cell::Cell;
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::controls::SelectionController;
+use rtwk::editing::TextEditingController;
+use rtwk::focus::{Focus, FocusNode, KeyPress};
+use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, watch};
-use rtwk::scroll::ListController;
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::agents::{CenterRow, Intent as AgentsIntent, Sel};
+use codex_tui_core::screens::agents::Intent as AgentsIntent;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::l10n::strings as shared;
@@ -138,15 +139,24 @@ pub struct Screen {
     pub open: bool,
 }
 
-/// Widget state: the list's scroll (view state, R14) and the rows the last
-/// layout showed (for the page keys).
+/// What the editing line is for; the controller's text is reset when it
+/// changes (a rename starts from the task's name, a search from nothing).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Editing {
+    No,
+    Search,
+    Rename(String),
+}
+
+/// Widget state: the controllers rtwk's widgets keep the list's cursor,
+/// the editing line's text, the list's focus and where it is scrolled in.
 pub struct ScreenState {
-    list: ListController,
-    page: Rc<Cell<usize>>,
-    /// The highlighted entry the list was last asked to show: the list is
-    /// moved when the highlight moves, not on every model change (a wheel
-    /// scroll stays where it is).
-    followed: Option<usize>,
+    selection: SelectionController<view::RowKey>,
+    edit: TextEditingController,
+    list_focus: FocusNode,
+    scroll: Rc<ValueNotifier<view::Scrolled>>,
+    listening: Option<Listening>,
+    editing: Editing,
     /// How many resumes the model had answered when the screen opened: one
     /// more means a session was opened from here.
     entered: Option<u32>,
@@ -155,8 +165,17 @@ pub struct ScreenState {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Key(KeyPress),
-    Row(usize),
+    /// The list's cursor moved.
+    Cursor,
+    /// A row was clicked.
+    Row(view::RowKey),
     Tab(usize),
+    /// The search line's text changed.
+    Search(String),
+    /// Enter in the editing line.
+    Submit(String),
+    /// Enter on the list's cursor.
+    Open,
 }
 
 impl StatefulWidget for Screen {
@@ -164,9 +183,12 @@ impl StatefulWidget for Screen {
 
     fn create_state(&self) -> ScreenState {
         ScreenState {
-            list: ListController::new(),
-            page: Rc::new(Cell::new(10)),
-            followed: None,
+            selection: SelectionController::new(),
+            edit: TextEditingController::default(),
+            list_focus: FocusNode::new(),
+            scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
+            listening: None,
+            editing: Editing::No,
             entered: None,
         }
     }
@@ -180,8 +202,9 @@ fn on_key(key: KeyPress) -> Option<Msg> {
 
 /// The intent a key means on the screen (oracle: `handle_key_event`,
 /// `command_center_key`, `rename_key` with the default keymap), or `None`
-/// for a key the screen does not take.
-fn intent_of(key: &KeyPress, editing: bool, help: bool, page: usize) -> Option<AgentsIntent> {
+/// for a key the screen does not take. The list moves its own cursor by the
+/// arrows, the page keys, Home and End; the editing line takes the text.
+fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> {
     let ctrl = key.mods.contains(Mods::CTRL);
     let alt = key.mods.contains(Mods::ALT);
     let shift = key.mods.contains(Mods::SHIFT);
@@ -195,36 +218,19 @@ fn intent_of(key: &KeyPress, editing: bool, help: bool, page: usize) -> Option<A
     }
     match key.code {
         KeyCode::Escape => return Some(AgentsIntent::CancelEditing),
-        KeyCode::Up => return Some(AgentsIntent::Move { forward: false }),
-        KeyCode::Down => return Some(AgentsIntent::Move { forward: true }),
-        KeyCode::PageUp => return Some(AgentsIntent::Page { forward: false, height: page }),
-        KeyCode::PageDown => return Some(AgentsIntent::Page { forward: true, height: page }),
-        KeyCode::Home => return Some(AgentsIntent::Jump { top: true }),
-        KeyCode::End => return Some(AgentsIntent::Jump { top: false }),
-        KeyCode::Enter if !ctrl && !alt => return Some(AgentsIntent::Accept),
-        KeyCode::Tab => return Some(AgentsIntent::CycleFilter { back: shift }),
+        KeyCode::Tab if !editing => return Some(AgentsIntent::CycleFilter { back: shift }),
         KeyCode::F3 => return Some(AgentsIntent::BeginSearch),
         _ => {}
     }
     if ctrl {
-        return match key.ch {
-            Some('p' | 'k') => Some(AgentsIntent::Move { forward: false }),
-            Some('n' | 'j') => Some(AgentsIntent::Move { forward: true }),
-            Some('c') => Some(AgentsIntent::CancelEditing),
-            _ => None,
-        };
+        return (key.ch == Some('c')).then_some(AgentsIntent::CancelEditing);
     }
     if editing {
-        return match key.code {
-            KeyCode::Backspace => Some(AgentsIntent::Backspace),
-            _ => text.map(|text| AgentsIntent::Type(text.to_owned())),
-        };
+        return None;
     }
     match (key.code, text) {
         (KeyCode::Backspace, _) => Some(AgentsIntent::Delete),
         (_, Some("?")) => Some(AgentsIntent::ToggleHelp),
-        (_, Some("k")) => Some(AgentsIntent::Move { forward: false }),
-        (_, Some("j")) => Some(AgentsIntent::Move { forward: true }),
         (_, Some("g")) => Some(AgentsIntent::CycleGrouping),
         (_, Some("/")) => Some(AgentsIntent::BeginSearch),
         (_, Some("n")) => Some(AgentsIntent::New),
@@ -243,10 +249,18 @@ impl State for ScreenState {
     type Msg = Msg;
 
     fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
+        self.listening = Some(Listening::new(cx, self.selection.listenable(), Msg::Cursor));
         if w.open {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::Open));
         }
+    }
+
+    fn dispose(&mut self) {
+        if let Some(listening) = &self.listening {
+            listening.cancel();
+        }
+        self.selection.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -260,19 +274,35 @@ impl State for ScreenState {
             }
             Some(_) => {}
         }
-        // The oracle's window (`render_center_rows`): it moves the least that
-        // shows the highlighted row, and shows the heading above a first task
-        // that scrolls in from above.
         let center = model.center();
-        let selected = center.selected_entry();
-        if selected != self.followed {
-            self.followed = selected;
-            if let Some(selected) = selected {
-                self.list.ensure_index_visible(selected);
-                if selected > 0 && matches!(center.entries[selected - 1], CenterRow::Group { .. }) {
-                    self.list.ensure_index_visible(selected - 1);
-                }
+        // The highlighted task is core's data; the list's cursor follows it.
+        if let Some(entry) = center.selected_entry() {
+            let key = view::key_of(&center, entry);
+            if self.selection.cursor().as_ref() != Some(&key) {
+                self.selection.set_cursor(Some(key.clone()));
+                self.selection.select(key);
             }
+        }
+        let editing = match (&model.rename, model.searching) {
+            (Some(rename), _) => Editing::Rename(rename.target.clone()),
+            (None, true) => Editing::Search,
+            (None, false) => Editing::No,
+        };
+        if editing != self.editing {
+            match &editing {
+                Editing::Search => self.edit.reset(""),
+                Editing::Rename(target) => {
+                    let name = center
+                        .rows
+                        .iter()
+                        .find(|row| row.id() == target.as_str())
+                        .and_then(|row| row.thread.name.clone())
+                        .unwrap_or_default();
+                    self.edit.reset(&name);
+                }
+                Editing::No => self.list_focus.request_focus(),
+            }
+            self.editing = editing;
         }
     }
 
@@ -281,6 +311,8 @@ impl State for ScreenState {
         let model = &screens.agents;
         let hs = read::<Hs, _>(cx);
         let mut send = |intent: AgentsIntent| cx.emit(&hs.screen, ScreenIntent::Agents(intent));
+        let center = model.center();
+        let selected = center.selected_entry().map(|entry| view::key_of(&center, entry));
         match msg {
             Msg::Key(key) => {
                 let editing = model.searching || model.rename.is_some();
@@ -290,29 +322,53 @@ impl State for ScreenState {
                     }
                     return Rebuild::No;
                 }
-                if let Some(intent) = intent_of(&key, editing, model.help, self.page.get()) {
+                // While the search line has the focus, the arrows that bubble
+                // up from it move the highlight (oracle: the list actions
+                // stay live under the search line).
+                if model.searching && model.rename.is_none() {
+                    let forward = match key.code {
+                        KeyCode::Down => Some(true),
+                        KeyCode::Up => Some(false),
+                        _ => None,
+                    };
+                    if let (Some(forward), Some(at)) = (forward, center.selected_entry())
+                        && let Some(sel) = view::neighbour(&center, at, forward)
+                    {
+                        send(AgentsIntent::Select(sel));
+                        return Rebuild::No;
+                    }
+                }
+                if let Some(intent) = intent_of(&key, editing, model.help) {
                     send(intent);
                 }
             }
-            Msg::Row(index) => {
-                let center = model.center();
-                match center.entries.get(index) {
-                    Some(CenterRow::Task(at)) => {
-                        let id = center.rows[*at].id().to_owned();
-                        if center.selected == Some(*at) {
-                            send(AgentsIntent::Accept);
-                        } else {
-                            send(AgentsIntent::Select(Sel::Task(id)));
-                        }
-                    }
-                    Some(CenterRow::ShowMore) => {
-                        if center.show_more_selected {
-                            send(AgentsIntent::Accept);
-                        } else {
-                            send(AgentsIntent::Select(Sel::ShowMore));
-                        }
-                    }
-                    _ => {}
+            Msg::Cursor => {
+                if let Some(l) = &self.listening {
+                    l.handled();
+                }
+                let cursor = self.selection.cursor();
+                if cursor != selected
+                    && let Some(sel) = cursor.and_then(view::RowKey::into_sel)
+                {
+                    send(AgentsIntent::Select(sel));
+                }
+            }
+            Msg::Row(key) => {
+                // A click on the row that is highlighted opens it, on another
+                // one highlights it (the list's cursor follows the model).
+                if selected.as_ref() == Some(&key) {
+                    send(AgentsIntent::Accept);
+                } else if let Some(sel) = key.into_sel() {
+                    send(AgentsIntent::Select(sel));
+                }
+            }
+            Msg::Open => send(AgentsIntent::Accept),
+            Msg::Search(text) => send(AgentsIntent::SetSearch(text)),
+            Msg::Submit(text) => {
+                if model.rename.is_some() {
+                    send(AgentsIntent::Commit(text));
+                } else {
+                    send(AgentsIntent::Accept);
                 }
             }
             Msg::Tab(index) => send(AgentsIntent::SetFilter(index)),
@@ -325,25 +381,33 @@ impl State for ScreenState {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let screens = watch::<ScreenStates, _>(cx);
-        let center = screens.agents.center();
+        let center = Rc::new(screens.agents.center());
         let taps = view::Taps {
-            rows: (0..center.entries.len())
-                .map(|index| cx.map(move |_: PointerEvent| Msg::Row(index)))
-                .collect(),
+            rows: Rc::new(
+                (0..center.entries.len())
+                    .map(|index| {
+                        let key = view::key_of(&center, index);
+                        cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
+                    })
+                    .collect(),
+            ),
             tabs: (0..5).map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index))).collect(),
         };
+        let controls = view::Controls {
+            selection: self.selection.clone(),
+            edit: self.edit.clone(),
+            focus: self.list_focus.clone(),
+            scroll: self.scroll.clone(),
+            open: cx.map(|_: view::RowKey| Msg::Open),
+            search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
+            submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
+        };
         let can_return = w.can_return;
-        let list = self.list.clone();
-        let page = self.page.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
             let width = usize::try_from(constraints.max_width).unwrap_or(0);
             let height = usize::try_from(constraints.max_height).unwrap_or(0);
             let model = &screens.agents;
             let areas = layout::areas(width, height);
-            let editing = model.searching || model.rename.is_some();
-            let list_rows = areas.body_height.saturating_sub(usize::from(editing));
-            let viewport = list_rows.saturating_sub(2 * usize::from(list_rows >= 3));
-            page.set(viewport);
             let mut column = rtwk::layout::Column::new()
                 .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
             if areas.header > 0 {
@@ -352,13 +416,13 @@ impl State for ScreenState {
             if model.help {
                 column = column.child(view::help(&look, strings, &areas, width));
             } else {
-                column = column.child(view::body(&look, strings, &num, model, &center, &areas, &list, &taps));
+                column = column.child(view::body(&look, strings, &num, &screens, &center, &areas, &controls, &taps));
             }
             if areas.footer_row < height {
                 column = column.child(view::footer_row(&look, strings, model, can_return, width));
             }
             column.into()
         });
-        Focus::new(body).autofocus().on_key(cx.keys(on_key)).into()
+        Focus::new(body).on_key(cx.keys(on_key)).into()
     }
 }

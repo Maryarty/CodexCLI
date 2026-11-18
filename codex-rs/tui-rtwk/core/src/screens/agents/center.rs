@@ -313,87 +313,22 @@ impl Model {
             });
     }
 
-    pub(super) fn move_selection(&mut self, forward: bool) {
-        if self.rename.is_some() {
-            return;
+    /// Drops a thread and everything below it, however deep (oracle:
+    /// `remove_agents_overview_thread` with its descendants).
+    pub(super) fn remove_subtree(&mut self, id: &str) {
+        let mut gone = vec![id.to_owned()];
+        let mut next = 0;
+        while next < gone.len() {
+            let parent = gone[next].clone();
+            gone.extend(
+                self.threads
+                    .iter()
+                    .filter(|held| held.parent_thread_id.as_deref() == Some(parent.as_str()))
+                    .map(|held| held.id.clone()),
+            );
+            next += 1;
         }
-        let rows = self.rows();
-        let indices = self.selectable(&rows);
-        if indices.is_empty() {
-            return;
-        }
-        let current = self.selected_index(&rows, &indices);
-        let position = indices
-            .iter()
-            .position(|index| Some(*index) == current)
-            .unwrap_or(0);
-        let next = if forward {
-            indices[(position + 1) % indices.len()]
-        } else {
-            indices[position.checked_sub(1).unwrap_or(indices.len() - 1)]
-        };
-        self.set_slot(&rows, next);
-    }
-
-    fn set_slot(&mut self, rows: &[RowData], slot: usize) {
-        self.selected = Some(match rows.get(slot) {
-            Some(row) => Sel::Task(row.id().to_owned()),
-            None => Sel::ShowMore,
-        });
-    }
-
-    pub(super) fn jump(&mut self, top: bool) {
-        if self.rename.is_some() {
-            return;
-        }
-        let rows = self.rows();
-        let visible = self.visible_indices(&rows);
-        let slot = if top { visible.first() } else { visible.last() };
-        if let Some(slot) = slot.copied() {
-            self.set_slot(&rows, slot);
-        }
-    }
-
-    /// Page navigation shares the rendered layout, headings included, and
-    /// does not wrap (oracle: `page_selection`).
-    pub(super) fn page(&mut self, forward: bool, height: usize) {
-        let rows = self.rows();
-        let indices = self.selectable(&rows);
-        if self.rename.is_some() || indices.is_empty() {
-            return;
-        }
-        let entries = self.entries(&rows, &indices);
-        let tasks = entries
-            .iter()
-            .enumerate()
-            .filter_map(|(position, row)| match row {
-                CenterRow::Task(index) => Some((position, *index)),
-                CenterRow::ShowMore => Some((position, usize::MAX)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let selected = self.selected_index(&rows, &indices);
-        let current = tasks
-            .iter()
-            .find(|(_, index)| Some(*index) == selected)
-            .map(|(position, _)| *position)
-            .unwrap_or(tasks[0].0);
-        let height = height.max(1);
-        let target = if forward {
-            current.saturating_add(height)
-        } else {
-            current.saturating_sub(height)
-        };
-        let picked = if forward {
-            tasks
-                .partition_point(|(position, _)| *position < target)
-                .min(tasks.len() - 1)
-        } else {
-            tasks
-                .partition_point(|(position, _)| *position <= target)
-                .saturating_sub(1)
-        };
-        self.set_slot(&rows, tasks[picked].1);
+        self.threads.retain(|held| !gone.contains(&held.id));
     }
 
     /// The task after `removed` rows leave: the next displayed one, else the

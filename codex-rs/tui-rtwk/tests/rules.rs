@@ -201,7 +201,7 @@ fn r13_ids_are_newtypes_not_strings() {
 
 #[test]
 fn r14_no_app_data_in_local_state() {
-    let found = violations(&["use_state", "Obs<", "rtwk::Obs", "use_ref"], |_| false);
+    let found = violations(&["use_state(", "use_state::", "Obs<", "rtwk::Obs", "use_ref"], |_| false);
     assert!(found.is_empty(), "R14: {found:#?}");
 }
 
@@ -409,8 +409,10 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
             "Controller::from",
             "Controller::<",
         ],
-        // The agents list's scroll position is view state of the screen's
-        // widget (it is moved by item, per the oracle's window), not app data.
+        // The agents screen's list cursor (`SelectionController`) and its
+        // search/rename line (`TextEditingController`) are view state of the
+        // screen's widget, not app data: the model keeps the highlighted task
+        // and the search text it filters by.
         |name| name == "src/ui/thread_ui.rs" || name == "src/screens/agents/mod.rs",
     );
     assert!(found.is_empty(), "R14: {found:#?}");

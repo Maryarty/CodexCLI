@@ -24,7 +24,10 @@
 mod carried;
 mod center;
 mod details;
+mod notifications;
+mod refresh;
 mod update;
+mod wire;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -49,10 +52,10 @@ pub use details::Details;
 pub use carried::format_tokens_compact;
 pub use carried::preview_markdown;
 pub use center::display_directory;
-pub use update::Out;
-pub use update::apply_answer;
-pub use update::observe;
-pub use update::observes;
+pub use refresh::Out;
+pub use refresh::apply_answer;
+pub use notifications::observe;
+pub use notifications::observes;
 pub use update::update;
 
 pub const NAME: &str = "agents";
@@ -147,7 +150,6 @@ pub struct Confirm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rename {
     pub target: String,
-    pub text: String,
 }
 
 /// What the latest reasoning summary of a task said (oracle:
@@ -257,10 +259,8 @@ pub enum Intent {
     /// The screen opened: list the threads.
     Open,
     Refresh,
-    Move { forward: bool },
-    Jump { top: bool },
-    /// A page of the list; `height` is the viewport's rows.
-    Page { forward: bool, height: usize },
+    /// The list's cursor moved to `Sel` (the list widget moves it; core
+    /// keeps the highlighted task as data).
     Select(Sel),
     /// Tab (`back`: shift-tab).
     CycleFilter { back: bool },
@@ -270,14 +270,15 @@ pub enum Intent {
     ToggleHelp,
     CloseHelp,
     BeginSearch,
-    /// Text typed or pasted into the search or rename line.
-    Type(String),
-    Backspace,
+    /// The search line's text changed.
+    SetSearch(String),
     /// Esc / ctrl-c while editing: leave search or rename.
     CancelEditing,
     BeginRename,
-    /// Enter: open the task, the "Show more" row, or commit the rename.
+    /// Enter: open the task or the "Show more" row.
     Accept,
+    /// Enter in the rename line, with its text.
+    Commit(String),
     Stop,
     Archive,
     Delete,
@@ -342,7 +343,7 @@ pub enum Ctx {
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
-    update::apply_ev(model, ev);
+    refresh::apply_ev(model, ev);
 }
 
 /// The screen-slot entry; the app routes `Intent`s through `update` so that
@@ -370,17 +371,17 @@ pub fn apply_reply(
 /// not used: these RPCs are app-scoped).
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let _ = thread;
-    update::wire_request(command, id)
+    wire::wire_request(command, id)
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    update::decode_reply(command, result)
+    wire::decode_reply(command, result)
 }
 
 /// A script's `screen` step for this directory. The forms: `{"listed":
 /// {"threads":[<protocol Thread>..],"unread":[..],"next_cursor":..}}`,
 /// `{"clock":n}`, `{"current":"id"}`, `{"pinned":["id"..]}`, `{"request":["id","text"]}`.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    update::seed_ev(value).map_err(crate::screens::SeedError::Bad)
+    wire::seed_ev(value).map_err(crate::screens::SeedError::Bad)
 }

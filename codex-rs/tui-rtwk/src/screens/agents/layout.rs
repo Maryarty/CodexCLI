@@ -4,6 +4,11 @@
 //! `bottom_pane/selection_tabs.rs` (`render_filled_tab_bar`) and
 //! `agent_center/rows.rs` (`columns`).
 
+use rtwk_core::unicode::TextOverflow;
+use rtwk_core::unicode::TextSegmenter;
+use rtwk_core::unicode::fit_text;
+use rtwk_core::unicode::grapheme_boundaries;
+
 /// The rows and panes of the screen at `width` x `height` (oracle:
 /// `center_layout`): the header is three rows when the screen has six, the
 /// footer one row, the body is inset two cells on each side and splits into
@@ -66,7 +71,7 @@ pub fn strip(labels: &[String], active: usize, width: usize) -> Strip {
         return Strip { start: 0, end: 0, left: false, right: false, widths: Vec::new() };
     }
     let active = active.min(count - 1);
-    let widths: Vec<usize> = labels.iter().map(|l| l.chars().count() + 2).collect();
+    let widths: Vec<usize> = labels.iter().map(|l| columns(l) + 2).collect();
     let occupied = |start: usize, end: usize| {
         widths[start..end].iter().sum::<usize>() + end - start - 1
             + usize::from(start > 0) * 2
@@ -92,29 +97,53 @@ pub fn strip(labels: &[String], active: usize, width: usize) -> Strip {
     Strip { start, end, left, right, widths: shown }
 }
 
+/// The cells `text` takes on the screen.
+pub fn columns(text: &str) -> usize {
+    TextSegmenter::default().width(text)
+}
+
+/// The first part of `text` that fits `room` cells, whole graphemes only.
+fn head(text: &str, room: usize) -> &str {
+    let segmenter = TextSegmenter::default();
+    let mut used = 0;
+    let mut end = 0;
+    for (start, stop) in grapheme_boundaries(text) {
+        let cells = segmenter.width(&text[start..stop]);
+        if used + cells > room {
+            break;
+        }
+        used += cells;
+        end = stop;
+    }
+    &text[..end]
+}
+
 /// Greedy word wrap to `width` cells; a word longer than the row is cut.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines = Vec::new();
     let mut current = String::new();
     for word in text.split_whitespace() {
-        let mut word = word.to_string();
-        while word.chars().count() > width {
-            let head: String = word.chars().take(width).collect();
-            word = word.chars().skip(width).collect();
+        let mut word = word;
+        while columns(word) > width {
+            let first = head(word, width);
+            if first.is_empty() {
+                break;
+            }
+            word = &word[first.len()..];
             if !current.is_empty() {
                 lines.push(std::mem::take(&mut current));
             }
-            lines.push(head);
+            lines.push(first.to_owned());
         }
-        let need = current.chars().count() + usize::from(!current.is_empty()) + word.chars().count();
+        let need = columns(&current) + usize::from(!current.is_empty()) + columns(word);
         if need > width && !current.is_empty() {
             lines.push(std::mem::take(&mut current));
         }
         if !current.is_empty() {
             current.push(' ');
         }
-        current.push_str(&word);
+        current.push_str(word);
     }
     if !current.is_empty() {
         lines.push(current);
@@ -125,32 +154,137 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 /// The text cut to `width` cells with an ellipsis (oracle:
 /// `truncate_line_with_ellipsis_if_overflow`).
 pub fn ellipsize(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
-        return text.to_string();
-    }
-    if width == 0 {
-        return String::new();
-    }
-    let kept: String = text.chars().take(width - 1).collect();
-    format!("{kept}…")
+    let room = isize::try_from(width).unwrap_or(isize::MAX);
+    fit_text(&TextSegmenter::default(), text, room, TextOverflow::Ellipsis, "\u{2026}").into_owned()
 }
 
-/// A path cut to `max` cells, keeping its head and tail around one `…`
-/// (oracle: `center_truncate_path`; the by-path carry of `text_formatting.rs`
-/// replaces this once the crate root registers it).
+/// The end of `original` that fits `allowed` cells behind a `…`.
+fn front_truncate(original: &str, allowed: usize) -> String {
+    if allowed == 0 {
+        return String::new();
+    }
+    if columns(original) <= allowed {
+        return original.to_owned();
+    }
+    if allowed == 1 {
+        return "\u{2026}".to_owned();
+    }
+    let room = isize::try_from(allowed).unwrap_or(isize::MAX);
+    fit_text(&TextSegmenter::default(), original, room, TextOverflow::EllipsisStart, "\u{2026}")
+        .into_owned()
+}
+
+/// One segment of a path while it is cut to fit.
+struct Piece<'a> {
+    original: &'a str,
+    text: String,
+    cuttable: bool,
+    tail: bool,
+}
+
+fn assemble(leading: bool, pieces: &[Piece<'_>]) -> String {
+    let mut path = String::new();
+    if leading {
+        path.push('/');
+    }
+    for piece in pieces {
+        if !path.is_empty() && !path.ends_with('/') {
+            path.push('/');
+        }
+        path.push_str(&piece.text);
+    }
+    path
+}
+
+/// Cuts `pieces` until the path fits `max` cells: the segment that may be
+/// cut, tail ones first, loses its start behind a `…`.
+fn fit_pieces(leading: bool, pieces: &mut [Piece<'_>], max: usize, cut: bool, count: usize) -> Option<String> {
+    loop {
+        let candidate = assemble(leading, pieces);
+        let width = columns(&candidate);
+        if width <= max {
+            return Some(candidate);
+        }
+        if !cut {
+            return None;
+        }
+        let order: Vec<usize> = (0..pieces.len())
+            .rev()
+            .filter(|at| pieces[*at].cuttable && pieces[*at].tail)
+            .chain((0..pieces.len()).rev().filter(|at| pieces[*at].cuttable && !pieces[*at].tail))
+            .collect();
+        let mut changed = false;
+        for at in order {
+            if columns(pieces[at].original) <= max && count > 2 {
+                continue;
+            }
+            let others = width.saturating_sub(columns(&pieces[at].text));
+            let allowed = max.saturating_sub(others).max(1);
+            let text = front_truncate(pieces[at].original, allowed);
+            if text != pieces[at].text {
+                pieces[at].text = text;
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            return None;
+        }
+    }
+}
+
+/// A path cut to `max` cells with a `…` in place of its middle segments,
+/// its first segments and its last two kept as the room allows (oracle:
+/// `text_formatting.rs` `center_truncate_path`, held to its four tests).
 pub fn center_truncate_path(path: &str, max: usize) -> String {
-    let count = path.chars().count();
-    if count <= max {
+    if max == 0 {
+        return String::new();
+    }
+    if columns(path) <= max {
         return path.to_owned();
     }
-    if max <= 1 {
-        return "\u{2026}".repeat(max);
+    let leading = path.starts_with('/');
+    let mut segments: Vec<&str> = path.split('/').collect();
+    if leading && segments.first().is_some_and(|first| first.is_empty()) {
+        segments.remove(0);
     }
-    let tail = (max - 1) / 2 + (max - 1) % 2;
-    let head = max - 1 - tail;
-    let start: String = path.chars().take(head).collect();
-    let end: String = path.chars().skip(count - tail).collect();
-    format!("{start}\u{2026}{end}")
+    if path.ends_with('/') && segments.last().is_some_and(|last| last.is_empty()) {
+        segments.pop();
+    }
+    let count = segments.len();
+    if count == 0 {
+        return if leading && max >= 1 { "/".to_owned() } else { "\u{2026}".to_owned() };
+    }
+    let suffix = if count > 1 { count.min(3) - 1 } else { 0 };
+    let mut combos: Vec<(usize, usize)> = (1..=count)
+        .flat_map(|left| {
+            let least = usize::from(left != count);
+            (least..=count - left).map(move |right| (left, right))
+        })
+        .collect();
+    let by_room = |a: &(usize, usize), b: &(usize, usize)| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((b.0 + b.1).cmp(&(a.0 + a.1)));
+    combos.sort_by(by_room);
+    let (preferred, rest): (Vec<_>, Vec<_>) = combos.into_iter().partition(|(_, right)| *right >= suffix);
+    for (left, right) in preferred.into_iter().chain(rest) {
+        let mut pieces: Vec<Piece<'_>> = segments[..left]
+            .iter()
+            .map(|seg| Piece { original: seg, text: (*seg).to_owned(), cuttable: true, tail: false })
+            .collect();
+        let ellipsis = left + right < count;
+        if ellipsis {
+            pieces.push(Piece { original: "\u{2026}", text: "\u{2026}".to_owned(), cuttable: false, tail: false });
+        }
+        pieces.extend(segments[count - right..].iter().map(|seg| Piece {
+            original: seg,
+            text: (*seg).to_owned(),
+            cuttable: true,
+            tail: true,
+        }));
+        if let Some(fit) = fit_pieces(leading, &mut pieces, max, ellipsis || count <= 2, count) {
+            return fit;
+        }
+    }
+    front_truncate(path, max)
 }
 
 #[cfg(test)]
@@ -176,5 +310,32 @@ mod tests {
         assert_eq!((narrow.start, narrow.end, narrow.right), (0, 3, true));
         let wide = strip(&labels, 0, 76);
         assert_eq!((wide.end, wide.right), (5, false));
+    }
+
+    #[test]
+    fn test_center_truncate_doesnt_truncate_short_path() {
+        assert_eq!(center_truncate_path("/Users/codex/Public", 40), "/Users/codex/Public");
+    }
+
+    #[test]
+    fn test_center_truncate_truncates_long_path() {
+        assert_eq!(
+            center_truncate_path("~/hello/the/fox/is/very/fast", 24),
+            "~/hello/the/\u{2026}/very/fast"
+        );
+    }
+
+    #[test]
+    fn test_center_truncate_truncates_long_windows_path() {
+        let path = "C:/Users/codex/Projects/super/long/windows/path/file.txt";
+        assert_eq!(center_truncate_path(path, 36), "C:/Users/codex/\u{2026}/path/file.txt");
+    }
+
+    #[test]
+    fn test_center_truncate_handles_long_segment() {
+        assert_eq!(
+            center_truncate_path("~/supercalifragilisticexpialidocious", 18),
+            "~/\u{2026}cexpialidocious"
+        );
     }
 }
