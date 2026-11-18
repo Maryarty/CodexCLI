@@ -25,8 +25,8 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
 2. Read `docs/rtwk-port/process.md` Part 1 §2–§4 once (the concept map,
    the eight steps of translating a screen, the worked example) and work by
    its steps; read `docs/rtwk-port/architecture.md` only at the sections your
-   task names. Read `.claude/skills/rtwk/SKILL.md` once at the start, then the
-   one `.claude/skills/rtwk/references/` file that matches the widget (`grep`
+   task names. Read `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/SKILL.md` once at the start, then the
+   one `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/` file that matches the widget (`grep`
    `references/widgets.md` or `guides/widgets-by-need.md` first); open rtwk
    source in ranges, only for what they do not answer.
    Before writing any mechanism (scroll, selection, paging, editing, tabs,

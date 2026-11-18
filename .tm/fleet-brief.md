@@ -20,7 +20,7 @@ read only the subsection this file points to.
 - Behaviour, not mechanics (the person, 2026-11-18): match what the oracle
   shows and does, never how it does it. Scroll, selection, paging, editing,
   tabs, focus, mouse, widths and ellipsis belong to rtwk widgets and
-  controllers (`.claude/skills/rtwk`, `guides/widgets-by-need.md`); no app-side
+  controllers (`/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk`, `guides/widgets-by-need.md`); no app-side
   shadow of their state, no carried oracle helper that duplicates them. If
   your brief or a research note names such a mechanism, use rtwk instead and
   say so in the handover. Process.md §5.
