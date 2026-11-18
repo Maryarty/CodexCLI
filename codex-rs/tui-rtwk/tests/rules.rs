@@ -361,3 +361,11 @@ fn the_lint_lists_name_the_rules_banned_paths() {
         assert!(clippy.contains(path), "clippy.toml bans `{path}`");
     }
 }
+
+/// Item 11: colours come from the theme (`ThemeData` at the root), not from
+/// the code. Only `src/theme.rs` may name a style, and it names no colour.
+#[test]
+fn no_literal_colours_anywhere() {
+    let found = violations(&["Color::", "Color::rgb", "rgb(", "Style::new().fg("], |_| false);
+    assert!(found.is_empty(), "literal colours: {found:#?}");
+}

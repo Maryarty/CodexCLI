@@ -122,3 +122,7 @@ path = "tests/pin.rs"
 [[test]]
 name = "rules"
 path = "tests/rules.rs"
+
+[[test]]
+name = "theme"
+path = "tests/theme.rs"
