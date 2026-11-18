@@ -126,6 +126,31 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
     );
 }
 
+/// The filter strip on rtwk's own `TabBar` (G36): the oracle's tabs
+/// (`render_filled_tab_bar`) are ` label ` cells one blank apart, so the row
+/// of `agents_overview_attention` reads `   All 2   Needs you 1 ...`; rtwk's
+/// bar packs the tabs with no gap. The body is the probe of the gap row.
+#[test]
+fn agents_overview_tab_strip_draws_oracle_filled_tabs_on_tabbar() {
+    pending(
+        Owner::Rtwk,
+        "G36 (rtwk-gaps.md): TabBar has no gap between tabs, no marks outside them and no whole-tab window (tabs.rs:915-935, :960); the strip is `src/screens/agents/tabs.rs`",
+    );
+    use rtwk::controls::{TabBar, TabController};
+    let (expected, _) = oracle("agents_overview_attention");
+    let tabs = TabController::new(5);
+    let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(96, 1));
+    t.pump_widget(TabBar::new(
+        &tabs,
+        ["All 2", "Needs you 1", "Working 0", "Ready 0", "Inactive 1"],
+    ));
+    let screen = t.screen();
+    let row = screen.lines().next().unwrap_or_default().trim_end().to_owned();
+    // The oracle's row ends with the `tab/⇧tab filter` hint, the strip is the rest.
+    let strip = expected[1].split("tab/").next().unwrap_or_default().trim_end();
+    assert_eq!(row, strip, "the oracle's tab row");
+}
+
 #[test]
 fn empty_command_center_can_open_resume_picker() {
     let (expected, height) = oracle("agents_overview_empty_narrow");
