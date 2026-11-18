@@ -42,6 +42,9 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 pub struct Harness {
     pub t: Tester,
     pub fake: FakeHandle,
+    /// The runtime of a driven harness (`start_driven`): the test thread runs
+    /// its tasks, so nothing happens behind the test's back.
+    driver: Option<&'static tokio::runtime::Runtime>,
     /// Dropped last: the runtime stays entered while the app lives.
     _runtime: tokio::runtime::EnterGuard<'static>,
 }
@@ -67,6 +70,7 @@ pub fn start_quittable(debug: bool) -> Harness {
     Harness {
         t,
         fake,
+        driver: None,
         _runtime: guard,
     }
 }
@@ -82,6 +86,7 @@ pub fn start_lang(lang: Lang) -> Harness {
     Harness {
         t,
         fake,
+        driver: None,
         _runtime: guard,
     }
 }
@@ -106,11 +111,138 @@ fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     Harness {
         t,
         fake,
+        driver: None,
         _runtime: guard,
     }
 }
 
+/// How many times a driven runtime gives each ready task a turn per `drive`:
+/// deeper than any chain of hand-offs between the app, the fake and the
+/// ingress stream.
+const DRIVE_TURNS: usize = 16;
+
+/// The most rounds `quiesce` runs before it gives the screen as it is.
+/// The slice of fake time between two runs of the driven runtime.
+const SLICE_MS: u64 = 20;
+
+const QUIESCE_ROUNDS: usize = 200;
+
+/// As `start_sized`, on a runtime of its own that only the test thread runs
+/// (`drive`, `pause`): the backend task, the ingress stream and every timer
+/// make progress when the test lets them, never in parallel with its reads.
+/// The oracle kit builds its screens on it.
+pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
+    let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .expect("runtime"),
+    ));
+    let guard = rtwk_tokio::enter(runtime);
+    let (server, fake) = FakeServer::new();
+    let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
+    let mut t = Tester::with(Options::new().size(width, height));
+    t.pump_widget(localized(root(app_view(app)), Lang::En));
+    let mut h = Harness {
+        t,
+        fake,
+        driver: Some(runtime),
+        _runtime: guard,
+    };
+    h.t.pump_for(ms(200));
+    h
+}
+
 impl Harness {
+    /// Lets the driven runtime run every task that is ready, and the ones
+    /// they make ready, `DRIVE_TURNS` times over. A harness on the shared
+    /// multi-thread runtime has nothing to drive.
+    pub fn drive(&self) {
+        self.drive_for(Duration::ZERO);
+    }
+
+    /// `drive`, the runtime's clock (paused, so only the test moves it) first
+    /// moved on by `d`: the timers of the backend run on the fake clock's
+    /// time (the search's debounce).
+    fn drive_for(&self, d: Duration) {
+        if let Some(runtime) = self.driver {
+            runtime.block_on(async {
+                if !d.is_zero() {
+                    tokio::time::advance(d).await;
+                }
+                for _ in 0..DRIVE_TURNS {
+                    tokio::task::yield_now().await;
+                }
+            });
+        }
+    }
+
+    /// Waits `d` of real time on a shared runtime (the backend thread
+    /// answers meanwhile); on a driven one nothing waits in real time: the
+    /// runtime runs and its clock moves on by `d`.
+    pub fn pause(&self, d: Duration) {
+        match self.driver {
+            Some(_) => self.drive_for(d),
+            None => std::thread::sleep(d),
+        }
+    }
+
+    /// Lets `millis` of the fake clock pass in slices of `SLICE_MS`, the
+    /// driven runtime running between them: an answer that arrives in one
+    /// slice has the rest of the time to show (a tick that commits a streamed
+    /// item, a fade). Then `quiesce`.
+    pub fn advance(&mut self, millis: u64) {
+        let mut left = millis;
+        while left > 0 {
+            let slice = left.min(SLICE_MS);
+            self.drive_for(ms(slice));
+            self.t.pump_for(ms(slice));
+            left -= slice;
+        }
+        self.quiesce();
+    }
+
+    /// `advance` on a driven harness, a plain `pump_for` on the others (their
+    /// tests have their own waits).
+    fn advance_driven(&mut self, millis: u64) {
+        if self.driver.is_some() {
+            self.advance(millis);
+        } else {
+            self.t.pump_for(ms(millis));
+        }
+    }
+
+    /// Runs the app and the backend alternately until a round changes
+    /// neither the screen nor what the backend was asked: every event the app
+    /// sent has been answered and every answer has been applied. No sleep
+    /// and no clock: a round is `drive` and a frame without time passing.
+    pub fn quiesce(&mut self) {
+        let signature = |h: &Harness| {
+            (
+                h.fake.commands().len(),
+                h.fake.requests().len(),
+                h.t.screen(),
+            )
+        };
+        let mut last = signature(self);
+        let mut calm = 0;
+        for _ in 0..QUIESCE_ROUNDS {
+            self.drive();
+            self.t.pump();
+            let now = signature(self);
+            if now == last {
+                calm += 1;
+                if calm == 2 {
+                    return;
+                }
+            } else {
+                calm = 0;
+                last = now;
+            }
+        }
+    }
+
     /// Pumps until `ready` holds of the screen; the backend thread answers
     /// in real time, the frames run on the fake clock.
     pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
@@ -119,7 +251,7 @@ impl Harness {
             if ready(&self.t.screen()) {
                 return;
             }
-            std::thread::sleep(ms(5));
+            self.pause(ms(5));
         }
         panic!("never saw {what}; the screen:\n{}", self.t.screen());
     }
@@ -130,13 +262,13 @@ impl Harness {
     pub fn settle(&mut self) {
         for _ in 0..10 {
             self.t.pump_for(ms(20));
-            std::thread::sleep(ms(10));
+            self.pause(ms(10));
         }
     }
 
     pub fn press(&mut self, keys: &str) {
         self.t.press(keys);
-        self.t.pump_for(ms(100));
+        self.advance_driven(100);
     }
 }
 
@@ -174,7 +306,7 @@ impl Harness {
                 Input::Key(keys) => self.press(keys),
                 Input::Resize { width, height } => {
                     self.t.resize(*width, *height);
-                    self.t.pump_for(ms(100));
+                    self.advance_driven(100);
                 }
             }
         }

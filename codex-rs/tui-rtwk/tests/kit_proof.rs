@@ -574,3 +574,61 @@ fn the_agents_help_equals_the_oracle_with_the_delete_label() {
     s.keys("?");
     s.assert_snap("command_center__live_center_help_two_columns");
 }
+
+// ---- settle: the kit waits for the backend, never for the clock ----------
+
+/// The session is started and the script's events are applied when `open`
+/// returns: no `wait_for` between them and the first assertion.
+#[test]
+fn a_script_screen_shows_its_events_when_open_returns() {
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("kit/fixtures/answered.jsonl"))
+        .open();
+    s.assert_contains("• Hello there");
+    s.assert_contains("ready");
+}
+
+/// The events of a script reach a session that is already started: the first
+/// race of the oracle suite was a script fed while the app still said
+/// `starting…`, its events dropped for a thread that did not exist yet.
+#[test]
+fn a_script_is_fed_to_a_started_session() {
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "oracle/fixtures/renderer_internals/crlf_code.jsonl"
+        ))
+        .open();
+    s.assert_in_order(&["fn main() {", "println!(\"hi\");", "}"]);
+}
+
+/// A key that makes the app ask the backend shows the answer when the key
+/// returns: Enter submits, the fake starts the turn and echoes the message.
+#[test]
+fn a_key_that_asks_the_backend_shows_the_answer_when_it_returns() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.assert_contains("ready");
+    s.type_text("hello").keys("enter");
+    // the echoed message and the started turn, the composer empty again
+    s.assert_contains("› hello");
+    s.assert_contains("working…");
+    s.assert_contains("› Ask Codex to do anything");
+}
+
+/// The result does not depend on how fast the machine is: the same screen
+/// opened again and again is the same rows.
+#[test]
+fn opening_a_script_screen_gives_the_same_rows_every_time() {
+    let rows = |_: usize| {
+        Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .script(include_str!("kit/fixtures/answered.jsonl"))
+            .open()
+            .rows()
+    };
+    let first = rows(0);
+    for n in 1..30 {
+        assert_eq!(rows(n), first, "open number {n}");
+    }
+}

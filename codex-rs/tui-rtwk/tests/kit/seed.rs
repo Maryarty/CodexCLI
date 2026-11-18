@@ -118,14 +118,10 @@ impl Open {
     }
 
     fn live_harness(&self) -> Harness {
-        let mut h = crate::common::start_sized(false, self.width, self.height);
-        for _ in 0..200 {
-            if h.fake.epoch().is_some() {
-                break;
-            }
-            h.t.pump_for(ms(20));
-            std::thread::sleep(ms(5));
-        }
+        let mut h = crate::common::start_driven(false, self.width, self.height);
+        connect(&mut h);
+        // The session is started (`ready`) when `open` returns.
+        h.quiesce();
         h
     }
 
@@ -140,9 +136,13 @@ impl Open {
                 &format!("no debug entry `{dir}/{entry}`: the slice has not registered this state"),
             );
         }
-        let mut h = crate::common::start_sized(true, self.width, self.height);
+        let mut h = crate::common::start_driven(true, self.width, self.height);
         h.open_debug_row(dir, Some(entry));
-        h.t.pump_for(ms(if self.early { 20 } else { 800 }));
+        if self.early {
+            h.t.pump_for(ms(20));
+        } else {
+            h.advance(800);
+        }
         Screen {
             entry: true,
             ..Screen::from(h)
@@ -175,13 +175,10 @@ fn feed(h: &mut Harness, text: &str) {
         Ok(script) => script,
         Err(err) => panic!("script line {}: {}", err.line, err.message),
     };
-    for _ in 0..200 {
-        if h.fake.epoch().is_some() {
-            break;
-        }
-        h.t.pump_for(ms(20));
-        std::thread::sleep(ms(5));
-    }
+    connect(h);
+    // The session has to be there before the script's events: an event for
+    // a thread the app has not started yet is dropped.
+    h.quiesce();
     let Some(epoch) = h.fake.epoch() else {
         panic!("the app never connected");
     };
@@ -207,6 +204,18 @@ fn feed(h: &mut Harness, text: &str) {
             }
         }
     }
-    h.settle();
+    h.advance(200);
     h.play_inputs(&inputs);
+}
+
+/// Runs the app until the backend has attached its connection (the epoch the
+/// app's events are stamped with).
+fn connect(h: &mut Harness) {
+    for _ in 0..200 {
+        if h.fake.epoch().is_some() {
+            break;
+        }
+        h.t.pump_for(ms(20));
+        h.pause(ms(5));
+    }
 }
