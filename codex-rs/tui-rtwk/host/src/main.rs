@@ -29,7 +29,9 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         args,
         done: done_tx,
     }));
-    let app = CodexApp::new(backend).with_debug_screens(cli.debug_screens);
+    let app = CodexApp::new(backend)
+        .with_debug_screens(cli.debug_screens)
+        .with_lang(cli.lang(&rtwk::l10n::requested()));
     let result = run(app);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
     // its task), so nothing after its loop runs: the client came back

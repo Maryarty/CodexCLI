@@ -391,7 +391,9 @@ fn adr010_no_user_visible_literal_outside_the_string_tables() {
             "Button::new(format!(\"",
             "Span::new(\"",
         ],
-        |name| name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs"),
+        |name| {
+            name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs")
+        },
     );
     assert!(found.is_empty(), "ADR-010: {found:#?}");
 }

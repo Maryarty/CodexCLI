@@ -174,6 +174,8 @@ pub struct CodexApp {
     pub thread_ui: ThreadUiMap,
     /// Open the debug menu at start (`--debug-screens`).
     pub debug_screens: bool,
+    /// The language of the text, negotiated once at start (ADR-010).
+    pub lang: crate::l10n::Lang,
     /// Keeps the `Navigator`'s stack across view runs (ADR-002, G15).
     pub nav_key: GlobalKey,
     pub(crate) link: shell::Link,
@@ -196,6 +198,7 @@ impl CodexApp {
             screens: Rc::new(ScreenStates::default()),
             thread_ui: ThreadUiMap::default(),
             debug_screens: false,
+            lang: crate::l10n::Lang::default(),
             nav_key: GlobalKey::with_label("navigator"),
             link: shell::Link::new(backend),
             mint: TicketMint::default(),
@@ -206,6 +209,11 @@ impl CodexApp {
 
     pub fn with_debug_screens(mut self, on: bool) -> Self {
         self.debug_screens = on;
+        self
+    }
+
+    pub fn with_lang(mut self, lang: crate::l10n::Lang) -> Self {
+        self.lang = lang;
         self
     }
 

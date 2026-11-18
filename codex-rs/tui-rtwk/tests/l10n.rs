@@ -3,10 +3,12 @@
 //! same locale. English is the oracle's text; the Russian table of
 //! `src/l10n` is a three-string proof that the path works.
 
+#![allow(clippy::expect_used)]
+
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::CodexApp;
-use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::l10n::{Lang, Tables};
+use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::ui::run::{app_view, localized, root};
 use rtwk::l10n::Locale;
 
@@ -34,7 +36,10 @@ fn the_environment_is_read_as_lc_all_lc_messages_lang() {
                 .map(|(_, v)| v.to_string())
         }
     };
-    assert_eq!(Lang::from_env_with(env(&[("LANG", "ru_RU.UTF-8")])), Lang::Ru);
+    assert_eq!(
+        Lang::from_env_with(env(&[("LANG", "ru_RU.UTF-8")])),
+        Lang::Ru
+    );
     assert_eq!(
         Lang::from_env_with(env(&[("LC_ALL", "en_US.UTF-8"), ("LANG", "ru_RU.UTF-8")])),
         Lang::En
@@ -50,13 +55,20 @@ fn the_locale_flag_overrides_the_environment() {
     let cli = Cli::parse(["--locale=en".to_string()]).expect("parsed");
     assert_eq!(cli.lang(&want(&["ru"])), Lang::En);
     let cli = Cli::parse([]).expect("parsed");
-    assert_eq!(cli.lang(&want(&["ru"])), Lang::Ru, "no flag: the environment");
+    assert_eq!(
+        cli.lang(&want(&["ru"])),
+        Lang::Ru,
+        "no flag: the environment"
+    );
 }
 
 #[test]
 fn a_bad_locale_flag_is_an_error() {
     assert!(Cli::parse(["--locale".to_string()]).is_err(), "no value");
-    assert!(Cli::parse(["--locale=!!".to_string()]).is_err(), "not a tag");
+    assert!(
+        Cli::parse(["--locale=!!".to_string()]).is_err(),
+        "not a tag"
+    );
 }
 
 #[test]

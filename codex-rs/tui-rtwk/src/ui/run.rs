@@ -18,6 +18,7 @@ use rtwk_core::terminal::Terminal;
 use rtwk_core::terminal::TerminalOptions;
 
 use crate::app::CodexApp;
+use crate::l10n::Lang;
 use crate::shell;
 use crate::ui::view::view;
 
@@ -30,6 +31,12 @@ pub fn app_view(app: CodexApp) -> AppView<CodexApp> {
 /// the dialogs and routes below it read their tokens from.
 pub fn root(view: AppView<CodexApp>) -> rtwk::overlay::App {
     rtwk::overlay::App::new(view).theme(crate::theme::data())
+}
+
+/// `root` under rtwk's localizations for `lang`: what the app's own tables
+/// (`l10n::lang`) and rtwk's built-in widget strings both read.
+pub fn localized(root: impl Into<rtwk::AnyWidget>, lang: Lang) -> TwkLocalizations {
+    TwkLocalizations::new(lang.widgets(), root)
 }
 
 /// Opens the terminal and runs `app` until it quits.
@@ -48,8 +55,9 @@ pub fn run(app: CodexApp) -> Result<(), AppError> {
         },
     )?;
     frame_loop.styles_mut().pen(&Pen::new());
+    let lang = app.lang;
     let root = root(app_view(app).with_handle(frame_loop.handle()));
-    let localized = TwkLocalizations::from_env(root);
+    let localized = localized(root, lang);
     AppHost::of_widget(
         &mut frame_loop,
         GraphicsScope::new(caps, localized),

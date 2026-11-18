@@ -16,6 +16,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::{Session, SessionSlice};
 use crate::ids::{ThreadId, Ticket};
+use crate::l10n::strings as l10n;
 use crate::theme;
 use crate::threads::{Item, ThreadModel};
 use crate::ui::debug_menu::DebugMenu;
@@ -102,29 +103,35 @@ impl State for ChatState {
         let thread = watch::<ThreadModel, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let rows = thread.clone();
+        let strings = l10n::of(cx);
         let row_tokens = tokens.clone();
+        let row_strings = strings;
         let transcript = ListView::builder(thread.transcript.len(), move |index| {
             match rows.transcript.get(index) {
                 Some((_, Item::User { text })) => {
-                    Text::new(format!("› {text}")).style(row_tokens.bold()).into()
+                    Text::new(row_strings.user_line(text).to_string())
+                        .style(row_tokens.bold())
+                        .into()
                 }
-                Some((_, Item::Agent { text })) => Text::new(format!("• {text}")).into(),
+                Some((_, Item::Agent { text })) => {
+                    Text::new(row_strings.agent_line(text).to_string()).into()
+                }
                 None => AnyWidget::default(),
             }
         })
         .stick_to_bottom(true);
         let status = match (&session.status, thread.is_running(), &thread.last_error) {
             (Session::Failed(message), _, _) => {
-                Text::new(format!("error: {message}")).style(tokens.error())
+                Text::new(strings.error(message).to_string()).style(tokens.error())
             }
-            (_, _, Some(message)) => Text::new(format!("error: {message}")).style(tokens.error()),
-            (Session::Starting, _, _) => Text::new("starting…").style(tokens.dim()),
-            (Session::Ready, true, _) => Text::new("working…").style(tokens.accent()),
-            (Session::Ready, false, _) => Text::new("ready").style(tokens.dim()),
+            (_, _, Some(message)) => Text::new(strings.error(message).to_string()).style(tokens.error()),
+            (Session::Starting, _, _) => Text::new(strings.chat.starting).style(tokens.dim()),
+            (Session::Ready, true, _) => Text::new(strings.chat.working).style(tokens.accent()),
+            (Session::Ready, false, _) => Text::new(strings.chat.ready).style(tokens.dim()),
         };
         let composer = TextArea::new()
             .controller(w.ui.composer.clone())
-            .placeholder("Ask Codex to do anything")
+            .placeholder(strings.chat.placeholder)
             .min_lines(1)
             .max_lines(6)
             .autofocus(true)
@@ -134,7 +141,7 @@ impl State for ChatState {
             .child(Expanded::new(1, transcript))
             .child(status);
         for text in &thread.queue {
-            body = body.child(Text::new(format!("(queued) {text}")).style(tokens.dim()));
+            body = body.child(Text::new(strings.queued(text).to_string()).style(tokens.dim()));
         }
         let body = body.child(composer);
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);

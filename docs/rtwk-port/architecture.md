@@ -55,6 +55,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | ADR-007 | parity | functional (screen tests + pty scenarios against the oracle) and visual (oracle snapshots and captures as the reference, deltas listed per screen) |
 | ADR-008 | performance | the pty A/B harness of perf-compare.md, baseline of the original first, report.html + side-by-side casts + milestone trend |
 | ADR-009 | migration | foundation → main chat screen → screen slices in parallel → inline mode and rtwk gaps |
+| ADR-010 | localization | the app's strings are typed `const` tables (rtwk-l10n's form), one `strings.rs` per screen directory plus `src/l10n/`; English is the oracle's text byte for byte; the locale is negotiated once and reaches the tree as rtwk's `TwkLocalizations`; a rules test bans user-visible literals in widget code |
 
 ## 1. What we build (facts and the screen map)
 
@@ -552,6 +553,50 @@ Wave labels match design.md §10.
 4. **W4 inline mode** S27 and the rtwk gaps it needs; parity sweep over the
    registry; performance report.
 
+## ADR-010 — Localization
+
+**Decision.** The app's user-visible text lives in typed `const` tables, never
+as literals in widgets, in the form rtwk-l10n has for its own widget strings
+(rtwk `docs/design/l10n.md`):
+
+- one `src/screens/<dir>/strings.rs` per screen directory: a struct of
+  `&'static str` fields, `Msg<N>` fields behind typed methods for messages
+  with arguments, `PluralMsg<N>` where a count changes the wording (the
+  locale's plural rule picks the category); `EN` is the oracle's text byte
+  for byte, each group of strings with a comment naming the oracle file it
+  comes from;
+- shared text (the chat frame, the status line, the presenter's request
+  dialog, the debug menu) in `src/l10n/strings.rs`; `src/l10n/mod.rs` has
+  `Lang`, `Tables<T>` (English required, other languages optional, a missing
+  one shows English) and `lang(cx)`;
+- a screen reads its table by reference through one accessor,
+  `strings::of(cx)`: no lookup by key, no allocation, and the screen rebuilds
+  when the locale changes;
+- the locale is negotiated once at start (`Cli::lang`: `--locale`, else
+  `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` through rtwk-l10n's `Locale`;
+  English as the fallback) and stored in `CodexApp.lang`; it reaches the tree
+  as `TwkLocalizations` at the root (`ui::run::localized`), so rtwk's
+  built-in widget strings follow the same locale;
+- numbers and dates go through rtwk-l10n's formatters where the oracle formats
+  them (the clock's 12/24h detection of `clock_format.rs` stays);
+- enforcement: `tests/rules.rs` (`adr010_no_user_visible_literal_outside_the_string_tables`)
+  fails on `Text::new("`, `.title("`, `.placeholder("`, `Button::new("` and
+  the like outside `strings.rs` and `src/l10n/`.
+
+**Adding a language** is one `const` per table and one `with_xx(&XX)` on its
+`TABLES`, plus a variant of `Lang`; no screen is edited. A slice edits only
+its own `strings.rs`. The skeleton ships a three-string Russian table in
+`src/l10n/strings.rs` (the ready word, the working word, the composer
+placeholder) as the proof of the path (`tests/l10n.rs`); everything else
+stays English.
+
+**Why.** The oracle has no localization: about 3,000 user-visible literals sit
+in its widgets. Moving them into tables is cheap while each screen is written
+and costly once they are scattered; English tables are parity, since they
+hold the oracle's strings byte for byte, so the port loses nothing and gains
+the structure. Following rtwk-l10n's form means no new mechanism: the same
+table shape, the same plural rules, the same `TwkLocalizations` carrier.
+
 ## Skeleton (tm `port-skeleton`)
 
 ```
@@ -564,7 +609,8 @@ codex-rs/tui-rtwk/          own workspace, package codex-tui-rtwk, binary codex-
   src/app.rs                CodexApp (model), ingress events, apply_app
   src/threads/              ThreadModel, apply, ThreadFx (empty transcript upsert)
   src/shell.rs              the only spawner: client via TokioApp::spawn_tokio/subscribe, epoch stamping
-  src/theme.rs
+  src/theme.rs              style tokens from the rtwk ThemeData at the root (no literal colours)
+  src/l10n/                 ADR-010: Lang, Tables<T>, the shared strings.rs (EN + a RU proof); each screen dir has its own strings.rs
   src/ui/view.rs            root: Theme, MultiProvider (model projections, handlers), Navigator (home: chat), request presenter
   src/ui/thread_ui.rs       ThreadUi controllers (R14 allowlist)
   src/ui/chat.rs            empty chat screen: transcript ListView, TextArea, footer

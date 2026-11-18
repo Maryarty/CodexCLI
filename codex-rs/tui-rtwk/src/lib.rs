@@ -7,6 +7,7 @@ pub mod app;
 pub mod commands;
 pub mod ids;
 pub mod keymap;
+pub mod l10n;
 pub mod rpc;
 pub mod screens;
 pub mod shell;
@@ -19,17 +20,45 @@ pub mod ui;
 pub struct Cli {
     /// Open the debug menu instead of the chat.
     pub debug_screens: bool,
+    /// `--locale`: the language of the app's text, over the environment's.
+    pub locale: Option<rtwk::l10n::Locale>,
 }
 
 impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
-        for arg in args {
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
-                other => anyhow::bail!("unknown argument: {other}"),
+                "--locale" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--locale needs a value"))?;
+                    cli.locale = Some(parse_locale(&value)?);
+                }
+                other => match other.strip_prefix("--locale=") {
+                    Some(value) => cli.locale = Some(parse_locale(value)?),
+                    None => anyhow::bail!("unknown argument: {other}"),
+                },
             }
         }
         Ok(cli)
     }
+
+    /// The language to run in: `--locale` if given, else the first of the
+    /// `requested` locales (the environment's) that has a table; English
+    /// otherwise.
+    pub fn lang(&self, requested: &[rtwk::l10n::Locale]) -> l10n::Lang {
+        match self.locale {
+            Some(locale) => l10n::Lang::negotiate(&[locale]),
+            None => l10n::Lang::negotiate(requested),
+        }
+    }
+}
+
+fn parse_locale(value: &str) -> anyhow::Result<rtwk::l10n::Locale> {
+    value
+        .parse()
+        .map_err(|error| anyhow::anyhow!("--locale {value}: {error}"))
 }

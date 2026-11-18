@@ -12,6 +12,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::RequestQueue;
 use crate::ids::RequestKey;
+use crate::l10n::strings as l10n;
 use crate::theme;
 use crate::ui::view::Hs;
 
@@ -63,19 +64,20 @@ impl State for DismissDialogState {
 
     fn build(&self, w: &DismissDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
+        let strings = l10n::of(cx);
         Focus::new(
             Dialog::new(
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
-                    .child(Text::new(format!("{} needs an answer.", w.key.id)))
-                    .child(Text::new("This build cannot answer it yet.").style(tokens.dim()))
+                    .child(Text::new(strings.needs_answer(w.key.id.as_str()).to_string()))
+                    .child(Text::new(strings.presenter.cannot_answer).style(tokens.dim()))
                     .child(
-                        Button::new("Dismiss")
+                        Button::new(strings.presenter.dismiss)
                             .autofocus(true)
                             .on_pressed(cx.send(DismissMsg::Dismiss)),
                     ),
             )
-            .title("Request"),
+            .title(strings.presenter.title),
         )
         .can_request_focus(false)
         .bind(rtwk::focus::KeyPress::ESC, cx.send(DismissMsg::Dismiss))

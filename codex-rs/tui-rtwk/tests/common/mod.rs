@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_tui_rtwk::app::CodexApp;
+use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
-use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::ui::run::{app_view, localized, root};
 use rtwk_test::{Options, Tester};
 

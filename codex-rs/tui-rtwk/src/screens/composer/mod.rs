@@ -17,6 +17,8 @@ use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::Kind;
 
+pub mod strings;
+
 pub const NAME: &str = "composer";
 pub const ID: &str = "S10";
 pub const KIND: Kind = Kind::Part;
@@ -132,7 +134,8 @@ impl State for ScreenState {
     type Widget = Screen;
     type Msg = ();
 
-    fn build(&self, _: &Screen, _cx: &mut Cx<'_, Self>) -> AnyWidget {
-        Text::new(format!("{NAME} ({ID}): empty slot")).into()
+    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let shared = crate::l10n::strings::of(cx);
+        Text::new(shared.empty_slot(NAME, ID).to_string()).into()
     }
 }

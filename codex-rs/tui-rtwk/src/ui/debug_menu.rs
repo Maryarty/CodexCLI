@@ -14,6 +14,7 @@ use rtwk::provider::read;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use crate::l10n::strings as l10n;
 use crate::screens::{self, DebugOpen, Kind};
 use crate::theme;
 use crate::ui::view::Hs;
@@ -111,6 +112,7 @@ impl State for DebugMenuState {
 
     fn build(&self, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
+        let strings = l10n::of(cx);
         let rows = Rc::new(rows());
         let count = rows.len();
         let row_tokens = tokens.clone();
@@ -135,8 +137,8 @@ impl State for DebugMenuState {
         .autofocus(true);
         Focus::new(
             Column::new()
-                .child(Text::new("codex-rtwk debug screens").style(tokens.accent()))
-                .child(Text::new("up/down move, enter opens, q quits").style(tokens.dim()))
+                .child(Text::new(strings.debug.title).style(tokens.accent()))
+                .child(Text::new(strings.debug.hint).style(tokens.dim()))
                 .child(Expanded::new(1, list)),
         )
         .bind('q', cx.send(MenuMsg::Quit))
