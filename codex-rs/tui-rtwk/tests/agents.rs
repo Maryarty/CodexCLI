@@ -14,6 +14,7 @@ enum Owner {
     Keymap,
     CoreSeed,
     Rtwk,
+    ReuseCarry,
 }
 
 impl Owner {
@@ -22,6 +23,7 @@ impl Owner {
             Owner::Keymap => "keymap",
             Owner::CoreSeed => "agents-live-shell",
             Owner::Rtwk => "rtwk",
+            Owner::ReuseCarry => "reuse-carry",
         }
     }
 }
@@ -175,57 +177,95 @@ fn agents_overview_before_folder_consent_empty_center_rows() {
     );
 }
 
-// The oracle's screen tests that need a state the debug rows do not give yet.
-// Each is a todo! with its reason; the debug entries are registered in
-// `src/screens/agents/mod.rs` (agents-live's file), so the fixture scripts for
-// them are the handover, not this slice.
+// The oracle's screen tests that need a state the debug rows cannot give yet
+// are `pending` with their reason and owner (body written, the marker first);
+// the debug entries are in `src/screens/agents/mod.rs`.
 
-/// `overview_worktree_creation_busy_state` (agents_overview_tests.rs:25).
+/// `overview_worktree_creation_busy_state` (agents_overview_tests.rs:25): with a
+/// worktree being created (and an older-server notice below it) the center
+/// holds back `n w o r x h a`; its footer says it is busy.
 #[test]
 fn overview_worktree_creation_busy_state() {
-    todo!(
-        "agents-live: needs a debug row with a worktree being created (the busy notice); not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::CoreSeed,
+        "the scripts cannot seed the busy and server-version notices (core/src/screens/agents/wire.rs `seed_ev` has no `notice` key); the body runs on the empty center and shows what the snapshot needs",
+    );
+    let mut h = open("empty_narrow", 80, 24);
+    for key in ["n", "w", "o", "r", "x", "h", "a"] {
+        h.press(key);
+    }
+    assert_app(&h, "overview_worktree_creation_busy_state");
 }
 
-/// `overview_thread_colors_match_footer_and_respect_color_suppression` (agents_overview_tests.rs:51).
+/// `overview_thread_colors_match_footer_and_respect_color_suppression` (agents_overview_tests.rs:51):
+/// the title of a task is drawn in the colour of its thread (the footer's
+/// thread colour, `Rgb(242, 205, 205)` in the snapshot) unless the status-line
+/// colours are off, and an unread dot is the primary blue.
 #[test]
 fn overview_thread_colors_match_footer_and_respect_color_suppression() {
-    todo!(
-        "agents-live: needs a debug row with threads of each status and color suppression (mod.rs:36)"
-    )
+    pending(
+        Owner::CoreSeed,
+        "core's RowData has no thread colour and the screens' model has no `status_line_use_colors` setting; the oracle's snapshot is a dump of ratatui `Style` values of the selected dot, the unread dot and the title (colours of the thread, the unread blue, reversed bold on the selected row)",
+    );
+    let h = open("columns", 100, 30);
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25cf} Failed task"), "{screen}");
 }
-
-/// `older_server_notice_is_visible_in_agents_overview` (agents_overview_tests.rs:100).
+/// `older_server_notice_is_visible_in_agents_overview` (agents_overview_tests.rs:100):
+/// the footer's last row is the notice.
 #[test]
 fn older_server_notice_is_visible_in_agents_overview() {
-    todo!(
-        "agents-live: needs a debug row with the older-server notice (Notice::ServerVersion); not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::CoreSeed,
+        "the scripts cannot seed `Notice::ServerVersion(\"Service v0.152.1 < Codex CLI v0.153.0\")` (wire.rs `seed_ev` has no `notice` key)",
+    );
+    let h = open("empty_narrow", 80, 24);
+    let rows = oracle_snap::screen(&h.t);
+    assert_eq!(
+        rows.last().map(String::as_str),
+        Some(app_oracle("older_server_notice_is_visible_in_agents_overview")[0].as_str())
+    );
 }
 
-/// `older_server_notice_truncates_in_narrow_overview` (agents_overview_tests.rs:127, snap older_server_narrow_overview).
+/// `older_server_notice_truncates_in_narrow_overview` (agents_overview_tests.rs:127,
+/// snap older_server_narrow_overview): the whole screen at 12 cells.
 #[test]
 fn older_server_notice_truncates_in_narrow_overview() {
-    todo!(
-        "agents-live: needs the older-server notice at a narrow width (snap older_server_narrow_overview); not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::CoreSeed,
+        "the scripts cannot seed `Notice::ServerVersion` (wire.rs `seed_ev` has no `notice` key)",
+    );
+    let height = app_oracle("older_server_narrow_overview").len() as u16;
+    let h = open("empty_narrow", 12, height);
+    assert_app(&h, "older_server_narrow_overview");
 }
 
-/// `agents_overview_details_render_markdown` (agents_overview_tests.rs:1138).
+/// `agents_overview_details_render_markdown` (agents_overview_tests.rs:1138):
+/// the last message and the prompt of the details are markdown, drawn as the
+/// oracle's `markdown_render` draws it (`## Findings` kept, `•` items, code
+/// lines, a table) in the rows left under the budget of the panel.
 #[test]
 fn agents_overview_details_render_markdown() {
-    todo!(
-        "agents-live: needs a debug row whose details carry markdown (rtwk-rich markdown in details); not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::ReuseCarry,
+        "the oracle's markdown renderer (`markdown_render`, wrapping, code and table layout) is not carried into tui-rtwk's core or rtwk-rich-backed view yet, and the scripts cannot seed a task's last message (wire.rs `seed_ev` has no key for it); the details print the text plain (view.rs `details`)",
+    );
+    let h = open("overview", 96, 40);
+    assert_app(&h, "agents_overview_markdown");
 }
 
-/// `agents_overview_preview_links_survive_wrapping_and_clipping` (agents_overview_tests.rs:1221).
+/// `agents_overview_preview_links_survive_wrapping_and_clipping` (agents_overview_tests.rs:1221):
+/// a link of the last message spans several rows and keeps its destination
+/// (OSC 8) when wrapped and when clipped (an ellipsis outside the link).
 #[test]
 fn agents_overview_preview_links_survive_wrapping_and_clipping() {
-    todo!(
-        "agents-live: needs a debug row with preview links at a clipping width; not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::ReuseCarry,
+        "needs the markdown renderer with links (OSC 8 cells) and a seed for the last message, see agents_overview_details_render_markdown",
+    );
+    let h = open("overview", 96, 40);
+    let screen = h.t.screen();
+    assert!(screen.contains("a pull request with a label that wraps"), "{screen}");
 }
 
 /// `agents_overview_markdown_preview_preserves_layout_and_bounds` (agents_overview_tests.rs:1271).
@@ -249,12 +289,32 @@ fn filtered_dashboard_actions_use_configured_shortcuts() {
     );
 }
 
-/// `command_center_cursor_tracks_fixed_footer` (agents_overview_tests.rs:2472).
+/// `command_center_cursor_tracks_fixed_footer` (agents_overview_tests.rs:2472):
+/// with the search line or the rename line open, the terminal cursor sits on
+/// its row at every width, inside the screen.
 #[test]
 fn command_center_cursor_tracks_fixed_footer() {
-    todo!(
-        "agents-live: needs the rtwk list's cursor with the fixed footer at screen level; no debug row for a long list (mod.rs:36)"
-    )
+    let mut h = open("confirm", 40, 24);
+    for (key, label) in [("/", "Search \u{203a}"), ("r", "Rename \u{203a}")] {
+        if key == "r" {
+            h.press("escape");
+        }
+        h.press(key);
+        for width in [48u16, 96, 120] {
+            h.t.resize(width + 1, 24);
+            h.t.resize(width, 24);
+            h.settle();
+            let screen = h.t.screen();
+            let prompt_row = screen
+                .lines()
+                .position(|row| row.contains(label))
+                .unwrap_or_else(|| panic!("no prompt row\n{screen}"));
+            let (_, y) = h.t.cursor();
+            assert!(h.t.cursor_visible(), "{screen}");
+            assert_eq!(y, prompt_row, "{label} at {width}\n{screen}");
+            assert!(y < 24);
+        }
+    }
 }
 
 /// `archive_confirmation_number_keys_act_immediately` (agents_overview_actions_tests.rs:185),
