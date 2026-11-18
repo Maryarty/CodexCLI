@@ -5,360 +5,806 @@
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
 use crate::kit;
+use crate::kit::{Owner, Screen};
 
 // ---- oracle: chatwidget/tests/status_and_layout.rs (47 screen-level tests here; 40 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_and_layout.rs:3171 unsupported_code_mode_warning_renders_as_warning_history_cell kind=snap owner=ui-pane
 #[test]
 fn unsupported_code_mode_warning_renders_as_warning_history_cell() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "warning history cells and the status-line invalid-item warning are not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: handle_warning(the Code Mode warning for gpt-5.4): one warning history cell
+    s.assert_snap("unsupported_code_mode_warning");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3187 repeated_model_metadata_warning_is_hidden_for_same_slug kind=ui owner=ui-pane
 #[test]
 fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "warning history cells and the status-line invalid-item warning are not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: the same model metadata warning for unknown-model twice: one cell
+    s.assert_contains("unknown-model");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3215 status_line_invalid_items_warn_once kind=ui owner=ui-pane
 #[test]
 fn status_line_invalid_items_warn_once() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "warning history cells and the status-line invalid-item warning are not built in the chat; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = model_name, bogus_item, lines_changed, bogus_item; refresh twice
+    s.assert_contains("bogus_item");
+    // the second refresh adds no warning cell: the transcript keeps one
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3243 status_line_hostname_renders_current_machine_hostname kind=ui owner=ui-pane
 #[test]
 fn status_line_hostname_renders_current_machine_hostname() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    // seed: status_line = hostname; the expected value is the machine hostname (codex_config::os_host_name),
+    // which no kit call can name: kit gap, the body needs a hostname helper before it can be un-pended
+    let _screen = Screen::build(Owner::UiPane).live().open();
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3258 status_line_context_used_renders_labeled_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_context_used_renders_labeled_percent() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = context-used
+    s.assert_contains("Context 0% used");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3273 status_line_context_remaining_renders_labeled_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_context_remaining_renders_labeled_percent() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = context-remaining
+    s.assert_contains("Context 100% left");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3291 status_line_legacy_context_usage_renders_context_used_percent kind=ui owner=ui-pane
 #[test]
 fn status_line_legacy_context_usage_renders_context_used_percent() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = context-usage (legacy item)
+    s.assert_contains("Context 0% used");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3306 status_line_estimated_thread_cost_fetches_and_renders_backend_estimate kind=ui owner=ui-pane
 #[test]
 fn status_line_estimated_thread_cost_fetches_and_renders_backend_estimate() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a thread with backend auth on a Business plan, status_line = estimated-thread-cost;
+    // the usage answer is ~$1.82 (estimated_usage_usd_micros 1_820_000); an idle refresh polls nothing
+    s.assert_contains("~$1.82");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3343 status_line_thread_credits_fetches_and_renders_fractional_credits kind=ui owner=ui-pane
 #[test]
 fn status_line_thread_credits_fetches_and_renders_fractional_credits() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = thread-credits; the usage answer is 5.2 credits
+    s.assert_contains("5.2 credits");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3453 terminal_title_thread_usage_fetches_and_renders_without_status_line kind=ui owner=ui-pane
 #[test]
 fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the terminal title (`terminal_title` items) is not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line empty, terminal_title = thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    s.assert_title("5.2 credits | ~$0.21");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3905 status_line_estimated_thread_cost_footer_snapshot kind=snap owner=ui-pane snap=status_line_estimated_thread_cost_footer
 #[test]
 fn status_line_estimated_thread_cost_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built; the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: status_line = model-with-reasoning, thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
+    s.assert_snap("status_line_estimated_thread_cost_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3950 status_line_workspace_headline_renders_cached_value kind=ui owner=ui-pane
 #[test]
 fn status_line_workspace_headline_renders_cached_value() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = workspace-headline; cached headline 'Workspace maintenance starts at 5pm'
+    s.assert_contains("Workspace maintenance starts at 5pm");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4210 interrupted_turn_clears_visible_running_hook kind=snap owner=ui-pane snap=interrupted_turn_clears_visible_running_hook
 #[test]
 fn interrupted_turn_clears_visible_running_hook() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: turn started, hook started (run post-tool-use), turn interrupted
+    s.assert_snap("interrupted_turn_clears_visible_running_hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4237 completed_turn_clears_visible_running_hook kind=snap owner=ui-pane snap=completed_turn_clears_visible_running_hook
 #[test]
 fn completed_turn_clears_visible_running_hook() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: turn started, hook started, turn completed
+    s.assert_snap("completed_turn_clears_visible_running_hook");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4264 status_line_processing_tier_updates_with_selection kind=snap owner=ui-pane
 #[test]
 fn status_line_processing_tier_updates_with_selection() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built; the terminal title (`terminal_title` items) is not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: fast-mode test catalog; status_line = fast-mode, terminal_title = fast-mode
+    s.assert_contains("Standard");
+    s.assert_title("fast");
+    // then the tier changes to Flex (set_service_tier) and fast mode is disabled: the status line follows
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4319 status_line_fast_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_fast_mode_footer
 #[test]
 fn status_line_fast_mode_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: fast-mode test catalog, status_line = fast-mode and model items, reasoning high
+    s.assert_snap("status_line_fast_mode_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4375 terminal_title_model_updates_on_model_change_without_manual_refresh kind=snap owner=ui-pane snap=terminal_title_model_display_name
 #[test]
 fn terminal_title_model_updates_on_model_change_without_manual_refresh() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the terminal title (`terminal_title` items) is not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: terminal_title = model; the title shows the model display name
+    s.assert_title("GPT-5.5");
+    // then the model changes to gpt-5.2 and the title follows without a refresh (title gpt-5.2)
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4391 status_line_and_terminal_title_reasoning_render_only_effort kind=ui owner=ui-pane
 #[test]
 fn status_line_and_terminal_title_reasoning_render_only_effort() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it; the terminal title (`terminal_title` items) is not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: status_line = reasoning and terminal_title = reasoning, reasoning xhigh, fast tier
+    s.assert_contains("xhigh");
+    s.assert_title("xhigh");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4444 status_line_model_with_reasoning_plan_mode_footer_snapshot kind=snap owner=ui-pane snap=status_line_model_with_reasoning_plan_mode_footer
 #[test]
 fn status_line_model_with_reasoning_plan_mode_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: collaboration modes on, status_line = model-with-reasoning, reasoning high, plan mask
+    s.assert_snap("status_line_model_with_reasoning_plan_mode_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4471 renamed_thread_footer_title_snapshot kind=snap owner=ui-pane snap=renamed_thread_footer_title
 #[test]
 fn renamed_thread_footer_title_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: the thread is renamed; the footer shows the new title
+    s.assert_snap("renamed_thread_footer_title");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4509 status_line_model_with_reasoning_speed_footer_snapshots kind=snap owner=ui-pane snap=status_line_model_with_reasoning_fast_footer snap=status_line_model_with_reasoning_ultrafast_footer
 #[test]
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: model-with-reasoning, reasoning high, fast tier
+    s.assert_snap("status_line_model_with_reasoning_fast_footer");
+    // then the ultrafast tier on the same chat
+    s.assert_snap("status_line_model_with_reasoning_ultrafast_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4583 status_line_model_with_reasoning_context_remaining_footer_snapshot kind=snap owner=ui-pane snap=status_line_model_with_reasoning_context_remaining_footer
 #[test]
 fn status_line_model_with_reasoning_context_remaining_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: model-with-reasoning and context-remaining items
+    s.assert_snap("status_line_model_with_reasoning_context_remaining_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4617 status_line_goal_active_token_budget_footer_snapshot kind=snap owner=ui-pane snap=status_line_goal_active_token_budget_footer
 #[test]
 fn status_line_goal_active_token_budget_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built; the goal status indicator is not built in the chat (no goal seed)",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: goals on, an active goal with a 5K token budget, status_line = goal items
+    s.assert_snap("status_line_goal_active_token_budget_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4654 status_line_goal_complete_elapsed_footer_snapshot kind=snap owner=ui-pane snap=status_line_goal_complete_elapsed_footer
 #[test]
 fn status_line_goal_complete_elapsed_footer_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the chat footer status line (model, reasoning, speed and goal items) is not built; the goal status indicator is not built in the chat (no goal seed)",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
+    // seed: goals on, a completed goal with elapsed time
+    s.assert_snap("status_line_goal_complete_elapsed_footer");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4847 goal_status_indicator_line_formats_goal_text kind=ui owner=ui-pane
 #[test]
 fn goal_status_indicator_line_formats_goal_text() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the goal status indicator is not built in the chat (no goal seed)",
+    );
+    let cases = [
+        "Pursuing goal (4K / 5K)",              // Active, usage 4K / 5K
+        "Goal unmet (4K / 5K tokens)",          // BudgetLimited, usage 4K / 5K tokens
+        "Goal paused (/goal resume)",           // Paused
+        "Goal stalled (/goal resume)",          // Blocked
+        "Goal hit usage limits (/goal resume)", // UsageLimited
+        "Goal abandoned",                       // BudgetLimited without usage
+    ];
+    for expected in cases {
+        // seed: the goal indicator of the case (the kit has no goal seed)
+        let s = Screen::build(Owner::UiPane).live().open();
+        s.assert_contains(expected);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4913 runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals kind=ui owner=ui-pane
 #[test]
 fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the runtime metrics WebSocket timing lines and the final separator totals are not built in the chat",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: runtime metrics on; two WebSocket timing logs (TTFT 120ms then 80ms, TBT 50ms), then the turn completes
+    s.assert_contains("WebSocket timing:");
+    s.assert_contains("TTFT: 80ms (iapi)");
+    s.assert_contains("TBT: 50ms (service)");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4959 multiple_agent_messages_in_single_turn_emit_multiple_headers kind=ui owner=ui-pane
 #[test]
 fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: one turn with two agent messages, 'First message' then 'Second message'
+    s.assert_in_order(&["First message", "Second message"]);
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:4998 final_reasoning_then_message_without_deltas_are_rendered kind=snap owner=ui-pane snap=final_reasoning_then_message_without_deltas_are_rendered
 #[test]
 fn final_reasoning_then_message_without_deltas_are_rendered() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a final reasoning item, then the final message, without deltas
+    s.assert_snap("final_reasoning_then_message_without_deltas_are_rendered");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5023 deltas_then_same_final_message_are_rendered_snapshot kind=snap owner=ui-pane snap=deltas_then_same_final_message_are_rendered_snapshot
 #[test]
 fn deltas_then_same_final_message_are_rendered_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: reasoning deltas and a final; agent message deltas, then the same final message
+    s.assert_snap("deltas_then_same_final_message_are_rendered_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5057 unterminated_prose_is_visible_before_completion kind=snap owner=ui-pane snap=unterminated_agent_prose_preview snap=unterminated_plan_prose_preview
 #[test]
 fn unterminated_prose_is_visible_before_completion() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: collaboration mode off, then streamed agent prose without a newline, before completion
+    s.assert_snap("unterminated_agent_prose_preview");
+    // then the same for the plan mode prose (plan mask on, a new chat state)
+    s.assert_snap("unterminated_plan_prose_preview");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5233 reasoning_delta_does_not_double_schedule_visible_status_redraw kind=ui owner=ui-pane
 #[test]
 fn reasoning_delta_does_not_double_schedule_visible_status_redraw() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a task started; reasoning delta '**Checking files**' sets the status header
+    s.assert_contains("Checking files");
+    // the draw scheduling (frame requests) is not drawn: that half is not asserted here
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5257 reasoning_delta_restores_recreated_status_indicator_header kind=snap owner=ui-pane snap=reasoning_delta_restores_recreated_status_indicator
 #[test]
 fn reasoning_delta_restores_recreated_status_indicator_header() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "reasoning and answer streaming headers, prose previews and per-message headers are not built in the chat skeleton",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 8).live().open();
+    // seed: a task started, the status indicator recreated, reasoning header 'Checking files and preparing a response'
+    s.assert_snap("reasoning_delta_restores_recreated_status_indicator");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5296 user_prompt_submit_app_server_hook_notifications_render_snapshot kind=snap owner=ui-pane snap=user_prompt_submit_app_server_hook_notifications_render_snapshot
 #[test]
 fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: hook/started and hook/completed notifications of UserPromptSubmit
+    s.assert_snap("user_prompt_submit_app_server_hook_notifications_render_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5372 hook_events_render_consistently kind=ui owner=ui-pane
 #[test]
 fn hook_events_render_consistently() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    for status_message in [
+        "cleaning up the interrupted turn", // Interrupt
+        "warming the shell",                // PreToolUse
+        "warming the shell",                // PostToolUse
+        "warming the shell",                // SessionStart
+    ] {
+        // seed: the hook of the case, started with that status message
+        let s = Screen::build(Owner::UiPane).live().open();
+        s.assert_contains(status_message);
+    }
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5400 quiet_hook_cleanup_starts_when_the_hook_is_revealed kind=ui owner=ui-pane
 #[test]
 fn quiet_hook_cleanup_starts_when_the_hook_is_revealed() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: PostToolUse hook 'checking output policy' started, revealed (immediately or after a delayed redraw), then completed
+    // the linger expires: the hook row is gone and no history is written
+    s.assert_absent("checking output policy");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5440 blocked_and_failed_hooks_render_feedback_and_errors kind=snap owner=ui-pane snap=hook_blocked_failed_feedback_history_snapshot
 #[test]
 fn blocked_and_failed_hooks_render_feedback_and_errors() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: two completed hooks: one blocked with feedback, one failed with exit code 7
+    s.assert_in_order(&[
+        "Blocked by hook",
+        "run tests before touching the fixture",
+        "Hook failed",
+        "hook exited with code 7",
+    ]);
+    s.assert_snap("hook_blocked_failed_feedback_history_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5484 completed_hook_with_output_flushes_immediately kind=snap owner=ui-pane snap=completed_hook_with_output_flushes_immediately_snapshot
 #[test]
 fn completed_hook_with_output_flushes_immediately() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a hook started and completed with output; the output flushes into history at once
+    s.assert_snap("completed_hook_with_output_flushes_immediately_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5523 completed_hook_output_precedes_following_assistant_message kind=snap owner=ui-pane snap=completed_hook_output_precedes_following_assistant_message_snapshot
 #[test]
 fn completed_hook_output_precedes_following_assistant_message() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a completed hook with output, then the assistant message
+    s.assert_snap("completed_hook_output_precedes_following_assistant_message_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5577 completed_same_id_hook_output_survives_restart kind=snap owner=ui-pane snap=completed_same_id_hook_output_survives_restart_snapshot
 #[test]
 fn completed_same_id_hook_output_survives_restart() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: hook completed, same id started again (restart), with stop output 'continue with more context'
+    s.assert_in_order(&["Hook stopped", "continue with more context"]);
+    s.assert_snap("completed_same_id_hook_output_survives_restart_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5627 running_hooks_fit_around_background_activity_and_finish_without_history_snapshot kind=snap owner=ui-pane snap=long_running_hook_below_background_activity_row snap=mixed_running_hooks_share_background_activity_row snap=running_hooks_share_background_activity_row
 #[test]
 fn running_hooks_fit_around_background_activity_and_finish_without_history_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items); the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a task started with 1 background terminal; long running hook 'checking command policy' and a mixed set of hooks
+    s.assert_contains("1 background terminal running");
+    s.assert_absent("Running hooks");
+    s.assert_absent("checking command policy");
+    s.assert_snap("long_running_hook_below_background_activity_row");
+    // then the mixed running hooks share the background activity row (a second state)
+    s.assert_snap("mixed_running_hooks_share_background_activity_row");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5694 session_end_hook_has_standalone_activity_row kind=snap owner=ui-pane snap=session_end_hook_activity snap=session_end_hook_activity_without_message
 #[test]
 fn session_end_hook_has_standalone_activity_row() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a SessionEnd hook started and completed, with and without a message
+    s.assert_snap("session_end_hook_activity");
+    // without a message: a second state
+    s.assert_snap("session_end_hook_activity_without_message");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5732 overlapping_hook_live_cell_tracks_parallel_quiet_hooks kind=snap owner=ui-pane snap=overlapping_hook_live_cell_snapshot
 #[test]
 fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a task started; two parallel quiet hooks start and complete; the status header stays 'Thinking'
+    s.assert_contains("Thinking");
+    s.assert_snap("overlapping_hook_live_cell_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5806 running_hook_does_not_displace_active_exec_cell kind=snap owner=ui-pane snap=hook_runs_while_exec_active_snapshot
 #[test]
 fn running_hook_does_not_displace_active_exec_cell() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items); the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: an active exec cell, then a running hook started and completed
+    s.assert_snap("hook_runs_while_exec_active_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:5913 stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot kind=snap owner=ui-pane snap=stopped_hook_hides_model_context_and_preserves_stop_reason
 #[test]
 fn stopped_hook_hides_model_context_and_preserves_stop_reason_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "hook activity rows and hook history cells are not built in the chat (the skeleton projects no hook items)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: a stopped hook with a stop reason 'continue with more context'; the model context is hidden
+    s.assert_snap("stopped_hook_hides_model_context_and_preserves_stop_reason");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6029 chatwidget_exec_and_status_layout_vt100_snapshot kind=snap owner=ui-pane snap=chatwidget_exec_and_status_layout_vt100_snapshot
 #[test]
 fn chatwidget_exec_and_status_layout_vt100_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+    );
+    let s = Screen::build(Owner::UiPane).live().open();
+    // seed: exec cells and the status layout (vt100 rendering of the chat)
+    s.assert_snap("chatwidget_exec_and_status_layout_vt100_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6130 chatwidget_markdown_code_blocks_vt100_snapshot kind=snap owner=ui-pane snap=chatwidget_markdown_code_blocks_vt100_snapshot
 #[test]
 fn chatwidget_markdown_code_blocks_vt100_snapshot() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 50).live().open();
+    // seed: markdown with code blocks, rendered as the chat
+    s.assert_snap("chatwidget_markdown_code_blocks_vt100_snapshot");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:6211 chatwidget_tall kind=snap owner=ui-pane snap=chatwidget_tall
 #[test]
 fn chatwidget_tall() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the exec and status layout of the chat is not built (the skeleton has no status row, footer or exec cell)",
+    );
+    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // seed: the chat at 80 columns, 24 rows, tall transcript
+    s.assert_snap("chatwidget_tall");
 }
 
 // ---- oracle: chatwidget/tests/status_command_tests.rs (11 screen-level tests here; 5 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_command_tests.rs:9 status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth kind=ui owner=ui-pane
 #[test]
 fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth (set_chatgpt_auth)
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("refreshing limits");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:35 status_command_refresh_updates_cached_limits_for_future_status_outputs kind=ui owner=ui-pane
 #[test]
 fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth; /status, then /copy of the whole status, then /status again after a limit refresh
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_contains("8% left");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:78 status_command_renders_immediately_without_rate_limit_refresh kind=ui owner=ui-pane
 #[test]
 fn status_command_renders_immediately_without_rate_limit_refresh() {
-    kit::todo();
+    kit::na(
+        Owner::UiPane,
+        "asserts that no RefreshRateLimits event is sent for /status on a non-ChatGPT session, not visible",
+    );
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:92 status_command_uses_catalog_default_reasoning_when_config_empty kind=ui owner=ui-pane
 #[test]
 fn status_command_uses_catalog_default_reasoning_when_config_empty() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: the config has no reasoning; the catalog default applies
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_contains("GPT-5.5 (reasoning medium, summaries auto)");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:111 status_command_renders_native_and_foreign_instruction_sources kind=ui owner=ui-pane
 #[test]
 fn status_command_renders_native_and_foreign_instruction_sources() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: a native AGENTS.md and a foreign instruction source in the project
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("Agents.md  <none>");
+    // the card lists AGENTS.md with the foreign source's display path
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:148 status_command_overlapping_refreshes_update_matching_cells_only kind=ui owner=ui-pane
 #[test]
 fn status_command_overlapping_refreshes_update_matching_cells_only() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched)",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth; two /status commands whose refreshes overlap
+    s.type_text("/status");
+    s.keys("enter");
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("refreshing limits");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:214 status_command_renders_immediately_and_updates_first_card_without_status_line kind=snap owner=ui-pane snap=status_command_estimated_thread_usage
 #[test]
 fn status_command_renders_immediately_and_updates_first_card_without_status_line() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
+    // seed: ChatGPT auth, no status line; /status, then the thread usage answer (50 credits, ~$1.82)
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("Thread usage");
+    s.assert_contains("50 credits · ~$1.82");
+    s.assert_contains("GPT-5.4 80%, GPT-5 Mini 20%");
+    s.assert_contains("Medium 20%, High 80%");
+    s.assert_contains("Fast mode 80%, Standard 20%");
+    s.assert_contains("120 input (25 cached) + 50 output");
+    s.assert_snap("status_command_estimated_thread_usage");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:306 status_command_omits_thread_usage_for_unsupported_plans kind=ui owner=ui-pane
 #[test]
 fn status_command_omits_thread_usage_for_unsupported_plans() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth on an unsupported plan; /status
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("Thread usage");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:338 status_command_stays_visible_and_updates_after_thread_usage_retry kind=ui owner=ui-pane
 #[test]
 fn status_command_stays_visible_and_updates_after_thread_usage_retry() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth; /status, the usage retry fails, then /status again with the usage answer
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_absent("Thread usage");
+    // after the retry answer, the card shows the usage
+    s.assert_contains("50 credits · ~$1.82");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:393 status_command_renders_credits_and_breakdowns_without_usd_estimate kind=snap owner=ui-pane snap=status_command_estimated_thread_usage_without_usd
 #[test]
 fn status_command_renders_credits_and_breakdowns_without_usd_estimate() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let mut s = Screen::build(Owner::UiPane).size(90, 24).live().open();
+    // seed: ChatGPT auth; /status with a credits-only usage answer (50 credits)
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_contains("50 credits");
+    s.assert_contains("GPT-5.4 100%");
+    s.assert_absent("~$");
+    s.assert_contains("High 100%");
+    s.assert_contains("Fast mode 100%");
+    s.assert_contains("100 input (20 cached) + 40 output");
+    s.assert_snap("status_command_estimated_thread_usage_without_usd");
 }
 
 // ORACLE chatwidget/tests/status_command_tests.rs:462 status_command_drops_stale_usd_when_updated_usage_has_only_credits kind=ui owner=ui-pane
 #[test]
 fn status_command_drops_stale_usd_when_updated_usage_has_only_credits() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: ChatGPT auth; /status with 40 credits · ~$1.82, then a credits-only answer of 50 credits
+    s.type_text("/status");
+    s.keys("enter");
+    s.assert_contains("40 credits · ~$1.82");
+    // after the credits-only answer, the card shows 50 credits and no USD estimate
+    s.assert_contains("50 credits");
+    s.assert_absent("~$1.82");
 }
 
 // ---- oracle: chatwidget/tests/status_surface_command_tests.rs (1 screen-level tests here; 1 state tests left to ui-pane)
 // ORACLE chatwidget/tests/status_surface_command_tests.rs:29 inline_status_surface_commands_are_session_only_and_atomic kind=snap owner=ui-pane
 #[test]
 fn inline_status_surface_commands_are_session_only_and_atomic() {
-    kit::todo();
+    kit::pending(
+        Owner::UiPane,
+        "the `/status` card is not built in the chat (the status screen exists only as a debug entry, and `/status` is not dispatched); the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    );
+    let mut s = Screen::build(Owner::UiPane).live().open();
+    // seed: /title and /statusline run inline in the chat (session-only, atomic)
+    s.type_text("/statusline monthly-limit");
+    s.keys("enter");
+    // an ambiguous item is refused with a warning line in the transcript
+    s.assert_contains(
+        "Ambiguous status-line item 'monthly-limit'. Use 'five-hour-limit' or 'weekly-limit'.",
+    );
+    s.type_text("/statusline --colors --no-colors");
+    s.keys("enter");
+    s.assert_contains("Specify only one of --colors or --no-colors.");
 }
