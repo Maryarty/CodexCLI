@@ -73,7 +73,7 @@ shows a dialog (the builder returns the whole dialog).
 |---|---|---|---|
 | chat transcript with a streamed answer | `src/screens/chat/fixtures/streamed_answer.jsonl` | `live_app_server_turn_completion_repairs_dropped_message_deltas` (`chatwidget/tests/app_server.rs:1842`) | `hello`, then `The transport kept this.` / `And dropped this.` |
 | exec approval request | `src/screens/approvals/fixtures/exec_approval.jsonl` | `exec_approval_request_from_params` (`chatwidget/tests/helpers.rs`): a command approval for thread-1 | the skeleton's dialog, `1 needs an answer.`, open on the seeded queue |
-| resume list from a fake rollout | `src/screens/resume/fixtures/fake_rollouts.jsonl` | the three `create_fake_rollout` calls of `app-server/tests/suite/v2/thread_list.rs:713-736` | three rows `2025-01-02T12:00:00Z  Hello  mock_provider` and two older |
+| resume list from a fake rollout | `src/screens/resume/fixtures/fake_rollouts.jsonl` | the three `create_fake_rollout` calls of `app-server/tests/suite/v2/thread_list.rs:713-736` | three rows, each `<timestamp>  Hello  mock_provider`, from `2025-01-02T12:00:00Z` down |
 
 ## Oracle tests
 
@@ -122,14 +122,13 @@ proposal: accept until S10/S11 (cells and the transcript repair from
 
 ### D2 — resume list: rows are our own, not `Thread` JSON
 kind: K01
-cause: other: skeleton. `thread/list` answers `Thread` values (30 fields, no
-`Deserialize` for the whole struct); the seed takes the fields
+cause: other: skeleton. `thread/list` answers `Thread` values (a wide struct, most of it
+not a picker's); the seed takes the fields
 `create_fake_rollout` takes (id, preview, provider, start time) and the model's
 `Row` keeps those. The resume slice maps the real `thread/list` reply into
 `Row`s in `resume::decode`.
 oracle: `thread/list` data, three rollouts, previews `Hello`.
-ours: three rows `2025-01-02T12:00:00Z  Hello  mock_provider`, the two older
-ones below.
+ours: three rows, each `<timestamp>  Hello  mock_provider`, newest first.
 proposal: accept; the resume slice replaces the list and may widen `Row`.
 
 ## What did not split cleanly
