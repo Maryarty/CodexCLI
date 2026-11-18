@@ -1,0 +1,47 @@
+# ADR-003 rules R1, R12, R14 as lints. Each path below is banned crate-wide;
+# `src/shell.rs` carries the crate's only `#![allow(clippy::disallowed_*)]`
+# and `tests/rules.rs` rejects any other. The tests directory may use them.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+
+disallowed-methods = [
+    # R1: every spawn path is the shell's.
+    { path = "std::thread::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "tokio::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "tokio::runtime::Handle::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk::app::AppCx::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk::app::AppCx::channel", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk::Cx::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::TokioApp::spawn_tokio", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::TokioApp::subscribe", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::TokioApp::subscribe_with", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::TokioApp::follow", reason = "R1, R14: effects run only in `shell`" },
+    { path = "rtwk_tokio::spawn_tokio", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::subscribe", reason = "R1: effects run only in `shell`" },
+    { path = "rtwk_tokio::follow", reason = "R1, R14: effects run only in `shell`" },
+    # R11, R12: the clock and the file system are inputs, not calls.
+    { path = "std::time::Instant::now", reason = "R11: the clock is a model input" },
+    { path = "std::time::SystemTime::now", reason = "R11: the clock is a model input" },
+    { path = "tokio::time::Instant::now", reason = "R11: the clock is a model input" },
+    { path = "chrono::Utc::now", reason = "R11: the clock is a model input" },
+    { path = "chrono::Local::now", reason = "R11: the clock is a model input" },
+    { path = "std::fs::read_to_string", reason = "R12: no IO outside effects" },
+    { path = "std::fs::write", reason = "R12: no IO outside effects" },
+    { path = "std::fs::File::open", reason = "R12: no IO outside effects" },
+    { path = "tokio::fs::read_to_string", reason = "R12: no IO outside effects" },
+    { path = "tokio::fs::write", reason = "R12: no IO outside effects" },
+    { path = "std::process::Command::new", reason = "R12: no processes outside effects" },
+    { path = "tokio::process::Command::new", reason = "R12: no processes outside effects" },
+    { path = "std::net::TcpStream::connect", reason = "R12: no network outside effects" },
+    { path = "std::net::TcpListener::bind", reason = "R12: no network outside effects" },
+    { path = "std::net::UdpSocket::bind", reason = "R12: no network outside effects" },
+    { path = "tokio::net::TcpStream::connect", reason = "R12: no network outside effects" },
+    # R14: app data never enters rtwk local state.
+    { path = "rtwk::hooks::use_state", reason = "R14: app data lives in the model" },
+    { path = "rtwk::editing::TextEditingController::new", reason = "R14: controllers are made in src/ui/thread_ui.rs only" },
+    { path = "rtwk::scroll::ScrollController::new", reason = "R14: controllers are made in src/ui/thread_ui.rs only" },
+]
+
+disallowed-types = [
+    { path = "rtwk::Obs", reason = "R14: app data lives in the model, not in an `Obs`" },
+]
