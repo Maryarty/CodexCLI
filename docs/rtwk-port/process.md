@@ -466,6 +466,15 @@ The front decides what is free; the table caps how much runs at once.
    Every state bug found in the port during the wave is classified against the
    SC taxonomy and added; one in a class counted "impossible" is a stop.
 6. Opus wave review (§A5).
+6a. **Oracle move** (the person, 2026-11-18: at every wave end, not frozen
+   for phase 1; upstream codex-tui runs ~14 commits a day). Fetch upstream,
+   move `ORACLE_REF` to its tip, rebuild the oracle binary (waiter). List the
+   upstream changes in `codex-rs/tui` since the previous ref per screen
+   (registry rows): a landed screen whose oracle files changed gets a
+   re-parity follow-up task; a pending screen's brief is updated before
+   hand-out. Retake the oracle perf baseline so the next trend compares with
+   the current original. Screens upstream is still reworking go last in
+   their wave.
 7. The person: accepts the wave's tasks in tm; decides the NEW delta kinds;
    sees the perf report and the refreshed bug-class page.
 8. Orchestrator hand-over: a fresh session per wave (§A10).
@@ -486,7 +495,8 @@ Stop and ask (the work that depends on the answer waits; the rest goes on):
 7. A third fix round; a task failed twice (tm `maxAttempts` is 3); a
    candidate red twice for reasons outside the slices (flakes,
    infrastructure).
-8. Moving `ORACLE_REF` or `RTWK_REF`, merging `main`/`upstream` into the
+8. Moving `ORACLE_REF` mid-wave (the wave-end move of §A8 6a is decided)
+   or `RTWK_REF`, merging `main`/`upstream` into the
    integration branch, joining the codex-rs workspace.
 9. Pushing, a PR, anything outward.
 10. A wave's token spend above 1.5× the previous comparable wave (§A10).
