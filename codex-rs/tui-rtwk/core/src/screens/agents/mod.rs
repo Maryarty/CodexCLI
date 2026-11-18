@@ -61,8 +61,11 @@ pub use discovery::refill;
 pub use notifications::observe;
 pub use notifications::observes;
 pub use refresh::Out;
+pub use refresh::account_ev;
+pub use refresh::account_request;
 pub use refresh::apply_answer;
 pub use sources::Fanout;
+pub use sources::PinReader;
 pub use sources::fanout;
 pub use update::update;
 pub use update::wanted_dirs;
@@ -325,6 +328,9 @@ pub struct Model {
     pub failure: Option<Failure>,
     /// The thread that owns the voice session (oracle: `voice_owner_thread_id`).
     pub voice: Option<String>,
+    /// Tasks go without their own colour (`tui.status_line_use_colors` is
+    /// off); the default, colours on, is `false` here.
+    pub thread_colors_off: bool,
     pub filter: usize,
     pub grouping: Grouping,
     pub search: String,
@@ -374,6 +380,8 @@ pub enum Ev {
     Started(Box<Thread>),
     /// The thread that owns the voice session, if any.
     Voice(Option<String>),
+    /// `tui.status_line_use_colors`: whether tasks get their own colour.
+    ThreadColors(bool),
 }
 
 impl Eq for Ev {}

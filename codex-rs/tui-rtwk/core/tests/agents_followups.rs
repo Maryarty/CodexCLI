@@ -104,8 +104,8 @@ fn thread_colours_are_on_until_the_setting_turns_them_off() {
 /// A script seeds the switch.
 #[test]
 fn the_switch_is_seeded_by_a_script() {
-    let ev = codex_tui_core::screens::agents::seed(json!({"thread_colors": false}))
-        .expect("a seed");
+    let ev =
+        codex_tui_core::screens::agents::seed(json!({"thread_colors": false})).expect("a seed");
     assert_eq!(ev, Ev::ThreadColors(false));
 }
 
@@ -115,8 +115,9 @@ fn the_account_request_does_not_refresh_the_token() {
     let request = account_request(RequestId::Integer(3));
     let json = serde_json::to_value(&request).unwrap();
     assert_eq!(json["method"], "account/read");
-    assert_eq!(json["params"]["refreshToken"], false);
-    assert!(matches!(request, ClientRequest::GetAccount { .. }));
+    // `false` is not serialized (the protocol skips it).
+    assert!(json["params"].get("refreshToken").is_none(), "{json}");
+    assert!(matches!(&request, ClientRequest::GetAccount { params, .. } if !params.refresh_token));
 }
 
 /// `SessionAccount::from`: a ChatGPT account has a plan and Codex backend
@@ -164,7 +165,9 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
             backend_auth: false,
         })),
     );
-    app.screens.agents.usage_disabled = true;
+    std::rc::Rc::make_mut(&mut app.screens)
+        .agents
+        .usage_disabled = true;
     let update = |mode, plan: Option<&str>| {
         AppEv::Backend(BackendEv::Notification(Box::new(
             ServerNotification::AccountUpdated(AccountUpdatedNotification {
@@ -176,7 +179,10 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
     run(&mut app, update(Some(AuthMode::Chatgpt), Some("pro")));
     let agents = &app.screens.agents;
     assert!(agents.backend_auth);
-    assert_eq!(agents.plan, Some(serde_json::from_value(json!("pro")).unwrap()));
+    assert_eq!(
+        agents.plan,
+        Some(serde_json::from_value(json!("pro")).unwrap())
+    );
     assert!(!agents.usage_disabled, "usage is asked again");
     run(&mut app, update(Some(AuthMode::ApiKey), None));
     assert!(!app.screens.agents.backend_auth);

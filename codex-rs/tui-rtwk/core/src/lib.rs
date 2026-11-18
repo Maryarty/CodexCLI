@@ -12,5 +12,6 @@ pub mod fixtures;
 pub mod ids;
 pub mod rpc;
 pub mod screens;
+pub mod thread_color;
 pub mod threads;
 pub mod wire;

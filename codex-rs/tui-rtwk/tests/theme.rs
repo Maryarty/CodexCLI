@@ -119,10 +119,24 @@ fn the_palette_follows_the_theme() {
 fn a_thread_gets_the_colour_the_oracle_gives_it() {
     let dark = ThreadPalette::for_brightness(Brightness::Dark);
     let light = ThreadPalette::for_brightness(Brightness::Light);
-    let slots = [(0, 7), (1, 4), (2, 1), (3, 12), (5, 2), (42, 10), (43, 5), (255, 7), (511, 10)];
+    let slots = [
+        (0, 7),
+        (1, 4),
+        (2, 1),
+        (3, 12),
+        (5, 2),
+        (42, 10),
+        (43, 5),
+        (255, 7),
+        (511, 10),
+    ];
     for (value, slot) in slots {
         assert_eq!(dark.color(&id(value)), Some(colors(MOCHA)[slot]), "{value}");
-        assert_eq!(light.color(&id(value)), Some(colors(LATTE)[slot]), "{value}");
+        assert_eq!(
+            light.color(&id(value)),
+            Some(colors(LATTE)[slot]),
+            "{value}"
+        );
     }
     assert_eq!(dark.color(&id(42)), Some(Color::rgb(242, 205, 205)));
 }

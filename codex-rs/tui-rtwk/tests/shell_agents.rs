@@ -331,7 +331,10 @@ fn checkout() -> Checkout {
 /// The server's `thread/start` answers with the task in the checkout.
 fn started(request: &ClientRequest) -> Result<Value, ServerError> {
     let wire = serde_json::to_value(request).unwrap();
-    assert_eq!(wire["method"], "thread/start");
+    if wire["method"] != "thread/start" {
+        // The unsubscribe after a failed bind.
+        return Ok(json!({}));
+    }
     let cwd = wire["params"]["cwd"].as_str().unwrap_or("/none").to_owned();
     Ok(json!({"thread": thread_json("new-1", 500, &cwd)}))
 }
@@ -503,7 +506,10 @@ fn the_search_waits_before_it_asks_the_server() {
     runtime().block_on(async {
         // Polled a few times, it is still held back.
         for _ in 0..5 {
-            assert!((&mut waiting).now_or_never().is_none(), "asked before the pause");
+            assert!(
+                (&mut waiting).now_or_never().is_none(),
+                "asked before the pause"
+            );
             tokio::task::yield_now().await;
         }
         gate.release();
@@ -743,13 +749,20 @@ fn typing_a_word_asks_the_server_once() {
     };
     let before = scans();
     h.t.press("/");
+    // The search line has the focus once it is on the screen; each key is
+    // typed after the one before it shows.
+    h.wait_for("the search line", |s| s.contains("Search \u{203a}"));
     h.t.press("e");
+    h.wait_for("the first letter", |s| s.contains("Search \u{203a} e"));
     h.t.press("x");
     h.wait_for("the typed text", |s| s.contains("Search \u{203a} ex"));
     assert_eq!(scans(), before, "nothing is asked before the pause");
     // The pause ends: only the search that was left asks, once per source.
+    // The earlier keystrokes' searches were dropped when the next one came
+    // (they never reach the gate's far side), so the two requests of the
+    // last one, one per source, are all there ever is.
     gate.release();
-    h.wait_for("the search", |_| scans() > before);
+    h.wait_for("both sources asked", |_| scans() >= before + 2);
     h.settle();
     assert_eq!(scans() - before, 2, "{:?}", h.fake.requests());
 }
@@ -762,8 +775,9 @@ fn ctrl_c_closes_a_line_first_then_quits() {
     let mut h = live::start_quittable(server);
     h.wait_for("the tasks", |s| s.contains("Interactive task"));
     h.t.press("/");
+    h.wait_for("the search line", |s| s.contains("Search \u{203a}"));
     h.t.press("e");
-    h.wait_for("the search line", |s| s.contains("Search \u{203a} e"));
+    h.wait_for("the letter", |s| s.contains("Search \u{203a} e"));
     h.t.press("ctrl+c");
     h.wait_for("the line closed", |s| !s.contains("Search \u{203a}"));
     assert!(h.t.is_running(), "the first Ctrl+C only closed the line");
@@ -848,7 +862,14 @@ fn lifecycle_failure_dialogs() {
         });
         h.wait_for("the task", |s| s.contains("Interactive task"));
         h.t.press(key);
-        h.t.pump_for(Duration::from_millis(50));
+        // The confirmation is up before its option is chosen: a key that
+        // arrives earlier would go to the list.
+        let title = if key == "a" {
+            "Archive \u{201c}"
+        } else {
+            "Permanently delete \u{201c}"
+        };
+        h.wait_for("the confirmation", |s| s.contains(title));
         h.t.press("2");
         if key == "backspace" {
             h.t.press("enter");
@@ -878,16 +899,25 @@ fn the_account_read_reaches_the_center() {
     let mut app = CodexApp::new();
     let asked = std::sync::Mutex::new(Vec::new());
     let ev = runtime().block_on(account(Ids::default(), |request| {
-        asked.lock().unwrap().push(serde_json::to_value(&request).unwrap());
+        asked
+            .lock()
+            .unwrap()
+            .push(serde_json::to_value(&request).unwrap());
         std::future::ready(Ok(account_body("business")))
     }));
     run(&mut app, ev.expect("an event"));
     let asked = asked.into_inner().unwrap();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0]["method"], "account/read");
-    assert_eq!(asked[0]["params"]["refreshToken"], false);
+    assert!(
+        asked[0]["params"].get("refreshToken").is_none(),
+        "false is not serialized"
+    );
     assert!(agents(&app).backend_auth);
-    assert_eq!(agents(&app).plan, Some(serde_json::from_value(json!("business")).unwrap()));
+    assert_eq!(
+        agents(&app).plan,
+        Some(serde_json::from_value(json!("business")).unwrap())
+    );
 }
 
 /// A read that fails tells the center nothing: usage stays off.
@@ -957,7 +987,9 @@ fn a_bound_task_stays_subscribed() {
     workspace.set_create(Ok(checkout()));
     let sent = std::sync::Mutex::new(Vec::new());
     let _ = make_worktree(&workspace, None, |request| {
-        sent.lock().unwrap().push(serde_json::to_value(&request).unwrap());
+        sent.lock()
+            .unwrap()
+            .push(serde_json::to_value(&request).unwrap());
         std::future::ready(started(&request))
     });
     assert_eq!(sent.into_inner().unwrap().len(), 1);

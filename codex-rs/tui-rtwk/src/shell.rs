@@ -9,6 +9,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod fake;
+pub mod help;
 pub mod rpc;
 pub mod search;
 pub mod workspace;

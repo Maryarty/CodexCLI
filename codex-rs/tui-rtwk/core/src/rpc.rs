@@ -21,6 +21,48 @@ pub enum RpcError {
     Malformed(String),
 }
 
+/// A request's failure as the client reports it: the server's JSON-RPC error
+/// code when it is one (the shell reads it from the client's typed error,
+/// never out of the message), and the text to show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerError {
+    pub code: Option<i64>,
+    pub message: String,
+}
+
+impl ServerError {
+    /// The server refused the request as malformed or unsupported
+    /// (JSON-RPC `-32602..=-32600`: invalid request, method not found,
+    /// invalid params).
+    pub fn refused(&self) -> bool {
+        self.code
+            .is_some_and(|code| (-32602..=-32600).contains(&code))
+    }
+}
+
+impl std::fmt::Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ServerError {}
+
+impl From<String> for ServerError {
+    fn from(message: String) -> Self {
+        Self {
+            code: None,
+            message,
+        }
+    }
+}
+
+impl From<&str> for ServerError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
 /// The reply of one of our RPCs, as the shell reports it with the ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply(Answer);

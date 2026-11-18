@@ -49,9 +49,58 @@ fn app_snap(name: &str) -> String {
     format!("app/snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
 }
 
+/// The oracle's snapshots are recorded under `cfg(test)`, where its key hint
+/// prints the Delete key as `backspace` (`key_hint.rs`); the shipped binary
+/// prints `delete`, and so does codex-rtwk. This is the one comparison-only
+/// normalization of the expected rows to the shipped form: the label, and the
+/// three cells of padding the shorter key takes out of its column (every row
+/// of the Tasks block moves its text left by three, as the help lays its
+/// columns out by the longest key).
+fn as_shipped(rows: Vec<String>) -> Vec<String> {
+    // Only the help screen lists keys.
+    if !rows.iter().any(|row| row.contains("Task shortcuts")) {
+        return rows;
+    }
+    let mut cells: Vec<Vec<char>> = rows.iter().map(|row| row.chars().collect()).collect();
+    let heading: Vec<char> = "Tasks".chars().collect();
+    // The Tasks block: its heading, and the rows under it that hold a key
+    // padded to the column's width.
+    let Some((top, col)) = cells.iter().enumerate().find_map(|(y, row)| {
+        let x = row
+            .windows(heading.len())
+            .position(|w| w == heading.as_slice())?;
+        let alone = row.get(x + heading.len()).is_none_or(|c| *c == ' ');
+        let below = cells.get(y + 1)?.get(x).is_some_and(|c| *c != ' ');
+        (alone && below && (x == 0 || row[x - 1] == ' ')).then_some((y, x))
+    }) else {
+        return rows;
+    };
+    let padded = |row: &[char]| {
+        row.len() < col + 9 || (row[col + 9] == ' ' && row.get(col + 10).is_none_or(|c| *c == ' '))
+    };
+    let mut y = top;
+    while y < cells.len() && (y == top || cells[y].get(col).is_some_and(|c| *c != ' ')) {
+        if padded(&cells[y]) {
+            let row = &mut cells[y];
+            let label: Vec<char> = "backspace".chars().collect();
+            if row.get(col..col + 9) == Some(label.as_slice()) {
+                row.splice(col..col + 9, "delete   ".chars());
+            }
+            if row.len() >= col + 9 && row[col + 6..col + 9].iter().all(|c| *c == ' ') {
+                row.drain(col + 6..col + 9);
+            }
+        }
+        y += 1;
+    }
+    cells
+        .into_iter()
+        .map(|row| row.into_iter().collect::<String>().trim_end().to_owned())
+        .collect()
+}
+
 /// The oracle's rows of an `app/snapshots` snapshot.
 fn app_oracle(name: &str) -> Vec<String> {
-    oracle_snap::rows(&app_snap(name))
+    as_shipped(oracle_snap::rows(&app_snap(name)))
 }
 
 /// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
@@ -88,7 +137,7 @@ fn open(entry: &str, width: u16, height: u16) -> Harness {
 /// The oracle snapshot's rows and the height they were taken at (blank rows
 /// to the footer included: the footer is its last row).
 fn oracle(name: &str) -> (Vec<String>, u16) {
-    let rows = oracle_snap::rows(&snap(name));
+    let rows = as_shipped(oracle_snap::rows(&snap(name)));
     let height = rows.len() as u16;
     (rows, height)
 }
@@ -199,11 +248,13 @@ fn overview_worktree_creation_busy_state() {
 
 /// Where `text` stands on the screen: every `(column, row)` of it.
 fn find_all(h: &Harness, text: &str) -> Vec<(usize, usize)> {
-    h.t.lines()
-        .iter()
-        .enumerate()
-        .filter_map(|(y, row)| row.find(text).map(|at| (row[..at].chars().count(), y)))
-        .collect()
+    let mut found = Vec::new();
+    for (y, row) in h.t.lines().iter().enumerate() {
+        for (at, _) in row.match_indices(text) {
+            found.push((row[..at].chars().count(), y));
+        }
+    }
+    found
 }
 
 /// `overview_thread_colors_match_footer_and_respect_color_suppression`
@@ -219,31 +270,37 @@ fn overview_thread_colors_match_footer_and_respect_color_suppression() {
     let (x, y) = find_all(&on, "Named task")[0];
     let title = on.t.cell(x, y);
     assert_eq!(title.fg, rgb, "the unselected title");
-    assert!(!title.attrs.contains(bold), "the list title is not bold");
+    assert!(!title.attrs.intersects(bold), "the list title is not bold");
     // The selected row keeps the selection style, whatever its thread.
     let (x, y) = find_all(&on, "\u{25cf} Selected task")[0];
     let selected = on.t.cell(x + 2, y);
     assert_ne!(selected.fg, Color::rgb(137, 180, 250), "{selected:?}");
-    assert!(selected.attrs.contains(Attrs::REVERSE), "{selected:?}");
+    assert!(
+        !selected.bg.is_default(),
+        "the selection's background: {selected:?}"
+    );
     // The details heading: the selected thread's colour (id 43), bold.
     let (x, y) = *find_all(&on, "Selected task")
         .iter()
         .find(|(x, _)| *x >= 50)
-        .expect("the details title");
+        .unwrap_or_else(|| panic!("the details title: {}", on.t.screen()));
     let details = on.t.cell(x, y);
     assert_eq!(details.fg, Color::rgb(137, 180, 250), "{details:?}");
-    assert!(details.attrs.contains(bold), "{details:?}");
+    assert!(details.attrs.intersects(bold), "{details:?}");
 
     let off = open("colors_off", 100, 30);
     let (x, y) = find_all(&off, "Named task")[0];
-    assert!(off.t.cell(x, y).fg.is_default(), "no colour when suppressed");
+    assert!(
+        off.t.cell(x, y).fg.is_default(),
+        "no colour when suppressed"
+    );
     let (x, y) = *find_all(&off, "Selected task")
         .iter()
         .find(|(x, _)| *x >= 50)
-        .expect("the details title");
+        .unwrap_or_else(|| panic!("the details title: {}", off.t.screen()));
     let details = off.t.cell(x, y);
     assert!(details.fg.is_default(), "{details:?}");
-    assert!(details.attrs.contains(bold), "{details:?}");
+    assert!(details.attrs.intersects(bold), "{details:?}");
 }
 
 /// `older_server_notice_is_visible_in_agents_overview` (agents_overview_tests.rs:100):

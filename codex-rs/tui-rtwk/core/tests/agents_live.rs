@@ -281,10 +281,13 @@ fn only_pages_fan_out() {
 fn the_rows_merge_by_recency_then_id() {
     let fanout = fanout(&list(None), false).unwrap();
     let reply = fanout
-        .reply(vec![
-            page(&[("a1", 100), ("a2", 80), ("a3", 50)], None),
-            page(&[("b1", 90), ("b2", 80), ("b3", 40)], None),
-        ], None)
+        .reply(
+            vec![
+                page(&[("a1", 100), ("a2", 80), ("a3", 50)], None),
+                page(&[("b1", 90), ("b2", 80), ("b3", 40)], None),
+            ],
+            None,
+        )
         .expect("merges");
     let (rows, next) = ids(reply);
     assert_eq!(rows, ["a1", "b1", "b2", "a2", "a3", "b3"]);
@@ -302,10 +305,13 @@ fn a_page_shows_ten_rows_and_the_sources_keep_the_rest() {
     }
     let first = fanout(&list(None), false).unwrap();
     let (rows, next) = ids(first
-        .reply(vec![
-            page(&as_refs(&interactive), Some("ca")),
-            page(&as_refs(&other), Some("cb")),
-        ], None)
+        .reply(
+            vec![
+                page(&as_refs(&interactive), Some("ca")),
+                page(&as_refs(&other), Some("cb")),
+            ],
+            None,
+        )
         .unwrap());
     assert_eq!(
         rows,
@@ -320,10 +326,13 @@ fn a_page_shows_ten_rows_and_the_sources_keep_the_rest() {
     assert_eq!(request_json(&requests[0])["params"]["cursor"], Value::Null);
     assert_eq!(request_json(&requests[1])["params"]["cursor"], Value::Null);
     let (rows, next) = ids(second
-        .reply(vec![
-            page(&as_refs(&interactive), Some("ca")),
-            page(&as_refs(&other), Some("cb")),
-        ], None)
+        .reply(
+            vec![
+                page(&as_refs(&interactive), Some("ca")),
+                page(&as_refs(&other), Some("cb")),
+            ],
+            None,
+        )
         .unwrap());
     assert_eq!(
         rows,
@@ -341,10 +350,10 @@ fn a_page_shows_ten_rows_and_the_sources_keep_the_rest() {
 fn an_ended_source_is_not_asked_again() {
     let first = fanout(&list(None), false).unwrap();
     let (_, next) = ids(first
-        .reply(vec![
-            page(&[("a1", 5)], None),
-            page(&[("b1", 4)], Some("cb")),
-        ], None)
+        .reply(
+            vec![page(&[("a1", 5)], None), page(&[("b1", 4)], Some("cb"))],
+            None,
+        )
         .unwrap());
     let second = fanout(&list(next.as_deref()), false).unwrap();
     let requests = second.requests(next_id());
@@ -379,7 +388,10 @@ fn a_search_scans_hundred_row_pages_of_both_sources() {
     let rows: Vec<(String, i64)> = (0..12).map(|n| (format!("a{n}"), 500 - n)).collect();
     let refs: Vec<(&str, i64)> = rows.iter().map(|(id, at)| (id.as_str(), *at)).collect();
     let (merged, next) = ids(fanout
-        .reply(vec![page(&refs, Some("ca")), page(&[("b1", 495)], None)], None)
+        .reply(
+            vec![page(&refs, Some("ca")), page(&[("b1", 495)], None)],
+            None,
+        )
         .unwrap());
     assert_eq!(
         merged.len(),

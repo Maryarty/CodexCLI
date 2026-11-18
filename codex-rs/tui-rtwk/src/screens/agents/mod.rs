@@ -736,10 +736,10 @@ impl State for ScreenState {
     }
 
     fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let look = view::Look::new(&Theme::of(cx));
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let screens = watch::<ScreenStates, _>(cx);
+        let look = view::Look::new(&Theme::of(cx), screens.agents.thread_colors());
         let center = Rc::new(screens.agents.center());
         let taps = view::Taps {
             rows: Rc::new(

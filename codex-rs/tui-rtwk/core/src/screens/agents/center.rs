@@ -112,6 +112,12 @@ impl Center {
 }
 
 impl Model {
+    /// Whether tasks get their own colour (`tui.status_line_use_colors`,
+    /// on unless the setting says otherwise).
+    pub fn thread_colors(&self) -> bool {
+        !self.thread_colors_off
+    }
+
     /// The plan is billed directly in dollars (oracle: `PlanType::Ent26`),
     /// which hides the credits and shows the native cost.
     pub fn plan_bills_in_dollars(&self) -> bool {

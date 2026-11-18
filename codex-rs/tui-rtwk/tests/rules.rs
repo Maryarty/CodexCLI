@@ -455,12 +455,13 @@ fn the_lint_lists_name_the_rules_banned_paths() {
 }
 
 /// Item 11: colours come from the theme (`ThemeData` at the root), not from
-/// the code. Only `src/theme.rs` may name a style, and it names no colour.
+/// the code. The theme file alone holds colour values: the per-thread accents
+/// (`ThreadPalette`), which rtwk's `ThemeData` has no slot for.
 #[test]
 fn no_literal_colours_anywhere() {
     let found = violations(
         &["Color::", "Color::rgb", "rgb(", "Style::new().fg("],
-        |_| false,
+        |name| name == "src/theme.rs",
     );
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
@@ -561,7 +562,10 @@ fn pending_markers() -> Vec<String> {
         let Some(rest) = line.strip_prefix("fn ") else {
             continue;
         };
-        if lines.get(i + 1).is_some_and(|next| next.trim() == "pending(") {
+        if lines
+            .get(i + 1)
+            .is_some_and(|next| next.trim() == "pending(")
+        {
             found.push(rest.split('(').next().expect("a name").to_owned());
         }
     }
@@ -602,7 +606,10 @@ fn the_default_profile_leaves_out_the_pending_group_and_the_pending_profile_runs
     let default = section("default");
     let pending = section("pending");
     assert!(default.contains("binary(oracle)"), "{default}");
-    assert!(default.contains("not (") && default.contains("agents::"), "{default}");
+    assert!(
+        default.contains("not (") && default.contains("agents::"),
+        "{default}"
+    );
     assert!(pending.contains("default-filter"), "{pending}");
     assert!(pending.contains("agents::"), "{pending}");
     assert!(pending.contains("fail-fast = false"), "{pending}");

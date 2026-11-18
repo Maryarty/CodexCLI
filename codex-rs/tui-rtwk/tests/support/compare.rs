@@ -34,7 +34,10 @@ pub fn compare(oracle: &Shot, rtwk: &Shot, n: &Normalize, scrollback: bool) -> V
             found.push(format!("row {}: oracle {a:?} | rtwk {b:?}", y + 1));
         }
     }
-    if o.cursor != r.cursor || o.cursor_visible != r.cursor_visible {
+    // Where a hidden cursor is parked is nowhere: the position counts only
+    // when the cursor is shown on both sides.
+    let moved = o.cursor_visible && r.cursor_visible && o.cursor != r.cursor;
+    if o.cursor_visible != r.cursor_visible || moved {
         found.push(format!(
             "cursor: oracle {} | rtwk {}",
             cursor_text(&o),

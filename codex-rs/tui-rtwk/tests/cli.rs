@@ -45,7 +45,7 @@ fn flags_combine() {
 // top level and the `agents` subcommand, long and short.
 
 fn answer(args: &[&str]) -> Option<String> {
-    Cli::early_answer(args.iter().map(ToString::to_string))
+    Cli::early_answer(args.iter().map(ToString::to_string)).map(str::to_owned)
 }
 
 #[test]

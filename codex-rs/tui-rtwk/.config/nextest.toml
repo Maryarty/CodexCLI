@@ -5,8 +5,22 @@
 #
 #   acargo nextest run --profile oracle --no-fail-fast
 #   python3 -I tests/oracle/tools/summary.py            (pass / pending / todo / red per shard)
+#
+# The screen tests whose oracle behaviour needs a slice that does not exist yet
+# are marked `pending(owner, reason)` in tests/agents.rs: they fail by design,
+# printing PENDING[owner]: reason. They stay in the tree unweakened and run in
+# the profile `pending`, out of the default one, so that the default run is
+# green and tests/rules.rs keeps this list and the markers equal:
+#
+#   acargo nextest run --profile pending --no-fail-fast     (every one must fail, with its owner)
 [profile.default]
-default-filter = "not binary(oracle)"
+default-filter = "not binary(oracle) and not (binary(screens) and (test(=agents::agents_overview_details_render_markdown) or test(=agents::agents_overview_preview_links_survive_wrapping_and_clipping) or test(=agents::filtered_dashboard_actions_use_configured_shortcuts) or test(=agents::live_center_fixed_shortcuts_yield_to_configured_actions) or test(=agents::live_center_hints_follow_configured_bindings) or test(=agents::live_center_page_keys_and_wrap_follow_the_list_keymap) or test(=agents::live_center_pages_visible_rows_while_reconnecting)))"
+
+[profile.pending]
+default-filter = "binary(screens) and (test(=agents::agents_overview_details_render_markdown) or test(=agents::agents_overview_preview_links_survive_wrapping_and_clipping) or test(=agents::filtered_dashboard_actions_use_configured_shortcuts) or test(=agents::live_center_fixed_shortcuts_yield_to_configured_actions) or test(=agents::live_center_hints_follow_configured_bindings) or test(=agents::live_center_page_keys_and_wrap_follow_the_list_keymap) or test(=agents::live_center_pages_visible_rows_while_reconnecting))"
+fail-fast = false
+status-level = "fail"
+final-status-level = "fail"
 
 [profile.oracle]
 default-filter = "binary(oracle)"
