@@ -218,6 +218,11 @@ File: `widgets/app.md`.
 File: `widgets/screen-readers.md`.
 
 - Semantics: What a widget is to a screen reader: a role, a label, a value and a state, read as a line of text. TWK_SCREEN_READER=1 reads an app out so.
+
+## Debugging
+
+File: `widgets/debugging.md`.
+
 - Console: Log records listed over the app, newest last; the app has one of its own, which Ctrl+G then c opens.
 - FrameOverlay: Each frame's numbers over the app: the time its build, layout, paint and write took and the bytes it wrote; Ctrl+G then o.
 - Repaint rainbow: Each repaint boundary tinted a new colour when it paints, and relayouts marked, to see what a change redraws; Ctrl+G then r, and l.
@@ -234,3 +239,15 @@ File: `widgets/rich.md`.
 - JsonView: JSON or a Dart value as a tree that folds, each kind of value in its color: c copies the path of the value selected, y the value, / filters the keys.
 - BigText: Text in letters several cells tall, drawn with full or half blocks or with box drawing, in a font of its own.
 - QrCode: Text as a QR code a phone's camera reads: in half blocks, two modules to a cell, black on white whatever the theme, with as much of the quiet zone around it as the rows allow.
+
+## Images
+
+File: `widgets/images.md`.
+
+- Image: A PNG or JPEG fitted to its cells. Where the terminal has a graphics protocol (kitty, sixel, iTerm2) its pixels are placed over the cells; where it has none, or with forceBlocks, as here, it is drawn in half blocks or quadrants.
+
+## Terminal
+
+File: `widgets/terminal.md`.
+
+- TerminalView: A program's terminal in a view: keys, pastes, the mouse and resizes sent to it, its scrollback scrolled; here a scripted shell, not a program in a pseudo-terminal.

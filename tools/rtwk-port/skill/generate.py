@@ -187,13 +187,23 @@ def expand_use(s):
 # ---------------------------------------------------------------- the gallery
 
 def parse_catalog(pin):
+    """The gallery catalog: groups and their pages. A group's `pages: &[...]` may hold one page
+    (`&[CatalogPage {`) or many, so groups are cut at `CatalogGroup {` and pages found in the rest."""
     t = read(os.path.join(pin, "crates/rtwk-gallery/src/reference_catalog.rs"))
+    t = t[t.index("pub(crate) const CATALOG"):]
     groups = []
-    for g in re.finditer(r'CatalogGroup \{\s*title: "([^"]+)",.*?slug: "([^"]+)",\s*pages: &\[(.*?)\n        \],\n    \}', t, re.S):
+    for chunk in t.split("CatalogGroup {")[1:]:
+        gt = re.search(r'title: "([^"]+)"', chunk)
+        gs = re.search(r'\n\s*slug: "([^"]+)",\s*pages:', chunk)
+        if not gt or not gs:
+            raise SystemExit("catalog: a group without title or slug; the parser needs updating")
         pages = []
-        for p in re.finditer(r'title: "((?:[^"\\]|\\.)*)",\s*about: "((?:[^"\\]|\\.)*)",\s*slug: "([^"]+)",\s*route: "([^"]+)"', g.group(3)):
+        for p in re.finditer(r'title: "((?:[^"\\]|\\.)*)",\s*about: "((?:[^"\\]|\\.)*)",\s*slug: "([^"]+)",\s*route: "([^"]+)"', chunk):
             pages.append({"title": unesc(p.group(1)), "about": unesc(p.group(2)), "slug": p.group(3), "route": p.group(4)})
-        groups.append({"title": g.group(1), "slug": g.group(2), "pages": pages})
+        groups.append({"title": gt.group(1), "slug": gs.group(1), "pages": pages})
+    n_routes = len(re.findall(r'\broute: "', t))
+    if sum(len(g["pages"]) for g in groups) != n_routes:
+        raise SystemExit("catalog: parsed %d pages but the file has %d routes" % (sum(len(g["pages"]) for g in groups), n_routes))
     return groups
 
 
@@ -516,11 +526,25 @@ def build(pin, ref_file=None):
     skill = read(os.path.join(pin, "crates/rtwk/SKILL.md"))
     m = re.match(r"(---\n.*?\n---\n)(.*)", skill, re.S)
     front, rest = m.group(1), m.group(2)
+    problems = []
     section = read(os.path.join(HERE, "skill-section.md"))
+    n_pages = sum(len(g["pages"]) for g in groups)
+    n_heads = 0  # page headings, outside code fences (a Code tab may hold Markdown with "## ")
+    for k, t in files.items():
+        if k.startswith("references/widgets/"):
+            fenced = False
+            for ln in t.split("\n"):
+                if ln.startswith("```"):
+                    fenced = not fenced
+                elif not fenced and ln.startswith("## "):
+                    n_heads += 1
+    if n_heads != n_pages:
+        problems.append("widgets/*.md has %d page headings for %d catalog pages" % (n_heads, n_pages))
+    section = section.replace("{{pages}}", str(n_pages)).replace("{{groups}}", ", ".join(g["slug"] for g in groups))
+    section = section.replace("{{n_groups}}", str(len(groups)))
     files["SKILL.md"] = (front + "<!-- rtwk %s: crates/rtwk/SKILL.md verbatim up to the line \"CodexCLI\"; the CodexCLI section is tools/rtwk-port/skill/skill-section.md. Written by %s; do not edit. -->\n" % (pid, GEN)
                          + rest.rstrip("\n") + "\n\n" + section.rstrip("\n") + "\n")
     # freshness inputs
-    problems = []
     if head["pin"] != pid:
         problems.append("gallery-codes.jsonl is from pin %s, the pin is %s: run refresh-codes.sh" % (head["pin"], pid))
     elif head.get("inputs") != inputs_hash(pin):

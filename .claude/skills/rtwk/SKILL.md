@@ -440,9 +440,9 @@ Each pair: `-` what the oracle does, `+` what the port writes.
 - stateful widget struct with &mut self, mutated from the event loop
 + plain model `A` + `cx.on(|a, cx| ..)` handlers; the view reruns   // widget state (scroll, focus, edit) is rtwk's
 - tx.send(AppEvent::Foo); app_event_rx.recv() in the main loop
-+ cx.on_with(..) handler; work from other threads: AppCx::channel / spawn_tokio + a ticket
++ cx.on_with(..) handler; work from other threads: AppCx::channel / cx.spawn_tokio + a ticket
 - tokio::spawn(..) and write the result back through an AppEvent
-+ rtwk_tokio::spawn_tokio(cx, future, msg)   // R1: tag the work with a ticket; drop a stale answer in the handler
++ cx.spawn_tokio(future, |a: &mut A, r, cx| ..)            // use rtwk_tokio::TokioApp; R1: tag the work with a ticket, drop a stale answer in the handler
 - frame_requester.schedule_frame()
 + nothing: a handler that changes the model reruns the view; rtwk paces frames
 - List + ListState, rendered with a computed offset
@@ -473,7 +473,7 @@ what the pin produces or `docs/rtwk-port/RTWK_REF` names another pin. Read this 
 the one references file that matches the widget; rtwk source only for what they do not answer.
 
 - `references/widgets.md`: the index of every widget page (148) with the group file it lives in.
-- `references/widgets/<group>.md`: per widget the API (paths under `rtwk::`), the Code, the options, its methods, related types. Groups: text, layout, style, scrolling, data, editing, controls, overlays, animation, mouse, focus-and-keys, navigation, foundation, framework, app, screen-readers, debugging, rich, images, terminal.
+- `references/widgets/<group>.md`: per widget the API (paths under `rtwk::`), the Code, the options, its methods, related types. 20 groups: text, layout, style, scrolling, data, editing, controls, overlays, animation, mouse, focus-and-keys, navigation, foundation, framework, app, screen-readers, debugging, rich, images, terminal.
 - `references/guides/widgets-by-need.md`: a codex-tui need (approval dialog, composer, history list, status line, ...) to the rtwk widget.
 - `references/guides/recipes.md`: seven snippets that compile and pass their tests against the pin (navigation with a result, request dialog, provider select, list, text area, channel with a ticket, screen test).
 - `references/guides/state.md`, `cli.md`, `markdown.md`: rtwk's `docs/guide`, copied.

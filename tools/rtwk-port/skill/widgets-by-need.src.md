@@ -11,7 +11,7 @@ The concept map of what changes between the programs is `docs/rtwk-port/process.
 | --- | --- | --- |
 | a screen of the app (chat, pager, diff, analytics overlay) | [[Navigator]] with a [[PageRoute]] pushed over the chat screen | `widgets/navigation.md`; `guides/recipes.md`: push and result |
 | a `BottomPaneView` that asks and completes (selection, approval, elicitation, input) | `show_dialog` with a [[Dialog]] and `close_dialog` | `widgets/overlays.md`; recipe: a request in the model |
-| a popup list under the composer (slash commands, file search, mentions) | [[CommandPalette]], [[OptionList]], [[SelectionList]], or a [[Popover]] anchored to the composer | `widgets/overlays.md`, `widgets/controls.md` |
+| a popup list under the composer (slash commands, file search, mentions) | a [[Popover]] anchored to the composer, with an [[OptionList]] or [[SelectionList]] inside (a [[CommandPalette]] is a whole-app overlay with its own search field, not a popup under a composer) | `widgets/overlays.md`, `widgets/controls.md` |
 | the generic selection dialog (`ListSelectionView`) | [[Dialog]] over a [[SelectionList]] (single) or [[MultiSelect]] (many) | the slice S14 is the worked example in process.md section 4 |
 | a context or right-click menu | [[ContextMenu]], [[MenuBar]] | |
 | a toast or a transient notice | `show_toast` with [[ToastOptions]] | |
@@ -87,5 +87,5 @@ The concept map of what changes between the programs is `docs/rtwk-port/process.
 | a widget from the constraints | [[LayoutBuilder]] | `widgets/framework.md` |
 | a custom widget with state | `StatefulWidget` and `State` with `impl_widget!(stateful eq ..)` | `guides/app-api.md` |
 | a tick or an animation | [[Ticker]], [[AnimatedSwitcher]], the animation widgets | `widgets/animation.md` |
-| desktop notification, terminal title, inline or fixed viewport | `widgets/app.md` (`BindingScope::notify`, [[TerminalTitle]], `Viewport`) | |
+| desktop notification, terminal title, inline or fixed viewport | `widgets/app.md` (`AppBinding::notify` or `TerminalStatus::notify`, [[TerminalTitle]], `Viewport`) | |
 | tests: `insta` snapshots, `render_lines_with_width` | `rtwk_test::Tester`, `assert_screen`, `screen()` | recipe: a screen test; `guides/testing-api.md` |
