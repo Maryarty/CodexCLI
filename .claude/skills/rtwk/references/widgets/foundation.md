@@ -1,21 +1,19 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Foundation
 
+Notifiers and listenables that widgets build on.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## ListenableBuilder
 
 What is built again each time a listenable notifies; ValueListenableBuilder is given its value.
 
-API:
-
-- `rtwk::foundation::ListenableBuilder` (struct, `crates/rtwk-framework/src/foundation/listenable_builder.rs:131`) Shows what its builder returns, built again whenever its listenable notifies; the widgets around it are not (twk's `ListenableBuilder`).
-  - public fields: `listenable: Rc<dyn Listenable>`, `builder: TransitionBuilder`, `child: Option<AnyWidget>`
+- `rtwk::foundation::ListenableBuilder` (struct) in `crates/rtwk-framework/src/foundation/listenable_builder.rs:131`: Shows what its builder returns, built again whenever its listenable notifies; the widgets around it are not (twk's `ListenableBuilder`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/foundation/listenablebuilder`, `crates/rtwk-gallery/src/pages/foundation_framework.rs:36`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::rc::Rc;
@@ -178,49 +176,23 @@ impl_widget!(stateful eq Counter);
 fn preview() -> AnyWidget {
     Counter { timer: true, visible: true, frozen_ms: None }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| timer | on, off | true |
-
-### Methods
-
-#### `ListenableBuilder`: constructors and associated functions
-
-- `pub fn new(listenable: Rc<impl Listenable + 'static>, builder: impl Fn(&mut BuildCx<'_>, Option<&AnyWidget>) -> AnyWidget + 'static) -> ListenableBuilder` - Shows what `builder` returns, built again when `listenable` notifies.
-
-#### `ListenableBuilder`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> ListenableBuilder` - This builder handed `child`.
-
-### Also used in the code
-
-- `rtwk::foundation::ValueNotifier` (struct, `crates/rtwk-framework/src/foundation/change_notifier.rs:247`) A `ChangeNotifier` that holds a value and notifies its listeners when the value is set to one not equal to it (twk's `ValueNotifier`).
-- `rtwk::binding::AppBinding` (struct, `crates/rtwk-widgets/src/binding/app_binding.rs:327`) The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by `maybe_of`.
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::foundation::ValueListenableBuilder` (struct, `crates/rtwk-framework/src/foundation/listenable_builder.rs:248`) Shows what its builder returns for the value of its listenable, built again whenever it notifies; the child is as a `ListenableBuilder`'s (twk's `ValueListenableBuilder`).
-  - public fields: `value_listenable: Rc<dyn ValueListenable<T>>`, `builder: ValueWidgetBuilder<T>`, `child: Option<AnyWidget>`
+| timer | false, true | true |
 
 ## FutureBuilder, StreamBuilder
 
 What is built from the latest snapshot of a future or a stream: waiting, done, or each event.
 
-API:
-
-- `rtwk::foundation::FutureBuilder` (struct, `crates/rtwk-framework/src/foundation/async_builders.rs:239`) Shows what its builder returns for the latest snapshot of its future (twk's `FutureBuilder`): waiting, then done with the value or the error, built in the flush the result comes in.
-  - public fields: `future: Option<AsyncFuture<T>>`, `builder: AsyncWidgetBuilder<T>`, `initial_data: Option<T>`
-- `rtwk::foundation::StreamBuilder` (struct, `crates/rtwk-framework/src/foundation/async_builders.rs:684`) Shows what its builder returns for the latest snapshot of its stream (twk's `StreamBuilder`): waiting once subscribed, active with each item or error, done when it ends; a new stream from the parent is listened to in ...
-  - public fields: `stream: Option<AsyncStream<T>>`, `builder: AsyncWidgetBuilder<T>`, `initial_data: Option<T>`
+- `rtwk::foundation::FutureBuilder` (struct) in `crates/rtwk-framework/src/foundation/async_builders.rs:239`: Shows what its builder returns for the latest snapshot of its future (twk's `FutureBuilder`): waiting, then done with the value or the error, built in the flush the result comes in.
+- `rtwk::foundation::StreamBuilder` (struct) in `crates/rtwk-framework/src/foundation/async_builders.rs:684`: Shows what its builder returns for the latest snapshot of its stream (twk's `StreamBuilder`): waiting once subscribed, active with each item or error, done when it ends; a new stream from the parent is listened to in place of the old, the snapshot `None`-connected in between.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/foundation/futurebuilder-streambuilder`, `crates/rtwk-gallery/src/pages/foundation_framework.rs:57`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::cell::RefCell;
@@ -515,39 +487,12 @@ fn shown<T>(
 fn preview() -> AnyWidget {
     AsyncDemo { error: false, take: false, visible: true, frozen_ms: None }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| outcome | value, error | value |
-| take | false, true | false |
-
-### Methods
-
-#### `FutureBuilder`: constructors and associated functions
-
-- `pub fn new(future: Option<AsyncFuture<T>>, builder: impl Fn(&mut BuildCx<'_>, &AsyncSnapshot<T>) -> AnyWidget + 'static) -> Self` - Shows what `builder` returns for the snapshots of `future`.
-
-#### `FutureBuilder`: builder methods (take and return `self`)
-
-- `pub fn initial_data(mut self, data: T) -> Self` - This builder with `data` until the future gives its own.
-
-#### `StreamBuilder`: constructors and associated functions
-
-- `pub fn new(stream: Option<AsyncStream<T>>, builder: impl Fn(&mut BuildCx<'_>, &AsyncSnapshot<T>) -> AnyWidget + 'static) -> StreamBuilderOf<StreamBuilder<T>>` - Shows what `builder` returns for the snapshots of `stream`, as a widget (`StreamBuilderOf`).
-
-### Also used in the code
-
-- `rtwk::foundation::AsyncStream` (struct, `crates/rtwk-framework/src/foundation/async_builders.rs:380`) A stream handed to a `StreamBuilder`, shared: its builders compare it by address, and the one subscribed polls it for its next item (Dart's `Stream`; there is no `Stream` trait in std: a stream here is a function polled ...
-- `rtwk::binding::AppBinding` (struct, `crates/rtwk-widgets/src/binding/app_binding.rs:327`) The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by `maybe_of`.
-- `rtwk::foundation::AsyncFuture` (struct, `crates/rtwk-framework/src/foundation/async_builders.rs:196`) A future handed to a `FutureBuilder`, shared: its builders compare it by address, and the first to subscribe polls it (Dart's `Future`, which many may listen to, has no counterpart: a Rust future has one owner).
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::foundation::ConnectionState` (enum, `crates/rtwk-framework/src/foundation/async_builders.rs:32`) The state of the connection to an asynchronous computation (twk's `ConnectionState`).
-  - variants: `None`, `Waiting`, `Active`, `Done`
-- `rtwk::animation::Spinner` (struct, `crates/rtwk-animation/src/spinner.rs:47`) The frames of `frames` — those of the theme's `Glyphs::spinner` unless it is given some: dots in the Unicode glyphs, a turning line in the ASCII ones — in turn, a frame each interval of the frames' clock: the frame of ...
-  - public fields: `frames: Option<SpinnerFrames>`, `style: Option<Style>`
+| future | value, error | value |
+| stream | endless, take(5) | endless |

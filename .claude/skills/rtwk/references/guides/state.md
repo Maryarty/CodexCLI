@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/state.md. -->
+<!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # State in rtwk
 
 Keep ordinary application state in a Rust model. With `AppView`, the model
@@ -103,7 +103,7 @@ per `reactive_graph::effect::batch`: the last value of the batch, even when
 it nets to no change (`Select` then builds nothing, as it compares what it
 shows). A `batch` is process-wide: one on any thread defers every effect in
 the process until it ends. The
-[batch tests](../../crates/rtwk-state/tests/reactive_batch.rs) run in a
+batch tests run in a
 separate test binary and take a mutex, because of that one global. They
 also pin the allocation cost of the adapter: subscribing allocates 15
 times, a write that changes the memo's value 16, a write the memo filters
@@ -134,7 +134,7 @@ A burst of items is applied in one flush and builds once. When only the
 newest value matters, use the pending flag or latest-value slot of
 [Coalescing changes](#coalescing-changes): the producer then allocates
 nothing. The
-[frame-loop tests](../../crates/rtwk-state/tests/support/frame_loop.rs)
+frame-loop tests
 `reactive_projection_draws_a_cross_thread_update_without_terminal_input`
 and
 `producers_post_through_the_app_channel_and_the_ui_thread_writes_the_graph`
@@ -171,8 +171,8 @@ and costs one thread-id comparison and no allocation per notification. It
 sees the writes that reach a followed `Derived`, not every misuse of the
 graph, and it cannot prevent the panic or the stale value that the same
 write may cause. The decision and its evidence are in ADR-026 of
-[DECISIONS.md](../DECISIONS.md) and
-[the research](../research/state-cross-thread.md).
+DECISIONS.md and
+the research.
 
 ### Keyed stores
 
@@ -185,7 +185,7 @@ empty, the write is lost, and later `at_key` reads panic. A push through
 the parent never refreshes the keys, so `at_key` on the new item panics
 until `update_keys()` runs. A push through the keyed field itself
 registers its key. The
-[keyed-store tests](../../crates/rtwk-state/tests/keyed_store.rs) pin each
+keyed-store tests pin each
 of these.
 
 Every push through a keyed field rebuilds its whole key map, in time and
@@ -195,7 +195,7 @@ push to an unkeyed `Vec` allocates 4 times at either length (debug,
 macOS arm64). For an append-only list, such as a transcript, use an
 unkeyed `Vec` field and read it with `at_unkeyed`.
 
-The [counter example](../../crates/rtwk-state/examples/state.rs) keeps an
+The counter example keeps an
 `ArcRwSignal` and a derived projection outside the widget tree. Press Up
 to increment the store and q to exit.
 
@@ -206,11 +206,11 @@ cargo run -p rtwk-state --features reactive-graph --example state
 ## Bloc and Riverpod equivalents
 
 The replacement exercises the same state boundary through the Rust APIs.
-The [adapter tests](../../crates/rtwk-state/tests/adapters.rs) cover
+The adapter tests cover
 selection and rebuild isolation, queued changes, replacing the source,
 releasing subscriptions, external listeners, lazy provider subscriptions,
 scope overrides, dynamic dependencies and explicit invalidation. The
-[frame-loop tests](../../crates/rtwk-state/tests/support/frame_loop.rs)
+frame-loop tests
 wait for a blocked terminal read and show a writer's update in one frame
 without terminal input, and run producer threads through an app channel.
 

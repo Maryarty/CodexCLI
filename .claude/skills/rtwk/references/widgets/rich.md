@@ -1,23 +1,21 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Rich
 
+Markdown, code, diffs, JSON, big text, QR codes and program output with its colors.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## MarkdownView
 
 A Markdown document as widgets, a blank row between the blocks; its links the app's with onLinkTap, a MarkdownController scrolling to a heading.
 
-API:
-
-- `rtwk_rich::markdown::MarkdownView` (struct, `crates/rtwk-rich/src/markdown/view.rs:448`) The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of `theme`, by default `MarkdownTheme::from_theme` the app's theme (the lines are ...
-  - public fields: `data: Option<Rc<str>>`, `blocks: Option<Rc<[Block]>>`, `appended: Option<Rc<str>>`, `definitions: Definitions`, `theme: Option<MarkdownTheme>`, `hyperlinks: bool`, `hyperlink_schemes: Option<BTreeSet<String>>`, `controller: Option<MarkdownController>`
+- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:448`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are markdown_blocks_lines's: see there for how each block looks).
 
 ### Code
 
-The gallery's Code tab at the initial options (route `#/rich/markdownview`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:147`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
-
-```rust
+````rust
 use rtwk::animation::SpinnerFrames;
 use rtwk::layout::{CrossAxisAlignment, Expanded, SizedBox};
 use rtwk::scroll::{ScrollController, Scrollbar, SingleChildScrollView};
@@ -195,63 +193,25 @@ Read the [guide](https://dart.dev/tools) for more.
 
 ---"#, 50)
 }
-```
+
+````
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| content | document, answer | document |
-| codeWrap | grapheme, word, none | grapheme |
-| width | 30..72 (a slider) | 50 cells |
-| links | terminal, app, app only | terminal |
-
-### Methods
-
-#### `MarkdownView`: constructors and associated functions
-
-- `pub fn from_snapshot(snapshot: super::MarkdownSnapshot) -> super::ComposedMarkdownView` - Shows a stream snapshot in a composed viewport with bounded width and height.
-- `pub fn new(data: impl Into<Rc<str>>) -> MarkdownView` - Shows the document `data`, parsing it again only where text was added at its end.
-- `pub fn blocks(blocks: impl Into<Rc<[Block]>>, definitions: Definitions) -> MarkdownView` - `blocks` parsed already, shown as those of a document are, their references resolved by `definitions`: such as the blocks of an answer still live (see `super::MarkdownStream`).
-
-#### `MarkdownView`: builder methods (take and return `self`)
-
-- `pub fn into_viewport(self) -> super::ComposedMarkdownView` - Converts this inline view into a composed document with its own scroll and selection viewport.
-- `pub fn appended(mut self, appended: impl Into<Rc<str>>) -> MarkdownView` - The text that was added to the `data` before.
-- `pub fn theme(mut self, theme: MarkdownTheme) -> MarkdownView` - In the styles of `theme`.
-- `pub fn hyperlinks(mut self, on: bool) -> MarkdownView` - Whether a link and an image are hyperlinks.
-- `pub fn hyperlink_schemes(mut self, schemes: BTreeSet<String>) -> MarkdownView` - Writing hyperlinks to the destinations of these schemes only.
-- `pub fn controller(mut self, controller: MarkdownController) -> MarkdownView` - Held by `controller`.
-- `pub fn code_wrap(self, wrap: TextWrap) -> ConfiguredMarkdownView` - Sets the code block wrapping mode.
-- `pub fn tab_width(self, width: usize) -> ConfiguredMarkdownView` - Sets how many cells apart the tab stops are in fenced code.
-- `pub fn on_link_tap(self, handler: Handler<MarkdownLinkTap>) -> ConfiguredMarkdownView` - Emits the destination and optional title when the left button is pressed and released on the same link or image cell.
-
-### Also used in the code
-
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
-- `rtwk::scroll::Scrollbar` (struct, `crates/rtwk-scroll/src/scrollbar.rs:145`) Shows how far the outermost `Scrollable` inside its child is scrolled, as a thumb on a track beside it, and scrolls it with the mouse.
-  - public fields: `child: AnyWidget`, `axis: Option<Axis>`, `visibility: ScrollbarVisibility`, `time_to_fade: Duration`, `style: Option<Style>`, `slim: bool`, `track_style: Option<Style>`
-- `rtwk::scroll::SingleChildScrollView` (struct, `crates/rtwk-scroll/src/single_child_scroll_view.rs:65`) Shows its child in a window that scrolls along `scroll_direction` (a `Scrollable`: keys, the wheel, `controller`).
-  - public fields: `scroll_direction: Axis`, `controller: Option<ScrollController>`, `style: Option<Style>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: Option<bool>`, `physics: Option<Rc<dyn ScrollPhysics>>`, `key_hints: bool`, `padding: Option<EdgeInsets>`, `child: Option<AnyWidget>`
-- `rtwk::style::SpinnerFrames` (struct, `crates/rtwk-widgets/src/style/glyphs.rs:18`) The frames of a spinner, shown in turn, each for `interval` (twk's `SpinnerFrames`, of `animation/spinner.dart`: defined here, where `Glyphs::spinner` needs it; the animation module's `Spinner` uses this type).
-  - public fields: `frames: Cow<'static`, `interval: Duration`
-- `rtwk::scroll::ScrollController` (struct, `crates/rtwk-scroll/src/scrollable.rs:703`) Reads and moves the position of the `Scrollable` it is given to: `offset`, `jump_to`, `ensure_visible`.
-- `rtwk::layout::Expanded` (struct, `crates/rtwk-widgets/src/layout/flex.rs:270`) `Flexible` with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
+| content | document, chat answer | document |
+| code wrap | grapheme, word, none | grapheme |
+| width | 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells, 51 cells, 52 cells, 53 cells, 54 cells, 55 cells, 56 cells, 57 cells, 58 cells, 59 cells, 60 cells, 61 cells, 62 cells, 63 cells, 64 cells, 65 cells, 66 cells, 67 cells, 68 cells, 69 cells, 70 cells, 71 cells, 72 cells | 50 cells |
+| links go to | the terminal, the app, the app only | the terminal |
 
 ## CodeView
 
 Source code highlighted for its language, with line numbers, its long lines wrapped or cut off at the width; a CodeViewController scrolls it to a line, highlights lines and finds text.
 
-API:
-
-- `rtwk_rich::highlight::CodeView` (struct, `crates/rtwk-rich/src/highlight/code_view.rs:1024`) `code` in `language`, each token in the style the `SyntaxTheme` at its place (`SyntaxTheme::of`) gives its kind: its lines one under another, and with `line_numbers` each line's number in a gutter before it.
-  - public fields: `code: Rc<str>`, `language: &'static Language`, `line_numbers: bool`, `first_line_number: i64`, `tab_width: usize`, `wrap: TextWrap`, `signs: Option<Rc<BTreeMap<i64`, `controller: Option<CodeViewController>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `highlight_style: Option<Style>`, `match_style: Option<Style>`, `current_match_style: Option<Style>`
+- `rtwk_rich::highlight::CodeView` (struct) in `crates/rtwk-rich/src/highlight/code_view.rs:1024`: `code` in `language`, each token in the style the SyntaxTheme at its place (SyntaxTheme::of) gives its kind: its lines one under another, and with line_numbers each line's number in a gutter before it.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/codeview`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:207`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::time::Duration;
@@ -507,79 +467,31 @@ final class _CounterState extends State<Counter> {
 },
     )
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| lang | Dart, Python, Rust, Go, JavaScript, TypeScript, JSON, YAML, Bash, diff, plain | Dart |
-| numbers | on, off | true |
-| signs | on, off | false |
+| language | Dart, Python, Rust, Go, JavaScript, TypeScript, JSON, YAML, Bash, diff, plain | Dart |
+| line numbers | false, true | true |
+| changes | false, true | false |
 | wrap | none, word, grapheme | word |
-| width | 24..80 (a slider) | 56 cells |
+| width | 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells, 51 cells, 52 cells, 53 cells, 54 cells, 55 cells, 56 cells, 57 cells, 58 cells, 59 cells, 60 cells, 61 cells, 62 cells, 63 cells, 64 cells, 65 cells, 66 cells, 67 cells, 68 cells, 69 cells, 70 cells, 71 cells, 72 cells, 73 cells, 74 cells, 75 cells, 76 cells, 77 cells, 78 cells, 79 cells, 80 cells | 56 cells |
 | rows | all, 10 | all |
-| first | 1, 120 | 1 |
-| goto | none, least, middle | none |
-| lit | none, 14, 13–16 | none |
-| find | on, off | false |
-
-### Methods
-
-#### `CodeView`: constructors and associated functions
-
-- `pub fn new(code: impl Into<Rc<str>>) -> CodeView` - Shows `code` as plain text: no line numbers, counting from 1 when shown, tabs 4 columns apart, lines not wrapped, no column of signs, and as tall as its lines unless a controller, a focus node or autofocus makes it ...
-
-#### `CodeView`: builder methods (take and return `self`)
-
-- `pub fn language(mut self, language: &'static Language) -> CodeView` - In `language`.
-- `pub fn line_numbers(mut self, on: bool) -> CodeView` - With a gutter of line numbers.
-- `pub fn first_line_number(mut self, n: i64) -> CodeView` - Numbering the first line `n`.
-- `pub fn tab_width(mut self, width: usize) -> CodeView` - Tabs `width` columns apart.
-- `pub fn wrap(mut self, wrap: TextWrap) -> CodeView` - Breaking lines wider than the view as `wrap` says.
-- `pub fn signs(mut self, signs: impl Into<BTreeMap<i64, CodeSign>>) -> CodeView` - With a column of signs: `signs` by line number.
-- `pub fn sign(mut self, line: i64, sign: CodeSign) -> CodeView` - With a column of signs and `sign` beside line `line`.
-- `pub fn controller(mut self, controller: CodeViewController) -> CodeView` - Controlled by `controller`.
-- `pub fn focus_node(mut self, node: FocusNode) -> CodeView` - With `node` for its focus.
-- `pub fn autofocus(mut self, on: bool) -> CodeView` - Taking the focus when first shown.
-- `pub fn highlight_style(mut self, style: Style) -> CodeView` - Highlighting lines in `style` by default.
-- `pub fn match_style(mut self, style: Style) -> CodeView` - Drawing what the query finds in `style`.
-- `pub fn current_match_style(mut self, style: Style) -> CodeView` - Drawing the current match in `style`.
-
-#### `CodeView`: methods
-
-- `pub fn scrolls(&self) -> bool` - Whether it scrolls its lines itself (a controller, a focus node or autofocus).
-
-### Also used in the code
-
-- `rtwk::text::TextWrap` (enum, `crates/rtwk-render/src/objects/text.rs:55`) Where a `RenderParagraph` may break a line too long for it.
-  - variants: `Word`, `Grapheme`, `None`
-- `rtwk_rich::highlight::CodeViewController` (struct, `crates/rtwk-rich/src/highlight/code_view.rs:403`) What is done to the `CodeView` it is given to: scrolled to a line (`scroll_to_line`), with the lines in its window read back (`lines_in_view`); lines highlighted (`highlight_lines`), an error or the line a debugger ...
-- `rtwk::binding::AppBinding` (struct, `crates/rtwk-widgets/src/binding/app_binding.rs:327`) The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by `maybe_of`.
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
-- `rtwk_rich::highlight::CodeSign` (struct, `crates/rtwk-rich/src/highlight/code_view.rs:49`) A mark in the gutter of a `CodeView` beside a line (`CodeView::signs`): `glyph`, a character or a few (`●`, `E`, `▎`), in `style` merged onto the text's.
-  - public fields: `glyph: String`, `style: Style`
-- `rtwk::scroll::SingleChildScrollView` (struct, `crates/rtwk-scroll/src/single_child_scroll_view.rs:65`) Shows its child in a window that scrolls along `scroll_direction` (a `Scrollable`: keys, the wheel, `controller`).
-  - public fields: `scroll_direction: Axis`, `controller: Option<ScrollController>`, `style: Option<Style>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: Option<bool>`, `physics: Option<Rc<dyn ScrollPhysics>>`, `key_hints: bool`, `padding: Option<EdgeInsets>`, `child: Option<AnyWidget>`
-- `rtwk::scroll::Scrollbar` (struct, `crates/rtwk-scroll/src/scrollbar.rs:145`) Shows how far the outermost `Scrollable` inside its child is scrolled, as a thumb on a track beside it, and scrolls it with the mouse.
-  - public fields: `child: AnyWidget`, `axis: Option<Axis>`, `visibility: ScrollbarVisibility`, `time_to_fade: Duration`, `style: Option<Style>`, `slim: bool`, `track_style: Option<Style>`
-- `rtwk::focus::KeyBindings` (struct, `crates/rtwk-framework/src/focus/shortcuts.rs:1257`) Binds keys to handlers for the nodes below it.
-  - public fields: `bindings: Vec<(Str`, `combos: Vec<(KeyCombo`, `hints: Vec<(Str`, `combo_hints: Vec<(KeyCombo`, `sequence_timeout: Option<Duration>`, `unmatched: UnmatchedKeys`, `child: AnyWidget`, `debug_label: Option<Str>`
+| first line | 1, 120 | 1 |
+| to line 18 | none, least, ½ | none |
+| highlight | none, 14, 13–16 | none |
+| find | false, true | false |
 
 ## SyntaxThemeScope
 
 The styles of the code below it, a style for each kind of token, in place of those derived from the theme: a SyntaxTheme of its own, or the derived one with a few changed.
 
-API:
-
-- `rtwk_rich::highlight::SyntaxThemeScope` (struct, `crates/rtwk-rich/src/highlight/syntax_theme.rs:179`) Sets the `SyntaxTheme` the widgets below it use (`SyntaxTheme::of`): a `CodeView`, a `JsonView`, a `DiffView` and the code blocks of a `MarkdownView` take it.
-  - public fields: `theme: SyntaxTheme`, `child: AnyWidget`
+- `rtwk_rich::highlight::SyntaxThemeScope` (struct) in `crates/rtwk-rich/src/highlight/syntax_theme.rs:179`: Sets the SyntaxTheme the widgets below it use (SyntaxTheme::of): a `CodeView`, a `JsonView`, a `DiffView` and the code blocks of a `MarkdownView` take it.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/syntaxthemescope`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:253`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::style::{Style, Theme};
@@ -630,41 +542,22 @@ impl_widget!(stateless eq SyntaxPreview);
 fn preview() -> AnyWidget {
     SyntaxPreview(0).into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| syntax | copyWith, own, none | copyWith |
-
-### Methods
-
-#### `SyntaxThemeScope`: constructors and associated functions
-
-- `pub fn new(theme: SyntaxTheme, child: impl Into<AnyWidget>) -> SyntaxThemeScope` - Sets `theme` for `child` and what is below it.
-
-### Also used in the code
-
-- `rtwk_rich::highlight::CodeView` (struct, `crates/rtwk-rich/src/highlight/code_view.rs:1024`) `code` in `language`, each token in the style the `SyntaxTheme` at its place (`SyntaxTheme::of`) gives its kind: its lines one under another, and with `line_numbers` each line's number in a gutter before it.
-  - public fields: `code: Rc<str>`, `language: &'static Language`, `line_numbers: bool`, `first_line_number: i64`, `tab_width: usize`, `wrap: TextWrap`, `signs: Option<Rc<BTreeMap<i64`, `controller: Option<CodeViewController>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `highlight_style: Option<Style>`, `match_style: Option<Style>`, `current_match_style: Option<Style>`
-- `rtwk_rich::highlight::SyntaxTheme` (struct, `crates/rtwk-rich/src/highlight/syntax_theme.rs:23`) The style of each `TokenKind`.
-  - public fields: `plain: Style`, `keyword: Style`, `function: Style`, `variable: Style`, `constant: Style`, `string: Style`, `escape: Style`, `number: Style`, `comment: Style`, `annotation: Style`, `key: Style`, `punctuation: Style`, `operator: Style`, `inserted: Style`, `deleted: Style`, `heading: Style`
+| syntax theme | copyWith, own, none | copyWith |
 
 ## DiffView
 
 The changes between two texts, unified or side by side, the words that changed marked and both sides highlighted.
 
-API:
-
-- `rtwk_rich::diff::DiffView` (struct, `crates/rtwk-rich/src/diff/view.rs:87`) `diff` in a list of rows that scrolls, laid out as `layout` says.
-  - public fields: `diff: Rc<Diff>`, `layout: DiffLayout`, `language: Option<&'static Language>`, `tab_width: usize`, `theme: Option<DiffTheme>`, `controller: Option<ScrollController>`, `focus_node: Option<FocusNode>`, `autofocus: bool`
+- `rtwk_rich::diff::DiffView` (struct) in `crates/rtwk-rich/src/diff/view.rs:87`: `diff` in a list of rows that scrolls, laid out as layout says.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/diffview`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:271`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::layout::SizedBox;
@@ -756,57 +649,25 @@ void main(List<String> args) {
   }
 }"#, false, 3, false)
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | layout | unified, sideBySide | unified |
-| context | 3, 1, 0 | 3 |
-| live | on, off | false |
-| language | path, plain | path |
-
-### Methods
-
-#### `DiffView`: constructors and associated functions
-
-- `pub fn new(diff: impl Into<Rc<Diff>>) -> DiffView` - Shows `diff` unified, its code in the language of each file's path, its tabs 4 columns apart, in the styles of the app's theme.
-
-#### `DiffView`: builder methods (take and return `self`)
-
-- `pub fn layout(mut self, layout: DiffLayout) -> DiffView` - In `layout`.
-- `pub fn language(mut self, language: &'static Language) -> DiffView` - The code of every file in `language`.
-- `pub fn tab_width(mut self, width: usize) -> DiffView` - Tabs `width` columns apart (at least 1).
-- `pub fn theme(mut self, theme: DiffTheme) -> DiffView` - In the styles of `theme`.
-- `pub fn controller(mut self, controller: ScrollController) -> DiffView` - Scrolled by `controller`.
-- `pub fn focus_node(mut self, node: FocusNode) -> DiffView` - With `node` for its focus.
-- `pub fn autofocus(mut self, on: bool) -> DiffView` - Taking the focus when first shown.
-
-### Also used in the code
-
-- `rtwk_rich::diff::Diff` (struct, `crates/rtwk-rich/src/diff/model.rs:144`) The changes to one file or more.
-  - public fields: `files: Vec<FileDiff>`
-- `rtwk_rich::diff::DiffLayout` (enum, `crates/rtwk-rich/src/diff/view.rs:27`) How a `DiffView` puts the two sides of a diff.
-  - variants: `Unified`, `SideBySide`
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
-- `rtwk::scroll::Scrollbar` (struct, `crates/rtwk-scroll/src/scrollbar.rs:145`) Shows how far the outermost `Scrollable` inside its child is scrolled, as a thumb on a track beside it, and scrolls it with the mouse.
-  - public fields: `child: AnyWidget`, `axis: Option<Axis>`, `visibility: ScrollbarVisibility`, `time_to_fade: Duration`, `style: Option<Style>`, `slim: bool`, `track_style: Option<Style>`
+| context | 3 lines, 1, 0 | 3 lines |
+| edit live | false, true | false |
+| language | the path's, plain | the path's |
 
 ## JsonView
 
 JSON or a Dart value as a tree that folds, each kind of value in its color: c copies the path of the value selected, y the value, / filters the keys.
 
-API:
-
-- `rtwk_rich::json::JsonView` (struct, `crates/rtwk-rich/src/json/view.rs:351`) A JSON document or value as a tree: each object and array a row that folds, its entries below it, indented and joined to it by guides, and a row that closes it; each value in the style of its kind in `theme`, keys, ...
-  - public fields: `controller: Option<JsonViewController>`, `root_name: String`, `on_path_copied: Option<Rc<dyn Fn(&str)>>`, `theme: Option<SyntaxTheme>`, `sort_keys: bool`, `max_string_length: Option<usize>`, `focus_node: Option<FocusNode>`, `autofocus: bool`
+- `rtwk_rich::json::JsonView` (struct) in `crates/rtwk-rich/src/json/view.rs:351`: A JSON document or value as a tree: each object and array a row that folds, its entries below it, indented and joined to it by guides, and a row that closes it; each value in the style of its kind in theme, keys, strings, numbers, `true`, `false` and `null` and brackets apart.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/jsonview`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:319`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::layout::{CrossAxisAlignment, MainAxisSize, SizedBox};
@@ -931,53 +792,24 @@ fn plain_status(path: Option<&str>, _: u64, theme: &ThemeData) -> AnyWidget {
 fn preview() -> AnyWidget {
     JsonPreview { depth: 1, sort: false, cut: 200, status: None }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| depth | 1, 2, 0 | 1 |
-| sort | on, off | false |
-| cut | 200, 24 | 200 |
-
-### Methods
-
-#### `JsonView`: constructors and associated functions
-
-- `pub fn new(value: impl Into<Rc<JsonValue>>) -> JsonView` - Shows `value` as a tree.
-- `pub fn parse(source: impl Into<Rc<str>>) -> JsonView` - Shows the JSON value `source` is the text of, or where it is not one the error it fails with, and the line and column where.
-
-#### `JsonView`: builder methods (take and return `self`)
-
-- `pub fn controller(mut self, controller: JsonViewController) -> JsonView` - With `controller` for what is expanded and selected.
-- `pub fn root_name(mut self, name: impl Into<String>) -> JsonView` - With `name` for the first segment of the paths.
-- `pub fn on_path_copied(mut self, f: impl Fn(&str) + 'static) -> JsonView` - Calling `f` with the path `c` copied.
-- `pub fn theme(mut self, theme: SyntaxTheme) -> JsonView` - In the styles of `theme`.
-- `pub fn sort_keys(mut self, on: bool) -> JsonView` - Showing the keys of objects in order.
-- `pub fn max_string_length(mut self, max: Option<usize>) -> JsonView` - Cutting strings longer than `max` characters; none for never.
-- `pub fn focus_node(mut self, node: FocusNode) -> JsonView` - With `node` for its focus.
-- `pub fn autofocus(mut self, on: bool) -> JsonView` - Taking the focus when first shown.
-
-### Also used in the code
-
-- `rtwk_rich::json::JsonViewController` (struct, `crates/rtwk-rich/src/json/view.rs:78`) What a `JsonView` shows: the objects and arrays expanded, and the value selected, both by path (`json_path`); it notifies its listeners of each change.
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
+| expanded depth | 1, 2, 0 | 1 |
+| sort keys | false, true | false |
+| strings cut at | 200, 24 | 200 |
 
 ## BigText
 
 Text in letters several cells tall, drawn with full or half blocks or with box drawing, in a font of its own.
 
-API:
-
-- `rtwk_rich::bigtext::BigText` (struct, `crates/rtwk-rich/src/bigtext/widget.rs:45`) `text` in big letters: each line of it set in `font`, or in the first of `fonts` it fits in, the last one when it fits in none; lines are a blank row apart, each placed as `align` says.
-  - public fields: `text: String`, `fonts: Vec<&'static BigFont>`, `align: TextAlign`, `style: Style`, `missing: MissingGlyph`
+- `rtwk_rich::bigtext::BigText` (struct) in `crates/rtwk-rich/src/bigtext/widget.rs:45`: `text` in big letters: each line of it set in `font`, or in the first of `fonts` it fits in, the last one when it fits in none; lines are a blank row apart, each placed as `align` says.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/bigtext`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:349`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::rc::Rc;
@@ -1128,62 +960,26 @@ pub(crate) fn big_height(font: usize, text: usize, width: i32, height: i32) -> i
 fn preview() -> AnyWidget {
     BigPreview { font: 0, text: 0, align: 0, color: 0, time: 2_000 }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | font | fit, large, block, thin, small | fit |
-| text | typed, clock, lines | typed |
+| text | typed, clock, two lines | typed |
 | align | left, center, right | left |
-| color | primary, accent, success, warning, info | primary |
-
-### Methods
-
-#### `BigText`: constructors and associated functions
-
-- `pub fn new(text: impl Into<String>) -> BigText` - Draws `text` in big letters, fitting it to the fonts of `BigFont::SIZES`, left-aligned, a missing glyph a box.
-
-#### `BigText`: builder methods (take and return `self`)
-
-- `pub fn font(mut self, font: &'static BigFont) -> BigText` - Draws in `font` whatever the room (twk's `font`, which takes the place of `fonts`).
-- `pub fn fonts(mut self, fonts: &[&'static BigFont]) -> BigText` - Fits the text to `fonts`, tried in order; not empty.
-- `pub fn align(mut self, align: TextAlign) -> BigText` - Places each line across the width as `align` says.
-- `pub fn style(mut self, style: Style) -> BigText` - Merges `style` onto the default text style.
-- `pub fn missing(mut self, missing: MissingGlyph) -> BigText` - Draws a character no glyph stands for as `missing` says.
-
-### Also used in the code
-
-- `rtwk_rich::bigtext::BigFont` (struct, `crates/rtwk-rich/src/bigtext/mod.rs:38`) A font of letters several cells tall: a pixel font drawn with full or half blocks, or letters of box drawing.
-  - public fields: `height: usize`
-- `rtwk::text::TextAlign` (enum, `crates/rtwk-unicode/src/fit.rs:11`) Where a paragraph puts each line across its width.
-  - variants: `Left`, `Center`, `Right`, `Justify`, `Start`, `End`
-- `rtwk::editing::TextEditingController` (struct, `crates/rtwk-editing/src/text_editing.rs:418`) The `TextEditingValue` a field edits, which notifies its listeners of each change.
-- `rtwk::focus::FocusNode` (struct, `crates/rtwk-framework/src/focus/node.rs:153`) A place in a tree's focus tree: the node of a `Focus` widget, which can have the focus and gets the keys (twk's `FocusNode`).
-- `rtwk::foundation::ListenableBuilder` (struct, `crates/rtwk-framework/src/foundation/listenable_builder.rs:131`) Shows what its builder returns, built again whenever its listenable notifies; the widgets around it are not (twk's `ListenableBuilder`).
-  - public fields: `listenable: Rc<dyn Listenable>`, `builder: TransitionBuilder`, `child: Option<AnyWidget>`
-- `rtwk::editing::TextField` (struct, `crates/rtwk-editing/src/text_field.rs:160`) A field of a line of text the user edits, which its `controller` holds (twk's `TextField`).
-  - public fields: `controller: Option<TextEditingController>`, `placeholder: Option<Str>`, `semantics_label: Option<Str>`, `obscure_text: bool`, `obscuring_character: Option<Str>`, `max_length: Option<usize>`, `on_changed: Option<Handler<Rc<str>>>`, `on_submitted: Option<Handler<Rc<str>>>`, `on_editing_complete: Option<Handler<()>>`, `on_paste: Option<OnPaste>`, `read_only: bool`, `enabled: bool`, `text_align: TextAlign`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: Option<bool>`, `style: Option<Style>`, `focused_style: Option<Style>`, `placeholder_style: Option<Style>`, `selection_style: Option<Style>`
-- `rtwk::layout::Flexible` (struct, `crates/rtwk-widgets/src/layout/flex.rs:243`) Gives its child, in a `Flex`, a `Row` or a `Column`, a share of the free room (twk's `Flexible`): `flex` against the other flexible children's, all of it (`FlexFit::Tight`) or at most it (`FlexFit::Loose`).
-  - public fields: `flex: i32`, `fit: FlexFit`, `child: AnyWidget`
-- `rtwk_rich::bigtext::BigTextLayout` (struct, `crates/rtwk-rich/src/bigtext/mod.rs:280`) What twk's `RenderBigText` lays out, without painting: `text` set in the first of its fonts it fits in at the largest size the room allows, the last when it fits in none.
-- `rtwk_core::unicode::TextSegmenter` (struct, `crates/rtwk-unicode/src/segment.rs:253`) Segments text into terminal cells and computes their widths.
-  - public fields: `mode: TextMode`
+| style | primary, accent, success, warning, info | primary |
 
 ## QrCode
 
 Text as a QR code a phone's camera reads: in half blocks, two modules to a cell, black on white whatever the theme, with as much of the quiet zone around it as the rows allow.
 
-API:
-
-- `rtwk_rich::qr::QrCode` (struct, `crates/rtwk-rich/src/qr/code.rs:75`) What twk's `QrCode` widget lays out and paints: a symbol, or else text encoded at a level of error correction (`QrSymbol::encode`; data that does not fit in version 40 at that level is the `QrError` its layout returns), ...
+- `rtwk_rich::qr::QrCode` (struct) in `crates/rtwk-rich/src/qr/code.rs:75`: What twk's `QrCode` widget lays out and paints: a symbol, or else text encoded at a level of error correction (QrSymbol::encode; data that does not fit in version 40 at that level is the QrError its layout returns), with a quiet zone of light modules around it, in dark modules on light ones (black on white by default, whatever the theme and the terminal's colors, since a scanner looks for dark modules on a light ground).
+- `rtwk_rich::qr::QrCodeWidget` (struct) in `crates/rtwk-rich/src/qr/widget.rs:26`: A terminal QR widget, drawn in black on white with a four-module quiet zone by default.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/rich/qrcode`, `crates/rtwk-gallery/src/pages/rich_catalog.rs:386`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::sync::{Arc, OnceLock};
@@ -1262,55 +1058,14 @@ pub(crate) fn qr(text: usize, level: usize, quiet: usize, invert: bool) -> AnyWi
 fn preview() -> AnyWidget {
     qr(2, 1, 4, false)
 }
+
 ```
 
 ### Options
-
-The gallery's inspector; each value is one setting of the example above.
 
 | option | values | starts at |
 | --- | --- | --- |
 | text | link, wifi, digits | digits |
 | level | low, medium, quartile, high | medium |
-| quiet | 0..4 (a slider) | 4 modules |
-| invert | on, off | false |
-
-### Methods
-
-#### `QrCode`: constructors and associated functions
-
-- `pub fn new(data: impl Into<String>, level: QrErrorCorrection) -> QrCode` - `data` encoded at `level`, with a quiet zone of 4 modules, black on white.
-- `pub fn from_symbol(symbol: impl Into<Arc<QrSymbol>>) -> QrCode` - `symbol` as a QR code, with a quiet zone of 4 modules, black on white.
-- `pub fn is_wide(seg: &TextSegmenter) -> bool` - Whether the canvas `seg` measures draws half blocks two columns wide.
-
-#### `QrCode`: methods
-
-- `pub fn data(&self) -> Option<&str>` - The text encoded where there is no symbol made already.
-- `pub fn level(&self) -> QrErrorCorrection` - The error correction the text is encoded with (medium where the code has a symbol).
-- `pub fn symbol(&self) -> Option<&Arc<QrSymbol>>` - The symbol drawn in place of text encoded.
-- `pub fn set_data(&mut self, data: &str, level: QrErrorCorrection) -> bool` - Draws `data` encoded at `level`.
-- `pub fn set_symbol(&mut self, symbol: &Arc<QrSymbol>) -> bool` - Draws `symbol` in place of text encoded.
-- `pub fn quiet_zone(&self) -> usize` - The light modules around the symbol on each side.
-- `pub fn set_quiet_zone(&mut self, quiet_zone: usize) -> bool` - Sets the quiet zone; whether that changes what is laid out.
-- `pub fn dark(&self) -> Color` - The color of the dark modules.
-- `pub fn set_dark(&mut self, dark: Color) -> bool` - Sets the color of the dark modules; whether that is to be painted again.
-- `pub fn light(&self) -> Color` - The color of the light modules and the quiet zone.
-- `pub fn set_light(&mut self, light: Color) -> bool` - Sets the color of the light modules and the quiet zone; whether that is to be painted again.
-- `pub fn shown(&mut self) -> Result<&QrSymbol, QrError>` - The symbol drawn: the one given, or the text encoded at its level (once, until the text or level changes).
-- `pub fn side(&mut self) -> Result<usize, QrError>` - The modules of a side with the quiet zone.
-- `pub fn columns(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The columns the code takes on a canvas `seg` measures.
-- `pub fn lines(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The rows the code takes on a canvas `seg` measures.
-- `pub fn layout(&mut self, seg: &TextSegmenter, min_w: usize, max_w: usize, min_h: usize, max_h: usize) -> Result<(usize, usize), QrError>` - The size, width and height in cells, within the constraints `min_w..=max_w` and `min_h..=max_h`.
-- `pub fn min_intrinsic_width(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The least width, which is the most too: the columns of the code.
-- `pub fn max_intrinsic_width(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The most width: the columns of the code.
-- `pub fn min_intrinsic_height(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The least height, which is the most too: the rows of the code.
-- `pub fn max_intrinsic_height(&mut self, seg: &TextSegmenter) -> Result<usize, QrError>` - The most height: the rows of the code.
-- `pub fn paint(&mut self, seg: &TextSegmenter, width: usize, height: usize, f: impl FnMut(QrRun<'_>)) -> Result<(), QrError>` - Paints the code on a canvas `seg` measures of `width` x `height` cells with its top left corner at the origin: `f` is given the runs of text, row by row, in half blocks (a row of the code a run, dark on light) or, where ...
-
-### Also used in the code
-
-- `rtwk_rich::qr::QrSymbol` (struct, `crates/rtwk-rich/src/qr/symbol.rs:217`) Text as a QR code, ISO/IEC 18004 (Model 2): a square of `size` x `size` modules, each dark or light (`is_dark`), which a scanner reads with a quiet zone of light modules around it, 4 wide by the standard.
-- `rtwk_rich::qr::QrErrorCorrection` (enum, `crates/rtwk-rich/src/qr/symbol.rs:18`) How much of a QR code may be lost and the code still read: the four levels of error correction, each restoring about the share of its codewords it names, at the cost of room for data (twk's `QrErrorCorrection`).
-  - variants: `Low`, `Medium`, `Quartile`, `High`
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
-- `rtwk_rich::qr::QrCodeWidget` (struct, `crates/rtwk-rich/src/qr/widget.rs:26`) A terminal QR widget, drawn in black on white with a four-module quiet zone by default.
+| quiet zone | 0 modules, 1 modules, 2 modules, 3 modules, 4 modules | 4 modules |
+| inverted | false, true | false |

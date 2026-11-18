@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk e3debfda; do not edit. -->
 
 # Testing API: rtwk_test
 
@@ -51,6 +51,8 @@
 - `pub fn pump_widget_for(&mut self, widget: impl Into<AnyWidget>, duration: Duration)` - As `pump_widget`, pumping `duration`: `Duration::ZERO` runs only the app's first frame, at time zero.
 - `pub fn pump_app<A: 'static>(&mut self, app: AppView<A>)` - Starts the application `app` (a view of a value of your own, as `rtwk::app::run` runs it), or shows it in place of what was shown; `read_app` and `update_app` reach its value.
 - `pub fn pump_app_for<A: 'static>(&mut self, app: AppView<A>, duration: Duration)` - As `pump_app`, pumping `duration`.
+- `pub fn pump_app_in<A: 'static>(&mut self, app: AppView<A>, wrap: impl FnOnce(AnyWidget) -> AnyWidget)` - As `pump_app`, with the app shown inside what `wrap` makes of it: the root a process gives it (`rtwk::run_app_with`'s `overlay::App`, a theme, localizations, a `GraphicsScope`) put around it, the app keeping its ...
+- `pub fn pump_app_in_for<A: 'static>(&mut self, app: AppView<A>, wrap: impl FnOnce(AnyWidget) -> AnyWidget, duration: Duration)` - As `pump_app_in`, pumping `duration`.
 - `pub fn pump(&mut self)` - Moves the clock on by one frame gap (a second over `max_fps`): what is due by then runs — timers, frames, a lone ESC resolved — in order, so a frame asked for before the call has run when it returns.
 - `pub fn pump_for(&mut self, duration: Duration)` - Moves the clock on by `duration`, running everything due by then in order.
 - `pub fn pump_until_idle(&mut self)` - Pumps frame gap after frame gap until the app is idle: a gap passed without a frame written, and nothing of the app waits (no timer, no frame callback, no work for the next frame).

@@ -1,21 +1,19 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Animation
 
+Spinners, progress, and widgets that animate as their values change.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## Spinner
 
 Frames shown in turn while something goes on; spinners of the same frames step together.
 
-API:
-
-- `rtwk::animation::Spinner` (struct, `crates/rtwk-animation/src/spinner.rs:47`) The frames of `frames` — those of the theme's `Glyphs::spinner` unless it is given some: dots in the Unicode glyphs, a turning line in the ASCII ones — in turn, a frame each interval of the frames' clock: the frame of ...
-  - public fields: `frames: Option<SpinnerFrames>`, `style: Option<Style>`
+- `rtwk::animation::Spinner` (struct) in `crates/rtwk-animation/src/spinner.rs:47`: The frames of frames — those of the theme's Glyphs::spinner unless it is given some: dots in the Unicode glyphs, a turning line in the ASCII ones — in turn, a frame each interval of the frames' clock: the frame of the step of the clock the frame is in, so that spinners of the same frames show the same one and step in the same frames (twk's `Spinner`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/spinner`, `crates/rtwk-gallery/src/pages/animation_progress.rs:51`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::animation::Spinner;
@@ -43,45 +41,23 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
         }))
         .into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | frames | dots, line, arc | dots |
-| color | primary, accent, success, warning, info | primary |
-
-### Methods
-
-#### `Spinner`: constructors and associated functions
-
-- `pub fn new() -> Spinner` - A spinner of the theme's frames in the theme's primary style.
-
-#### `Spinner`: builder methods (take and return `self`)
-
-- `pub fn frames(mut self, frames: SpinnerFrames) -> Spinner` - Of `frames`, not the theme's.
-- `pub fn style(mut self, style: Style) -> Spinner` - In `style`, over the theme's text, not the theme's primary.
-
-### Also used in the code
-
-- `rtwk::style::SpinnerFrames` (struct, `crates/rtwk-widgets/src/style/glyphs.rs:18`) The frames of a spinner, shown in turn, each for `interval` (twk's `SpinnerFrames`, of `animation/spinner.dart`: defined here, where `Glyphs::spinner` needs it; the animation module's `Spinner` uses this type).
-  - public fields: `frames: Cow<'static`, `interval: Duration`
+| style | primary, accent, success, warning, info | primary |
 
 ## TickerMode
 
 Whether the animations below tick: off, they ask for no frames and stand still, and go on when it is on again; Offstage and Visibility turn it off for what they hide.
 
-API:
-
-- `rtwk::animation::TickerMode` (struct, `crates/rtwk-framework/src/ticker.rs:891`) Whether the `Ticker`s below tick (twk's `TickerMode`): what is not shown asks for no frames.
-  - public fields: `enabled: bool`, `child: AnyWidget`
+- `rtwk::animation::TickerMode` (struct) in `crates/rtwk-framework/src/ticker.rs:891`: Whether the Tickers below tick (twk's `TickerMode`): what is not shown asks for no frames.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/tickermode`, `crates/rtwk-gallery/src/pages/animation_progress.rs:69`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::animation::{Spinner, TickerMode};
@@ -103,40 +79,22 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
     )
     .into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| enabled | on, off | true |
-
-### Methods
-
-#### `TickerMode`: constructors and associated functions
-
-- `pub fn new(enabled: bool, child: impl Into<AnyWidget>) -> TickerMode` - Turns the tickers in `child` on or off.
-- `pub fn of<S>(cx: &mut Cx<'_, S>) -> bool` - Whether the tickers at `cx` tick: the mode of the nearest `TickerMode` above it, true where there is none.
-
-### Also used in the code
-
-- `rtwk::animation::Spinner` (struct, `crates/rtwk-animation/src/spinner.rs:47`) The frames of `frames` — those of the theme's `Glyphs::spinner` unless it is given some: dots in the Unicode glyphs, a turning line in the ASCII ones — in turn, a frame each interval of the frames' clock: the frame of ...
-  - public fields: `frames: Option<SpinnerFrames>`, `style: Option<Style>`
+| enabled | false, true | true |
 
 ## ProgressBar
 
 A bar filled as far as its value, in eighths of a cell; a block going to and fro while the value is not known.
 
-API:
-
-- `rtwk::animation::ProgressBar` (struct, `crates/rtwk-animation/src/progress_bar.rs:43`) A bar filled to `value`, from 0 (empty) to 1 (full), in eighths of a cell — braille halves where block elements are two columns wide, the theme's shades where its glyphs have no partial blocks — as wide as it may be and ...
-  - public fields: `value: Option<f64>`, `style: Option<Style>`, `semantics_label: Option<Str>`
+- `rtwk::animation::ProgressBar` (struct) in `crates/rtwk-animation/src/progress_bar.rs:43`: A bar filled to value, from 0 (empty) to 1 (full), in eighths of a cell — braille halves where block elements are two columns wide, the theme's shades where its glyphs have no partial blocks — as wide as it may be and every row it is given (twk's `ProgressBar`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/progressbar`, `crates/rtwk-gallery/src/pages/animation_progress.rs:82`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::animation::ProgressBar;
@@ -162,41 +120,24 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
     }
     row.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| known | on, off | true |
-| value | 0..100 (a slider) | 33% |
-| color | primary, accent, success, warning, info | success |
-
-### Methods
-
-#### `ProgressBar`: constructors and associated functions
-
-- `pub fn new(value: Option<f64>) -> ProgressBar` - A bar of `value` in the theme's primary style.
-
-#### `ProgressBar`: builder methods (take and return `self`)
-
-- `pub fn style(mut self, style: Style) -> ProgressBar` - In `style`, not the theme's primary.
-- `pub fn semantics_label(mut self, label: impl Into<Str>) -> ProgressBar` - Called `label` to a screen reader.
+| value known | false, true | true |
+| value | 0%, 1%, 2%, 3%, 4%, 5%, 6%, 7%, 8%, 9%, 10%, 11%, 12%, 13%, 14%, 15%, 16%, 17%, 18%, 19%, 20%, 21%, 22%, 23%, 24%, 25%, 26%, 27%, 28%, 29%, 30%, 31%, 32%, 33%, 34%, 35%, 36%, 37%, 38%, 39%, 40%, 41%, 42%, 43%, 44%, 45%, 46%, 47%, 48%, 49%, 50%, 51%, 52%, 53%, 54%, 55%, 56%, 57%, 58%, 59%, 60%, 61%, 62%, 63%, 64%, 65%, 66%, 67%, 68%, 69%, 70%, 71%, 72%, 73%, 74%, 75%, 76%, 77%, 78%, 79%, 80%, 81%, 82%, 83%, 84%, 85%, 86%, 87%, 88%, 89%, 90%, 91%, 92%, 93%, 94%, 95%, 96%, 97%, 98%, 99%, 100% | 33% |
+| style | primary, accent, success, warning, info | success |
 
 ## ProgressList
 
 Many tasks at once, a row each: its mark, a bar, how much is done, its rate and the time it has left, from a ProgressTracker the work counts on.
 
-API:
-
-- `rtwk::animation::ProgressList` (struct, `crates/rtwk-animation/src/progress_list.rs:1080`) The tasks of a `tracker`, a row each, with the `columns` it is given: the mark of each task's `TaskItemStatus`, its label, a bar as a `ProgressBar` draws it — sweeping while the task runs without a total — and how far ...
-  - public fields: `tracker: ProgressTracker`, `columns: Rc<[ProgressColumn]>`, `hide_finished: bool`, `max_visible: Option<usize>`, `spinner: Option<SpinnerFrames>`, `bar_shape: ProgressBarShape`, `max_bar_width: Option<i32>`, `byte_units: ByteUnits`
+- `rtwk::animation::ProgressList` (struct) in `crates/rtwk-animation/src/progress_list.rs:1080`: The tasks of a tracker, a row each, with the columns it is given: the mark of each task's TaskItemStatus, its label, a bar as a ProgressBar draws it — sweeping while the task runs without a total — and how far it has got, how fast it goes and the time it has left (twk's `ProgressList`):
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/progresslist`, `crates/rtwk-gallery/src/pages/animation_progress.rs:109`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 // Drive sample downloads at 300 ms intervals on the app's frame clock.
@@ -408,61 +349,27 @@ pub fn build() -> AnyWidget {
     }
     .into()
 }
+
 ```
 
 ### Options
-
-The gallery's inspector; each value is one setting of the example above.
 
 | option | values | starts at |
 | --- | --- | --- |
 | columns | default, count, elapsed | default |
 | bar | blocks, line | blocks |
 | spinner | dots, line, arc | dots |
-| hide | on, off | false |
-| max | null, 2 | null |
-
-### Methods
-
-#### `ProgressList`: constructors and associated functions
-
-- `pub fn new(tracker: ProgressTracker) -> ProgressList` - Shows the tasks of `tracker` in the default columns.
-
-#### `ProgressList`: builder methods (take and return `self`)
-
-- `pub fn columns(mut self, columns: impl Into<Rc<[ProgressColumn]>>) -> ProgressList` - In `columns`.
-- `pub fn hide_finished(mut self, on: bool) -> ProgressList` - The tasks done or skipped left out where `on`.
-- `pub fn max_visible(mut self, rows: usize) -> ProgressList` - At most `rows` rows of tasks.
-- `pub fn spinner(mut self, frames: SpinnerFrames) -> ProgressList` - A running task's mark showing `frames`.
-- `pub fn bar_shape(mut self, shape: ProgressBarShape) -> ProgressList` - Its bars drawn as `shape`.
-- `pub fn max_bar_width(mut self, cells: Option<i32>) -> ProgressList` - Its bars `cells` wide at most.
-- `pub fn byte_units(mut self, units: ByteUnits) -> ProgressList` - Bytes counted as `units` say.
-
-### Also used in the code
-
-- `rtwk::animation::ProgressTracker` (struct, `crates/rtwk-animation/src/progress_list.rs:293`) Tasks going on at once, added and removed as they come, each counting how far it has got: what a `ProgressList` shows, and what a program that is not an app reads to write a line per task (twk's `ProgressTracker`).
-- `rtwk::animation::ProgressUnit` (enum, `crates/rtwk-animation/src/progress_list.rs:149`) What a `ProgressTask` counts, which says how its amounts and its rate are written.
-  - variants: `Count`, `Bytes`
-- `rtwk::binding::AppBinding` (struct, `crates/rtwk-widgets/src/binding/app_binding.rs:327`) The app a widget runs in (twk's `AppBinding`): one per running app, found from a build by `maybe_of`.
-- `rtwk::animation::ProgressBarShape` (enum, `crates/rtwk-animation/src/progress_list.rs:159`) How a `ProgressList` draws the bar of a task.
-  - variants: `Blocks`, `Line`
-- `rtwk::style::SpinnerFrames` (struct, `crates/rtwk-widgets/src/style/glyphs.rs:18`) The frames of a spinner, shown in turn, each for `interval` (twk's `SpinnerFrames`, of `animation/spinner.dart`: defined here, where `Glyphs::spinner` needs it; the animation module's `Spinner` uses this type).
-  - public fields: `frames: Cow<'static`, `interval: Duration`
+| hide finished | false, true | false |
+| at most | all, 2 | all |
 
 ## Skeleton, Skeletonize
 
 Placeholders while content loads: blocks where it will be, or a subtree drawn as blocks in the layout it has, a shimmer sweeping over them as a SkeletonTheme says.
 
-API:
-
-- `rtwk::animation::Skeleton` (struct, `crates/rtwk-animation/src/skeleton.rs:280`) A block of placeholder cells where content will be: the `SkeletonTheme`'s glyph in its muted color, shimmering as a `Skeletonize` does (twk's `Skeleton`; twk also has it read as `loading`, which waits for the semantics ...
-  - public fields: `width: Option<i32>`, `height: i32`, `lines: Option<i32>`, `last_line: f64`, `style: Option<Style>`
-- `rtwk::animation::Skeletonize` (struct, `crates/rtwk-animation/src/skeleton.rs:206`) Shows `child` as a skeleton while `enabled`: laid out as it is, so the layout is the real one, each cell of it that shows something becoming the `SkeletonTheme`'s glyph in its muted color, the blanks left as they are ...
-  - public fields: `enabled: bool`, `child: AnyWidget`, `shimmer: bool`
+- `rtwk::animation::Skeleton` (struct) in `crates/rtwk-animation/src/skeleton.rs:280`: A block of placeholder cells where content will be: the SkeletonTheme's glyph in its muted color, shimmering as a Skeletonize does (twk's `Skeleton`; twk also has it read as `loading`, which waits for the semantics module).
+- `rtwk::animation::Skeletonize` (struct) in `crates/rtwk-animation/src/skeleton.rs:206`: Shows child as a skeleton while enabled: laid out as it is, so the layout is the real one, each cell of it that shows something becoming the SkeletonTheme's glyph in its muted color, the blanks left as they are (twk's `Skeletonize`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/skeleton-skeletonize`, `crates/rtwk-gallery/src/pages/animation_progress.rs:157`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::animation::{Skeleton, SkeletonTheme, Skeletonize};
@@ -509,58 +416,25 @@ pub fn build(theme: &ThemeData) -> AnyWidget {
     .band(8)
     .into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| loading | on, off | true |
-| shimmer | on, off | true |
+| loading | false, true | true |
+| shimmer | false, true | true |
 | glyph | ░, ▒, ▓ | ░ |
 | band | 8, 4, 16 | 8 |
-
-### Methods
-
-#### `Skeleton`: constructors and associated functions
-
-- `pub fn new() -> Skeleton` - A block as wide as it may be, a row tall.
-- `pub fn text() -> Skeleton` - A line of text as wide as it may be; more with `lines`, the last of them `last_line` (0.6 by default) of the width.
-
-#### `Skeleton`: builder methods (take and return `self`)
-
-- `pub fn width(mut self, width: i32) -> Skeleton` - This block `width` cells wide.
-- `pub fn height(mut self, height: i32) -> Skeleton` - This block `height` rows tall.
-- `pub fn lines(mut self, lines: i32) -> Skeleton` - This text of `lines` lines.
-- `pub fn last_line(mut self, last_line: f64) -> Skeleton` - The last line of this text `last_line` of the width.
-- `pub fn style(mut self, style: Style) -> Skeleton` - The glyph in `style` over the theme's.
-
-#### `Skeletonize`: constructors and associated functions
-
-- `pub fn new(enabled: bool, child: impl Into<AnyWidget>) -> Skeletonize` - Shows `child` as a skeleton while `enabled`, shimmering.
-
-#### `Skeletonize`: builder methods (take and return `self`)
-
-- `pub fn shimmer(mut self, shimmer: bool) -> Skeletonize` - Whether the skeleton shimmers.
-
-### Also used in the code
-
-- `rtwk::animation::SkeletonTheme` (struct, `crates/rtwk-animation/src/skeleton.rs:62`) How the `Skeleton`s and `Skeletonize`s below it look: the `glyph` their cells show, in `style`, and the shimmer that sweeps over them, a band `band` cells wide in `highlight` crossing them from left to right each ...
-  - public fields: `period: Duration`, `glyph: Option<Str>`, `style: Option<Style>`, `highlight: Option<Style>`, `band: i32`, `child: AnyWidget`
 
 ## AnimationController
 
 An animation of the page's own: a controller from 0 to 1 and back, a frame at a time, through a curve and a tween.
 
-API:
-
-- `rtwk::animation::AnimationController` (struct, `crates/rtwk-animation/src/controller.rs:154`) A value from `lower_bound` to `upper_bound` (0 and 1 by default) that runs over a `duration` once set going — `forward`, `reverse`, `animate_to`, `repeat` — a step each frame of its `Ticker`, and tells its listeners ...
+- `rtwk::animation::AnimationController` (struct) in `crates/rtwk-animation/src/controller.rs:154`: A value from lower_bound to upper_bound (0 and 1 by default) that runs over a duration once set going — forward, reverse, animate_to, repeat — a step each frame of its Ticker, and tells its listeners (twk's `AnimationController`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animationcontroller`, `crates/rtwk-gallery/src/pages/animation_timeline.rs:85`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::time::Duration;
@@ -670,82 +544,24 @@ impl State for ControllerState {
 pub fn build() -> AnyWidget {
     ControllerDemo.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| reverse | on, off | true |
-| duration | 1, 2, 4 | 2 |
-
-### Methods
-
-#### `AnimationController`: constructors and associated functions
-
-- `pub fn new<S: State>(cx: &mut Cx<'_, S>) -> AnimationController` - A controller of the state of `cx`, at its lower bound, 0 to 1, with no duration (give one with `with_duration` before running it).
-- `pub fn with_bounds<S: State>(cx: &mut Cx<'_, S>, lower: f64, upper: f64) -> AnimationController` - A controller from `lower` to `upper`, at `lower`.
-
-#### `AnimationController`: builder methods (take and return `self`)
-
-- `pub fn with_duration(self, duration: Duration) -> AnimationController` - With `duration` as how long a run from one bound to the other takes.
-- `pub fn with_value(self, value: f64) -> AnimationController` - With `value` as where it starts (clamped to the bounds), its status that of the value.
-
-#### `AnimationController`: methods
-
-- `pub fn duration(&self) -> Option<Duration>` - How long a run from one bound to the other takes; `None` until set.
-- `pub fn set_duration(&self, d: Option<Duration>)` - Sets how long a run from one bound to the other takes (for the runs set going after).
-- `pub fn reverse_duration(&self) -> Option<Duration>` - How long a run back takes (`reverse`); `None`: the `duration`.
-- `pub fn set_reverse_duration(&self, d: Option<Duration>)` - Sets how long a run back takes.
-- `pub fn lower_bound(&self) -> f64` - The least value.
-- `pub fn upper_bound(&self) -> f64` - The greatest value.
-- `pub fn value(&self) -> f64` - The value now.
-- `pub fn status(&self) -> AnimationStatus` - Where it is.
-- `pub fn is_animating(&self) -> bool` - Whether it runs: its ticker is active.
-- `pub fn is_dismissed(&self) -> bool` - Whether it is at the lower bound: its status is `Dismissed`.
-- `pub fn is_completed(&self) -> bool` - Whether it is at the upper bound: its status is `Completed`.
-- `pub fn has_rebuilt_listener(&self, cx: &mut impl AnimationCx) -> bool` - Whether a listener already rebuilt in the current build scope.
-- `pub fn ticker(&self) -> &Ticker` - Its ticker (whether it is muted, bound).
-- `pub fn set_value(&self, v: f64, cx: &mut impl AnimationCx)` - Stops the run and puts the value at `v`, clamped to the bounds; the status that of the value (twk's `value` setter).
-- `pub fn forward(&self, from: Option<f64>, cx: &mut impl AnimationCx)` - Runs to the upper bound in the part of the duration the way left is of the whole, from `from` when given.
-- `pub fn reverse(&self, from: Option<f64>, cx: &mut impl AnimationCx)` - Runs back to the lower bound in the part of the reverse duration (else the duration) the way left is of the whole, from `from` when given.
-- `pub fn toggle(&self, from: Option<f64>, cx: &mut impl AnimationCx)` - Runs back to the lower bound if it is at the upper one or running towards it (`reverse`), else forward to the upper one (`forward`), from `from` when given.
-- `pub fn animate_to(&self, target: f64, duration: Option<Duration>, curve: Curve, cx: &mut impl AnimationCx)` - Runs to `target` (clamped) along `curve`: in `duration`, or in the part of the controller's duration the way is of the whole.
-- `pub fn repeat(&self, reverse: bool, period: Option<Duration>, cx: &mut impl AnimationCx)` - Runs from the lower bound to the upper one, again and again, each round in `period` (else the duration) — and back again in as long when `reverse` — from the share of the way it is at; until stopped.
-- `pub fn stop(&self)` - Stops the run where it is; the status stays as it was.
-- `pub fn reset(&self, cx: &mut impl AnimationCx)` - Puts it back at the lower bound, stopped.
-- `pub fn listen(&self, element: Eid)` - Rebuilds `element` whenever the value changes, until `unlisten`ed or unmounted: once however often asked.
-- `pub fn unlisten(&self, element: Eid)` - No longer rebuilds `element`.
-- `pub fn add_listener(&self, h: Handler<()>)` - Calls `h` whenever the value changes (twk's `addListener`).
-- `pub fn remove_listener(&self, h: &Handler<()>)` - Calls `h` no more (one of the handlers equal to it).
-- `pub fn add_status_listener(&self, h: AnimationStatusListener)` - Calls `h` with each new status (twk's `addStatusListener`).
-- `pub fn remove_status_listener(&self, h: &AnimationStatusListener)` - Calls `h` no more (one of the handlers equal to it).
-- `pub fn listeners(&self) -> usize` - How many listeners it has (elements and handlers).
-- `pub fn dispose(&self)` - Stops it for good: its ticker disposed, its listeners let go.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::data::LineGauge` (struct, `crates/rtwk-data/src/gauge.rs:215`) `ratio` as a line after `label` (or with `show_percentage` the ratio as a percentage) and a blank: the part from the left filled in `filled_style`, the rest in `unfilled_style`, to the nearest half cell where `kind` has ...
-  - public fields: `ratio: f64`, `label: Option<Str>`, `show_percentage: bool`, `kind: Option<BorderType>`, `style: Style`, `filled_style: Style`, `unfilled_style: Style`, `segmented: bool`
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
+| reverse | false, true | true |
+| duration | 1 s, 2 s, 4 s | 2 s |
 
 ## AnimatedBuilder
 
 A builder run again at each tick of an animation, the part that does not change built once and passed in as its child.
 
-API:
-
-- `rtwk::animation::AnimatedBuilder` (struct, `crates/rtwk-animation/src/builder.rs:31`) Shows what `builder` returns, built again whenever `animation`'s value changes — as an `AnimationController` does each frame it runs — and nothing else of its parent (twk's `AnimatedBuilder`, a `ListenableBuilder` of ...
-  - public fields: `animation: AnimationController`, `child: Option<AnyWidget>`
+- `rtwk::animation::AnimatedBuilder` (struct) in `crates/rtwk-animation/src/builder.rs:31`: Shows what `builder` returns, built again whenever `animation`'s value changes — as an AnimationController does each frame it runs — and nothing else of its parent (twk's `AnimatedBuilder`, a `ListenableBuilder` of the animation).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedbuilder`, `crates/rtwk-gallery/src/pages/animation_timeline.rs:105`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 const DURATION: u64 = 2;
@@ -777,43 +593,20 @@ SizedBox::new(Some(42), None, None).child(
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| reverse | on, off | true |
-| duration | 1, 2, 4 | 2 |
-
-### Methods
-
-#### `AnimatedBuilder`: constructors and associated functions
-
-- `pub fn new(animation: AnimationController, builder: impl Fn(&AnimationController, Option<&AnyWidget>) -> AnyWidget + 'static) -> AnimatedBuilder` - Builds `builder` of `animation`, again whenever it moves.
-
-#### `AnimatedBuilder`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> AnimatedBuilder` - With `child` handed to the builder.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::animation::AnimationController` (struct, `crates/rtwk-animation/src/controller.rs:154`) A value from `lower_bound` to `upper_bound` (0 and 1 by default) that runs over a `duration` once set going — `forward`, `reverse`, `animate_to`, `repeat` — a step each frame of its `Ticker`, and tells its listeners ...
+| reverse | false, true | true |
+| duration | 1 s, 2 s, 4 s | 2 s |
 
 ## AnimatedAlign, AnimatedPadding
 
 A child that runs to the place its alignment or its padding gives it, a cell at a time.
 
-API:
-
-- `rtwk::animation::AnimatedAlign` (struct, `crates/rtwk-animation/src/implicit.rs:349`) Puts its child at `alignment` of the room it gets, moving it across to a new one a cell at a time (twk's `AnimatedAlign`): as big as it may be.
-  - public fields: `alignment: Alignment`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`, `child: Option<AnyWidget>`
-- `rtwk::animation::AnimatedPadding` (struct, `crates/rtwk-animation/src/implicit.rs:288`) Insets its child by `padding`, running each side to a new one a cell at a time (twk's `AnimatedPadding`).
-  - public fields: `padding: EdgeInsets`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`, `child: Option<AnyWidget>`
+- `rtwk::animation::AnimatedAlign` (struct) in `crates/rtwk-animation/src/implicit.rs:349`: Puts its child at alignment of the room it gets, moving it across to a new one a cell at a time (twk's `AnimatedAlign`): as big as it may be.
+- `rtwk::animation::AnimatedPadding` (struct) in `crates/rtwk-animation/src/implicit.rs:288`: Insets its child by padding, running each side to a new one a cell at a time (twk's `AnimatedPadding`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedalign-animatedpadding`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:62`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -861,43 +654,19 @@ let curve = Curves::EASE_IN_OUT;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | alignment | centerLeft, center, centerRight, bottomRight | centerLeft |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedAlign`: constructors and associated functions
-
-- `pub fn new(alignment: Alignment, duration: Duration, child: impl Into<AnyWidget>) -> AnimatedAlign` - `child` at `alignment`, a change run over `duration`.
-
-#### `AnimatedPadding`: constructors and associated functions
-
-- `pub fn new(padding: EdgeInsets, duration: Duration, child: impl Into<AnyWidget>) -> AnimatedPadding` - `child` inset by `padding`, a change run over `duration`.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
-- `rtwk::layout::Expanded` (struct, `crates/rtwk-widgets/src/layout/flex.rs:270`) `Flexible` with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
+| cycle | false, true | true |
 
 ## AnimatedPositioned
 
 A child pinned in a stack that runs to the edges it is pinned to.
 
-API:
-
-- `rtwk::animation::AnimatedPositioned` (struct, `crates/rtwk-animation/src/implicit.rs:737`) Pins `child` to the edges of the `Stack` it is in as `Positioned` does, each edge and length running to its new place a cell at a time; one given where there was none, or taken away, at once.
-  - public fields: `child: AnyWidget`, `left: Option<i32>`, `top: Option<i32>`, `right: Option<i32>`, `bottom: Option<i32>`, `width: Option<i32>`, `height: Option<i32>`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`
+- `rtwk::animation::AnimatedPositioned` (struct) in `crates/rtwk-animation/src/implicit.rs:737`: Pins child to the edges of the Stack it is in as Positioned does, each edge and length running to its new place a cell at a time; one given where there was none, or taken away, at once.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedpositioned`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:78`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -942,51 +711,19 @@ let curve = Curves::EASE_IN_OUT;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| pin | topLeft, bottomLeft, bottomRight, topRight, fill | topLeft |
+| pinned | topLeft, bottomLeft, bottomRight, topRight, fill | topLeft |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedPositioned`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>, duration: Duration) -> AnimatedPositioned` - `child` pinned nowhere yet (give it edges and lengths), a change run over `duration`.
-
-#### `AnimatedPositioned`: builder methods (take and return `self`)
-
-- `pub fn left(mut self, v: i32) -> Self` - Columns from the stack's left edge.
-- `pub fn top(mut self, v: i32) -> Self` - Rows from the stack's top edge.
-- `pub fn right(mut self, v: i32) -> Self` - Columns from the stack's right edge.
-- `pub fn bottom(mut self, v: i32) -> Self` - Rows from the stack's bottom edge.
-- `pub fn width(mut self, v: i32) -> Self` - The child's width.
-- `pub fn height(mut self, v: i32) -> Self` - The child's height.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
-- `rtwk::layout::Stack` (struct, `crates/rtwk-widgets/src/layout/stack.rs:36`) Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
-  - public fields: `alignment: Alignment`, `fit: StackFit`
-- `rtwk::layout::StackFit` (enum, `crates/rtwk-render/src/objects/stack.rs:23`) How a `RenderStack` lays out the children it places by its alignment.
-  - variants: `Loose`, `Expand`, `Passthrough`
+| cycle | false, true | true |
 
 ## AnimatedBox
 
 A box whose size, padding, background and border colors run to the new ones; a border of another type switches halfway.
 
-API:
-
-- `rtwk::animation::AnimatedBox` (struct, `crates/rtwk-animation/src/implicit.rs:1057`) A `BoxWidget` around `child` made `width` wide and `height` tall where they are given (`SizedBox`), its `style`, the styles of its `border`, `padding` and size running to the new ones: colors as `StyleTween` has them, ...
-  - public fields: `style: Option<Style>`, `border: Option<Border>`, `titles: Vec<BorderTitle>`, `padding: EdgeInsets`, `width: Option<i32>`, `height: Option<i32>`, `child: Option<AnyWidget>`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`
+- `rtwk::animation::AnimatedBox` (struct) in `crates/rtwk-animation/src/implicit.rs:1057`: A BoxWidget around child made width wide and height tall where they are given (SizedBox), its style, the styles of its border, padding and size running to the new ones: colors as StyleTween has them, lengths a cell at a time.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedbox`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:94`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1038,52 +775,20 @@ let curve = Curves::EASE_IN_OUT;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| big | on, off | false |
+| big | false, true | false |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedBox`: constructors and associated functions
-
-- `pub fn new(duration: Duration) -> AnimatedBox` - An empty box that fills nothing, a change run over `duration`.
-
-#### `AnimatedBox`: builder methods (take and return `self`)
-
-- `pub fn style(mut self, style: Style) -> Self` - Filled with `style`.
-- `pub fn border(mut self, border: Border) -> Self` - Lined by `border`.
-- `pub fn titles(mut self, titles: impl IntoIterator<Item = BorderTitle>) -> Self` - With `titles` on its edges.
-- `pub fn padding(mut self, padding: EdgeInsets) -> Self` - `padding` cells between the border and the child.
-- `pub fn width(mut self, width: i32) -> Self` - `width` cells wide.
-- `pub fn height(mut self, height: i32) -> Self` - `height` cells tall.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Self` - With `child` inside.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::layout::Align` (struct, `crates/rtwk-widgets/src/layout/basic.rs:103`) Places its child inside itself as `alignment` says (twk's `Align`, over a `RenderPositionedBox`).
-  - public fields: `alignment: Alignment`, `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
+| cycle | false, true | true |
 
 ## AnimatedOpacity, Opacity
 
 A child shown at an opacity, mixed cell by cell with what is under it; the one on the left runs to the opacity chosen.
 
-API:
-
-- `rtwk::animation::AnimatedOpacity` (struct, `crates/rtwk-animation/src/implicit.rs:893`) Shows `child` at `opacity` (`Opacity`), running to the new one (twk's `AnimatedOpacity`).
-  - public fields: `opacity: f64`, `child: Option<AnyWidget>`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`
-- `rtwk::animation::Opacity` (struct, `crates/rtwk-animation/src/switcher.rs:675`) Shows `child` at `opacity`, from 0 (not at all: what is under it shows) to 1 (as it paints), mixed with what is under it cell by cell: the child's background over the one under it as by alpha (a pen's `bg_alpha`), then ...
-  - public fields: `opacity: f64`, `child: Option<AnyWidget>`
+- `rtwk::animation::AnimatedOpacity` (struct) in `crates/rtwk-animation/src/implicit.rs:893`: Shows child at opacity (Opacity), running to the new one (twk's `AnimatedOpacity`).
+- `rtwk::animation::Opacity` (struct) in `crates/rtwk-animation/src/switcher.rs:675`: Shows child at opacity, from 0 (not at all: what is under it shows) to 1 (as it paints), mixed with what is under it cell by cell: the child's background over the one under it as by alpha (a pen's `bg_alpha`), then the child's text, its color mixed with that background as the alpha says, or where the child has none, or both have text and the opacity is below half, the text under it, its color mixed with the child's background.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedopacity-opacity`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:101`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1131,48 +836,18 @@ let selected = (2 + step % 5) % 5;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| opacity | 0, 0.25, 0.5, 0.75, 1 | 0.5 |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedOpacity`: constructors and associated functions
-
-- `pub fn new(opacity: f64, duration: Duration) -> AnimatedOpacity` - No child yet, shown at `opacity`, a change run over `duration`.
-
-#### `AnimatedOpacity`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Self` - With `child`.
-
-#### `Opacity`: constructors and associated functions
-
-- `pub fn new(opacity: f64) -> Opacity` - No child yet, shown at `opacity`.
-
-#### `Opacity`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Opacity` - With `child`.
-
-### Also used in the code
-
-- `rtwk::layout::Stack` (struct, `crates/rtwk-widgets/src/layout/stack.rs:36`) Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
-  - public fields: `alignment: Alignment`, `fit: StackFit`
+| opacity | 0, ¼, ½, ¾, 1 | ½ |
+| cycle | false, true | true |
 
 ## AnimatedDefaultTextStyle
 
 The style of the text below it, its colors running to the new ones.
 
-API:
-
-- `rtwk::animation::AnimatedDefaultTextStyle` (struct, `crates/rtwk-animation/src/implicit.rs:974`) The style the `Text`s below it are drawn in (`DefaultTextStyle`), its colors running to the new ones (`StyleTween`) (twk's `AnimatedDefaultTextStyle`).
-  - public fields: `style: Style`, `child: AnyWidget`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`
+- `rtwk::animation::AnimatedDefaultTextStyle` (struct) in `crates/rtwk-animation/src/implicit.rs:974`: The style the Texts below it are drawn in (DefaultTextStyle), its colors running to the new ones (StyleTween) (twk's `AnimatedDefaultTextStyle`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animateddefaulttextstyle`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:108`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1203,32 +878,19 @@ let bold = false;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | style | primary, error, success | primary |
-| bold | on, off | false |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedDefaultTextStyle`: constructors and associated functions
-
-- `pub fn new(style: Style, duration: Duration, child: impl Into<AnyWidget>) -> AnimatedDefaultTextStyle` - Draws the texts of `child` in `style`, running to a new one over `duration`.
+| bold | false, true | false |
+| cycle | false, true | true |
 
 ## AnimatedSize
 
 As big as its child, running to the new size when the child grows or shrinks.
 
-API:
-
-- `rtwk::animation::AnimatedSize` (struct, `crates/rtwk-animation/src/implicit.rs:1230`) As big as `child`, and when the child's size changes, running to the new size from the one it shows in `duration` along `curve`, a cell at a time: the child laid out at its new size, placed by `alignment` and cut off ...
-  - public fields: `duration: Duration`, `curve: Curve`, `alignment: Alignment`, `child: Option<AnyWidget>`
+- `rtwk::animation::AnimatedSize` (struct) in `crates/rtwk-animation/src/implicit.rs:1230`: As big as child, and when the child's size changes, running to the new size from the one it shows in duration along curve, a cell at a time: the child laid out at its new size, placed by alignment and cut off where it is bigger than this.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedsize`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:119`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1280,47 +942,20 @@ let alignment = Alignment::TOP_LEFT;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | lines | 1, 3, 5 | 1 |
 | alignment | topLeft, center, bottomRight | topLeft |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedSize`: constructors and associated functions
-
-- `pub fn new(duration: Duration) -> AnimatedSize` - No child yet, following its size over `duration`.
-
-#### `AnimatedSize`: builder methods (take and return `self`)
-
-- `pub fn curve(mut self, curve: Curve) -> Self` - Along `curve`.
-- `pub fn alignment(mut self, alignment: Alignment) -> Self` - The child placed at `alignment` while it runs.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Self` - With `child`.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
-- `rtwk::layout::Align` (struct, `crates/rtwk-widgets/src/layout/basic.rs:103`) Places its child inside itself as `alignment` says (twk's `Align`, over a `RenderPositionedBox`).
-  - public fields: `alignment: Alignment`, `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| cycle | false, true | true |
 
 ## TweenAnimationBuilder
 
 Builds with a value that runs to the one it is given, through the tweens it makes.
 
-API:
-
-- `rtwk::animation::TweenAnimationBuilder` (struct, `crates/rtwk-animation/src/implicit.rs:515`) Builds `builder` of a value that runs to `value` whenever it changes — from `from` at first when given — over its duration, along its curve (twk's `TweenAnimationBuilder`).
-  - public fields: `value: T`, `from: Option<T>`, `duration: Duration`, `curve: Curve`, `on_end: Option<Handler<()>>`, `child: Option<AnyWidget>`
+- `rtwk::animation::TweenAnimationBuilder` (struct) in `crates/rtwk-animation/src/implicit.rs:515`: Builds builder of a value that runs to value whenever it changes — from from at first when given — over its duration, along its curve (twk's `TweenAnimationBuilder`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/tweenanimationbuilder`, `crates/rtwk-gallery/src/pages/animation_timeline.rs:113`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 const TARGET: f64 = 0.5;
@@ -1346,45 +981,19 @@ TweenAnimationBuilder::new(target, Duration::from_millis(600), move |value, _| {
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| value | 0, 0.25, 0.5, 0.75, 1 | 0.5 |
+| value | 0, ¼, ½, ¾, 1 | ½ |
 | curve | linear, ease, easeIn, easeOut, easeInOut, fastOutSlowIn, decelerate, bounceOut, elasticOut | easeInOut |
-| cycle | on, off | true |
-
-### Methods
-
-#### `TweenAnimationBuilder`: constructors and associated functions
-
-- `pub fn new(value: T, duration: Duration, builder: impl Fn(&T, Option<&AnyWidget>) -> AnyWidget + 'static) -> TweenAnimationBuilder<T>` - Builds `builder` of a value running to `value` over `duration`.
-
-#### `TweenAnimationBuilder`: builder methods (take and return `self`)
-
-- `pub fn from(mut self, from: T) -> Self` - Its first run from `from`.
-- `pub fn curve(mut self, curve: Curve) -> Self` - Along `curve`.
-- `pub fn on_end(mut self, h: Handler<()>) -> Self` - Calls `h` once a run has ended.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Self` - With `child` handed to the builder.
-
-### Also used in the code
-
-- `rtwk::animation::Curves` (struct, `crates/rtwk-animation/src/curves.rs:388`) The usual curves (twk's `Curves`).
-- `rtwk::animation::ProgressBar` (struct, `crates/rtwk-animation/src/progress_bar.rs:43`) A bar filled to `value`, from 0 (empty) to 1 (full), in eighths of a cell — braille halves where block elements are two columns wide, the theme's shades where its glyphs have no partial blocks — as wide as it may be and ...
-  - public fields: `value: Option<f64>`, `style: Option<Style>`, `semantics_label: Option<Str>`
+| cycle | false, true | true |
 
 ## AnimatedSwitcher
 
 A child that gives way to another as the transition shows them: faded, slid or dissolved.
 
-API:
-
-- `rtwk::animation::AnimatedSwitcher` (struct, `crates/rtwk-animation/src/switcher.rs:82`) Shows `child`, and when given one that does not update it (of another type, or with another key: `Text::new(n.to_string()).into().with_key(Key::value(n))`), has the new one come in as the old one goes out, as ...
-  - public fields: `child: Option<AnyWidget>`, `duration: Duration`, `reverse_duration: Option<Duration>`, `switch_in_curve: Curve`, `switch_out_curve: Curve`, `transition: SwitcherTransition`, `alignment: Alignment`
+- `rtwk::animation::AnimatedSwitcher` (struct) in `crates/rtwk-animation/src/switcher.rs:82`: Shows child, and when given one that does not update it (of another type, or with another key: `Text::new(n.to_string()).into().with_key(Key::value(n))`), has the new one come in as the old one goes out, as transition shows them: the new one in duration along switch_in_curve, the old one in reverse_duration (the duration when none) along switch_out_curve, from where it was when a child that had not come in all the way is replaced.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/animatedswitcher`, `crates/rtwk-gallery/src/pages/animation_implicit.rs:136`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1415,50 +1024,20 @@ let transition = SwitcherTransition::FADE;
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | child | first, second, third | first |
 | transition | fade, slide, slide right, slide up, slide down, dissolve | fade |
-| cycle | on, off | true |
-
-### Methods
-
-#### `AnimatedSwitcher`: constructors and associated functions
-
-- `pub fn new(duration: Duration) -> AnimatedSwitcher` - No child yet, a new one coming in over `duration` with a fade.
-
-#### `AnimatedSwitcher`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> AnimatedSwitcher` - Showing `child`.
-- `pub fn reverse_duration(mut self, d: Duration) -> AnimatedSwitcher` - An old child going out over `d`.
-- `pub fn switch_in_curve(mut self, c: Curve) -> AnimatedSwitcher` - A new child coming in along `c`.
-- `pub fn switch_out_curve(mut self, c: Curve) -> AnimatedSwitcher` - An old child going out along `c`.
-- `pub fn transition(mut self, t: SwitcherTransition) -> AnimatedSwitcher` - The children coming in and going out with `t`.
-- `pub fn alignment(mut self, a: Alignment) -> AnimatedSwitcher` - A child smaller than the biggest at `a`.
-
-### Also used in the code
-
-- `rtwk::animation::SwitcherTransition` (enum, `crates/rtwk-animation/src/switcher.rs:253`) How a child of an `AnimatedSwitcher` comes in and goes out: `build` wraps it in what shows as much of it as `shown` says.
-  - variants: `Fade`, `Dissolve`, `Slide`, `Custom`
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| cycle | false, true | true |
 
 ## Dissolve, FractionalTranslation
 
 What the transitions are made of: a share of the cells of a child, and a child moved a share of its size.
 
-API:
-
-- `rtwk::animation::Dissolve` (struct, `crates/rtwk-animation/src/switcher.rs:918`) Shows `shown` of the cells of `child`, from 0 (none: what is under it shows) to 1 (all), taken in a scattered order of the screen's cells, the same for every `Dissolve`: one with `inverse` takes them from the end of ...
-  - public fields: `shown: f64`, `inverse: bool`, `child: Option<AnyWidget>`
-- `rtwk::animation::FractionalTranslation` (struct, `crates/rtwk-animation/src/switcher.rs:1099`) Shows `child` moved `x` times its width to the right and `y` times its height down (left and up where negative), to the nearest cell, and cut off at the edges of its own place: as big as the child, which takes the mouse ...
-  - public fields: `x: f64`, `y: f64`, `child: Option<AnyWidget>`
+- `rtwk::animation::Dissolve` (struct) in `crates/rtwk-animation/src/switcher.rs:918`: Shows shown of the cells of child, from 0 (none: what is under it shows) to 1 (all), taken in a scattered order of the screen's cells, the same for every `Dissolve`: one with inverse takes them from the end of that order, so that at `1 - t` it shows just the cells one without leaves out at `t`.
+- `rtwk::animation::FractionalTranslation` (struct) in `crates/rtwk-animation/src/switcher.rs:1099`: Shows child moved x times its width to the right and y times its height down (left and up where negative), to the nearest cell, and cut off at the edges of its own place: as big as the child, which takes the mouse where it shows (twk's `FractionalTranslation`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/dissolve-fractionaltranslation`, `crates/rtwk-gallery/src/pages/animation_timeline.rs:128`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 const SHARE: f64 = 0.5;
@@ -1485,45 +1064,19 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| share | 0, 0.25, 0.5, 0.75, 1 | 0.5 |
-| run | on, off | true |
-| inverse | on, off | false |
-
-### Methods
-
-#### `Dissolve`: constructors and associated functions
-
-- `pub fn new(shown: f64) -> Dissolve` - No child yet, `shown` of its cells shown from the start of their order.
-
-#### `Dissolve`: builder methods (take and return `self`)
-
-- `pub fn inverse(mut self, inverse: bool) -> Dissolve` - Taking the cells from the end of their order.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Dissolve` - With `child`.
-
-#### `FractionalTranslation`: constructors and associated functions
-
-- `pub fn new(x: f64, y: f64) -> FractionalTranslation` - No child yet, moved by `x` times its width and `y` times its height.
-
-#### `FractionalTranslation`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> FractionalTranslation` - With `child`.
+| share | 0, ¼, ½, ¾, 1 | ½ |
+| run | false, true | true |
+| inverse | false, true | false |
 
 ## Effect
 
 A child shown through an effect over its cells, run on the app's clock: recolored, swept, dissolved, typed or glitched in, while the child repaints underneath.
 
-API:
-
-- `rtwk::animation::Effect` (struct, `crates/rtwk-animation/src/effect.rs:76`) Shows `child` through `effect`, a function over the cells of the child's rectangle: each shows what the child painted there, what was under it, or what the effect makes of them.
-  - public fields: `effect: Option<CellEffect>`, `on_end: Option<Handler<()>>`, `child: Option<AnyWidget>`
+- `rtwk::animation::Effect` (struct) in `crates/rtwk-animation/src/effect.rs:76`: Shows child through effect, a function over the cells of the child's rectangle: each shows what the child painted there, what was under it, or what the effect makes of them.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/animation/effect`, `crates/rtwk-gallery/src/pages/animation_timeline.rs:155`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 const CYCLE: bool = true;
@@ -1557,28 +1110,7 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | effect | sweep, dissolve, typewriter, glitch, dim, desaturate, tint, scanlines, grade, sweep down, glitch | sweep |
-| cycle | on, off | true |
-
-### Methods
-
-#### `Effect`: constructors and associated functions
-
-- `pub fn new(effect: impl Into<Option<CellEffect>>) -> Effect` - Shows its child through `effect`, run once from its start.
-
-#### `Effect`: builder methods (take and return `self`)
-
-- `pub fn on_end(mut self, h: Handler<()>) -> Effect` - Calls `h` when a run of the effect ends.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Effect` - Shows `child` through the effect.
-
-### Also used in the code
-
-- `rtwk::animation::CellEffect` (struct, `crates/rtwk-animation/src/effect.rs:652`) An effect over the cells of the child of an `Effect`: what it does to them at each point of its run, from its start to its end in `duration` (`at`) (twk's `CellEffect`).
-- `rtwk::animation::Spinner` (struct, `crates/rtwk-animation/src/spinner.rs:47`) The frames of `frames` — those of the theme's `Glyphs::spinner` unless it is given some: dots in the Unicode glyphs, a turning line in the ASCII ones — in turn, a frame each interval of the frames' clock: the frame of ...
-  - public fields: `frames: Option<SpinnerFrames>`, `style: Option<Style>`
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
+| cycle | false, true | true |

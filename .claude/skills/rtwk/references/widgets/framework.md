@@ -1,20 +1,19 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Framework
 
+Stateful and inherited widgets, builders, keys and the element tree.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## LayoutBuilder
 
 What is built by the constraints it is laid out within: side by side when wide, one under another when narrow.
 
-API:
-
-- `rtwk::LayoutBuilder` (struct, `crates/rtwk-framework/src/layout_builder.rs:56`) Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
+- `rtwk::LayoutBuilder` (struct) in `crates/rtwk-framework/src/layout_builder.rs:56`: Builds its child with the constraints it is laid out within, so that what it shows depends on the room it gets: one layout for a wide terminal and another for a narrow one.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/framework/layoutbuilder`, `crates/rtwk-gallery/src/pages/foundation_framework.rs:88`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::layout::{
@@ -81,46 +80,23 @@ pub(crate) fn layout(width: i32, wide_from: i32) -> AnyWidget {
 fn preview() -> AnyWidget {
     layout(40, 30)
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| width | 12..50 (a slider) | 40 cells |
-| at | 24, 30, 36 | 30 |
-
-### Methods
-
-#### `LayoutBuilder`: constructors and associated functions
-
-- `pub fn new(builder: impl Fn(&mut Cx<'_>, BoxConstraints) -> AnyWidget + 'static) -> Self` - A layout builder that builds its child with `builder`.
-
-#### `LayoutBuilder`: methods
-
-- `pub fn builder(&self) -> Rc<dyn Fn(&mut Cx<'_>, BoxConstraints) -> AnyWidget>`
-
-### Also used in the code
-
-- `rtwk::layout::Expanded` (struct, `crates/rtwk-widgets/src/layout/flex.rs:270`) `Flexible` with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| width | 12 cells, 13 cells, 14 cells, 15 cells, 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells | 40 cells |
+| wide from | 24, 30, 36 | 30 |
 
 ## NotificationListener
 
 The notifications that bubble up to it from below, such as those of a list as it scrolls: the wheel over it, or Tab to it and the arrows.
 
-API:
-
-- `rtwk::NotificationListener` (struct, `crates/rtwk-framework/src/notification.rs:88`) A widget that hears the notifications of type `N` dispatched from the contexts below it (twk's `NotificationListener`): its callback answers `true` to stop one there, or `false` to let it bubble on up.
+- `rtwk::NotificationListener` (struct) in `crates/rtwk-framework/src/notification.rs:88`: A widget that hears the notifications of type `N` dispatched from the contexts below it (twk's `NotificationListener`): its callback answers `true` to stop one there, or `false` to let it bubble on up.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/framework/notificationlistener`, `crates/rtwk-gallery/src/pages/foundation_framework.rs:123`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use std::collections::VecDeque;
@@ -405,53 +381,25 @@ fn trace_rows(trace: &Trace, outer: &'static str, theme: &ThemeData) -> AnyWidge
 fn preview() -> AnyWidget {
     Bubbling { outer: 0, stops: false, status: None }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| outer | ScrollNotification, ScrollUpdateNotification, OverscrollNotification | ScrollNotification |
-| stops | on, off | false |
-
-### Methods
-
-#### `NotificationListener`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> Self` - A listener over `child`, without a callback: notifications go past.
-
-#### `NotificationListener`: builder methods (take and return `self`)
-
-- `pub fn on_notification(mut self, f: impl Fn(&N) -> bool + 'static) -> Self` - With `f` called for each notification of type `N` that reaches it.
-
-### Also used in the code
-
-- `rtwk::foundation::ValueNotifier` (struct, `crates/rtwk-framework/src/foundation/change_notifier.rs:247`) A `ChangeNotifier` that holds a value and notifies its listeners when the value is set to one not equal to it (twk's `ValueNotifier`).
-- `rtwk::focus::FocusNode` (struct, `crates/rtwk-framework/src/focus/node.rs:153`) A place in a tree's focus tree: the node of a `Focus` widget, which can have the focus and gets the keys (twk's `FocusNode`).
-- `rtwk::scroll::ScrollMetrics` (struct, `crates/rtwk-scroll/src/scrollable.rs:59`) Where a scrollable view is along its `axis`: `pixels` cells of its content scrolled off its start, out of `max_scroll_extent`, with `viewport_dimension` cells of it in its window.
-  - public fields: `pixels: i64`, `max_scroll_extent: i64`, `viewport_dimension: i64`, `axis: Axis`
-- `rtwk::scroll::ListView` (struct, `crates/rtwk-scroll/src/list_view.rs:279`) A list of `item_count` items one below another, each as wide as the list and as tall as it likes, or `item_extent` rows, in a window that scrolls (a `Scrollable`: keys, the wheel, `controller`).
-  - public fields: `item_count: usize`, `item_builder: IndexedWidgetBuilder`, `separator_builder: Option<IndexedWidgetBuilder>`, `reverse: bool`, `padding: Option<EdgeInsets>`, `find_item_index_callback: Option<ChildIndexGetter>`, `item_extent: Option<i32>`, `cache_extent: i32`, `max_kept: usize`, `stick_to_bottom: bool`, `controller: Option<ScrollController>`, `style: Option<Style>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: Option<bool>`, `physics: Option<Rc<dyn ScrollPhysics>>`, `key_hints: bool`
-- `rtwk::foundation::ListenableBuilder` (struct, `crates/rtwk-framework/src/foundation/listenable_builder.rs:131`) Shows what its builder returns, built again whenever its listenable notifies; the widgets around it are not (twk's `ListenableBuilder`).
-  - public fields: `listenable: Rc<dyn Listenable>`, `builder: TransitionBuilder`, `child: Option<AnyWidget>`
-- `rtwk::layout::Expanded` (struct, `crates/rtwk-widgets/src/layout/flex.rs:270`) `Flexible` with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
-- `rtwk::layout::Spacer` (struct, `crates/rtwk-widgets/src/layout/flex.rs:348`) An empty `Expanded`: a gap that takes `flex` parts of the free room, to push its siblings apart (twk's `Spacer`).
-  - public fields: `flex: i32`
+| outer hears | Scroll, ScrollUpdate, Overscroll | Scroll |
+| inner stops them | false, true | false |
 
 ## Slot, SlotScope
 
 Places the app names that plugins fill with the entries of a SlotRegistry: Tab to a plugin, then Space puts its entry in the status bar or takes it out.
 
-API:
-
-- `rtwk::slots::Slot` (struct, `crates/rtwk-widgets/src/slots.rs:305`) Shows the contributions for one name in the nearest registry.
-- `rtwk::slots::SlotScope` (struct, `crates/rtwk-widgets/src/slots.rs:249`) Makes a registry available to the nearest descendant outlets.
+- `rtwk::slots::Slot` (struct) in `crates/rtwk-widgets/src/slots.rs:305`: Shows the contributions for one name in the nearest registry.
+- `rtwk::slots::SlotScope` (struct) in `crates/rtwk-widgets/src/slots.rs:249`: Makes a registry available to the nearest descendant outlets.
+- `rtwk::slots::SlotRegistry` (struct) in `crates/rtwk-widgets/src/slots.rs:93`: A thread-local registry shared by independently mounted outlets.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/framework/slot-slotscope`, `crates/rtwk-gallery/src/pages/foundation_framework.rs:153`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 use rtwk::controls::Checkbox;
@@ -579,50 +527,12 @@ impl_widget!(stateful eq StatusBar);
 fn preview() -> AnyWidget {
     StatusBar { lint_order: 1, placeholder: true }.into()
 }
+
 ```
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| lint | -1, 1, 3 | 1 |
-| placeholder | on, off | true |
-
-### Methods
-
-#### `Slot`: constructors and associated functions
-
-- `pub fn new(name: impl Into<Rc<str>>, layout: impl Fn(&mut BuildCx<'_>, Vec<AnyWidget>) -> AnyWidget + 'static) -> Self` - Creates an outlet using the given layout for its ordered children.
-
-#### `Slot`: builder methods (take and return `self`)
-
-- `pub fn placeholder(mut self, widget: impl Into<AnyWidget>) -> Self` - Shows a widget instead of calling the layout for an empty slot.
-
-#### `Slot`: methods
-
-- `pub fn name(&self) -> &str` - Borrows the outlet name.
-- `pub fn placeholder_widget(&self) -> Option<&AnyWidget>` - Borrows the configured fallback, if any.
-- `pub fn layout(&self) -> SlotLayout` - Clones the stored layout handle, which can outlive this outlet.
-
-#### `SlotScope`: constructors and associated functions
-
-- `pub fn new(registry: SlotRegistry, child: impl Into<AnyWidget>) -> Self` - Supplies this registry under the scope.
-- `pub fn maybe_of(cx: &mut BuildCx<'_>) -> Option<SlotRegistry>` - Reads the closest scope and depends on its registry identity.
-- `pub fn of(cx: &mut BuildCx<'_>) -> SlotRegistry` - Reads the nearest scope's registry and depends on its identity.
-
-#### `SlotScope`: methods
-
-- `pub fn registry(&self) -> &SlotRegistry` - Borrows the registry supplied to this scope.
-
-### Also used in the code
-
-- `rtwk::slots::SlotEntry` (struct, `crates/rtwk-widgets/src/slots.rs:21`) A contribution to one named slot.
-- `rtwk::controls::StatusBar` (struct, `crates/rtwk-controls/src/status_bar.rs:60`) A status bar: one row of three sections, `left` at its left edge, `right` at its right edge and `center` in its middle.
-  - public fields: `left: Option<AnyWidget>`, `center: Option<AnyWidget>`, `right: Option<AnyWidget>`, `spacing: i32`, `style: Option<Style>`
-- `rtwk::slots::SlotRegistry` (struct, `crates/rtwk-widgets/src/slots.rs:93`) A thread-local registry shared by independently mounted outlets.
-- `rtwk::controls::Checkbox` (struct, `crates/rtwk-controls/src/toggle.rs:64`) A checkbox before `label`: `[x]` while `value` is true, `[ ]` while it is false.
-  - public fields: `value: bool`, `on_changed: Option<Handler<bool>>`, `label: Str`, `semantics_label: Option<Str>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `style: Option<Style>`, `bracket_style: Option<Style>`, `focused_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
+| lint order | -1, first, 1, between, 3, last | 1, between |
+| placeholder | false, true | true |

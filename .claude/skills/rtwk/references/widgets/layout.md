@@ -1,21 +1,20 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Layout
 
+Boxes, rows and columns, stacks, grids and wraps: where a child goes and how much room it gets.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## Box
 
 A border, titles on it, padding and a background around a child.
 
-API:
-
-- `rtwk::layout::BoxWidget` (struct, `crates/rtwk-widgets/src/layout/box_.rs:226`) A box around `child`: `style` fills it, `border` lines its sides, `titles` sit on its top and bottom edges, and `padding` is between the border and the child (twk's `Box`, over a `RenderDecoratedBox`).
-  - public fields: `child: Option<AnyWidget>`, `style: Option<Style>`, `border: Option<Border>`, `titles: Vec<BorderTitle>`, `padding: EdgeInsets`
+- `rtwk::layout::BoxWidget` (struct) in `crates/rtwk-widgets/src/layout/box_.rs:226`: A box around `child`: `style` fills it, `border` lines its sides, `titles` sit on its top and bottom edges, and `padding` is between the border and the child (twk's `Box`, over a `RenderDecoratedBox`).
+- `rtwk::layout::Border` (struct) in `crates/rtwk-widgets/src/layout/box_.rs:44`: The border of a BoxWidget: the lines it is drawn with, for each side that has one its style, and whether it merges with the lines already drawn.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/box`, `crates/rtwk-gallery/src/pages/mod.rs:1455`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -36,54 +35,23 @@ SizedBox::new(Some(36), Some(8), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | border | single, rounded, double, heavy, ascii, none | rounded |
 | sides | all, top bottom, top left, left | all |
-| titles | on, off | true |
-| at | topLeft, topCenter, topRight, bottomLeft, bottomCenter | topLeft |
+| titles | false, true | true |
+| title at | topLeft, topCenter, topRight, bottomLeft, bottomCenter | topLeft |
 | padding | 0, 1, 2 | 1 |
-| surface | on, off | false |
-
-### Methods
-
-#### `BoxWidget`: constructors and associated functions
-
-- `pub fn new() -> BoxWidget` - An empty box that fills nothing.
-
-#### `BoxWidget`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> BoxWidget` - With `child` inside.
-- `pub fn style(mut self, style: Style) -> BoxWidget` - Filled with `style`.
-- `pub fn border(mut self, border: Border) -> BoxWidget` - Lined by `border`.
-- `pub fn title(mut self, title: BorderTitle) -> BoxWidget` - With `title` on an edge, after those so far.
-- `pub fn titles(mut self, titles: impl IntoIterator<Item = BorderTitle>) -> BoxWidget` - With `titles` on its edges.
-- `pub fn padding(mut self, padding: EdgeInsets) -> BoxWidget` - `padding` cells between the border and the child.
-- `pub fn scrollbar(self, bar: impl BoxScrollbar) -> ScrolledBox` - With the bar of the outermost scrollable in the child drawn on the border, as `bar` has it (twk's `scrollbar`): on the border's right side for a vertical scrollable and its bottom for a horizontal one, a side the ...
-
-### Also used in the code
-
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
+| surface | false, true | false |
 
 ## ColoredBox, DecoratedBox
 
 A child's cells filled with a color, and a BoxDecoration (a fill, a border, titles) drawn under the child or over its edges.
 
-API:
-
-- `rtwk::layout::ColoredBox` (struct, `crates/rtwk-widgets/src/layout/container.rs:108`) Fills its cells with `color`, then paints its child over it: the child's text takes the color as its background where it sets none.
-  - public fields: `color: Color`, `child: Option<AnyWidget>`
-- `rtwk::layout::DecoratedBox` (struct, `crates/rtwk-widgets/src/layout/container.rs:267`) Paints `decoration` under `child` or over it, as `position` says (twk's `DecoratedBox`).
-  - public fields: `decoration: BoxDecoration`, `position: DecorationPosition`, `child: Option<AnyWidget>`
+- `rtwk::layout::ColoredBox` (struct) in `crates/rtwk-widgets/src/layout/container.rs:108`: Fills its cells with color, then paints its child over it: the child's text takes the color as its background where it sets none.
+- `rtwk::layout::DecoratedBox` (struct) in `crates/rtwk-widgets/src/layout/container.rs:267`: Paints decoration under child or over it, as position says (twk's `DecoratedBox`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/coloredbox-decoratedbox`, `crates/rtwk-gallery/src/pages/mod.rs:1511`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -97,54 +65,20 @@ DecoratedBox::new(decoration, ColoredBox::new(theme.selection.bg.unwrap_or(Color
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | position | background, foreground | background |
-| fill | color, gradient | color |
+| fill | ColoredBox, gradient | ColoredBox |
 | border | single, rounded, double, heavy, ascii | rounded |
-| titles | on, off | true |
-
-### Methods
-
-#### `ColoredBox`: constructors and associated functions
-
-- `pub fn new(color: Color, child: impl Into<AnyWidget>) -> ColoredBox` - Fills its cells with `color` under `child`.
-- `pub fn empty(color: Color) -> ColoredBox` - As `new`, without a child.
-
-#### `DecoratedBox`: constructors and associated functions
-
-- `pub fn new(decoration: BoxDecoration, child: impl Into<AnyWidget>) -> DecoratedBox` - Paints `decoration` under `child`.
-- `pub fn empty(decoration: BoxDecoration) -> DecoratedBox` - As `new`, the decoration alone.
-
-#### `DecoratedBox`: builder methods (take and return `self`)
-
-- `pub fn position(mut self, position: DecorationPosition) -> DecoratedBox` - Over the child, or under it.
-
-### Also used in the code
-
-- `rtwk::layout::BoxDecoration` (struct, `crates/rtwk-widgets/src/layout/container.rs:178`) What a `DecoratedBox` paints: a `style` that fills it, or a `gradient` under it, a `border` around it and `titles` on its edges, as a `BoxWidget` draws them (twk's `BoxDecoration`).
-  - public fields: `style: Option<Style>`, `border: Option<Border>`, `titles: Vec<BorderTitle>`, `gradient: Option<Gradient>`
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
-- `rtwk::layout::Padding` (struct, `crates/rtwk-widgets/src/layout/basic.rs:42`) Insets its child by `padding`: as big as the child and the padding.
-  - public fields: `padding: EdgeInsets`, `child: Option<AnyWidget>`
-- `rtwk::layout::DecorationPosition` (enum, `crates/rtwk-widgets/src/layout/container.rs:150`) Where a `DecoratedBox` paints its decoration: under its child or over it.
-  - variants: `Background`, `Foreground`
+| titles | false, true | true |
 
 ## Container
 
 Align, Padding, a color or a decoration, a size and a margin put together around one child, as Flutter's Container puts them.
 
-API:
-
-- `rtwk::layout::Container` (struct, `crates/rtwk-widgets/src/layout/container.rs:408`) The layout widgets with one child, put together as Flutter's `Container` puts them, from the inside out (twk's `Container`): `child`, or without one a box as big as the constraints allow (as small along an unbounded ...
-  - public fields: `alignment: Option<Alignment>`, `padding: Option<EdgeInsets>`, `color: Option<Color>`, `decoration: Option<BoxDecoration>`, `foreground_decoration: Option<BoxDecoration>`, `width: Option<i32>`, `height: Option<i32>`, `constraints: Option<BoxConstraints>`, `margin: Option<EdgeInsets>`, `child: Option<AnyWidget>`
+- `rtwk::layout::Container` (struct) in `crates/rtwk-widgets/src/layout/container.rs:408`: The layout widgets with one child, put together as Flutter's `Container` puts them, from the inside out (twk's `Container`): `child`, or without one a box as big as the constraints allow (as small along an unbounded axis); Align by `alignment`; Padding by `padding`; ColoredBox in `color`; DecoratedBox with `decoration`, then with `foreground_decoration` over it all; ConstrainedBox within `constraints`, tightened to `width` and `height`; Padding by `margin`.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/container`, `crates/rtwk-gallery/src/pages/mod.rs:1547`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -162,56 +96,23 @@ Container::new()
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | fill | decoration, color | decoration |
 | alignment | none, topLeft, center, bottomRight | center |
-| width | null, 24, 30, 36 | 30 |
-| height | null, 5, 7, 9 | 7 |
+| width | none, 24, 30, 36 | 30 |
+| height | none, 5, 7, 9 | 7 |
 | padding | 0, 1, 2 | 1 |
 | margin | 0, 1, 2 | 1 |
-| foreground | on, off | false |
-
-### Methods
-
-#### `Container`: constructors and associated functions
-
-- `pub fn new() -> Container` - An empty container: as big as the constraints allow.
-
-#### `Container`: builder methods (take and return `self`)
-
-- `pub fn alignment(mut self, a: Alignment) -> Container` - Where the child goes.
-- `pub fn padding(mut self, p: EdgeInsets) -> Container` - The empty cells around the child.
-- `pub fn color(mut self, c: Color) -> Container` - The background of the box.
-- `pub fn decoration(mut self, d: BoxDecoration) -> Container` - What is painted under the child.
-- `pub fn foreground_decoration(mut self, d: BoxDecoration) -> Container` - What is painted over the child.
-- `pub fn width(mut self, w: i32) -> Container` - The columns the box takes.
-- `pub fn height(mut self, h: i32) -> Container` - The rows the box takes.
-- `pub fn constraints(mut self, c: BoxConstraints) -> Container` - The limits on the size of the box.
-- `pub fn margin(mut self, m: EdgeInsets) -> Container` - The empty cells around the box.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> Container` - What the container holds.
-
-### Also used in the code
-
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
-- `rtwk::layout::BoxDecoration` (struct, `crates/rtwk-widgets/src/layout/container.rs:178`) What a `DecoratedBox` paints: a `style` that fills it, or a `gradient` under it, a `border` around it and `titles` on its edges, as a `BoxWidget` draws them (twk's `BoxDecoration`).
-  - public fields: `style: Option<Style>`, `border: Option<Border>`, `titles: Vec<BorderTitle>`, `gradient: Option<Gradient>`
+| foreground | false, true | false |
 
 ## Divider
 
 A line across, and a VerticalDivider down; merged, they join the lines drawn before them where they meet.
 
-API:
-
-- `rtwk::layout::Divider` (struct, `crates/rtwk-widgets/src/layout/box_.rs:633`) A line across the room it gets, one row tall, drawn with `kind` in `style`; with `merge` it joins the lines drawn before it, its ends meeting a line they land on in a joint (twk's `Divider`, over a `RenderDivider`).
-  - public fields: `kind: Option<BorderType>`, `style: Style`, `merge: bool`
+- `rtwk::layout::Divider` (struct) in `crates/rtwk-widgets/src/layout/box_.rs:633`: A line across the room it gets, one row tall, drawn with `kind` in `style`; with `merge` it joins the lines drawn before it, its ends meeting a line they land on in a joint (twk's `Divider`, over a `RenderDivider`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/divider`, `crates/rtwk-gallery/src/pages/mod.rs:2211`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -236,48 +137,18 @@ SizedBox::new(Some(36), Some(7), Some(table.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | type | single, rounded, double, heavy, ascii | single |
-| merge | on, off | true |
-
-### Methods
-
-#### `Divider`: constructors and associated functions
-
-- `pub fn new() -> Divider` - The theme's line, in no style of its own.
-
-#### `Divider`: builder methods (take and return `self`)
-
-- `pub fn kind(mut self, kind: BorderType) -> Divider` - Drawn with `kind`.
-- `pub fn style(mut self, style: Style) -> Divider` - In `style`.
-- `pub fn merge(mut self, merge: bool) -> Divider` - Joined to the lines it meets, or not.
-
-### Also used in the code
-
-- `rtwk::layout::VerticalDivider` (struct, `crates/rtwk-widgets/src/layout/box_.rs:651`) A line down the room it gets, one column wide, drawn with `kind` in `style`; with `merge` it joins the lines drawn before it (twk's `VerticalDivider`, a `Divider` down).
-  - public fields: `kind: Option<BorderType>`, `style: Style`, `merge: bool`
-- `rtwk::layout::Positioned` (struct, `crates/rtwk-widgets/src/layout/stack.rs:107`) Pins its child, in a `Stack`, to the stack's edges (twk's `Positioned`): along an axis with both edges set, exactly as long as the cells between them; with its size set, that long; otherwise as long as it wants.
-  - public fields: `left: Option<i32>`, `top: Option<i32>`, `right: Option<i32>`, `bottom: Option<i32>`, `width: Option<i32>`, `height: Option<i32>`, `child: AnyWidget`
-- `rtwk::layout::Stack` (struct, `crates/rtwk-widgets/src/layout/stack.rs:36`) Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
-  - public fields: `alignment: Alignment`, `fit: StackFit`
-- `rtwk::layout::StackFit` (enum, `crates/rtwk-render/src/objects/stack.rs:23`) How a `RenderStack` lays out the children it places by its alignment.
-  - variants: `Loose`, `Expand`, `Passthrough`
+| merge | false, true | true |
 
 ## Shadow
 
 A drop shadow: the cells beside and below a child, moved by its offset, what is under them darkened.
 
-API:
-
-- `rtwk::layout::Shadow` (struct, `crates/rtwk-widgets/src/layout/shadow.rs:117`) Casts `shadow` from its child on the cells around it (twk's `Shadow`): the box is as big as the child and the room the shadow takes beside it.
-  - public fields: `shadow: BoxShadow`, `child: Option<AnyWidget>`
+- `rtwk::layout::Shadow` (struct) in `crates/rtwk-widgets/src/layout/shadow.rs:117`: Casts shadow from its child on the cells around it (twk's `Shadow`): the box is as big as the child and the room the shadow takes beside it.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/shadow`, `crates/rtwk-gallery/src/pages/mod.rs:1604`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -295,46 +166,18 @@ SizedBox::new(Some(36), Some(8), Some(stack.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | offset | 2, 1, 1, 1, -2, -1 | 2, 1 |
-| alpha | 64, 128, 192 | 128 |
-
-### Methods
-
-#### `Shadow`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> Shadow` - `child` casting twk's default shadow.
-
-#### `Shadow`: builder methods (take and return `self`)
-
-- `pub fn shadow(mut self, shadow: BoxShadow) -> Shadow` - Casts `shadow`.
-
-### Also used in the code
-
-- `rtwk::layout::BoxShadow` (struct, `crates/rtwk-widgets/src/layout/shadow.rs:38`) A shadow: how far it is cast, in which color, how strongly (twk's `BoxShadow`).
-  - public fields: `dx: i32`, `dy: i32`, `color: Color`, `alpha: i32`, `opacity: Option<f64>`
-- `rtwk::layout::Stack` (struct, `crates/rtwk-widgets/src/layout/stack.rs:36`) Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
-  - public fields: `alignment: Alignment`, `fit: StackFit`
-- `rtwk::layout::StackFit` (enum, `crates/rtwk-render/src/objects/stack.rs:23`) How a `RenderStack` lays out the children it places by its alignment.
-  - variants: `Loose`, `Expand`, `Passthrough`
-- `rtwk::layout::Positioned` (struct, `crates/rtwk-widgets/src/layout/stack.rs:107`) Pins its child, in a `Stack`, to the stack's edges (twk's `Positioned`): along an axis with both edges set, exactly as long as the cells between them; with its size set, that long; otherwise as long as it wants.
-  - public fields: `left: Option<i32>`, `top: Option<i32>`, `right: Option<i32>`, `bottom: Option<i32>`, `width: Option<i32>`, `height: Option<i32>`, `child: AnyWidget`
+| alpha | ¼, ½, ¾ | ½ |
 
 ## Padding
 
 Empty cells around a child.
 
-API:
-
-- `rtwk::layout::Padding` (struct, `crates/rtwk-widgets/src/layout/basic.rs:42`) Insets its child by `padding`: as big as the child and the padding.
-  - public fields: `padding: EdgeInsets`, `child: Option<AnyWidget>`
+- `rtwk::layout::Padding` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:42`: Insets its child by padding: as big as the child and the padding.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/padding`, `crates/rtwk-gallery/src/pages/mod.rs:1626`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -348,33 +191,18 @@ BoxWidget::new()
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| insets | all 1, x 4, y 2, left 8, left 3, top 1 | x 4 |
-
-### Methods
-
-#### `Padding`: constructors and associated functions
-
-- `pub fn new(padding: EdgeInsets, child: impl Into<AnyWidget>) -> Padding` - `child` inset by `padding`.
-- `pub fn empty(padding: EdgeInsets) -> Padding` - Only the padding, as big as it: the usual gap between the children of a row or a column.
+| padding | all 1, x 4, y 2, left 8, left 3, top 1 | x 4 |
 
 ## Align, Center
 
 A child placed in the room it is given; Center in the middle of it.
 
-API:
-
-- `rtwk::layout::Align` (struct, `crates/rtwk-widgets/src/layout/basic.rs:103`) Places its child inside itself as `alignment` says (twk's `Align`, over a `RenderPositionedBox`).
-  - public fields: `alignment: Alignment`, `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+- `rtwk::layout::Align` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:103`: Places its child inside itself as alignment says (twk's `Align`, over a `RenderPositionedBox`).
+- `rtwk::layout::Center` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:191`: An Align that puts its child in the middle, the odd cell after it (twk's `Center`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/align-center`, `crates/rtwk-gallery/src/pages/mod.rs:1639`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -398,55 +226,20 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| ax | -1, 0, 1 | 1 |
-| ay | -1, 0, 1 | 1 |
-| wf | null, 1, 2, 3 | null |
-| hf | null, 1, 2, 3 | null |
-
-### Methods
-
-#### `Align`: constructors and associated functions
-
-- `pub fn new(alignment: Alignment, child: impl Into<AnyWidget>) -> Align` - `child` at `alignment`.
-- `pub fn empty(alignment: Alignment) -> Align` - As `new`, without a child.
-
-#### `Align`: builder methods (take and return `self`)
-
-- `pub fn width_factor(mut self, f: i32) -> Align` - This many times as wide as the child.
-- `pub fn height_factor(mut self, f: i32) -> Align` - This many times as tall as the child.
-
-#### `Center`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> Center` - `child` in the middle.
-
-#### `Center`: builder methods (take and return `self`)
-
-- `pub fn width_factor(mut self, f: i32) -> Center` - This many times as wide as the child.
-- `pub fn height_factor(mut self, f: i32) -> Center` - This many times as tall as the child.
-
-### Also used in the code
-
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
+| alignment x | left, center, right | right |
+| alignment y | top, center, bottom | bottom |
+| width factor | none, 1, 2, 3 | none |
+| height factor | none, 1, 2, 3 | none |
 
 ## SizedBox
 
 A child of a size: SizedBox.expand fills the room, SizedBox.shrink takes none.
 
-API:
-
-- `rtwk::layout::SizedBox` (struct, `crates/rtwk-widgets/src/layout/basic.rs:273`) Makes its child `width` wide and `height` tall, as far as the constraints allow; along an axis left none, the child is as long as it wants (twk's `SizedBox`, over a `RenderConstrainedBox` with tight constraints).
-  - public fields: `width: Option<i32>`, `height: Option<i32>`, `child: Option<AnyWidget>`
+- `rtwk::layout::SizedBox` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:273`: Makes its child width wide and height tall, as far as the constraints allow; along an axis left none, the child is as long as it wants (twk's `SizedBox`, over a `RenderConstrainedBox` with tight constraints).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/sizedbox`, `crates/rtwk-gallery/src/pages/mod.rs:1675`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -460,45 +253,19 @@ SizedBox::new(Some(40), Some(9), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| kind | sized, expand, shrink | sized |
-| width | 0..44 (a slider) | 16 cells |
-| height | 0..9 (a slider) | 3 rows |
-
-### Methods
-
-#### `SizedBox`: constructors and associated functions
-
-- `pub fn new(width: Option<i32>, height: Option<i32>, child: Option<AnyWidget>) -> SizedBox` - A box `width` × `height` (either may be none) around `child`.
-- `pub fn fixed(width: i32, height: i32) -> SizedBox` - A box `width` × `height` with no child.
-- `pub fn expand() -> SizedBox` - As big as the constraints allow (twk's `SizedBox.expand`).
-- `pub fn shrink() -> SizedBox` - As small as the constraints allow (twk's `SizedBox.shrink`).
-- `pub fn square(dimension: Option<i32>) -> SizedBox` - `dimension` columns wide and `dimension` rows tall (twk's `SizedBox.square`); none leaves both to the child.
-
-#### `SizedBox`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> SizedBox` - With `child` inside.
-
-### Also used in the code
-
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| constructor | width, height, .expand, .shrink | width, height |
+| width | 0 cells, 1 cells, 2 cells, 3 cells, 4 cells, 5 cells, 6 cells, 7 cells, 8 cells, 9 cells, 10 cells, 11 cells, 12 cells, 13 cells, 14 cells, 15 cells, 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells | 16 cells |
+| height | 0 rows, 1 rows, 2 rows, 3 rows, 4 rows, 5 rows, 6 rows, 7 rows, 8 rows, 9 rows | 3 rows |
 
 ## ConstrainedBox
 
 Constraints a child is laid out within, merged with those it is given.
 
-API:
-
-- `rtwk::layout::ConstrainedBox` (struct, `crates/rtwk-widgets/src/layout/basic.rs:379`) Lays its child out within `constraints` as well as its own: each limit is kept within those the box gets (twk's `ConstrainedBox`, over a `RenderConstrainedBox`).
-  - public fields: `constraints: BoxConstraints`, `child: Option<AnyWidget>`
+- `rtwk::layout::ConstrainedBox` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:379`: Lays its child out within constraints as well as its own: each limit is kept within those the box gets (twk's `ConstrainedBox`, over a `RenderConstrainedBox`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/constrainedbox`, `crates/rtwk-gallery/src/pages/mod.rs:1716`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -517,39 +284,19 @@ column![bounded("short"), bounded("A child as wide as its text, within the bound
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| min | 0, 12, 20 | 12 |
-| max | 20, 32, 48 | 32 |
-
-### Methods
-
-#### `ConstrainedBox`: constructors and associated functions
-
-- `pub fn new(constraints: BoxConstraints, child: impl Into<AnyWidget>) -> ConstrainedBox` - Lays `child` out within `constraints`.
-- `pub fn empty(constraints: BoxConstraints) -> ConstrainedBox` - As `new`, without a child.
-
-### Also used in the code
-
-- `rtwk::layout::BoxConstraints` (struct, `crates/rtwk-render/src/constraints.rs:57`) The sizes a parent lets a child take in a layout: a width from `min_width` to `max_width` and a height from `min_height` to `max_height`, in cells.
-  - public fields: `min_width: i32`, `max_width: i32`, `min_height: i32`, `max_height: i32`
+| min width | 0, 12, 20 | 12 |
+| max width | 20, 32, 48 | 32 |
 
 ## LimitedBox, OverflowBox
 
 Other constraints than the room gives: LimitedBox limits a child only where the room has no limit, OverflowBox and SizedOverflowBox give it others in its place, cut off where it sticks out.
 
-API:
-
-- `rtwk::layout::LimitedBox` (struct, `crates/rtwk-widgets/src/layout/overflow.rs:41`) Limits its child's size only where the room is unbounded (a scroll view's main axis, a row's width in an unbounded parent); where the room is bounded the child gets it as it is (twk's `LimitedBox`).
-  - public fields: `max_width: i32`, `max_height: i32`, `child: Option<AnyWidget>`
-- `rtwk::layout::OverflowBox` (struct, `crates/rtwk-widgets/src/layout/overflow.rs:243`) Lays its child out within other limits than the ones it gets, and places it by `alignment` in the room it has (twk's `OverflowBox`): a child bigger than the box overflows it, and is cut off at the box's edges by the ...
-  - public fields: `alignment: Alignment`, `min_width: Option<i32>`, `max_width: Option<i32>`, `min_height: Option<i32>`, `max_height: Option<i32>`, `child: Option<AnyWidget>`
+- `rtwk::layout::LimitedBox` (struct) in `crates/rtwk-widgets/src/layout/overflow.rs:41`: Limits its child's size only where the room is unbounded (a scroll view's main axis, a row's width in an unbounded parent); where the room is bounded the child gets it as it is (twk's `LimitedBox`).
+- `rtwk::layout::OverflowBox` (struct) in `crates/rtwk-widgets/src/layout/overflow.rs:243`: Lays its child out within other limits than the ones it gets, and places it by `alignment` in the room it has (twk's `OverflowBox`): a child bigger than the box overflows it, and is cut off at the box's edges by the parent's clip when painted.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/limitedbox-overflowbox`, `crates/rtwk-gallery/src/pages/mod.rs:1738`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -565,57 +312,18 @@ SizedBox::new(Some(30), Some(5), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| box | OverflowBox, SizedOverflowBox, LimitedBox | OverflowBox |
+| widget | OverflowBox, SizedOverflowBox, LimitedBox | OverflowBox |
 | alignment | centerLeft, center, centerRight | center |
-
-### Methods
-
-#### `LimitedBox`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> LimitedBox` - `child`, with no limit yet.
-- `pub fn sized(max_width: i32, max_height: i32) -> LimitedBox` - With no child: a box of up to `max_width` × `max_height` where the room is unbounded (a placeholder of a size).
-
-#### `LimitedBox`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> LimitedBox` - With `child` inside.
-- `pub fn max_width(mut self, w: i32) -> LimitedBox` - Limits the width where it is unbounded.
-- `pub fn max_height(mut self, h: i32) -> LimitedBox` - Limits the height where it is unbounded.
-
-#### `OverflowBox`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> OverflowBox` - `child` in the middle, within the box's own limits.
-
-#### `OverflowBox`: builder methods (take and return `self`)
-
-- `pub fn alignment(mut self, a: Alignment) -> OverflowBox` - Where the child goes.
-- `pub fn min_width(mut self, v: i32) -> OverflowBox` - The least width the child gets.
-- `pub fn max_width(mut self, v: i32) -> OverflowBox` - The most width the child gets.
-- `pub fn min_height(mut self, v: i32) -> OverflowBox` - The least height the child gets.
-- `pub fn max_height(mut self, v: i32) -> OverflowBox` - The most height the child gets.
-
-### Also used in the code
-
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
 
 ## FractionallySizedBox
 
 A child a fraction of the room it is given.
 
-API:
-
-- `rtwk::layout::FractionallySizedBox` (struct, `crates/rtwk-widgets/src/layout/basic.rs:439`) Makes its child a fraction of the room there is: `width_factor` of the most width the box may have, `height_factor` of the most height (`0.5` for half, `1.0 / 3.0` for a third), each rounded to the nearest cell, a half ...
-  - public fields: `alignment: Alignment`, `width_factor: Option<f64>`, `height_factor: Option<f64>`, `child: Option<AnyWidget>`
+- `rtwk::layout::FractionallySizedBox` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:439`: Makes its child a fraction of the room there is: `width_factor` of the most width the box may have, `height_factor` of the most height (`0.5` for half, `1.0 / 3.0` for a third), each rounded to the nearest cell, a half up (twk's `FractionallySizedBox`, over a `RenderFractionallySizedBox`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/fractionallysizedbox`, `crates/rtwk-gallery/src/pages/mod.rs:1760`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -634,48 +342,21 @@ SizedBox::new(Some(40), Some(9), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| wf | 0.25, 0.5, 0.75, 1.0 | 0.5 |
-| hf | 0.25, 0.5, 0.75, 1.0 | 0.5 |
+| width factor | ¼, ½, ¾, 1 | ½ |
+| height factor | ¼, ½, ¾, 1 | ½ |
 | alignment | center, topLeft, bottomRight | center |
-| room | 16..48 (a slider) | 40 cells |
-
-### Methods
-
-#### `FractionallySizedBox`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> FractionallySizedBox` - `child` in the middle of all the room.
-
-#### `FractionallySizedBox`: builder methods (take and return `self`)
-
-- `pub fn alignment(mut self, a: Alignment) -> FractionallySizedBox` - Where the child goes.
-- `pub fn width_factor(mut self, f: f64) -> FractionallySizedBox` - The child's part of the width.
-- `pub fn height_factor(mut self, f: f64) -> FractionallySizedBox` - The child's part of the height.
-
-### Also used in the code
-
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
+| room | 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells | 40 cells |
 
 ## IntrinsicWidth/Height
 
 A child as wide or as tall as it would like to be: stretched items all as wide as the widest, boxes all as tall as the tallest.
 
-API:
-
-- `rtwk::layout::IntrinsicWidth` (struct, `crates/rtwk-widgets/src/layout/basic.rs:539`) Makes its child as wide as its content would like to be, within the room there is, rounded up to a multiple of `step_width` when given; with `step_height`, as tall as its content would like to be at that width, rounded ...
-  - public fields: `step_width: Option<i32>`, `step_height: Option<i32>`, `child: Option<AnyWidget>`
-- `rtwk::layout::IntrinsicHeight` (struct, `crates/rtwk-widgets/src/layout/basic.rs:619`) Makes its child as tall as its content would like to be, within the room there is: a `Row` under it with `CrossAxisAlignment::Stretch` makes all its children as tall as the tallest (twk's `IntrinsicHeight`, over a ...
-  - public fields: `child: Option<AnyWidget>`
+- `rtwk::layout::IntrinsicWidth` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:539`: Makes its child as wide as its content would like to be, within the room there is, rounded up to a multiple of `step_width` when given; with `step_height`, as tall as its content would like to be at that width, rounded up to a multiple of it, too (twk's `IntrinsicWidth`, over a `RenderIntrinsicWidth`).
+- `rtwk::layout::IntrinsicHeight` (struct) in `crates/rtwk-widgets/src/layout/basic.rs:619`: Makes its child as tall as its content would like to be, within the room there is: a `Row` under it with `CrossAxisAlignment::Stretch` makes all its children as tall as the tallest (twk's `IntrinsicHeight`, over a `RenderIntrinsicHeight`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/intrinsicwidth-height`, `crates/rtwk-gallery/src/pages/mod.rs:1803`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -704,41 +385,20 @@ SizedBox::new(Some(44), Some(7), Some(content.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| iw | on, off | true |
-| ih | on, off | true |
-
-### Methods
-
-#### `IntrinsicWidth`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> IntrinsicWidth` - `child`, as wide as its content would like.
-
-#### `IntrinsicWidth`: builder methods (take and return `self`)
-
-- `pub fn step_width(mut self, step: i32) -> IntrinsicWidth` - Rounds the width up to a multiple of `step`.
-- `pub fn step_height(mut self, step: i32) -> IntrinsicWidth` - Rounds the height up to a multiple of `step`.
-
-#### `IntrinsicHeight`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> IntrinsicHeight` - `child`, as tall as its content would like.
+| IntrinsicWidth | false, true | true |
+| IntrinsicHeight | false, true | true |
 
 ## Row, Column, Flex
 
 Children one after another along an axis, aligned along and across it.
 
-API:
-
-- `rtwk::layout::Row` (struct, `crates/rtwk-widgets/src/layout/flex.rs:197`) Its children side by side (twk's `Row`), over a `RenderFlex`.
-- `rtwk::layout::Column` (struct, `crates/rtwk-widgets/src/layout/flex.rs:192`) Its children one under another (twk's `Column`), over a `RenderFlex`.
-- `rtwk::layout::Flex` [path inferred] (struct, `crates/rtwk-widgets/src/layout/flex.rs:186`) Its children along `direction` (twk's `Flex`), over a `RenderFlex`: `Row` and `Column` are its two directions.
+- `rtwk::layout::Row` (struct) in `crates/rtwk-widgets/src/layout/flex.rs:197`: Its children side by side (twk's `Row`), over a `RenderFlex`.
+- `rtwk::layout::Column` (struct) in `crates/rtwk-widgets/src/layout/flex.rs:192`: Its children one under another (twk's `Column`), over a `RenderFlex`.
+- `rtwk::layout::Flex` (struct) in `crates/rtwk-widgets/src/layout/flex.rs:186`: Its children along `direction` (twk's `Flex`), over a `RenderFlex`: Row and Column are its two directions.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/row-column-flex`, `crates/rtwk-gallery/src/pages/mod.rs:167`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -766,85 +426,22 @@ SizedBox::new(
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| dir | row, column | row |
-| main | start, end, center, spaceBetween, spaceAround, spaceEvenly | spaceBetween |
-| cross | start, end, center, stretch | center |
+| direction | row, column | row |
+| main axis | start, end, center, spaceBetween, spaceAround, spaceEvenly | spaceBetween |
+| cross axis | start, end, center, stretch | center |
 | spacing | 0, 1, 2 | 1 |
-| size | max, min | max |
-
-### Methods
-
-#### `Row`: constructors and associated functions
-
-- `pub fn new() -> Row` - No children yet; twk's defaults: as wide as it may be, the children at the start and in the middle across, no gap.
-
-#### `Row`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, w: impl Into<AnyWidget>) -> Row` - With `w` after the children so far.
-- `pub fn children(mut self, ws: impl IntoIterator<Item = AnyWidget>) -> Row` - With `ws` after the children so far.
-- `pub fn main_axis_size(mut self, s: MainAxisSize) -> Row` - How long it is along its axis.
-- `pub fn main_axis_alignment(mut self, a: MainAxisAlignment) -> Row` - Where the children go along its axis.
-- `pub fn cross_axis_alignment(mut self, a: CrossAxisAlignment) -> Row` - Where the children go across its axis.
-- `pub fn spacing(mut self, g: i32) -> Row` - Cells between the children.
-- `pub fn overflow_intended(mut self, on: bool) -> Row` - With `on`, it clips its children on purpose, a strip that shows the start of what is longer than it: in a debug build it then draws no overflow marker and logs no warning when they need more room than it has (twk's ...
-
-#### `Row`: methods
-
-- `pub fn direction(&self) -> Axis` - The direction it lays its children out along.
-
-#### `Column`: constructors and associated functions
-
-- `pub fn new() -> Column` - No children yet; twk's defaults: as tall as it may be, the children at the top and in the middle across, no gap.
-
-#### `Column`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, w: impl Into<AnyWidget>) -> Column` - With `w` after the children so far.
-- `pub fn children(mut self, ws: impl IntoIterator<Item = AnyWidget>) -> Column` - With `ws` after the children so far.
-- `pub fn main_axis_size(mut self, s: MainAxisSize) -> Column` - How long it is along its axis.
-- `pub fn main_axis_alignment(mut self, a: MainAxisAlignment) -> Column` - Where the children go along its axis.
-- `pub fn cross_axis_alignment(mut self, a: CrossAxisAlignment) -> Column` - Where the children go across its axis.
-- `pub fn spacing(mut self, g: i32) -> Column` - Cells between the children.
-- `pub fn overflow_intended(mut self, on: bool) -> Column` - With `on`, it clips its children on purpose, a strip that shows the start of what is longer than it: in a debug build it then draws no overflow marker and logs no warning when they need more room than it has (twk's ...
-
-#### `Column`: methods
-
-- `pub fn direction(&self) -> Axis` - The direction it lays its children out along.
-
-#### `Flex`: constructors and associated functions
-
-- `pub fn new(direction: Axis) -> Flex` - No children yet; twk's defaults: as long as it may be along `direction`, the children at the start and in the middle across, no gap.
-
-#### `Flex`: builder methods (take and return `self`)
-
-- `pub fn child(mut self, w: impl Into<AnyWidget>) -> Flex` - With `w` after the children so far.
-- `pub fn children(mut self, ws: impl IntoIterator<Item = AnyWidget>) -> Flex` - With `ws` after the children so far.
-- `pub fn main_axis_size(mut self, s: MainAxisSize) -> Flex` - How long it is along its axis.
-- `pub fn main_axis_alignment(mut self, a: MainAxisAlignment) -> Flex` - Where the children go along its axis.
-- `pub fn cross_axis_alignment(mut self, a: CrossAxisAlignment) -> Flex` - Where the children go across its axis.
-- `pub fn spacing(mut self, g: i32) -> Flex` - Cells between the children.
-- `pub fn overflow_intended(mut self, on: bool) -> Flex` - With `on`, it clips its children on purpose, a strip that shows the start of what is longer than it: in a debug build it then draws no overflow marker and logs no warning when they need more room than it has (twk's ...
-
-#### `Flex`: methods
-
-- `pub fn direction(&self) -> Axis` - The direction it lays its children out along.
+| main axis size | max, min | max |
 
 ## Expanded, Spacer
 
 Children of a Row or Column that share the room the others leave by their flex factors: Expanded fills its share, a Flexible may take less, a Spacer is empty.
 
-API:
-
-- `rtwk::layout::Expanded` (struct, `crates/rtwk-widgets/src/layout/flex.rs:270`) `Flexible` with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
-- `rtwk::layout::Spacer` (struct, `crates/rtwk-widgets/src/layout/flex.rs:348`) An empty `Expanded`: a gap that takes `flex` parts of the free room, to push its siblings apart (twk's `Spacer`).
-  - public fields: `flex: i32`
+- `rtwk::layout::Expanded` (struct) in `crates/rtwk-widgets/src/layout/flex.rs:270`: Flexible with `FlexFit::Tight`: the child fills its part (twk's `Expanded`).
+- `rtwk::layout::Spacer` (struct) in `crates/rtwk-widgets/src/layout/flex.rs:348`: An empty Expanded: a gap that takes `flex` parts of the free room, to push its siblings apart (twk's `Spacer`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/expanded-spacer`, `crates/rtwk-gallery/src/pages/mod.rs:1825`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -865,47 +462,20 @@ SizedBox::new(Some(48), Some(3), Some(content.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| flex | 1, 2, 3 | 1 |
-| fit | loose, tight | loose |
-| width | 20..50 (a slider) | 48 cells |
-
-### Methods
-
-#### `Expanded`: constructors and associated functions
-
-- `pub fn new(flex: i32, child: impl Into<AnyWidget>) -> Expanded` - `child` filling a part `flex` of the free room.
-
-#### `Spacer`: constructors and associated functions
-
-- `pub fn new(flex: i32) -> Spacer` - A gap of `flex` parts.
-
-### Also used in the code
-
-- `rtwk::text::TextWrap` (enum, `crates/rtwk-render/src/objects/text.rs:55`) Where a `RenderParagraph` may break a line too long for it.
-  - variants: `Word`, `Grapheme`, `None`
-- `rtwk::layout::Flexible` (struct, `crates/rtwk-widgets/src/layout/flex.rs:243`) Gives its child, in a `Flex`, a `Row` or a `Column`, a share of the free room (twk's `Flexible`): `flex` against the other flexible children's, all of it (`FlexFit::Tight`) or at most it (`FlexFit::Loose`).
-  - public fields: `flex: i32`, `fit: FlexFit`, `child: AnyWidget`
-- `rtwk::layout::FlexFit` (enum, `crates/rtwk-render/src/objects/flex.rs:167`) How a flexible child takes its share of the free cells.
-  - variants: `Tight`, `Loose`
+| Expanded flex | 1, 2, 3 | 1 |
+| Flexible fit | loose, tight | loose |
+| width | 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells | 48 cells |
 
 ## Stack, Positioned
 
 Children over one another, pinned to the edges or aligned.
 
-API:
-
-- `rtwk::layout::Stack` (struct, `crates/rtwk-widgets/src/layout/stack.rs:36`) Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
-  - public fields: `alignment: Alignment`, `fit: StackFit`
-- `rtwk::layout::Positioned` (struct, `crates/rtwk-widgets/src/layout/stack.rs:107`) Pins its child, in a `Stack`, to the stack's edges (twk's `Positioned`): along an axis with both edges set, exactly as long as the cells between them; with its size set, that long; otherwise as long as it wants.
-  - public fields: `left: Option<i32>`, `top: Option<i32>`, `right: Option<i32>`, `bottom: Option<i32>`, `width: Option<i32>`, `height: Option<i32>`, `child: AnyWidget`
+- `rtwk::layout::Stack` (struct) in `crates/rtwk-widgets/src/layout/stack.rs:36`: Its children on top of each other, a later one over an earlier one (twk's `Stack`, over a `RenderStack`).
+- `rtwk::layout::Positioned` (struct) in `crates/rtwk-widgets/src/layout/stack.rs:107`: Pins its child, in a Stack, to the stack's edges (twk's `Positioned`): along an axis with both edges set, exactly as long as the cells between them; with its size set, that long; otherwise as long as it wants.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/stack-positioned`, `crates/rtwk-gallery/src/pages/mod.rs:1861`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -927,64 +497,19 @@ ConstrainedBox::new(
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| ax | -1, 0, 1 | 0 |
-| ay | -1, 0, 1 | 0 |
+| alignment x | left, center, right | center |
+| alignment y | top, center, bottom | center |
 | fit | loose, expand, passthrough | loose |
-
-### Methods
-
-#### `Stack`: constructors and associated functions
-
-- `pub fn new() -> Stack` - No children yet; twk's defaults: the top left, each child as big as it wants.
-
-#### `Stack`: builder methods (take and return `self`)
-
-- `pub fn alignment(mut self, a: Alignment) -> Stack` - Where the children that are not positioned go.
-- `pub fn fit(mut self, f: StackFit) -> Stack` - How the children that are not positioned are sized.
-
-#### `Positioned`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> Positioned` - `child` pinned nowhere yet; give it edges and sizes.
-- `pub fn fill(child: impl Into<AnyWidget>) -> Positioned` - `child` filling the stack (twk's `Positioned.fill`): all four edges at 0.
-
-#### `Positioned`: builder methods (take and return `self`)
-
-- `pub fn left(mut self, v: i32) -> Positioned` - Columns from the stack's left edge.
-- `pub fn top(mut self, v: i32) -> Positioned` - Rows from the stack's top edge.
-- `pub fn right(mut self, v: i32) -> Positioned` - Columns from the stack's right edge.
-- `pub fn bottom(mut self, v: i32) -> Positioned` - Rows from the stack's bottom edge.
-- `pub fn width(mut self, v: i32) -> Positioned` - The child's width.
-- `pub fn height(mut self, v: i32) -> Positioned` - The child's height.
-
-### Also used in the code
-
-- `rtwk::layout::Alignment` (struct, `crates/rtwk-render/src/objects/align.rs:32`) Where a child goes in the cells its parent leaves around it, along each axis: at the start (-1), in the middle (0) or at the end (1).
-  - public fields: `x: i32`, `y: i32`
-- `rtwk::layout::StackFit` (enum, `crates/rtwk-render/src/objects/stack.rs:23`) How a `RenderStack` lays out the children it places by its alignment.
-  - variants: `Loose`, `Expand`, `Passthrough`
-- `rtwk::controls::Badge` (struct, `crates/rtwk-controls/src/status.rs:231`) A short `label` set off by its color: a count, a state; ` 3 `, ` new `.
-  - public fields: `label: Str`, `kind: Option<StatusKind>`, `style: Option<Style>`
-- `rtwk::layout::ConstrainedBox` (struct, `crates/rtwk-widgets/src/layout/basic.rs:379`) Lays its child out within `constraints` as well as its own: each limit is kept within those the box gets (twk's `ConstrainedBox`, over a `RenderConstrainedBox`).
-  - public fields: `constraints: BoxConstraints`, `child: Option<AnyWidget>`
-- `rtwk::layout::BoxConstraints` (struct, `crates/rtwk-render/src/constraints.rs:57`) The sizes a parent lets a child take in a layout: a width from `min_width` to `max_width` and a height from `min_height` to `max_height`, in cells.
-  - public fields: `min_width: i32`, `max_width: i32`, `min_height: i32`, `max_height: i32`
 
 ## Transform
 
 A child shown moved by whole cells, laid out where it was: Transform.translate, the one transform a terminal has.
 
-API:
-
-- `rtwk::layout::Transform` (struct, `crates/rtwk-widgets/src/layout/overflow.rs:638`) Moves where its child is drawn, by `offset` cells, without changing its layout (twk's `Transform.translate`): the box is as big as the child and the child is drawn `offset` away from it, cut off at the edges of what the ...
-  - public fields: `offset: (i32`, `transform_hit_tests: bool`, `child: Option<AnyWidget>`
+- `rtwk::layout::Transform` (struct) in `crates/rtwk-widgets/src/layout/overflow.rs:638`: Moves where its child is drawn, by `offset` cells, without changing its layout (twk's `Transform.translate`): the box is as big as the child and the child is drawn `offset` away from it, cut off at the edges of what the parent draws.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/transform`, `crates/rtwk-gallery/src/pages/mod.rs:1892`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 const OFFSETS: [(i32, i32); 12] = [
@@ -1006,43 +531,20 @@ SizedBox::new(Some(32), Some(7), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| move | round, fixed | round |
-| dx | -12..12 (a slider) | 6 cells |
-| dy | -2..2 (a slider) | 1 rows |
-
-### Methods
-
-#### `Transform`: constructors and associated functions
-
-- `pub fn translate(dx: i32, dy: i32, child: impl Into<AnyWidget>) -> Transform` - `child` moved by `dx` columns and `dy` rows.
-
-#### `Transform`: builder methods (take and return `self`)
-
-- `pub fn transform_hit_tests(mut self, on: bool) -> Transform` - Whether the mouse hits the child where it is drawn.
-
-### Also used in the code
-
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| offset | round, fixed | round |
+| dx | -12 cells, -11 cells, -10 cells, -9 cells, -8 cells, -7 cells, -6 cells, -5 cells, -4 cells, -3 cells, -2 cells, -1 cells, 0 cells, 1 cells, 2 cells, 3 cells, 4 cells, 5 cells, 6 cells, 7 cells, 8 cells, 9 cells, 10 cells, 11 cells, 12 cells | 6 cells |
+| dy | -2 rows, -1 rows, 0 rows, 1 rows, 2 rows | 1 rows |
 
 ## Visibility, Offstage
 
 A child hidden: Offstage keeps it laid out and running without painting it; Visibility takes its room away too, or keeps it.
 
-API:
-
-- `rtwk::layout::Visibility` (struct, `crates/rtwk-widgets/src/layout/visibility.rs:262`) Shows its child, or hides it (twk's `Visibility`): when `visible` is off it shows `replacement` (an empty box by default) in its place, or, with `maintain_state`, keeps the child built offstage, or, with ...
-  - public fields: `visible: bool`, `replacement: AnyWidget`, `maintain_state: bool`, `maintain_size: bool`, `child: AnyWidget`
-- `rtwk::layout::Offstage` (struct, `crates/rtwk-widgets/src/layout/visibility.rs:222`) Keeps its child built — its state alive, its tree laid out — but neither shown nor given room, while `offstage` (twk's `Offstage`): the box is as small as its constraints allow, and the child is not painted nor hit by ...
-  - public fields: `offstage: bool`, `child: Option<AnyWidget>`
+- `rtwk::layout::Visibility` (struct) in `crates/rtwk-widgets/src/layout/visibility.rs:262`: Shows its child, or hides it (twk's `Visibility`): when `visible` is off it shows replacement (an empty box by default) in its place, or, with `maintain_state`, keeps the child built offstage, or, with `maintain_size`, keeps it laid out and takes its room, drawing nothing.
+- `rtwk::layout::Offstage` (struct) in `crates/rtwk-widgets/src/layout/visibility.rs:222`: Keeps its child built — its state alive, its tree laid out — but neither shown nor given room, while offstage (twk's `Offstage`): the box is as small as its constraints allow, and the child is not painted nor hit by the mouse.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/visibility-offstage`, `crates/rtwk-gallery/src/pages/mod.rs:1947`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1062,43 +564,21 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | widget | Visibility, Offstage | Visibility |
-| hidden | on, off | true |
-| keep | nothing, state, size | nothing |
-| replacement | on, off | false |
-
-### Methods
-
-#### `Visibility`: constructors and associated functions
-
-- `pub fn new(visible: bool, child: impl Into<AnyWidget>) -> Visibility` - `child`, shown when `visible`.
-
-#### `Visibility`: builder methods (take and return `self`)
-
-- `pub fn replacement(mut self, w: impl Into<AnyWidget>) -> Visibility` - What is shown in the child's place while it is not shown.
-- `pub fn maintain_state(mut self, on: bool) -> Visibility` - Keeps the child built while it is not shown.
-- `pub fn maintain_size(mut self, on: bool) -> Visibility` - Keeps the child's room while it is not shown.
-
-#### `Offstage`: constructors and associated functions
-
-- `pub fn new(offstage: bool, child: impl Into<AnyWidget>) -> Offstage` - `child`, offstage when `offstage`.
+| hidden | false, true | true |
+| keeps | nothing, state, size | nothing |
+| replacement | false, true | false |
 
 ## ExpansionTile, Accordion
 
 Sections that fold under their headers: Enter, Space or a click opens one, Right and Left open and close it; in an accordion one is open at a time, Up and Down go from header to header.
 
-API:
-
-- `rtwk::layout::ExpansionTile` (struct, `crates/rtwk-controls/src/expansion.rs:47`) A focusable header that expands or collapses its content.
-- `rtwk::layout::Accordion` (struct, `crates/rtwk-controls/src/expansion.rs:592`) A vertical list of expansion tiles.
+- `rtwk::controls::ExpansionTile` (struct) in `crates/rtwk-controls/src/expansion.rs:47`: A focusable header that expands or collapses its content.
+- `rtwk::controls::Accordion` (struct) in `crates/rtwk-controls/src/expansion.rs:592`: A vertical list of expansion tiles.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/expansiontile-accordion`, `crates/rtwk-gallery/src/pages/mod.rs:2233`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 // State holds verify = true and last = None.
@@ -1134,63 +614,21 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| accordion | on, off | true |
-| multiple | on, off | false |
-| subtitle | on, off | true |
-| duration | 150, 400, 0 | 150 |
-
-### Methods
-
-#### `ExpansionTile`: constructors and associated functions
-
-- `pub fn new(title: impl Into<AnyWidget>, child: impl Into<AnyWidget>) -> Self` - A collapsed section with the given header title and content.
-
-#### `ExpansionTile`: builder methods (take and return `self`)
-
-- `pub fn subtitle(mut self, subtitle: impl Into<AnyWidget>) -> Self` - Secondary content beneath the title.
-- `pub fn trailing(mut self, trailing: impl Into<AnyWidget>) -> Self` - Content at the right edge of the header.
-- `pub fn initially_expanded(mut self, expanded: bool) -> Self` - Whether an internally controlled section starts open.
-- `pub fn controller(mut self, controller: impl Into<ExpansionController>) -> Self` - An externally owned controller that the tile observes.
-- `pub fn on_expansion_changed(mut self, handler: Handler<bool>) -> Self` - The action emitted for each change of expansion.
-- `pub fn duration(mut self, duration: Duration) -> Self` - Time to fold or unfold.
-- `pub fn indent(mut self, indent: i32) -> Self` - Cells to indent the content.
-- `pub fn focus_node(mut self, node: FocusNode) -> Self` - The focus node for the header.
-- `pub fn header_style(mut self, style: Style) -> Self` - Style merged over the theme's text.
-- `pub fn expanded_header_style(mut self, style: Style) -> Self` - Style merged over the resting header style while open.
-- `pub fn hover_style(mut self, style: Style) -> Self` - Header hover style.
-
-#### `Accordion`: constructors and associated functions
-
-- `pub fn new(children: impl IntoIterator<Item = ExpansionTile>) -> Self` - A group of tiles, with one open at a time.
-
-#### `Accordion`: builder methods (take and return `self`)
-
-- `pub fn allow_multiple(mut self, allow: bool) -> Self` - Whether several tiles may remain open.
-- `pub fn initially_expanded(mut self, index: usize) -> Self` - The index of the initially open internally controlled tile.
-
-### Also used in the code
-
-- `rtwk::controls::Checkbox` (struct, `crates/rtwk-controls/src/toggle.rs:64`) A checkbox before `label`: `[x]` while `value` is true, `[ ]` while it is false.
-  - public fields: `value: bool`, `on_changed: Option<Handler<bool>>`, `label: Str`, `semantics_label: Option<Str>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `style: Option<Style>`, `bracket_style: Option<Style>`, `focused_style: Option<Style>`, `disabled_style: Option<Style>`
+| in an accordion | false, true | true |
+| several open | false, true | false |
+| subtitles | false, true | true |
+| duration | 150 ms, 400 ms, none | 150 ms |
 
 ## Grid, GridPlacement
 
 Children in the cells of tracks: fixed, a share of the rest, or as long as their content; a child may span several.
 
-API:
-
-- `rtwk::layout::Grid` (struct, `crates/rtwk-widgets/src/layout/grid.rs:34`) Its children in a grid of tracks (twk's `Grid`, over a `RenderGrid`): a child with a `GridPlacement` goes in its cell, the others after the one before them.
-  - public fields: `columns: Vec<GridTrack>`, `rows: Vec<GridTrack>`, `column_gap: i32`, `row_gap: i32`, `overflow_intended: bool`
-- `rtwk::layout::GridPlacement` (struct, `crates/rtwk-widgets/src/layout/grid.rs:144`) Puts its child, in a `Grid`, in a cell and over some tracks (twk's `GridPlacement`): a row and a column, or neither (after the child before it), and spans of 1 track or more.
-  - public fields: `row: Option<i32>`, `column: Option<i32>`, `row_span: i32`, `column_span: i32`, `child: AnyWidget`
+- `rtwk::layout::Grid` (struct) in `crates/rtwk-widgets/src/layout/grid.rs:34`: Its children in a grid of tracks (twk's `Grid`, over a `RenderGrid`): a child with a GridPlacement goes in its cell, the others after the one before them.
+- `rtwk::layout::GridPlacement` (struct) in `crates/rtwk-widgets/src/layout/grid.rs:144`: Puts its child, in a Grid, in a cell and over some tracks (twk's `GridPlacement`): a row and a column, or neither (after the child before it), and spans of 1 track or more.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/grid-gridplacement`, `crates/rtwk-gallery/src/pages/mod.rs:1985`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1211,55 +649,20 @@ SizedBox::new(Some(44), Some(12), Some(grid.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| third | content, fixed, fr | content |
-| cg | 0, 1, 2 | 1 |
-| rg | 0, 1 | 0 |
-| width | 32..50 (a slider) | 44 cells |
-
-### Methods
-
-#### `Grid`: constructors and associated functions
-
-- `pub fn new() -> Grid` - No tracks and no children yet.
-
-#### `Grid`: builder methods (take and return `self`)
-
-- `pub fn columns(mut self, tracks: impl IntoIterator<Item = GridTrack>) -> Grid` - The columns' tracks.
-- `pub fn rows(mut self, tracks: impl IntoIterator<Item = GridTrack>) -> Grid` - The rows' tracks.
-- `pub fn column_gap(mut self, g: i32) -> Grid` - Cells between the columns.
-- `pub fn row_gap(mut self, g: i32) -> Grid` - Cells between the rows.
-- `pub fn overflow_intended(mut self, on: bool) -> Grid` - With `on`, it clips its tracks on purpose: in a debug build it then draws no overflow marker and logs no warning when they need more room than it has (twk's `overflowIntended`).
-
-#### `GridPlacement`: constructors and associated functions
-
-- `pub fn new(child: impl Into<AnyWidget>) -> GridPlacement` - `child` after the one before it, in one cell.
-
-#### `GridPlacement`: builder methods (take and return `self`)
-
-- `pub fn at(mut self, row: i32, column: i32) -> GridPlacement` - In the cell at `row` and `column`.
-- `pub fn span(mut self, rows: i32, columns: i32) -> GridPlacement` - Over `rows` rows and `columns` columns.
-
-### Also used in the code
-
-- `rtwk::layout::GridTrack` (struct, `crates/rtwk-render/src/objects/grid.rs:54`) The length of a column or a row of a `RenderGrid`, in whole cells: fixed, a fraction of the cells the other tracks leave (CSS `fr`), or as long as the children in it ask for (CSS `auto`).
-  - public fields: `kind: GridTrackKind`, `fraction: i32`, `min: i32`, `max: i32`
+| third column | .content(), .fixed(14), .fr(1) | .content() |
+| column gap | 0, 1, 2 | 1 |
+| row gap | 0, 1 | 0 |
+| width | 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells | 44 cells |
 
 ## Wrap
 
 Children in runs that go on in the next run where they would not fit: tags, buttons and key hints on a terminal that narrows.
 
-API:
-
-- `rtwk::layout::Wrap` (struct, `crates/rtwk-widgets/src/layout/wrap.rs:25`) Its children one after another along `direction`, a new run where the next does not fit (twk's `Wrap`, over a `RenderWrap`): tags that flow onto the next line.
-  - public fields: `direction: Axis`, `alignment: WrapAlignment`, `run_alignment: WrapAlignment`, `cross_axis_alignment: WrapCrossAlignment`, `spacing: i32`, `run_spacing: i32`, `overflow_intended: bool`
+- `rtwk::layout::Wrap` (struct) in `crates/rtwk-widgets/src/layout/wrap.rs:25`: Its children one after another along `direction`, a new run where the next does not fit (twk's `Wrap`, over a `RenderWrap`): tags that flow onto the next line.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/wrap`, `crates/rtwk-gallery/src/pages/mod.rs:2028`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -1284,60 +687,24 @@ SizedBox::new(Some(width), Some(11), Some(panel.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| width | 20..48 (a slider) | 36 cells |
-| live | on, off | false |
+| width | 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells | 36 cells |
+| narrowing | false, true | false |
 | direction | horizontal, vertical | horizontal |
 | alignment | start, end, center, spaceBetween, spaceAround, spaceEvenly | start |
-| runAlignment | start, end, center, spaceBetween, spaceAround, spaceEvenly | start |
-| cross | start, end, center | center |
+| run alignment | start, end, center, spaceBetween, spaceAround, spaceEvenly | start |
+| cross axis | start, end, center | center |
 | spacing | 0, 1, 2 | 1 |
-| runSpacing | 0, 1 | 0 |
-
-### Methods
-
-#### `Wrap`: constructors and associated functions
-
-- `pub fn new() -> Wrap` - No children yet; twk's defaults: horizontal runs, everything at the start, no gaps.
-
-#### `Wrap`: builder methods (take and return `self`)
-
-- `pub fn direction(mut self, d: Axis) -> Wrap` - The direction of a run.
-- `pub fn alignment(mut self, a: WrapAlignment) -> Wrap` - How the children are spread along a run.
-- `pub fn run_alignment(mut self, a: WrapAlignment) -> Wrap` - How the runs are spread across.
-- `pub fn cross_axis_alignment(mut self, a: WrapCrossAlignment) -> Wrap` - How the children in a run are aligned across.
-- `pub fn spacing(mut self, g: i32) -> Wrap` - Cells between the children in a run.
-- `pub fn run_spacing(mut self, g: i32) -> Wrap` - Cells between the runs.
-- `pub fn overflow_intended(mut self, on: bool) -> Wrap` - With `on`, it clips its runs on purpose: in a debug build it then draws no overflow marker and logs no warning when they need more room than it has (twk's `overflowIntended`).
-
-### Also used in the code
-
-- `rtwk::layout::Axis` (enum, `crates/rtwk-render/src/objects/decoration.rs:39`) Along which axis something runs: across or down.
-  - variants: `Horizontal`, `Vertical`
-- `rtwk::layout::WrapAlignment` (enum, `crates/rtwk-render/src/objects/wrap.rs:23`) Where a `RenderWrap` puts the children of a run along its main axis, in the cells they and the gaps leave free, or its runs across it.
-  - variants: `Start`, `End`, `Center`, `SpaceBetween`, `SpaceAround`, `SpaceEvenly`
-- `rtwk::layout::WrapCrossAlignment` (enum, `crates/rtwk-render/src/objects/wrap.rs:99`) Where a `RenderWrap` puts each child across its main axis, in its run.
-  - variants: `Start`, `End`, `Center`
-- `rtwk::controls::Badge` (struct, `crates/rtwk-controls/src/status.rs:231`) A short `label` set off by its color: a count, a state; ` 3 `, ` new `.
-  - public fields: `label: Str`, `kind: Option<StatusKind>`, `style: Option<Style>`
-- `rtwk::controls::StatusKind` (enum, `crates/rtwk-controls/src/status.rs:21`) What a `StatusMessage` or a `Badge` tells: each kind has its `icon` (from the theme's `Glyphs`) and its color in the theme (`style_in`).
-  - variants: `Info`, `Success`, `Warning`, `Error`
+| run spacing | 0, 1 | 0 |
 
 ## CustomPaint
 
 Cells a CellPainter draws itself, under the child or over it, painted again when what it paints changes.
 
-API:
-
-- `rtwk::layout::CustomPaint` (struct, `crates/rtwk-widgets/src/layout/custom_paint.rs:115`) Paints cells with a `CellPainter` under its child and another over it (twk's `CustomPaint`).
-  - public fields: `painter: Option<SharedPainter>`, `foreground_painter: Option<SharedPainter>`, `size: (i32`, `child: Option<AnyWidget>`
+- `rtwk::layout::CustomPaint` (struct) in `crates/rtwk-widgets/src/layout/custom_paint.rs:115`: Paints cells with a CellPainter under its child and another over it (twk's `CustomPaint`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/custompaint`, `crates/rtwk-gallery/src/pages/mod.rs:2114`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 // The wave's height is measured in eighths of a terminal cell.
@@ -1376,44 +743,19 @@ CustomPaint::new()
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| paints | under, over | under |
-| moving | on, off | true |
-| color | primary, accent, success | primary |
-
-### Methods
-
-#### `CustomPaint`: constructors and associated functions
-
-- `pub fn new() -> CustomPaint` - Nothing painted yet, 0 × 0.
-
-#### `CustomPaint`: builder methods (take and return `self`)
-
-- `pub fn painter(mut self, p: impl CellPainter) -> CustomPaint` - Paints under the child with `p`.
-- `pub fn shared_painter(mut self, p: SharedPainter) -> CustomPaint` - Paints under the child with the shared painter `p`: the same one across builds is never painted again for being replaced.
-- `pub fn foreground_painter(mut self, p: impl CellPainter) -> CustomPaint` - Paints over the child with `p`.
-- `pub fn size(mut self, width: i32, height: i32) -> CustomPaint` - The size, without a child.
-- `pub fn child(mut self, child: impl Into<AnyWidget>) -> CustomPaint` - With `child` between the painters.
-
-### Also used in the code
-
-- `rtwk::layout::Center` (struct, `crates/rtwk-widgets/src/layout/basic.rs:191`) An `Align` that puts its child in the middle, the odd cell after it (twk's `Center`).
-  - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
+| painter | painter, foregroundPainter | painter |
+| moving | false, true | true |
+| style | primary, accent, success | primary |
 
 ## SplitView
 
 Panes the mouse or the arrows resize by their dividers; Tab focuses one. The last one collapses.
 
-API:
-
-- `rtwk::layout::SplitView` (struct, `crates/rtwk-widgets/src/layout/split_view.rs:44`) Panes separated by dividers that respond to the mouse and keys.
+- `rtwk::layout::SplitView` (struct) in `crates/rtwk-widgets/src/layout/split_view.rs:44`: Panes separated by dividers that respond to the mouse and keys.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/splitview`, `crates/rtwk-gallery/src/pages/mod.rs:2275`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 // State owns split = SplitController::new().with_fractions([1.0, 2.0, 1.0]).
@@ -1450,54 +792,19 @@ column![Flexible::new(1, SizedBox::new(Some(48), Some(11), Some(split.into()))),
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| dir | horizontal, vertical | horizontal |
-| share | on, off | true |
-| type | single, rounded, double, heavy, ascii | single |
-
-### Methods
-
-#### `SplitView`: constructors and associated functions
-
-- `pub fn new(panes: impl IntoIterator<Item = SplitPane>) -> Self` - A horizontal split with the given panes.
-
-#### `SplitView`: builder methods (take and return `self`)
-
-- `pub fn direction(mut self, direction: Axis) -> Self` - The axis of the split.
-- `pub fn controller(mut self, controller: impl Into<SplitController>) -> Self` - The controller to use in place of the view's own.
-- `pub fn share_edges(mut self, share: bool) -> Self` - Let adjacent panes share their edge with the divider.
-- `pub fn kind(mut self, kind: BorderType) -> Self` - The divider line, overriding the theme.
-- `pub fn style(mut self, style: Style) -> Self` - The divider's resting style.
-- `pub fn focused_style(mut self, style: Style) -> Self` - The style merged over the resting style while focused or dragged.
-
-### Also used in the code
-
-- `rtwk::layout::SplitController` (struct, `crates/rtwk-widgets/src/layout/split.rs:32`) The shares of the room a `SplitView`'s panes have, and which are folded away (twk's `SplitController`); the view moves them as its dividers are dragged and keyed, the app saves and restores them.
-- `rtwk::layout::SplitPane` (struct, `crates/rtwk-widgets/src/layout/split.rs:278`) One pane of a split view: what it holds and how small and how large it may be (twk's `SplitPane`).
-  - public fields: `child: AnyWidget`, `min_size: i32`, `max_size: Option<i32>`, `collapsible: bool`
-- `rtwk::layout::BorderTitle` (struct, `crates/rtwk-widgets/src/layout/box_.rs:153`) Text on the top or the bottom edge of a `BoxWidget`, in `style`: the y of `alignment` picks the edge (-1 the top, 1 the bottom), its x the place along it (twk's `BorderTitle`).
-  - public fields: `text: Str`, `style: Style`, `alignment: Alignment`
-- `rtwk::layout::Axis` (enum, `crates/rtwk-render/src/objects/decoration.rs:39`) Along which axis something runs: across or down.
-  - variants: `Horizontal`, `Vertical`
-- `rtwk::foundation::ListenableBuilder` (struct, `crates/rtwk-framework/src/foundation/listenable_builder.rs:131`) Shows what its builder returns, built again whenever its listenable notifies; the widgets around it are not (twk's `ListenableBuilder`).
-  - public fields: `listenable: Rc<dyn Listenable>`, `builder: TransitionBuilder`, `child: Option<AnyWidget>`
-- `rtwk::layout::Flexible` (struct, `crates/rtwk-widgets/src/layout/flex.rs:243`) Gives its child, in a `Flex`, a `Row` or a `Column`, a share of the free room (twk's `Flexible`): `flex` against the other flexible children's, all of it (`FlexFit::Tight`) or at most it (`FlexFit::Loose`).
-  - public fields: `flex: i32`, `fit: FlexFit`, `child: AnyWidget`
+| direction | horizontal, vertical | horizontal |
+| share edges | false, true | true |
+| dividers | single, rounded, double, heavy, ascii | single |
 
 ## DockArea
 
 Panels in splits and tabs: a tab dragged onto a target of a group docks its panel there, and dropped elsewhere floats it; a window's title bar dragged onto one docks it again.
 
-API:
-
-- `rtwk::layout::DockArea` (struct, `crates/rtwk-controls/src/dock_area.rs:48`) A tabbed area whose panels can be resized, docked and floated.
+- `rtwk::controls::DockArea` (struct) in `crates/rtwk-controls/src/dock_area.rs:48`: A tabbed area whose panels can be resized, docked and floated.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/dockarea`, `crates/rtwk-gallery/src/pages/mod.rs:2304`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 fn docked() -> DockLayout {
@@ -1529,53 +836,18 @@ column![
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| strip | on, off | true |
-| frame | null, raised, bordered | null |
-
-### Methods
-
-#### `DockArea`: constructors and associated functions
-
-- `pub fn new(controller: impl Into<DockController>, panels: impl IntoIterator<Item = DockPanel>) -> Self` - The panels to show, placed by `controller`.
-
-#### `DockArea`: builder methods (take and return `self`)
-
-- `pub fn tab_strip(mut self, strip: bool) -> Self` - Whether the tab bars use a strip.
-- `pub fn window_frame(mut self, frame: WindowFrame) -> Self` - The frame for the floating windows.
-
-### Also used in the code
-
-- `rtwk::layout::DockLayout` (struct, `crates/rtwk-widgets/src/layout/dock.rs:383`)
-- `rtwk::layout::DockSplit` (struct, `crates/rtwk-widgets/src/layout/dock.rs:192`)
-- `rtwk::layout::Axis` (enum, `crates/rtwk-render/src/objects/decoration.rs:39`) Along which axis something runs: across or down.
-  - variants: `Horizontal`, `Vertical`
-- `rtwk::layout::DockTabs` (struct, `crates/rtwk-widgets/src/layout/dock.rs:129`)
-- `rtwk::layout::DockWindow` (struct, `crates/rtwk-widgets/src/layout/dock.rs:314`)
-  - public fields: `panel: String`, `left: i32`, `top: i32`, `width: i32`, `height: i32`
-- `rtwk::layout::DockController` (struct, `crates/rtwk-widgets/src/layout/dock.rs:709`) Docks, floats, selects and removes panels in a `DockLayout` (twk's `DockController`): the layout is replaced by each, and the listeners are told of each change and of none else.
-- `rtwk::layout::DockPanel` (struct, `crates/rtwk-widgets/src/layout/dock.rs:673`) A panel an area can show: its id (the name a layout calls it by), its title (on its tab) and what it holds (twk's `DockPanel`).
-  - public fields: `id: String`, `title: String`, `child: AnyWidget`
-- `rtwk::layout::Padding` (struct, `crates/rtwk-widgets/src/layout/basic.rs:42`) Insets its child by `padding`: as big as the child and the padding.
-  - public fields: `padding: EdgeInsets`, `child: Option<AnyWidget>`
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
+| tab strip | false, true | true |
+| window frame | by the theme, raised, bordered | by the theme |
 
 ## Scaffold
 
 An app's frame: a header, a sidebar beside the body, a status bar and the key hints, each part a zone of the focus; the sidebar collapsed on a narrow screen and resized by a drag.
 
-API:
-
-- `rtwk::navigation::Scaffold` (struct, `crates/rtwk/src/navigation/scaffold.rs:684`) The frame most full-screen apps are built in: `header` rows on top, `sidebar` beside `body` under them, the `status_bar` row and the key hints (a `KeyHintsBar`, with `key_hints`) at the bottom.
-  - public fields: `body: AnyWidget`, `header: Option<AnyWidget>`, `sidebar: Option<AnyWidget>`, `status_bar: Option<AnyWidget>`, `key_hints: bool`, `sidebar_width: i32`, `sidebar_side: SidebarSide`, `resizable_sidebar: bool`, `collapsed_below: Option<i32>`, `on_sidebar_resized: Option<Handler<i32>>`, `controller: Option<ScaffoldController>`
+- `rtwk::navigation::Scaffold` (struct) in `crates/rtwk/src/navigation/scaffold.rs:684`: The frame most full-screen apps are built in: `header` rows on top, `sidebar` beside `body` under them, the `status_bar` row and the key hints (a KeyHintsBar, with `key_hints`) at the bottom.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/layout/scaffold`, `crates/rtwk-gallery/src/pages/mod.rs:2143`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 // Retained in State, with inbox = true, archive = false and notes = 3.
@@ -1613,47 +885,12 @@ SizedBox::new(Some(48), Some(12), Some(scaffold.into()))
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| width | 30..48 (a slider) | 48 cells |
-| side | left, right | left |
-| resizable | on, off | true |
-| hints | on, off | true |
-| header | on, off | true |
-| status | on, off | true |
-| collapsed | null, 36, 40, 44 | 40 |
-
-### Methods
-
-#### `Scaffold`: constructors and associated functions
-
-- `pub fn new(body: impl Into<AnyWidget>) -> Scaffold` - The frame of `body` and of the parts given around it.
-
-#### `Scaffold`: builder methods (take and return `self`)
-
-- `pub fn header(mut self, header: impl Into<AnyWidget>) -> Scaffold` - With `header` rows on top.
-- `pub fn sidebar(mut self, sidebar: impl Into<AnyWidget>) -> Scaffold` - With `sidebar` beside the body.
-- `pub fn status_bar(mut self, status_bar: impl Into<AnyWidget>) -> Scaffold` - With `status_bar` under the body.
-- `pub fn key_hints(mut self, on: bool) -> Scaffold` - With the key hints at the bottom, or without.
-- `pub fn sidebar_width(mut self, width: i32) -> Scaffold` - With a sidebar `width` columns wide.
-- `pub fn sidebar_side(mut self, side: SidebarSide) -> Scaffold` - With the sidebar on `side` of the body.
-- `pub fn resizable_sidebar(mut self, on: bool) -> Scaffold` - With a divider that resizes the sidebar, or without.
-- `pub fn collapsed_below(mut self, columns: i32) -> Scaffold` - With the sidebar collapsed on a screen narrower than `columns`.
-- `pub fn on_sidebar_resized(mut self, h: Handler<i32>) -> Scaffold` - Told the sidebar's width at the end of a drag and at each key that resized it.
-- `pub fn controller(mut self, controller: impl Into<ScaffoldController>) -> Scaffold` - Served by `controller`.
-
-### Also used in the code
-
-- `rtwk::navigation::ScaffoldController` (struct, `crates/rtwk/src/navigation/scaffold.rs:383`) Whether the sidebar of a `Scaffold` is shown and how wide it is: what an app sets to show, hide or size it, and saves to show it as it was.
-- `rtwk::controls::Checkbox` (struct, `crates/rtwk-controls/src/toggle.rs:64`) A checkbox before `label`: `[x]` while `value` is true, `[ ]` while it is false.
-  - public fields: `value: bool`, `on_changed: Option<Handler<bool>>`, `label: Str`, `semantics_label: Option<Str>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `style: Option<Style>`, `bracket_style: Option<Style>`, `focused_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
-  - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::layout::Padding` (struct, `crates/rtwk-widgets/src/layout/basic.rs:42`) Insets its child by `padding`: as big as the child and the padding.
-  - public fields: `padding: EdgeInsets`, `child: Option<AnyWidget>`
-- `rtwk::navigation::SidebarSide` (enum, `crates/rtwk/src/navigation/scaffold.rs:71`) The side of the body a `Scaffold`'s sidebar is on.
-  - variants: `Left`, `Right`
-- `rtwk::controls::StatusBar` (struct, `crates/rtwk-controls/src/status_bar.rs:60`) A status bar: one row of three sections, `left` at its left edge, `right` at its right edge and `center` in its middle.
-  - public fields: `left: Option<AnyWidget>`, `center: Option<AnyWidget>`, `right: Option<AnyWidget>`, `spacing: i32`, `style: Option<Style>`
+| width | 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells | 48 cells |
+| sidebar side | left, right | left |
+| resizable | false, true | true |
+| key hints | false, true | true |
+| header | false, true | true |
+| status bar | false, true | true |
+| collapsed below | none, 36, 40, 44 | 40 |
