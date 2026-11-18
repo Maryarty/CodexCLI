@@ -118,6 +118,18 @@ pub struct Strings {
     pub help_entries_tasks: [(&'static str, &'static str); 10],
     pub help_entries_view: [(&'static str, &'static str); 2],
     pub help_filter: &'static str,
+    /// Oracle: `agents_overview_actions.rs` `confirm_agents_overview_action`.
+    archive_title: Msg<1>,
+    delete_title: Msg<1>,
+    pub untitled_task: &'static str,
+    pub archive_description_cloud: &'static str,
+    pub archive_description: &'static str,
+    pub delete_description: &'static str,
+    pub archive_label_cloud: &'static str,
+    pub archive_label: &'static str,
+    pub delete_label: &'static str,
+    pub cancel: &'static str,
+    pub select_hint: &'static str,
 }
 
 /// English: the oracle's text.
@@ -245,6 +257,17 @@ pub const EN: Strings = Strings {
     ],
     help_entries_view: [("f3", "Search"), ("g", "Group")],
     help_filter: "Filter",
+    archive_title: msg!("Archive \u{201c}{0}\u{201d}?"),
+    delete_title: msg!("Permanently delete \u{201c}{0}\u{201d}?"),
+    untitled_task: "Untitled task",
+    archive_description_cloud: "This stops any running work in this task and archives it. Child agents stay unchanged. Its history can be restored from the resume picker.",
+    archive_description: "This stops any running work in this task and its child agents, then archives them. Their history can be restored from the resume picker.",
+    delete_description: "Tasks with saved side chats stay intact. Otherwise, deleting this task stops its running work and permanently deletes its history and its child agents\u{2019} history.",
+    archive_label_cloud: "Archive task",
+    archive_label: "Archive task and child agents",
+    delete_label: "Permanently delete task and child agents",
+    cancel: "Cancel",
+    select_hint: "enter select \u{b7} esc back",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -261,6 +284,14 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    pub fn archive_title(&self, name: &str, num: &NumSyms) -> String {
+        Fmt::new(self.archive_title, [Arg::Text(name)], num).to_string()
+    }
+
+    pub fn delete_title(&self, name: &str, num: &NumSyms) -> String {
+        Fmt::new(self.delete_title, [Arg::Text(name)], num).to_string()
+    }
+
     pub fn group(&self, grouping: &str, key: &str, num: &NumSyms) -> String {
         Fmt::new(self.group, [Arg::Text(grouping), Arg::Text(key)], num).to_string()
     }

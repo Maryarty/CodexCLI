@@ -17,7 +17,7 @@ use rtwk::focus::{ExcludeFocus, FocusNode};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Positioned, Row, SizedBox};
 use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign};
@@ -25,8 +25,8 @@ use rtwk_core::style::Attrs;
 
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::agents::{
-    Center, CenterRow, DetailLine, Group, GroupLabel, Grouping, Model, RowData, Sel,
-    display_directory,
+    Action, Center, CenterRow, Confirm, DetailLine, Group, GroupLabel, Grouping, Model, RowData,
+    Sel, display_directory,
 };
 
 use super::layout;
@@ -154,6 +154,9 @@ pub struct Controls {
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
+    pub confirm_selection: SelectionController<usize>,
+    pub confirm_focus: FocusNode,
+    pub confirm_pick: Handler<usize>,
 }
 
 /// What the screen is told by a click: the handlers the widget made.
@@ -785,7 +788,7 @@ pub fn body(
     }
     // The list gives the focus to the editing line while one is open.
     let rows = list(look, strings, screens, center, areas.list_width, list_height, controls, &taps.rows);
-    pane = pane.child(ExcludeFocus::new(rows).excluding(editing));
+    pane = pane.child(ExcludeFocus::new(rows).excluding(editing || model.confirm.is_some()));
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(pad(areas.list_x))
@@ -882,4 +885,116 @@ pub fn help(
         ),
     )
     .into()
+}
+
+/// The name a confirmation asks about: the task's name or its preview, the
+/// first non-empty line (oracle: `confirm_agents_overview_action`).
+fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String {
+    let row = center.rows.iter().find(|row| row.id() == confirm.thread.as_str());
+    let name = row
+        .map(|row| row.thread.name.as_deref().unwrap_or(&row.thread.preview))
+        .unwrap_or_default();
+    name.trim()
+        .lines()
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(strings.untitled_task)
+        .to_owned()
+}
+
+/// A row of the confirmation as wide as the dialog: its spans, then blanks
+/// that clear what the screen shows below (oracle: the centered view clears
+/// its area).
+fn dialog_row(spans: Line, width: usize, fill: &Style) -> AnyWidget {
+    let used: usize = spans.iter().map(|span| layout::columns(&span.text)).sum();
+    let mut spans = spans;
+    spans.push(span(" ".repeat(width.saturating_sub(used)), fill));
+    cell(width as i32, one(spans))
+}
+
+/// The archive and delete confirmation: a centered panel over the screen
+/// (oracle: `CenteredView` with `SelectionViewParams::confirmation()`): the
+/// title and the description wrapped, the two rows, a hint.
+pub fn confirm_dialog(
+    look: &Look,
+    strings: &Strings,
+    num: &NumSyms,
+    model: &Model,
+    center: &Center,
+    confirm: &Confirm,
+    area: (usize, usize),
+    controls: &Controls,
+) -> AnyWidget {
+    let (width, height) = area;
+    let name = confirm_name(strings, center, confirm);
+    let (title, description, label) = match confirm.action {
+        Action::Archive if model.cloud => (
+            strings.archive_title(&name, num),
+            strings.archive_description_cloud,
+            strings.archive_label_cloud,
+        ),
+        Action::Archive => (
+            strings.archive_title(&name, num),
+            strings.archive_description,
+            strings.archive_label,
+        ),
+        Action::Delete => (
+            strings.delete_title(&name, num),
+            strings.delete_description,
+            strings.delete_label,
+        ),
+    };
+    let panel = width.saturating_sub(4).max(width.min(8)).min(72);
+    let inner = panel.saturating_sub(4);
+    let bold = look.bold.clone();
+    let mut header: Vec<(String, Style)> = layout::wrap(&title, inner)
+        .into_iter()
+        .map(|line| (line, bold.clone()))
+        .collect();
+    header.extend(layout::wrap(description, inner).into_iter().map(|line| (line, look.dim.clone())));
+    let rows_at = 1 + header.len() + 2;
+    let total = (rows_at + 2 + 2).min(height);
+    let plain = look.plain.clone();
+    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    column = column.child(dialog_row(Vec::new(), panel, &plain));
+    for (line, style) in header {
+        column = column.child(dialog_row(vec![span("  ", &plain), span(line, &style)], panel, &plain));
+    }
+    column = column.child(dialog_row(Vec::new(), panel, &plain));
+    column = column.child(dialog_row(Vec::new(), panel, &plain));
+    let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
+    let accent = look.accent.clone().attrs(Attrs::BOLD);
+    let builder = {
+        let selection = controls.confirm_selection.clone();
+        let (labels, plain) = (labels.clone(), plain.clone());
+        move |index: usize| -> AnyWidget {
+            let (selection, labels, plain, accent) = (selection.clone(), labels.clone(), plain.clone(), accent.clone());
+            ListenableBuilder::new(selection.listenable(), move |_, _| {
+                let selected = selection.cursor() == Some(index);
+                let style = if selected { &accent } else { &plain };
+                let marker = if selected { "\u{203a} " } else { "  " };
+                dialog_row(vec![span(format!("{marker}{}. {}", index + 1, labels[index]), style)], panel, &plain)
+            })
+            .into()
+        }
+    };
+    let list = SelectionList::new(2, |index| index, builder)
+        .controller(controls.confirm_selection.clone())
+        .on_submitted(controls.confirm_pick.clone())
+        .focus_node(controls.confirm_focus.clone())
+        .autofocus(true)
+        .item_extent(1)
+        .bar(false)
+        .idle_style(Style::new())
+        .selected_style(Style::new())
+        .disabled_style(Style::new());
+    column = column.child(SizedBox::new(Some(panel as i32), Some(2), Some(list.into())));
+    column = column.child(dialog_row(Vec::new(), panel, &plain));
+    column = column.child(dialog_row(vec![span("  ", &plain), span(strings.select_hint, &look.dim)], panel, &plain));
+    let left = (width - panel) / 2;
+    let top = (height - total) / 2;
+    Positioned::new(SizedBox::new(Some(panel as i32), Some(total as i32), Some(column.into())))
+        .left(left as i32)
+        .top(top as i32)
+        .into()
 }

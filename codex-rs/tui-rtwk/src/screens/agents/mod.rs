@@ -15,6 +15,7 @@ use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::binding::AppBinding;
+use rtwk::layout::{Stack, StackFit};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, watch};
 use rtwk::style::Theme;
@@ -195,6 +196,10 @@ pub struct ScreenState {
     /// The screen's own focus: the keys have it while the help replaces the list.
     root_focus: FocusNode,
     edit_focus: FocusNode,
+    /// The confirmation's two rows and the focus they take while it shows.
+    confirm_selection: SelectionController<usize>,
+    confirm_focus: FocusNode,
+    confirming: bool,
     helping: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     listening: Option<Listening>,
@@ -234,6 +239,8 @@ pub enum Msg {
     Open,
     /// The mode changed (help, editing): the keys go to what shows now.
     Refocus,
+    /// Enter on a row of the confirmation.
+    ConfirmPick(usize),
 }
 
 impl StatefulWidget for Screen {
@@ -246,6 +253,9 @@ impl StatefulWidget for Screen {
             list_focus: FocusNode::new(),
             root_focus: FocusNode::new(),
             edit_focus: FocusNode::new(),
+            confirm_selection: SelectionController::new(),
+            confirm_focus: FocusNode::new(),
+            confirming: false,
             helping: false,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
             listening: None,
@@ -336,6 +346,7 @@ impl State for ScreenState {
             listening.cancel();
         }
         self.selection.dispose();
+        self.confirm_selection.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -372,6 +383,13 @@ impl State for ScreenState {
             self.usage_seen = Some(usage_key);
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::NeedUsage));
+        }
+        if model.confirm.is_some() != self.confirming {
+            self.confirming = model.confirm.is_some();
+            if self.confirming {
+                self.confirm_selection.set_cursor(Some(0));
+            }
+            self.refocus_after_frame(cx);
         }
         if model.help != self.helping {
             self.helping = model.help;
@@ -413,6 +431,25 @@ impl State for ScreenState {
         match msg {
             Msg::Key(key) => {
                 let editing = model.searching || model.rename.is_some();
+                if let Some(confirm) = &model.confirm {
+                    // The confirmation takes every key (oracle: the view on
+                    // top of the bottom pane): Esc and the digits answer, the
+                    // arrows and Enter are the list's.
+                    match (key.code, key.as_text().filter(|_| !key.mods.contains(Mods::CTRL))) {
+                        (KeyCode::Escape, _) => send(AgentsIntent::Confirmed(false)),
+                        (_, Some(digit @ ("1" | "2"))) => {
+                            let index = usize::from(digit == "2");
+                            // A delete waits for Enter: the digit only moves the cursor.
+                            if index == 1 && confirm.action == codex_tui_core::screens::agents::Action::Delete {
+                                self.confirm_selection.set_cursor(Some(1));
+                            } else {
+                                send(AgentsIntent::Confirmed(index == 1));
+                            }
+                        }
+                        _ => {}
+                    }
+                    return Rebuild::No;
+                }
                 if key.code == KeyCode::Escape && !editing && !model.help {
                     if w.can_return {
                         Navigator::maybe_pop(cx);
@@ -440,7 +477,9 @@ impl State for ScreenState {
                 }
             }
             Msg::Refocus => {
-                if model.help {
+                if model.confirm.is_some() {
+                    self.confirm_focus.request_focus();
+                } else if model.help {
                     self.root_focus.request_focus();
                 } else if model.searching || model.rename.is_some() {
                     self.edit_focus.request_focus();
@@ -470,6 +509,7 @@ impl State for ScreenState {
                 }
             }
             Msg::Open => send(AgentsIntent::Accept),
+            Msg::ConfirmPick(index) => send(AgentsIntent::Confirmed(index == 1)),
             Msg::Search(text) => send(AgentsIntent::SetSearch(text)),
             Msg::Submit(text) => {
                 if model.rename.is_some() {
@@ -509,6 +549,9 @@ impl State for ScreenState {
             open: cx.map(|_: view::RowKey| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
+            confirm_selection: self.confirm_selection.clone(),
+            confirm_focus: self.confirm_focus.clone(),
+            confirm_pick: cx.map(Msg::ConfirmPick),
         };
         let can_return = w.can_return;
         let body = LayoutBuilder::new(move |_, constraints| {
@@ -529,7 +572,14 @@ impl State for ScreenState {
             if areas.footer_row < height {
                 column = column.child(view::footer_row(&look, strings, model, can_return, width));
             }
-            column.into()
+            let Some(confirm) = &model.confirm else {
+                return column.into();
+            };
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(column)
+                .child(view::confirm_dialog(&look, strings, &num, model, &center, confirm, (width, height), &controls))
+                .into()
         });
         Focus::new(body).focus_node(self.root_focus.clone()).on_key(cx.keys(on_key)).into()
     }

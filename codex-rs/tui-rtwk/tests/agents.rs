@@ -256,21 +256,50 @@ fn command_center_cursor_tracks_fixed_footer() {
 }
 
 /// `archive_confirmation_number_keys_act_immediately` (agents_overview_actions_tests.rs:185),
-/// with the confirmation snapshots archive_task_confirmation and archive_task_failure.
+/// with the confirmation snapshot archive_task_confirmation: the dialog is
+/// asked with `a`; `1` (Cancel) closes it with no action, `2` closes it and
+/// starts the archive (the center then holds back its keys: the removing
+/// notice).
 #[test]
 fn archive_confirmation_number_keys_act_immediately() {
-    todo!(
-        "agents-live: confirmation dialog snapshots (archive_task_confirmation, archive_task_failure) need a debug row with a confirmation open; not registered"
-    )
+    let mut h = open("confirm", 80, 24);
+    h.press("a");
+    h.settle();
+    assert_app(&h, "actions__archive_task_confirmation");
+    h.press("1");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Archive \u{201c}"), "{screen}");
+    assert!(!screen.contains("Archiving"), "{screen}");
+    h.press("a");
+    h.settle();
+    h.press("2");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Archive \u{201c}"), "{screen}");
+    assert!(screen.contains("Archiving"), "{screen}");
 }
 
-/// The delete confirmation and its failure (delete_task_confirmation, delete_task_failure)
-/// of `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`.
+/// The delete confirmation (delete_task_confirmation) of
+/// `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`;
+/// its row waits for Enter (`require_explicit_confirmation`): the digit only
+/// moves the cursor to it. Its failure (delete_task_failure) is a backend
+/// answer of the live server.
 #[test]
 fn delete_task_confirmation_and_failure_snapshots() {
-    todo!(
-        "agents-live: needs a debug row with the delete confirmation and a failed delete open; not registered"
-    )
+    let mut h = open("confirm", 80, 24);
+    h.press("backspace");
+    h.settle();
+    assert_app(&h, "actions__delete_task_confirmation");
+    h.press("2");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} 2. Permanently delete task and child agents"), "{screen}");
+    h.press("enter");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Permanently delete \u{201c}"), "{screen}");
+    assert!(screen.contains("Deleting"), "{screen}");
 }
 
 /// `modal_consumes_input_and_finishes_after_input_closes` (agents_overview_action_progress_tests.rs:17),
