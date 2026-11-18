@@ -60,10 +60,12 @@ pub use details::Details;
 pub use discovery::refill;
 pub use notifications::observe;
 pub use notifications::observes;
+pub use notifications::wants;
 pub use refresh::Out;
 pub use refresh::account_ev;
 pub use refresh::account_request;
 pub use refresh::apply_answer;
+pub use update::wants_dirs;
 pub use sources::Fanout;
 pub use sources::PinReader;
 pub use sources::fanout;
@@ -336,10 +338,7 @@ pub struct Model {
     pub search: String,
     pub searching: bool,
     pub rename: Option<Rename>,
-    pub selected: Option<Sel>,
     pub help: bool,
-    /// The selection before a search began (oracle: `browse_selection`).
-    pub browse: Option<Sel>,
 }
 
 impl Eq for Model {}
@@ -414,9 +413,6 @@ pub enum Intent {
     /// The screen opened: list the threads.
     Open,
     Refresh,
-    /// The list's cursor moved to `Sel` (the list widget moves it; core
-    /// keeps the highlighted task as data).
-    Select(Sel),
     /// Tab (`back`: shift-tab).
     CycleFilter {
         back: bool,
@@ -431,29 +427,30 @@ pub enum Intent {
     SetSearch(String),
     /// Esc / ctrl-c while editing: leave search or rename.
     CancelEditing,
-    BeginRename,
-    /// Enter: open the task or the "Show more" row.
-    Accept,
+    BeginRename(String),
+    /// Enter on the list's cursor row: open the task or the "Show more" row.
+    Accept(Sel),
     /// Right: as `Accept`, but not while a line is edited.
-    Right,
+    Right(Sel),
     /// Enter in the rename line, with its text.
     Commit(String),
-    Stop,
-    Archive,
-    Delete,
+    Stop(String),
+    Archive(String),
+    Delete(String),
     /// The confirmation's answer.
     Confirmed(bool),
     /// `Back to agents` on the failure dialog.
     DismissFailure,
-    Hide,
-    TogglePin,
-    New,
-    /// `w`: a new task in a worktree of the highlighted task's directory.
-    NewWorktree,
-    /// Fork the highlighted task and open the copy.
-    Fork,
-    /// The usage of the highlighted task is wanted (the clock ticks).
-    NeedUsage,
+    Hide(String),
+    TogglePin(String),
+    /// `n`: a new task in the directory of the cursor's task, if any.
+    New(Option<String>),
+    /// `w`: a new task in a worktree of the cursor task's directory.
+    NewWorktree(Option<String>),
+    /// Fork the task and open the copy.
+    Fork(String),
+    /// The usage of the cursor's task is wanted (the clock ticks).
+    NeedUsage(Option<String>),
 }
 
 /// The per-thread part of the screen: none.
@@ -553,6 +550,7 @@ pub enum Ctx {
     },
     Pin {
         thread: String,
+        pinned: bool,
     },
     Resume {
         thread: String,

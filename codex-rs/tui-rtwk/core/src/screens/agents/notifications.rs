@@ -13,6 +13,23 @@ use codex_app_server_protocol::ThreadStatus;
 
 use super::refresh::normalize;
 
+/// Whether `observe` would change `model` for `notification`: decided on
+/// `&Model`, so that a notification that changes nothing (a reasoning delta
+/// after the header) copies no state.
+pub fn wants(model: &Model, notification: &ServerNotification) -> bool {
+    match notification {
+        ServerNotification::ReasoningSummaryTextDelta(delta) => {
+            match model.activity.get(&delta.thread_id) {
+                Some(activity) => {
+                    activity.reasoning_header.is_none() && first_bold(&delta.delta).is_some()
+                }
+                None => true,
+            }
+        }
+        other => observes(other),
+    }
+}
+
 /// Whether `observe` reads `notification`.
 pub fn observes(notification: &ServerNotification) -> bool {
     matches!(
@@ -130,9 +147,8 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) {
                 )
             );
         }
-        _ => return,
+        _ => {}
     }
-    model.reconcile();
 }
 
 fn remove(model: &mut Model, id: &str) {

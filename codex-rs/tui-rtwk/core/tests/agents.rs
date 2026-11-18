@@ -67,7 +67,69 @@ fn waiting_approval() -> Value {
 }
 
 fn sandbox() -> Sandbox {
+    CURSOR.with(|cursor| *cursor.borrow_mut() = None);
     Sandbox::play(&format!("{SESSION}\n")).expect("plays")
+}
+
+thread_local! {
+    /// The list widget's cursor, which the view owns (SelectionController):
+    /// core keeps none, and its intents carry the id the cursor is on.
+    static CURSOR: std::cell::RefCell<Option<Sel>> = const { std::cell::RefCell::new(None) };
+}
+
+fn move_cursor(sel: Sel) {
+    CURSOR.with(|cursor| *cursor.borrow_mut() = Some(sel));
+}
+
+/// The highlight as the view resolves it: the cursor if its row shows, else
+/// the default row.
+fn at(m: &Model) -> Option<Sel> {
+    let cursor = CURSOR.with(|cursor| cursor.borrow().clone());
+    let center = m.center_at(cursor.as_ref());
+    if center.show_more_selected {
+        Some(Sel::ShowMore)
+    } else {
+        center
+            .selected_row()
+            .map(|row| Sel::Task(row.id().to_owned()))
+    }
+}
+
+fn pick(m: &Model) -> Option<String> {
+    match at(m) {
+        Some(Sel::Task(id)) => Some(id),
+        _ => None,
+    }
+}
+
+/// Core's answer to an intent that acts on the task under the cursor.
+fn up_t(m: &mut Model, f: fn(String) -> AgentsIntent) -> Vec<Out> {
+    let intent = f(pick(m).unwrap_or_default());
+    update(m, intent)
+}
+
+fn up_o(m: &mut Model, f: fn(Option<String>) -> AgentsIntent) -> Vec<Out> {
+    let intent = f(pick(m));
+    update(m, intent)
+}
+
+fn up_s(m: &mut Model, f: fn(Sel) -> AgentsIntent) -> Vec<Out> {
+    let intent = f(at(m).unwrap_or(Sel::Task(String::new())));
+    update(m, intent)
+}
+
+/// What the view does on `h`: the cursor moves to the task after the hidden one.
+fn refresh_usage_at(m: &mut Model) -> Option<Out> {
+    let at = pick(m);
+    codex_tui_core::screens::agents::refresh_usage(m, at)
+}
+
+fn hide_cursor(m: &Model) {
+    if let Some(id) = pick(m)
+        && let Some(next) = m.selection_after_removal(&id, std::slice::from_ref(&id))
+    {
+        move_cursor(Sel::Task(next));
+    }
 }
 
 fn list(sandbox: &mut Sandbox, threads: Vec<Thread>) {
@@ -109,12 +171,7 @@ fn ids(sandbox: &Sandbox) -> Vec<String> {
 }
 
 fn selected(sandbox: &Sandbox) -> String {
-    model(sandbox)
-        .center()
-        .selected_row()
-        .expect("a highlighted task")
-        .id()
-        .to_owned()
+    pick(model(sandbox)).expect("a highlighted task")
 }
 
 /// `shared_overview_shows_only_root_sessions` (agents_overview_tests.rs:1588):
@@ -187,7 +244,7 @@ fn overview_model_grouping_shows_details_and_preserves_selection() {
         thread
     });
     list(&mut sandbox, threads.to_vec());
-    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(id(1))));
+    move_cursor(Sel::Task(id(1)));
     for _ in 0..3 {
         intent(&mut sandbox, AgentsIntent::CycleGrouping);
     }
@@ -197,7 +254,7 @@ fn overview_model_grouping_shows_details_and_preserves_selection() {
         // The list widget moves the cursor (wrapping is its own); core is told
         // which task it is on.
         let _ = forward;
-        intent(&mut sandbox, AgentsIntent::Select(Sel::Task(id(expected))));
+        move_cursor(Sel::Task(id(expected)));
         assert_eq!(selected(&sandbox), id(expected));
     }
 }
@@ -278,17 +335,15 @@ fn external_removals_preserve_adjacent_selection() {
         .collect();
     list(&mut sandbox, threads);
     let order = ids(&sandbox);
-    intent(
-        &mut sandbox,
-        AgentsIntent::Select(Sel::Task(order[1].clone())),
-    );
-    intent(&mut sandbox, AgentsIntent::Hide);
+    move_cursor(Sel::Task(order[1].clone()));
+    let hidden = AgentsIntent::Hide(selected(&sandbox));
+    hide_cursor(model(&sandbox));
+    intent(&mut sandbox, hidden);
     assert_eq!(selected(&sandbox), order[2]);
-    intent(
-        &mut sandbox,
-        AgentsIntent::Select(Sel::Task(order[3].clone())),
-    );
-    intent(&mut sandbox, AgentsIntent::Hide);
+    move_cursor(Sel::Task(order[3].clone()));
+    let hidden = AgentsIntent::Hide(selected(&sandbox));
+    hide_cursor(model(&sandbox));
+    intent(&mut sandbox, hidden);
     assert_eq!(selected(&sandbox), order[2]);
 }
 
@@ -484,13 +539,10 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
         Some(Vec::new()),
     ))));
     list(&mut sandbox, vec![task]);
-    intent(
-        &mut sandbox,
-        AgentsIntent::Select(Sel::Task(target.clone())),
-    );
+    move_cursor(Sel::Task(target.clone()));
     assert_eq!(selected(&sandbox), target);
     let mut m = model(&sandbox).clone();
-    let outs = update(&mut m, AgentsIntent::TogglePin);
+    let outs = up_t(&mut m, AgentsIntent::TogglePin);
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0].command,
@@ -500,8 +552,8 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
         }
     );
     // The second `p` while the first is in flight sends nothing.
-    assert!(update(&mut m, AgentsIntent::TogglePin).is_empty());
-    let outs = update(&mut m, AgentsIntent::New);
+    assert!(up_t(&mut m, AgentsIntent::TogglePin).is_empty());
+    let outs = up_o(&mut m, AgentsIntent::New);
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0].command,
@@ -515,10 +567,10 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     }
     assert_eq!(Grouping::Directory.persisted(), None);
     assert_eq!(Grouping::Status.persisted(), Some("status"));
-    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(target.clone())));
-    let _ = update(&mut m, AgentsIntent::BeginRename);
+    move_cursor(Sel::Task(target.clone()));
+    let _ = up_t(&mut m, AgentsIntent::BeginRename);
     // The letters typed are the editor's text, not an intent; Enter commits it.
-    assert!(update(&mut m, AgentsIntent::Accept).is_empty());
+    assert!(up_s(&mut m, AgentsIntent::Accept).is_empty());
     let outs = update(&mut m, AgentsIntent::Commit("Task nwogrxfhap".into()));
     assert_eq!(outs.len(), 1);
     match &outs[0].command {
@@ -531,7 +583,7 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     // The oracle's second view is a fresh empty center (no selection).
     let empty_sandbox = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
     let mut empty = model(&empty_sandbox).clone();
-    let outs = update(&mut empty, AgentsIntent::New);
+    let outs = up_o(&mut empty, AgentsIntent::New);
     assert_eq!(outs.len(), 1);
     assert_eq!(outs[0].command, Command::Start { cwd: None });
 }
@@ -549,9 +601,9 @@ fn command_center_new_worktree_uses_the_selected_directory() {
     list(&mut sandbox, vec![task]);
     let mut m = model(&sandbox).clone();
     // Worktrees disabled: `w` does nothing.
-    assert!(update(&mut m, AgentsIntent::NewWorktree).is_empty());
+    assert!(up_o(&mut m, AgentsIntent::NewWorktree).is_empty());
     m.worktrees = true;
-    let outs = update(&mut m, AgentsIntent::NewWorktree);
+    let outs = up_o(&mut m, AgentsIntent::NewWorktree);
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0].command,
@@ -561,12 +613,12 @@ fn command_center_new_worktree_uses_the_selected_directory() {
     );
     assert_eq!(m.notice, Some(Notice::CreatingWorktree));
     // While the worktree is created, the center holds the other intents back.
-    assert!(update(&mut m, AgentsIntent::New).is_empty());
+    assert!(up_o(&mut m, AgentsIntent::New).is_empty());
     // Without a selection: no directory.
     let empty_sandbox = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
     let mut empty = model(&empty_sandbox).clone();
     empty.worktrees = true;
-    let outs = update(&mut empty, AgentsIntent::NewWorktree);
+    let outs = up_o(&mut empty, AgentsIntent::NewWorktree);
     assert_eq!(outs[0].command, Command::NewWorktree { cwd: None });
 }
 
@@ -578,7 +630,7 @@ fn fork_opens_the_copy_of_the_selected_task() {
     let target = id(1);
     list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
     let mut m = model(&sandbox).clone();
-    let outs = update(&mut m, AgentsIntent::Fork);
+    let outs = up_t(&mut m, AgentsIntent::Fork);
     assert_eq!(
         outs.iter()
             .map(|out| out.command.clone())
@@ -590,7 +642,7 @@ fn fork_opens_the_copy_of_the_selected_task() {
     assert_eq!(m.current, Some(id(9)));
     assert_eq!(m.resumes, 1);
     let mut empty = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
-    assert!(update(&mut empty_model(&mut empty), AgentsIntent::Fork).is_empty());
+    assert!(up_t(&mut empty_model(&mut empty), AgentsIntent::Fork).is_empty());
 }
 
 fn empty_model(sandbox: &mut Sandbox) -> Model {
@@ -903,15 +955,15 @@ fn overview_right_opens_current_or_highlighted_task() {
         ],
     );
     current(&mut sandbox, &cur);
-    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(cur.clone())));
+    move_cursor(Sel::Task(cur.clone()));
     let mut m = model(&sandbox).clone();
-    let on_current: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+    let on_current: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
         .into_iter()
         .map(|out| out.command)
         .collect();
-    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(other.clone())));
+    move_cursor(Sel::Task(other.clone()));
     let mut m = model(&sandbox).clone();
-    let on_other: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+    let on_other: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
         .into_iter()
         .map(|out| out.command)
         .collect();
@@ -936,7 +988,7 @@ fn overview_right_preserves_editors_and_offline_state() {
     list(&mut sandbox, vec![thread(&task, None, "Task", idle())]);
     let mut m = model(&sandbox).clone();
     // Right opens the task like Enter ...
-    let opened = update(&mut m.clone(), AgentsIntent::Right);
+    let opened = up_s(&mut m.clone(), AgentsIntent::Right);
     assert_eq!(
         opened
             .iter()
@@ -945,20 +997,20 @@ fn overview_right_preserves_editors_and_offline_state() {
         vec![Command::Resume { thread: task }]
     );
     // ... but leaves a rename editor alone.
-    let _ = update(&mut m, AgentsIntent::BeginRename);
-    assert!(update(&mut m, AgentsIntent::Right).is_empty());
+    let _ = up_t(&mut m, AgentsIntent::BeginRename);
+    assert!(up_s(&mut m, AgentsIntent::Right).is_empty());
     assert!(m.rename.is_some());
     let _ = update(&mut m, AgentsIntent::CancelEditing);
     assert!(m.rename.is_none());
     // Offline: Right, `n` and the rest do nothing; leaving still works.
     m.notice = Some(Notice::Reconnecting);
-    assert!(update(&mut m, AgentsIntent::Right).is_empty());
-    assert!(update(&mut m, AgentsIntent::New).is_empty());
-    assert!(update(&mut m, AgentsIntent::Accept).is_empty());
+    assert!(up_s(&mut m, AgentsIntent::Right).is_empty());
+    assert!(up_o(&mut m, AgentsIntent::New).is_empty());
+    assert!(up_s(&mut m, AgentsIntent::Accept).is_empty());
     m.notice = Some(Notice::ReconnectFailed);
-    assert!(update(&mut m, AgentsIntent::Right).is_empty());
+    assert!(up_s(&mut m, AgentsIntent::Right).is_empty());
     m.notice = None;
-    assert_eq!(update(&mut m, AgentsIntent::Right).len(), 1);
+    assert_eq!(up_s(&mut m, AgentsIntent::Right).len(), 1);
 }
 
 /// `overview_grouping_persists_across_config_reloads`
@@ -1058,11 +1110,11 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
     for _ in 0..3 {
         intent(&mut sandbox, AgentsIntent::CycleFilter { back: false });
     }
-    intent(
-        &mut sandbox,
-        AgentsIntent::Select(Sel::Task(target.clone())),
-    );
-    intent(&mut sandbox, AgentsIntent::BeginRename);
+    move_cursor(Sel::Task(target.clone()));
+    {
+        let i = AgentsIntent::BeginRename(selected(&sandbox));
+        intent(&mut sandbox, i);
+    }
     assert_eq!(
         model(&sandbox).rename.as_ref().map(|r| r.target.clone()),
         Some(target.clone())
@@ -1121,8 +1173,11 @@ fn backspace_edits_search_and_rename_without_deleting_tasks() {
     assert_eq!(model(&sandbox).search, "");
     assert_ids(&sandbox, &[&task]);
     intent(&mut sandbox, AgentsIntent::CancelEditing);
-    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(task.clone())));
-    intent(&mut sandbox, AgentsIntent::BeginRename);
+    move_cursor(Sel::Task(task.clone()));
+    {
+        let i = AgentsIntent::BeginRename(selected(&sandbox));
+        intent(&mut sandbox, i);
+    }
     // The rename text is the field's; a search text does not reach it.
     let mut m = model(&sandbox).clone();
     assert!(update(&mut m, AgentsIntent::SetSearch(String::new())).is_empty());
@@ -1153,9 +1208,9 @@ fn live_center_show_more_navigation_search_and_loading() {
         pins: None,
     }))));
     assert!(model(&sandbox).paging.has_more);
-    intent(&mut sandbox, AgentsIntent::Select(Sel::ShowMore));
+    move_cursor(Sel::ShowMore);
     let mut m = model(&sandbox).clone();
-    let first: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+    let first: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
         .into_iter()
         .map(|out| out.command)
         .collect();
@@ -1166,7 +1221,7 @@ fn live_center_show_more_navigation_search_and_loading() {
         }]
     );
     assert!(m.paging.loading);
-    let second = update(&mut m, AgentsIntent::Accept);
+    let second = up_s(&mut m, AgentsIntent::Accept);
     assert!(second.is_empty(), "no second page while one loads");
     // The page fails: the center stops loading (the oracle's `loading =
     // false`, `refresh_failed = true`); the cursor stays for a retry.
@@ -1225,8 +1280,8 @@ fn live_center_show_more_navigation_search_and_loading() {
     );
     let failed = m.history.clone().expect("a history search");
     assert!(failed.failed && !failed.loading);
-    m.selected = Some(Sel::ShowMore);
-    let retry = update(&mut m, AgentsIntent::Accept);
+    move_cursor(Sel::ShowMore);
+    let retry = up_s(&mut m, AgentsIntent::Accept);
     assert_eq!(retry.len(), 1);
     // A page without a match scans on at once; one with a match shows it
     // and keeps the rest of the scan for "Show more matches".
@@ -1289,12 +1344,17 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
             thread(&neighbor, None, "Neighbor", idle()),
         ],
     );
-    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(target)));
-    intent(&mut sandbox, AgentsIntent::BeginRename);
-    intent(&mut sandbox, AgentsIntent::Hide);
+    move_cursor(Sel::Task(target));
+    {
+        let i = AgentsIntent::BeginRename(selected(&sandbox));
+        intent(&mut sandbox, i);
+    }
+    let hidden = AgentsIntent::Hide(selected(&sandbox));
+    hide_cursor(model(&sandbox));
+    intent(&mut sandbox, hidden);
     assert_eq!(model(&sandbox).rename, None);
     let mut m = model(&sandbox).clone();
-    let outs = update(&mut m, AgentsIntent::Accept);
+    let outs = up_s(&mut m, AgentsIntent::Accept);
     assert!(
         outs.iter()
             .all(|out| !matches!(out.command, Command::Rename { .. })),
@@ -1336,7 +1396,7 @@ fn pin_action_updates_shared_section_state() {
     // A single task is highlighted until one is selected.
     let mut m = model(&sandbox).clone();
     for pinned in [true, false] {
-        let outs = update(&mut m, AgentsIntent::TogglePin);
+        let outs = up_t(&mut m, AgentsIntent::TogglePin);
         assert_eq!(outs.len(), 1);
         assert_eq!(
             outs[0].command,
@@ -1353,6 +1413,36 @@ fn pin_action_updates_shared_section_state() {
     }
 }
 
+/// VS1 review D1: the pin reply sets the requested state. A pin list that
+/// already holds the task (arrived before the reply) is not inverted, and a new
+/// pin goes last (oracle `complete_agents_overview_pin`).
+#[test]
+fn pin_reply_sets_state_and_new_pins_go_last() {
+    let mut sandbox = sandbox();
+    let (a, x) = (id(1), id(2));
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(Some(vec![
+        a.clone(),
+    ])))));
+    list(
+        &mut sandbox,
+        vec![thread(&a, None, "A", idle()), thread(&x, None, "X", idle())],
+    );
+    let mut m = model(&sandbox).clone();
+    move_cursor(Sel::Task(x.clone()));
+    let outs = up_t(&mut m, AgentsIntent::TogglePin);
+    assert_eq!(outs.len(), 1);
+    // The list with X already pinned arrives before the reply.
+    m.pinned = Some(vec![a.clone(), x.clone()]);
+    answer_done(&mut m, outs);
+    assert_eq!(m.pinned, Some(vec![a.clone(), x.clone()]));
+    // Without that early list: appended, not prepended.
+    m.pinned = Some(vec![a.clone()]);
+    move_cursor(Sel::Task(x.clone()));
+    let outs = up_t(&mut m, AgentsIntent::TogglePin);
+    answer_done(&mut m, outs);
+    assert_eq!(m.pinned, Some(vec![a, x]));
+}
+
 /// The core half of `lifecycle_shortcuts_target_filtered_task_in_any_state`
 /// (agents_overview_actions_tests.rs:223): the archive, delete and hide intents
 /// target the highlighted task whatever its status. The filter (search `Target`)
@@ -1364,7 +1454,7 @@ fn lifecycle_shortcuts_target_filtered_task_in_any_state() {
         let mut sandbox = sandbox();
         list(&mut sandbox, vec![thread(&target, None, "Target", status)]);
         let mut m = model(&sandbox).clone();
-        let _ = update(&mut m, AgentsIntent::Archive);
+        let _ = up_t(&mut m, AgentsIntent::Archive);
         assert_eq!(
             m.confirm,
             Some(Confirm {
@@ -1372,7 +1462,7 @@ fn lifecycle_shortcuts_target_filtered_task_in_any_state() {
                 action: Action::Archive
             })
         );
-        let _ = update(&mut m, AgentsIntent::Delete);
+        let _ = up_t(&mut m, AgentsIntent::Delete);
         assert_eq!(
             m.confirm,
             Some(Confirm {
@@ -1380,7 +1470,9 @@ fn lifecycle_shortcuts_target_filtered_task_in_any_state() {
                 action: Action::Delete
             })
         );
-        let _ = update(&mut m, AgentsIntent::Hide);
+        let hidden = AgentsIntent::Hide(pick(&m).unwrap_or_default());
+        hide_cursor(&m);
+        let _ = update(&mut m, hidden);
         assert!(m.hidden.contains(&target));
         assert!(ids_of(&m).is_empty());
     }
@@ -1398,7 +1490,9 @@ fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
     let mut sandbox = sandbox();
     list(&mut sandbox, vec![task.clone()]);
     let mut m = model(&sandbox).clone();
-    let _ = update(&mut m, AgentsIntent::Hide);
+    let hidden = AgentsIntent::Hide(pick(&m).unwrap_or_default());
+    hide_cursor(&m);
+    let _ = update(&mut m, hidden);
     assert!(ids_of(&m).is_empty());
     let started = ServerNotification::ThreadStarted(ThreadStartedNotification {
         thread: task.clone(),
@@ -1446,7 +1540,7 @@ fn rejected_delete_preserves_a_live_attachment() {
     let mut sandbox = sandbox();
     list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
     let mut m = model(&sandbox).clone();
-    let _ = update(&mut m, AgentsIntent::Delete);
+    let _ = up_t(&mut m, AgentsIntent::Delete);
     let outs = update(&mut m, AgentsIntent::Confirmed(true));
     assert_eq!(outs.len(), 1);
     assert_eq!(
@@ -1509,7 +1603,7 @@ fn lifecycle_removes_background_and_current_tasks() {
             ],
         );
         let mut m = model(&sandbox).clone();
-        let _ = update(
+        let _ = up_t(
             &mut m,
             if archive {
                 AgentsIntent::Archive
@@ -1606,8 +1700,8 @@ fn cloud_archive_preserves_attached_child_and_other_tasks() {
         })));
         list(&mut sandbox, threads.clone());
         let mut m = model(&sandbox).clone();
-        let _ = update(&mut m, AgentsIntent::Select(Sel::Task(parent.clone())));
-        let _ = update(&mut m, AgentsIntent::Archive);
+        move_cursor(Sel::Task(parent.clone()));
+        let _ = up_t(&mut m, AgentsIntent::Archive);
         let outs = update(&mut m, AgentsIntent::Confirmed(true));
         let _ = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
         m.threads
@@ -1657,8 +1751,8 @@ fn overview_show_more_refills_archived_rows() {
     assert!(m.paging.has_more);
     // Show more: the next page fails (transient); nothing is lost and the
     // same cursor is asked again.
-    m.selected = Some(Sel::ShowMore);
-    let more = update(&mut m, AgentsIntent::Accept);
+    move_cursor(Sel::ShowMore);
+    let more = up_s(&mut m, AgentsIntent::Accept);
     assert_eq!(
         more[0].command,
         Command::List {
@@ -1672,7 +1766,7 @@ fn overview_show_more_refills_archived_rows() {
     );
     assert_eq!(m.threads.len(), 10);
     assert!(m.paging.failed && m.paging.has_more);
-    let retry = update(&mut m, AgentsIntent::Accept);
+    let retry = up_s(&mut m, AgentsIntent::Accept);
     assert_eq!(
         retry[0].command,
         Command::List {
@@ -1712,8 +1806,8 @@ fn overview_show_more_refills_archived_rows() {
     assert!(m.paging.has_more, "three fetched rows are still unshown");
     assert_eq!(m.paging.buffer.len(), 3);
     // Show more shows them from the buffer, without a request, and ends the list.
-    m.selected = Some(Sel::ShowMore);
-    let last = update(&mut m, AgentsIntent::Accept);
+    move_cursor(Sel::ShowMore);
+    let last = up_s(&mut m, AgentsIntent::Accept);
     assert!(last.is_empty());
     assert_eq!(m.threads.len(), 23);
     assert!(!m.paging.has_more);
@@ -1733,7 +1827,7 @@ fn overview_show_more_refills_archived_rows() {
 fn selected_usage_is_cached() {
     use codex_app_server_protocol::ThreadUsage;
     use codex_protocol::account::PlanType;
-    use codex_tui_core::screens::agents::{UsageOutcome, refresh_usage, usage_wait};
+    use codex_tui_core::screens::agents::{UsageOutcome, usage_wait};
     let [selected, other] = [1, 2].map(id);
     let mut sandbox = sandbox();
     list(
@@ -1749,7 +1843,7 @@ fn selected_usage_is_cached() {
     })));
     sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Clock(1_000))));
     let mut m = model(&sandbox).clone();
-    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(selected.clone())));
+    move_cursor(Sel::Task(selected.clone()));
     let estimate = |credits: i64, cost: i64, groups: bool| -> ThreadUsage {
         serde_json::from_value(json!({
             "threadId": selected, "estimatedUsageCreditsMicros": credits,
@@ -1761,7 +1855,7 @@ fn selected_usage_is_cached() {
     let full = estimate(3_400_000, 140_000, true);
     // A request is pending: no second one.
     m.pending_usage = Some((selected.clone(), 99));
-    assert!(refresh_usage(&mut m).is_none());
+    assert!(refresh_usage_at(&mut m).is_none());
     let finish = |m: &mut Model, outcome: UsageOutcome| {
         let ctx = Ctx::Usage {
             thread: selected.clone(),
@@ -1772,10 +1866,10 @@ fn selected_usage_is_cached() {
     finish(&mut m, UsageOutcome::Available(full.clone()));
     assert_eq!(m.pending_usage, None);
     // Cached for a minute: the next refresh asks nothing and says when it is due.
-    assert!(refresh_usage(&mut m).is_none());
-    assert_eq!(usage_wait(&m), Some(60));
+    assert!(refresh_usage_at(&mut m).is_none());
+    assert_eq!(usage_wait(&m, &pick(&m).unwrap()), Some(60));
     m.now += 61;
-    let due = refresh_usage(&mut m).expect("stale: asked again");
+    let due = refresh_usage_at(&mut m).expect("stale: asked again");
     assert_eq!(
         due.command,
         Command::Usage {
@@ -1832,10 +1926,10 @@ fn selected_usage_is_cached() {
     );
     assert!(m.usage_disabled);
     assert!(m.usage.values().all(|usage| usage.estimate.is_none()));
-    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(other)));
+    move_cursor(Sel::Task(other));
     m.now += 1_000;
     assert!(
-        refresh_usage(&mut m).is_none(),
+        refresh_usage_at(&mut m).is_none(),
         "an unavailable capability is not retried"
     );
     // The account changing discards everything, estimates, tokens and the flag.
@@ -1889,7 +1983,7 @@ fn a_confirmed_removal_hides_the_task_until_the_request_ends() {
         );
         let first = selected(&sandbox);
         let mut m = model(&sandbox).clone();
-        let _ = update(
+        let _ = up_t(
             &mut m,
             if delete {
                 AgentsIntent::Delete
@@ -1999,4 +2093,46 @@ fn a_script_seeds_the_notices() {
         assert_eq!(ev, Ev::Notice(expected));
     }
     assert!(codex_tui_core::screens::agents::seed(json!({"notice": "bogus"})).is_err());
+}
+
+/// VS1 review D5: a search the next keystroke supersedes never answers (the
+/// shell drops it), so its ticket is released: typing a word leaves one
+/// search in flight, not one per key.
+#[test]
+fn a_superseded_search_releases_its_ticket() {
+    let mut sandbox = sandbox();
+    intent(&mut sandbox, AgentsIntent::BeginSearch);
+    intent(&mut sandbox, AgentsIntent::SetSearch("a".into()));
+    let one = sandbox.app().in_flight();
+    for text in ["ab", "abc", "abcd"] {
+        intent(&mut sandbox, AgentsIntent::SetSearch(text.into()));
+    }
+    assert_eq!(sandbox.app().in_flight(), one);
+}
+
+/// VS1 review P1: a notification that changes nothing copies no screen state:
+/// a watcher holds the `Rc` of the screens, and a reasoning delta after the
+/// header leaves it the same allocation.
+#[test]
+fn an_unchanging_reasoning_delta_copies_no_screen_state() {
+    let mut sandbox = sandbox();
+    let target = id(1);
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let delta = |text: &str| {
+        AppEv::Backend(codex_tui_core::app::BackendEv::Notification(Box::new(
+            ServerNotification::ReasoningSummaryTextDelta(
+                codex_app_server_protocol::ReasoningSummaryTextDeltaNotification {
+                    thread_id: target.clone(),
+                    turn_id: "turn".into(),
+                    item_id: "item".into(),
+                    delta: text.to_owned(),
+                    summary_index: 0,
+                },
+            ),
+        )))
+    };
+    sandbox.send(delta("**Plan**"));
+    let held = sandbox.app().screens.clone();
+    sandbox.send(delta(" more"));
+    assert!(std::rc::Rc::ptr_eq(&held, &sandbox.app().screens));
 }

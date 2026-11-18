@@ -125,6 +125,16 @@ impl<C> Pending<C> {
         self.entries.contains_key(&ticket)
     }
 
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Drops the tickets whose context `keep` refuses: their requests were
+    /// superseded and will never answer.
+    pub fn retain(&mut self, keep: impl Fn(&C) -> bool) {
+        self.entries.retain(|_, ctx| keep(ctx));
+    }
+
     pub fn any(&self, f: impl Fn(&C) -> bool) -> bool {
         self.entries.values().any(f)
     }

@@ -224,6 +224,11 @@ impl CodexApp {
         }
     }
 
+    /// The app-scoped RPCs whose answer is still awaited.
+    pub fn in_flight(&self) -> usize {
+        self.outgoing.len()
+    }
+
     pub fn epoch(&self) -> ConnEpoch {
         self.session.epoch
     }
@@ -264,7 +269,7 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, ev, fx);
-    if lists {
+    if lists && agents::wants_dirs(&app.screens.agents) {
         let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
         if !cwds.is_empty() {
             fx.commands.push(Command::Directories { cwds });
@@ -302,7 +307,7 @@ fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
                 }
                 return;
             }
-            if agents::observes(&notification) {
+            if agents::wants(&app.screens.agents, &notification) {
                 agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
             }
             if let Some((thread, ev)) = threads::project(&notification) {
@@ -425,6 +430,16 @@ fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
         if let agents::Command::NewWorktree { cwd } = out.command {
             fx.commands.push(Command::Worktree { cwd });
             continue;
+        }
+        // The shell drops the search before a new one (it never answers):
+        // its ticket is released here (R5).
+        if matches!(out.command, agents::Command::Search { .. }) {
+            app.outgoing.retain(|ctx| {
+                !matches!(
+                    ctx,
+                    AppCtx::Screen(ScreenCtx::Agents(agents::Ctx::Search { .. }))
+                )
+            });
         }
         let ticket = app.mint.next();
         app.outgoing

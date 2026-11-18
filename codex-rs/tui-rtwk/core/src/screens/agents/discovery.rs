@@ -74,7 +74,6 @@ pub(super) fn show_more(model: &mut Model) -> Vec<Out> {
     if model.paging.cursor.is_none() || model.paging.buffer.len() >= page {
         show_buffered(model, page);
         sync(model);
-        model.reconcile();
         return Vec::new();
     }
     vec![page_request(model, page)]
@@ -94,7 +93,6 @@ pub fn refill(model: &mut Model) -> Vec<Out> {
         show_buffered(model, want);
         model.paging.refill = vacancies.saturating_sub(model.threads.len() - before);
         sync(model);
-        model.reconcile();
         return Vec::new();
     }
     vec![page_request(model, want)]
@@ -142,7 +140,6 @@ pub(super) fn on_more_page(model: &mut Model, page: Option<Page>) {
         .refill
         .saturating_sub(model.threads.len() - before);
     sync(model);
-    model.reconcile();
 }
 
 fn fail(model: &mut Model) {
@@ -275,6 +272,5 @@ pub(super) fn on_search_page(
             history.failed = true;
         }
     }
-    model.reconcile();
     Vec::new()
 }

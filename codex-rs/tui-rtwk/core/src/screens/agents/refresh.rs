@@ -110,7 +110,6 @@ fn merge_page(model: &mut Model, page: Page) {
     if matches!(model.notice, Some(Notice::LoadFailed)) {
         model.notice = None;
     }
-    model.reconcile();
 }
 
 pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
@@ -132,7 +131,6 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::Current(current) => model.current = current,
         Ev::Pinned(pinned) => {
             model.pinned = pinned;
-            model.reconcile();
         }
         Ev::ListFailed => {
             model.paging.loading = false;
@@ -226,7 +224,6 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 model.remove_tree(&thread, whole);
                 model.hidden.remove(&thread);
                 model.notice = None;
-                model.reconcile();
                 return super::discovery::refill(model);
             }
         }
@@ -241,7 +238,6 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                         error: error_text(error),
                         attempted: true,
                     });
-                    model.reconcile();
                 }
                 None => model.notice = Some(Notice::Error(error_text(error))),
             }
@@ -260,13 +256,14 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         ) => {
             model.notice = Some(Notice::Error(error_text(error)));
         }
-        (Ctx::Pin { thread }, Ok(_)) => {
+        (Ctx::Pin { thread, pinned }, Ok(_)) => {
             model.pin_pending = false;
+            // Sets the requested state (oracle `complete_agents_overview_pin`):
+            // idempotent, and a new pin goes last.
             if let Some(pins) = &mut model.pinned {
-                if pins.contains(&thread) {
-                    pins.retain(|pin| *pin != thread);
-                } else {
-                    pins.insert(0, thread);
+                pins.retain(|pin| *pin != thread);
+                if pinned {
+                    pins.push(thread);
                 }
             }
         }
