@@ -692,9 +692,8 @@ string tables'. The views (`src/screens/<dir>/`, `src/ui/`, `src/l10n/`,
 `src/theme.rs`) are widgets that read the model through providers and send
 intents; they name no protocol, no shell, no tokio, no IO and never call
 `apply`. The `shell` is the only effect runner and spawner and names no
-widget. `run.rs` and `host/` are the composition: they name all of them and
-hand the shell's pieces to the view as values (`CloseWatcher`). The UI model
-is `UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug }, link: shell::Link }`:
+widget. `run.rs` and `host/` are the composition: they name all of them. The UI model
+is `UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug, presenter }, link: shell::Link }`:
 what only a widget keeps is in `ui`, never in `core`; `link` is the app's end
 of the effect runner, the one field that names the shell, which is why `app.rs`
 is the model root and not a view.
@@ -767,10 +766,10 @@ offer.
 | G10 tmux probes (mouse option, pane-local graphics) | S10, S24 |
 | G11 clipboard breadth (native, WSL, X11 PRIMARY beyond OSC 52) | copy |
 | G12 `TextArea`: atomic elements, kill ring and yank, vim mode, paste-burst, history recall (arch-review M1) | S10 composer |
-| G13 `show_dialog` without a Navigator falls back to the `overlay::App` overlay above the app's providers (nav-proto gap 1) | dialogs; workaround: presenter under the Navigator |
+| G13 `show_dialog` without a Navigator falls back to the `overlay::App` overlay above the app's providers (nav-proto gap 1) | fixed in rtwk `9f28b7fb`: the Navigator home is a memo node whose handle the presenter shows requests from (`show_dialog_from`) |
 | G14 a provider projection lags the model until the view reruns; no same-flush read (nav-proto gap 2) | presenters; workaround: never decide from a same-flush read |
 | G15 changing the provider list silently drops an unkeyed Navigator's stack (nav-proto gap 3) | root; workaround: fixed list + `GlobalKey` |
-| G16 `show_dialog` has no on-closed message: the caller awaits the `DialogResult` future, so a spawned watcher is needed, and spawning is the shell's (R1); hence `shell::dialog_closed` and the injected `CloseWatcher` | request presenter, every dialog whose result the model needs; workaround: `shell::dialog_closed` |
+| G16 `show_dialog` has no on-closed message: the caller awaits the `DialogResult` future, so a spawned watcher is needed, and spawning is the shell's (R1); hence `shell::dialog_closed` and the injected `CloseWatcher` | fixed in rtwk `9f28b7fb`: `AppCx::show_dialog(builder, options, closed)` / `show_dialog_from`; the request presenter (`ui::presenter`) decides on the model in `closed`; `shell::dialog_closed` and `CloseWatcher` removed |
 | rtwk-state: reactive_graph cross-thread panic, `batch` loss (the issue file) | rtwk quality; family 3, not used by the port |
 | rtwk-state: `Select` notified inside a frame wakes the loop again (app-state-aopt.md §5) | ADR-003 reserve (family 4) |
 
