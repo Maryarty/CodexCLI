@@ -345,7 +345,10 @@ fn a_new_worktree_starts_a_task_in_the_checkout_and_opens_it() {
         [(checkout(), "new-1".to_owned(), "/wt/abc/sub".to_owned())]
     );
     assert_eq!(
-        app.session.active.as_ref().map(|id| id.as_str()),
+        app.session
+            .active
+            .as_ref()
+            .map(codex_tui_core::ids::ThreadId::as_str),
         Some("new-1")
     );
     assert_eq!(agents(&app).notice, None);

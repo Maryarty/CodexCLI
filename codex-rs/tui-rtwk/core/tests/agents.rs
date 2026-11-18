@@ -1946,14 +1946,9 @@ fn the_row_of_the_voice_session_is_flagged() {
         .map(|row| (row.id().to_owned(), row.has_voice))
         .collect();
     assert_eq!(
-        flagged.into_iter().filter(|(_, voice)| *voice).count(),
+        flagged.iter().filter(|(_, voice)| *voice).count(),
         1,
-        "{flagged:?}",
-        flagged = center
-            .rows
-            .iter()
-            .map(|r| (r.id().to_owned(), r.has_voice))
-            .collect::<Vec<_>>()
+        "{flagged:?}"
     );
     assert!(
         center

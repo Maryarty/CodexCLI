@@ -14,7 +14,6 @@ use crate::common::{Harness, start_sized};
 #[derive(Clone, Copy)]
 enum Owner {
     Keymap,
-    CoreSeed,
     Rtwk,
     ReuseCarry,
 }
@@ -23,7 +22,6 @@ impl Owner {
     fn slice(self) -> &'static str {
         match self {
             Owner::Keymap => "keymap",
-            Owner::CoreSeed => "agents-live-shell",
             Owner::Rtwk => "rtwk",
             Owner::ReuseCarry => "reuse-carry",
         }
@@ -205,8 +203,8 @@ fn overview_worktree_creation_busy_state() {
 #[test]
 fn overview_thread_colors_match_footer_and_respect_color_suppression() {
     pending(
-        Owner::CoreSeed,
-        "the thread colour is not ported: the oracle's `thread_color` (FNV-1a over the thread id, indexed into the accents of the active syntect theme, `tui/src/thread_color.rs`, applied when `tui.status_line_use_colors`) needs the theme palette in tui-rtwk and the setting in core's settings model; the row data (`RowData`) has no colour and the debug seed has no unread/selected pair of the snapshot (ids 42 and 43)",
+        Owner::ReuseCarry,
+        "the thread colour needs the oracle's syntax-theme palette: `thread_color` (reuse-map REUSE row, `tui/src/thread_color.rs`) hashes the full thread id with FNV-1a and indexes the accents of the active syntect theme (`render/highlight.rs`: `current_syntax_theme`, two_face theme bundle), applied when `tui.status_line_use_colors` is on (`agents_overview_view.rs:348`). tui-rtwk has neither syntect/two_face nor the theme resolution, so any colour written here would be invented; once the palette is carried, the work left is the setting in core's settings model, a colour on `RowData`, and a seed of ids 42/43 unread/selected (expected: Rgb(242, 205, 205) for id 42)",
     );
     let h = open("columns", 100, 30);
     let screen = h.t.screen();

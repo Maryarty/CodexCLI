@@ -149,6 +149,7 @@ impl Workspace for Local {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // the tests build a repository on disk
 mod tests {
     use super::*;
 

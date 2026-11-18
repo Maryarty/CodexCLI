@@ -3,6 +3,8 @@
 //! item, the filter tabs are clickable. The oracle has no mouse; these hold
 //! the port's ADR-011 contract on the oracle's own fixtures.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod common;
 
 use codex_app_server_protocol::Thread;

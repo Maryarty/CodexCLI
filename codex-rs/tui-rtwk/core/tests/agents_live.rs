@@ -343,7 +343,10 @@ fn a_started_task_opens_in_the_chat_and_ends_the_notice() {
         Ev::Started(Box::new(thread("new-1", 10, "/wt/checkout"))),
     );
     assert_eq!(
-        app.session.active.as_ref().map(|id| id.as_str()),
+        app.session
+            .active
+            .as_ref()
+            .map(codex_tui_core::ids::ThreadId::as_str),
         Some("new-1")
     );
     let model = &app.screens.agents;

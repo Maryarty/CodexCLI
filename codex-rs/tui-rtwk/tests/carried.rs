@@ -4,6 +4,9 @@
 //! visibility keywords are dropped and whitespace is collapsed. A repin that
 //! edits one of them fails here, which is the point (reuse-plan §1, route b).
 
+// A drift test reads the oracle's files: test IO, not an app effect.
+#![allow(clippy::expect_used, clippy::disallowed_methods)]
+
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
