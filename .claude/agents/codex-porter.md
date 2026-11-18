@@ -32,6 +32,13 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
 4. A fix round: the review's findings are the task's last review round
    (`task_start` returns them); fix them in the same worktree, answer each.
 
+## Layers
+- Core crate (no rtwk): models, `apply`, protocol mapping. View files:
+  widgets and `strings.rs`, never the protocol, `shell`, tokio or IO. UI-only
+  state in `UiApp.ui`. Mock state = a fixture script through core `apply`,
+  never data handed to a widget. A brief that seems to ask otherwise: stop and
+  report it.
+
 ## Where your work lives
 - Only your task's area, in the worktree you were started in. Never edit a
   `mod.rs`/`lib.rs` registration or a root enum outside your area: a change

@@ -58,6 +58,17 @@ All from `codex-rs/tui-rtwk` (its own workspace), through `~/.cache/rtwk/acargo`
   when it covers what you changed.
 - Name anything that was red when you arrived, separately from your results.
 
+## Layers (process.md §A4.4)
+- Core (`codex-tui-rtwk-core`, no rtwk): models, `apply`, tickets, protocol
+  mapping, command parsing. UI: view files only (widgets, `strings.rs`, debug
+  entries) that never name the protocol, `shell`, tokio or std IO; UI-only
+  state lives in `UiApp.ui`, never in the core model. `shell` runs effects and
+  names no widget.
+- Mock and fixture state is a JSONL event script applied through core
+  `apply`, built from the oracle's test data; never data handed to a widget.
+- If the brief seems to ask you to cross a layer, stop and say so in the
+  handover; do not build it.
+
 ## Where your work lives
 - Stay inside your task's area; widen it with `task_update` (listing the
   existing entries) only for files no live claim covers. Never edit `lib.rs`,

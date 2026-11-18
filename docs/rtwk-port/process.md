@@ -279,6 +279,10 @@ Oracle: registry rows <ids> (docs/rtwk-port/refs/codex-registry.csv);
 Architecture: <sections by heading> (ADR-002 routes/dialogs, ADR-003 rows R…).
 State: model parts read; events/intents added (in the screen's own sub-enum);
        mandatory tables extended (R2/R4/R5/R8/R9/R10, §A4.4).
+Layers: core files (model, apply, protocol mapping; no rtwk) and view files
+        (widgets, strings.rs; no protocol, shell, tokio, IO) named separately;
+        mock state = a fixture script applied through core, never data handed
+        to a widget (§A4.4 Layers).
 rtwk: widgets and refs entries (docs/rtwk-port/refs/…); gaps that apply (G…) →
       listed as deltas, not worked around.
 Carry: reuse-map rows copied (REUSE/ADAPT) with their dependency closure.
@@ -293,6 +297,13 @@ Briefs of a wave are drafted by one `codex-reviewer` (Sonnet) from the
 registry, the features CSV and the oracle into a scratch file; the
 orchestrator checks them and writes them into tm. That keeps 18 briefs off the
 Opus context.
+
+Before a brief goes into tm the orchestrator re-reads it for wording that
+invites what the architecture forbids: "state, Msg and view in mod.rs", "data
+from mock.rs into the widget", "store the controller in the app model". An
+agent builds what the brief says; a boundary the brief leaves implicit is not
+built and the review, reading against the brief, misses it too (2026-11-18:
+the skeleton mixed UI into the model for exactly this reason).
 
 ### A4.2 Tests first — the porter writes them, the oracle supplies the answers
 
@@ -376,6 +387,17 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
   `lib.rs`, a parent `mod.rs` or a root enum. A new dependency is a separate
   commit (`Cargo.toml` + `Cargo.lock`) named in the handover; the orchestrator
   resolves lockfile conflicts at landing.
+- **Layers** (architecture.md "Layers", task `skeleton-layers`): the core
+  crate `codex-tui-rtwk-core` has no rtwk dependency — models, `apply`,
+  tickets, protocol mapping, command parsing; the UI crate's model is
+  `UiApp { core, ui }`, UI-only state (navigator key, controllers, language,
+  debug) in `ui`; screen dirs hold view files only (widgets, `strings.rs`,
+  debug entries) and never name `codex_app_server_protocol`, `shell`, tokio or
+  std IO; `shell` runs effects and names no widget. The compiler (core's
+  dependencies) and `tests/rules.rs` enforce it; a new boundary comes with its
+  rule shown biting once. Mock and fixture state is a JSONL event script
+  applied through core `apply` (oracle test data, test-infra.md §D), so a
+  screen's code is final from its first commit.
 - Carried oracle code keeps a comment naming its oracle file. codex-tui, the
   codex-rs workspace manifest and lockfile stay untouched.
 
@@ -383,7 +405,7 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 
 | what | reviewer | blocks landing |
 |---|---|---|
-| every slice | `codex-reviewer`, Sonnet | a defect; a missing pack item; an ADR-002 condition or R-rule broken; work outside the area; codex-tui or the codex-rs workspace touched |
+| every slice | `codex-reviewer`, Sonnet | a defect; a missing pack item; an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
 | risky slices: skeleton, session-core, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
 | the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or the manner; a rule enforced only on paper |
 | the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |

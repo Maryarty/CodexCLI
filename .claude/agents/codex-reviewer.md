@@ -44,6 +44,10 @@ not load tm skills.
   - R1–R14: no `#[allow(clippy::disallowed_…)]` outside the allowlist; new
     events, intents or states extend the mandatory tests (R2, R4, R5, R7, R8,
     R9/R10);
+  - layers: no UI type in core, no protocol/`shell`/tokio/IO in a view, no
+    widget in `shell`, UI-only state in `UiApp.ui`, mock state from a fixture
+    script through core `apply`; a crossing no rule catches is a FIX plus a
+    finding for the missing rule;
   - area kept: no `lib.rs`/`mod.rs`/root-enum edits outside it; codex-tui,
     `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
