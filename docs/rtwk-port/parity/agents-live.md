@@ -122,7 +122,7 @@ fixtures `src/screens/agents/fixtures/*.jsonl` (debug rows `overview`,
 `attention`, `navigation`, `search`, `clip`, `paging5`, `paging30`, `confirm`,
 `progress`, `columns`, `empty_narrow`), tests `codex-rs/tui-rtwk/tests/agents.rs`
 (screen tests at the oracle's size against its `.snap` text through
-`oracle_snap`) and the unit tests of `usage.rs` and `layout.rs`. Mock state is
+`oracle_snap`) and the unit tests of `usage.rs` and `path.rs`. Mock state is
 a fixture script through core `apply`; no widget gets data by hand.
 
 Checks at the last commit: `clippy --workspace --all-targets -D warnings`
@@ -178,7 +178,7 @@ reason was checked to be the only difference).
 - Usage lines: `usage.rs` formats credits and the estimated dollars as the
   oracle's `status/thread_usage.rs`; the view asks core for the usage of the
   highlighted task when its key (task, fetched-at, pending, clock) changes.
-- Tab strip: hand-made from spans (`layout::strip`, the oracle's `occupied`
+- Tab strip: hand-made from spans (`tabs.rs`, the oracle's `occupied`
   window) because rtwk's `TabBar` cannot draw the filled bar: G36.
 
 ### Deltas and needs (no visual delta is accepted)
@@ -257,3 +257,33 @@ Tests first (commit `b95c3b2c1`, red), code in the next. Tests: `core/tests/agen
 Deltas: none visual. Known differences that are the person's to see: `codex-rtwk --help` and `-h`
 print the oracle's whole command list (the commands we do not have too), as the shipped binary
 does; the wrap of the long help is the one clap uses without a terminal (width 100).
+
+## View on rtwk's own means (task `agents-view-rtwk`)
+
+- `layout.rs` is gone. The view is `Text` (no wrap, `TextOverflow::Ellipsis`; word
+  wrap for the notes), `Row`/`Column`/`Expanded`/`SizedBox`/`Padding`/`Divider`/
+  `VerticalDivider`, `LayoutBuilder` for the width breakpoints (two panes from 90,
+  metadata from 57, keys hint from 80), `Grid` for the help (`help.rs`; the key
+  track is as wide as the longest key of all entries, as the oracle's), and
+  `Dialog::bare(..).max_width(72)` for the confirmation and the refusal panels.
+  Width of text for column tracks is `rtwk_unicode::string_width`.
+- Rule R15 (`tests/rules.rs`): no `.chars().count()`, `UnicodeWidthStr`,
+  `repeat(" ")` padding, no `fn wrap/ellipsize/truncate/pad` in `src/screens/**`.
+  Allowlisted with a gap and a size limit (170 code lines): `path.rs` (G37),
+  `tabs.rs` (G36), `soft.rs` (G38). Files of other screens that still break it
+  are in `R15_NOT_YET`, each to go with its own rework.
+- Gaps found: N1 (`TextOverflow::Ellipsis` drops the blanks before the `…`: the
+  clipped tab ` All…  ›` against the oracle's ` All … ›`; the test
+  `older_server_notice_truncates_in_narrow_overview` is `pending(Rtwk)`), G37, G38.
+- D4: the old view's `width - panel` / `inner - 4` underflow is gone (constraints
+  replace the arithmetic); `the_center_draws_at_widths_one_to_ten` (widths 1..10, heights
+  3, 6, 24, both the overview and the confirmation) is green. It uses
+  `common::start_clipping` (Tester without `fail_on_overflow`): at heights 1..3 the
+  debug menu below the screen overflows, which is not this screen's.
+- S5 not done: the list's closures are rebuilt with every `center` (the center is a
+  new `Rc` per build, it carries the cursor for the details pane), so the list cannot
+  compare equal; it needs the list's inputs split from the details' inputs in core.
+- Size (code lines, tests excluded): layout.rs 390 -> 0, view.rs 1238 -> 974,
+  mod.rs 892 -> 881, new help.rs 107, path.rs 162, tabs.rs 96, soft.rs 15;
+  all `.rs` of the screen 2,921 -> 2,636 (the target 1,600 is not met: mod.rs (state,
+  handlers) was out of this slice's reach and path/tabs/soft are the gaps' pieces).

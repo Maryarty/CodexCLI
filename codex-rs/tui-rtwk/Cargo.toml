@@ -9,6 +9,7 @@ members = ["host", "core"]
 [workspace.dependencies]
 rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk" }
 rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-core" }
+rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-render" }
 rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-term" }
 rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-test" }
 rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-tokio" }
@@ -80,6 +81,7 @@ codex-app-server-protocol = { path = "../app-server-protocol" }
 codex-tui-core = { path = "core" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
+rtwk-render = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
 serde_json = "1"

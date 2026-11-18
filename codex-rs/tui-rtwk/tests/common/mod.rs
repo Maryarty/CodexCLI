@@ -100,11 +100,24 @@ fn start_with(debug: bool) -> Harness {
     start_at(debug, WIDTH, HEIGHT)
 }
 
+/// As `start_sized`, for sizes smaller than the debug menu under the screen
+/// can draw: the tester does not fail on the clips of the rows below.
+pub fn start_clipping(debug: bool, width: u16, height: u16) -> Harness {
+    start_with_options(
+        debug,
+        Options::new().size(width, height).fail_on_overflow(false),
+    )
+}
+
 fn start_at(debug: bool, width: u16, height: u16) -> Harness {
+    start_with_options(debug, Options::new().size(width, height))
+}
+
+fn start_with_options(debug: bool, options: Options) -> Harness {
     let guard = rtwk_tokio::enter(runtime());
     let (server, fake) = FakeServer::new();
     let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
-    let mut t = Tester::with(Options::new().size(width, height));
+    let mut t = Tester::with(options);
     // The app under the overlay `run_app` puts above it.
     t.pump_widget(localized(root(app_view(app)), Lang::En));
     t.pump_for(ms(200));
