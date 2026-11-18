@@ -17,27 +17,105 @@ pub const NAME: &str = "select";
 pub const ID: &str = "S14";
 pub const KIND: Kind = Kind::Dialog;
 
+/// A model of the picker: its name, description and whether it is the one in use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelRow {
+    pub name: String,
+    pub description: String,
+    pub current: bool,
+}
+
+/// The permission presets of `/permissions`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    /// Read and edit workspace files, approval for the rest.
+    Ask,
+    /// No approvals, no sandbox.
+    Full,
+}
+
+/// A menu the generic selection dialog shows; one variant per
+/// parameterisation, its rows data (the words are the view's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Menu {
+    Models(Vec<ModelRow>),
+    Permissions { current: Option<Access> },
+}
+
+impl Menu {
+    /// How many rows the menu has.
+    pub fn len(&self) -> usize {
+        match self {
+            Menu::Models(rows) => rows.len(),
+            Menu::Permissions { .. } => 2,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// What the user picked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Picked {
+    Model(String),
+    Access(Access),
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    /// The menu open now.
+    pub menu: Option<Menu>,
+    /// Picks made; the effect that stores them is the settings slice's.
+    pub picked: Vec<Picked>,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    /// A menu was opened.
+    Opened(Menu),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
+pub enum Intent {
+    /// The row at this index was picked: the menu closes.
+    Pick(usize),
+    /// The menu was closed without a pick.
+    Close,
+}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::Opened(menu) => model.menu = Some(menu),
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {}
+    let _ = fx;
+    match intent {
+        Intent::Pick(index) => {
+            let picked = match &model.menu {
+                Some(Menu::Models(rows)) => rows.get(index).map(|row| Picked::Model(row.name.clone())),
+                Some(Menu::Permissions { .. }) => match index {
+                    0 => Some(Picked::Access(Access::Ask)),
+                    1 => Some(Picked::Access(Access::Full)),
+                    _ => None,
+                },
+                None => None,
+            };
+            if let Some(picked) = picked {
+                model.picked.push(picked);
+                model.menu = None;
+            }
+        }
+        Intent::Close => model.menu = None,
+    }
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -89,10 +167,53 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// A script's `screen` step for this directory: the event `value` stands for
-/// (`fixtures::script`). None is seedable yet; the slice gives its events a
-/// serde form here and reads it, so the shared loader never changes.
+/// The seed form of this screen's events:
+/// `{"kind":"models","rows":[{"name":..,"description":..,"current":true}]}` and
+/// `{"kind":"permissions","current":"ask"}`.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    Models { rows: Vec<SeedRow> },
+    Permissions {
+        #[serde(default)]
+        current: Option<SeedAccess>,
+    },
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedRow {
+    name: String,
+    description: String,
+    #[serde(default)]
+    current: bool,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SeedAccess {
+    Ask,
+    Full,
+}
+
+/// A script's `screen` step for this directory.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    Ok(Ev::Opened(match seed {
+        SeedEv::Models { rows } => Menu::Models(
+            rows.into_iter()
+                .map(|row| ModelRow {
+                    name: row.name,
+                    description: row.description,
+                    current: row.current,
+                })
+                .collect(),
+        ),
+        SeedEv::Permissions { current } => Menu::Permissions {
+            current: current.map(|access| match access {
+                SeedAccess::Ask => Access::Ask,
+                SeedAccess::Full => Access::Full,
+            }),
+        },
+    }))
 }

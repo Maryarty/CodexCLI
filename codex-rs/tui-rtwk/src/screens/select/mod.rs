@@ -1,66 +1,51 @@
-//! `select`: the view half of the slot of S14 (generic selection dialog), the `mock-dialogs` task's to fill. It
-//! holds the empty form the skeleton registers: a screen widget, its opener
-//! and the debug-menu entries. Its model part, events, intents and RPCs are
-//! core's `codex_tui_rtwk_core::screens::select`. Nothing outside these two
-//! directories (bar their test files) needs an edit when it grows.
+//! `select`: the view half of S14 (the generic selection dialog), with two
+//! parameterisations: the model picker and the permissions menu. The rows are
+//! the model's (`core::screens::select::Menu`), read through a provider
+//! projection; the dialog returns a pick as an intent (ids, not data).
+//! Oracle: `bottom_pane/list_selection_view.rs`.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
-use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+mod dialog;
 
-use codex_tui_rtwk_core::screens::select::{ID, NAME};
+use rtwk::AnyWidget;
+use rtwk::Cx;
+use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: one entry per
+/// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![
+        DebugEntry {
+            name: "model_picker",
+            description: "three models, the first in use",
+            script: include_str!("fixtures/model_picker.jsonl"),
+            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
+        },
+        DebugEntry {
+            name: "permissions_menu",
+            description: "the /permissions menu",
+            script: include_str!("fixtures/permissions_menu.jsonl"),
+            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
+        },
+    ]
 }
 
-/// Opens the dialog from the widget that asks (`show_dialog`); the result
-/// returns to the model through a handler, as an intent with its ticket.
+/// Opens the dialog from the widget that asks (`show_dialog`); it reads the
+/// menu the model holds, and a pick returns to the model as an intent.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    let title = strings::of(cx).title;
     show_dialog(
         cx,
-        move |_| Dialog::new(Screen).title(title).into(),
+        move |_| dialog::MenuDialog.into(),
         DialogOptions::default(),
     )
 }
 
-/// Opens the empty form of this slot (debug menu).
+/// Opens the first parameterisation (debug menu, no seeded model).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|lang| Dialog::new(Screen).title(strings::title(lang)).into())
-}
-
-/// The empty screen widget of this slot.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
-
-/// Widget state: ids, drafts and controllers only (R14).
-#[derive(Debug)]
-pub struct ScreenState;
-
-impl StatefulWidget for Screen {
-    type State = ScreenState;
-
-    fn create_state(&self) -> ScreenState {
-        ScreenState
-    }
-}
-
-impl_widget!(stateful eq Screen);
-
-impl State for ScreenState {
-    type Widget = Screen;
-    type Msg = ();
-
-    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let shared = crate::l10n::strings::of(cx);
-        Text::new(shared.empty_slot(NAME, ID).to_string()).into()
-    }
+    DebugOpen::Dialog(|_| AnyWidget::default())
 }

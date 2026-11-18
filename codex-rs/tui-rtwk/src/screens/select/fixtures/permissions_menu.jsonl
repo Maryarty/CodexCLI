@@ -1,0 +1,4 @@
+# The /permissions menu with no row marked in use (the oracle's test marks none).
+# Oracle data: chatwidget/tests/permissions.rs:442 approvals_selection_popup_snapshot
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"permissions"}}
