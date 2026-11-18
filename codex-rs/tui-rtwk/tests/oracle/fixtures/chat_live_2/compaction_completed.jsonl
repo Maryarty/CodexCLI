@@ -1,0 +1,2 @@
+# The oracle's compaction_completed("compact-1"): the item completes, the status returns to Working.
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"compact-1"},"threadId":"thread-1","turnId":"turn-1","startedAtMs":null,"completedAtMs":0}}}
