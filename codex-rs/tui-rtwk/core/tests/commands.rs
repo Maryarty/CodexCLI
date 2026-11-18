@@ -5,6 +5,8 @@
 //! `chatwidget/tests/slash_commands.rs`); two tests read the oracle's source
 //! itself (the enum order, the command strings).
 
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
+
 use codex_tui_rtwk_core::commands::*;
 use pretty_assertions::assert_eq;
 

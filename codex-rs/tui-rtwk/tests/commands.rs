@@ -2,6 +2,8 @@
 //! text, read from its source), and what a line that does not open a screen
 //! leads to in the composer (the oracle's messages, `slash_dispatch.rs`).
 
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
+
 use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::screens::chat::strings;
 use codex_tui_rtwk_core::commands::SlashCommand;
@@ -84,9 +86,14 @@ fn send(h: &mut Harness, line: &str) {
 fn unrecognized_slash_command_shows_the_oracles_message_and_keeps_the_draft() {
     let mut h = chat();
     send(&mut h, "/does-not-exist");
+    // The notice goes through the model (an intent), which answers on the
+    // runtime thread: the screen is waited for, not pumped.
+    h.wait_for("the notice", |s| s.contains("Unrecognized command"));
     let screen = h.t.screen();
+    // The oracle's line wraps at the width: the words are what is compared.
+    let words = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        screen.contains(
+        words.contains(
             r#"Unrecognized command '/does-not-exist'. Type "/" for a list of supported commands."#
         ),
         "{screen}"
@@ -112,12 +119,9 @@ fn a_command_that_needs_the_session_says_it_is_not_available_yet() {
     for line in ["/compact", "/init", "/new", "/fork", "/copy", "/mcp"] {
         let mut h = chat();
         send(&mut h, line);
-        let screen = h.t.screen();
         let name = line.trim_start_matches('/');
-        assert!(
-            screen.contains(&format!("'/{name}' is not available yet.")),
-            "{line}:\n{screen}"
-        );
+        let message = format!("'/{name}' is not available yet.");
+        h.wait_for(&message, |s| s.contains(&message));
     }
 }
 
@@ -139,7 +143,7 @@ fn usage_notices_of_the_oracle() {
     ] {
         let mut h = chat();
         send(&mut h, line);
-        assert!(h.t.screen().contains(message), "{line}:\n{}", h.t.screen());
+        h.wait_for(message, |s| s.contains(message));
     }
 }
 
@@ -160,10 +164,6 @@ fn a_command_is_disabled_while_a_task_runs() {
     send(&mut h, "work");
     h.wait_for("working", |s| s.contains("working"));
     send(&mut h, "/clear");
-    assert!(
-        h.t.screen()
-            .contains("'/clear' is disabled while a task is in progress."),
-        "{}",
-        h.t.screen()
-    );
+    let message = "'/clear' is disabled while a task is in progress.";
+    h.wait_for(message, |s| s.contains(message));
 }

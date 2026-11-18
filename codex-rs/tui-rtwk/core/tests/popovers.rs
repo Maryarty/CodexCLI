@@ -3,6 +3,8 @@
 //! (substring, case-insensitive, newest first; the end of the matches keeps
 //! the current one).
 
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
+
 use codex_tui_rtwk_core::screens::composer::{Trigger, TriggerKind, trigger};
 use codex_tui_rtwk_core::screens::popovers::*;
 use pretty_assertions::assert_eq;
@@ -72,7 +74,11 @@ fn model() -> Model {
                 insert: "sample".into(),
             },
         ],
-        history: vec!["cargo build".into(), "git status".into(), "cargo test".into()],
+        history: vec![
+            "cargo build".into(),
+            "git status".into(),
+            "cargo test".into(),
+        ],
         search: None,
     }
 }

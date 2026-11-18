@@ -11,13 +11,20 @@ use codex_tui_rtwk_core::screens::popovers::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
+use crate::ui::seeded::Seeded;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: the real chat composer on
+/// the data a script seeds (files, skills, plugins, history, tiers).
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![DebugEntry {
+        name: "composer_popups",
+        description: "the chat composer and its popups",
+        script: include_str!("fixtures/composer_popups.jsonl"),
+        open: EntryOpen::Route(|seeded: &Seeded| crate::screens::chat::seeded(seeded)),
+    }]
 }
 
 /// The part as a widget, placed by the chat screen's subtree.

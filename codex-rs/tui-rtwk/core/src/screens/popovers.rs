@@ -97,11 +97,11 @@ impl Model {
             }
         }
         for mention in &self.mentions {
-            let wanted = match (sigil, mention.kind) {
-                (Sigil::Dollar, MentionKind::Skill | MentionKind::App) => true,
-                (Sigil::At, MentionKind::Plugin | MentionKind::App) => true,
-                _ => false,
-            };
+            let wanted = matches!(
+                (sigil, mention.kind),
+                (Sigil::Dollar, MentionKind::Skill | MentionKind::App)
+                    | (Sigil::At, MentionKind::Plugin | MentionKind::App)
+            );
             if !wanted {
                 continue;
             }

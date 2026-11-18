@@ -5,6 +5,8 @@
 //! The data (files, skills, plugins, history) is seeded by the fixture script
 //! of the `composer_popups` debug entry, never handed to a widget.
 
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
+
 use crate::common::{Harness, ms, start_debug};
 
 fn open_chat() -> Harness {
@@ -35,9 +37,12 @@ fn snap(name: &str) -> String {
     std::fs::read_to_string(file).expect("read")
 }
 
-/// One row as text: the marker gone, runs of blanks as one.
+/// One row as text: the markers (the selection's and the scrollbar's) gone, runs of blanks as one.
 fn norm(line: &str) -> String {
-    let line = line.trim().trim_start_matches('›').trim_start_matches('▸');
+    let line = line
+        .trim()
+        .trim_start_matches(['›', '▸', '▎'])
+        .trim_end_matches('▐');
     line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -204,8 +209,9 @@ fn a_picked_skill_is_inserted_with_its_sigil_and_a_space() {
     type_in(&mut h, "$sha");
     h.press("down");
     h.press("enter");
-    h.t.pump_for(ms(200));
-    assert!(h.t.screen().contains("$shared "), "{}", h.t.screen());
+    // A blank follows the pick: what is typed next stands apart from it.
+    type_in(&mut h, "x");
+    assert!(h.t.screen().contains("$shared x"), "{}", h.t.screen());
 }
 
 // ------------------------------------------------------------ mentions and files
@@ -260,10 +266,10 @@ fn a_picked_file_is_inserted_as_an_at_path() {
     let mut h = open_chat();
     type_in(&mut h, "@parser_a");
     h.press("enter");
-    h.t.pump_for(ms(200));
+    type_in(&mut h, "x");
     assert!(
         h.t.screen()
-            .contains("@src/shared/long_directory/parser_alpha.rs "),
+            .contains("@src/shared/long_directory/parser_alpha.rs x"),
         "{}",
         h.t.screen()
     );
