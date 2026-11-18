@@ -134,7 +134,7 @@ fn usage_notices_of_the_oracle() {
         ),
         (
             "/mcp login",
-            "Usage: /mcp login <name> [--environment <id>]",
+            "Usage: /mcp [verbose | login <name> [--environment <id>]]",
         ),
     ] {
         let mut h = chat();
