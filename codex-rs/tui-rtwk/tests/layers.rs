@@ -350,5 +350,8 @@ fn views_read_projections_not_core_held_protocol_values() {
         &["row.thread", ".estimate", "RowData { thread"],
         |_| false,
     );
-    assert!(found.is_empty(), "a view reads a protocol value: {found:#?}");
+    assert!(
+        found.is_empty(),
+        "a view reads a protocol value: {found:#?}"
+    );
 }
