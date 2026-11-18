@@ -26,11 +26,12 @@ use rtwk_core::style::Attrs;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::agents::{
     Center, CenterRow, DetailLine, Group, GroupLabel, Grouping, Model, RowData, Sel,
-    display_directory, format_tokens_compact,
+    display_directory,
 };
 
 use super::layout;
 use super::strings::Strings;
+use super::usage;
 
 /// The styles of the screen, taken from the theme.
 #[derive(Clone)]
@@ -317,6 +318,8 @@ pub fn empty_text<'a>(strings: &'a Strings, model: &Model, no_rows: bool) -> &'a
     use codex_tui_core::screens::agents::Notice;
     if matches!(model.notice, Some(Notice::Reconnecting | Notice::ReconnectFailed)) {
         strings.reconnecting_empty
+    } else if model.history.is_some() {
+        strings.no_match
     } else if model.paging.loading && no_rows {
         strings.loading
     } else if model.paging.failed {
@@ -348,7 +351,15 @@ fn entry(
         }
         CenterRow::ShowMore => {
             let fill = if selected { look.selection.clone() } else { look.plain.clone() };
-            let label = if model.paging.loading {
+            let label = if let Some(history) = &model.history {
+                if history.loading {
+                    strings.searching_history
+                } else if history.failed {
+                    strings.retry
+                } else {
+                    strings.show_more_matches
+                }
+            } else if model.paging.loading {
                 strings.loading_more
             } else if model.paging.failed {
                 strings.retry
@@ -548,6 +559,14 @@ fn wrapped(text: &str, style: &Style, width: usize) -> Vec<Line> {
         .collect()
 }
 
+/// Whether the account's plan is billed directly in dollars (oracle:
+/// `PlanType::Ent26`), which hides the credits and shows the native cost.
+/// The plan is a protocol type a view never names: core has to answer this
+/// (handover: `Model::plan_bills_in_dollars`); until it does, no plan is.
+fn bills_in_dollars(_model: &Model) -> bool {
+    false
+}
+
 /// The details of the highlighted row (oracle: `render_details`).
 pub fn details(
     look: &Look,
@@ -577,9 +596,9 @@ pub fn details(
     ];
     let mut head: Vec<Line> = lines.split_off(0);
     head.extend(wrapped(&row.thread.cwd.display().to_string(), &look.plain, width));
-    if let Some((input, output)) = row.details.tokens {
-        let value = strings.tokens_line(&format_tokens_compact(input), &format_tokens_compact(output), num);
-        head.push(vec![span(strings.tokens, &look.dim), span(value, &look.plain)]);
+    let usage_lines = usage::lines(strings, num, &row.details.usage, bills_in_dollars(model));
+    for line in &usage_lines {
+        head.push(vec![span(line.label, &look.dim), span(line.value.clone(), &look.plain)]);
     }
     if let Some(branch) = row.thread.git_info.as_ref().and_then(|git| git.branch.as_ref()) {
         head.push(Vec::new());
@@ -630,7 +649,7 @@ pub fn details(
             | codex_tui_core::screens::agents::Notice::ReconnectFailed)
     );
     if !offline && !activity.is_empty() {
-        if row.details.tokens.is_some() && activity.len() > height.saturating_sub(lines.len()) {
+        if !usage_lines.is_empty() && activity.len() > height.saturating_sub(lines.len()) {
             lines.truncate(prompt_start);
         }
         let available = height.saturating_sub(lines.len());
@@ -670,7 +689,10 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
         Some(Notice::CreatingWorktree) => Some(strings.creating_worktree.to_owned()),
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
         Some(Notice::ServerVersion(text) | Notice::Error(text)) => Some(text.clone()),
-        None => (model.paging.failed && !model.paging.loading).then(|| strings.load_failed.to_owned()),
+        None => {
+            let failed = model.paging.failed || model.history.as_ref().is_some_and(|history| history.failed);
+            (failed && !model.paging.loading).then(|| strings.load_failed.to_owned())
+        }
     };
     if let Some(text) = notice.filter(|_| !model.help) {
         return vec![span(text, &look.dim)];

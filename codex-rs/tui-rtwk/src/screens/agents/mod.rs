@@ -14,6 +14,7 @@ use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::binding::AppBinding;
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, watch};
 use rtwk::style::Theme;
@@ -31,6 +32,7 @@ use crate::ui::view::Hs;
 
 mod layout;
 pub mod strings;
+mod usage;
 mod view;
 
 /// What the debug menu lists for this directory.
@@ -197,9 +199,23 @@ pub struct ScreenState {
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     listening: Option<Listening>,
     editing: Editing,
+    /// What the usage request of the highlighted task depends on, as the
+    /// screen last saw it: a change asks the model for it (oracle: the
+    /// repaint of the view asks).
+    usage_seen: Option<UsageKey>,
     /// How many resumes the model had answered when the screen opened: one
     /// more means a session was opened from here.
     entered: Option<u32>,
+}
+
+/// What the usage request depends on: the highlighted task, when its
+/// estimate was fetched, whether a request is in flight, the clock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UsageKey {
+    thread: Option<String>,
+    fetched_at: Option<i64>,
+    pending: bool,
+    now: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -234,6 +250,7 @@ impl StatefulWidget for Screen {
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
             listening: None,
             editing: Editing::No,
+            usage_seen: None,
             entered: None,
         }
     }
@@ -275,6 +292,7 @@ fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> 
     }
     match (key.code, text) {
         (KeyCode::Backspace, _) => Some(AgentsIntent::Delete),
+        (KeyCode::Right, _) if !shift => Some(AgentsIntent::Right),
         (_, Some("?")) => Some(AgentsIntent::ToggleHelp),
         (_, Some("g")) => Some(AgentsIntent::CycleGrouping),
         (_, Some("/")) => Some(AgentsIntent::BeginSearch),
@@ -285,7 +303,19 @@ fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> 
         (_, Some("p")) => Some(AgentsIntent::TogglePin),
         (_, Some("x")) => Some(AgentsIntent::Stop),
         (_, Some("o")) => Some(AgentsIntent::Accept),
+        (_, Some("f")) => Some(AgentsIntent::Fork),
+        (_, Some("w")) => Some(AgentsIntent::NewWorktree),
         _ => None,
+    }
+}
+
+impl ScreenState {
+    /// The keys go to what the mode shows once the frame that shows it is
+    /// out: the widget a mode drops lets go of the focus with the frame, and
+    /// the one it adds (or frees from `ExcludeFocus`) cannot take it before.
+    fn refocus_after_frame(&self, cx: &mut Cx<'_, Self>) {
+        let refocus = cx.map(|_: std::time::Duration| Msg::Refocus);
+        AppBinding::of(cx).add_post_frame_callback(refocus);
     }
 }
 
@@ -328,10 +358,24 @@ impl State for ScreenState {
                 self.selection.select(key);
             }
         }
+        let thread = center.selected_row().map(|row| row.id().to_owned());
+        let usage_key = UsageKey {
+            fetched_at: thread
+                .as_ref()
+                .and_then(|id| model.usage.get(id))
+                .and_then(|usage| usage.fetched_at),
+            thread,
+            pending: model.pending_usage.is_some(),
+            now: model.now,
+        };
+        if self.usage_seen.as_ref() != Some(&usage_key) {
+            self.usage_seen = Some(usage_key);
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::NeedUsage));
+        }
         if model.help != self.helping {
             self.helping = model.help;
-            let refocus = cx.send(Msg::Refocus);
-            cx.emit(&refocus, ());
+            self.refocus_after_frame(cx);
         }
         let editing = match (&model.rename, model.searching) {
             (Some(rename), _) => Editing::Rename(rename.target.clone()),
@@ -355,8 +399,7 @@ impl State for ScreenState {
                 Editing::No => {}
             }
             self.editing = editing;
-            let refocus = cx.send(Msg::Refocus);
-            cx.emit(&refocus, ());
+            self.refocus_after_frame(cx);
         }
     }
 

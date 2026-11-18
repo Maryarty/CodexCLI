@@ -75,6 +75,8 @@ pub struct Strings {
     pub show_more: &'static str,
     pub loading_more: &'static str,
     pub retry: &'static str,
+    pub searching_history: &'static str,
+    pub show_more_matches: &'static str,
     pub reconnecting_empty: &'static str,
     pub loading: &'static str,
     pub load_failed_empty: &'static str,
@@ -96,6 +98,8 @@ pub struct Strings {
     pub tokens_in: Msg<1>,
     pub tokens_out: Msg<1>,
     pub tokens_sep: &'static str,
+    pub est_usage: &'static str,
+    credits: Msg<1>,
     pub branch: &'static str,
     pub last_message: &'static str,
     pub latest_activity: &'static str,
@@ -173,6 +177,8 @@ pub const EN: Strings = Strings {
     show_more: "Show more",
     loading_more: "Loading more\u{2026}",
     retry: "Show more (retry)",
+    searching_history: "Searching history\u{2026}",
+    show_more_matches: "Show more matches",
     reconnecting_empty: "Reconnecting\u{2026}",
     loading: "Loading tasks\u{2026}",
     load_failed_empty: "Could not load tasks",
@@ -193,6 +199,8 @@ pub const EN: Strings = Strings {
     tokens_in: msg!("{0} in"),
     tokens_out: msg!("{0} out"),
     tokens_sep: " \u{b7} ",
+    est_usage: "Est. usage: ",
+    credits: msg!("{0} credits"),
     branch: "Branch",
     last_message: "Last message",
     latest_activity: "Latest activity",
@@ -276,10 +284,20 @@ impl Strings {
         .to_string()
     }
 
-    pub fn tokens_line(&self, input: &str, output: &str, num: &NumSyms) -> String {
-        let a = Fmt::new(self.tokens_in, [Arg::Text(input)], num).to_string();
-        let b = Fmt::new(self.tokens_out, [Arg::Text(output)], num).to_string();
-        format!("{a}{}{b}", self.tokens_sep)
+    /// `12 in · 3 out`: the parts that are known.
+    pub fn tokens_line(&self, input: Option<&str>, output: Option<&str>, num: &NumSyms) -> String {
+        let a = input.map(|input| Fmt::new(self.tokens_in, [Arg::Text(input)], num).to_string());
+        let b = output.map(|output| Fmt::new(self.tokens_out, [Arg::Text(output)], num).to_string());
+        [a, b].into_iter().flatten().collect::<Vec<_>>().join(self.tokens_sep)
+    }
+
+    pub fn credits(&self, amount: &str, num: &NumSyms) -> String {
+        Fmt::new(self.credits, [Arg::Text(amount)], num).to_string()
+    }
+
+    /// The values of the `Est. usage:` line, joined.
+    pub fn join_values(&self, values: &[String]) -> String {
+        values.join(self.tokens_sep)
     }
 
     pub fn agent(&self, name: &str, num: &NumSyms) -> String {

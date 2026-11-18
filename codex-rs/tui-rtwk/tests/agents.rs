@@ -24,7 +24,23 @@ fn app_oracle(name: &str) -> Vec<String> {
 /// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
 /// the footer reads `tab/⇧tab`, as the view writes it there).
 fn assert_app(h: &Harness, name: &str) {
-    oracle_snap::assert_same(name, &oracle_snap::screen(&h.t), &app_oracle(name));
+    let actual: Vec<String> = oracle_snap::screen(&h.t).iter().map(|row| as_snapshot_cells(row)).collect();
+    oracle_snap::assert_same(name, &actual, &app_oracle(name));
+}
+
+/// The oracle's snapshot writer prints the empty second cell of a wide
+/// character as a space (`日 本 語`); the screen's text has none. A
+/// comparison-only normalization of our rows to the snapshot's form.
+fn as_snapshot_cells(row: &str) -> String {
+    let wide = |c: char| ('\u{2e80}'..='\u{ffff}').contains(&c) && c != '\u{2022}';
+    let mut out = String::new();
+    for c in row.chars() {
+        out.push(c);
+        if wide(c) {
+            out.push(' ');
+        }
+    }
+    out.trim_end().to_owned()
 }
 
 fn open(entry: &str, width: u16, height: u16) -> Harness {
@@ -272,11 +288,13 @@ fn live_center_metadata_clips_at_grapheme_boundaries() {
         assert!(prompt.trim_end().ends_with("👩\u{200d}💻"), "{rendered}");
         h.t.assert_cursor(36, 3);
         if key == "r" {
+            // The oracle snapshots the 40-column render, then asks for the
+            // cursor of a 24-column area.
+            assert_app(&h, "command_center__live_center_narrow_rename");
             h.t.resize(24, 18);
             h.settle();
             let (x, _) = h.t.cursor();
             assert!(x < 24, "cursor at {x}");
-            assert_app(&h, "command_center__live_center_narrow_rename");
             h.t.resize(40, 18);
             h.settle();
         }
