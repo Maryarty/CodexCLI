@@ -56,9 +56,27 @@ impl ConnEpoch {
     }
 }
 
-/// The id of one of our own RPCs; its reply carries it back (R1, R3).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Ticket(pub u64);
+/// The id of one of our own RPCs; its reply carries it back (R1, R3). Not
+/// forgeable: only the app's `TicketMint` makes one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Ticket(u64);
+
+impl Ticket {
+    pub(crate) fn new(n: u64) -> Self {
+        Self(n)
+    }
+}
+
+/// The one source of tickets, kept by the app.
+#[derive(Clone, Debug, Default)]
+pub struct TicketMint(u64);
+
+impl TicketMint {
+    pub(crate) fn next(&mut self) -> Ticket {
+        self.0 += 1;
+        Ticket::new(self.0)
+    }
+}
 
 /// A request the user answers: scoped by connection, thread and request id
 /// (R3).

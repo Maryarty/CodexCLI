@@ -3,9 +3,13 @@
 //! `ScreenIntent` variants, their dispatch and the registry the debug menu
 //! reads. A slice edits only its own directory.
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
 use rtwk::AnyWidget;
 
 use crate::app::AppFx;
+use crate::ids::ThreadId;
+use crate::threads::ThreadFx;
 
 /// Where a slot shows up in the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +60,90 @@ macro_rules! screen_dirs {
         #[derive(Clone, Debug, Default, PartialEq, Eq)]
         pub struct ScreenStates {
             $(pub $dir: $dir::Model,)*
+        }
+
+        /// The per-thread parts of every screen: part of each `ThreadModel`.
+        #[derive(Clone, Debug, Default, PartialEq, Eq)]
+        pub struct ThreadSlots {
+            $(pub $dir: $dir::ThreadPart,)*
+        }
+
+        /// The thread events of every screen: `ThreadEv::Screen`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum ScreenThreadEv {
+            $($variant($dir::ThreadEv),)*
+        }
+
+        /// The RPCs of every screen: `Command::Screen`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum ScreenCommand {
+            $($variant($dir::Command),)*
+        }
+
+        /// The replies of every screen's RPCs: `Reply::screen`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum ScreenReply {
+            $($variant($dir::Reply),)*
+        }
+
+        /// What every screen's outgoing RPCs are for.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum ScreenCtx {
+            $($variant($dir::Ctx),)*
+        }
+
+        $(
+        impl From<$dir::ThreadEv> for ScreenThreadEv {
+            fn from(ev: $dir::ThreadEv) -> Self { Self::$variant(ev) }
+        }
+        impl From<$dir::Command> for ScreenCommand {
+            fn from(command: $dir::Command) -> Self { Self::$variant(command) }
+        }
+        impl From<$dir::Reply> for ScreenReply {
+            fn from(reply: $dir::Reply) -> Self { Self::$variant(reply) }
+        }
+        impl From<$dir::Ctx> for ScreenCtx {
+            fn from(ctx: $dir::Ctx) -> Self { Self::$variant(ctx) }
+        }
+        )*
+
+        /// Applies a thread event to its screen's part of the thread.
+        pub fn apply_thread_ev(slots: &mut ThreadSlots, ev: ScreenThreadEv, fx: &mut ThreadFx<'_>) {
+            match ev {
+                $(ScreenThreadEv::$variant(ev) => $dir::apply_thread(&mut slots.$dir, ev, fx),)*
+            }
+        }
+
+        /// Applies the reply of a screen's RPC to its part of the thread.
+        pub fn apply_reply(
+            slots: &mut ThreadSlots,
+            ctx: ScreenCtx,
+            result: Result<ScreenReply, String>,
+            fx: &mut ThreadFx<'_>,
+        ) {
+            match ctx {
+                $(ScreenCtx::$variant(ctx) => {
+                    let result = result.and_then(|reply| match reply {
+                        ScreenReply::$variant(reply) => Ok(reply),
+                        _ => Err("a reply of another screen".to_string()),
+                    });
+                    $dir::apply_reply(&mut slots.$dir, ctx, result, fx)
+                })*
+            }
+        }
+
+        /// The wire request of a screen's RPC.
+        pub fn wire(command: &ScreenCommand, thread: &ThreadId, id: RequestId) -> ClientRequest {
+            match command {
+                $(ScreenCommand::$variant(command) => $dir::wire(command, thread, id),)*
+            }
+        }
+
+        /// Decodes the JSON result of a screen's RPC.
+        pub fn decode(command: &ScreenCommand, result: serde_json::Value) -> Result<ScreenReply, String> {
+            match command {
+                $(ScreenCommand::$variant(command) => $dir::decode(command, result).map(ScreenReply::$variant),)*
+            }
         }
 
         /// The events of every screen, one variant per directory.

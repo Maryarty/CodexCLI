@@ -32,12 +32,13 @@ use codex_protocol::protocol::SessionSource;
 use codex_tui_rtwk::app::AppEv;
 use codex_tui_rtwk::app::BackendEv;
 use codex_tui_rtwk::app::Command;
-use codex_tui_rtwk::app::Reply;
 use codex_tui_rtwk::ids::ConnEpoch;
 use codex_tui_rtwk::ids::RequestKey;
 use codex_tui_rtwk::ids::ThreadId;
 use codex_tui_rtwk::ids::Ticket;
 use codex_tui_rtwk::ids::TurnId;
+use codex_tui_rtwk::rpc::Reply;
+use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
@@ -160,7 +161,7 @@ async fn run(
             },
             command = commands.recv() => match command {
                 None => break,
-                Some(Command::RejectRequest { key }) => reject(&client, &key).await,
+                Some(Command::RejectRequest { key, .. }) => reject(&client, &key).await,
                 Some(command) => {
                     next_id += 1;
                     inflight.push(request(command, handle.clone(), RequestId::Integer(next_id)));
@@ -188,7 +189,7 @@ async fn request(
     request_id: RequestId,
 ) -> (Ticket, Reply) {
     match command {
-        Command::StartThread { ticket } => {
+        Command::StartThread { ticket, .. } => {
             let reply = match handle
                 .request_typed::<ThreadStartResponse>(ClientRequest::ThreadStart {
                     request_id,
@@ -196,10 +197,8 @@ async fn request(
                 })
                 .await
             {
-                Ok(response) => Reply::ThreadStarted {
-                    thread: ThreadId::new(response.thread.id),
-                },
-                Err(error) => Reply::Failed(format!("thread/start: {error}")),
+                Ok(response) => Reply::thread_started(ThreadId::new(response.thread.id)),
+                Err(error) => Reply::failed(format!("thread/start: {error}")),
             };
             (ticket, reply)
         }
@@ -207,6 +206,7 @@ async fn request(
             ticket,
             thread,
             text,
+            ..
         } => {
             let reply = match handle
                 .request_typed::<TurnStartResponse>(ClientRequest::TurnStart {
@@ -222,11 +222,28 @@ async fn request(
                 })
                 .await
             {
-                Ok(response) => Reply::TurnStarted {
-                    thread,
-                    turn: TurnId::new(response.turn.id),
+                Ok(response) => Reply::turn_started(thread, TurnId::new(response.turn.id)),
+                Err(error) => Reply::failed(format!("turn/start: {error}")),
+            };
+            (ticket, reply)
+        }
+        Command::Screen {
+            ticket,
+            thread,
+            command,
+            ..
+        } => {
+            // A slot's RPC: the slot's `wire` makes the request and its
+            // `decode` reads the result.
+            let reply = match handle
+                .request_typed::<serde_json::Value>(screens::wire(&command, &thread, request_id))
+                .await
+            {
+                Ok(result) => match screens::decode(&command, result) {
+                    Ok(reply) => Reply::screen(reply),
+                    Err(error) => Reply::failed(error),
                 },
-                Err(error) => Reply::Failed(format!("turn/start: {error}")),
+                Err(error) => Reply::failed(error.to_string()),
             };
             (ticket, reply)
         }

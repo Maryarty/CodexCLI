@@ -27,10 +27,10 @@ use crate::app::AppEv;
 use crate::app::BackendEv;
 use crate::app::Command;
 use crate::app::Ingress;
-use crate::app::Reply;
 use crate::ids::ConnEpoch;
 use crate::ids::ThreadId;
 use crate::ids::TurnId;
+use crate::rpc::Reply;
 use crate::shell::IngressTx;
 
 /// The id of the one thread the fake starts.
@@ -135,9 +135,7 @@ pub(crate) async fn run(
         match command {
             Command::StartThread { ticket } => emit(AppEv::Reply(
                 ticket,
-                Reply::ThreadStarted {
-                    thread: ThreadId::new(FAKE_THREAD),
-                },
+                Reply::thread_started(ThreadId::new(FAKE_THREAD)),
             )),
             Command::StartTurn {
                 ticket,
@@ -148,10 +146,7 @@ pub(crate) async fn run(
                 let turn_id = format!("turn-{n}");
                 emit(AppEv::Reply(
                     ticket,
-                    Reply::TurnStarted {
-                        thread: thread.clone(),
-                        turn: TurnId::new(&turn_id),
-                    },
+                    Reply::turn_started(thread.clone(), TurnId::new(&turn_id)),
                 ));
                 // As the server does: the turn starts, the user message
                 // is echoed back as an item.
@@ -166,7 +161,8 @@ pub(crate) async fn run(
                     emit(AppEv::Backend(event));
                 }
             }
-            Command::RejectRequest { .. } => {}
+            // Slot RPCs are recorded; a test replies with `inject`.
+            Command::RejectRequest { .. } | Command::Screen { .. } => {}
         }
     }
 }

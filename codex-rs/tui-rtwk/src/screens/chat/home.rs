@@ -7,16 +7,18 @@ use std::rc::Rc;
 use rtwk::editing::TextArea;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded};
-use rtwk::prelude::Mods;
-use rtwk::provider::{read, watch};
+use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::prelude::{KeyCode, Mods};
+use rtwk::provider::{read, select, watch};
 use rtwk::scroll::ListView;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use crate::app::{Session, SessionSlice};
+use crate::ids::{ThreadId, Ticket};
 use crate::theme;
 use crate::threads::{Item, ThreadModel};
-use crate::ui::presenter::Presenter;
+use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
 
@@ -32,19 +34,25 @@ impl PartialEq for Chat {
     }
 }
 
-pub struct ChatState;
+/// What the composer last saw of its thread: the thread and the ticket of the
+/// last submit the model accepted (ids only, R14).
+pub struct ChatState {
+    seen: Option<(ThreadId, Option<Ticket>)>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatMsg {
     Submit(Rc<str>),
     Quit,
+    /// The hidden key: the debug menu over the chat.
+    DebugMenu,
 }
 
 impl StatefulWidget for Chat {
     type State = ChatState;
 
     fn create_state(&self) -> ChatState {
-        ChatState
+        ChatState { seen: None }
     }
 }
 
@@ -54,19 +62,37 @@ impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
 
-    fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn did_change_dependencies(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
+        // The composer clears when the model accepted (or queued) the
+        // message, not when it was sent: a change of the last accepted
+        // ticket in the same thread.
+        let now = select::<ThreadModel, (ThreadId, Option<Ticket>), _>(cx, |thread| {
+            (thread.id.clone(), thread.last_submit)
+        });
+        if let Some((thread, before)) = &self.seen
+            && *thread == now.0
+            && *before != now.1
+            && now.1.is_some()
+        {
+            w.ui.composer.clear();
+        }
+        self.seen = Some(now);
+    }
+
+    fn update(&mut self, msg: ChatMsg, _w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
         match msg {
             ChatMsg::Submit(text) => {
-                // The decision is `apply`'s (R10): a submit while a turn runs
-                // is refused there. The composer's queueing of such a
-                // message is S10's (parity pack, delta).
+                // The decision is `apply`'s (R10): it starts a turn or queues
+                // the message; the composer clears when it has.
                 if !text.trim().is_empty() {
                     cx.emit(&hs.submit, text.to_string());
-                    w.ui.composer.clear();
                 }
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
+            ChatMsg::DebugMenu => {
+                drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
+            }
         }
         Rebuild::No
     }
@@ -101,13 +127,18 @@ impl State for ChatState {
             .max_lines(6)
             .autofocus(true)
             .on_submitted(cx.map(ChatMsg::Submit));
-        let body = Column::new()
+        let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
-            .child(status)
-            .child(composer)
-            .child(Presenter { child: None });
+            .child(status);
+        for text in &thread.queue {
+            body = body.child(Text::new(format!("(queued) {text}")).style(theme::dim()));
+        }
+        let body = body.child(composer);
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);
-        Focus::new(body).bind(quit, cx.send(ChatMsg::Quit)).into()
+        Focus::new(body)
+            .bind(quit, cx.send(ChatMsg::Quit))
+            .bind(KeyPress::code(KeyCode::F12), cx.send(ChatMsg::DebugMenu))
+            .into()
     }
 }

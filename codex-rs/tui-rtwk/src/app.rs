@@ -18,8 +18,12 @@ use crate::ids::RequestKey;
 use crate::ids::ServerRequestId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
-use crate::ids::TurnId;
+use crate::ids::TicketMint;
+use crate::rpc::Answer;
+use crate::rpc::Pending;
+use crate::rpc::Reply;
 use crate::screens;
+use crate::screens::ScreenCommand;
 use crate::screens::ScreenEv;
 use crate::screens::ScreenIntent;
 use crate::screens::ScreenStates;
@@ -81,14 +85,6 @@ pub enum BackendEv {
     Lagged(usize),
 }
 
-/// The reply of one of our RPCs; it travels back with its `Ticket`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {
-    ThreadStarted { thread: ThreadId },
-    TurnStarted { thread: ThreadId, turn: TurnId },
-    Failed(String),
-}
-
 /// What the user asks for. Intents that touch backend-shared or
 /// cross-thread state are values sent into the ingress (R10).
 #[derive(Clone, Debug)]
@@ -128,23 +124,36 @@ pub struct Ingress {
 /// `ThreadFx`, which stamps the thread id (R3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    StartThread {
-        ticket: Ticket,
-    },
+    #[non_exhaustive]
+    StartThread { ticket: Ticket },
+    #[non_exhaustive]
     StartTurn {
         ticket: Ticket,
         thread: ThreadId,
         text: String,
     },
-    RejectRequest {
-        key: RequestKey,
+    #[non_exhaustive]
+    RejectRequest { key: RequestKey },
+    /// An RPC of a screen slot (`ThreadFx::request`).
+    #[non_exhaustive]
+    Screen {
+        ticket: Ticket,
+        thread: ThreadId,
+        command: ScreenCommand,
     },
 }
 
 /// Effects of one `apply_app` call, as values.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AppFx {
-    pub commands: Vec<Command>,
+    pub(crate) commands: Vec<Command>,
+}
+
+impl AppFx {
+    /// The commands requested, in order.
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
+    }
 }
 
 /// What an outgoing app-scoped RPC was for.
@@ -168,8 +177,8 @@ pub struct CodexApp {
     /// Keeps the `Navigator`'s stack across view runs (ADR-002, G15).
     pub nav_key: GlobalKey,
     pub(crate) link: shell::Link,
-    pub(crate) next_ticket: u64,
-    pub(crate) outgoing: BTreeMap<Ticket, AppCtx>,
+    pub(crate) mint: TicketMint,
+    pub(crate) outgoing: Pending<AppCtx>,
     pub(crate) queued_submits: Vec<String>,
 }
 
@@ -189,8 +198,8 @@ impl CodexApp {
             debug_screens: false,
             nav_key: GlobalKey::with_label("navigator"),
             link: shell::Link::new(backend),
-            next_ticket: 0,
-            outgoing: BTreeMap::new(),
+            mint: TicketMint::default(),
+            outgoing: Pending::default(),
             queued_submits: Vec::new(),
         }
     }
@@ -212,11 +221,6 @@ impl CodexApp {
             .and_then(|id| self.threads.get(id))
             .cloned()
             .unwrap_or_else(|| self.blank_thread.clone())
-    }
-
-    pub(crate) fn fresh_ticket(&mut self) -> Ticket {
-        self.next_ticket += 1;
-        Ticket(self.next_ticket)
     }
 
     /// The ingress router: drops what an older connection sent (R1), applies
@@ -251,7 +255,7 @@ impl CodexApp {
 pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     match ev {
         AppEv::Connected => {
-            let ticket = app.fresh_ticket();
+            let ticket = app.mint.next();
             app.outgoing.insert(ticket, AppCtx::StartThread);
             fx.commands.push(Command::StartThread { ticket });
         }
@@ -259,6 +263,23 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             set_status(app, Session::Failed(message));
         }
         AppEv::Backend(BackendEv::Notification(notification)) => {
+            // `serverRequest/resolved`: the server answered or withdrew a
+            // request first; it leaves the queue and nothing is rejected.
+            if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
+                let key = RequestKey {
+                    epoch: app.epoch(),
+                    thread: ThreadId::new(&resolved.thread_id),
+                    id: ServerRequestId::new(
+                        serde_json::to_string(&resolved.request_id).unwrap_or_default(),
+                    ),
+                };
+                if app.requests.contains(&key) {
+                    Rc::make_mut(&mut app.requests)
+                        .entries
+                        .retain(|entry| entry.key != key);
+                }
+                return;
+            }
             if let Some((thread, ev)) = threads::project(&notification) {
                 apply_thread(app, &thread, ev, fx);
             }
@@ -292,9 +313,12 @@ fn set_status(app: &mut CodexApp, status: Session) {
 }
 
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
-    if let Some(AppCtx::StartThread) = app.outgoing.remove(&ticket) {
-        match reply {
-            Reply::ThreadStarted { thread } => {
+    if app.outgoing.contains(ticket) {
+        let Some((AppCtx::StartThread, answer)) = app.outgoing.resolve(ticket, reply) else {
+            return;
+        };
+        match answer {
+            Answer::ThreadStarted { thread } => {
                 app.threads
                     .insert(thread.clone(), Rc::new(ThreadModel::new(thread.clone())));
                 let session = Rc::make_mut(&mut app.session);
@@ -304,8 +328,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     submit(app, &thread, text, fx);
                 }
             }
-            Reply::Failed(message) => set_status(app, Session::Failed(message)),
-            Reply::TurnStarted { .. } => {}
+            Answer::Failed(message) => set_status(app, Session::Failed(message)),
+            Answer::TurnStarted { .. } | Answer::Screen(_) => {}
         }
         return;
     }
@@ -314,7 +338,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
     let owner = app
         .threads
         .iter()
-        .find(|(_, model)| model.outgoing.contains_key(&ticket))
+        .find(|(_, model)| model.outgoing.contains(ticket))
         .map(|(id, _)| id.clone());
     if let Some(thread) = owner {
         apply_thread(app, &thread, ThreadEv::Reply { ticket, reply }, fx);
@@ -327,7 +351,13 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             let target = thread.or_else(|| app.session.active.clone());
             match target {
                 Some(thread) => submit(app, &thread, text, fx),
-                None => app.queued_submits.push(text),
+                None => {
+                    // Before the first thread: kept until it exists; the
+                    // composer's draft clears (the blank projection's ticket).
+                    app.queued_submits.push(text);
+                    let ticket = app.mint.next();
+                    Rc::make_mut(&mut app.blank_thread).last_submit = Some(ticket);
+                }
             }
         }
         Intent::DismissRequest(key) => {
@@ -346,14 +376,17 @@ fn submit(app: &mut CodexApp, thread: &ThreadId, text: String, fx: &mut AppFx) {
     if text.is_empty() || !app.threads.contains_key(thread) {
         return;
     }
-    let ticket = app.fresh_ticket();
-    apply_thread(app, thread, ThreadEv::Submit { ticket, text }, fx);
+    apply_thread(app, thread, ThreadEv::Submit { text }, fx);
 }
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
     if let Some(model) = app.threads.get_mut(thread) {
-        threads::apply(Rc::make_mut(model), ev, &mut ThreadFx::new(thread, fx));
+        threads::apply(
+            Rc::make_mut(model),
+            ev,
+            &mut ThreadFx::new(thread, fx, &mut app.mint),
+        );
     }
 }
 

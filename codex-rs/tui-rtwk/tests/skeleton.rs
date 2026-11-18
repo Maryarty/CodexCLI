@@ -4,7 +4,7 @@
 //! rendering (the parity pack records it as a delta against codex-tui).
 
 use codex_tui_rtwk::app::{AppEv, Command};
-use codex_tui_rtwk::ids::{ConnEpoch, ThreadId, Ticket};
+use codex_tui_rtwk::ids::{ConnEpoch, ThreadId};
 use codex_tui_rtwk::screens::{self, Kind};
 use codex_tui_rtwk::shell::fake::{
     FAKE_THREAD, agent_completed, agent_delta, server_request_resolved, tool_input_request,
@@ -72,16 +72,12 @@ fn prompt_streams_the_answer_as_plain_text() {
     h.wait_for("the answer", |s| s.contains("• Hello, world"));
     h.wait_for("the turn to end", |s| s.contains("ready"));
     assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
-    assert_eq!(
-        h.fake.commands(),
-        vec![
-            Command::StartThread { ticket: Ticket(1) },
-            Command::StartTurn {
-                ticket: Ticket(2),
-                thread: ThreadId::new(FAKE_THREAD),
-                text: "hi".to_string(),
-            },
-        ]
+    let commands = h.fake.commands();
+    assert!(
+        matches!(commands.as_slice(),
+            [Command::StartThread { .. }, Command::StartTurn { thread, text, .. }]
+                if *thread == ThreadId::new(FAKE_THREAD) && text == "hi"),
+        "{commands:?}"
     );
     assert_snapshot(&h.t, "chat", "answer");
 }
@@ -209,11 +205,13 @@ fn debug_menu_scrolls_to_the_cursor() {
         h.press("down");
     }
     let screen = h.t.screen();
-    assert!(screen.contains("agents"), "{screen}");
+    // Row 16 (the cursor after 16 downs) is `pets`; the first rows scrolled
+    // off a 12-line screen.
+    assert!(screen.contains("pets"), "{screen}");
     assert!(!screen.contains(" chat "), "scrolled off: {screen}");
     h.press("enter");
     assert!(
-        h.t.screen().contains("agents (S21): empty slot"),
+        h.t.screen().contains("pets (S24): empty slot"),
         "{}",
         h.t.screen()
     );
@@ -326,10 +324,21 @@ fn a_resize_mid_stream_keeps_the_answer() {
     h.wait_for("the turn to end", |s| s.contains("ready"));
 }
 
-/// R10: the model decides; a message sent while a turn runs is refused and
-/// the composer keeps its text.
+fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::StartTurn { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+/// R10: the model decides. A message sent while a turn runs is queued: the
+/// composer clears and the chat shows it as a dim line above the composer.
 #[test]
-fn a_submit_while_a_turn_runs_keeps_the_composer_text() {
+fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     let mut h = start();
     h.wait_for("ready", |s| s.contains("ready"));
     h.fake
@@ -339,8 +348,60 @@ fn a_submit_while_a_turn_runs_keeps_the_composer_text() {
     h.wait_for("the turn to run", |s| s.contains("• so far"));
     h.t.type_text("two");
     h.press("enter");
-    h.t.pump_for(crate::common::ms(100));
+    h.wait_for("the queued line", |s| s.contains("(queued) two"));
     let screen = h.t.screen();
-    assert!(screen.contains("two"), "{screen}");
     assert!(!screen.contains("› two"), "{screen}");
+    assert_eq!(turn_texts(&h), vec!["one".to_string()], "not sent yet");
+}
+
+#[test]
+fn queued_messages_are_sent_in_order_one_per_turn_end() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-2", "msg-2", "second")]);
+    h.t.type_text("one");
+    h.press("enter");
+    h.wait_for("the turn to run", |s| s.contains("• so far"));
+    for text in ["two", "three"] {
+        h.t.type_text(text);
+        h.press("enter");
+        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+    }
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
+    h.wait_for("the second turn", |s| s.contains("• second"));
+    let screen = h.t.screen();
+    assert!(!screen.contains("(queued) two"), "{screen}");
+    assert!(screen.contains("(queued) three"), "{screen}");
+    assert_eq!(turn_texts(&h), ["one", "two"].map(String::from).to_vec());
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
+    h.wait_for("the third turn", |s| !s.contains("(queued) three"));
+    assert_eq!(
+        turn_texts(&h),
+        ["one", "two", "three"].map(String::from).to_vec()
+    );
+}
+
+#[test]
+fn a_queue_survives_a_second_submit() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
+    h.t.type_text("one");
+    h.press("enter");
+    h.wait_for("the turn to run", |s| s.contains("• so far"));
+    for text in ["two", "three"] {
+        h.t.type_text(text);
+        h.press("enter");
+        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+    }
+    let screen = h.t.screen();
+    assert!(screen.contains("(queued) two"), "{screen}");
+    assert!(screen.contains("(queued) three"), "{screen}");
 }

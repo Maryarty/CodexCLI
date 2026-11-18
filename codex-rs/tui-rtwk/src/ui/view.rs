@@ -15,9 +15,10 @@ use crate::app::AppEv;
 use crate::app::CodexApp;
 use crate::app::Intent;
 use crate::ids::RequestKey;
+use crate::screens;
 use crate::screens::ScreenIntent;
-use crate::ui::chat::Chat;
 use crate::ui::debug_menu::DebugMenu;
+use crate::ui::presenter::Presenter;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
@@ -45,14 +46,16 @@ pub fn view(app: &CodexApp, cx: &mut ViewCx<'_, '_, CodexApp>) -> AnyWidget {
         }),
         quit: cx.on(|_, cx| cx.quit()),
     };
-    let home: AnyWidget = if app.debug_screens {
-        DebugMenu.into()
-    } else {
-        Chat {
-            ui: app.thread_ui.get(app.session.active.as_ref()),
-        }
-        .into()
-    };
+    // The presenter wraps the home, so it is mounted once whichever home it
+    // is, and shows a request's dialog under the providers (ADR-002).
+    let home: AnyWidget = Presenter {
+        child: if app.debug_screens {
+            DebugMenu.into()
+        } else {
+            screens::chat::home(app)
+        },
+    }
+    .into();
     MultiProvider::new()
         .with(Provider::value_shared(app.session.clone()))
         .with(Provider::value_shared(app.active_thread()))

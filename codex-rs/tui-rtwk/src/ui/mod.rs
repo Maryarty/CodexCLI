@@ -1,8 +1,7 @@
-//! The widgets of the app outside the screen slots: the view, the chat
-//! screen, the request presenter, the debug menu and the per-thread UI
+//! The widgets of the app outside the screen slots: the view, the request
+//! presenter, the debug menu and the per-thread UI
 //! controllers.
 
-pub mod chat;
 pub mod debug_menu;
 pub mod presenter;
 pub mod run;

@@ -2,7 +2,6 @@
 //! only here. A thread RPC is requested through `ThreadFx`, which stamps the
 //! thread id.
 
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -14,11 +13,19 @@ use codex_app_server_protocol::UserInput;
 
 use crate::app::AppFx;
 use crate::app::Command;
-use crate::app::Reply;
 use crate::ids::ItemId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
+use crate::ids::TicketMint;
 use crate::ids::TurnId;
+use crate::rpc::Answer;
+use crate::rpc::Pending;
+use crate::rpc::Reply;
+use crate::screens;
+use crate::screens::ScreenCommand;
+use crate::screens::ScreenCtx;
+use crate::screens::ScreenThreadEv;
+use crate::screens::ThreadSlots;
 
 /// The key of a transcript entry (R4).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -126,16 +133,18 @@ pub enum TurnEnd {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadCtx {
     StartTurn { text: String },
+    Screen(ScreenCtx),
 }
 
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
-    /// The user sent `text`; the RPC goes out with `ticket`.
+    /// The user sent `text`; `apply` refuses it while a turn runs or starts.
     Submit {
-        ticket: Ticket,
         text: String,
     },
+    /// An event of a screen slot's per-thread part.
+    Screen(ScreenThreadEv),
     Reply {
         ticket: Ticket,
         reply: Reply,
@@ -165,7 +174,14 @@ pub struct ThreadModel {
     pub turn: TurnState,
     /// Our RPCs of this thread, keyed `(ThreadId, Ticket)` by being in the
     /// thread's model (R3).
-    pub outgoing: BTreeMap<Ticket, ThreadCtx>,
+    pub outgoing: Pending<ThreadCtx>,
+    /// The ticket of the last submit `apply` accepted: the composer clears
+    /// when it changes, never before.
+    pub last_submit: Option<Ticket>,
+    /// Messages sent while a turn runs: one goes out per turn end, in order.
+    pub queue: Vec<String>,
+    /// The per-thread parts of the screen slots.
+    pub slots: ThreadSlots,
     pub last_error: Option<String>,
     /// The last turn that ended: a late start of it must not revive it.
     pub last_ended: Option<TurnId>,
@@ -177,7 +193,10 @@ impl ThreadModel {
             id,
             transcript: Transcript::default(),
             turn: TurnState::Idle,
-            outgoing: BTreeMap::new(),
+            outgoing: Pending::default(),
+            last_submit: None,
+            queue: Vec::new(),
+            slots: ThreadSlots::default(),
             last_error: None,
             last_ended: None,
         }
@@ -194,23 +213,59 @@ impl ThreadModel {
 }
 
 /// The effects of one thread's `apply`: thread RPCs, with the thread id
-/// stamped (R3).
+/// and the ticket stamped (R3). This is the only way a thread RPC is made.
 pub struct ThreadFx<'a> {
     thread: &'a ThreadId,
     out: &'a mut AppFx,
+    mint: &'a mut TicketMint,
+    registered: Vec<(Ticket, ThreadCtx)>,
 }
 
 impl<'a> ThreadFx<'a> {
-    pub fn new(thread: &'a ThreadId, out: &'a mut AppFx) -> Self {
-        Self { thread, out }
+    pub fn new(thread: &'a ThreadId, out: &'a mut AppFx, mint: &'a mut TicketMint) -> Self {
+        Self {
+            thread,
+            out,
+            mint,
+            registered: Vec::new(),
+        }
     }
 
-    pub fn start_turn(&mut self, ticket: Ticket, text: String) {
+    /// A fresh ticket, for an acceptance that sends no RPC.
+    pub fn mint(&mut self) -> Ticket {
+        self.mint.next()
+    }
+
+    /// Asks the backend to start a turn with `text`.
+    pub fn start_turn(&mut self, text: String) -> Ticket {
+        let ticket = self.mint.next();
+        self.registered
+            .push((ticket, ThreadCtx::StartTurn { text: text.clone() }));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
             text,
         });
+        ticket
+    }
+
+    /// An RPC of a screen slot: `ctx` is kept with the ticket and comes back
+    /// with the reply. (Unreachable while no slot defines a `Ctx` yet.)
+    #[allow(unreachable_code, unused_variables)]
+    pub fn request(
+        &mut self,
+        ctx: impl Into<ScreenCtx>,
+        command: impl Into<ScreenCommand>,
+    ) -> Ticket {
+        let ticket = self.mint.next();
+        let ctx = ctx.into();
+        self.registered.push((ticket, ThreadCtx::Screen(ctx)));
+        self.out.commands.push(Command::Screen {
+            ticket,
+            thread: self.thread.clone(),
+            command: command.into(),
+        });
+        ticket
     }
 }
 
@@ -284,31 +339,49 @@ fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId,
 /// Applies one event to one thread's model. Events are tolerant of order
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
+    apply_ev(model, ev, fx);
+    for (ticket, ctx) in std::mem::take(&mut fx.registered) {
+        model.outgoing.insert(ticket, ctx);
+    }
+}
+
+fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     match ev {
-        ThreadEv::Submit { ticket, text } => {
-            if model.is_running() || model.outgoing.values().any(is_start_turn) {
+        ThreadEv::Submit { text } => {
+            // The decision is here (R10): while a turn runs or starts the
+            // message is queued, otherwise it starts a turn.
+            if model.is_running() || model.outgoing.any(is_start_turn) {
+                model.queue.push(text);
+                model.last_submit = Some(fx.mint());
                 return;
             }
             model.last_error = None;
-            model
-                .outgoing
-                .insert(ticket, ThreadCtx::StartTurn { text: text.clone() });
-            fx.start_turn(ticket, text);
+            model.last_submit = Some(fx.start_turn(text));
         }
         ThreadEv::Reply { ticket, reply } => {
             // A reply whose ticket is not ours any more is stale.
-            let Some(ThreadCtx::StartTurn { .. }) = model.outgoing.remove(&ticket) else {
+            let Some((ctx, answer)) = model.outgoing.resolve(ticket, reply) else {
                 return;
             };
-            match reply {
-                Reply::TurnStarted { turn, .. } => start_turn(model, turn),
-                Reply::Failed(message) => {
+            match (ctx, answer) {
+                (ThreadCtx::StartTurn { .. }, Answer::TurnStarted { turn, .. }) => {
+                    start_turn(model, turn);
+                }
+                (ThreadCtx::StartTurn { .. }, Answer::Failed(message)) => {
                     model.turn = TurnState::Idle;
                     model.last_error = Some(message);
+                    send_next(model, fx);
                 }
-                Reply::ThreadStarted { .. } => {}
+                (ThreadCtx::Screen(ctx), Answer::Screen(reply)) => {
+                    screens::apply_reply(&mut model.slots, ctx, Ok(reply), fx);
+                }
+                (ThreadCtx::Screen(ctx), Answer::Failed(message)) => {
+                    screens::apply_reply(&mut model.slots, ctx, Err(message), fx);
+                }
+                _ => {}
             }
         }
+        ThreadEv::Screen(ev) => screens::apply_thread_ev(&mut model.slots, ev, fx),
         ThreadEv::TurnStarted { turn } => start_turn(model, turn),
         ThreadEv::ItemUpsert { key, item } => model.transcript.upsert(key, item),
         ThreadEv::AgentDelta { key, delta } => model.transcript.append_agent(key, &delta),
@@ -321,9 +394,19 @@ pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 if end == TurnEnd::Failed {
                     model.last_error = Some("the turn failed".to_string());
                 }
+                send_next(model, fx);
             }
         }
     }
+}
+
+/// The next queued message becomes the next turn (one per turn end).
+fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
+    if model.queue.is_empty() {
+        return;
+    }
+    let text = model.queue.remove(0);
+    fx.start_turn(text);
 }
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {

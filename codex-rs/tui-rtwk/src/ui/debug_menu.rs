@@ -3,12 +3,14 @@
 //! registers in its directory's `debug_entries`. Enter opens the highlighted
 //! one; the up and down keys move; Esc or q quits.
 
-use rtwk::focus::{Focus, KeyPress};
+use std::rc::Rc;
+
+use rtwk::controls::SelectionList;
+use rtwk::focus::Focus;
 use rtwk::layout::{Column, Expanded};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{Dialog, DialogOptions, show_dialog};
 use rtwk::provider::read;
-use rtwk::scroll::ListView;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -51,15 +53,12 @@ fn rows() -> Vec<Row> {
     rows
 }
 
-pub struct DebugMenuState {
-    selected: usize,
-}
+pub struct DebugMenuState;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MenuMsg {
-    Up,
-    Down,
-    Open,
+    /// The row at this index was submitted (Enter, or a click).
+    Open(usize),
     Quit,
 }
 
@@ -67,7 +66,7 @@ impl StatefulWidget for DebugMenu {
     type State = DebugMenuState;
 
     fn create_state(&self) -> DebugMenuState {
-        DebugMenuState { selected: 0 }
+        DebugMenuState
     }
 }
 
@@ -78,20 +77,11 @@ impl State for DebugMenuState {
     type Msg = MenuMsg;
 
     fn update(&mut self, msg: MenuMsg, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let count = rows().len();
         match msg {
-            MenuMsg::Up => {
-                self.selected = self.selected.saturating_sub(1);
-                Rebuild::Yes
-            }
-            MenuMsg::Down => {
-                self.selected = (self.selected + 1).min(count.saturating_sub(1));
-                Rebuild::Yes
-            }
-            MenuMsg::Open => {
+            MenuMsg::Open(index) => {
                 if let Some(Row {
                     open: Some(open), ..
-                }) = rows().into_iter().nth(self.selected)
+                }) = rows().into_iter().nth(index)
                 {
                     match open {
                         DebugOpen::Route(build) => {
@@ -110,43 +100,43 @@ impl State for DebugMenuState {
                         }
                     }
                 }
-                Rebuild::No
             }
             MenuMsg::Quit => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.quit, ());
-                Rebuild::No
             }
         }
+        Rebuild::No
     }
 
     fn build(&self, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let rows = rows();
-        let selected = self.selected;
-        let list = ListView::builder(rows.len(), move |index| {
-            let Some(row) = rows.get(index) else {
-                return AnyWidget::default();
-            };
-            let marker = if index == selected { "> " } else { "  " };
-            let style = match (index == selected, row.heading) {
-                (true, _) => theme::selected(),
-                (false, true) => theme::bold(),
-                (false, false) => theme::dim(),
-            };
-            Text::new(format!("{marker}{}", row.label))
-                .style(style)
-                .into()
-        });
+        let rows = Rc::new(rows());
+        let count = rows.len();
+        // rtwk's selection list owns the cursor and scrolls it into view
+        // (R11): the menu has more rows than a terminal has lines.
+        let list = SelectionList::new(
+            count,
+            |index| index,
+            move |index| {
+                let Some(row) = rows.get(index) else {
+                    return AnyWidget::default();
+                };
+                let style = if row.heading {
+                    theme::bold()
+                } else {
+                    theme::dim()
+                };
+                Text::new(row.label.clone()).style(style).into()
+            },
+        )
+        .on_submitted(cx.map(MenuMsg::Open))
+        .autofocus(true);
         Focus::new(
             Column::new()
                 .child(Text::new("codex-rtwk debug screens").style(theme::accent()))
                 .child(Text::new("up/down move, enter opens, q quits").style(theme::dim()))
                 .child(Expanded::new(1, list)),
         )
-        .autofocus()
-        .bind(KeyPress::UP, cx.send(MenuMsg::Up))
-        .bind(KeyPress::DOWN, cx.send(MenuMsg::Down))
-        .bind(KeyPress::ENTER, cx.send(MenuMsg::Open))
         .bind('q', cx.send(MenuMsg::Quit))
         .into()
     }

@@ -7,6 +7,7 @@ pub mod app;
 pub mod commands;
 pub mod ids;
 pub mod keymap;
+pub mod rpc;
 pub mod screens;
 pub mod shell;
 pub mod theme;
