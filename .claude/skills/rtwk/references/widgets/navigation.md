@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
 
 # Navigation
 
@@ -251,7 +251,7 @@ The gallery's inspector; each value is one setting of the example above.
   - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
 - `rtwk::navigation::PopInvoked` (struct, `crates/rtwk/src/navigation/navigator.rs:249`) What a `PopScope` is told of a pop of its route: whether it was popped (`did_pop`) and the result it was popped with, or asked to be.
   - public fields: `did_pop: bool`
-- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:584`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
+- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:751`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
   - public fields: `child: AnyWidget`, `title: Option<Str>`, `trailing: Option<AnyWidget>`, `scrollable: bool`, `padding: EdgeInsets`, `shadow: Option<BoxShadow>`, `look: PanelLook`, `max_width: Option<i32>`
 
 ## Breadcrumbs

@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
 
 # Terminal
 

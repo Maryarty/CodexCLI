@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. Copied from docs/guide/state.md. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/state.md. -->
 # State in rtwk
 
 Keep ordinary application state in a Rust model. With `AppView`, the model
@@ -14,7 +14,11 @@ lives outside individual widgets and a handler can call its methods through
   override the same type for its subtree.
 - Use `ViewCx::memo` to reuse a subtree across view builds when its inputs
   compare equal. A widget within the subtree can still rebuild when an
-  observable or provider it reads changes.
+  observable or provider it reads changes, and so can the subtree's own
+  `build` when it reads one through its `MemoCx` (`depend`, `watch`).
+  Key your rows (`memo_keyed` with the row's id, an integer if you can):
+  unkeyed rows are matched by place, so one inserted or removed rebuilds
+  every row after it.
 
 ## Follow a store that already exists
 

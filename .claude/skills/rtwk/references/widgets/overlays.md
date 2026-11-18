@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
 
 # Overlays
 
@@ -112,18 +112,18 @@ SizedBox::new(
 // AppAsk::build, below the nested App:
 Center::new(Button::new("Ask").on_pressed(cx.send(())))
 
-// AppAskState::update:
+// AppAskState::update: nothing waits for the result
 let _result = show_dialog::<(), _>(
-    cx, |_| AppOk.into(),
+    cx,
+    |cx| Dialog::new(
+        Button::new("OK")
+            .autofocus(true)
+            .on_pressed(close_dialog_handler::<_, ()>(cx, None)),
+    )
+    .title("In the theme")
+    .into(),
     DialogOptions { fade_in: w.fade_in, ..DialogOptions::default() },
 );
-
-// AppOk::build and its unit event:
-Dialog::new(Button::new("OK").autofocus(true).on_pressed(cx.send(())))
-    .title("In the theme")
-
-// AppOkState::update:
-close_dialog::<_, ()>(cx, None);
 ```
 
 ### Options
@@ -151,10 +151,10 @@ The gallery's inspector; each value is one setting of the example above.
   - public fields: `width_factor: Option<i32>`, `height_factor: Option<i32>`, `child: Option<AnyWidget>`
 - `rtwk::controls::Button` (struct, `crates/rtwk-controls/src/button.rs:107`) A button that tells `on_pressed` when it is clicked, or when Enter or Space is pressed while it has the focus.
   - public fields: `spans: Option<Rc<[Span]>>`, `tall: bool`, `on_pressed: Option<Handler<()>>`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: bool`, `style: Option<Style>`, `focused_style: Option<Style>`, `hover_style: Option<Style>`, `disabled_style: Option<Style>`
-- `rtwk::overlay::DialogOptions` (struct, `crates/rtwk-overlay/src/dialog.rs:47`) How `show_dialog` shows a dialog: what twk's named parameters say.
-  - public fields: `barrier_dismissible: bool`, `alignment: Alignment`, `barrier_color: Option<Color>`, `barrier_alpha: Option<i32>`, `fade_in: Duration`, `use_root_navigator: bool`
-- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:584`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
+- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:751`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
   - public fields: `child: AnyWidget`, `title: Option<Str>`, `trailing: Option<AnyWidget>`, `scrollable: bool`, `padding: EdgeInsets`, `shadow: Option<BoxShadow>`, `look: PanelLook`, `max_width: Option<i32>`
+- `rtwk::overlay::DialogOptions` (struct, `crates/rtwk-overlay/src/dialog.rs:49`) How `show_dialog` shows a dialog: what twk's named parameters say.
+  - public fields: `barrier_dismissible: bool`, `alignment: Alignment`, `barrier_color: Option<Color>`, `barrier_alpha: Option<i32>`, `fade_in: Duration`, `use_root_navigator: bool`
 
 ## Dialog
 
@@ -162,9 +162,9 @@ A box over the app, the rest dimmed behind a barrier; Tab stays in it, Escape cl
 
 API:
 
-- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:584`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
+- `rtwk::overlay::Dialog` (struct, `crates/rtwk-overlay/src/dialog.rs:751`) `child` in a box that stands out of what is around it: a raised panel (`look`) of the theme's surface and text, a cell of room around `padding` and no outline, `title` in bold on the first row inside, over the child; ...
   - public fields: `child: AnyWidget`, `title: Option<Str>`, `trailing: Option<AnyWidget>`, `scrollable: bool`, `padding: EdgeInsets`, `shadow: Option<BoxShadow>`, `look: PanelLook`, `max_width: Option<i32>`
-- `rtwk::overlay::DialogOptions` (struct, `crates/rtwk-overlay/src/dialog.rs:47`) How `show_dialog` shows a dialog: what twk's named parameters say.
+- `rtwk::overlay::DialogOptions` (struct, `crates/rtwk-overlay/src/dialog.rs:49`) How `show_dialog` shows a dialog: what twk's named parameters say.
   - public fields: `barrier_dismissible: bool`, `alignment: Alignment`, `barrier_color: Option<Color>`, `barrier_alpha: Option<i32>`, `fade_in: Duration`, `use_root_navigator: bool`
 
 ### Code

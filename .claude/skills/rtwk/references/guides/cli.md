@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. Copied from docs/guide/cli.md. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/cli.md. -->
 # The `rtwk` command line
 
 `rtwk` is the developer tool of the framework: it starts projects, runs and

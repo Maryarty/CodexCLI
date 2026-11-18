@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
 
 # Data
 
@@ -607,7 +607,7 @@ Rows in columns that size by their content or a share, sorted by a click on a ti
 
 API:
 
-- `rtwk::data::Table` (struct, `crates/rtwk-data/src/table.rs:693`) A table of rows in `columns` under a header of their titles, which stays while the rows scroll.
+- `rtwk::data::Table` (struct, `crates/rtwk-data/src/table.rs:700`) A table of rows in `columns` under a header of their titles, which stays while the rows scroll.
   - public fields: `rows: Option<Rc<[T]>>`, `source: Option<Rc<dyn TableSource<T>>>`, `columns: Rc<[TableColumn<T>]>`, `row_key: Option<Rc<dyn Fn(&T) -> Key>>`, `controller: Option<TableController>`, `selection: TableSelection`, `marks: Option<SelectionController<Key>>`, `row_height: Option<i32>`, `column_gap: i32`, `padding: Option<EdgeInsets>`, `border: BorderType`, `show_header: bool`, `sample_rows: usize`, `focus_node: Option<FocusNode>`, `autofocus: bool`, `can_request_focus: Option<bool>`, `style: Option<Style>`, `header_style: Option<Style>`, `border_style: Option<Style>`, `selected_style: Option<Style>`
 - `rtwk::data::TableColumn` (struct, `crates/rtwk-data/src/table.rs:212`) A column of a `Table` whose rows are `T`s: its `title`, what it shows of a row (`cell`), how wide it is (`width`), where its text sits (`align`) and how text too wide for it is cut off (`overflow`), and how it orders ...
   - public fields: `title: Str`, `cell: Rc<dyn Fn(&T) -> TableCell>`, `width: GridTrack`, `align: TextAlign`, `overflow: TextOverflow`, `compare: Option<Rc<dyn Fn(&T`

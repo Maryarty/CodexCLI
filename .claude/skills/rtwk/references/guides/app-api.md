@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
 
 # App and component contexts
 
@@ -6,7 +6,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## AppView
 
-- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:141`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
+- `rtwk::app::AppView` (struct, `crates/rtwk/src/app.rs:146`) The root of an application: its state (taken by the element once, when it is mounted), its view and its first change.
 
 #### `AppView`: constructors and associated functions
 
@@ -26,7 +26,7 @@ The application context types: what a view function, a handler and a `State` can
 
 ## ViewCx
 
-- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:591`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
+- `rtwk::app::ViewCx` (struct, `crates/rtwk/src/app.rs:597`) What a view is given: where its handlers send (its application's root), and the tracked reads a build may make.
 
 #### `ViewCx`: methods
 
@@ -40,16 +40,19 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn has_focus(&mut self, id: FocusId) -> bool` - Whether the `Focus` named `id` has the focus, watched: the view runs again when the focus moves.
 - `pub fn depend<T: InheritedWidget, R>(&mut self, f: impl FnOnce(&T) -> R) -> Option<R>` - Reads the nearest `T` above the application with `f`, and depends on it (`Cx::depend`).
 - `pub fn watch<T: Clone + 'static>(&mut self, obs: Obs<T>) -> T` - The value of `obs`, watched (`Cx::watch`).
-- `pub fn memo<D>(&mut self, deps: D, build: MemoFn<D, A>) -> AnyWidget where D: PartialEq + 'static,` - The subtree `build` makes of `deps`, kept from the last view while `deps` are equal: the same widget then, which reconciliation skips with everything below it (twk's identical widget).
+- `pub fn memo<D>(&mut self, deps: D, build: MemoFn<D, A>) -> AnyWidget where D: PartialEq + 'static,` - The subtree `build` makes of `deps`, kept while a later view gives equal `deps` at the same place: the same subtree then, which reconciliation skips with everything below it.
+- `pub fn memo_keyed<K, D>(&mut self, key: K, deps: D, build: MemoFn<D, A>) -> AnyWidget where K: Hash + Eq + fmt::Debug + 'static, D: PartialEq + 'static,` - `memo` keyed by `key` among its siblings (twk's keys, `Key::value`): the node goes with its key wherever the row moved, so a list sorted anew, a block moved any distance, rows removed or inserted anywhere keep every row ...
+- `pub fn root(&self) -> ViewRoot<A>` - The application's root as a `ViewRoot`: a `Copy` handle that a closure the view hands on (a `ListView`'s item builder, a layout builder's) captures to make kept subtrees and handlers to this application where no ...
 
 
 ## AppCx
 
-- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:1117`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
+- `rtwk::app::AppCx` (struct, `crates/rtwk/src/app.rs:776`) What a handler (or the first change, or a task's completion) may do besides changing the application — the effects an A+Msg `update` has.
 
 #### `AppCx`: methods
 
 - `pub fn id(&self) -> Eid` - The application's root element.
+- `pub fn origin(&self) -> Eid` - The element in whose build the handler of this change was bound — what twk's handler has as the `context` it captured: the memo node for a handler of `MemoCx` (or of a `ViewRoot` it gave), the root for one of `ViewCx` ...
 - `pub fn unchanged(&mut self)` - Suppresses the root view rebuild normally requested by this action.
 - `pub fn spawn<R: 'static>(&mut self, future: impl Future<Output = R> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - Runs `future` on the tree's executor; `then` applies its output to the application, with a context of its own, if the root is still mounted then.
 - `pub fn try_spawn<R: 'static, E: fmt::Display + 'static>(&mut self, future: impl Future<Output = Result<R, E>> + 'static, then: impl FnOnce(&mut A, R, &mut AppCx<'_, '_, A>) + 'static) -> TaskId` - As `spawn`, for a future that may fail: `then` is given what it succeeds with; an error is reported instead — a `RuntimeError` of kind `ErrorKind::Task`, recoverable: to the application's `on_error` under `run` (else ...
@@ -69,6 +72,9 @@ The application context types: what a view function, a handler and a `State` can
 - `pub fn report_task_error(&mut self, error: impl fmt::Display)` - Reports `error` as the application's task finishing with an error (`Cx::report_task_error`): recoverable, as an error of `try_spawn`'s future is.
 - `pub fn channel<T: Send + 'static>(&mut self, f: impl Fn(&mut A, T, &mut AppCx<'_, '_, A>) + 'static) -> rtwk_framework::Sender<T>` - A channel into the application: what any thread sends into the `Sender` is applied by `f`, item by item, at the next flush — every item sent by then, in order, and one view for all of them (ADR-017: work from elsewhere ...
 - `pub fn quit(&mut self)` - Ends the frame loop the application runs in (`run`); nothing otherwise.
+- `pub fn show_dialog<T: 'static>(&mut self, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - Shows what `builder` builds as a dialog, as `show_dialog` does — over a barrier, the focus kept in it, Escape and a click on the barrier closing it with none when `options` say it is dismissible — and runs `closed` on ...
+- `pub fn show_dialog_from<T: 'static>(&mut self, view_root: ViewRoot<A>, builder: impl Fn(&mut BuildCx<'_>) -> AnyWidget + 'static, options: DialogOptions, closed: impl FnOnce(&mut A, Option<T>, &mut AppCx<'_, '_, A>) + 'static) -> AppDialog<T>` - As `show_dialog`, from the origin of `view_root` (`ViewRoot::origin`) rather than this change's: twk's `showDialog(context: stored)` with a context kept from a build.
+- `pub fn root(&self) -> ViewRoot<A>` - The application's root as a `ViewRoot` (`ViewCx::root`): a `Copy` handle a dialog's builder captures to make handlers to the application, and kept subtrees of it.
 
 
 ## Cx

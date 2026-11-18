@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 7482e340; do not edit. Copied from docs/guide/markdown.md. -->
+<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/markdown.md. -->
 # Markdown documents
 
 Use `MarkdownView::new(source).into_viewport()` for a document pane.
