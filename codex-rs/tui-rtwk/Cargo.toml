@@ -90,6 +90,9 @@ rtwk-test = { workspace = true }
 
 [profile.dev]
 debug = false
+# No incremental cache: worktree targets reached 40 GB (2026-11-18) and
+# sccache cannot cache incremental builds anyway.
+incremental = false
 
 [profile.dev.package."*"]
 debug = false
