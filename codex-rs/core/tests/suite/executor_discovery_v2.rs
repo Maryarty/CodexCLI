@@ -1122,7 +1122,6 @@ async fn v2_discovery_cache_reuses_matching_requests_and_isolates_execution_cont
 }
 
 struct Cloud {
-    plugins: AtomicUsize,
     available: AtomicBool,
     mcp_url: String,
     ready: mpsc::UnboundedSender<(Arc<McpResourceClient>, oneshot::Sender<()>)>,
@@ -1131,7 +1130,6 @@ struct Cloud {
 impl PluginProvider for Cloud {
     fn list(&self, _query: PluginListQuery) -> PluginProviderFuture<'_, PluginCatalog> {
         Box::pin(async move {
-            self.plugins.fetch_add(1, Ordering::SeqCst);
             Ok(PluginCatalog {
                 entries: if !self.available.load(Ordering::SeqCst) {
                     Vec::new()
@@ -1155,7 +1153,6 @@ impl PluginProvider for Cloud {
                         locations: vec![PluginSourceLocation::Cloud {
                             resource_uri: "plugin://plugin_demo".into(),
                             bundle_uri: None,
-                            release_id: None,
                         }],
                     }]
                 },
@@ -1205,7 +1202,6 @@ async fn auth_rotation_refreshes_plugin_acceptance_before_merged_skills() -> Res
     })]))).await?;
     let (ready, mut steps) = mpsc::unbounded_channel();
     let cloud = Arc::new(Cloud {
-        plugins: AtomicUsize::new(0),
         available: AtomicBool::new(true),
         mcp_url: format!("{}/api/codex/ps/mcp", apps.chatgpt_base_url),
         ready,
@@ -1265,7 +1261,7 @@ async fn auth_rotation_refreshes_plugin_acceptance_before_merged_skills() -> Res
         ("removed", false),
         ("removed", false),
     ];
-    let mut model_responses = (0..cases.len())
+    let model_responses = (0..cases.len())
         .map(|step| {
             let mut events = vec![responses::ev_response_created(&format!("response-{step}"))];
             if let Some((environment, namespace, _)) = installations.get(step) {
@@ -1287,10 +1283,6 @@ async fn auth_rotation_refreshes_plugin_acceptance_before_merged_skills() -> Res
             responses::sse(events)
         })
         .collect::<Vec<_>>();
-    model_responses.push(responses::sse(vec![
-        responses::ev_response_created("cached-turn"),
-        responses::ev_completed("cached-turn"),
-    ]));
     let model = responses::mount_sse_sequence(&server, model_responses).await;
     let test = apps_enabled_builder(apps.chatgpt_base_url)
         .with_exec_server_url(executor.url.clone())
@@ -1361,11 +1353,8 @@ async fn auth_rotation_refreshes_plugin_acceptance_before_merged_skills() -> Res
         ),
         rotate
     )?;
-    // The next turn reuses the empty plugin catalog.
-    test.submit_turn("Check the same skills again.").await?;
-    assert_eq!(cloud.plugins.load(Ordering::SeqCst), 3);
     let requests = model.requests();
-    assert_eq!(requests.len(), cases.len() + 1);
+    assert_eq!(requests.len(), cases.len());
     for (request, (_, available)) in requests.iter().zip(cases) {
         let instructions = request.message_input_texts("developer");
         let skills = instructions
@@ -1413,7 +1402,7 @@ async fn auth_rotation_refreshes_plugin_acceptance_before_merged_skills() -> Res
     insta::assert_snapshot!(
         "plugin_acceptance_auth_refresh",
         context_snapshot::format_context_snapshot(
-            "Two installations of one cloud plugin route MCP calls through their own executors. Mid-turn auth refresh preserves skill context and executor access; revocation removes both MCPs and cloud skill instructions and denies executor reads. The next turn reuses the cached catalog.",
+            "Two installations of one cloud plugin route MCP calls through their own executors. Mid-turn auth refresh preserves skill context and executor access; revocation removes both MCPs and cloud skill instructions and denies executor reads.",
             &bodies
                 .iter()
                 .map(context_snapshot::SnapshotEntry::body)

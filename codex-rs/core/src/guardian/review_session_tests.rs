@@ -3,7 +3,6 @@ use crate::agents_md_manager::AgentsMdManager;
 use crate::context::ContextualUserFragment;
 use crate::context_manager::ContextManager;
 use crate::session::Submission;
-use crate::session::submission::SubmissionOp;
 use codex_guardian_reviewer::GuardianReviewResponse;
 use codex_guardian_reviewer::ReviewerRequest;
 use codex_guardian_reviewer::guardian_output_contract_prompt;
@@ -138,7 +137,7 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
             Some(http::HeaderValue::from_static("__oailb=original-parent"))
         );
         let id = submission.id;
-        let SubmissionOp::TurnInput { request, reply, .. } = submission.op else {
+        let Op::TurnInput { request, reply, .. } = submission.op else {
             panic!("expected reviewer prompt");
         };
         let codex_protocol::turn_input::TurnInput::UserInput { content, .. } = request.input else {
@@ -182,7 +181,7 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
 async fn test_review_session() -> (
     GuardianReviewSession,
     async_channel::Sender<Event>,
-    async_channel::Receiver<Box<Submission>>,
+    async_channel::Receiver<Submission>,
 ) {
     let (session, _turn, _rx) = crate::session::tests::make_session_and_context_with_rx().await;
     let (tx_sub, rx_sub) = async_channel::bounded(4);
@@ -712,7 +711,7 @@ async fn run_review_on_reused_session_waits_for_submitted_turn() {
     });
     let submission = rx_sub.recv().await.expect("guardian submission");
     let id = submission.id;
-    let SubmissionOp::TurnInput { reply, .. } = submission.op else {
+    let Op::TurnInput { reply, .. } = submission.op else {
         panic!("expected turn-input submission");
     };
     reply
@@ -780,7 +779,7 @@ async fn run_review_removes_trunk_when_event_stream_is_broken() {
         tokio::spawn(async move { run_guardian_review_session(manager_for_review, params).await });
     let submission = rx_sub.recv().await.expect("guardian submission");
     let id = submission.id;
-    let SubmissionOp::TurnInput { reply, .. } = submission.op else {
+    let Op::TurnInput { reply, .. } = submission.op else {
         panic!("expected turn-input submission");
     };
     reply
@@ -951,7 +950,7 @@ async fn wait_for_guardian_review_timeout_drains_expected_turn_after_stale_termi
     let tx_interrupt_event = tx_event.clone();
     let interrupt_response = tokio::spawn(async move {
         let submission = rx_sub.recv().await.expect("interrupt submission");
-        assert!(matches!(submission.op.as_protocol(), Some(Op::Interrupt)));
+        assert!(matches!(submission.op, Op::Interrupt));
         tx_interrupt_event
             .send(turn_aborted_event("current-turn"))
             .await
@@ -992,7 +991,7 @@ async fn wait_for_guardian_review_cancel_drains_expected_turn_after_stale_termin
     let tx_interrupt_event = tx_event.clone();
     let interrupt_response = tokio::spawn(async move {
         let submission = rx_sub.recv().await.expect("interrupt submission");
-        assert!(matches!(submission.op.as_protocol(), Some(Op::Interrupt)));
+        assert!(matches!(submission.op, Op::Interrupt));
         tx_interrupt_event
             .send(turn_aborted_event("current-turn"))
             .await
@@ -1133,8 +1132,6 @@ async fn compaction_and_review_submissions_share_execution_observer() {
     let (review_session, events, submissions) = test_review_session().await;
     let child_session = Arc::clone(&review_session.session);
     let mut params = test_review_params().await;
-    let expected_country = codex_protocol::RequestCountry::UNKNOWN;
-    params.parent_context.request_country = expected_country.clone();
     params
         .spawn_config
         .features
@@ -1166,13 +1163,9 @@ async fn compaction_and_review_submissions_share_execution_observer() {
             .expect("child submission deadline")
             .expect("child submission");
         if index == 0 {
-            assert!(matches!(submission.op.as_protocol(), Some(Op::Compact)));
-            assert_eq!(
-                child_session.thread_config_snapshot().await.request_country,
-                expected_country
-            );
+            assert!(matches!(submission.op, Op::Compact));
         } else {
-            let SubmissionOp::TurnInput { reply, .. } = submission.op else {
+            let Op::TurnInput { reply, .. } = submission.op else {
                 panic!("expected review input after compaction");
             };
             reply

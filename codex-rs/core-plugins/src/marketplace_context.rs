@@ -50,7 +50,8 @@ impl PluginMarketplaceContext {
             errors: self.load_errors.clone(),
             ..Default::default()
         };
-        let mut selection = MarketplaceSelection::default();
+        let mut seen_marketplace_paths = HashSet::new();
+        let mut seen_plugin_ids = HashSet::new();
         let mut seen_error_paths = combined
             .errors
             .iter()
@@ -67,9 +68,18 @@ impl PluginMarketplaceContext {
                 scope.cwd.as_slice(),
                 include_openai_curated,
                 &plugin_states,
-                Some(&mut selection),
             )?;
-            combined.marketplaces.extend(outcome.marketplaces);
+            for mut marketplace in outcome.marketplaces {
+                if !seen_marketplace_paths.insert(marketplace.path.clone()) {
+                    continue;
+                }
+                marketplace
+                    .plugins
+                    .retain(|plugin| seen_plugin_ids.insert(plugin.id.clone()));
+                if !marketplace.plugins.is_empty() {
+                    combined.marketplaces.push(marketplace);
+                }
+            }
             combined.errors.extend(
                 outcome
                     .errors

@@ -422,8 +422,6 @@ pub enum ThreadItemPayload {
     McpToolCall {
         id: String,
         server: String,
-        /// Registration scope, not necessarily the server's execution environment.
-        environment_id: Option<String>,
         tool: String,
         status: McpToolCallStatus,
         arguments: JsonValue,
@@ -1131,7 +1129,6 @@ impl From<CoreTurnItem> for ThreadItemPayload {
                 Self::McpToolCall {
                     id: mcp.id,
                     server: mcp.server,
-                    environment_id: mcp.environment_id,
                     tool: mcp.tool,
                     status: McpToolCallStatus::from(mcp.status),
                     arguments: mcp.arguments,
