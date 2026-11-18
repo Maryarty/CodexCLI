@@ -17,7 +17,9 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use crate::l10n::Lang;
 use crate::l10n::lang;
 use crate::l10n::strings as l10n;
-use crate::screens::{self, DebugOpen, Kind};
+use codex_tui_rtwk_core::screens::Kind;
+
+use crate::screens::{self, DebugOpen};
 use crate::theme;
 use crate::ui::view::Hs;
 

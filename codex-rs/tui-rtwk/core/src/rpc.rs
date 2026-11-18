@@ -9,6 +9,18 @@ use crate::ids::Ticket;
 use crate::ids::TurnId;
 use crate::screens::ScreenReply;
 
+/// Why a screen's RPC has no reply. A typed value: the words are the UI's
+/// string tables'; the texts inside are the server's or the decoder's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RpcError {
+    /// The server (or the client) failed the request, with its message.
+    Remote(String),
+    /// The reply is of another screen than the ticket's.
+    Mismatch,
+    /// The result did not decode; the decoder's diagnostic.
+    Malformed(String),
+}
+
 /// The reply of one of our RPCs, as the shell reports it with the ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply(Answer);
@@ -27,7 +39,11 @@ impl Reply {
     }
 
     pub fn failed(message: impl Into<String>) -> Self {
-        Self(Answer::Failed(message.into()))
+        Self(Answer::Failed(RpcError::Remote(message.into())))
+    }
+
+    pub fn error(error: RpcError) -> Self {
+        Self(Answer::Failed(error))
     }
 }
 
@@ -37,7 +53,7 @@ pub enum Answer {
     ThreadStarted { thread: ThreadId },
     TurnStarted { thread: ThreadId, turn: TurnId },
     Screen(ScreenReply),
-    Failed(String),
+    Failed(RpcError),
 }
 
 /// The RPCs in flight, each with what it was for.

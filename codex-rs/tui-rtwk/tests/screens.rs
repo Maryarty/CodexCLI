@@ -8,8 +8,6 @@ mod common;
 mod cli;
 #[path = "l10n.rs"]
 mod l10n;
-#[path = "model.rs"]
-mod model;
 #[path = "navigation.rs"]
 mod navigation;
 #[path = "skeleton.rs"]

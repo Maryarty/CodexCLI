@@ -4,6 +4,5 @@
 
 pub mod debug_menu;
 pub mod presenter;
-pub mod run;
 pub mod thread_ui;
 pub mod view;

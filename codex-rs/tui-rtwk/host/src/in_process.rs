@@ -14,35 +14,26 @@ use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessAppServerRequestHandle;
 use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_client::InProcessServerEvent;
-use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
-use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::ThreadStartParams;
-use codex_app_server_protocol::ThreadStartResponse;
-use codex_app_server_protocol::TurnStartParams;
-use codex_app_server_protocol::TurnStartResponse;
-use codex_app_server_protocol::UserInput;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
-use codex_tui_rtwk::app::AppEv;
-use codex_tui_rtwk::app::BackendEv;
-use codex_tui_rtwk::app::Command;
-use codex_tui_rtwk::ids::ConnEpoch;
-use codex_tui_rtwk::ids::RequestKey;
-use codex_tui_rtwk::ids::ThreadId;
-use codex_tui_rtwk::ids::Ticket;
-use codex_tui_rtwk::ids::TurnId;
-use codex_tui_rtwk::rpc::Reply;
-use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
 use codex_tui_rtwk::shell::emit;
+use codex_tui_rtwk_core::app::AppEv;
+use codex_tui_rtwk_core::app::BackendEv;
+use codex_tui_rtwk_core::app::Command;
+use codex_tui_rtwk_core::ids::ConnEpoch;
+use codex_tui_rtwk_core::ids::RequestKey;
+use codex_tui_rtwk_core::ids::Ticket;
+use codex_tui_rtwk_core::rpc::Reply;
+use codex_tui_rtwk_core::wire;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -185,7 +176,7 @@ async fn run(
         tokio::select! {
             event = client.next_event() => match event {
                 None => {
-                    emit(&ingress, epoch, AppEv::Disconnected("the app-server stopped".to_string()));
+                    emit(&ingress, epoch, AppEv::Disconnected);
                     break;
                 }
                 Some(InProcessServerEvent::Lagged { skipped }) => {
@@ -219,93 +210,34 @@ async fn run(
     // Leaving the loop drops `client`: the guard hands it to `main`.
 }
 
-/// One request of ours and the reply the app is waiting for.
+/// One request of ours and the reply the app is waiting for: core's `wire`
+/// makes the request and reads the result; this only sends it.
 async fn request(
     command: Command,
     handle: InProcessAppServerRequestHandle,
     request_id: RequestId,
     model: Option<String>,
 ) -> (Ticket, Reply) {
-    match command {
-        Command::StartThread { ticket, .. } => {
-            let reply = match handle
-                .request_typed::<ThreadStartResponse>(ClientRequest::ThreadStart {
-                    request_id,
-                    params: ThreadStartParams {
-                        model,
-                        ..ThreadStartParams::default()
-                    },
-                })
-                .await
-            {
-                Ok(response) => Reply::thread_started(ThreadId::new(response.thread.id)),
-                Err(error) => Reply::failed(format!("thread/start: {error}")),
-            };
-            (ticket, reply)
-        }
-        Command::StartTurn {
-            ticket,
-            thread,
-            text,
-            ..
-        } => {
-            let reply = match handle
-                .request_typed::<TurnStartResponse>(ClientRequest::TurnStart {
-                    request_id,
-                    params: TurnStartParams {
-                        thread_id: thread.to_string(),
-                        input: vec![UserInput::Text {
-                            text,
-                            text_elements: Vec::new(),
-                        }],
-                        ..TurnStartParams::default()
-                    },
-                })
-                .await
-            {
-                Ok(response) => Reply::turn_started(thread, TurnId::new(response.turn.id)),
-                Err(error) => Reply::failed(format!("turn/start: {error}")),
-            };
-            (ticket, reply)
-        }
-        Command::Screen {
-            ticket,
-            thread,
-            command,
-            ..
-        } => {
-            // A slot's RPC: the slot's `wire` makes the request and its
-            // `decode` reads the result.
-            let reply = match handle
-                .request_typed::<serde_json::Value>(screens::wire(&command, &thread, request_id))
-                .await
-            {
-                Ok(result) => match screens::decode(&command, result) {
-                    Ok(reply) => Reply::screen(reply),
-                    Err(error) => Reply::failed(error),
-                },
-                Err(error) => Reply::failed(error.to_string()),
-            };
-            (ticket, reply)
-        }
-        // Handled by the pump, which owns the client.
-        Command::RejectRequest { .. } => std::future::pending().await,
+    // `RejectRequest` is handled by the pump, which owns the client.
+    let Some(wire_request) = wire::client_request(&command, request_id, model.as_deref()) else {
+        return std::future::pending().await;
+    };
+    let result = handle
+        .request_typed::<serde_json::Value>(wire_request)
+        .await
+        .map_err(|error| error.to_string());
+    match wire::reply(&command, result) {
+        Some(answer) => answer,
+        None => std::future::pending().await,
     }
 }
 
 async fn reject(client: &InProcessAppServerClient, key: &RequestKey) {
-    let Ok(request_id) = serde_json::from_str::<RequestId>(key.id.as_str()) else {
+    let Some(request_id) = wire::reject_target(key) else {
         return;
     };
     let _ = client
-        .reject_server_request(
-            request_id,
-            JSONRPCErrorError {
-                code: -32000,
-                data: None,
-                message: "dismissed by the user".to_string(),
-            },
-        )
+        .reject_server_request(request_id, wire::dismissal())
         .await;
 }
 

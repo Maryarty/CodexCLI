@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["host"]
+members = ["host", "core"]
 
 # The rtwk pin: the one place the checkout is named (docs/rtwk-port/RTWK_REF
 # names its commit; tests/pin.rs checks both). A symlink inside this
@@ -76,6 +76,7 @@ workspace = true
 [dependencies]
 anyhow = "1"
 codex-app-server-protocol = { path = "../app-server-protocol" }
+codex-tui-rtwk-core = { path = "core" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-tokio = { workspace = true }

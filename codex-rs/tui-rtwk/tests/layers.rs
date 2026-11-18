@@ -5,6 +5,8 @@
 //! the first (core's dependencies); these tests hold the rest, and the first
 //! as well, since a Cargo.toml edit is the one way round it.
 
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
+
 mod srcscan;
 
 use srcscan::{code_lines, crate_dir, scan, sources, sources_of};
@@ -218,7 +220,10 @@ fn every_screen_dir_has_a_core_half_and_a_view_half() {
     assert_eq!(view, core, "view dirs and core files differ");
 }
 
-/// `shell` runs effects and names no widget, screen or view.
+/// `shell` runs effects and names no widget, screen or view. It does hold the
+/// one adapter that spawns a widget's dialog future (`dialog_closed`, R1:
+/// spawns are the shell's); it is generic over the state and builds no
+/// widget, so `rtwk::Cx`, `State` and `DialogResult` are not on this list.
 #[test]
 fn shell_names_no_widget() {
     let found = scan(
@@ -232,12 +237,15 @@ fn shell_names_no_widget() {
             "rtwk::layout",
             "rtwk::controls",
             "rtwk::navigation",
-            "rtwk::overlay",
+            "rtwk::overlay::{",
             "rtwk::focus",
             "rtwk::editing",
             "rtwk::scroll",
             "rtwk::provider",
-            "rtwk::Cx",
+            "Dialog::",
+            "DialogOptions",
+            "show_dialog",
+            "close_dialog",
             "crate::ui",
             "crate::screens",
             "crate::theme",

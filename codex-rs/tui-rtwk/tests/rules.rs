@@ -21,10 +21,12 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The crate's sources with their text, `src/shell*` apart from the rest.
+/// The sources of both crates (`src/`, `core/src/`) with their text,
+/// `src/shell*` apart from the rest.
 fn sources() -> Vec<(String, String)> {
     let mut files = Vec::new();
     rust_files(&crate_dir().join("src"), &mut files);
+    rust_files(&crate_dir().join("core/src"), &mut files);
     files
         .into_iter()
         .map(|path| {
@@ -119,8 +121,8 @@ fn a6_unchanged_is_banned_in_feature_code() {
 fn adr002_the_navigator_is_keyed() {
     let view = std::fs::read_to_string(crate_dir().join("src/ui/view.rs")).expect("view.rs");
     assert!(
-        code_lines(&view).any(|(_, line)| line.contains("with_key(app.nav_key.clone())")),
-        "the Navigator needs `.with_key(app.nav_key.clone())`"
+        code_lines(&view).any(|(_, line)| line.contains("with_key(app.ui.nav_key.clone())")),
+        "the Navigator needs `.with_key(app.ui.nav_key.clone())`"
     );
     let app = std::fs::read_to_string(crate_dir().join("src/app.rs")).expect("app.rs");
     assert!(app.contains("pub nav_key: GlobalKey"));
@@ -172,7 +174,8 @@ fn r11_r12_no_clock_and_no_file_system_outside_the_shell() {
 
 #[test]
 fn r4_the_transcript_has_no_push() {
-    let threads = std::fs::read_to_string(crate_dir().join("src/threads/mod.rs")).expect("threads");
+    let threads =
+        std::fs::read_to_string(crate_dir().join("core/src/threads.rs")).expect("threads");
     let transcript = threads
         .split("impl Transcript")
         .nth(1)

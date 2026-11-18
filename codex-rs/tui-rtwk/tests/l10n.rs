@@ -6,10 +6,10 @@
 #![allow(clippy::expect_used)]
 
 use codex_tui_rtwk::Cli;
-use codex_tui_rtwk::app::CodexApp;
+use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::l10n::{Lang, Tables};
+use codex_tui_rtwk::run::{app_view, localized, root};
 use codex_tui_rtwk::shell::Backend;
-use codex_tui_rtwk::ui::run::{app_view, localized, root};
 use rtwk::l10n::Locale;
 
 use crate::common::start_lang;
@@ -85,7 +85,7 @@ fn a_table_without_a_locale_falls_back_to_english() {
 #[test]
 fn rtwks_own_widget_strings_follow_the_locale() {
     for (lang, tag) in [(Lang::En, "en"), (Lang::Ru, "ru")] {
-        let wrapped = localized(root(app_view(CodexApp::new(Backend::None))), lang);
+        let wrapped = localized(root(app_view(UiApp::new(Backend::None))), lang);
         assert_eq!(wrapped.strings().locale.to_string(), tag);
     }
 }
@@ -106,11 +106,13 @@ fn a_string_without_a_russian_entry_stays_english() {
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
-        codex_tui_rtwk::app::AppEv::Backend(codex_tui_rtwk::shell::fake::tool_input_request(
-            codex_tui_rtwk::shell::fake::FAKE_THREAD,
-            "turn-1",
-            7,
-        )),
+        codex_tui_rtwk_core::app::AppEv::Backend(
+            codex_tui_rtwk_core::fixtures::builders::tool_input_request(
+                codex_tui_rtwk::shell::fake::FAKE_THREAD,
+                "turn-1",
+                7,
+            ),
+        ),
     );
     h.wait_for("the dialog", |s| s.contains("needs an answer"));
     assert!(h.t.screen().contains("Dismiss"), "{}", h.t.screen());

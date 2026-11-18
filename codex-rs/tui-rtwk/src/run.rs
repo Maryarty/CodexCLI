@@ -1,4 +1,5 @@
-//! Runs the app full screen. This is `rtwk::run_app_with`'s body with the one
+//! The composition root: runs the app full screen, wiring the view (`ui`)
+//! to the shell. This is `rtwk::run_app_with`'s body with the one
 //! thing it lacks: `AppView::on_start`, which starts the shell as the root is
 //! mounted (rtwk gap, the parity pack). The root is what `run_app_with`
 //! makes: the overlay layer above the app, localizations and graphics
@@ -17,19 +18,21 @@ use rtwk_core::style::Pen;
 use rtwk_core::terminal::Terminal;
 use rtwk_core::terminal::TerminalOptions;
 
-use crate::app::CodexApp;
+use crate::app::UiApp;
 use crate::l10n::Lang;
 use crate::shell;
 use crate::ui::view::view;
 
 /// The app as the tests host it: the view with the shell's `on_start`.
-pub fn app_view(app: CodexApp) -> AppView<CodexApp> {
-    AppView::new(app, view).on_start(shell::start)
+pub fn app_view(app: UiApp) -> AppView<UiApp> {
+    // The view takes the one effect it needs from the shell (awaiting a
+    // dialog's result) as a value, so `ui` names no shell.
+    AppView::new(app, |app, cx| view(app, cx, shell::dialog_closed)).on_start(shell::start)
 }
 
 /// The app under the overlay layer, with the app's theme at the root: what
 /// the dialogs and routes below it read their tokens from.
-pub fn root(view: AppView<CodexApp>) -> rtwk::overlay::App {
+pub fn root(view: AppView<UiApp>) -> rtwk::overlay::App {
     rtwk::overlay::App::new(view).theme(crate::theme::data())
 }
 
@@ -40,7 +43,7 @@ pub fn localized(root: impl Into<rtwk::AnyWidget>, lang: Lang) -> TwkLocalizatio
 }
 
 /// Opens the terminal and runs `app` until it quits.
-pub fn run(app: CodexApp) -> Result<(), AppError> {
+pub fn run(app: UiApp) -> Result<(), AppError> {
     let terminal = Terminal::open(TerminalOptions {
         alternate_screen: true,
         normal_screen_mouse: false,
@@ -55,7 +58,7 @@ pub fn run(app: CodexApp) -> Result<(), AppError> {
         },
     )?;
     frame_loop.styles_mut().pen(&Pen::new());
-    let lang = app.lang;
+    let lang = app.ui.lang;
     let root = root(app_view(app).with_handle(frame_loop.handle()));
     let localized = localized(root, lang);
     AppHost::of_widget(
