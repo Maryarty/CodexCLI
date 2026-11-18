@@ -419,10 +419,35 @@ fn ctrl_c_in_a_search_restores_the_draft_and_does_not_quit() {
     let screen = h.t.screen();
     assert!(screen.contains("› keep me"), "{screen}");
     assert!(!screen.contains("reverse-i-search"), "{screen}");
-    // Outside a search it still quits.
+}
+
+/// The same key outside a search still quits.
+#[test]
+fn ctrl_c_outside_a_search_still_quits() {
+    let mut h = start_quittable(false);
+    h.wait_for("ready", |s| s.contains("ready"));
     h.press("ctrl+c");
     h.t.pump_for(ms(400));
     assert!(!h.t.is_running(), "Ctrl+C outside a search did not quit");
+}
+
+/// `history_search.rs`: `_ => (InputResult::None, true)`: a key the search
+/// does not know is consumed, it does not reach the chat's bindings.
+#[test]
+fn a_key_the_search_does_not_know_is_consumed() {
+    let mut h = open_chat();
+    h.press("ctrl+r");
+    type_in(&mut h, "git");
+    open::reset_last_opened();
+    h.press("ctrl+t");
+    h.press("f2");
+    h.t.pump_for(ms(400));
+    assert_eq!(open::last_opened(), None, "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("reverse-i-search: git"),
+        "{}",
+        h.t.screen()
+    );
 }
 
 /// `history_search.rs:224-240`: Ctrl+H is Backspace, Ctrl+U empties the query.

@@ -1312,3 +1312,43 @@ fn only_the_model_startup_line_is_an_info_line() {
     assert!(!Notice::DisabledDuringTask(SlashCommand::Clear).is_info());
     assert!(!Notice::Usage(UsageKey::Pwd).is_info());
 }
+
+/// `slash_command.rs`, `available_during_task`: the oracle's exhaustive
+/// match is read from its source, so a command the oracle adds (or moves)
+/// fails here instead of defaulting to "available".
+#[test]
+fn available_during_task_equals_the_oracles_arms() {
+    let text = oracle("slash_command.rs");
+    let body = text
+        .split("pub fn available_during_task(self)")
+        .nth(1)
+        .and_then(|rest| rest.split("fn is_visible").next())
+        .expect("the function");
+    let mut expected = std::collections::BTreeMap::new();
+    let mut names: Vec<String> = Vec::new();
+    for line in body.lines().map(str::trim) {
+        let (arms, verdict) = match line.split_once("=>") {
+            Some((arms, verdict)) => (arms, Some(verdict.trim().trim_end_matches(',') == "true")),
+            None => (line, None),
+        };
+        names.extend(
+            arms.split('|')
+                .filter_map(|a| a.trim().strip_prefix("SlashCommand::"))
+                .map(str::to_string),
+        );
+        if let Some(verdict) = verdict {
+            for name in names.drain(..) {
+                expected.insert(name, verdict);
+            }
+        }
+    }
+    assert_eq!(expected.len(), SlashCommand::ALL.len(), "{expected:?}");
+    for command in SlashCommand::ALL {
+        let name = format!("{command:?}");
+        assert_eq!(
+            Some(&command.available_during_task()),
+            expected.get(&name),
+            "{name}"
+        );
+    }
+}

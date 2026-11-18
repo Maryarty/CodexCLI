@@ -268,13 +268,51 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::SearchStart { draft } => model.search = Some(HistorySearch::new(draft)),
-        // STUBS (red): the green commit gives them their behaviour.
-        Intent::SearchAppend(_) | Intent::SearchBackspace | Intent::SearchClear => {}
-        Intent::SearchAccept => {}
+        Intent::SearchAppend(text) => {
+            // The borrow is split: the search edits itself against the
+            // history without a copy of it per key.
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                let query = format!("{}{text}", search.query);
+                search.set_query(query, history);
+            }
+        }
+        Intent::SearchBackspace => {
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                let mut query = search.query.clone();
+                query.pop();
+                search.set_query(query, history);
+            }
+        }
+        Intent::SearchClear => {
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                search.set_query(String::new(), history);
+            }
+        }
         Intent::SearchStep(direction) => {
-            let history = model.history.clone();
-            if let Some(search) = model.search.as_mut() {
-                search.step(direction, &history);
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                search.step(direction, history);
+            }
+        }
+        // `history_search.rs:213-230`: only a match is accepted.
+        Intent::SearchAccept => {
+            if model
+                .search
+                .as_ref()
+                .is_some_and(|search| search.status == SearchStatus::Match)
+            {
+                model.search = None;
             }
         }
         Intent::SearchEnd => model.search = None,

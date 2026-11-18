@@ -134,11 +134,11 @@ Tests are named after the oracle's where one oracle test is one test here.
 | `history_search_footer_action_hints_are_emphasized` | tests/popovers.rs::footer_mode_history_search | delta | N5: the footer is one dim line, the key hints are not chips |
 | `history_search_highlights_matches_until_accepted` | - | delta | N5: no match highlight in the preview |
 | `history_search_esc_restores_original_draft` | tests/popovers.rs::esc_cancels_and_restores_the_draft | ported |  |
-| `history_search_ctrl_c_restores_original_draft` | - | delta | N6: Ctrl+C in search is not caught: it quits the app as on the chat (oracle: restores the draft) |
+| `history_search_ctrl_c_restores_original_draft` | tests/popovers.rs::ctrl_c_in_a_search_restores_the_draft_and_does_not_quit | ported | N6 fixed (chat-nav-fix): Ctrl+C in search cancels it and restores the draft; outside a search it quits (`ctrl_c_outside_a_search_still_quits`) |
 | `history_search_flushes_pending_first_char_before_snapshot` | - | n/a | paste-burst buffering is not in rtwk's TextArea; the composer slot |
 | `history_search_flushes_buffered_paste_before_snapshot` | - | n/a | paste burst: composer slot |
 | `history_search_esc_resets_normal_history_navigation` | - | n/a | Up/Down history recall belongs to the composer slot |
-| `history_search_no_match_restores_preview_but_keeps_search_open` | core/tests/popovers.rs::history_search_is_case_insensitive_and_reports_no_match | ported | preview none, the draft shows, search stays open |
+| `history_search_no_match_restores_preview_but_keeps_search_open` | core/tests/popovers.rs::history_search_no_match_restores_preview_but_keeps_search_open, tests/popovers.rs::history_search_no_match_restores_preview_but_keeps_search_open | ported | preview none, the draft shows, Enter keeps the search open (chat-nav-fix G2; core `SearchAccept` ends it only on a match) |
 
 ### `bottom_pane/chat_composer_history.rs` (12)
 
@@ -337,8 +337,10 @@ and `assert_chat_back`: the screen equals the one before).
 | Esc Esc on an empty composer | backtrack (S17) | route (part) | `esc_esc_starts_backtrack_and_esc_leaves_it`, `esc_with_a_draft_does_not_start_backtrack` |
 | `/quit` `/exit` | (leaves the app) | | `quit_and_exit_leave_the_app` |
 | `/mention` | (inserts `@`) | | `slash_mention_inserts_an_at_sign` |
-| Ctrl+R / Ctrl+S | history search (composer) | | `popovers::ctrl_r_and_ctrl_s_walk_older_and_newer_matches` |
-| Ctrl+/ | notice "not available yet" (side conversation = session-core) | | core `side_conversation_and_review_gates` |
+| Ctrl+R | history search (composer): opens it; Ctrl+S outside a search opens nothing | | `popovers::ctrl_s_outside_a_search_does_not_open_one` |
+| Ctrl+R / Up, Ctrl+S / Down in a search | older / newer match | | `popovers::ctrl_r_and_ctrl_s_walk_older_and_newer_matches`, `up_and_down_walk_the_matches_inside_a_search` |
+| Enter, Esc, Ctrl+C, Backspace / Ctrl+H, Ctrl+U in a search | accept a match (a no-match Enter keeps it open) / cancel / cancel / delete / clear | | `popovers::enter_on_an_idle_search_keeps_it_open`, `ctrl_c_in_a_search_restores_the_draft_and_does_not_quit`, `ctrl_h_and_ctrl_u_edit_the_query` |
+| Ctrl+/, Ctrl+_ (raw 0x1f), Ctrl+7 | notice "not available yet" (side conversation = session-core) | | `popovers::ctrl_slash_and_its_aliases_toggle_side_conversation` |
 
 The default chords are `src/screens/chat/keys.rs::defaults` (the oracle's
 `RuntimeKeymap::defaults`, `keymap.rs:1908-1953`); the keymap slice replaces
@@ -411,8 +413,8 @@ inserts `@<insert> `, not the oracle's link form. proposal: follow-up task
 kind: NEW. cause: other.
 oracle: footer `  reverse-i-search: c  enter accept · esc cancel` with the query
 cyan, key hints as chips, the matches highlighted in the preview.
-ours: the same words in one dim line, no highlight. Ctrl+C in search is not
-caught (quits the app; oracle restores the draft, N6 in the table above).
+ours: the same words in one dim line, no highlight. (N6, Ctrl+C in search
+quitting the app, is fixed: it restores the draft as the oracle.)
 proposal: accept.
 
 ### N7 — a command's notice is a line above the composer
@@ -458,6 +460,21 @@ popup and by chords; a first scenario would be: type `/status`, Enter, Esc.
 - Lints: the new test files carry the `disallowed_methods` allow of the other
   test files (they read the oracle's source and snapshots).
 
+## Fix round `chat-nav-fix` (batch review 1: G1, G2, G4, G10)
+
+| Oracle (file) | Ours | Status |
+|---|---|---|
+| `slash_dispatch.rs:163-165` (`Resume \| Cd` blocked while a turn runs) | core/tests/commands.rs::slash_resume_and_cd_are_disabled_while_a_task_runs | ported |
+| `activity_chart_tests.rs::token_activity_view_aliases_parse` | core/tests/commands.rs::token_activity_view_aliases_parse, `usage_accepts_the_oracles_aliases` | ported (`/usage week`, `Weekly`, `day` open the dashboard) |
+| `model_popups.rs:19-24` (`/model` before startup) | core/tests/commands.rs::slash_model_before_startup_shows_the_oracles_info_line, tests/commands.rs (same name: the words), `only_the_model_startup_line_is_an_info_line` | ported; the line is an info line, not an error (`Notice::is_info`). The harness's session is ready at its first frame, so the on-screen path is covered by core + the string table only |
+| `slash_dispatch.rs:557-559` (`/cd` is `/cd ~`) | core/tests/commands.rs::a_bare_cd_goes_home | ported |
+| `slash_command.rs::available_during_task` (exhaustive match) | core/tests/commands.rs::available_during_task_equals_the_oracles_arms (reads the oracle source) | ported |
+| `history_search.rs:172-184,213-230,195-240` | core/tests/popovers.rs (`typing_extends_...`, `backspace_and_ctrl_u_...`, `history_search_no_match_...`, `enter_on_an_idle_search_...`, `cancel_ends_...`), tests/popovers.rs (G2 block) | ported; the query is edited in `apply` (`SearchAppend`, `SearchBackspace`, `SearchClear`), no decision from a `read` |
+| `keymap.rs:730-735,2317` (Ctrl+/ aliases) | tests/popovers.rs::ctrl_slash_and_its_aliases_toggle_side_conversation (kitty Ctrl+/, kitty Ctrl+7, raw 0x1f) | ported |
+
+A key a search does not know is consumed (`a_key_the_search_does_not_know_is_consumed`), F12 (the port's debug key) excepted.
+Not in this round (look slice): G3 (Tab), N1, N2, N5, N7, N8.
+
 ## Bites
 
 Tests added after the red commit (`3198be81e`): `core/tests/popovers.rs`.
@@ -469,6 +486,14 @@ Tests added after the red commit (`3198be81e`): `core/tests/popovers.rs`.
   fails. Restored.
 The other tests were red in the first commit (the UI ones failed on the
 `todo!()` description and the missing screens) and are green now.
+
+Bites of chat-nav-fix (tests added in its red commit `7780edcfb`, all red there):
+- Break: `Target::Usage => push(cx, usage::route())` -> `push(cx, pager::route())`
+  (`open.rs`): `slash_usage_opens_the_usage_dashboard` and
+  `slash_usage_weekly_opens_the_usage_dashboard` fail. Restored.
+- Break: `Target::Status => drop(status::open(cx))` -> `()`:
+  `slash_status_opens_the_status_card` and
+  `a_command_picked_in_the_popup_opens_its_screen` fail. Restored.
 
 ## rtwk needs
 
@@ -493,7 +518,7 @@ The other tests were red in the first commit (the UI ones failed on the
   test `command_popup_app` runs there only in the oracle's sense: on Linux the
   oracle's own snapshot test is cfg-gated too, ours is not (the row text is
   read from the snapshot, so it passes either way).
-- The "target is shown" check reads the target the chat recorded in `open`, not the screen: a dialog whose model is not seeded draws nothing, and a real screen has no stub text. A target that fails to draw is that slice's test.
+- The "target is shown" check (`tests/chat.rs::shows`) needs both the target the chat recorded in `open` (recorded after the directory's opener ran) and the directory's own widget in the tree (`find::by_type::<dir::Screen>`; `status`/`select` keep their dialogs private and are found by type name `CardDialog`/`MenuDialog`). It no longer passes when the opener is a no-op or opens another directory. A target that fails to draw its content is that slice's test.
 - Intents from the chat (`Intent::Session`) end in a notice until session-core
   gives each command its effect: every `SessionIntent` is typed, none is a
   silent no-op (`a_command_that_needs_the_session_is_a_typed_intent_never_a_silent_noop`).

@@ -36,7 +36,6 @@ pub fn reset_last_opened() {
 /// Opens `target` over the chat of `cx`. The chat stays below, with its
 /// transcript and its composer's text; Esc returns to it.
 pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
-    LAST.with(|last| last.set(Some(target)));
     match target {
         Target::Resume => push(cx, resume::route()),
         Target::Agents => push(cx, agents::route()),
@@ -52,6 +51,9 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Voice => push(cx, PageRoute::new(|_| voice::part())),
         Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
     }
+    // Recorded once the directory's opener has run: the identity a test
+    // reads is what was opened, not what was asked for.
+    LAST.with(|last| last.set(Some(target)));
 }
 
 fn push<S>(cx: &mut Cx<'_, S>, route: PageRoute<()>) {
