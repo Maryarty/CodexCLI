@@ -206,10 +206,6 @@ fn history_search_stays_on_single_match_at_boundaries() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:899 history_search_footer_action_hints_are_emphasized kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_footer_action_hints_are_emphasized() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the kit compares rows, not the emphasis of the hints (bold, dim, query cyan): a kit call is missing",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -217,15 +213,18 @@ fn history_search_footer_action_hints_are_emphasized() {
     s.keys("ctrl+r");
     s.type_text("c");
     s.assert_contains("reverse-i-search: c  enter accept · esc cancel");
+    // The hints' emphasis: the keys bold, the words and the separator dim (their foreground is the
+    // probed terminal foreground (240, 240, 240): the kit has no terminal-colour seed for that part).
+    s.assert_text_style("enter", "bold !dim");
+    s.assert_text_style("accept", "dim");
+    s.assert_text_style("·", "dim");
+    s.assert_text_style("esc", "bold !dim");
+    s.assert_text_style("cancel", "dim");
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:976 history_search_highlights_matches_until_accepted kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_highlights_matches_until_accepted() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the kit compares rows, not the match highlight (reversed, bold): a kit call is missing",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 8)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -233,8 +232,17 @@ fn history_search_highlights_matches_until_accepted() {
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_row(prompt(&s), "› git status");
+    // The matched `git` is reversed and bold, the rest of the entry is not.
+    for x in 2..5 {
+        s.assert_style(x, prompt(&s), "reversed bold");
+    }
+    s.assert_style(5, prompt(&s), "!reversed");
     s.keys("enter");
     s.assert_row(prompt(&s), "› git status");
+    // Accepted: the highlight is gone.
+    for x in 2..5 {
+        s.assert_style(x, prompt(&s), "!reversed !bold");
+    }
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:1046 history_search_esc_restores_original_draft kind=ui owner=chat-nav-pane
@@ -251,7 +259,8 @@ fn history_search_esc_restores_original_draft() {
     s.keys("esc");
     s.assert_absent("reverse-i-search");
     s.assert_row(prompt(&s), "› draft");
-    // The oracle also asserts the cursor is back at 2: a cursor is not a row (kit gap).
+    // The cursor is back at offset 2 of the draft, after the `› ` prompt.
+    s.assert_cursor(4, prompt(&s));
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:1074 history_search_ctrl_c_restores_original_draft kind=ui owner=chat-nav-pane
@@ -261,12 +270,13 @@ fn history_search_ctrl_c_restores_original_draft() {
     s.keys("ctrl+c");
     s.assert_absent("reverse-i-search");
     s.assert_row(prompt(&s), "› draft");
+    s.assert_cursor(4, prompt(&s));
 
     let mut s = remembered_search_preview();
     s.type_text("\u{3}");
     s.assert_absent("reverse-i-search");
     s.assert_row(prompt(&s), "› draft");
-    // The oracle also asserts the cursor is back at 2: a cursor is not a row (kit gap).
+    s.assert_cursor(4, prompt(&s));
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:1114 history_search_flushes_pending_first_char_before_snapshot kind=ui owner=chat-nav-pane
@@ -352,10 +362,6 @@ fn history_search_paste_appends_query_and_accepts_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:83 history_search_large_paste_clamps_cursor kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor
 #[test]
 fn history_search_large_paste_clamps_cursor() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle snapshot ends with the cursor position (`Cursor: Some((79, 4))`), which is not a row: the kit reads rows only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -385,10 +391,6 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle snapshot ends with the cursor position (`Cursor: Some((31, 4))`), which is not a row: the kit reads rows only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_separators.jsonl"))
@@ -407,8 +409,9 @@ fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
         s.keys(cancel);
         s.assert_absent("reverse-i-search");
         s.assert_row(prompt(&s), "› draft[Pasted Content 1001 chars]");
+        // The cursor is restored to offset 2 of the draft.
+        s.assert_cursor(4, prompt(&s));
     }
-    // The oracle also restores the cursor to 2 (kit gap: a cursor is not a row).
 }
 
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:186 history_search_paste_uses_full_sanitized_text kind=ui owner=chat-nav-pane
@@ -488,10 +491,6 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:12 skill_completion_attaches_typed_punctuation_snapshot kind=snap owner=chat-nav-pane snap=skill_completion_attaches_typed_punctuation
 #[test]
 fn skill_completion_attaches_typed_punctuation_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the snapshot's CJK row carries a `Hidden by multi-width symbols` note after its quotes: the kit snapshot reader takes it as text (kit gap)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
         .script(include_str!(
@@ -592,7 +591,7 @@ fn default_unified_mention_popup_snapshot() {
 fn unavailable_side_conversation_command_is_shown_only_when_searched() {
     kit::pending(
         Owner::ChatNavPane,
-        "the side-conversation flag has no seed, and the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap)",
+        "the side-conversation flag has no seed in the port",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(76, 24)
@@ -612,10 +611,6 @@ fn unavailable_side_conversation_command_is_shown_only_when_searched() {
 // ORACLE bottom_pane/command_popup.rs:459 command_popup_wrap_boundary_preserves_following_choice kind=snap owner=chat-nav-pane snap=command_popup_wrap_boundary
 #[test]
 fn command_popup_wrap_boundary_preserves_following_choice() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "three widths joined in one Debug dump; the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap)",
-    );
     for width in [32, 33, 34] {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(width, 24)
@@ -623,16 +618,17 @@ fn command_popup_wrap_boundary_preserves_following_choice() {
             .open();
         s.type_text("/tier");
         s.assert_contains("tier-two");
+        // The oracle's frame of this width: the popup alone, from its first row.
+        s.snap("codex_tui__bottom_pane__command_popup__tests__command_popup_wrap_boundary")
+            .frame(&format!("width {width}"))
+            .at(row_starting(&s, "› /tier"), 0)
+            .assert();
     }
 }
 
 // ORACLE bottom_pane/command_popup.rs:529 app_command_popup_snapshot kind=snap owner=chat-nav-pane snap=command_popup_app
 #[test]
 fn app_command_popup_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")
@@ -648,10 +644,6 @@ fn app_command_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:548 voice_command_popup_snapshot kind=snap owner=chat-nav-pane snap=command_popup_voice
 #[test]
 fn voice_command_popup_snapshot() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap); the oracle test is macOS/Windows only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")
@@ -667,10 +659,6 @@ fn voice_command_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:591 changing_filter_resets_selection_after_scrolling kind=snap owner=chat-nav-pane snap=command_popup_filter_reset_after_scroll
 #[test]
 fn changing_filter_resets_selection_after_scrolling() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")
@@ -735,7 +723,7 @@ fn live_picker_frame_snapshots() {
 fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
     kit::pending(
         Owner::ChatNavPane,
-        "the kit reads rows, not the selected row's style (fg, bg, modifier); the loading state of an empty filter has no seed",
+        "the loading state of an empty filter has no seed (the snapshot holds the selected row style: it is compared with the rows)",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
@@ -757,7 +745,7 @@ fn selection_covers_the_row_and_empty_filter_clears_previous_results() {
 fn filesystem_columns_use_terminal_cell_widths() {
     kit::pending(
         Owner::ChatNavPane,
-        "the test reads the screen column of each row's parent path (12 in both rows): the kit has no column read, only rows",
+        "the file rows of the mention seed with a wide-glyph name need their own fixture",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 24)
@@ -767,6 +755,12 @@ fn filesystem_columns_use_terminal_cell_widths() {
         .open();
     s.type_text("@src/");
     s.assert_contains("src/");
+    // The parent path of each file row starts at column 12, whatever the name's glyph widths.
+    for (y, row) in s.rows().iter().enumerate() {
+        if row.contains("src/") && !row.contains('@') {
+            s.assert_text_at(12, y, "src/");
+        }
+    }
 }
 
 // ORACLE bottom_pane/mentions_v2/render_tests.rs:166 long_mentions_leave_room_for_distinguishing_parent_paths kind=snap owner=chat-nav-pane snap=bounded_filesystem_columns_narrow snap=bounded_filesystem_columns_wide
@@ -794,7 +788,7 @@ fn long_mentions_leave_room_for_distinguishing_parent_paths() {
 fn scrolling_mentions_shifts_rendered_window_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap); the scroll needs ten skills, which no fixture seeds",
+        "the scroll needs ten skills, which no fixture seeds",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
@@ -830,7 +824,7 @@ fn category_tags_distinguish_mentions_when_descriptions_hide() {
 fn lowercase_expansion_preserves_match_ranking_and_highlighting() {
     kit::pending(
         Owner::ChatNavPane,
-        "the oracle snapshot is a Debug dump of a ratatui Buffer (`{buf:?}`), which the kit does not read (kit gap); the İ / i̇ name expansions need a fixture of their own",
+        "the i-dot name expansions need a fixture of their own",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(48, 24)

@@ -109,6 +109,13 @@ pub fn assert_snap(grid: &Grid, want: &Want<'_>) {
         format!("{} / {}", want.name, want.frame)
     };
     let (row0, col0) = want.at.unwrap_or((0, 0));
+    // A locator that found no row (`position(..)` unwrapped to MAX) is a wrong region, not a diff.
+    assert!(
+        row0 <= grid.rows(false).len() && col0 <= usize::from(u16::MAX),
+        "{label}: the region starts at row {row0}, the screen has {} rows (the row the test looked for is not on the screen):\n{}",
+        grid.rows(false).len(),
+        grid.text()
+    );
     // A wide glyph is one char in the oracle's Debug rows and a glyph and a
     // space in its buffer-to-text rows: one compare, either convention.
     let mut tries = vec![compare_rows(grid, &frame, want.at, false)];

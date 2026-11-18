@@ -37,7 +37,7 @@ fn renders_event_browser() {
 fn compact_hooks_keep_the_last_event_and_selection_visible() {
     kit::pending(
         Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_last at 40x16; kit gap: the oracle also asserts the background of the selected row at columns 0 and 39, the kit compares rows, not cell styles",
+        "no hooks browser: no entry dialogs/hooks_events_last at 40x16",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 16)
@@ -46,6 +46,9 @@ fn compact_hooks_keep_the_last_event_and_selection_visible() {
     s.assert_snap("compact_hooks_keep_the_last_event_and_selection_visible");
     s.assert_contains("Interrupt");
     s.assert_contains("Active/Installed");
+    // The selected row (row 12, the `›` one) fills its whole width with the selection background.
+    s.assert_style(0, 12, "bg=Reset");
+    s.assert_style(39, 12, "bg=Reset");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:945 selected_event_rows_use_the_shared_selection_style kind=ui owner=dialogs-pane
@@ -53,12 +56,14 @@ fn compact_hooks_keep_the_last_event_and_selection_visible() {
 fn selected_event_rows_use_the_shared_selection_style() {
     kit::pending(
         Owner::DialogsPane,
-        "kit gap (cell style): the oracle asserts only the accent fg and BOLD of the selected event row's `P`; the kit compares rows, not cell styles. No entry dialogs/hooks_events either",
+        "no hooks browser: no entry dialogs/hooks_events",
     );
-    let _s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
         .entry("dialogs", "hooks_events")
         .open();
+    // The selected event row: the shared selection foreground and BOLD (without a probed background: Reset).
+    s.assert_text_style("PreToolUse", "fg=Reset bold");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:965 renders_event_browser_with_review_column_when_needed kind=snap owner=dialogs-pane snap=hooks_browser_events_with_review_column
@@ -66,13 +71,15 @@ fn selected_event_rows_use_the_shared_selection_style() {
 fn renders_event_browser_with_review_column_when_needed() {
     kit::pending(
         Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_events_review_column (one untrusted PreToolUse hook); kit gap: the oracle also asserts the fg and BOLD of the event row's column 3, the kit compares rows, not cell styles",
+        "no hooks browser: no entry dialogs/hooks_events_review_column (one untrusted PreToolUse hook)",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(112, 19)
         .entry("dialogs", "hooks_events_review_column")
         .open();
     s.assert_snap("hooks_browser_events_with_review_column");
+    // The review count of the first event row: the selection foreground and BOLD.
+    s.assert_style(48, 8, "fg=Reset bold");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1002 renders_event_browser_with_issues kind=snap owner=dialogs-pane snap=hooks_browser_events_with_issues
@@ -109,7 +116,7 @@ fn renders_handler_browser_with_details() {
 fn renders_handler_status_messages_with_blank_fallback() {
     kit::pending(
         Owner::DialogsPane,
-        "no hooks browser: no entry dialogs/hooks_status_messages (the view() data with two status messages set, events page); kit gap: the oracle also asserts DIM, fg and bg of the selected row under two default palettes, the kit compares rows, not cell styles",
+        "no hooks browser: no entry dialogs/hooks_status_messages (the view() data with two status messages set, events page); the selection colours under the oracle's two probed palettes need a terminal-colour seed the kit has not",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 18)
@@ -117,6 +124,12 @@ fn renders_handler_status_messages_with_blank_fallback() {
         .open();
     s.keys("enter");
     s.assert_snap("hooks_browser_status_messages");
+    // The selected row and the one below: the number is dim, the title is not; row 4 holds the wide glyphs.
+    for y in [4, 5] {
+        s.assert_style(7, y, "dim");
+        s.assert_style(10, y, "!dim");
+    }
+    s.assert_text_at(10, 4, "检");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1068 renders_mcp_tool_handler_with_server_and_tool_details kind=snap owner=dialogs-pane snap=hooks_browser_mcp_tool_handler
@@ -169,13 +182,15 @@ fn renders_untrusted_enabled_handler_as_inactive() {
 fn review_needed_handler_rows_use_warning_color() {
     kit::pending(
         Owner::DialogsPane,
-        "kit gap (cell style): the oracle asserts only the yellow fg of the untrusted handler row; the kit compares rows, not cell styles. No entry dialogs/hooks_trusted_and_review",
+        "no hooks browser: no entry dialogs/hooks_trusted_and_review",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(112, 17)
         .entry("dialogs", "hooks_trusted_and_review")
         .open();
     s.keys("enter");
+    // The row of the untrusted handler is yellow.
+    s.assert_text_style("untrusted.sh", "fg=Yellow");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1217 renders_managed_handler_without_toggle_hint kind=snap owner=dialogs-pane snap=hooks_browser_managed_handler
@@ -273,55 +288,109 @@ fn renders_review_needed_handler() {
 // ORACLE bottom_pane/hooks_browser_view.rs:1502 space_does_not_toggle_managed_handler kind=ui owner=dialogs-pane
 #[test]
 fn space_does_not_toggle_managed_handler() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts that no hook-toggle event is sent (rx empty), not rows: a state test (the core dialogs model)",
+        "no hooks browser: no entry dialogs/hooks_managed_handler (one managed PreToolUse hook)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_managed_handler")
+        .open();
+    s.keys("enter");
+    let before = s.shot();
+    // Space on a managed handler changes nothing (no toggle event): the rows stay, `[x]` stays.
+    s.keys("space");
+    s.assert_same_rows(&before);
+    s.assert_contains("[x]");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1526 trust_key_trusts_review_needed_handler_without_changing_enablement kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_trusts_review_needed_handler_without_changing_enablement() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts the TrustHook event and its hash, not rows: a state test (the core dialogs model)",
+        "no hooks browser: no entry dialogs/hooks_review_needed (one untrusted, disabled PreToolUse hook)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_review_needed")
+        .open();
+    s.keys("enter");
+    s.keys("t");
+    // Trusted now; the handler is still off (the TrustHook event is not drawn).
+    s.assert_contains("Trust     Trusted");
+    s.assert_contains("[ ]");
+    s.assert_absent("review required");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1562 trust_key_preserves_disabled_modified_handler kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_preserves_disabled_modified_handler() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts the hook's enabled flag, its trust status and the TrustHook event, not rows: a state test",
+        "no hooks browser: no entry dialogs/hooks_modified_handler (one modified, disabled PreToolUse hook)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_modified_handler")
+        .open();
+    s.keys("enter");
+    s.keys("t");
+    // The oracle: still disabled, now trusted.
+    s.assert_contains("Trust     Trusted");
+    s.assert_contains("[ ]");
+    s.assert_absent("Modified since last trusted");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1601 trust_key_on_event_page_trusts_all_review_needed_hooks kind=ui owner=dialogs-pane
 #[test]
 fn trust_key_on_event_page_trusts_all_review_needed_hooks() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts the trust status of every hook and the TrustHooks event, not rows: a state test",
+        "no hooks browser: no entry dialogs/hooks_events_review_mixed (an untrusted, a modified and a trusted hook)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_events_review_mixed")
+        .open();
+    s.keys("t");
+    // All three are trusted: no hook needs review any more (the TrustHooks event is not drawn).
+    s.assert_absent("needs review");
+    s.assert_absent("trust all");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1679 escape_returns_to_the_selected_event kind=ui owner=dialogs-pane
 #[test]
 fn escape_returns_to_the_selected_event() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts the browser's page and selected event (model fields), not rows: a state test",
+        "no hooks browser: no entry dialogs/hooks_events (the oracle's view() data)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_events")
+        .open();
+    s.keys("down enter esc");
+    // Back on the events page, the second event (PermissionRequest) is selected.
+    s.assert_contains("Lifecycle hooks from config and enabled plugins.");
+    s.assert_contains("› PermissionRequest");
 }
 
 // ORACLE bottom_pane/hooks_browser_view.rs:1693 esc_routes_through_the_view kind=ui owner=dialogs-pane
 #[test]
 fn esc_routes_through_the_view() {
-    kit::na(
+    kit::pending(
         Owner::DialogsPane,
-        "asserts prefer_esc_to_handle_key_event (a view method), not rows: a state test",
+        "no hooks browser: no entry dialogs/hooks_events (the oracle's view() data)",
     );
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(112, 17)
+        .entry("dialogs", "hooks_events")
+        .open();
+    s.keys("enter");
+    // esc is handled by the view (back to the events page) and does not close the dialog.
+    s.keys("esc");
+    s.assert_contains("Lifecycle hooks from config and enabled plugins.");
 }
 
 // ---- oracle: bottom_pane/memories_settings_view_tests.rs (1 screen-level tests here; 0 state tests left to dialogs-pane)
@@ -330,7 +399,7 @@ fn esc_routes_through_the_view() {
 fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
     kit::pending(
         Owner::DialogsPane,
-        "no memories settings view in the port: no entry settings/memories_reset_confirmation; kit gap: the snapshot holds five `width=N` blocks in one file, the kit reads `--- section ---` blocks only",
+        "no memories settings view in the port: no entry settings/memories_reset_confirmation",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(68, 14)
@@ -477,17 +546,19 @@ fn footer_hint_uses_list_keymap_accept_and_cancel() {
 fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
     kit::pending(
         Owner::DialogsPane,
-        "no status line picker entries settings/status_line_pr_plain and settings/status_line_pr_theme (the setting's core seed exists; no debug entry); kit gap: the PR number's OSC 8 hyperlink is an escape, not a row",
+        "no status line picker entries settings/status_line_pr_plain and settings/status_line_pr_theme (the setting's core seed exists; no debug entry)",
     );
-    let _plain = Screen::build(Owner::DialogsPane)
+    let plain = Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .entry("settings", "status_line_pr_plain")
         .open();
-    // The oracle asserts the OSC 8 link to https://example.com/pr/42 on `P` (an escape: not readable by the kit).
-    let _theme = Screen::build(Owner::DialogsPane)
+    // The preview item `PR #42` links to the pull request.
+    plain.assert_link("PR #42", "https://example.com/pr/42");
+    let theme = Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .entry("settings", "status_line_pr_theme")
         .open();
+    theme.assert_link("PR #42", "https://example.com/pr/42");
     // Enter saves the colour preference: an AppEvent, not visible; not asserted here.
 }
 
@@ -598,24 +669,25 @@ fn warning_pages_wrap_and_scroll_long_diagnostics() {
 fn scroll_hint_tracks_wheel_and_keys_across_wrapped_rows() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed: the oracle sets list.move_down to z; kit gap: the oracle asserts the hint is the last row's suffix (ends_with), the kit has no suffix assert; the oracle's height is view.desired_height(84), stored in no snapshot",
+        "no keymap seed (list.move_down = z) in the port: the keymap seed is pending in the kit until the port reads a keymap",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(84, 10)
         .script(include_str!(
             "fixtures/small_dialogs_2/warnings_word_wrap.jsonl"
         ))
+        .keymap(&[("list.move_down", "z")])
         .open();
     // rows 1 and height-1 are outside the scroll area: the wheel does nothing there
     s.wheel_down(2, 1, 1);
     s.wheel_down(2, 9, 1);
-    // ends_with(" · z scroll") on the last row (kit gap: no suffix assert)
+    s.assert_row_ends_with(9, " · z scroll");
     s.keys("z");
-    // ends_with(" · ↑/z scroll") after the key (kit gap)
+    s.assert_row_ends_with(9, " · ↑/z scroll");
     s.wheel_down(2, 3, 1);
-    // ends_with(" · ↑ scroll") after the wheel (kit gap)
+    s.assert_row_ends_with(9, " · ↑ scroll");
     s.wheel_up(2, 3, 1);
-    // ends_with(" · z scroll") after wheel up (kit gap)
+    s.assert_row_ends_with(9, " · z scroll");
     s.resize(120, 10);
     s.assert_absent("scroll");
 }
@@ -646,19 +718,21 @@ fn warnings_dismiss_only_drawn_pages_after_navigation_skips_a_frame() {
 fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed: the oracle sets list.move_up to up and list.cancel to k; the kit sends no repeat key kind (KeyEventKind::Repeat); the dismissed and kept sets are events, not visible",
+        "no keymap seed (list.move_up = up, list.cancel = k) in the port: the keymap seed is pending in the kit; the dismissed and kept sets are events, not visible",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .script(include_str!(
             "fixtures/small_dialogs_2/warnings_three.jsonl"
         ))
+        .keymap(&[("list.move_up", "up"), ("list.cancel", "k")])
         .open();
     // Keep owns k in this viewer even when a list action is remapped to it
     s.keys("k");
     s.assert_contains("2 of 3");
     s.assert_contains("⌃c dismiss & close");
-    // a repeated k (KeyEventKind::Repeat) changes nothing: the kit cannot send a repeat kind
+    // a held k (a repeat) changes nothing
+    s.key_repeat("k");
     s.assert_contains("2 of 3");
     s.keys("left");
     s.keys("f2");
@@ -670,7 +744,7 @@ fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
 fn warning_links_preserve_destinations_when_wrapped_and_scrolled() {
     kit::pending(
         Owner::DialogsPane,
-        "kit gap: the link destinations are OSC 8 escapes on the URL's cells, the kit reads rows only; the rows of the wrapped URL are ported below",
+        "no seed: the warnings viewer draws no OSC 8 destination on a wrapped URL yet",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(32, 9)
@@ -679,8 +753,16 @@ fn warning_links_preserve_destinations_when_wrapped_and_scrolled() {
         ))
         .open();
     s.assert_snap("warnings_wrapped_url");
+    // every linked cell carries the URL as its destination
+    s.assert_link(
+        "https://github.com",
+        "https://github.com/openai/codex/pull/12345?diff=split",
+    );
     s.keys("down");
     s.resize(32, 5);
-    // every linked cell carries the URL as its destination (OSC 8): not readable by the kit
     s.keys("down");
+    s.assert_link(
+        "https://github.com",
+        "https://github.com/openai/codex/pull/12345?diff=split",
+    );
 }

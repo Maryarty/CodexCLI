@@ -21,18 +21,36 @@ fn bottom_popup(command: &str, snap: &str) -> Screen {
 // ORACLE chatwidget/tests/status_surface_previews.rs:16 thread_color_preview_matches_footer kind=snap owner=ui-pane
 #[test]
 fn thread_color_preview_matches_footer() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts that a status-line preview Line equals the footer's, and a Debug print of it: helper values, not rows; a state test",
+        "no /statusline popup in the ported chat; no seed for a named thread with a thread color",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    s.type_text("/statusline");
+    s.keys("enter");
+    // The oracle's preview Line, with colors on: the name in the thread color, the dot grey.
+    s.assert_contains("Named task · Named task");
+    s.assert_text_style("Named task", "fg=Rgb(242, 205, 205)");
+    s.assert_text_style(" · ", "fg=Rgb(140, 140, 140) !bold !dim");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:138 status_surface_preview_lines_live_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_live_only
 #[test]
 fn status_surface_preview_lines_live_only_snapshot() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the combined status-line and terminal-title preview text (a helper's return), not screen rows; a state test",
+        "no /statusline or /title setup popup in the ported chat; no seed for project root, branch, thread name and plan progress",
+    );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
+    s.type_text("/statusline");
+    s.keys("enter");
+    s.assert_contains("preview-live-root · feature/live-preview-branch · Live preview thread");
+    s.keys("esc");
+    s.type_text("/title");
+    s.keys("enter");
+    s.assert_contains(
+        "preview-live-root | Live preview thread | feature/live-preview-branch | Tasks 2/5",
     );
 }
 
@@ -49,10 +67,21 @@ fn status_line_setup_popup_live_only_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:183 status_surface_preview_lines_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_surface_previews_hardcoded_only
 #[test]
 fn status_surface_preview_lines_hardcoded_only_snapshot() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the combined status-line and terminal-title preview text (a helper's return), not screen rows; a state test",
+        "no /statusline or /title setup popup in the ported chat; the hardcoded preview items have no seed",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
+    s.type_text("/statusline");
+    s.keys("enter");
+    s.assert_contains(
+        "my-project · feat/awesome-feature · thread title · Read Only · Ask for approval",
+    );
+    s.keys("esc");
+    s.type_text("/title");
+    s.keys("enter");
+    s.assert_contains("thread title | feat/awesome-feature | Tasks 0/0");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:222 status_line_setup_popup_hardcoded_only_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_hardcoded_only
@@ -78,28 +107,55 @@ fn status_line_setup_popup_workspace_headline_snapshot() {
 // ORACLE chatwidget/tests/status_surface_previews.rs:251 status_surface_preview_lines_mixed_snapshot kind=snap owner=ui-pane snap=status_surface_previews_mixed
 #[test]
 fn status_surface_preview_lines_mixed_snapshot() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the combined status-line and terminal-title preview text (a helper's return), not screen rows; a state test",
+        "no /statusline or /title setup popup in the ported chat; no seed for the mixed live and hardcoded items",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
+    s.type_text("/statusline");
+    s.keys("enter");
+    s.assert_contains("my-project · feature/mixed-preview · Mixed preview thread");
+    s.keys("esc");
+    s.type_text("/title");
+    s.keys("enter");
+    s.assert_contains("project | Mixed preview thread | Tasks 0/0");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:274 status_surface_preview_lines_rate_limits_snapshot kind=snap owner=ui-pane snap=status_surface_previews_rate_limits
 #[test]
 fn status_surface_preview_lines_rate_limits_snapshot() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the combined status-line and terminal-title preview text (a helper's return), not screen rows; a state test",
+        "no /statusline or /title setup popup in the ported chat; no rate-limit seed",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
+    s.type_text("/statusline");
+    s.keys("enter");
+    s.assert_contains("monthly 65% left · weekly 50% left");
+    s.keys("esc");
+    s.type_text("/title");
+    s.keys("enter");
+    s.assert_contains("monthly 65% left | weekly 50% left");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:291 status_surface_preview_lines_thread_usage_snapshot kind=snap owner=ui-pane snap=status_surface_previews_thread_usage
 #[test]
 fn status_surface_preview_lines_thread_usage_snapshot() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the combined status-line and terminal-title preview text (a helper's return), not screen rows; a state test",
+        "no /statusline or /title setup popup in the ported chat; no thread-usage seed",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // The oracle's two preview lines are the preview rows of the /statusline and /title setup popups.
+    s.type_text("/statusline");
+    s.keys("enter");
+    s.assert_contains("5.2 credits · ~$0.21");
+    s.keys("esc");
+    s.type_text("/title");
+    s.keys("enter");
+    s.assert_contains("5.2 credits | ~$0.21");
 }
 
 // ORACLE chatwidget/tests/status_surface_previews.rs:438 status_line_setup_popup_rate_limits_snapshot kind=snap owner=ui-pane snap=status_line_setup_popup_rate_limits
@@ -222,7 +278,7 @@ fn session_status_follows_existing_lifecycle_state() {
 fn session_status_detail_uses_only_foreground_activity() {
     kit::na(
         Owner::UiPane,
-        "asserts the iTerm session detail of each program status (a helper's return, inline), not screen rows; a state test",
+        "asserts the iTerm session detail string of each program status, an escape sent to the terminal (a helper's return), not a screen row or the window title",
     );
 }
 
@@ -230,37 +286,63 @@ fn session_status_detail_uses_only_foreground_activity() {
 // ORACLE chatwidget/tests/terminal_title.rs:8 daybreak_status_surfaces_follow_the_thread_preference kind=snap owner=ui-pane
 #[test]
 fn daybreak_status_surfaces_follow_the_thread_preference() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the Daybreak item value and the last terminal title (helper values, inline), not screen rows; a state test",
+        "no terminal-title setting, Daybreak toggle or side-conversation seed in the ported chat",
     );
+    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // terminal_title = ["daybreak"]: the window title follows the Daybreak item.
+    s.assert_title("Daybreak off");
+    // (Daybreak enabled) the oracle then expects "Daybreak on"; a side conversation, "Daybreak off" again.
+    s.assert_title("Daybreak on");
+    s.assert_title("Daybreak off");
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:38 goal_clock_refresh_redraws_only_when_elapsed_label_changes kind=snap owner=ui-pane
 #[test]
 fn goal_clock_refresh_redraws_only_when_elapsed_label_changes() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts redraw requests and refresh deadlines, and the goal-label helper's spans (inline), not screen rows; a state test",
+        "no goal seed (active goal, 60 s used, 90 s into the turn) in the ported chat",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // Visible half: the goal indicator label in the bottom pane advances by the minute.
+    s.assert_contains("Pursuing goal (1m)");
+    s.wait(60_000);
+    s.assert_contains("Pursuing goal (2m)");
+    // (the draw requests and the refresh deadline are state, not drawn)
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:96 terminal_title_shows_action_required_while_exec_approval_is_pending kind=ui owner=ui-pane
 #[test]
 fn terminal_title_shows_action_required_while_exec_approval_is_pending() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts the terminal window title (OSC, not a screen row), its spinner and blink deadlines and the draw requests; a state test",
+        "no seed for a running task and a pending exec approval with a terminal-title setting in the ported chat",
     );
+    let mut s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // A task is running and an exec approval (`bash -lc "echo hello"`) arrives.
+    s.assert_title("[ ! ] Action Required | project");
+    s.keys("y");
+    // Restored after the approval: the title holds the project and no longer Action Required.
+    s.assert_absent("Action Required");
+    // (spinner and blink deadlines and the draw requests are state, not drawn)
 }
 
 // ORACLE chatwidget/tests/terminal_title.rs:286 thread_identity_renders_names_and_fallbacks_on_both_surfaces kind=snap owner=ui-pane
 #[test]
 fn thread_identity_renders_names_and_fallbacks_on_both_surfaces() {
-    kit::na(
+    kit::pending(
         Owner::UiPane,
-        "asserts status-line and terminal-title item values (helper returns, inline), not screen rows; a state test",
+        "no seed for a thread id and name, animations off and a terminal-title setting in the ported chat",
     );
+    let s = Screen::build(Owner::UiPane).size(100, 24).live().open();
+    // Thread without a name: the default window title is the project alone.
+    s.assert_title("project");
+    // Named "Fix login timeout": the default title carries the name before the project.
+    s.assert_title("Fix login timeout | project");
+    // The status-line items (thread-name, thread-title, session-id) and title items render
+    // "Fix login timeout | Fix login timeout | 550e8400-e29b-41d4-a716-446655440000" (title: id cut to 44 chars + "...").
 }
 
 // ---- oracle: chatwidget/tests/tool_activity_tests.rs (1 screen-level tests here; 0 state tests left to ui-pane)
@@ -333,10 +415,14 @@ fn renders_wrapped_details_panama_two_lines() {
 // ORACLE status_indicator_widget.rs:437 renders_without_spinner_when_animations_disabled kind=ui owner=ui-pane
 #[test]
 fn renders_without_spinner_when_animations_disabled() {
-    kit::missing(
+    kit::pending(
         Owner::UiPane,
-        "KIT GAP: the oracle asserts that row 0 starts with `Working (0s • esc to interrupt)` at 80x1 with animations off; the kit has no row-prefix assert (assert_row needs the whole row, assert_contains is not a prefix). Also the status row is not on the ported chat screen.",
+        "the status-indicator row is not on the ported chat screen; no seed turns the animations setting off",
     );
+    // The oracle renders the row at 80x1 with animations off.
+    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    s.assert_has_row("Working (0s • esc to interrupt)");
+    s.assert_absent("• Working");
 }
 
 // ORACLE status_indicator_widget.rs:462 renders_remapped_interrupt_hint kind=snap owner=ui-pane snap=renders_remapped_interrupt_hint
@@ -356,18 +442,56 @@ fn renders_remapped_interrupt_hint() {
 // ORACLE status_indicator_widget.rs:483 hook_status_reflows_without_displacing_controls_or_details kind=snap owner=ui-pane snap=hook_status_reflows_with_background_activity snap=hook_status_reflows_without_background_activity
 #[test]
 fn hook_status_reflows_without_displacing_controls_or_details() {
-    kit::missing(
+    kit::pending(
         Owner::UiPane,
-        "KIT GAP: each snapshot holds four `N columns:` frames (the fit width at 2 rows, one column less at 3 rows, 24 columns at 3 rows, the fit width again) and the kit compares one screen per name; no frame compare exists. Also the hook message, details and background line have no seed, and the status row is not on the ported chat screen.",
+        "the hook message, details and background line have no seed, and the status row is not on the ported chat screen",
     );
+    // The oracle draws the row alone at four widths: the fit width (2 rows), one column less
+    // (3 rows), 24 columns (3 rows) and the fit width again. The row's place on our screen is
+    // set by ui-pane with the seed; row 0 stands for it.
+    let mut s = Screen::build(Owner::UiPane).size(124, 24).live().open();
+    for (snap, widths) in [
+        (
+            "hook_status_reflows_without_background_activity",
+            [61u16, 60, 24, 61],
+        ),
+        (
+            "hook_status_reflows_with_background_activity",
+            [124u16, 123, 24, 124],
+        ),
+    ] {
+        for (i, width) in widths.into_iter().enumerate() {
+            s.resize(width, 24);
+            let frame = if i == 3 {
+                format!("{width} columns#2")
+            } else {
+                format!("{width} columns")
+            };
+            s.snap(snap).frame(&frame).at(0, 0).assert();
+        }
+    }
 }
 
 // ---- oracle: status_indicator_widget/effects_tests.rs (1 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE status_indicator_widget/effects_tests.rs:9 shimmer_and_progress_are_independent_and_obey_master_switch kind=snap owner=ui-pane snap=codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch
 #[test]
 fn shimmer_and_progress_are_independent_and_obey_master_switch() {
-    kit::missing(
+    kit::pending(
         Owner::UiPane,
-        "KIT GAP: the snapshot holds the Debug of the header's spans (their styles: shimmer colours, progress bullet), and the kit compares rows only; the four animation, shimmer and progress settings have no seed either",
+        "the status-indicator row is not on the ported chat screen; the animations, shimmer and progress settings have no seed",
     );
+    // The oracle's four settings (animations, shimmer, progress), default foreground (240, 240, 240).
+    // Each is its own seed; the checks below are the first frame of each setting, in order.
+    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    // (true, false, false): the plain label, "esc" bold, the rest dim.
+    s.assert_has_row("Working (0s • esc to interrupt)");
+    s.assert_text_style("esc", "fg=Rgb(240, 240, 240) bold !dim");
+    s.assert_text_style("(0s • ", "dim");
+    s.assert_text_style(" to interrupt)", "dim");
+    // (true, false, true): the same label behind the progress bullet.
+    s.assert_has_row("• Working (0s • esc to interrupt)");
+    // (true, true, false): each label letter is one shimmer step, the first grey Rgb(128, 128, 128).
+    s.assert_text_style("W", "fg=Rgb(128, 128, 128)");
+    // (false, true, true): the master switch is off: the plain row, no bullet, no shimmer.
+    s.assert_absent("• Working");
 }

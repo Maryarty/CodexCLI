@@ -221,7 +221,13 @@ fn words_in_strings_and_comments_are_not_code() {
         "/* block\n assert_eq!(b) */ let z = codex_tui_core::x;\n",
     );
     let code = code_only(src);
-    for word in ["oracle_snap", "rtwk", "std::fs", "assert!(c)", "assert_eq!(b)"] {
+    for word in [
+        "oracle_snap",
+        "rtwk",
+        "std::fs",
+        "assert!(c)",
+        "assert_eq!(b)",
+    ] {
         assert!(!code.contains(word), "`{word}` is in:\n{code}");
     }
     assert!(code.contains("assert!(real)"), "{code}");
