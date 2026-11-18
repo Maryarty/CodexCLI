@@ -167,3 +167,16 @@ fn a_command_is_disabled_while_a_task_runs() {
     let message = "'/clear' is disabled while a task is in progress.";
     h.wait_for(message, |s| s.contains(message));
 }
+
+/// `model_popups.rs:19-24`: the words of `/model` before startup completes
+/// (the session is always ready by the time the harness types, so the words
+/// are the string table's; the decision is core's test).
+#[test]
+fn slash_model_before_startup_shows_the_oracles_info_line() {
+    use codex_tui_rtwk::screens::chat::strings::EN;
+    use codex_tui_rtwk_core::commands::Notice;
+    assert_eq!(
+        EN.notice(&Notice::ModelStartup),
+        "Model selection is disabled until startup completes."
+    );
+}

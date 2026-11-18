@@ -73,28 +73,45 @@ pub enum ChatMsg {
 pub enum SearchKey {
     Char(Rc<str>),
     Backspace,
+    /// Ctrl+U: the query is emptied.
+    Clear,
     Older,
     Newer,
     Accept,
     Cancel,
+    /// Any other key: the search consumes it (`_ => (InputResult::None, true)`).
+    Ignore,
 }
 
-/// The key of history search for `key`, if it is one.
+/// The key of history search for `key`, if it is one
+/// (`history_search.rs`, `handle_history_search_key`): Ctrl+R and Up step to
+/// an older match, Ctrl+S and Down to a newer one, Esc and Ctrl+C cancel
+/// (the draft is restored), Enter accepts a match, Backspace and Ctrl+H
+/// delete, Ctrl+U clears, other text extends the query.
 fn search_key(key: KeyPress) -> Option<ChatMsg> {
-    let ctrl = KeyPress::char('r').with_mods(Mods::CTRL);
-    let ctrl_s = KeyPress::char('s').with_mods(Mods::CTRL);
-    let found = if key == ctrl {
+    let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
+    let found = if key == ctrl('r') || key.code == KeyCode::Up {
         SearchKey::Older
-    } else if key == ctrl_s {
+    } else if key == ctrl('s') || key.code == KeyCode::Down {
         SearchKey::Newer
+    } else if key.code == KeyCode::Escape
+        || key == ctrl('c')
+        || (key.mods.is_empty() && key.text() == Some("\u{3}"))
+    {
+        SearchKey::Cancel
     } else if key.code == KeyCode::Enter && key.mods.is_empty() {
         SearchKey::Accept
-    } else if key.code == KeyCode::Escape {
-        SearchKey::Cancel
-    } else if key.code == KeyCode::Backspace && key.mods.is_empty() {
+    } else if key.code == KeyCode::Backspace || key == ctrl('h') {
         SearchKey::Backspace
+    } else if key == ctrl('u') {
+        SearchKey::Clear
+    } else if let Some(text) = key.as_text() {
+        SearchKey::Char(Rc::from(text))
+    } else if key.code == KeyCode::F12 {
+        // The port's own hidden debug key is not the oracle's to swallow.
+        return None;
     } else {
-        SearchKey::Char(Rc::from(key.as_text()?))
+        SearchKey::Ignore
     };
     Some(ChatMsg::Search(found))
 }
@@ -132,6 +149,8 @@ fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
         flags: states.chat.flags,
         task_running: thread.is_running(),
         side_conversation: states.chat.flags.side_conversation_active,
+        // TODO(session-core): `review_mode` is the thread's code-review state
+        // (`review.is_review_mode`); false until the session models review.
         review_mode: false,
         thread_started: matches!(session.status, Session::Ready),
         has_backend_auth: states.chat.signed_in,
@@ -235,11 +254,14 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => match action {
-                Action::SearchPrevious | Action::SearchNext => {
+                Action::SearchPrevious => {
                     let draft = w.ui.composer.text().to_string();
                     let intent = popovers::Intent::SearchStart { draft };
                     cx.emit(&hs.screen, ScreenIntent::from(intent));
                 }
+                // `history_search_next` steps inside a search only
+                // (`search_key`); outside one it opens nothing.
+                Action::SearchNext => {}
                 Action::ToggleSide => {
                     let notice = codex_tui_rtwk_core::commands::Notice::NotAvailable(
                         SlashCommand::Side,
@@ -272,23 +294,20 @@ impl State for ChatState {
                     return Rebuild::No;
                 };
                 let intent = match key {
-                    SearchKey::Char(text) => {
-                        popovers::Intent::SearchEdit(format!("{}{text}", search.query))
-                    }
-                    SearchKey::Backspace => {
-                        let mut query = search.query.clone();
-                        query.pop();
-                        popovers::Intent::SearchEdit(query)
-                    }
+                    SearchKey::Char(text) => popovers::Intent::SearchAppend(text.to_string()),
+                    SearchKey::Backspace => popovers::Intent::SearchBackspace,
+                    SearchKey::Clear => popovers::Intent::SearchClear,
                     SearchKey::Older => popovers::Intent::SearchStep(Direction::Older),
                     SearchKey::Newer => popovers::Intent::SearchStep(Direction::Newer),
                     SearchKey::Accept => {
                         if let Some(entry) = search.preview(&states.popovers.history) {
                             w.ui.composer.reset(entry);
                         }
-                        popovers::Intent::SearchEnd
+                        // Core ends the search only on a match.
+                        popovers::Intent::SearchAccept
                     }
                     SearchKey::Cancel => popovers::Intent::SearchEnd,
+                    SearchKey::Ignore => return Rebuild::No,
                 };
                 cx.emit(&hs.screen, ScreenIntent::from(intent));
             }
@@ -393,7 +412,13 @@ impl State for ChatState {
                     codex_tui_rtwk_core::commands::Notice::NotAvailable(*command)
                 }
             };
-            body = body.child(Text::new(chat_strings.notice(&notice)).style(tokens.error()));
+            // `add_info_message` is plain text, `add_error_message` is red.
+            let text = Text::new(chat_strings.notice(&notice));
+            body = body.child(if notice.is_info() {
+                text
+            } else {
+                text.style(tokens.error())
+            });
         }
         let body = body
             .child(composer)

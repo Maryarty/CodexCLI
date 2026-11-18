@@ -132,3 +132,93 @@ fn history_search_is_case_insensitive_and_reports_no_match() {
     s.set_query(String::new(), &m.history);
     assert_eq!(s.status, SearchStatus::Idle);
 }
+
+// ------------------------------------------------- chat-nav-fix (G2): the keys' decisions
+
+fn search_run(intents: Vec<Intent>) -> Model {
+    let mut m = model();
+    let mut fx = codex_tui_rtwk_core::app::AppFx::default();
+    for intent in intents {
+        apply_intent(&mut m, intent, &mut fx);
+    }
+    m
+}
+
+fn start(draft: &str) -> Intent {
+    Intent::SearchStart {
+        draft: draft.into(),
+    }
+}
+
+#[test]
+fn typing_extends_the_query_from_the_model_not_from_a_read() {
+    // Two keys of one flush: the second builds on the first.
+    let m = search_run(vec![
+        start("keep me"),
+        Intent::SearchAppend("g".into()),
+        Intent::SearchAppend("it".into()),
+    ]);
+    let s = m.search.as_ref().unwrap();
+    assert_eq!(s.query, "git");
+    assert_eq!(s.status, SearchStatus::Match);
+    assert_eq!(s.preview(&m.history), Some("git status"));
+}
+
+#[test]
+fn backspace_and_ctrl_u_edit_the_query() {
+    let m = search_run(vec![
+        start(""),
+        Intent::SearchAppend("gitx".into()),
+        Intent::SearchBackspace,
+    ]);
+    let s = m.search.as_ref().unwrap();
+    assert_eq!(s.query, "git");
+    assert_eq!(s.status, SearchStatus::Match);
+    let m = search_run(vec![
+        start(""),
+        Intent::SearchAppend("git".into()),
+        Intent::SearchClear,
+    ]);
+    let s = m.search.as_ref().unwrap();
+    assert_eq!(s.query, "");
+    assert_eq!(s.status, SearchStatus::Idle);
+    // Backspace on an empty query leaves the search open and idle.
+    let m = search_run(vec![start(""), Intent::SearchBackspace]);
+    assert_eq!(m.search.as_ref().unwrap().status, SearchStatus::Idle);
+}
+
+/// `history_search.rs:213-230`: Enter accepts only a match.
+#[test]
+fn history_search_no_match_restores_preview_but_keeps_search_open() {
+    let m = search_run(vec![
+        start("keep me"),
+        Intent::SearchAppend("zzz".into()),
+        Intent::SearchAccept,
+    ]);
+    let s = m.search.as_ref().expect("the search is still open");
+    assert_eq!(s.status, SearchStatus::NoMatch);
+    assert_eq!(s.preview(&m.history), None);
+    assert_eq!(s.draft, "keep me");
+}
+
+#[test]
+fn enter_on_an_idle_search_keeps_it_open_and_on_a_match_ends_it() {
+    let m = search_run(vec![start(""), Intent::SearchAccept]);
+    assert!(m.search.is_some());
+    let m = search_run(vec![
+        start(""),
+        Intent::SearchAppend("git".into()),
+        Intent::SearchAccept,
+    ]);
+    assert!(m.search.is_none());
+}
+
+#[test]
+fn cancel_ends_the_search_whatever_its_status() {
+    let m = search_run(vec![
+        start("keep me"),
+        Intent::SearchAppend("zzz".into()),
+        Intent::SearchEnd,
+    ]);
+    assert!(m.search.is_none());
+}

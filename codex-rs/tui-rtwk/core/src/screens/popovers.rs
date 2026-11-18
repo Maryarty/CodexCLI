@@ -236,9 +236,17 @@ pub enum Intent {
     /// A prompt was submitted: history search finds it later.
     Record(String),
     SearchStart { draft: String },
-    SearchEdit(String),
+    /// Typed or pasted text after the query.
+    SearchAppend(String),
+    /// Backspace (and Ctrl+H): the query loses its last character.
+    SearchBackspace,
+    /// Ctrl+U: the query is emptied.
+    SearchClear,
     SearchStep(Direction),
-    /// The search ended (accepted or cancelled: the composer keeps the text).
+    /// Enter: ends the search only when a match is previewed
+    /// (`history_search.rs:213-230`); otherwise the search stays open.
+    SearchAccept,
+    /// The search was cancelled (Esc, Ctrl+C): the composer keeps its draft.
     SearchEnd,
 }
 
@@ -260,16 +268,51 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::SearchStart { draft } => model.search = Some(HistorySearch::new(draft)),
-        Intent::SearchEdit(query) => {
-            let history = model.history.clone();
-            if let Some(search) = model.search.as_mut() {
-                search.set_query(query, &history);
+        Intent::SearchAppend(text) => {
+            // The borrow is split: the search edits itself against the
+            // history without a copy of it per key.
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                let query = format!("{}{text}", search.query);
+                search.set_query(query, history);
+            }
+        }
+        Intent::SearchBackspace => {
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                let mut query = search.query.clone();
+                query.pop();
+                search.set_query(query, history);
+            }
+        }
+        Intent::SearchClear => {
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                search.set_query(String::new(), history);
             }
         }
         Intent::SearchStep(direction) => {
-            let history = model.history.clone();
-            if let Some(search) = model.search.as_mut() {
-                search.step(direction, &history);
+            let Model {
+                history, search, ..
+            } = model;
+            if let Some(search) = search.as_mut() {
+                search.step(direction, history);
+            }
+        }
+        // `history_search.rs:213-230`: only a match is accepted.
+        Intent::SearchAccept => {
+            if model
+                .search
+                .as_ref()
+                .is_some_and(|search| search.status == SearchStatus::Match)
+            {
+                model.search = None;
             }
         }
         Intent::SearchEnd => model.search = None,

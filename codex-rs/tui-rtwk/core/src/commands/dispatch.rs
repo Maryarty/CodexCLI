@@ -76,6 +76,9 @@ pub enum Notice {
     UnavailableInReview(SlashCommand),
     /// `Session is still starting; try /cmd again in a moment.`
     SessionStarting(SlashCommand),
+    /// `Model selection is disabled until startup completes.` (an info line,
+    /// `model_popups.rs:19-24`: `/model` before the thread exists).
+    ModelStartup,
     /// `Sign in with ChatGPT to use /usage.`
     UsageNeedsLogin,
     /// A usage line: `Usage: /pwd`, `Usage: /raw [on|off]`, ...
@@ -84,6 +87,44 @@ pub enum Notice {
     McpLoginNeedsSession,
     /// The session's part of the command is not built yet (session-core).
     NotAvailable(SlashCommand),
+}
+
+impl Notice {
+    /// Whether the oracle shows the line as information
+    /// (`add_info_message`) and not as an error (`add_error_message`).
+    pub fn is_info(&self) -> bool {
+        matches!(self, Notice::ModelStartup)
+    }
+}
+
+/// The view `/usage <arg>` opens the dashboard on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenActivityView {
+    Daily,
+    Weekly,
+    Cumulative,
+}
+
+impl TokenActivityView {
+    /// Parses the optional `/usage` argument into a supported chart view.
+    /// Carried from `analytics/activity_chart.rs` (`TokenActivityView::parse`).
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" | "day" | "daily" => Some(Self::Daily),
+            "week" | "weekly" => Some(Self::Weekly),
+            "cumulative" => Some(Self::Cumulative),
+            _ => None,
+        }
+    }
+
+    /// The argument the dashboard opens with.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::Cumulative => "cumulative",
+        }
+    }
 }
 
 /// Which usage line.
@@ -233,7 +274,12 @@ pub fn dispatch_command(command: SlashCommand, args: &str, cx: &DispatchCx) -> O
     if cx.review_mode && matches!(command, SlashCommand::Side | SlashCommand::Btw) {
         return Outcome::Notice(Notice::UnavailableInReview(command));
     }
-    if cx.task_running && !command.available_during_task() {
+    // `slash_dispatch.rs:163-165`: `/resume` and `/cd` are also blocked while
+    // a turn runs or is about to start. (`task_running` is both facts.)
+    if cx.task_running
+        && (!command.available_during_task()
+            || matches!(command, SlashCommand::Resume | SlashCommand::Cd))
+    {
         return Outcome::Notice(Notice::DisabledDuringTask(command));
     }
     if !command.supports_inline_args() || args.is_empty() {
@@ -251,7 +297,8 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
             if cx.thread_started {
                 open(Target::Select, command, "")
             } else {
-                Outcome::Notice(Notice::SessionStarting(command))
+                // `model_popups.rs:19-24`: an info line.
+                Outcome::Notice(Notice::ModelStartup)
             }
         }
         Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions => {
@@ -293,10 +340,11 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Copy => session(command, SessionIntent::Copy),
         Export => session(command, SessionIntent::Export { path: None }),
         Raw => session(command, SessionIntent::Raw { on: None }),
+        // `slash_dispatch.rs:557-559`: a bare `/cd` is `/cd ~`.
         Cd => session(
             command,
             SessionIntent::Cd {
-                path: String::new(),
+                path: "~".to_string(),
             },
         ),
         Pwd => session(command, SessionIntent::Pwd),
@@ -354,9 +402,9 @@ fn dispatch_with_args(command: SlashCommand, args: &str, cx: &DispatchCx) -> Out
             if !cx.has_backend_auth {
                 return Outcome::Notice(Notice::UsageNeedsLogin);
             }
-            match args {
-                "daily" | "weekly" | "cumulative" => open(Target::Usage, command, args),
-                _ => Outcome::Notice(Notice::Usage(UsageKey::Usage)),
+            match TokenActivityView::parse(args) {
+                Some(view) => open(Target::Usage, command, view.arg()),
+                None => Outcome::Notice(Notice::Usage(UsageKey::Usage)),
             }
         }
         Voice => match args.to_ascii_lowercase().as_str() {

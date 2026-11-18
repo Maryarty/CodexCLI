@@ -1191,3 +1191,164 @@ fn a_command_that_needs_the_session_is_a_typed_intent_never_a_silent_noop() {
         );
     }
 }
+
+// ------------------------------------------------------- chat-nav-fix (G1)
+
+/// `slash_dispatch.rs:163-165`: `Resume | Cd` while a turn runs or is about to
+/// start, with or without arguments.
+#[test]
+fn slash_resume_and_cd_are_disabled_while_a_task_runs() {
+    let busy = DispatchCx {
+        task_running: true,
+        ..cx()
+    };
+    for (line, command) in [
+        ("/resume", SlashCommand::Resume),
+        ("/resume my chat", SlashCommand::Resume),
+        ("/cd", SlashCommand::Cd),
+        ("/cd /tmp", SlashCommand::Cd),
+    ] {
+        assert_eq!(
+            dispatch(line, &busy),
+            Outcome::Notice(Notice::DisabledDuringTask(command)),
+            "{line}"
+        );
+    }
+    // Idle, the picker opens.
+    assert_eq!(
+        dispatch("/resume", &cx()),
+        open(Target::Resume, SlashCommand::Resume, "")
+    );
+}
+
+/// `analytics/activity_chart_tests.rs`: `token_activity_view_aliases_parse`.
+#[test]
+fn token_activity_view_aliases_parse() {
+    assert_eq!(TokenActivityView::parse(""), Some(TokenActivityView::Daily));
+    assert_eq!(
+        TokenActivityView::parse("day"),
+        Some(TokenActivityView::Daily)
+    );
+    assert_eq!(
+        TokenActivityView::parse("week"),
+        Some(TokenActivityView::Weekly)
+    );
+    assert_eq!(
+        TokenActivityView::parse("cumulative"),
+        Some(TokenActivityView::Cumulative)
+    );
+    assert_eq!(TokenActivityView::parse("year"), None);
+    // `parse` trims and lowercases (`activity_chart.rs:37-43`).
+    assert_eq!(
+        TokenActivityView::parse("  Weekly "),
+        Some(TokenActivityView::Weekly)
+    );
+    assert_eq!(
+        TokenActivityView::parse("DAILY"),
+        Some(TokenActivityView::Daily)
+    );
+}
+
+#[test]
+fn usage_accepts_the_oracles_aliases() {
+    for (line, view) in [
+        ("/usage week", "weekly"),
+        ("/usage Weekly", "weekly"),
+        ("/usage WEEK", "weekly"),
+        ("/usage day", "daily"),
+        ("/usage Daily", "daily"),
+        ("/usage cumulative", "cumulative"),
+    ] {
+        assert_eq!(
+            dispatch(line, &cx()),
+            open(Target::Usage, SlashCommand::Usage, view),
+            "{line}"
+        );
+    }
+    assert_eq!(
+        dispatch("/usage year", &cx()),
+        Outcome::Notice(Notice::Usage(UsageKey::Usage))
+    );
+}
+
+/// `model_popups.rs:19-24`: `/model` before the thread exists.
+#[test]
+fn slash_model_before_startup_shows_the_oracles_info_line() {
+    let starting = DispatchCx {
+        thread_started: false,
+        ..cx()
+    };
+    assert_eq!(
+        dispatch("/model", &starting),
+        Outcome::Notice(Notice::ModelStartup)
+    );
+    assert_eq!(
+        dispatch("/model", &cx()),
+        open(Target::Select, SlashCommand::Model, "")
+    );
+}
+
+/// `slash_dispatch.rs:557-559`: a bare `/cd` dispatches `/cd ~`.
+#[test]
+fn a_bare_cd_goes_home() {
+    assert_eq!(
+        dispatch("/cd", &cx()),
+        session(
+            SlashCommand::Cd,
+            SessionIntent::Cd {
+                path: "~".to_string()
+            }
+        )
+    );
+}
+
+/// `add_info_message` vs `add_error_message`: `/model` before startup is the
+/// only info line among the notices.
+#[test]
+fn only_the_model_startup_line_is_an_info_line() {
+    assert!(Notice::ModelStartup.is_info());
+    assert!(!Notice::UsageNeedsLogin.is_info());
+    assert!(!Notice::Unrecognized("x".into()).is_info());
+    assert!(!Notice::DisabledDuringTask(SlashCommand::Clear).is_info());
+    assert!(!Notice::Usage(UsageKey::Pwd).is_info());
+}
+
+/// `slash_command.rs`, `available_during_task`: the oracle's exhaustive
+/// match is read from its source, so a command the oracle adds (or moves)
+/// fails here instead of defaulting to "available".
+#[test]
+fn available_during_task_equals_the_oracles_arms() {
+    let text = oracle("slash_command.rs");
+    let body = text
+        .split("pub fn available_during_task(self)")
+        .nth(1)
+        .and_then(|rest| rest.split("fn is_visible").next())
+        .expect("the function");
+    let mut expected = std::collections::BTreeMap::new();
+    let mut names: Vec<String> = Vec::new();
+    for line in body.lines().map(str::trim) {
+        let (arms, verdict) = match line.split_once("=>") {
+            Some((arms, verdict)) => (arms, Some(verdict.trim().trim_end_matches(',') == "true")),
+            None => (line, None),
+        };
+        names.extend(
+            arms.split('|')
+                .filter_map(|a| a.trim().strip_prefix("SlashCommand::"))
+                .map(str::to_string),
+        );
+        if let Some(verdict) = verdict {
+            for name in names.drain(..) {
+                expected.insert(name, verdict);
+            }
+        }
+    }
+    assert_eq!(expected.len(), SlashCommand::ALL.len(), "{expected:?}");
+    for command in SlashCommand::ALL {
+        let name = format!("{command:?}");
+        assert_eq!(
+            Some(&command.available_during_task()),
+            expected.get(&name),
+            "{name}"
+        );
+    }
+}

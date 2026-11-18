@@ -42,7 +42,7 @@ impl Action {
     }
 }
 
-/// The default chords, in the oracle's order.
+/// The default chords, in the oracle's order (`ToggleSide` has its aliases).
 pub fn defaults() -> Vec<(Action, KeyPress)> {
     let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
     vec![
@@ -53,5 +53,9 @@ pub fn defaults() -> Vec<(Action, KeyPress)> {
         (Action::SearchPrevious, ctrl('r')),
         (Action::SearchNext, ctrl('s')),
         (Action::ToggleSide, ctrl('/')),
+        // `keymap.rs:730-735`, `2317`: without the kitty protocol Ctrl+/ is
+        // sent as the C0 byte 0x1f (rtwk reads Ctrl+_), and Ctrl+7 shares it.
+        (Action::ToggleSide, ctrl('_')),
+        (Action::ToggleSide, ctrl('7')),
     ]
 }

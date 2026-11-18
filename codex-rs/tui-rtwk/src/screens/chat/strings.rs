@@ -34,6 +34,7 @@ pub struct Strings {
     pub unavailable_in_side: Msg<1>,
     pub unavailable_in_review: Msg<1>,
     pub session_starting: Msg<1>,
+    pub model_startup: &'static str,
     pub usage_needs_login: &'static str,
     pub usage_pwd: &'static str,
     pub usage_usage: &'static str,
@@ -71,6 +72,7 @@ pub const EN: Strings = Strings {
     ),
     unavailable_in_review: msg!("'/{0}' is unavailable while code review is running."),
     session_starting: msg!("Session is still starting; try /{0} again in a moment."),
+    model_startup: "Model selection is disabled until startup completes.",
     usage_needs_login: "Sign in with ChatGPT to use /usage.",
     usage_pwd: "Usage: /pwd",
     usage_usage: "Usage: /usage [daily|weekly|cumulative]",
@@ -121,6 +123,7 @@ impl Strings {
             Notice::UnavailableInReview(c) => text(self.unavailable_in_review, c.command()),
             Notice::SessionStarting(c) => text(self.session_starting, c.command()),
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
+            Notice::ModelStartup => self.model_startup.to_string(),
             Notice::UsageNeedsLogin => self.usage_needs_login.to_string(),
             Notice::McpLoginNeedsSession => self.mcp_login_needs_session.to_string(),
             Notice::Usage(key) => match key {
