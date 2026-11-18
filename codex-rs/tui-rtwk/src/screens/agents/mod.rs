@@ -160,6 +160,30 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             }),
         },
         DebugEntry {
+            name: "colors",
+            description: "two unread tasks, ids 42 and 43, thread colours on",
+            script: include_str!("fixtures/colors.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
+            name: "colors_off",
+            description: "two unread tasks, ids 42 and 43, thread colours off",
+            script: include_str!("fixtures/colors_off.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),

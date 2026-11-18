@@ -12,10 +12,10 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, apply_app};
-use codex_tui_core::rpc::RpcError;
+use codex_tui_core::rpc::{RpcError, ServerError};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{
-    Command as AgentsCommand, DirKeys, Ev, Notice, Page, Pins, Reply, fanout,
+    Command as AgentsCommand, DirKeys, Ev, Notice, Page, PinReader, Pins, Reply, fanout,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -40,7 +40,7 @@ fn thread(id: &str, recency: i64, cwd: &str) -> Thread {
 }
 
 /// A `thread/list` result of the given rows (`(id, recency)`) and cursor.
-fn page(rows: &[(&str, i64)], next: Option<&str>) -> Result<Value, String> {
+fn page(rows: &[(&str, i64)], next: Option<&str>) -> Result<Value, ServerError> {
     let data: Vec<Value> = rows
         .iter()
         .map(|(id, recency)| serde_json::to_value(thread(id, *recency, "/tmp/p")).unwrap())
@@ -82,9 +82,9 @@ fn list(cursor: Option<&str>) -> AgentsCommand {
 fn the_list_asks_both_sources() {
     let fanout = fanout(&list(None), false).expect("a list fans out");
     let requests = fanout.requests(next_id());
-    // Two pages of the list, then the pins of both sources: the first page
-    // of the list reads them with it (`refresh` -> `list_pinned_threads`).
-    assert_eq!(requests.len(), 4);
+    // Two pages of the list; the pins are read apart, source after source
+    // (`PinReader`).
+    assert_eq!(requests.len(), 2);
     let first = request_json(&requests[0]);
     let second = request_json(&requests[1]);
     assert_eq!(first["method"], "thread/list");
@@ -98,16 +98,6 @@ fn the_list_asks_both_sources() {
         assert_eq!(request["params"]["sortKey"], "recency_at");
         assert_eq!(request["params"]["archived"], false);
     }
-    for (request, kinds) in [
-        (&requests[2], json!([])),
-        (&requests[3], json!(["exec", "appServer"])),
-    ] {
-        let request = request_json(request);
-        assert_eq!(request["params"]["sourceKinds"], kinds);
-        assert_eq!(request["params"]["sectionId"], PINNED_SECTION);
-        assert_eq!(request["params"]["sortKey"], "section_position");
-        assert_eq!(request["params"]["limit"], 100);
-    }
 }
 
 /// Cloud does not support the Exec / AppServer filter: it asks one source.
@@ -116,86 +106,157 @@ fn cloud_asks_the_interactive_source_only() {
     let fanout = fanout(&list(None), true).expect("a list fans out");
     let requests = fanout.requests(next_id());
     // One page of the list; the pins ask both sources as the oracle does.
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 1);
     assert_eq!(
         request_json(&requests[0])["params"]["sourceKinds"],
         json!([])
     );
 }
 
-/// A later page of the list does not read the pins again.
+/// Only the first page of the list reads the pins.
 #[test]
 fn only_the_first_page_reads_the_pins() {
-    let fanout = fanout(&list(Some("next")), false).expect("a list fans out");
-    assert_eq!(fanout.requests(next_id()).len(), 2);
+    assert!(fanout_of(&list(None)).reads_pins());
+    assert!(!fanout_of(&list(Some("next"))).reads_pins());
     let search = AgentsCommand::Search {
         cursor: None,
         first: true,
     };
-    let fanout = fanout_of(&search);
-    assert_eq!(fanout.requests(next_id()).len(), 2);
+    assert!(!fanout_of(&search).reads_pins());
+    assert_eq!(fanout_of(&search).requests(next_id()).len(), 2);
 }
 
 fn fanout_of(command: &AgentsCommand) -> codex_tui_core::screens::agents::Fanout {
     fanout(command, false).expect("a page")
 }
 
-fn pin_result(
-    fanout: &codex_tui_core::screens::agents::Fanout,
-    pinned: [Result<Value, String>; 2],
-) -> Option<Pins> {
-    let [first, second] = pinned;
-    let results = vec![page_json(&[]), page_json(&[]), first, second];
-    match fanout.reply(results).expect("a reply") {
-        Reply::Listed(page) => page.pins,
-        other => panic!("{other:?}"),
-    }
+fn page_json(rows: &[(&str, i64)]) -> Result<Value, ServerError> {
+    page(rows, None)
 }
 
-fn page_json(rows: &[(&str, i64)]) -> Result<Value, String> {
-    page(rows, None)
+/// Reads the pins as the shell does: a request, its answer, until none is
+/// left. `answers` are the answers in order; the requests asked are returned
+/// with what the reader made of them.
+fn read_pins(answers: Vec<Result<Value, ServerError>>) -> (Vec<Value>, Option<Pins>) {
+    let mut reader = PinReader::new();
+    let mut ids = next_id();
+    let mut asked = Vec::new();
+    let mut answers = answers.into_iter();
+    while let Some(request) = reader.next_request(ids()) {
+        asked.push(request_json(&request));
+        reader.feed(answers.next().expect("an answer for every request"));
+    }
+    assert!(answers.next().is_none(), "an answer was never asked for");
+    (asked, reader.finish())
 }
 
 /// The pins keep the server's rank (source after source), and a pinned task
 /// that the recent page does not hold is a row of the center.
 #[test]
 fn the_pins_are_read_in_rank_order() {
-    let fanout = fanout_of(&list(None));
-    let pins = pin_result(
-        &fanout,
-        [page_json(&[("p2", 5), ("p1", 9)]), page_json(&[("p3", 1)])],
-    )
-    .expect("pins");
+    let (asked, pins) = read_pins(vec![
+        page_json(&[("p2", 5), ("p1", 9)]),
+        page_json(&[("p3", 1)]),
+    ]);
+    let pins = pins.expect("pins");
     assert_eq!(
         pins.ids,
         Some(vec!["p2".to_owned(), "p1".to_owned(), "p3".to_owned()])
     );
     assert_eq!(pins.threads.len(), 3);
+    assert_eq!(asked.len(), 2);
+    for (request, kinds) in [
+        (&asked[0], json!([])),
+        (&asked[1], json!(["exec", "appServer"])),
+    ] {
+        assert_eq!(request["params"]["sourceKinds"], kinds);
+        assert_eq!(request["params"]["sectionId"], PINNED_SECTION);
+        assert_eq!(request["params"]["sortKey"], "section_position");
+        assert_eq!(request["params"]["limit"], 100);
+        assert_eq!(request["params"]["cursor"], Value::Null);
+    }
 }
 
-/// `Err(Server)` with a code of -32602..=-32600: the server has no pins
-/// (oracle: `list_pinned_threads` returns `Ok(None)`); any other failure
-/// leaves the pins as they were.
+/// `list_pinned_threads` follows the cursor of each source to its end: a
+/// pinned task beyond the first page of 100 is read.
+#[test]
+fn pins_follow_the_cursor_beyond_the_first_page() {
+    let (asked, pins) = read_pins(vec![
+        page(&[("p1", 9)], Some("c1")),
+        page(&[("p2", 8)], Some("c2")),
+        page_json(&[("p3", 7)]),
+        page_json(&[("p4", 6)]),
+    ]);
+    let cursors: Vec<&Value> = asked.iter().map(|r| &r["params"]["cursor"]).collect();
+    assert_eq!(
+        cursors,
+        [&Value::Null, &json!("c1"), &json!("c2"), &Value::Null]
+    );
+    // The first source is read to its end before the second begins.
+    let kinds: Vec<&Value> = asked.iter().map(|r| &r["params"]["sourceKinds"]).collect();
+    assert_eq!(kinds[0], &json!([]));
+    assert_eq!(kinds[1], &json!([]));
+    assert_eq!(kinds[2], &json!([]));
+    assert_eq!(kinds[3], &json!(["exec", "appServer"]));
+    assert_eq!(
+        pins.expect("pins").ids,
+        Some(vec![
+            "p1".to_owned(),
+            "p2".to_owned(),
+            "p3".to_owned(),
+            "p4".to_owned()
+        ])
+    );
+}
+
+/// A refusal with a code of -32602..=-32600: the server has no pins (oracle:
+/// `list_pinned_threads` returns `Ok(None)`) and nothing more is asked; any
+/// other failure leaves the pins as they were. The code is the client's
+/// typed code, never read out of the message.
 #[test]
 fn a_server_without_pins_and_a_failed_read() {
+    let refused = ServerError {
+        code: Some(-32602),
+        message: "invalid params".to_owned(),
+    };
+    let (asked, pins) = read_pins(vec![Err(refused)]);
+    assert_eq!(asked.len(), 1, "no more is asked after a refusal");
+    assert_eq!(pins.expect("an answer").ids, None);
+    // Refused on the second source's page too.
+    let (_, pins) = read_pins(vec![
+        page_json(&[("p1", 1)]),
+        Err(ServerError {
+            code: Some(-32600),
+            message: "x".to_owned(),
+        }),
+    ]);
+    assert_eq!(pins.expect("an answer").ids, None);
+    let failed = ServerError {
+        code: Some(-32000),
+        message: "boom".to_owned(),
+    };
+    let (_, pins) = read_pins(vec![Err(failed)]);
+    assert_eq!(pins, None);
+    // A message that merely reads like a refusal is not one.
+    let (_, pins) = read_pins(vec![Err(ServerError {
+        code: None,
+        message: "thread/list failed: invalid params (code -32602)".to_owned(),
+    })]);
+    assert_eq!(pins, None);
+}
+
+/// The merged page carries the pins the reader read.
+#[test]
+fn the_page_carries_the_pins_it_is_given() {
     let fanout = fanout_of(&list(None));
-    let refused = pin_result(
-        &fanout,
-        [
-            Err("thread/list failed: invalid params (code -32602)".to_owned()),
-            page_json(&[]),
-        ],
-    )
-    .expect("an answer");
-    assert_eq!(refused.ids, None);
-    let failed = pin_result(
-        &fanout,
-        [
-            Err("thread/list failed: boom (code -32000)".to_owned()),
-            page_json(&[]),
-        ],
-    );
-    assert_eq!(failed, None);
+    let (_, pins) = read_pins(vec![page_json(&[("p1", 1)]), page_json(&[])]);
+    let reply = fanout
+        .reply(vec![page_json(&[]), page_json(&[])], pins.clone())
+        .expect("a reply");
+    match reply {
+        Reply::Listed(page) => assert_eq!(page.pins, pins),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// Commands that are not pages are not fanned out.
@@ -223,7 +284,7 @@ fn the_rows_merge_by_recency_then_id() {
         .reply(vec![
             page(&[("a1", 100), ("a2", 80), ("a3", 50)], None),
             page(&[("b1", 90), ("b2", 80), ("b3", 40)], None),
-        ])
+        ], None)
         .expect("merges");
     let (rows, next) = ids(reply);
     assert_eq!(rows, ["a1", "b1", "b2", "a2", "a3", "b3"]);
@@ -244,7 +305,7 @@ fn a_page_shows_ten_rows_and_the_sources_keep_the_rest() {
         .reply(vec![
             page(&as_refs(&interactive), Some("ca")),
             page(&as_refs(&other), Some("cb")),
-        ])
+        ], None)
         .unwrap());
     assert_eq!(
         rows,
@@ -262,7 +323,7 @@ fn a_page_shows_ten_rows_and_the_sources_keep_the_rest() {
         .reply(vec![
             page(&as_refs(&interactive), Some("ca")),
             page(&as_refs(&other), Some("cb")),
-        ])
+        ], None)
         .unwrap());
     assert_eq!(
         rows,
@@ -283,7 +344,7 @@ fn an_ended_source_is_not_asked_again() {
         .reply(vec![
             page(&[("a1", 5)], None),
             page(&[("b1", 4)], Some("cb")),
-        ])
+        ], None)
         .unwrap());
     let second = fanout(&list(next.as_deref()), false).unwrap();
     let requests = second.requests(next_id());
@@ -299,7 +360,7 @@ fn an_ended_source_is_not_asked_again() {
 #[test]
 fn a_failed_source_fails_the_page() {
     let fanout = fanout(&list(None), false).unwrap();
-    let result = fanout.reply(vec![page(&[("a1", 5)], None), Err("boom".to_owned())]);
+    let result = fanout.reply(vec![page(&[("a1", 5)], None), Err("boom".into())], None);
     assert_eq!(result, Err(RpcError::Remote("boom".to_owned())));
 }
 
@@ -318,7 +379,7 @@ fn a_search_scans_hundred_row_pages_of_both_sources() {
     let rows: Vec<(String, i64)> = (0..12).map(|n| (format!("a{n}"), 500 - n)).collect();
     let refs: Vec<(&str, i64)> = rows.iter().map(|(id, at)| (id.as_str(), *at)).collect();
     let (merged, next) = ids(fanout
-        .reply(vec![page(&refs, Some("ca")), page(&[("b1", 495)], None)])
+        .reply(vec![page(&refs, Some("ca")), page(&[("b1", 495)], None)], None)
         .unwrap());
     assert_eq!(
         merged.len(),

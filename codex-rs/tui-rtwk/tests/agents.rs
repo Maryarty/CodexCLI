@@ -9,6 +9,7 @@
 mod oracle_snap;
 
 use crate::common::{Harness, start_sized};
+use rtwk_core::style::{Attrs, Color};
 
 /// Who makes a pending test pass (tm aliases of the slices).
 #[derive(Clone, Copy)]
@@ -196,20 +197,55 @@ fn overview_worktree_creation_busy_state() {
     assert_app(&h, "overview_worktree_creation_busy_state");
 }
 
-/// `overview_thread_colors_match_footer_and_respect_color_suppression` (agents_overview_tests.rs:51):
-/// the title of a task is drawn in the colour of its thread (the footer's
-/// thread colour, `Rgb(242, 205, 205)` in the snapshot) unless the status-line
-/// colours are off, and an unread dot is the primary blue.
+/// Where `text` stands on the screen: every `(column, row)` of it.
+fn find_all(h: &Harness, text: &str) -> Vec<(usize, usize)> {
+    h.t.lines()
+        .iter()
+        .enumerate()
+        .filter_map(|(y, row)| row.find(text).map(|at| (row[..at].chars().count(), y)))
+        .collect()
+}
+
+/// `overview_thread_colors_match_footer_and_respect_color_suppression`
+/// (agents_overview_tests.rs:51): an unselected task's title is drawn in the
+/// colour of its thread (id 42: `Rgb(242, 205, 205)` in the snapshot), the
+/// selected row's is the selection's (no thread colour), the details title
+/// of the selected task is its thread's colour and bold; with the
+/// status-line colours off every title is plain.
 #[test]
 fn overview_thread_colors_match_footer_and_respect_color_suppression() {
-    pending(
-        Owner::ReuseCarry,
-        "the thread colour needs the oracle's syntax-theme palette: `thread_color` (reuse-map REUSE row, `tui/src/thread_color.rs`) hashes the full thread id with FNV-1a and indexes the accents of the active syntect theme (`render/highlight.rs`: `current_syntax_theme`, two_face theme bundle), applied when `tui.status_line_use_colors` is on (`agents_overview_view.rs:348`). tui-rtwk has neither syntect/two_face nor the theme resolution, so any colour written here would be invented; once the palette is carried, the work left is the setting in core's settings model, a colour on `RowData`, and a seed of ids 42/43 unread/selected (expected: Rgb(242, 205, 205) for id 42)",
-    );
-    let h = open("columns", 100, 30);
-    let screen = h.t.screen();
-    assert!(screen.contains("\u{25cf} Failed task"), "{screen}");
+    let (rgb, bold) = (Color::rgb(242, 205, 205), Attrs::BOLD);
+    let on = open("colors", 100, 30);
+    let (x, y) = find_all(&on, "Named task")[0];
+    let title = on.t.cell(x, y);
+    assert_eq!(title.fg, rgb, "the unselected title");
+    assert!(!title.attrs.contains(bold), "the list title is not bold");
+    // The selected row keeps the selection style, whatever its thread.
+    let (x, y) = find_all(&on, "\u{25cf} Selected task")[0];
+    let selected = on.t.cell(x + 2, y);
+    assert_ne!(selected.fg, Color::rgb(137, 180, 250), "{selected:?}");
+    assert!(selected.attrs.contains(Attrs::REVERSE), "{selected:?}");
+    // The details heading: the selected thread's colour (id 43), bold.
+    let (x, y) = *find_all(&on, "Selected task")
+        .iter()
+        .find(|(x, _)| *x >= 50)
+        .expect("the details title");
+    let details = on.t.cell(x, y);
+    assert_eq!(details.fg, Color::rgb(137, 180, 250), "{details:?}");
+    assert!(details.attrs.contains(bold), "{details:?}");
+
+    let off = open("colors_off", 100, 30);
+    let (x, y) = find_all(&off, "Named task")[0];
+    assert!(off.t.cell(x, y).fg.is_default(), "no colour when suppressed");
+    let (x, y) = *find_all(&off, "Selected task")
+        .iter()
+        .find(|(x, _)| *x >= 50)
+        .expect("the details title");
+    let details = off.t.cell(x, y);
+    assert!(details.fg.is_default(), "{details:?}");
+    assert!(details.attrs.contains(bold), "{details:?}");
 }
+
 /// `older_server_notice_is_visible_in_agents_overview` (agents_overview_tests.rs:100):
 /// the footer's last row is the notice.
 #[test]
