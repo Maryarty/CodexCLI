@@ -520,3 +520,57 @@ fn feed_on_an_entry_screen_says_it_cannot() {
         .open();
     s.feed(include_str!("kit/fixtures/typed.jsonl"));
 }
+
+/// The help of the agents command center holds the Delete key as the shipped
+/// binary prints it (`delete`, crossterm on macOS); the oracle's snapshot
+/// holds `backspace` (its `cfg(test)` label), and a longer key column. The
+/// kit compares ours as the snapshot has it.
+#[test]
+fn the_delete_key_label_and_its_column_are_normalized_on_our_rows_only() {
+    let oracle: Vec<String> = [
+        "  Tasks",
+        "  n          New",
+        "  a          Archive",
+        "  backspace  Delete",
+        "",
+        "  View",
+        "  g  Group",
+    ]
+    .map(String::from)
+    .to_vec();
+    let ours: Vec<String> = [
+        "  Tasks",
+        "  n       New",
+        "  a       Archive",
+        "  delete  Delete",
+        "",
+        "  View",
+        "  g  Group",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(kit::normalize_rows(ours.clone(), &oracle), oracle);
+    // A real difference stays one: the description, and a row outside the column.
+    let mut wrong = ours;
+    wrong[2] = "  a       Archived".to_string();
+    wrong[6] = "  g   Group".to_string();
+    let got = kit::normalize_rows(wrong, &oracle);
+    assert_eq!(got[2], "  a          Archived");
+    assert_eq!(got[6], "  g   Group");
+    // An oracle that holds `delete` itself leaves ours as they are.
+    let literal = ["  Tasks".to_string(), "  delete  Delete".to_string()];
+    let same = vec!["  delete  Delete".to_string()];
+    assert_eq!(kit::normalize_key_names(same.clone(), &literal[1..]), same);
+}
+
+/// The same on a real screen: the help of the agents command center at the
+/// oracle's width, compared with the oracle's snapshot through the kit.
+#[test]
+fn the_agents_help_equals_the_oracle_with_the_delete_label() {
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(60, 24)
+        .entry("agents", "navigation")
+        .open();
+    s.keys("?");
+    s.assert_snap("command_center__live_center_help_two_columns");
+}

@@ -40,7 +40,7 @@ You port the oracle's tests (`codex-rs/tui`, tag in `docs/rtwk-port/ORACLE_REF`)
 | a column (`x == 12`) | `assert_text_at(12, row, "text")` |
 | screen A equals / differs from screen B | `let a = s.shot(); .. keys ..; s.assert_same_rows(&a)` (`assert_same_rows_in(&a, 1..6)`, `assert_rows_differ(&a)`) |
 
-Wide glyphs: the oracle writes them one char (`Hidden by multi-width symbols` note) or glyph plus space; the compare takes either. Key labels: `shift+tab` and `⇧tab` are the same.
+Wide glyphs: the oracle writes them one char (`Hidden by multi-width symbols` note) or glyph plus space; the compare takes either. Key labels: `shift+tab` and `⇧tab` are the same; so are the shipped `delete` (macOS crossterm's name of Backspace) and the snapshots' `backspace` (the oracle's `cfg(test)` label), with the wider key column the longer name gives. The kit changes only our rows (`tests/kit/labels.rs`), never the oracle's; never normalize labels in a test file (a test outside the kit includes `labels.rs` with `#[path]`).
 
 ## Run and report
 `python3 -I tests/oracle/tools/summary.py --run <shard>` (own junit file, so agents can run at once; `CARGO_TARGET_DIR` as your task says) prints pass / n/a / pending / todo / red for the shard, always. `--list red` / `--list pending` after `--run <shard>` shows the tests. A red port stays red: it is a finding. Then `acargo fmt` and `acargo clippy -q --all-targets -- -D warnings`.

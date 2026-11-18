@@ -1,63 +1,11 @@
 //! Comparing the screen with the oracle: the expected rows come only from an
 //! oracle snapshot (`../tui/src/**/snapshots/*.snap`, found by name) or from
 //! a literal of the oracle's own assertion. The only change made to the
-//! screen's rows is the platform labels of keys (`normalize_labels`).
+//! screen's rows is the platform labels of keys (`labels::normalize`).
 
 use super::grid::{self, Grid};
+use super::labels;
 use super::oracle_snap::{self, Frame};
-
-/// The labels of key hints differ by platform in the oracle (`⇧tab` on macOS
-/// and under `cfg(test)`, `shift + tab` elsewhere); the snapshots mostly hold
-/// the symbols. A word form in our rows becomes its symbol form, unless the
-/// oracle's expected text itself holds that word form.
-const LABELS: [(&str, &str); 4] = [("ctrl", "⌃"), ("shift", "⇧"), ("alt", "⌥"), ("super", "⌘")];
-
-pub fn normalize_labels(row: &str, expected: &[String]) -> String {
-    let mut out = row.to_string();
-    for (word, symbol) in LABELS {
-        let literal = expected
-            .iter()
-            .any(|line| line.contains(&format!("{word}+")) || line.contains(&format!("{word} +")));
-        if literal {
-            continue;
-        }
-        out = replace_label(&out, word, symbol);
-    }
-    out
-}
-
-/// `word+key` and `word + key` at a word start, as `symbolkey`.
-fn replace_label(row: &str, word: &str, symbol: &str) -> String {
-    let chars: Vec<char> = row.chars().collect();
-    let w: Vec<char> = word.chars().collect();
-    let mut out = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let at_word_start = i == 0 || !chars[i - 1].is_alphanumeric();
-        if at_word_start && chars[i..].starts_with(&w) {
-            let mut j = i + w.len();
-            let mut k = j;
-            while chars.get(k) == Some(&' ') {
-                k += 1;
-            }
-            if chars.get(k) == Some(&'+') {
-                k += 1;
-                while chars.get(k) == Some(&' ') {
-                    k += 1;
-                }
-                if chars.get(k).is_some_and(|c| !c.is_whitespace()) {
-                    j = k;
-                    out.push_str(symbol);
-                    i = j;
-                    continue;
-                }
-            }
-        }
-        out.push(chars[i]);
-        i += 1;
-    }
-    out
-}
 
 fn trim(rows: Vec<String>) -> Vec<String> {
     let mut rows: Vec<String> = rows.into_iter().map(|r| r.trim_end().to_string()).collect();
@@ -170,11 +118,12 @@ fn compare_rows(
         (Some(_), None) => expected.len(),
         (None, _) => grid.height,
     };
-    let actual = trim(
+    let actual = trim(labels::normalize(
         (row0..(row0 + count).min(grid.height))
-            .map(|y| normalize_labels(&grid.row(y, col0, width, wide_space), &expected))
+            .map(|y| grid.row(y, col0, width, wide_space))
             .collect(),
-    );
+        &expected,
+    ));
     if actual == expected {
         Ok(())
     } else {
