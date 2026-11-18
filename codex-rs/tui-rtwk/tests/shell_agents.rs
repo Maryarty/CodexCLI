@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::Thread;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::screens::agents::{DirKeys, Ev, Intent as AgentsIntent, Notice};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
@@ -408,4 +407,143 @@ fn a_task_that_cannot_be_bound_names_the_retained_checkout() {
 fn the_fake_workspace_is_a_workspace() {
     fn takes(_: &dyn Workspace) {}
     takes(&FakeWorkspace::default());
+}
+
+// The app on the scripted backend: the center opened at start
+// (`codex-rtwk agents`), the backend answering as the app-server does.
+
+mod live {
+    use super::*;
+    use codex_tui_rtwk::app::UiApp;
+    use codex_tui_rtwk::l10n::Lang;
+    use codex_tui_rtwk::run::{app_view, localized, root};
+    use codex_tui_rtwk::shell::Backend;
+    use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
+    use rtwk_test::{Options, Tester};
+
+    pub struct Live {
+        pub t: Tester,
+        pub fake: FakeHandle,
+        _runtime: tokio::runtime::EnterGuard<'static>,
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    pub fn start(
+        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+    ) -> Live {
+        let guard = rtwk_tokio::enter(runtime());
+        let (server, fake) = FakeServer::new();
+        fake.respond(script);
+        let app = UiApp::new(Backend::Fake(server)).with_start_agents(true);
+        let mut t = Tester::with(Options::new().size(100, 30));
+        t.pump_widget(localized(root(app_view(app)), Lang::En));
+        t.pump_for(ms(200));
+        Live {
+            t,
+            fake,
+            _runtime: guard,
+        }
+    }
+
+    impl Live {
+        pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
+            for _ in 0..400 {
+                self.t.pump_for(ms(20));
+                if ready(&self.t.screen()) {
+                    return;
+                }
+                std::thread::sleep(ms(5));
+            }
+            panic!("never saw {what}; the screen:\n{}", self.t.screen());
+        }
+    }
+}
+
+fn server(request: &Value) -> Option<Result<Value, String>> {
+    match request["method"].as_str()? {
+        "thread/list" => Some(Ok(if request["params"]["sourceKinds"] == json!([]) {
+            page(&[("Interactive task", 100, "/w/one")])
+        } else {
+            page(&[("Exec task", 90, "/w/two")])
+        })),
+        "thread/start" => {
+            let cwd = request["params"]["cwd"].as_str().unwrap_or("/none");
+            Some(Ok(json!({"thread": thread_json("wt-1", 500, cwd)})))
+        }
+        _ => None,
+    }
+}
+
+/// The center lists the interactive and the Exec / AppServer sources.
+#[test]
+fn the_live_center_lists_both_sources() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| {
+        s.contains("Interactive task") && s.contains("Exec task")
+    });
+    let kinds: Vec<Value> = h
+        .fake
+        .requests()
+        .iter()
+        .filter(|request| request["method"] == "thread/list")
+        .map(|request| request["params"]["sourceKinds"].clone())
+        .collect();
+    assert!(
+        kinds.contains(&json!([])) && kinds.contains(&json!(["exec", "appServer"])),
+        "{kinds:?}"
+    );
+}
+
+/// Worktrees on: the shell reads the keys of the listed cwds, and the rows
+/// of two directories of one repository share a group.
+#[test]
+fn the_shell_reads_the_directory_keys_of_the_listed_tasks() {
+    let mut h = live::start(server);
+    h.fake
+        .workspace()
+        .set_keys("/w/one", keys("/repo/.git", "/repo", "/real/one"));
+    h.fake
+        .workspace()
+        .set_keys("/w/two", keys("/repo/.git", "/repo", "/real/two"));
+    h.fake.announce(LOCAL);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    for _ in 0..50 {
+        h.t.pump_for(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let mut reads = h.fake.workspace().key_reads();
+    reads.sort();
+    assert_eq!(reads, ["/w/one", "/w/two"]);
+    let screen = h.t.screen();
+    assert_eq!(
+        screen.matches("/repo").count(),
+        1,
+        "one group heading:\n{screen}"
+    );
+}
+
+/// `w`: a worktree is made of the highlighted task's directory, a task is
+/// started in it and opens in the chat.
+#[test]
+fn w_creates_a_worktree_and_opens_a_task_in_it() {
+    let mut h = live::start(server);
+    h.fake.workspace().set_create(Ok(checkout()));
+    h.fake.announce(LOCAL);
+    h.wait_for("the task", |s| s.contains("Interactive task"));
+    h.t.press("w");
+    let workspace = h.fake.workspace().clone();
+    h.wait_for("the worktree", |_| !workspace.created().is_empty());
+    assert_eq!(h.fake.workspace().created(), [Some("/w/one".to_owned())]);
+    h.wait_for("the center to close", |s| !s.contains("Interactive task"));
+    let started: Vec<Value> = h
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|request| request["method"] == "thread/start")
+        .collect();
+    assert_eq!(started[0]["params"]["cwd"], "/wt/abc/sub");
+    assert_eq!(h.fake.workspace().bound().len(), 1);
 }
