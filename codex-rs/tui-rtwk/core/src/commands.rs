@@ -668,6 +668,24 @@ impl From<CommandPopupFlags> for CommandFlags {
     }
 }
 
+impl From<CommandFlags> for CommandPopupFlags {
+    fn from(value: CommandFlags) -> Self {
+        Self {
+            collaboration_modes_enabled: value.collaboration_modes_enabled,
+            connectors_enabled: value.connectors_enabled,
+            plugins_command_enabled: value.plugins_command_enabled,
+            token_activity_command_enabled: value.token_activity_command_enabled,
+            service_tier_commands_enabled: value.service_tier_commands_enabled,
+            daybreak_command_description: value.daybreak_command_description,
+            goal_command_enabled: value.goal_command_enabled,
+            voice_command_enabled: value.voice_command_enabled,
+            worktrees_enabled: value.worktrees_enabled,
+            windows_degraded_sandbox_active: value.allow_elevate_sandbox,
+            side_conversation_active: value.side_conversation_active,
+        }
+    }
+}
+
 /// One row of the command popup.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PopupRow {

@@ -96,3 +96,53 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let _ = value;
     Err(crate::screens::SeedError::NoSeeds)
 }
+
+/// What the text before the caret asks a popup for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Trigger {
+    pub kind: TriggerKind,
+    /// Byte index of the sigil in the text.
+    pub start: usize,
+    /// What is typed after the sigil.
+    pub query: String,
+}
+
+/// Which popup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TriggerKind {
+    /// `/` at the start of the text: the commands.
+    Slash,
+    /// `$` at the start of a word: skills.
+    Skill,
+    /// `@` at the start of a word: files and plugins.
+    Mention,
+}
+
+/// The popup the text before the caret asks for, if any: a `/` command name
+/// not yet followed by a blank (`slash_input.rs`), or a word that starts with
+/// `$` or `@`. A blank after the word closes the popup.
+pub fn trigger(before_caret: &str) -> Option<Trigger> {
+    if let Some(query) = before_caret.strip_prefix('/')
+        && !query.contains(char::is_whitespace)
+    {
+        return Some(Trigger {
+            kind: TriggerKind::Slash,
+            start: 0,
+            query: query.to_string(),
+        });
+    }
+    let start = before_caret
+        .rfind(char::is_whitespace)
+        .map_or(0, |at| at + before_caret[at..].chars().next().map_or(1, char::len_utf8));
+    let word = &before_caret[start..];
+    let kind = match word.chars().next()? {
+        '$' => TriggerKind::Skill,
+        '@' => TriggerKind::Mention,
+        _ => return None,
+    };
+    Some(Trigger {
+        kind,
+        start,
+        query: word[1..].to_string(),
+    })
+}
