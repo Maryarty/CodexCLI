@@ -122,24 +122,6 @@ pub fn send(app: &UiApp, ingress: Ingress) {
     }
 }
 
-/// What a widget awaits its dialog's result with (see
-/// `ui::presenter::Presenter`): the one `Cx::spawn` of a dialog future,
-/// handed to the UI by the root so the UI names no shell (R1).
-pub fn dialog_closed<S, T>(
-    cx: &mut rtwk::Cx<'_, S>,
-    result: rtwk::overlay::DialogResult<T>,
-    msg: S::Msg,
-) where
-    S: rtwk::State,
-    S::Msg: 'static,
-    T: 'static,
-{
-    cx.spawn(async move {
-        let _ = result.await;
-        Some(msg)
-    });
-}
-
 /// Puts `ev` into `ingress` under `epoch` (for connectors).
 pub fn emit(ingress: &IngressTx, epoch: ConnEpoch, ev: AppEv) {
     let _ = ingress.send(Ingress { epoch, ev });

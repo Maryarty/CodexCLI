@@ -147,7 +147,10 @@ ours: three rows, each `<timestamp>  Hello  mock_provider`, newest first.
 proposal: accept; the resume slice replaces the list and may widen `Row`.
 
 ## What did not split cleanly
-- `shell::dialog_closed` stays in the shell: it builds no widget but names
+- (Superseded by `rtwk-repin`, rtwk `9f28b7fb`: `shell::dialog_closed` and
+  the `CloseWatcher` are gone; `ui::presenter` shows requests with
+  `AppCx::show_dialog_from` and decides in `closed`. G13 and G16 are fixed in
+  the pin.) `shell::dialog_closed` stayed in the shell: it builds no widget but names
   `rtwk::Cx` and `DialogResult`, because R1 (spawn only in the shell) is what
   lets it await a dialog's future. The view reaches it through the injected
   `CloseWatcher` (`run.rs` passes it). rtwk gap: `show_dialog` has no

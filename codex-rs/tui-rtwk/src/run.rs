@@ -25,9 +25,7 @@ use crate::ui::view::view;
 
 /// The app as the tests host it: the view with the shell's `on_start`.
 pub fn app_view(app: UiApp) -> AppView<UiApp> {
-    // The view takes the one effect it needs from the shell (awaiting a
-    // dialog's result) as a value, so `ui` names no shell.
-    AppView::new(app, |app, cx| view(app, cx, shell::dialog_closed)).on_start(shell::start)
+    AppView::new(app, view).on_start(shell::start)
 }
 
 /// The app under the overlay layer, with the app's theme at the root: what

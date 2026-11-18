@@ -13,6 +13,8 @@ use rtwk::app::AppCx;
 
 use crate::l10n::Lang;
 use crate::shell;
+use crate::ui::presenter;
+use crate::ui::presenter::Presenter;
 use crate::ui::thread_ui::ThreadUiMap;
 
 /// What only the UI keeps: never seen by `apply`, never in the core model.
@@ -25,6 +27,9 @@ pub struct UiState {
     pub lang: Lang,
     /// Open the debug menu at start (`--debug-screens`).
     pub debug: bool,
+    /// The request presenter's model (ADR-002): the kept handle of the
+    /// navigator's home and which request is open.
+    pub presenter: Presenter,
 }
 
 /// The model of the rtwk app.
@@ -49,6 +54,7 @@ impl UiApp {
                 thread_ui: ThreadUiMap::default(),
                 lang: Lang::default(),
                 debug: false,
+                presenter: Presenter::new(),
             },
             link: shell::Link::new(backend),
         }
@@ -73,6 +79,8 @@ impl UiApp {
             return;
         };
         self.follow_core();
+        self.ui.presenter.event();
+        presenter::present(self, cx);
         shell::run_effects(self, fx);
     }
 

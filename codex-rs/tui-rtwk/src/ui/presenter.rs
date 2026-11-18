@@ -1,106 +1,164 @@
 //! The request presenter: the one place that opens a dialog for the head of
-//! the model's request queue (ADR-002). It wraps the `Navigator`'s home (see
-//! `view`), whichever home that is, so it is mounted once and the dialog
-//! finds the providers. The dialog itself is `screens::approvals`'s.
+//! the model's request queue (ADR-002). The dialog is shown with rtwk's
+//! `AppCx::show_dialog_from` from the kept handle of the `Navigator`'s home
+//! (a memo node, see `home_node`), so it is a route of that navigator under
+//! the providers; the decision which request is next is made on the model,
+//! in `closed` and after each ingested event, never from a provider read in
+//! the same flush (G14). The dialog itself is `screens::approvals`'s.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::overlay::{DialogOptions, show_dialog};
-use rtwk::provider::{read, select};
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::AnyWidget;
+use rtwk::app::AppCx;
+use rtwk::app::MemoCx;
+use rtwk::app::ViewRoot;
+use rtwk::overlay::DialogOptions;
 
-use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
 
+use crate::app::UiApp;
 use crate::screens;
 
-/// How the presenter awaits its dialog's result: given by the root (the
-/// shell's `dialog_closed`), because spawning is the shell's (R1).
-pub type CloseWatcher =
-    fn(&mut Cx<'_, PresenterState>, rtwk::overlay::DialogResult<()>, PresenterMsg);
+/// Where the home left its handle: a request is shown from it, and the next
+/// one from the handle in the cell then (a replaced home writes its own).
+pub type Place = Rc<Cell<Option<ViewRoot<UiApp>>>>;
 
-/// Shows the dialog of the queue's head; its child is what it wraps.
+/// What the presenter keeps: plain data, UI-only (`UiApp.ui`).
 pub struct Presenter {
-    pub watch: CloseWatcher,
-    pub child: AnyWidget,
-}
-
-pub struct PresenterState {
-    watch: CloseWatcher,
+    place: Place,
+    /// The request whose dialog is open.
     shown: Option<RequestKey>,
-    /// The last request shown: a snapshot that still holds it (the view
-    /// has not rerun yet) is not a new request.
+    /// The last request shown: while it is queued it is not shown again (its
+    /// dismissal is still on its way to the model, or its dialog went with a
+    /// home that was replaced).
     last: Option<RequestKey>,
+    /// `last` closed with `None` while still queued: not retried by
+    /// `closed` (that would run at every flush while the place is gone),
+    /// but by the next ingested event.
+    parked: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum PresenterMsg {
-    Closed(RequestKey),
-}
-
-impl StatefulWidget for Presenter {
-    type State = PresenterState;
-
-    fn create_state(&self) -> PresenterState {
-        PresenterState {
-            watch: self.watch,
-            shown: None,
-            last: None,
-        }
+impl Default for Presenter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl_widget!(stateful Presenter);
+impl Presenter {
+    pub fn new() -> Self {
+        Self {
+            place: Place::default(),
+            shown: None,
+            last: None,
+            parked: false,
+        }
+    }
 
-impl PresenterState {
-    fn sync(&mut self, head: Option<RequestKey>, cx: &mut Cx<'_, Self>) {
-        let (None, Some(key)) = (&self.shown, head) else {
-            return;
-        };
+    /// The cell the home leaves its handle in.
+    pub fn place(&self) -> Place {
+        self.place.clone()
+    }
+
+    /// The request whose dialog is open.
+    pub fn shown(&self) -> Option<&RequestKey> {
+        self.shown.as_ref()
+    }
+
+    /// The request to show now, given the queue's `head` and what is
+    /// `queued`: none while a dialog is open or when the head is the one
+    /// shown last and still queued. The key returned counts as shown.
+    pub fn next(
+        &mut self,
+        head: Option<RequestKey>,
+        queued: impl Fn(&RequestKey) -> bool,
+    ) -> Option<RequestKey> {
+        if self.shown.is_some() {
+            return None;
+        }
+        if self.last.as_ref().is_some_and(|last| !queued(last)) {
+            self.last = None;
+        }
+        let key = head?;
         if self.last.as_ref() == Some(&key) {
-            return;
+            return None;
         }
         self.shown = Some(key.clone());
         self.last = Some(key.clone());
-        let shown = key.clone();
-        let result = show_dialog::<(), _>(
-            cx,
-            move |_| screens::approvals::request_dialog(shown.clone()),
-            DialogOptions {
-                barrier_dismissible: false,
-                fade_in: Duration::ZERO,
-                ..DialogOptions::default()
-            },
-        );
-        (self.watch)(cx, result, PresenterMsg::Closed(key));
+        Some(key)
+    }
+
+    /// The dialog of `key` closed with `answer` (`None`: the request left the
+    /// queue, the home went, or no dialog could be shown).
+    pub fn closed(
+        &mut self,
+        key: &RequestKey,
+        answer: Option<()>,
+        queued: impl Fn(&RequestKey) -> bool,
+    ) {
+        if self.shown.as_ref() == Some(key) {
+            self.shown = None;
+        }
+        if answer.is_none() && queued(key) {
+            self.parked = true;
+        }
+    }
+
+    /// An event was ingested: a request parked by a `None` may be tried
+    /// again, once.
+    pub fn event(&mut self) {
+        if std::mem::take(&mut self.parked) {
+            self.last = None;
+        }
     }
 }
 
-impl State for PresenterState {
-    type Widget = Presenter;
-    type Msg = PresenterMsg;
-
-    fn did_change_dependencies(&mut self, _: &Presenter, cx: &mut Cx<'_, Self>) {
-        let head = select::<RequestQueue, Option<RequestKey>, _>(cx, |queue| {
-            queue.head().map(|request| request.key.clone())
-        });
-        self.sync(head, cx);
+/// Shows the head of the queue if no request is open and the home's handle
+/// is there; otherwise the request waits in the queue. Called after each
+/// ingested event and from `closed`, with the model at hand.
+pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
+    let Some(place) = app.ui.presenter.place.get() else {
+        return;
+    };
+    let requests = &app.core.requests;
+    let head = requests.head().map(|request| request.key.clone());
+    let Some(key) = app
+        .ui
+        .presenter
+        .next(head, |queued| requests.contains(queued))
+    else {
+        return;
+    };
+    let shown = key.clone();
+    let dialog = cx.show_dialog_from::<()>(
+        place,
+        move |_| screens::approvals::request_dialog(shown.clone()),
+        DialogOptions {
+            barrier_dismissible: false,
+            fade_in: Duration::ZERO,
+            ..DialogOptions::default()
+        },
+        move |app, answer, cx| {
+            let requests = &app.core.requests;
+            app.ui
+                .presenter
+                .closed(&key, answer, |queued| requests.contains(queued));
+            present(app, cx);
+        },
+    );
+    if dialog.is_closed() {
+        // The handle's memo node is gone (rtwk showed nothing and `closed`
+        // follows with `None`): drop the handle, requests wait for the next
+        // home, which leaves its own.
+        app.ui.presenter.place.set(None);
     }
+}
 
-    fn update(&mut self, msg: PresenterMsg, _: &Presenter, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let PresenterMsg::Closed(key) = msg;
-        if self.shown.as_ref() == Some(&key) {
-            self.shown = None;
-        }
-        // A request that came while the dialog was closing.
-        let head = read::<RequestQueue, _>(cx)
-            .head()
-            .map(|request| request.key.clone());
-        self.sync(head, cx);
-        Rebuild::No
-    }
-
-    fn build(&self, w: &Presenter, _: &mut Cx<'_, Self>) -> AnyWidget {
-        w.child.clone()
-    }
+/// The `Navigator`'s home: a memo node that leaves its handle in `place`
+/// and is `child`. Its handle is the origin the request dialogs are shown
+/// from.
+pub fn home_node(deps: &(Place, AnyWidget), cx: &mut MemoCx<'_, '_, UiApp>) -> AnyWidget {
+    deps.0.set(Some(cx.root()));
+    deps.1.clone()
 }

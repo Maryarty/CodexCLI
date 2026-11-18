@@ -19,8 +19,7 @@ use codex_tui_core::screens::ScreenIntent;
 use crate::app::UiApp;
 use crate::screens;
 use crate::ui::debug_menu::DebugMenu;
-use crate::ui::presenter::CloseWatcher;
-use crate::ui::presenter::Presenter;
+use crate::ui::presenter::home_node;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
@@ -34,9 +33,8 @@ pub struct Hs {
     pub quit: Handler<()>,
 }
 
-/// The view of the app. `watch` is how a widget awaits its dialog's result
-/// (the shell's, given by the root).
-pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>, watch: CloseWatcher) -> AnyWidget {
+/// The view of the app.
+pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let hs = Hs {
         submit: cx.on_with(|app: &mut UiApp, text: String, _cx| {
             let thread = app.core.session.active.clone();
@@ -50,17 +48,15 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>, watch: CloseWatcher) ->
         }),
         quit: cx.on(|_, cx| cx.quit()),
     };
-    // The presenter wraps the home, so it is mounted once whichever home it
-    // is, and shows a request's dialog under the providers (ADR-002).
-    let home: AnyWidget = Presenter {
-        watch,
-        child: if app.ui.debug {
-            DebugMenu.into()
-        } else {
-            screens::chat::home(app)
-        },
-    }
-    .into();
+    // The home is a memo node that leaves its handle for the request
+    // presenter, which shows a request's dialog from it as a route of this
+    // navigator, under the providers (ADR-002); whichever home it is.
+    let child: AnyWidget = if app.ui.debug {
+        DebugMenu.into()
+    } else {
+        screens::chat::home(app)
+    };
+    let home = cx.memo((app.ui.presenter.place(), child), home_node);
     MultiProvider::new()
         .with(Provider::value_shared(app.core.session.clone()))
         .with(Provider::value_shared(app.core.active_thread()))
