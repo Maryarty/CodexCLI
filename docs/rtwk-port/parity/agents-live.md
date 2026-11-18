@@ -280,10 +280,41 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
   3, 6, 24, both the overview and the confirmation) is green. It uses
   `common::start_clipping` (Tester without `fail_on_overflow`): at heights 1..3 the
   debug menu below the screen overflows, which is not this screen's.
-- S5 not done: the list's closures are rebuilt with every `center` (the center is a
-  new `Rc` per build, it carries the cursor for the details pane), so the list cannot
-  compare equal; it needs the list's inputs split from the details' inputs in core.
+- S5 done in `agents-view-rest` (see below).
 - Size (code lines, tests excluded): layout.rs 390 -> 0, view.rs 1238 -> 974,
   mod.rs 892 -> 881, new help.rs 107, path.rs 162, tabs.rs 96, soft.rs 15;
   all `.rs` of the screen 2,921 -> 2,636 (the target 1,600 is not met: mod.rs (state,
   handlers) was out of this slice's reach and path/tabs/soft are the gaps' pieces).
+
+## Rest of the view (task `agents-view-rest`)
+
+- S5: the list is `view::RowsList`, a stateless `impl_widget!(stateless eq)` widget
+  over `ListInputs` (look, strings, model, the center's `rows` and `entries`, never its
+  cursor fields), the list's controller/focus/scroll notifier and handlers. The row
+  handlers (`cx.map` per row) are kept in `ScreenState.row_taps` while the row keys are
+  the same, `open` is `map_static!`: a handler made anew is never equal. Proof:
+  unit test `the_list_inputs_ignore_the_cursor` (view.rs); and a counter probe (an
+  `eprintln!` in `RowsList::build`, removed) over `down_moves_the_highlight_and_the_details`
+  printed one build for the whole flow, the Down press not among them. The test does
+  not count builds in the tree; it proves the inputs' equality.
+- Confirm and failure panels are `show_dialog` routes (`dialogs.rs`): the modal focus
+  scope, Esc and the focus given back are rtwk's (`confirmation_dialog_closes_on_escape_and_gives_the_list_its_keys_back`
+  is green and was written against the old view's behaviour). Options: `barrier_alpha: Some(0)`,
+  `fade_in: ZERO`; the failure at `Alignment::TOP_LEFT` with the screen's content not drawn
+  while it shows (the oracle's refusal view replaces the center). Removed from the screen:
+  the confirm/failure key routing, `confirm_selection`, `confirm_focus`, `confirm`, the
+  Stack overlay. The confirmation carries the question's text (`view::Ask`: name, cloud
+  flag) instead of reading the model: a seeded debug screen's providers sit below the
+  `Navigator`, so a dialog route cannot see them (it showed `Untitled task`); the live failure
+  dialog does read the model (its test is `shell_agents::lifecycle_failure_dialogs`, green).
+  The answer reaches the screen through a handler of the screen (`cx.map`), since R1 keeps
+  `spawn` in the shell.
+- Keys: `act_of`/`step_of`/`on_key` are gone; per mode tables (`HELP_KEYS`, `SEARCH_KEYS`,
+  `RENAME_KEYS`, `BROWSE_KEYS`) feed rtwk's `KeyBindings`; the focused widgets keep the
+  keys they take. Still in the screen: `refocus_after_frame`/`Msg::Refocus` (help and the
+  empty list put the focus on the root node; the list and the editing line after a mode
+  change), because the list is `ExcludeFocus`ed while a line is open and a widget a mode
+  drops lets go of the focus with the frame; no rtwk facility replacing it was found in
+  the time of this task.
+- G36: `agents_overview_tab_strip_draws_oracle_filled_tabs_on_tabbar` is `pending(Rtwk)`
+  (probe run: `TabBar` rows differ from the oracle's, see the gap row).
