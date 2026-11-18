@@ -1,66 +1,38 @@
-//! `status`: the view half of the slot of S19 (/status card), the `mock-dialogs` task's to fill. It
-//! holds the empty form the skeleton registers: a screen widget, its opener
-//! and the debug-menu entries. Its model part, events, intents and RPCs are
-//! core's `codex_tui_rtwk_core::screens::status`. Nothing outside these two
-//! directories (bar their test files) needs an edit when it grows.
+//! `status`: the view half of S19 (the `/status` card): the session's
+//! configuration and usage as labelled rows over the card the model holds.
+//! Oracle: `codex-rs/tui/src/status/`.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
-use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+mod card;
+mod format;
 
-use codex_tui_rtwk_core::screens::status::{ID, NAME};
+use rtwk::AnyWidget;
+use rtwk::Cx;
+use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: one entry per state worth
+/// opening, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![DebugEntry {
+        name: "reasoning_details",
+        description: "the card with reasoning details, two limits",
+        script: include_str!("fixtures/reasoning_details.jsonl"),
+        open: EntryOpen::Dialog(|_| card::CardDialog.into()),
+    }]
 }
 
-/// Opens the dialog from the widget that asks (`show_dialog`); the result
-/// returns to the model through a handler, as an intent with its ticket.
+/// Opens the card from the widget that asks (`show_dialog`); it reads the
+/// card the model holds.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
-    let title = strings::of(cx).title;
-    show_dialog(
-        cx,
-        move |_| Dialog::new(Screen).title(title).into(),
-        DialogOptions::default(),
-    )
+    show_dialog(cx, move |_| card::CardDialog.into(), DialogOptions::default())
 }
 
-/// Opens the empty form of this slot (debug menu).
+/// Opens the card with no seeded model (debug menu): nothing to show.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|lang| Dialog::new(Screen).title(strings::title(lang)).into())
-}
-
-/// The empty screen widget of this slot.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
-
-/// Widget state: ids, drafts and controllers only (R14).
-#[derive(Debug)]
-pub struct ScreenState;
-
-impl StatefulWidget for Screen {
-    type State = ScreenState;
-
-    fn create_state(&self) -> ScreenState {
-        ScreenState
-    }
-}
-
-impl_widget!(stateful eq Screen);
-
-impl State for ScreenState {
-    type Widget = Screen;
-    type Msg = ();
-
-    fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let shared = crate::l10n::strings::of(cx);
-        Text::new(shared.empty_slot(NAME, ID).to_string()).into()
-    }
+    DebugOpen::Dialog(|_| AnyWidget::default())
 }
