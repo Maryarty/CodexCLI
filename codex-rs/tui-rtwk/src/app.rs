@@ -301,11 +301,10 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             }
         }
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
-            if let Some(id) = app.session.active.clone() {
-                if let Some(thread) = app.threads.get_mut(&id) {
-                    Rc::make_mut(thread).last_error =
-                        Some(crate::threads::Failure::Lagged(skipped));
-                }
+            if let Some(id) = app.session.active.clone()
+                && let Some(thread) = app.threads.get_mut(&id)
+            {
+                Rc::make_mut(thread).last_error = Some(crate::threads::Failure::Lagged(skipped));
             }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
