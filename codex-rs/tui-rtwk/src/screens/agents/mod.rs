@@ -88,6 +88,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
         },
         DebugEntry {
+            name: "progress",
+            description: "three inactive tasks, for the archive and delete in progress",
+            script: include_str!("fixtures/progress.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),

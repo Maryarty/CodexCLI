@@ -303,12 +303,51 @@ fn delete_task_confirmation_and_failure_snapshots() {
 }
 
 /// `modal_consumes_input_and_finishes_after_input_closes` (agents_overview_action_progress_tests.rs:17),
-/// snapshots archive_progress and delete_progress.
+/// snapshots archive_progress and delete_progress: while the removal runs the
+/// footer says so, the removed task is gone, `End` still browses and
+/// Enter and `n` do nothing. (Esc and the input queue of the oracle's modal
+/// are the live shell's: here the model's gate lets Esc leave, see the parity pack.)
 #[test]
 fn modal_consumes_input_and_finishes_after_input_closes() {
-    todo!(
-        "agents-live: needs a debug row with an action in progress (archive_progress, delete_progress); not registered (mod.rs:36)"
-    )
+    pending(
+        Owner::CoreSeed,
+        "core's `Intent::Confirmed(true)` (core/src/screens/agents/update.rs:101) does not hide the removed task while the request runs; the oracle hides it at once (`prepare_agents_overview_removal` + `hidden_threads`, a failure unhides it): the screen shows 3 tasks and `All 3` where archive_progress has 2. Every other row and the footer match",
+    );
+    let age = |row: &str| -> String {
+        // `[0-9]+d ago` with its padding is `[age]` in the snapshot.
+        let Some(end) = row.find("d ago") else {
+            return row.to_owned();
+        };
+        let head = &row[..end];
+        let digits = head.chars().rev().take_while(char::is_ascii_digit).count();
+        let head = head[..head.len() - digits].trim_end();
+        format!("{head} [age]{}", &row[end + "d ago".len()..])
+    };
+    for (key, snapshot, notice) in [
+        ("a", "archive_progress", "Archiving task"),
+        ("backspace", "delete_progress", "Deleting task"),
+    ] {
+        let mut h = open("progress", 80, 24);
+        h.press(key);
+        h.settle();
+        // Archive takes row 2 of the dialog; the delete waits for Enter.
+        h.press("2");
+        h.settle();
+        if key == "backspace" {
+            h.press("enter");
+            h.settle();
+        }
+        h.press("end");
+        for held in ["enter", "n"] {
+            h.press(held);
+        }
+        h.settle();
+        let screen = h.t.screen();
+        assert!(screen.contains(notice), "{screen}");
+        let rows: Vec<String> = oracle_snap::screen(&h.t).iter().map(|row| age(row)).collect();
+        let expected = oracle_snap::rows(&format!("app/snapshots/codex_tui__app__agents_overview_actions__progress_tests__{snapshot}.snap"));
+        oracle_snap::assert_same(snapshot, &rows, &expected);
+    }
 }
 
 /// `live_center_columns` (agent_center_tests.rs:294).
