@@ -1,0 +1,20 @@
+# The oracle suite (tests/oracle.rs) is a list of the oracle's tests ported as
+# black-box screen tests; a test that is pending, todo or red makes the binary
+# fail by design, so the default profile leaves it out and the gate stays the
+# crate's own tests. Run the suite, and read it, with:
+#
+#   acargo nextest run --profile oracle --no-fail-fast
+#   python3 -I tests/oracle/tools/summary.py            (pass / pending / todo / red per shard)
+[profile.default]
+default-filter = "not binary(oracle)"
+
+[profile.oracle]
+default-filter = "binary(oracle)"
+fail-fast = false
+status-level = "fail"
+final-status-level = "fail"
+
+[profile.oracle.junit]
+path = "junit.xml"
+store-success-output = true
+store-failure-output = true
