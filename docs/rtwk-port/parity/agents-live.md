@@ -104,5 +104,83 @@ code together (the red state was the predecessor's `0d4a8ca43`, `e5f072add`,
 
 ## UI side (task `agents-live-ui`)
 
-To be written by the UI porter: oracle tests (rendering, keys), snapshots,
-visual deltas, scenarios, rules, rtwk needs (G35).
+Files: `codex-rs/tui-rtwk/src/screens/agents/{mod,view,layout,strings,usage}.rs`,
+fixtures `src/screens/agents/fixtures/*.jsonl` (debug rows `overview`,
+`attention`, `navigation`, `search`, `clip`, `paging5`, `paging30`, `confirm`,
+`progress`, `columns`, `empty_narrow`), tests `codex-rs/tui-rtwk/tests/agents.rs`
+(screen tests at the oracle's size against its `.snap` text through
+`oracle_snap`) and the unit tests of `usage.rs` and `layout.rs`. Mock state is
+a fixture script through core `apply`; no widget gets data by hand.
+
+Checks at the last commit: `clippy --workspace --all-targets -D warnings`
+clean; `nextest --workspace`: 535 run, 521 pass, 14 fail, and the 14 are the
+`pending(owner, reason)` markers below (a marker panics `PENDING[owner]:
+reason`; `KIT_PROBE_PENDING=1` runs the body behind it, which is how each
+reason was checked to be the only difference).
+
+### Oracle tests (UI side)
+
+| oracle (file::name) | ours (tests/agents.rs::name) | state | reason / owner |
+|---|---|---|---|
+| agents_overview_tests::shared_overview_shows_only_root_sessions | same | green | snapshot `agents_overview` |
+| agents_overview_tests::agents_overview_details_show_available_attention_without_expanding_rows | same | green | snapshot `agents_overview_attention` |
+| agents_overview_tests::empty_command_center_can_open_resume_picker | same | green (screen part: snapshot `agents_overview_empty_narrow`; the `o` key opens the picker in core) | |
+| cli daemon_startup::agents_overview_before_folder_consent | `agents_overview_before_folder_consent_empty_center_rows` | green | first 4 rows; the consent dialog is the daemon startup flow |
+| agent_center_tests::live_center_metadata_clips_at_grapheme_boundaries | same | green | |
+| agent_center_tests::live_center_navigation_and_complete_hints | same | green | snapshots status_filter, help 1/2/3 columns, hints |
+| agent_center_tests::live_center_search_row_appears_only_while_editing | same | green | snapshot `live_center_search_active` |
+| agent_center_tests::live_center_pages_visible_rows_without_wrapping | same | green for the online flow (5 tasks, 30 tasks) with PageDown/PageUp | the oracle's loop key `ctrl+f` and Down wrapping to the first row: see next row |
+| (same test, the rest) | `live_center_page_keys_and_wrap_follow_the_list_keymap`, `live_center_pages_visible_rows_while_reconnecting` | pending (rtwk, agents-live-shell) | G35: `SelectionList` has no page/move call, no wrap and no key table; page keys do not reach the list while the search line has the focus; the reconnecting notice cannot be seeded (`seed_ev` has no `notice`) |
+| agent_center_tests::live_center_columns | same | pending (agents-live-shell) | the `voice` badge needs a flag on core `RowData` and a seed for it; the rest of the 160-cell snapshot and the 50-cell `Error:` text are the oracle's (`KIT_PROBE_PENDING=1` shows `voice` as the only differing cell). The third part, `live_center_selected_status_styles`, dumps ratatui `Style` values: no rtwk counterpart, not ported |
+| agent_center_tests::live_center_fixed_shortcuts_yield_to_configured_actions, live_center_hints_follow_configured_bindings | same | pending (keymap) | the configured keymap (`agents.*`, `list.*`) does not exist in tui-rtwk; the screen's keys are the oracle's defaults |
+| agents_overview_tests::filtered_dashboard_actions_use_configured_shortcuts | same | pending (keymap) | same |
+| agents_overview_tests::command_center_cursor_tracks_fixed_footer | same | green | terminal cursor on the search and rename rows at 48, 96, 120 cells |
+| agents_overview_tests::agents_overview_markdown_preview_preserves_layout_and_bounds | same | green | `preview_markdown` of core |
+| agents_overview_tests::agents_overview_details_render_markdown (snapshots markdown, markdown_long_lines, markdown_table) | same | pending (reuse-carry) | the oracle's `markdown_render` is not carried; the details print the text plain; no seed for the last message |
+| agents_overview_tests::agents_overview_preview_links_survive_wrapping_and_clipping | same | pending (reuse-carry) | same, plus OSC 8 links |
+| agents_overview_tests::overview_worktree_creation_busy_state | same | pending (agents-live-shell) | `seed_ev` has no `notice` key (busy and server-version notices); the footer renders both (`footer`) |
+| agents_overview_tests::older_server_notice_is_visible_in_agents_overview, older_server_notice_truncates_in_narrow_overview | same | pending (agents-live-shell) | same |
+| agents_overview_tests::overview_thread_colors_match_footer_and_respect_color_suppression | same | pending (agents-live-shell) | no per-thread colour on `RowData`, no `status_line_use_colors` setting in the model; snapshot is a ratatui `Style` dump |
+| agents_overview_actions_tests::archive_confirmation_number_keys_act_immediately | same | green | snapshot `archive_task_confirmation`; `1` cancels, `2` starts the archive (the removing notice appears) |
+| agents_overview_actions_tests (delete) `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`, confirmation half | `delete_task_confirmation_and_failure_snapshots` | green | snapshot `delete_task_confirmation`; `2` only moves the cursor, Enter confirms |
+| (same, failure half) archive_task_failure, delete_task_failure | `lifecycle_failure_dialogs` | pending (agents-live-shell) | core keeps a failed removal as footer text (`Notice::Error`, refresh.rs:211, `let _ = action`); it has no failure (action, error, attempted) to show as the dialog |
+| agents_overview_action_progress_tests::modal_consumes_input_and_finishes_after_input_closes | same | pending (agents-live-shell) | `Intent::Confirmed(true)` does not hide the removed task while the request runs (the oracle's `prepare_agents_overview_removal` + `hidden_threads`): 3 rows and `All 3` where `archive_progress` has 2; every other row and the footer match. Esc leaving and the modal's input queue are shell mechanics (below) |
+| agents_overview_usage_tests::incomplete_billing_groups_do_not_display_partial_token_totals | `usage::tests::incomplete_billing_groups_do_not_display_partial_token_totals` (unit) | green | with `credits_and_dollars_read_as_the_oracle_writes_them` |
+| agents_overview_actions_tests::archiving_selects_the_next_displayed_task, hiding_tasks_keeps_selection_adjacent_in_display_order, lifecycle_shortcuts_target_filtered_task_in_any_state (keys), fork_shortcut_respects_metadata_editing | | not ported | matrices over 3-4 groupings, filtered or not, with configured F5/F7/F8 keys: they need the configured keymap (owner keymap); core already tests the selection after a removal (`external_removals_preserve_adjacent_selection`) |
+
+### What the view does and where rtwk owns it
+
+- List: `SelectionList` + `SelectionController` (cursor, arrows, page, home/end,
+  Enter, scroll); headings and gaps are disabled rows. The keys `j`/`k`/ctrl-n/
+  ctrl-p/ctrl-j/ctrl-k step through core's `Select` (one row).
+- Search and rename lines: `TextField` + `TextEditingController`; the list gets
+  `ExcludeFocus` while one is open; focus returns after the frame through
+  `AppBinding::add_post_frame_callback` (the node that a mode drops releases
+  focus with the frame).
+- Confirmation (archive, delete): composed of primitives (a `Stack` with a
+  `Positioned` panel of two `SelectionList` rows) to the oracle's geometry:
+  72 cells at most, centered, header wrapped at the inner width, a blank row
+  above, `› 1.` rows, the hint; keys 1, 2, Enter, Esc, arrows; a delete waits for
+  Enter (`require_explicit_confirmation`). Cloud archive uses its own text.
+- Usage lines: `usage.rs` formats credits and the estimated dollars as the
+  oracle's `status/thread_usage.rs`; the view asks core for the usage of the
+  highlighted task when its key (task, fetched-at, pending, clock) changes.
+- Tab strip: hand-made from spans (`layout::strip`, the oracle's `occupied`
+  window) because rtwk's `TabBar` cannot draw the filled bar: G36.
+
+### Deltas and needs (no visual delta is accepted)
+
+- None accepted. What differs is listed as pending with its reason above; each
+  has a path (core seed or field, the markdown carry, the keymap, rtwk G35/G36).
+- Handover to `agents-live-shell` / core (not my area, named here): (1) a
+  `notice` key in `seed_ev` and a failure model for archive/delete; (2) hide the
+  removed task at `Confirmed(true)` and unhide on failure; (3) a voice flag on
+  `RowData`; (4) `Model::plan_bills_in_dollars` (the view's `bills_in_dollars` is
+  `false` until then); (5) the 180 ms debounce of the first history search page:
+  core emits `Command::Search{first}`; the shell must delay running it by 180 ms
+  and drop it if a newer search arrives (an rtwk timer, `AppBinding::start_timer`,
+  or a `tokio::time` race in the effect), the view cannot, the text of the model
+  must change at once; (6) the oracle's modal queue during archive/delete (input
+  is consumed until the request ends) is the shell's: in tui-rtwk the center stays
+  live, `Esc` leaves, `Enter` and `n` are held by core's gate (`blocked`).
+- rtwk: G35 (SelectionList: page/move call, wrap, key table) and G36 (TabBar).
