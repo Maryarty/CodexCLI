@@ -28,10 +28,30 @@ pub const FILTER_GROUPS: [Option<AgentsOverviewGroup>; 5] = [
     Some(AgentsOverviewGroup::Finished),
 ];
 
+/// What the view shows that changes which rows count: the view owns it
+/// (widget state) and hands it to the pure projections. Oracle: the view's
+/// `filter`, `rename_target` and the search line being open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Lens {
+    /// The status tab, an index into `FILTER_GROUPS`.
+    pub filter: usize,
+    /// The search line is open (a closed search offers more of the list).
+    pub searching: bool,
+    /// The task whose name is being edited: it stays listed.
+    pub renaming: Option<String>,
+}
+
 /// One root task (oracle: `AgentsOverviewRow`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RowData {
-    pub thread: Thread,
+    pub(crate) thread: Thread,
+    /// What the view shows of the task (the protocol type stays in core).
+    pub name: Option<String>,
+    pub preview: String,
+    pub cwd: String,
+    pub updated_at: i64,
+    pub reasoning_effort: Option<String>,
+    pub branch: Option<String>,
     pub group: AgentsOverviewGroup,
     pub unread: bool,
     pub current: bool,
@@ -124,6 +144,21 @@ impl Model {
         self.plan == Some(codex_protocol::account::PlanType::Ent26)
     }
 
+    /// The server's lock or the connection holds removals, new worktrees and
+    /// the like back (oracle: the gate in `handle_key_event`); the view asks
+    /// before it opens a confirmation.
+    pub fn held(&self) -> bool {
+        matches!(
+            self.notice,
+            Some(
+                super::Notice::Reconnecting
+                    | super::Notice::ReconnectFailed
+                    | super::Notice::Removing(_)
+                    | super::Notice::CreatingWorktree
+            )
+        )
+    }
+
     /// The roots in status, newest and id order, hidden ones left out
     /// (oracle: `agents_overview_view`).
     pub(super) fn rows(&self) -> Vec<RowData> {
@@ -160,6 +195,12 @@ impl Model {
             .filter(|(root, _)| !self.hidden.contains(&root.id))
             .map(|(root, group)| RowData {
                 thread: root.clone(),
+                name: root.name.clone(),
+                preview: root.preview.clone(),
+                cwd: root.cwd.display().to_string(),
+                updated_at: root.updated_at,
+                branch: root.git_info.as_ref().and_then(|git| git.branch.clone()),
+                reasoning_effort: root.reasoning_effort.as_ref().map(|e| e.as_str().to_owned()),
                 group,
                 unread: self.unread.contains(&root.id),
                 current: self.current.as_deref() == Some(root.id.as_str()),
@@ -181,10 +222,10 @@ impl Model {
 
     /// The rows the filters keep, pinned first, in grouping order (oracle:
     /// `visible_indices`).
-    pub(super) fn visible_indices(&self, rows: &[RowData]) -> Vec<usize> {
+    pub(super) fn visible_indices(&self, rows: &[RowData], lens: &Lens) -> Vec<usize> {
         let search = self.search.to_lowercase();
-        let status_group = FILTER_GROUPS[self.filter.min(FILTER_GROUPS.len() - 1)];
-        let renaming = self.rename.as_ref().map(|rename| rename.target.as_str());
+        let status_group = FILTER_GROUPS[lens.filter.min(FILTER_GROUPS.len() - 1)];
+        let renaming = lens.renaming.as_deref();
         let (mut pinned, mut visible): (Vec<_>, Vec<_>) = rows
             .iter()
             .enumerate()
@@ -265,16 +306,16 @@ impl Model {
         }
     }
 
-    pub(super) fn more_available(&self) -> bool {
+    pub(super) fn more_available(&self, lens: &Lens) -> bool {
         self.history
             .as_ref()
-            .map_or(self.paging.has_more && !self.searching, History::has_more)
+            .map_or(self.paging.has_more && !lens.searching, History::has_more)
     }
 
     /// Visible rows plus the "Show more" slot (`usize::MAX`).
-    fn selectable(&self, rows: &[RowData]) -> Vec<usize> {
-        let mut indices = self.visible_indices(rows);
-        if self.more_available() {
+    fn selectable(&self, rows: &[RowData], lens: &Lens) -> Vec<usize> {
+        let mut indices = self.visible_indices(rows, lens);
+        if self.more_available(lens) {
             indices.push(usize::MAX);
         }
         indices
@@ -333,14 +374,14 @@ impl Model {
     /// Everything the view draws, with the highlight at the default row (the
     /// current task's, else the first).
     pub fn center(&self) -> Center {
-        self.center_at(None)
+        self.center_at(None, &Lens::default())
     }
 
     /// Everything the view draws, the highlight at `cursor` (the list
     /// widget's cursor, the only copy of it) when it is selectable.
-    pub fn center_at(&self, cursor: Option<&Sel>) -> Center {
+    pub fn center_at(&self, cursor: Option<&Sel>, lens: &Lens) -> Center {
         let rows = self.rows();
-        let indices = self.selectable(&rows);
+        let indices = self.selectable(&rows, lens);
         let entries = self.entries(&rows, &indices);
         let mut tab_counts = [0; 5];
         for (slot, group) in FILTER_GROUPS.iter().enumerate() {
@@ -421,9 +462,14 @@ impl Model {
     /// one before (oracle: `selection_after_removal`).
     /// A pure function: the view applies it to its cursor (`from`: the id of
     /// the task that is highlighted).
-    pub fn selection_after_removal(&self, from: &str, removed: &[String]) -> Option<String> {
+    pub fn selection_after_removal(
+        &self,
+        from: &str,
+        removed: &[String],
+        lens: &Lens,
+    ) -> Option<String> {
         let rows = self.rows();
-        let visible = self.visible_indices(&rows);
+        let visible = self.visible_indices(&rows, lens);
         let from = Sel::Task(from.to_owned());
         let selected = self.selected_index(&rows, &visible, Some(&from))?;
         let position = visible.iter().position(|index| *index == selected)?;

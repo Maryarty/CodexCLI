@@ -5,15 +5,12 @@
 
 use super::Action;
 use super::Command;
-use super::Confirm;
 use super::Ctx;
 use super::Intent;
 use super::Model;
 use super::Notice;
-use super::Rename;
 use super::Sel;
 use super::carried::supports_shared_pinning;
-use super::center::FILTER_GROUPS;
 use codex_app_server_protocol::ThreadStatus;
 
 use super::refresh::Out;
@@ -40,41 +37,20 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             outs.push(list(model, None, false));
         }
         Intent::Refresh => outs.push(list(model, None, false)),
-        Intent::CycleFilter { back } => {
-            let count = FILTER_GROUPS.len();
-            let step = if back { count - 1 } else { 1 };
-            model.filter = (model.filter + step) % count;
-        }
-        Intent::SetFilter(filter) => {
-            model.filter = filter.min(FILTER_GROUPS.len() - 1);
-        }
         Intent::CycleGrouping => model.grouping = model.grouping.next(),
         Intent::SetGrouping(grouping) => model.grouping = grouping,
-        Intent::ToggleHelp => model.help = !model.help,
-        Intent::CloseHelp => model.help = false,
-        Intent::BeginSearch => {
-            if model.rename.is_none() {
-                model.searching = true;
-            }
+        Intent::SetSearch { text, lens } => {
+            model.search = text;
+            outs.extend(super::discovery::restart_history(model, &lens));
         }
-        Intent::SetSearch(text) => outs.extend(set_search(model, text)),
-        Intent::CancelEditing => cancel_editing(model),
-        Intent::BeginRename(thread) => {
-            if model.rename.is_none() && model.row(&thread).is_some() {
-                model.rename = Some(Rename { target: thread });
-                model.searching = false;
-                model.search.clear();
-                model.history = None;
-                model.search_matches.clear();
-            }
-        }
+        Intent::ClearSearch => clear_search(model),
         Intent::Accept(at) => accept(model, at, &mut outs),
-        Intent::Right(at) => {
-            if !editing(model) {
-                accept(model, at, &mut outs);
-            }
-        }
-        Intent::Commit(text) => commit_rename(model, text, &mut outs),
+        Intent::MoreMatches(lens) => outs.extend(super::discovery::load_matches(
+            model,
+            crate::screens::agents::PAGE_SIZE as usize,
+            &lens,
+        )),
+        Intent::Rename { thread, name } => rename(model, thread, name, &mut outs),
         Intent::Stop(thread) => {
             if let Some(row) = model.row(&thread)
                 && matches!(row.thread.status, ThreadStatus::Active { .. })
@@ -89,42 +65,10 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         // Handled above, while a failure holds the screen.
         Intent::DismissFailure => {}
-        Intent::Archive(thread) => confirm(model, thread, Action::Archive),
-        Intent::Delete(thread) => confirm(model, thread, Action::Delete),
-        Intent::Confirmed(yes) => {
-            if let Some(confirm) = model.confirm.take()
-                && yes
-            {
-                model.notice = Some(Notice::Removing(confirm.action));
-                let command = match confirm.action {
-                    Action::Archive => Command::Archive {
-                        thread: confirm.thread.clone(),
-                    },
-                    Action::Delete => Command::Delete {
-                        thread: confirm.thread.clone(),
-                    },
-                };
-                // Hidden at once, until the request ends (oracle:
-                // `hidden_threads` in `run_agents_overview_action`).
-                model.hidden.insert(confirm.thread.clone());
-                outs.push(out(
-                    command,
-                    Ctx::Action {
-                        thread: confirm.thread,
-                        action: Some(confirm.action),
-                    },
-                ));
-            }
-        }
+        Intent::Archive(thread) => remove(model, thread, Action::Archive, &mut outs),
+        Intent::Delete(thread) => remove(model, thread, Action::Delete, &mut outs),
         Intent::Hide(id) => {
             if model.row(&id).is_some() {
-                if model
-                    .rename
-                    .as_ref()
-                    .is_some_and(|rename| rename.target == id)
-                {
-                    model.rename = None;
-                }
                 model.hidden.insert(id);
             }
         }
@@ -172,10 +116,31 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
     outs
 }
 
-fn confirm(model: &mut Model, thread: String, action: Action) {
-    if model.row(&thread).is_some() {
-        model.confirm = Some(Confirm { thread, action });
+/// Archive or delete the task (oracle: `run_agents_overview_action`, after
+/// the confirmation the view asked).
+fn remove(model: &mut Model, thread: String, action: Action, outs: &mut Vec<Out>) {
+    if model.row(&thread).is_none() {
+        return;
     }
+    model.notice = Some(Notice::Removing(action));
+    let command = match action {
+        Action::Archive => Command::Archive {
+            thread: thread.clone(),
+        },
+        Action::Delete => Command::Delete {
+            thread: thread.clone(),
+        },
+    };
+    // Hidden at once, until the request ends (oracle: `hidden_threads` in
+    // `run_agents_overview_action`).
+    model.hidden.insert(thread.clone());
+    outs.push(out(
+        command,
+        Ctx::Action {
+            thread,
+            action: Some(action),
+        },
+    ));
 }
 
 /// The directory of the task `at`, if there is one.
@@ -183,46 +148,20 @@ fn cwd_of(model: &Model, at: Option<String>) -> Option<String> {
     model.row(&at?).map(|row| row.thread.cwd.display().to_string())
 }
 
-fn editing(model: &Model) -> bool {
-    model.searching || model.rename.is_some()
-}
-
-/// The text of the search line changed; the first match is highlighted
-/// again (oracle: `edit_input`).
-fn set_search(model: &mut Model, text: String) -> Vec<Out> {
-    if model.searching && model.rename.is_none() {
-        model.search = text;
-        let outs = super::discovery::restart_history(model);
-        return outs;
-    }
-    Vec::new()
-}
-
 /// Whether the server's lock or the connection holds the intent back: while
 /// the center is offline, removing a task or creating a worktree, only moving,
 /// searching, filtering and leaving work (oracle: the gate in
 /// `handle_key_event`).
 fn blocked(model: &Model, intent: &Intent) -> bool {
-    let held = matches!(
-        model.notice,
-        Some(
-            Notice::Reconnecting
-                | Notice::ReconnectFailed
-                | Notice::Removing(_)
-                | Notice::CreatingWorktree
-        )
-    );
-    held && matches!(
+    model.held() && matches!(
         intent,
         Intent::Accept(_)
-            | Intent::Right(_)
             | Intent::CycleGrouping
             | Intent::SetGrouping(_)
             | Intent::TogglePin(_)
             | Intent::New(_)
             | Intent::NewWorktree(_)
             | Intent::Fork(_)
-            | Intent::BeginRename(_)
             | Intent::Archive(_)
             | Intent::Delete(_)
             | Intent::Hide(_)
@@ -230,50 +169,32 @@ fn blocked(model: &Model, intent: &Intent) -> bool {
     )
 }
 
-/// Oracle: `on_ctrl_c` of the view for the editing case.
-fn cancel_editing(model: &mut Model) {
-    if !editing(model) {
-        return;
-    }
-    model.searching = false;
-    model.rename = None;
+/// The search line closed (oracle: `on_ctrl_c` of the view for the editing
+/// case, and a resume from a search).
+fn clear_search(model: &mut Model) {
     model.search.clear();
     model.history = None;
     model.search_matches.clear();
 }
 
-/// Enter in the rename line: the task is named `text` (oracle: `activate`).
-fn commit_rename(model: &mut Model, text: String, outs: &mut Vec<Out>) {
-    let name = text.trim().to_owned();
-    if name.is_empty() {
+/// The task is named `name` (oracle: `activate`).
+fn rename(model: &Model, thread: String, name: String, outs: &mut Vec<Out>) {
+    let name = name.trim().to_owned();
+    if name.is_empty() || model.row(&thread).is_none() {
         return;
     }
-    if let Some(rename) = model.rename.take() {
-        outs.push(out(
-            Command::Rename {
-                thread: rename.target.clone(),
-                name,
-            },
-            Ctx::Rename {
-                thread: rename.target,
-            },
-        ));
-    }
+    outs.push(out(
+        Command::Rename {
+            thread: thread.clone(),
+            name,
+        },
+        Ctx::Rename { thread },
+    ));
 }
 
 fn accept(model: &mut Model, at: Sel, outs: &mut Vec<Out>) {
     if at == Sel::ShowMore {
-        if model.searching {
-            outs.extend(super::discovery::load_matches(
-                model,
-                crate::screens::agents::PAGE_SIZE as usize,
-            ));
-        } else {
-            outs.extend(super::discovery::show_more(model));
-        }
-        return;
-    }
-    if model.rename.is_some() {
+        outs.extend(super::discovery::show_more(model));
         return;
     }
     if let Sel::Task(thread) = at
@@ -285,12 +206,6 @@ fn accept(model: &mut Model, at: Sel, outs: &mut Vec<Out>) {
             },
             Ctx::Resume { thread },
         ));
-        if model.searching {
-            model.searching = false;
-            model.history = None;
-            model.search_matches.clear();
-            model.search.clear();
-        }
     }
 }
 

@@ -334,5 +334,21 @@ fn core_screen_models_hold_no_ui_state_fields() {
             }
         }
     }
-    assert!(found.is_empty(), "UI-only state in a core model: {found:#?}");
+    assert!(
+        found.is_empty(),
+        "UI-only state in a core model: {found:#?}"
+    );
+}
+
+/// The view reads what core projects (`RowData`, `Usage` methods), never the
+/// protocol type behind it (VS1 review L2): a field access through a core
+/// re-export passes the `codex_app_server_protocol` scan.
+#[test]
+fn views_read_projections_not_core_held_protocol_values() {
+    let found = scan(
+        &sources_of("src/screens"),
+        &["row.thread", ".estimate", "RowData { thread"],
+        |_| false,
+    );
+    assert!(found.is_empty(), "a view reads a protocol value: {found:#?}");
 }
