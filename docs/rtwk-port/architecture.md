@@ -726,6 +726,33 @@ live app. Worked examples: the chat's streamed answer, an exec approval
 request, a resume list from fake rollouts. Details and the oracle map:
 [parity/skeleton-layers.md](parity/skeleton-layers.md).
 
+**The core as an upstream candidate** (tm `core-upstream-ready`, decided with
+the person 2026-11-18). The path to upstream is to offer the UI-free core, not a
+framework switch, so the core is named for what it is, `codex-tui-core`, a
+frontend-neutral crate that any Codex terminal frontend could sit on. It holds
+what no frontend should own twice: ids and RPC tickets, the app and thread
+models with `apply` (events in, a new model and typed effects out), the mapping
+from `codex-app-server-protocol`, every screen's model, events, intents and
+RPCs, command parsing and the fixture scripts. What makes it acceptable to
+offer: it names no rtwk (the compiler holds that), no direct runtime or IO
+dependency (only the protocol crate, serde and test helpers; its sources name no
+tokio, clock, thread or file call, and `core/clippy.toml` bans them), no user
+visible prose (strings are the frontend's), and it meets codex-rs's own
+conventions: `tools/rtwk-port/core-upstream-check/core-upstream-check` copies
+codex-rs into a temp dir, adds the core as a member (its path
+dependencies become `workspace = true`; its package name is checked against
+codex-rs's `codex-<dir>` rule for `codex-rs/tui-core`), and runs codex-rs's manifest policy
+script, `cargo fmt --check`, `cargo check` and `cargo clippy -D warnings` with
+codex-rs's `clippy.toml`, `rustfmt.toml` and `[workspace.lints]` plus
+`print_stdout` and `print_stderr` denied, and the core's tests, with no
+rule it cannot meet (it passed unchanged on 2026-11-18); the real
+`codex-rs/Cargo.toml` and `Cargo.lock` are never touched. One question stays
+open and `session-core` decides it: the model shares slices as `Rc<T>`, which
+keeps the core `!Send`; codex-rs's runtimes and an upstream session layer would
+want `Arc<T>` (`Send + Sync`), at the cost of atomic counts on every
+slice share (ADR-003's measurements of the model's cost are the place to start). Until then the core is a candidate, not an
+offer.
+
 ## rtwk gaps (work in the rtwk repository, its own tm)
 
 | gap | needed by |
