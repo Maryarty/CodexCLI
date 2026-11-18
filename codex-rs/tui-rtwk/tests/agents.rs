@@ -71,3 +71,20 @@ fn down_moves_the_highlight_and_the_details() {
     assert!(details.contains(&"Repair authentication"), "{details:?}");
     assert!(details.contains(&"● Working"), "{details:?}");
 }
+
+/// `daemon_startup__agents_overview_before_folder_consent` (cli snapshot): the
+/// first rows are the empty center at 116 columns (the consent dialog below
+/// them belongs to the daemon startup flow, not to this screen).
+#[test]
+fn agents_overview_before_folder_consent_empty_center_rows() {
+    let rel =
+        "../../cli/tests/snapshots/daemon_startup__agents_overview_before_folder_consent.snap";
+    let expected = oracle_snap::rows(rel);
+    let h = open("empty_narrow", 116, 58);
+    oracle_snap::assert_fragment(
+        "agents_overview_before_folder_consent",
+        &oracle_snap::screen(&h.t),
+        0,
+        &expected[..4],
+    );
+}

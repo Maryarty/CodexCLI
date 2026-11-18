@@ -1,3 +1,4 @@
-# `agents_overview_empty_narrow`: no tasks; the test opens it at 48 cells.
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"agents","ev":{"listed":[]}}
+# `empty_command_center_can_open_resume_picker`: no tasks.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "agents", "ev": {"current": "00000000-0000-0000-0000-000000000101"}}
+{"step": "screen", "dir": "agents", "ev": {"listed": {"threads": []}}}
