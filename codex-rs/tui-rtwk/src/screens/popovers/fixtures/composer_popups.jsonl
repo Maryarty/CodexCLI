@@ -1,0 +1,13 @@
+# The chat composer with its popups, on the data the oracle's popup tests use.
+# Service tiers: the two of `command_popup_wrap_boundary_shows_both_rows`
+# (bottom_pane/command_popup.rs). Skills and plugin: `skill_popup_category_tags`
+# (skill_popup.rs) and `default_unified_mention_popup` (chat_composer.rs). Files:
+# `long_paths_keep_distinguishing_filenames_and_original_selection`
+# (file_search_popup.rs). History: the three prompts `footer_mode_history_search`
+# searches (chat_composer.rs), oldest first; the oracle's own are shorter.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"flags":{"voice_command_enabled":true}}}
+{"step":"screen","dir":"chat","ev":{"service_tiers":[{"id":"priority","name":"tier-one","description":"Use faster inference"},{"id":"default","name":"tier-two","description":"Keep default speed"}]}}
+{"step":"screen","dir":"popovers","ev":{"files":["src/shared/long_directory/parser_alpha.rs","src/shared/long_directory/parser_beta.rs"]}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"app","name":"Shared","description":"Secondary details","insert":"shared"},{"kind":"skill","name":"Shared","description":"Secondary details","insert":"shared"},{"kind":"plugin","name":"Sample Plugin","description":"Plugin with skills and an MCP server","insert":"sample"}]}}
+{"step":"screen","dir":"popovers","ev":{"history":["cargo build","git status","cargo test"]}}

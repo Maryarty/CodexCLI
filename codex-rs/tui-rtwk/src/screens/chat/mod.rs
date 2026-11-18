@@ -5,6 +5,9 @@
 //! directories (bar their test files) needs an edit when it grows.
 
 mod home;
+mod keys;
+pub mod open;
+mod popup;
 
 use rtwk::navigation::PageRoute;
 use rtwk::widgets::Text;
@@ -33,6 +36,15 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             .into()
         }),
     }]
+}
+
+/// The chat of the active thread inside a seeded debug entry (the popovers
+/// entry runs the real composer on a model a fixture script made).
+pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
+    home::Chat {
+        ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
+    }
+    .into()
 }
 
 /// The `Navigator`'s home: the chat of the active thread.
