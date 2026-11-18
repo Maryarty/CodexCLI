@@ -490,7 +490,7 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 fn skill_completion_attaches_typed_punctuation_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "the snapshot's CJK row carries a `Hidden by multi-width symbols` note after its quotes: oracle_snap reads it as text (kit gap)",
+        "the snapshot's CJK row carries a `Hidden by multi-width symbols` note after its quotes: the kit snapshot reader takes it as text (kit gap)",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
