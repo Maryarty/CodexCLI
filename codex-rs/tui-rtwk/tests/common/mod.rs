@@ -12,7 +12,8 @@ use codex_tui_rtwk::app::CodexApp;
 use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
-use codex_tui_rtwk::ui::run::{app_view, root};
+use codex_tui_rtwk::l10n::Lang;
+use codex_tui_rtwk::ui::run::{app_view, localized, root};
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.
@@ -69,6 +70,21 @@ pub fn start_quittable(debug: bool) -> Harness {
     }
 }
 
+/// The app under `lang` (the locale `--locale` or the environment gave).
+pub fn start_lang(lang: Lang) -> Harness {
+    let guard = rtwk_tokio::enter(runtime());
+    let (server, fake) = FakeServer::new();
+    let app = CodexApp::new(Backend::Fake(server)).with_lang(lang);
+    let mut t = Tester::with(Options::new().size(WIDTH, HEIGHT));
+    t.pump_widget(localized(root(app_view(app)), lang));
+    t.pump_for(ms(200));
+    Harness {
+        t,
+        fake,
+        _runtime: guard,
+    }
+}
+
 /// As `start_debug`/`start` at another terminal size.
 pub fn start_sized(debug: bool, width: u16, height: u16) -> Harness {
     start_at(debug, width, height)
@@ -84,7 +100,7 @@ fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     let app = CodexApp::new(Backend::Fake(server)).with_debug_screens(debug);
     let mut t = Tester::with(Options::new().size(width, height));
     // The app under the overlay `run_app` puts above it.
-    t.pump_widget(root(app_view(app)));
+    t.pump_widget(localized(root(app_view(app)), Lang::En));
     t.pump_for(ms(200));
     Harness {
         t,

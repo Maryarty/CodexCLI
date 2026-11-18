@@ -372,3 +372,26 @@ fn no_literal_colours_anywhere() {
     );
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
+
+/// ADR-010: no user-visible string literal in widget code. The strings are
+/// in `src/l10n` and the per-directory `strings.rs`, which are the only
+/// files that may hold them.
+#[test]
+fn adr010_no_user_visible_literal_outside_the_string_tables() {
+    let found = violations(
+        &[
+            "Text::new(\"",
+            "Text::new(format!(\"",
+            "Text::new(&format!(\"",
+            ".title(\"",
+            ".placeholder(\"",
+            ".label(\"",
+            ".hint(\"",
+            "Button::new(\"",
+            "Button::new(format!(\"",
+            "Span::new(\"",
+        ],
+        |name| name == "src/l10n.rs" || name.starts_with("src/l10n/") || name.ends_with("/strings.rs"),
+    );
+    assert!(found.is_empty(), "ADR-010: {found:#?}");
+}
