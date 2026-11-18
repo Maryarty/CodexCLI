@@ -4,6 +4,8 @@
 
 mod common;
 
+#[path = "cli.rs"]
+mod cli;
 #[path = "l10n.rs"]
 mod l10n;
 #[path = "model.rs"]
