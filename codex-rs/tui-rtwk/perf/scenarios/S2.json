@@ -1,0 +1,2 @@
+{"id":"S2","title":"stream 1000 deltas/s, 10 s","kind":"stream","size":[120,40],"hold":1.0,"timeout":30,"stream_timeout":90,"settle":1.0,
+ "prompt":"go","mock":{"deltas":10000,"pace":0.001,"words":6,"begin":"BEGIN-S2","sentinel":"END-S2"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"}}

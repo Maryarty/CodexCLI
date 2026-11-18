@@ -1,0 +1,2 @@
+{"id":"S10w","title":"idle while a turn is open and the model is silent (Working header, no first token), 20 s","kind":"idle","size":[120,40],"hold":1.0,"timeout":30,"settle":3.0,"window":20,"working":true,
+ "prompt":"go","mock":{"deltas":2,"pace":60,"words":6,"sentinel":"END-S10W"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"}}

@@ -1,0 +1,2 @@
+{"id":"S11","title":"Agent command center: startup, 10 Down keys, idle 10 s","kind":"agents","size":[120,40],"hold":1.0,"timeout":30,"window":10,"downs":10,
+ "subcommand":["agents","--no-daemon"],"mock":{"deltas":2,"pace":0.01,"sentinel":"END-S11"},"ready":{"any":"Agent command center"}}

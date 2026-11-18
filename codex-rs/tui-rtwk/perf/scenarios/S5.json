@@ -1,0 +1,3 @@
+{"id":"S5","title":"typing 10 keys/s and 30 keys/s autorepeat while S1 streams","kind":"stream","size":[120,40],"hold":1.0,"timeout":30,"stream_timeout":120,"settle":1.0,
+ "prompt":"go","mock":{"deltas":2500,"pace":0.01,"words":6,"begin":"BEGIN-S5","sentinel":"END-S5"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"},
+ "typing":{"lead":2.0,"phases":[{"name":"10/s","keys":80,"rate":10},{"name":"30/s","keys":90,"rate":30}]}}
