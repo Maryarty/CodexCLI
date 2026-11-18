@@ -125,6 +125,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             model.notice = notice;
         }
         Ev::Started(thread) => opened(model, &thread),
+        Ev::Voice(owner) => model.voice = owner,
         Ev::Request(thread, preview) => match preview {
             Some(preview) => {
                 model.requests.insert(thread, preview);
@@ -203,14 +204,27 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 // `removes_subtree`).
                 let whole = !(model.cloud && action == Action::Archive);
                 model.remove_tree(&thread, whole);
+                model.hidden.remove(&thread);
                 model.notice = None;
                 model.reconcile();
                 return super::discovery::refill(model);
             }
         }
-        (Ctx::Action { action, .. }, Err(error)) => {
-            let _ = action;
-            model.notice = Some(Notice::Error(error_text(error)));
+        (Ctx::Action { thread, action }, Err(error)) => {
+            // The task was hidden while the request ran: it is back.
+            model.hidden.remove(&thread);
+            match action {
+                Some(action) => {
+                    model.notice = None;
+                    model.failure = Some(super::Failure {
+                        action,
+                        error: error_text(error),
+                        attempted: true,
+                    });
+                    model.reconcile();
+                }
+                None => model.notice = Some(Notice::Error(error_text(error))),
+            }
         }
         (Ctx::Stop { thread }, Ok(Reply::ActiveTurn(Some(turn)))) => {
             return vec![out(Command::Interrupt { thread, turn }, Ctx::Interrupt)];

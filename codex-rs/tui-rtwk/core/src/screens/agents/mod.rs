@@ -154,6 +154,18 @@ pub enum Notice {
     Error(String),
 }
 
+/// A removal the server refused (oracle: the `Could not archive task` /
+/// `Could not delete task` selection view of `run_agents_overview_action`):
+/// shown as a dialog with one row, `Back to agents`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub action: Action,
+    /// The server's error, as `error_text` words it.
+    pub error: String,
+    /// The request was sent (the dialog warns that work may have stopped).
+    pub attempted: bool,
+}
+
 /// A confirmation waiting for the user (oracle: `confirm_agents_overview_action`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Confirm {
@@ -309,6 +321,10 @@ pub struct Model {
     pub search_seq: u64,
     pub notice: Option<Notice>,
     pub confirm: Option<Confirm>,
+    /// A refused removal, until the user goes back (it holds the screen).
+    pub failure: Option<Failure>,
+    /// The thread that owns the voice session (oracle: `voice_owner_thread_id`).
+    pub voice: Option<String>,
     pub filter: usize,
     pub grouping: Grouping,
     pub search: String,
@@ -356,6 +372,8 @@ pub enum Ev {
     /// The shell started a task by itself (a worktree's) and it opens in the
     /// chat; the busy notice ends.
     Started(Box<Thread>),
+    /// The thread that owns the voice session, if any.
+    Voice(Option<String>),
 }
 
 impl Eq for Ev {}
@@ -405,6 +423,8 @@ pub enum Intent {
     Delete,
     /// The confirmation's answer.
     Confirmed(bool),
+    /// `Back to agents` on the failure dialog.
+    DismissFailure,
     Hide,
     TogglePin,
     New,

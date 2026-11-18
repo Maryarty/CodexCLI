@@ -259,9 +259,47 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
         "clock" => serde_json::from_value(body).map(Ev::Clock).map_err(text),
         "current" => serde_json::from_value(body).map(Ev::Current).map_err(text),
         "pinned" => serde_json::from_value(body).map(Ev::Pinned).map_err(text),
+        "voice" => serde_json::from_value(body).map(Ev::Voice).map_err(text),
+        "notice" => seed_notice(body).map(Ev::Notice),
         "request" => serde_json::from_value::<(String, String)>(body)
             .map(|(thread, preview)| Ev::Request(thread, Some(preview)))
             .map_err(text),
         other => Err(other.to_owned()),
+    }
+}
+
+/// A seeded notice: `null` (none), `"reconnecting"`, `"reconnect_failed"`,
+/// `"creating_worktree"`, `"load_failed"`, `{"server_version": text}`,
+/// `{"error": text}` or `{"removing": "archive" | "delete"}`.
+fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String> {
+    use super::Action;
+    use super::Notice;
+    match &body {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(name) => match name.as_str() {
+            "reconnecting" => Ok(Some(Notice::Reconnecting)),
+            "reconnect_failed" => Ok(Some(Notice::ReconnectFailed)),
+            "creating_worktree" => Ok(Some(Notice::CreatingWorktree)),
+            "load_failed" => Ok(Some(Notice::LoadFailed)),
+            other => Err(format!("notice {other}")),
+        },
+        serde_json::Value::Object(object) => {
+            let (key, value) = object
+                .iter()
+                .next()
+                .ok_or_else(|| "an empty notice".to_owned())?;
+            let text = value.as_str().unwrap_or_default().to_owned();
+            match key.as_str() {
+                "server_version" => Ok(Some(Notice::ServerVersion(text))),
+                "error" => Ok(Some(Notice::Error(text))),
+                "removing" => match text.as_str() {
+                    "archive" => Ok(Some(Notice::Removing(Action::Archive))),
+                    "delete" => Ok(Some(Notice::Removing(Action::Delete))),
+                    other => Err(format!("removing {other}")),
+                },
+                other => Err(format!("notice {other}")),
+            }
+        }
+        _ => Err("a notice is null, a name or an object".to_owned()),
     }
 }

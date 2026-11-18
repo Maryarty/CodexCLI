@@ -36,6 +36,8 @@ pub struct RowData {
     pub unread: bool,
     pub current: bool,
     pub pinned: bool,
+    /// The task's session owns the voice session (oracle: `has_voice`).
+    pub has_voice: bool,
     pub details: Details,
 }
 
@@ -110,6 +112,12 @@ impl Center {
 }
 
 impl Model {
+    /// The plan is billed directly in dollars (oracle: `PlanType::Ent26`),
+    /// which hides the credits and shows the native cost.
+    pub fn plan_bills_in_dollars(&self) -> bool {
+        self.plan == Some(codex_protocol::account::PlanType::Ent26)
+    }
+
     /// The roots in status, newest and id order, hidden ones left out
     /// (oracle: `agents_overview_view`).
     pub(super) fn rows(&self) -> Vec<RowData> {
@@ -135,6 +143,12 @@ impl Model {
                 .then_with(|| right.updated_at.cmp(&left.updated_at))
                 .then_with(|| left.id.cmp(&right.id))
         });
+        let voice_session = self.voice.as_ref().and_then(|owner| {
+            self.threads
+                .iter()
+                .find(|thread| &thread.id == owner)
+                .map(|thread| thread.session_id.as_str())
+        });
         roots
             .into_iter()
             .filter(|(root, _)| !self.hidden.contains(&root.id))
@@ -147,6 +161,7 @@ impl Model {
                     .pinned
                     .as_ref()
                     .is_some_and(|pins| pins.contains(&root.id)),
+                has_voice: voice_session.is_some_and(|session| session == root.session_id),
                 details: self.details(root, &children),
             })
             .collect()

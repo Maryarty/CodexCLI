@@ -19,9 +19,9 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Action, CenterRow, Command, Confirm, Ctx, DetailLine, DirKeys, Ev, Group, GroupLabel, Grouping,
-    Intent as AgentsIntent, Model, Notice, Out, Page, Reply, Sel, apply_answer, observe, update,
-    wire,
+    Action, CenterRow, Command, Confirm, Ctx, DetailLine, DirKeys, Ev, Failure, Group, GroupLabel,
+    Grouping, Intent as AgentsIntent, Model, Notice, Out, Page, Reply, Sel, apply_answer, observe,
+    update, wire,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
@@ -1455,7 +1455,17 @@ fn rejected_delete_preserves_a_live_attachment() {
         Err(RpcError::Remote("Could not delete task".into())),
     );
     assert_eq!(ids_of(&m), vec![target]);
-    assert!(matches!(m.notice, Some(Notice::Error(_))));
+    // The oracle shows the refusal as the `Could not delete task` dialog
+    // (agents_overview_actions_tests.rs:845), not a footer notice.
+    assert_eq!(m.notice, None);
+    assert_eq!(
+        m.failure,
+        Some(Failure {
+            action: Action::Delete,
+            error: "Could not delete task".into(),
+            attempted: true,
+        })
+    );
 }
 
 /// The core half of `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`
@@ -1851,4 +1861,138 @@ fn full_usage_model(selected: &str, full: &codex_app_server_protocol::ThreadUsag
         },
     );
     m
+}
+
+/// `prepare_agents_overview_removal` + `hidden_threads` (agents_overview_actions.rs:
+/// run_agents_overview_action): the task is gone from the list at once, while
+/// the request runs, and back when it fails (`modal_consumes_input_and_finishes_after_input_closes`,
+/// agents_overview_action_progress_tests.rs:17: the screen shows 2 tasks).
+#[test]
+fn a_confirmed_removal_hides_the_task_until_the_request_ends() {
+    for (action, delete) in [(Action::Archive, false), (Action::Delete, true)] {
+        let mut sandbox = sandbox();
+        list(
+            &mut sandbox,
+            vec![
+                thread(&id(1), None, "Task 1", idle()),
+                thread(&id(2), None, "Task 2", idle()),
+            ],
+        );
+        let first = selected(&sandbox);
+        let mut m = model(&sandbox).clone();
+        let _ = update(
+            &mut m,
+            if delete {
+                AgentsIntent::Delete
+            } else {
+                AgentsIntent::Archive
+            },
+        );
+        let outs = update(&mut m, AgentsIntent::Confirmed(true));
+        assert_eq!(m.notice, Some(Notice::Removing(action)));
+        let shown = |m: &Model| -> Vec<String> {
+            let center = m.center();
+            center.rows.iter().map(|row| row.id().to_owned()).collect()
+        };
+        assert!(!shown(&m).contains(&first), "hidden while it runs");
+        assert_eq!(shown(&m).len(), 1);
+        // A failure brings it back and holds the screen with the dialog.
+        let mut failed = m.clone();
+        let _ = apply_answer(
+            &mut failed,
+            outs[0].ctx.clone(),
+            Err(RpcError::Remote("refused".into())),
+        );
+        assert!(shown(&failed).contains(&first), "back after a failure");
+        assert_eq!(failed.notice, None);
+        assert_eq!(
+            failed.failure,
+            Some(Failure {
+                action,
+                error: "refused".into(),
+                attempted: true
+            })
+        );
+        // While the dialog shows, only `Back to agents` acts.
+        let before = failed.clone();
+        let _ = update(&mut failed, AgentsIntent::CycleGrouping);
+        assert_eq!(failed, before);
+        let _ = update(&mut failed, AgentsIntent::DismissFailure);
+        assert_eq!(failed.failure, None);
+        // Success removes it for good.
+        let _ = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+        assert!(!shown(&m).contains(&first));
+        assert!(!m.hidden.contains(&first), "no stale hidden entry");
+    }
+}
+
+/// `has_voice` (agents_overview.rs:446): the row whose session owns the
+/// voice session is flagged, the others are not.
+#[test]
+fn the_row_of_the_voice_session_is_flagged() {
+    let mut sandbox = sandbox();
+    list(
+        &mut sandbox,
+        vec![
+            thread(&id(1), None, "Task 1", idle()),
+            thread(&id(2), None, "Task 2", idle()),
+        ],
+    );
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Voice(Some(id(2))))));
+    let center = model(&sandbox).center();
+    let flagged: Vec<(String, bool)> = center
+        .rows
+        .iter()
+        .map(|row| (row.id().to_owned(), row.has_voice))
+        .collect();
+    assert_eq!(
+        flagged.into_iter().filter(|(_, voice)| *voice).count(),
+        1,
+        "{flagged:?}",
+        flagged = center
+            .rows
+            .iter()
+            .map(|r| (r.id().to_owned(), r.has_voice))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        center
+            .rows
+            .iter()
+            .any(|row| row.id() == id(2) && row.has_voice)
+    );
+}
+
+/// `PlanType::Ent26` bills in dollars (agents_overview_usage.rs:209).
+#[test]
+fn only_the_ent26_plan_bills_in_dollars() {
+    use codex_protocol::account::PlanType;
+    let mut m = Model::default();
+    assert!(!m.plan_bills_in_dollars());
+    m.plan = Some(PlanType::Plus);
+    assert!(!m.plan_bills_in_dollars());
+    m.plan = Some(PlanType::Ent26);
+    assert!(m.plan_bills_in_dollars());
+}
+
+/// The scripts seed the notices the oracle's tests set: the older-server
+/// text, the busy and the reconnecting states.
+#[test]
+fn a_script_seeds_the_notices() {
+    for (body, expected) in [
+        (
+            json!({"server_version": "Service v0.152.1 < Codex CLI v0.153.0"}),
+            Some(Notice::ServerVersion(
+                "Service v0.152.1 < Codex CLI v0.153.0".into(),
+            )),
+        ),
+        (json!("reconnecting"), Some(Notice::Reconnecting)),
+        (json!("creating_worktree"), Some(Notice::CreatingWorktree)),
+        (json!(null), None),
+    ] {
+        let ev =
+            codex_tui_core::screens::agents::seed(json!({ "notice": body })).expect("a notice");
+        assert_eq!(ev, Ev::Notice(expected));
+    }
+    assert!(codex_tui_core::screens::agents::seed(json!({"notice": "bogus"})).is_err());
 }

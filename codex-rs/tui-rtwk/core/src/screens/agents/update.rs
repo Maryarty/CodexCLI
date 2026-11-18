@@ -24,6 +24,13 @@ use super::refresh::out;
 /// The intent's change and the RPCs it asks for.
 pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
     let mut outs = Vec::new();
+    if model.failure.is_some() {
+        // The failure dialog holds the screen until `Back to agents`.
+        if intent == Intent::DismissFailure {
+            model.failure = None;
+        }
+        return outs;
+    }
     if blocked(model, &intent) {
         return outs;
     }
@@ -96,6 +103,8 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                 ));
             }
         }
+        // Handled above, while a failure holds the screen.
+        Intent::DismissFailure => {}
         Intent::Archive => confirm(model, Action::Archive),
         Intent::Delete => confirm(model, Action::Delete),
         Intent::Confirmed(yes) => {
@@ -113,6 +122,9 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                     },
                 };
                 model.selected = next.map(Sel::Task);
+                // Hidden at once, until the request ends (oracle:
+                // `hidden_threads` in `run_agents_overview_action`).
+                model.hidden.insert(confirm.thread.clone());
                 outs.push(out(
                     command,
                     Ctx::Action {
