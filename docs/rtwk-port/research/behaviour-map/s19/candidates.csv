@@ -1,0 +1,167 @@
+id,screen,kind,file,line,end_line,symbol,excerpt
+S19-C001,S19,view-hook,status/card.rs,971,973,HistoryCell::display_lines,"fn display_lines(&self, width: u16) -> Vec<Line<'static>> { self.content_lines(width)"
+S19-C002,S19,view-hook,status/card.rs,975,977,HistoryCell::raw_lines,fn raw_lines(&self) -> Vec<Line<'static>> { plain_lines(self.display_lines(u16::MAX))
+S19-C003,S19,view-hook,status/card.rs,979,1004,HistoryCell::display_hyperlink_lines,"fn display_hyperlink_lines( &self,"
+S19-C004,S19,view-hook,status/card.rs,1006,1011,HistoryCell::transcript_hyperlink_lines,"fn transcript_hyperlink_lines( &self,"
+S19-C005,S19,mutator,chatwidget/slash_dispatch.rs,173,658,dispatch_command_from_source,"fn dispatch_command_from_source( &mut self,"
+S19-C006,S19,mutator,chatwidget/status_controls.rs,212,302,add_status_output,"pub(crate) fn add_status_output( &mut self,"
+S19-C007,S19,mutator,chatwidget/status_controls.rs,304,328,finish_status_rate_limit_refresh,"pub(crate) fn finish_status_rate_limit_refresh( &mut self,"
+S19-C008,S19,builder,status/card.rs,84,93,copy_text,pub(crate) fn copy_text(&self) -> String { self.card
+S19-C009,S19,builder,status/card.rs,428,444,token_usage_spans,fn token_usage_spans(&self) -> Vec<Span<'static>> { let total_fmt = format_tokens_compact(self.token_usage.total);
+S19-C010,S19,builder,status/card.rs,446,460,context_window_spans,fn context_window_spans(&self) -> Option<Vec<Span<'static>>> { let context = self.token_usage.context_window.as_ref()?;
+S19-C011,S19,builder,status/card.rs,653,664,workspace_root_suffix,"fn workspace_root_suffix(workspace_roots: &[PathUri], cwd: &PathUri) -> Option<String> { let extra_roots = workspace_roots"
+S19-C012,S19,builder,status/card.rs,733,738,decorate_workspace_sandbox_label,"fn decorate_workspace_sandbox_label(sandbox: &str, workspace_root_suffix: Option<&str>) -> String { match workspace_root_suffix {"
+S19-C013,S19,builder,status/card.rs,756,967,content_lines,"fn content_lines(&self, width: u16) -> Vec<Line<'static>> { let available_width = usize::from(width);"
+S19-C014,S19,builder,status/format.rs,46,51,continuation,"pub(crate) fn continuation(&self, mut spans: Vec<Span<'static>>) -> Line<'static> { let mut all_spans = Vec::with_capacity(spans.len() + 1);"
+S19-C015,S19,builder,status/format.rs,68,82,label_span,"fn label_span(&self, label: &str) -> Span<'static> { let mut buf = String::with_capacity(self.value_offset);"
+S19-C016,S19,builder,status/helpers.rs,14,16,normalize_agents_display_path,"fn normalize_agents_display_path(path: &Path) -> String { format_directory_display(dunce::simplified(path), /*max_width*/ None)"
+S19-C017,S19,builder,status/helpers.rs,38,92,compose_agents_summary,"pub(crate) fn compose_agents_summary(config: &Config, paths: &[PathUri]) -> String { let mut rels: Vec<String> = Vec::new();"
+S19-C018,S19,builder,status/helpers.rs,100,104,plan_type_display_name,pub(crate) fn plan_type_display_name(plan_type: PlanType) -> String { crate::subscription::SubscriptionDisplay::Status
+S19-C019,S19,builder,status/helpers.rs,106,146,format_tokens_compact,pub(crate) fn format_tokens_compact(value: i64) -> String { let value = value.max(0);
+S19-C020,S19,builder,status/helpers.rs,148,169,format_directory_display,"pub(crate) fn format_directory_display(directory: &Path, max_width: Option<usize>) -> String { let formatted = if let Some(rel) = relativize_to_home(directory) {"
+S19-C021,S19,builder,status/rate_limits.rs,372,374,render_status_limit_progress_bar,"pub(crate) fn render_status_limit_progress_bar(percent_remaining: f64) -> String { render_limit_progress_bar(percent_remaining, STATUS_LIMIT_BAR_SEGMENTS)"
+S19-C022,S19,builder,status/rate_limits.rs,377,387,render_limit_progress_bar,"pub(crate) fn render_limit_progress_bar(percent_remaining: f64, segments: usize) -> String { let ratio = (percent_remaining / 100.0).clamp(0.0, 1.0);"
+S19-C023,S19,builder,status/rate_limits.rs,390,392,format_status_limit_summary,"pub(crate) fn format_status_limit_summary(percent_remaining: f64) -> String { format!(""{percent_remaining:.0}% left"")"
+S19-C024,S19,builder,status/rate_limits.rs,421,442,format_credit_balance,fn format_credit_balance(raw: &str) -> Option<String> { let trimmed = raw.trim();
+S19-C025,S19,builder,status/rate_limits.rs,444,450,format_credit_amount,fn format_credit_amount(raw: &str) -> Option<String> { let value = raw.trim().parse::<f64>().ok()?;
+S19-C026,S19,builder,status/remote_connection.rs,61,70,server_version_notice,"pub(crate) fn server_version_notice(client: &str, server: Option<&str>) -> Option<String> { let server = server?;"
+S19-C027,S19,builder,status/tests.rs,177,187,render_lines,fn render_lines(lines: &[Line<'static>]) -> Vec<String> { lines
+S19-C028,S19,builder,status/tests.rs,189,201,sanitize_directory,fn sanitize_directory(lines: Vec<String>) -> Vec<String> { lines
+S19-C029,S19,builder,status/tests.rs,203,223,buffer_to_text,"fn buffer_to_text(buffer: &Buffer, width: u16) -> String { let lines = buffer"
+S19-C030,S19,builder,status/tests.rs,231,233,permissions_text_for,"fn permissions_text_for(config: &Config) -> Option<String> { permissions_text_for_width(config, /*width*/ 80)"
+S19-C031,S19,builder,status/tests.rs,235,268,permissions_text_for_width,"fn permissions_text_for_width(config: &Config, width: u16) -> Option<String> { let usage = TokenUsage::default();"
+S19-C032,S19,builder,status/thread_usage.rs,192,286,grouped_usage,"fn grouped_usage( groups: &[ThreadUsageBreakdownGroup],"
+S19-C033,S19,builder,status/thread_usage.rs,288,319,format_model_display_name,fn format_model_display_name(model: &str) -> String { let model = crate::model_catalog::model_display_name(model);
+S19-C034,S19,builder,status/thread_usage.rs,321,340,format_credit_micros,pub(crate) fn format_credit_micros(micros: i64) -> String { let micros = i128::from(micros.max(/*other*/ 0));
+S19-C035,S19,builder,status/thread_usage.rs,342,356,format_estimated_usd_micros,pub(crate) fn format_estimated_usd_micros(micros: i64) -> Option<String> { if micros < 0 {
+S19-C036,S19,field,status/rate_limits.rs,30,31,StatusRateLimitRow.label,"/// Human-readable row label, such as `""5h limit""`, `""Monthly limit""`, or `""Credits""`. pub label: String,"
+S19-C037,S19,field,status/rate_limits.rs,32,33,StatusRateLimitRow.value,"/// Value payload for the row. pub value: StatusRateLimitValue,"
+S19-C038,S19,field,status/rate_limits.rs,71,72,RateLimitWindowDisplay.used_percent,"/// Percent used for the window. pub used_percent: f64,"
+S19-C039,S19,field,status/rate_limits.rs,73,74,RateLimitWindowDisplay.resets_at_unix,"/// Unix time from the server, before formatting for the local clock. pub resets_at_unix: Option<i64>,"
+S19-C040,S19,field,status/rate_limits.rs,75,76,RateLimitWindowDisplay.resets_at,"/// Human-readable local reset time. pub resets_at: Option<String>,"
+S19-C041,S19,field,status/rate_limits.rs,77,78,RateLimitWindowDisplay.window_minutes,"/// Window length in minutes when provided by the server. pub window_minutes: Option<i64>,"
+S19-C042,S19,field,status/rate_limits.rs,105,106,RateLimitSnapshotDisplay.limit_name,"/// Canonical limit identifier (for example: `codex` or `codex_other`). pub limit_name: String,"
+S19-C043,S19,field,status/rate_limits.rs,107,108,RateLimitSnapshotDisplay.normal_model_slug,"/// Optional normal model associated with this account-read quota alias. pub normal_model_slug: Option<String>,"
+S19-C044,S19,field,status/rate_limits.rs,109,110,RateLimitSnapshotDisplay.captured_at,"/// Local timestamp representing when this display snapshot was captured. pub captured_at: DateTime<Local>,"
+S19-C045,S19,field,status/rate_limits.rs,111,112,RateLimitSnapshotDisplay.primary,"/// Primary usage window. pub primary: Option<RateLimitWindowDisplay>,"
+S19-C046,S19,field,status/rate_limits.rs,113,114,RateLimitSnapshotDisplay.secondary,"/// Secondary usage window. pub secondary: Option<RateLimitWindowDisplay>,"
+S19-C047,S19,field,status/rate_limits.rs,115,116,RateLimitSnapshotDisplay.credits,"/// Optional credits metadata when available. pub credits: Option<CreditsSnapshotDisplay>,"
+S19-C048,S19,field,status/rate_limits.rs,117,118,RateLimitSnapshotDisplay.individual_limit,"/// Optional effective monthly credit limit from workspace spend controls. pub individual_limit: Option<SpendControlLimitSnapshotDisplay>,"
+S19-C049,S19,field,status/rate_limits.rs,124,125,CreditsSnapshotDisplay.has_credits,"/// Whether credits tracking is enabled for the account. pub has_credits: bool,"
+S19-C050,S19,field,status/rate_limits.rs,126,127,CreditsSnapshotDisplay.unlimited,"/// Whether the account has unlimited credits. pub unlimited: bool,"
+S19-C051,S19,field,status/rate_limits.rs,128,129,CreditsSnapshotDisplay.balance,"/// Raw balance text as provided by the backend. pub balance: Option<String>,"
+S19-C052,S19,field,status/rate_limits.rs,135,136,SpendControlLimitSnapshotDisplay.captured_at,"/// Local timestamp representing when this monthly usage value was captured. pub captured_at: DateTime<Local>,"
+S19-C053,S19,field,status/rate_limits.rs,137,137,SpendControlLimitSnapshotDisplay.percent_remaining,"pub percent_remaining: f64,"
+S19-C054,S19,field,status/rate_limits.rs,138,138,SpendControlLimitSnapshotDisplay.used,"pub used: String,"
+S19-C055,S19,field,status/rate_limits.rs,139,139,SpendControlLimitSnapshotDisplay.limit,"pub limit: String,"
+S19-C056,S19,field,status/rate_limits.rs,140,140,SpendControlLimitSnapshotDisplay.resets_at,"pub resets_at: Option<String>,"
+S19-C057,S19,field,status/remote_connection.rs,10,10,RemoteConnectionStatus.address,"pub(crate) address: String,"
+S19-C058,S19,field,status/remote_connection.rs,11,11,RemoteConnectionStatus.version,"pub(crate) version: String,"
+S19-C059,S19,field,status/remote_connection.rs,12,12,RemoteConnectionStatus.is_local_daemon,"pub(crate) is_local_daemon: bool,"
+S19-C060,S19,field,status/remote_connection.rs,13,13,RemoteConnectionStatus.is_managed_daemon,"pub(crate) is_managed_daemon: bool,"
+S19-C061,S19,field,status/remote_connection.rs,18,18,ServerVersionNotice.message,"pub(crate) message: String,"
+S19-C062,S19,field,status/remote_connection.rs,19,19,ServerVersionNotice.offer_update,"pub(crate) offer_update: bool,"
+S19-C063,S19,test,chatwidget/tests/status_command_tests.rs,9,32,status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth,async fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth() {
+S19-C064,S19,test,chatwidget/tests/status_command_tests.rs,35,75,status_command_refresh_updates_cached_limits_for_future_status_outputs,async fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
+S19-C065,S19,test,chatwidget/tests/status_command_tests.rs,78,89,status_command_renders_immediately_without_rate_limit_refresh,async fn status_command_renders_immediately_without_rate_limit_refresh() {
+S19-C066,S19,test,chatwidget/tests/status_command_tests.rs,92,108,status_command_uses_catalog_default_reasoning_when_config_empty,async fn status_command_uses_catalog_default_reasoning_when_config_empty() {
+S19-C067,S19,test,chatwidget/tests/status_command_tests.rs,111,145,status_command_renders_native_and_foreign_instruction_sources,async fn status_command_renders_native_and_foreign_instruction_sources() {
+S19-C068,S19,test,chatwidget/tests/status_command_tests.rs,148,189,status_command_overlapping_refreshes_update_matching_cells_only,async fn status_command_overlapping_refreshes_update_matching_cells_only() {
+S19-C069,S19,test,chatwidget/tests/status_command_tests.rs,192,211,account_update_rejects_stale_status_rate_limit_snapshots,async fn account_update_rejects_stale_status_rate_limit_snapshots() {
+S19-C070,S19,test,chatwidget/tests/status_command_tests.rs,214,303,status_command_renders_immediately_and_updates_first_card_without_status_line,async fn status_command_renders_immediately_and_updates_first_card_without_status_line() {
+S19-C071,S19,test,chatwidget/tests/status_command_tests.rs,306,335,status_command_omits_thread_usage_for_unsupported_plans,async fn status_command_omits_thread_usage_for_unsupported_plans() {
+S19-C072,S19,test,chatwidget/tests/status_command_tests.rs,338,390,status_command_stays_visible_and_updates_after_thread_usage_retry,async fn status_command_stays_visible_and_updates_after_thread_usage_retry() {
+S19-C073,S19,test,chatwidget/tests/status_command_tests.rs,393,459,status_command_renders_credits_and_breakdowns_without_usd_estimate,async fn status_command_renders_credits_and_breakdowns_without_usd_estimate() {
+S19-C074,S19,test,chatwidget/tests/status_command_tests.rs,462,524,status_command_drops_stale_usd_when_updated_usage_has_only_credits,async fn status_command_drops_stale_usd_when_updated_usage_has_only_credits() {
+S19-C075,S19,test,chatwidget/tests/status_command_tests.rs,527,547,status_command_requests_thread_usage_for_remote_connection_metadata,async fn status_command_requests_thread_usage_for_remote_connection_metadata() {
+S19-C076,S19,test,chatwidget/tests/status_command_tests.rs,550,565,status_command_requests_thread_usage_with_backend_only_authentication,async fn status_command_requests_thread_usage_with_backend_only_authentication() {
+S19-C077,S19,test,chatwidget/tests/status_command_tests.rs,568,600,status_command_remains_visible_when_account_changes_during_usage_refresh,async fn status_command_remains_visible_when_account_changes_during_usage_refresh() {
+S19-C078,S19,test,chatwidget/tests/status_command_tests.rs,603,633,status_command_remains_visible_when_thread_changes_during_usage_refresh,async fn status_command_remains_visible_when_thread_changes_during_usage_refresh() {
+S19-C079,S19,test,status/helpers.rs,202,239,plan_type_display_name_remaps_display_labels,fn plan_type_display_name_remaps_display_labels() {
+S19-C080,S19,test,status/helpers.rs,242,248,format_directory_display_truncates_halfwidth_sound_marks,fn format_directory_display_truncates_halfwidth_sound_marks() {
+S19-C081,S19,test,status/helpers.rs,251,264,compose_agents_summary_includes_global_agents_path,async fn compose_agents_summary_includes_global_agents_path() {
+S19-C082,S19,test,status/helpers.rs,267,290,compose_agents_summary_collapses_home_and_preserves_project_relative_paths,async fn compose_agents_summary_collapses_home_and_preserves_project_relative_paths() {
+S19-C083,S19,test,status/helpers.rs,293,303,compose_agents_summary_names_global_agents_override,async fn compose_agents_summary_names_global_agents_override() {
+S19-C084,S19,test,status/helpers.rs,306,325,compose_agents_summary_shows_relative_native_and_full_foreign_paths,async fn compose_agents_summary_shows_relative_native_and_full_foreign_paths() {
+S19-C085,S19,test,status/helpers.rs,328,350,compose_agents_summary_orders_global_before_project_agents,async fn compose_agents_summary_orders_global_before_project_agents() {
+S19-C086,S19,test,status/rate_limits.rs,472,517,non_codex_single_limit_renders_combined_row,fn non_codex_single_limit_renders_combined_row() {
+S19-C087,S19,test,status/rate_limits.rs,520,555,non_codex_multi_limit_keeps_group_row,fn non_codex_multi_limit_keeps_group_row() {
+S19-C088,S19,test,status/remote_connection.rs,188,241,remote_connection_status_value_formats_display_value,fn remote_connection_status_value_formats_display_value() -> color_eyre::Result<()> {
+S19-C089,S19,test,status/remote_connection.rs,244,269,server_version_notice_uses_client_release_policy,fn server_version_notice_uses_client_release_policy() {
+S19-C090,S19,test,status/remote_connection.rs,272,313,update_command_is_only_suggested_for_implicit_local_daemon,fn update_command_is_only_suggested_for_implicit_local_daemon() -> color_eyre::Result<()> {
+S19-C091,S19,test,status/remote_connection.rs,316,339,notice_key_identifies_socket_and_server_home_across_connection_modes,fn notice_key_identifies_socket_and_server_home_across_connection_modes() -> anyhow::Result<()>
+S19-C092,S19,test,status/tests.rs,64,91,stale_monthly_limit_marks_fresh_rolling_snapshot_stale,fn stale_monthly_limit_marks_fresh_rolling_snapshot_stale() {
+S19-C093,S19,test,status/tests.rs,271,351,status_snapshot_includes_reasoning_details,async fn status_snapshot_includes_reasoning_details() {
+S19-C094,S19,test,status/tests.rs,354,455,status_snapshot_shows_chatgpt_plan_without_email,async fn status_snapshot_shows_chatgpt_plan_without_email() {
+S19-C095,S19,test,status/tests.rs,458,480,status_permissions_non_default_workspace_write_uses_workspace_label,async fn status_permissions_non_default_workspace_write_uses_workspace_label() {
+S19-C096,S19,test,status/tests.rs,483,503,status_permissions_named_read_only_profile_shows_builtin_label,async fn status_permissions_named_read_only_profile_shows_builtin_label() {
+S19-C097,S19,test,status/tests.rs,506,533,status_permissions_read_only_profile_shows_additional_writable_roots,async fn status_permissions_read_only_profile_shows_additional_writable_roots() {
+S19-C098,S19,test,status/tests.rs,536,556,status_permissions_named_workspace_profile_shows_builtin_label,async fn status_permissions_named_workspace_profile_shows_builtin_label() {
+S19-C099,S19,test,status/tests.rs,559,580,status_permissions_workspace_auto_review_shows_reviewer_label,async fn status_permissions_workspace_auto_review_shows_reviewer_label() {
+S19-C100,S19,test,status/tests.rs,583,609,status_permissions_named_profile_shows_additional_writable_roots,async fn status_permissions_named_profile_shows_additional_writable_roots() {
+S19-C101,S19,test,status/tests.rs,612,641,status_permissions_workspace_roots_show_additional_directories,async fn status_permissions_workspace_roots_show_additional_directories() {
+S19-C102,S19,test,status/tests.rs,644,677,status_permissions_workspace_roots_include_profile_defined_directories,async fn status_permissions_workspace_roots_include_profile_defined_directories() {
+S19-C103,S19,test,status/tests.rs,680,705,status_permissions_broadened_workspace_profile_shows_builtin_label,async fn status_permissions_broadened_workspace_profile_shows_builtin_label() {
+S19-C104,S19,test,status/tests.rs,708,723,status_permissions_user_defined_profile_shows_name,async fn status_permissions_user_defined_profile_shows_name() {
+S19-C105,S19,test,status/tests.rs,726,770,status_snapshot_shows_active_user_defined_profile,async fn status_snapshot_shows_active_user_defined_profile() {
+S19-C106,S19,test,status/tests.rs,773,878,status_uses_server_provider_id_and_auth_requirement,async fn status_uses_server_provider_id_and_auth_requirement() {
+S19-C107,S19,test,status/tests.rs,881,926,status_snapshot_shows_auto_review_permissions,async fn status_snapshot_shows_auto_review_permissions() {
+S19-C108,S19,test,status/tests.rs,929,949,status_permissions_full_disk_managed_with_network_is_danger_full_access,async fn status_permissions_full_disk_managed_with_network_is_danger_full_access() {
+S19-C109,S19,test,status/tests.rs,952,972,status_permissions_full_disk_managed_without_network_is_external_sandbox,async fn status_permissions_full_disk_managed_without_network_is_external_sandbox() {
+S19-C110,S19,test,status/tests.rs,975,1027,status_snapshot_includes_forked_from,async fn status_snapshot_includes_forked_from() {
+S19-C111,S19,test,status/tests.rs,1030,1094,status_snapshot_includes_monthly_limit,async fn status_snapshot_includes_monthly_limit() {
+S19-C112,S19,test,status/tests.rs,1097,1173,status_snapshot_includes_enterprise_monthly_credit_limit,async fn status_snapshot_includes_enterprise_monthly_credit_limit() {
+S19-C113,S19,test,status/tests.rs,1176,1244,status_snapshot_uses_generic_limit_labels_for_unsupported_windows,async fn status_snapshot_uses_generic_limit_labels_for_unsupported_windows() {
+S19-C114,S19,test,status/tests.rs,1247,1297,status_snapshot_shows_unlimited_credits,async fn status_snapshot_shows_unlimited_credits() {
+S19-C115,S19,test,status/tests.rs,1300,1350,status_snapshot_shows_positive_credits,async fn status_snapshot_shows_positive_credits() {
+S19-C116,S19,test,status/tests.rs,1353,1411,status_snapshot_shows_available_credits_without_display_balance,async fn status_snapshot_shows_available_credits_without_display_balance() {
+S19-C117,S19,test,status/tests.rs,1414,1464,status_snapshot_respects_unlimited_without_has_credits_flag,async fn status_snapshot_respects_unlimited_without_has_credits_flag() {
+S19-C118,S19,test,status/tests.rs,1467,1511,status_card_token_usage_excludes_cached_tokens,async fn status_card_token_usage_excludes_cached_tokens() {
+S19-C119,S19,test,status/tests.rs,1514,1565,status_wraps_long_paths_and_session_ids_without_losing_text,async fn status_wraps_long_paths_and_session_ids_without_losing_text() {
+S19-C120,S19,test,status/tests.rs,1568,1635,status_snapshot_wraps_in_narrow_terminal,async fn status_snapshot_wraps_in_narrow_terminal() {
+S19-C121,S19,test,status/tests.rs,1638,1675,status_snapshot_wraps_halfwidth_kana_in_narrow_terminal,async fn status_snapshot_wraps_halfwidth_kana_in_narrow_terminal() {
+S19-C122,S19,test,status/tests.rs,1678,1724,status_snapshot_shows_missing_limits_message,async fn status_snapshot_shows_missing_limits_message() {
+S19-C123,S19,test,status/tests.rs,1727,1794,status_snapshot_uses_default_reasoning_when_config_empty,async fn status_snapshot_uses_default_reasoning_when_config_empty() {
+S19-C124,S19,test,status/tests.rs,1797,1863,status_snapshot_shows_refreshing_limits_notice,async fn status_snapshot_shows_refreshing_limits_notice() {
+S19-C125,S19,test,status/tests.rs,1866,1950,transcript_overlay_remeasures_status_after_rate_limit_refresh,async fn transcript_overlay_remeasures_status_after_rate_limit_refresh() {
+S19-C126,S19,test,status/tests.rs,1953,2028,status_snapshot_includes_credits_and_limits,async fn status_snapshot_includes_credits_and_limits() {
+S19-C127,S19,test,status/tests.rs,2031,2090,status_snapshot_shows_unavailable_limits_message,async fn status_snapshot_shows_unavailable_limits_message() {
+S19-C128,S19,test,status/tests.rs,2093,2152,status_snapshot_treats_refreshing_empty_limits_as_unavailable,async fn status_snapshot_treats_refreshing_empty_limits_as_unavailable() {
+S19-C129,S19,test,status/tests.rs,2155,2223,status_snapshot_shows_stale_limits_message,async fn status_snapshot_shows_stale_limits_message() {
+S19-C130,S19,test,status/tests.rs,2226,2298,status_snapshot_cached_limits_hide_credits_without_flag,async fn status_snapshot_cached_limits_hide_credits_without_flag() {
+S19-C131,S19,test,status/tests.rs,2301,2364,status_context_window_uses_last_usage,async fn status_context_window_uses_last_usage() {
+S19-C132,S19,test,status/tests.rs,2367,2397,status_permissions_include_executor_profile_root,async fn status_permissions_include_executor_profile_root() {
+S19-C133,S19,test,status/tests.rs,2400,2430,reset_timestamps_follow_clock_preference,fn reset_timestamps_follow_clock_preference() {
+S19-C134,S19,test,status/thread_usage_tests.rs,9,50,thread_usage_breakdown_groups_aggregate_model_credit_percentages,fn thread_usage_breakdown_groups_aggregate_model_credit_percentages() {
+S19-C135,S19,test,status/thread_usage_tests.rs,53,62,thread_usage_credit_formatting_rounds_to_one_decimal_place,fn thread_usage_credit_formatting_rounds_to_one_decimal_place() {
+S19-C136,S19,test,status/thread_usage_tests.rs,65,70,thread_usage_model_names_match_desktop_display_names,fn thread_usage_model_names_match_desktop_display_names() {
+S19-C137,S19,snapshot,status/helpers.rs,223,223,,insta::assert_snapshot!(
+S19-C138,S19,snapshot,status/helpers.rs,227,227,,insta::assert_snapshot!(
+S19-C139,S19,snapshot,status/helpers.rs,233,233,,insta::assert_snapshot!(
+S19-C140,S19,snapshot,status/helpers.rs,247,247,,"insta::assert_snapshot!(formatted.replace('\\', ""/""), @""workspace/…/project"");"
+S19-C141,S19,snapshot,status/helpers.rs,286,286,,insta::assert_snapshot!(
+S19-C142,S19,snapshot,status/helpers.rs,321,321,,"insta::assert_snapshot!(summary, @r""AGENTS.md, /remote workspace/AGENTS.md"");"
+S19-C143,S19,snapshot,status/helpers.rs,323,323,,"insta::assert_snapshot!(summary, @r""AGENTS.md, C:\remote workspace\AGENTS.md"");"
+S19-C144,S19,snapshot,status/tests.rs,350,350,,assert_snapshot!(sanitized);
+S19-C145,S19,snapshot,status/tests.rs,454,454,,assert_snapshot!(sanitized);
+S19-C146,S19,snapshot,status/tests.rs,769,769,,assert_snapshot!(sanitized);
+S19-C147,S19,snapshot,status/tests.rs,818,818,status_server_auth_not_required,"assert_snapshot!(""status_server_auth_not_required"", rendered);"
+S19-C148,S19,snapshot,status/tests.rs,849,849,status_server_auth_required,"assert_snapshot!(""status_server_auth_required"", rendered);"
+S19-C149,S19,snapshot,status/tests.rs,925,925,,assert_snapshot!(sanitized);
+S19-C150,S19,snapshot,status/tests.rs,1026,1026,,assert_snapshot!(sanitized);
+S19-C151,S19,snapshot,status/tests.rs,1093,1093,,assert_snapshot!(sanitized);
+S19-C152,S19,snapshot,status/tests.rs,1160,1160,,assert_snapshot!(sanitized);
+S19-C153,S19,snapshot,status/tests.rs,1169,1169,,assert_snapshot!(
+S19-C154,S19,snapshot,status/tests.rs,1243,1243,,assert_snapshot!(sanitized);
+S19-C155,S19,snapshot,status/tests.rs,1634,1634,status_snapshot_truncates_in_narrow_terminal,"assert_snapshot!(""status_snapshot_truncates_in_narrow_terminal"", sanitized);"
+S19-C156,S19,snapshot,status/tests.rs,1671,1671,,assert_snapshot!(
+S19-C157,S19,snapshot,status/tests.rs,1723,1723,,assert_snapshot!(sanitized);
+S19-C158,S19,snapshot,status/tests.rs,1792,1792,,"assert_snapshot!(snapshot, sanitized);"
+S19-C159,S19,snapshot,status/tests.rs,1862,1862,,assert_snapshot!(sanitized);
+S19-C160,S19,snapshot,status/tests.rs,1946,1946,,insta::assert_snapshot!(
+S19-C161,S19,snapshot,status/tests.rs,2027,2027,,assert_snapshot!(sanitized);
+S19-C162,S19,snapshot,status/tests.rs,2089,2089,,assert_snapshot!(sanitized);
+S19-C163,S19,snapshot,status/tests.rs,2222,2222,,assert_snapshot!(sanitized);
+S19-C164,S19,snapshot,status/tests.rs,2297,2297,,assert_snapshot!(sanitized);
+S19-C165,S19,snapshot,status/tests.rs,2393,2393,,assert_snapshot!(
+S19-C166,S19,snapshot,status/tests.rs,2420,2420,,"assert_snapshot!(labels.join(""\n""), @"""

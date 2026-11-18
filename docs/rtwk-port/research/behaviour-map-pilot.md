@@ -34,6 +34,46 @@ lines, 1,622 test lines, plus `selection_picker_tests.rs`).
   carried → the person decides the open points → the porter gets the spec.
   The map stays as the evidence index behind the spec's row references.
 
+## Second screen: the whole pipeline on S19, the `/status` card
+
+A content-heavy screen with no keys and an async refresh (`behaviour-map/s19/`).
+`extract.py` gained `async fn` tests and a `builder` kind (fns returning text)
+for it: 166 candidates.
+
+| step | result | tokens (as reported) |
+|---|---|---|
+| Haiku map | 112 rules; all 190 cites, 99 tests, 34 snapshots valid | 91k Haiku, 22 min |
+| Sonnet spec, draft 1 | 699 lines, 21 use cases | 189k |
+| check 1 (Sonnet) | 14 contradictions, 3 wrong acceptance refs, 13 gaps, 13 ambiguities; "330–400 lines would do" | 28k |
+| Sonnet revision | 389 lines, 13 use cases; 2 findings disputed with code, both upheld | 62k (writer compacted once) |
+| check 2 (Sonnet) | 25 of 30 findings fixed, 2 not fixed, 1 wrongly fixed; **17 new contradictions** and 10 ambiguities; "a porter builds ~90 % correctly" | 37k |
+
+Where the errors come from:
+- **Hand-made examples**: four examples of carried formatting functions were
+  wrong when run (one space instead of two, a wrap point, a permission
+  label) — they would become wrong test expectations.
+- **Paraphrased internals**: the settlement-read schedule and the refresh's
+  generation logic, retold in prose, lost conditions both times.
+- **Shortening while fixing**: the revision fixed most findings but its
+  compression created new errors; the writer, compacted at ~250k, could not
+  re-verify part of its fixes.
+- **Acceptance names**: snapshot names given as test names — mechanically
+  checkable.
+
+What changes in the pipeline:
+1. What is carried as code is not retold: the spec names the function and
+   quotes an oracle snapshot or assertion as its example — never an example
+   written by hand.
+2. Internal flows the port carries or re-expresses (refresh scheduling,
+   generations) are referenced by oracle `file:line` and the test pinning
+   them; the spec states only the user-visible outcome.
+3. `validate.py` also checks the spec: every test and snapshot it names.
+4. A fix round edits only the listed findings (no rewrite, no shortening);
+   the next check reads only the changed lines plus a sample.
+5. A writer stays well under its context limit: a content-heavy screen is
+   written section by section.
+6. The person reads only the open points.
+
 ## Round 2 (fixed input)
 
 v3 candidates (304: public struct fields, arm precedence, the host

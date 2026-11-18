@@ -58,6 +58,7 @@ def check(map_path, root, fns, snaps, stems):
                 stats["bad_tests"] += 1
                 problems.append(f"unknown test {t}")
         for s in split(r.get("snapshots")):
+            s = s.removesuffix(".snap")
             stats["snaps"] += 1
             if s not in snaps and not any(st.endswith(s) for st in stems):
                 stats["bad_snaps"] += 1

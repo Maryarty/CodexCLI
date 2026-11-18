@@ -16,6 +16,8 @@ step 1). Kinds:
               changes what the user sees: selected_description, category_tag)
   view-hook   a method of an `impl BottomPaneView for` / `impl Renderable for` block
   mutator     a non-test fn taking `&mut self` (state transitions: move, accept, filter)
+  builder     a non-test fn returning text (Line, Span, Text, String, or a Vec/Option of them):
+              what a card or row shows and how values are formatted
   send        a line that calls an action or sends on the app-event sender
   test        a #[test] fn
   snapshot    an assert_snapshot! call (name when it is a literal)
@@ -27,7 +29,7 @@ import re
 import sys
 from pathlib import Path
 
-FN_RE = re.compile(r"^(\s*)(?:pub(?:\([^)]*\))?\s+)?fn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(")
+FN_RE = re.compile(r"^(\s*)(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?fn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(")
 IMPL_RE = re.compile(r"^impl(?:<[^>]*>)?\s+(\w+)\s+for\s+(\w+)")
 TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::)?test")
 CFG_TEST_RE = re.compile(r"^\s*#\[cfg\(test\)\]")
@@ -129,10 +131,12 @@ def scan(path, rel, screen, focus=None):
             sig = " ".join(lines[k].strip() for k in range(i, min(stop, i + 3) + 1))
             if is_test_fn:
                 rows.append(("test", i, stop, name, excerpt(lines, i, stop, 1)))
-            elif impl_of in ("BottomPaneView", "Renderable") and not in_ranges(i, tests):
+            elif impl_of in ("BottomPaneView", "Renderable", "HistoryCell") and not in_ranges(i, tests):
                 rows.append(("view-hook", i, stop, f"{impl_of}::{name}", excerpt(lines, i, stop, 2)))
             elif "&mut self" in sig.split("{")[0] and not in_ranges(i, tests):
                 rows.append(("mutator", i, stop, name, excerpt(lines, i, stop, 2)))
+            elif not in_ranges(i, tests) and re.search(r"->\s*(?:Option<|Vec<|Result<)*\s*(?:Line|Span|Text|String)\b", sig.split("{")[0]):
+                rows.append(("builder", i, stop, name, excerpt(lines, i, stop, 2)))
             if name.startswith("handle_key") and not in_ranges(i, tests):
                 arms = key_arms(lines, i, stop)
                 for k, (a, b) in enumerate(arms, 1):
@@ -174,7 +178,7 @@ def main():
         f, _, focus = f.partition("@@")
         p = Path(f).resolve()
         rows += scan(p, str(p.relative_to(root)), a.screen, focus or None)
-    order = {"key-arm": 0, "view-hook": 1, "mutator": 2, "send": 3, "field": 4, "test": 5, "snapshot": 6}
+    order = {"key-arm": 0, "view-hook": 1, "mutator": 2, "builder": 3, "send": 4, "field": 5, "test": 6, "snapshot": 7}
     rows.sort(key=lambda r: (order[r["kind"]], r["file"], r["line"]))
     w = csv.DictWriter(sys.stdout, fieldnames=["id", "screen", "kind", "file", "line", "end_line", "symbol", "excerpt"])
     w.writeheader()
