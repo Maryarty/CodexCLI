@@ -13,8 +13,13 @@ use codex_tui_rtwk::ui::run::run;
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse(std::env::args().skip(1))?;
-    arg0_dispatch_or_else(move |arg0_paths| run_main(cli, arg0_paths))
+    // The command line is parsed inside the closure: `arg0_dispatch_or_else`
+    // first lets the helper re-runs of this binary (`--codex-run-as-fs-helper`,
+    // the exec helper, apply_patch) take their arguments and exit.
+    arg0_dispatch_or_else(|arg0_paths| async move {
+        let cli = Cli::parse(std::env::args().skip(1))?;
+        run_main(cli, arg0_paths).await
+    })
 }
 
 /// Runs the app against the in-process app-server until the user quits.
