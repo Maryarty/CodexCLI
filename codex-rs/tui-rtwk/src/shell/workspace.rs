@@ -11,7 +11,15 @@ use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_tui_core::app::AppEv;
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::agents::Command as AgentsCommand;
 use codex_tui_core::screens::agents::DirKeys;
+use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::agents::Notice;
+use codex_tui_core::screens::agents::Reply;
+use codex_tui_core::screens::agents::decode;
+use codex_tui_core::screens::agents::wire as agents_wire;
 
 use super::rpc::Ids;
 
@@ -26,8 +34,10 @@ pub struct Facts {
 
 /// The event that tells the center what the backend is.
 pub fn backend_ev(facts: Facts) -> AppEv {
-    let _ = facts;
-    todo!("backend_ev")
+    AppEv::Screen(ScreenEv::Agents(AgentsEv::Backend {
+        cloud: facts.cloud,
+        worktrees: facts.worktrees,
+    }))
 }
 
 /// A checkout made for a new task: its root, and the directory the task
@@ -56,15 +66,20 @@ pub trait Workspace: Send + Sync + 'static {
 
 /// Runs `work` on the blocking pool; `None` if it panicked.
 pub async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    let _ = work;
-    todo!("blocking")
+    tokio::task::spawn_blocking(work).await.ok()
 }
 
 /// `Ev::Directories` for `cwds`: the keys the workspace reads; a `cwd` it
 /// cannot read has none (it is its own key).
 pub async fn directories(workspace: Arc<dyn Workspace>, cwds: Vec<String>) -> AppEv {
-    let _ = (workspace, cwds);
-    todo!("directories")
+    let keys = blocking(move || {
+        cwds.into_iter()
+            .filter_map(|cwd| workspace.dir_keys(&cwd).map(|keys| (cwd, keys)))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    AppEv::Screen(ScreenEv::Agents(AgentsEv::Directories(keys)))
 }
 
 /// A new task in a new worktree of `cwd`'s repository, as the oracle does
@@ -81,6 +96,44 @@ where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, String>>,
 {
-    let _ = (workspace, cwd, ids, send);
-    todo!("worktree")
+    let notice = |message: String| {
+        AppEv::Screen(ScreenEv::Agents(AgentsEv::Notice(Some(Notice::Error(
+            message,
+        )))))
+    };
+    let checkout = match workspace.create_worktree(cwd).await {
+        Ok(checkout) => checkout,
+        Err(error) => return notice(error),
+    };
+    // Oracle: `agents_overview_retained_worktree_error`.
+    let retained = |reason: String| {
+        notice(format!(
+            "{reason} A checkout was retained at {}; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed.",
+            checkout.root
+        ))
+    };
+    let start = AgentsCommand::Start {
+        cwd: Some(checkout.cwd.clone()),
+    };
+    let wire = agents_wire(&start, &ThreadId::default(), ids.next());
+    let started = match send(wire).await {
+        Ok(result) => match decode(&start, result) {
+            Ok(Reply::Started(thread)) => *thread,
+            Ok(_) => return retained("Failed to start session: no task started".to_owned()),
+            Err(error) => return retained(format!("Failed to start session: {error:?}")),
+        },
+        Err(error) => return retained(format!("Failed to start session: {error}")),
+    };
+    let bound = {
+        let workspace = workspace.clone();
+        let checkout = checkout.clone();
+        let thread = started.id.clone();
+        let cwd = started.cwd.display().to_string();
+        blocking(move || workspace.bind_worktree(&checkout, &thread, &cwd)).await
+    };
+    match bound {
+        Some(Ok(())) => AppEv::Screen(ScreenEv::Agents(AgentsEv::Started(Box::new(started)))),
+        Some(Err(error)) => retained(error),
+        None => retained("The worktree could not be bound.".to_owned()),
+    }
 }

@@ -246,9 +246,16 @@ fn only_the_usage_fetch_has_the_timeout() {
         Ids::default(),
         None,
         Duration::from_millis(10),
-        |_| async {
-            tokio::time::sleep(Duration::from_millis(60)).await;
-            Ok(page(&[("a1", 1, "/p")]))
+        |request| {
+            let rows = if kinds(&request) == json!([]) {
+                page(&[("a1", 1, "/p")])
+            } else {
+                page(&[])
+            };
+            async move {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                Ok(rows)
+            }
         },
     ));
     feed(&mut app, reply.unwrap());

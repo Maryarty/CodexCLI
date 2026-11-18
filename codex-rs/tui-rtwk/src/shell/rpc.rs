@@ -9,6 +9,7 @@
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use codex_app_server_protocol::ClientRequest;
@@ -16,6 +17,11 @@ use codex_app_server_protocol::RequestId;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::ScreenCommand;
+use codex_tui_core::screens::ScreenReply;
+use codex_tui_core::screens::agents::Command as AgentsCommand;
+use codex_tui_core::screens::agents::fanout;
+use codex_tui_core::wire;
 
 use super::workspace::Facts;
 
@@ -31,7 +37,7 @@ pub struct Ids(Arc<AtomicI64>);
 
 impl Ids {
     pub fn next(&self) -> RequestId {
-        todo!("ids")
+        RequestId::Integer(self.0.fetch_add(1, Ordering::Relaxed) + 1)
     }
 }
 
@@ -64,6 +70,38 @@ where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, String>>,
 {
-    let _ = (command, facts, ids, model, usage_timeout, send);
-    todo!("answer")
+    // A page of the list or of a history search: one request per source,
+    // merged by core.
+    if let Command::Screen {
+        ticket,
+        command: ScreenCommand::Agents(page),
+        ..
+    } = &command
+        && let Some(fanout) = fanout(page, facts.cloud)
+    {
+        let requests = fanout.requests(|| ids.next());
+        let results = futures::future::join_all(requests.into_iter().map(&send)).await;
+        let reply = match fanout.reply(results) {
+            Ok(reply) => Reply::screen(ScreenReply::Agents(reply)),
+            Err(error) => Reply::error(error),
+        };
+        return Some((*ticket, reply));
+    }
+    let request = wire::client_request(&command, ids.next(), model.as_deref())?;
+    let usage = matches!(
+        &command,
+        Command::Screen {
+            command: ScreenCommand::Agents(AgentsCommand::Usage { .. }),
+            ..
+        }
+    );
+    let result = if usage {
+        match tokio::time::timeout(usage_timeout, send(request)).await {
+            Ok(result) => result,
+            Err(_) => Err(USAGE_TIMED_OUT.to_owned()),
+        }
+    } else {
+        send(request).await
+    };
+    wire::reply(&command, result)
 }
