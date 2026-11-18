@@ -1,0 +1,3 @@
+# No history: the flush tests (history_search.rs flushes_*).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":[]}}

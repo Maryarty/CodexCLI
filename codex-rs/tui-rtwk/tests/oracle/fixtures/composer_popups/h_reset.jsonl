@@ -1,0 +1,3 @@
+# Two entries: history_search_esc_resets_normal_history_navigation.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["oldest matching entry","newest entry"]}}
