@@ -8,19 +8,29 @@
 
 use rtwk::l10n::DependCx;
 
+use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Strings {}
+pub struct Strings {
+    /// The name of this screen in the debug menu and on its slot dialog.
+    pub title: &'static str,
+}
 
 /// English: the oracle's text (the slice names the oracle file per group).
-pub const EN: Strings = Strings {};
+pub const EN: Strings = Strings { title: "transcript view" };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
 
 /// The table of the locale below `cx`.
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
+}
+
+/// The title of the screen in `lang`, for code with no tree (the debug
+/// menu's rows).
+pub fn title(lang: Lang) -> &'static str {
+    TABLES.pick(lang).title
 }

@@ -25,6 +25,7 @@ pub struct Chat {
     pub ready: &'static str,
     pub turn_failed: &'static str,
     pub error: Msg<1>,
+    pub lagged: Msg<1>,
     pub queued: Msg<1>,
     pub user_line: Msg<1>,
     pub agent_line: Msg<1>,
@@ -67,6 +68,7 @@ pub const EN: Shared = Shared {
         ready: "ready",
         turn_failed: "error: the turn failed",
         error: msg!("error: {0}"),
+        lagged: msg!("error: the backend dropped {0} events"),
         queued: msg!("(queued) {0}"),
         user_line: msg!("› {0}"),
         agent_line: msg!("• {0}"),
@@ -105,6 +107,14 @@ pub fn of(cx: &mut impl DependCx) -> &'static Shared {
 impl Shared {
     pub fn error<'a>(&'a self, message: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.chat.error, [Arg::Text(message)], &self.num)
+    }
+
+    pub fn lagged(&self, skipped: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.chat.lagged,
+            [Arg::Int(u64::try_from(skipped).unwrap_or(u64::MAX))],
+            &self.num,
+        )
     }
 
     pub fn queued<'a>(&'a self, text: &'a str) -> Fmt<'a, 1> {

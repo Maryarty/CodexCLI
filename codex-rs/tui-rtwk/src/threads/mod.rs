@@ -177,6 +177,9 @@ pub enum ThreadEv {
 pub enum Failure {
     Message(String),
     TurnFailed,
+    /// The backend dropped this many events (a `Lagged` gap): worded by the
+    /// string table.
+    Lagged(usize),
 }
 
 /// One thread's model.
@@ -369,9 +372,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::Submit { text } => {
             // The decision is here (R10): while a turn runs or starts the
             // message is queued, otherwise it starts a turn.
-            if model.is_running() || model.outgoing.any(is_start_turn) {
+            // An older queued message goes first, whatever the turn state.
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            if busy || !model.queue.is_empty() {
                 model.queue.push(text);
                 model.last_submit = Some(fx.mint());
+                if !busy {
+                    send_next(model, fx);
+                }
                 return;
             }
             model.last_error = None;
@@ -384,7 +392,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             };
             match (ctx, answer) {
                 (ThreadCtx::StartTurn { .. }, Answer::TurnStarted { turn, .. }) => {
+                    // After a `Lagged` gap the end of this turn can have been
+                    // seen before this reply: nothing will end it again, so
+                    // the next queued message goes out now.
+                    let over = model.last_ended.as_ref() == Some(&turn);
                     start_turn(model, turn);
+                    if over {
+                        send_next(model, fx);
+                    }
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(message)) => {
                     model.turn = TurnState::Idle;

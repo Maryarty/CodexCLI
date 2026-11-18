@@ -140,6 +140,19 @@ no literal colours; no user-visible literal outside the string tables
 key, a `Text::new("hello")` in `src/ui/view.rs` each failed their rule; the
 queue test failed with the order of `send_next` reversed; the `HandBack` tests
 failed with the hand-back removed.
+
+Fix round 2: the host parses its command line inside `arg0_dispatch_or_else`
+(the helper re-runs `--codex-run-as-fs-helper`, the exec helper and
+`--codex-run-as-apply-patch` reach the dispatch; `host/tests/helper_dispatch.rs`
+runs the built binary, 4 tests, 3 red before). Screen titles are `Strings.title`
+in each `strings.rs` (no `const TITLE`); the ADR-010 grep also covers
+`Text::styled`, `Span::styled`, `Text::rich`, the `format!` forms and any
+`format!` literal with a word (it caught `the backend dropped N events`, now
+`Failure::Lagged(n)` worded by `Shared::lagged`). Queue: a start reply that finds
+its turn already ended (after a `Lagged` gap) sends the next queued message, and a
+submit never overtakes an older queued one. Shown biting: the reply-side
+`send_next` removed (both queue tests failed), a `Text::styled("` literal and a
+word `format!` in a screen file (both ADR-010 tests failed).
 ADR-002 binding conditions, numbered as architecture.md (decided-after-review
 item 1) has them:
 (1) `eq` widgets: every stateful widget of the skeleton is declared with

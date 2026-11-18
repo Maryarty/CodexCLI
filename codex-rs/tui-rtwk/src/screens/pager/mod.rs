@@ -23,7 +23,6 @@ pub mod strings;
 pub const NAME: &str = "pager";
 pub const ID: &str = "S16";
 pub const KIND: Kind = Kind::Route;
-pub const TITLE: &str = "transcript pager";
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -111,7 +110,7 @@ pub fn route() -> PageRoute<()> {
 
 /// Opens the empty form of this slot (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|| Screen.into())
+    DebugOpen::Route(|_| Screen.into())
 }
 
 /// The empty screen widget of this slot.

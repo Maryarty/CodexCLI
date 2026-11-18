@@ -9,6 +9,7 @@ use rtwk::AnyWidget;
 
 use crate::app::AppFx;
 use crate::ids::ThreadId;
+use crate::l10n::Lang;
 use crate::threads::ThreadFx;
 
 /// Where a slot shows up in the app.
@@ -28,9 +29,9 @@ pub enum Kind {
 #[derive(Clone, Copy)]
 pub enum DebugOpen {
     /// Pushed as a route over the menu.
-    Route(fn() -> AnyWidget),
+    Route(fn(Lang) -> AnyWidget),
     /// Shown with `show_dialog` over the menu.
-    Dialog(fn() -> AnyWidget),
+    Dialog(fn(Lang) -> AnyWidget),
 }
 
 /// One state of one screen on made-up data, listed by the debug menu.
@@ -47,7 +48,8 @@ pub struct Dir {
     pub name: &'static str,
     pub id: &'static str,
     pub kind: Kind,
-    pub title: &'static str,
+    /// The title in a language (from the directory's string table).
+    pub title: fn(Lang) -> &'static str,
     pub debug_entries: fn() -> Vec<DebugEntry>,
     pub open_empty: fn() -> DebugOpen,
 }
@@ -178,7 +180,7 @@ macro_rules! screen_dirs {
                 name: $dir::NAME,
                 id: $dir::ID,
                 kind: $dir::KIND,
-                title: $dir::TITLE,
+                title: $dir::strings::title,
                 debug_entries: $dir::debug_entries,
                 open_empty: $dir::open_empty,
             },)*]

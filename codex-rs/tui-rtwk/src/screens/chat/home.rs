@@ -130,6 +130,9 @@ impl State for ChatState {
             (_, _, Some(Failure::TurnFailed)) => {
                 Text::new(strings.chat.turn_failed).style(tokens.error())
             }
+            (_, _, Some(Failure::Lagged(skipped))) => {
+                Text::new(strings.lagged(*skipped).to_string()).style(tokens.error())
+            }
             (Session::Starting, _, _) => Text::new(strings.chat.starting).style(tokens.dim()),
             (Session::Ready, true, _) => Text::new(strings.chat.working).style(tokens.accent()),
             (Session::Ready, false, _) => Text::new(strings.chat.ready).style(tokens.dim()),

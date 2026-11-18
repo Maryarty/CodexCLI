@@ -23,7 +23,6 @@ pub mod strings;
 pub const NAME: &str = "select";
 pub const ID: &str = "S14";
 pub const KIND: Kind = Kind::Dialog;
-pub const TITLE: &str = "generic selection dialog";
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -105,17 +104,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 
 /// Opens the dialog from the widget that asks (`show_dialog`); the result
 /// returns to the model through a handler, as an intent with its ticket.
-pub fn open<S>(cx: &Cx<'_, S>) -> DialogResult<()> {
+pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    let title = strings::of(cx).title;
     show_dialog(
         cx,
-        |_| Dialog::new(Screen).title(TITLE).into(),
+        move |_| Dialog::new(Screen).title(title).into(),
         DialogOptions::default(),
     )
 }
 
 /// Opens the empty form of this slot (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Dialog(|| Dialog::new(Screen).title(TITLE).into())
+    DebugOpen::Dialog(|lang| Dialog::new(Screen).title(strings::title(lang)).into())
 }
 
 /// The empty screen widget of this slot.

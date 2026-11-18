@@ -580,8 +580,12 @@ as literals in widgets, in the form rtwk-l10n has for its own widget strings
 - numbers and dates go through rtwk-l10n's formatters where the oracle formats
   them (the clock's 12/24h detection of `clock_format.rs` stays);
 - enforcement: `tests/rules.rs` (`adr010_no_user_visible_literal_outside_the_string_tables`)
-  fails on `Text::new("`, `.title("`, `.placeholder("`, `Button::new("` and
-  the like outside `strings.rs` and `src/l10n/`.
+  fails on `Text::new("`, `Text::styled("`, `Span::styled("`, `Text::rich("`,
+  `.title("`, `.placeholder("`, `Button::new("`, their `format!(` forms, a
+  `const TITLE`/`LABEL`/`HINT` and any `format!` literal that holds a word,
+  outside `strings.rs` and `src/l10n/`. A screen directory's title (debug menu
+  row, slot dialog) is `Strings.title` of its own table, read as
+  `strings::title(lang)` where there is no tree.
 
 **Adding a language** is one `const` per table and one `with_xx(&XX)` on its
 `TABLES`, plus a variant of `Lang`; no screen is edited. A slice edits only

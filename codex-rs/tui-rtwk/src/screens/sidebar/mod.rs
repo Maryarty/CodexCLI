@@ -22,7 +22,6 @@ pub mod strings;
 pub const NAME: &str = "sidebar";
 pub const ID: &str = "S22";
 pub const KIND: Kind = Kind::Part;
-pub const TITLE: &str = "sidebar and side conversations";
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -109,7 +108,7 @@ pub fn part() -> AnyWidget {
 
 /// Opens the empty form of this slot (debug menu), as a page.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|| Screen.into())
+    DebugOpen::Route(|_| Screen.into())
 }
 
 /// The empty screen widget of this slot.

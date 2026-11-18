@@ -14,6 +14,8 @@ use rtwk::provider::read;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use crate::l10n::Lang;
+use crate::l10n::lang;
 use crate::l10n::strings as l10n;
 use crate::screens::{self, DebugOpen, Kind};
 use crate::theme;
@@ -29,7 +31,7 @@ struct Row {
     heading: bool,
 }
 
-fn rows() -> Vec<Row> {
+fn rows(lang: Lang) -> Vec<Row> {
     let mut rows = Vec::new();
     for dir in screens::dirs() {
         let kind = match dir.kind {
@@ -39,7 +41,13 @@ fn rows() -> Vec<Row> {
             Kind::Part => "part",
         };
         rows.push(Row {
-            label: format!("{:<11} {:<8} {:<6} {}", dir.name, dir.id, kind, dir.title),
+            label: format!(
+                "{:<11} {:<8} {:<6} {}",
+                dir.name,
+                dir.id,
+                kind,
+                (dir.title)(lang)
+            ),
             open: Some((dir.open_empty)()),
             heading: true,
         });
@@ -59,7 +67,7 @@ pub struct DebugMenuState;
 #[derive(Clone, Debug, PartialEq)]
 pub enum MenuMsg {
     /// The row at this index was submitted (Enter, or a click).
-    Open(usize),
+    Open(usize, Lang),
     Quit,
 }
 
@@ -79,23 +87,23 @@ impl State for DebugMenuState {
 
     fn update(&mut self, msg: MenuMsg, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
-            MenuMsg::Open(index) => {
+            MenuMsg::Open(index, lang) => {
                 if let Some(Row {
                     open: Some(open), ..
-                }) = rows().into_iter().nth(index)
+                }) = rows(lang).into_iter().nth(index)
                 {
                     match open {
                         DebugOpen::Route(build) => {
                             // The route's result is not awaited: a debug page.
                             drop(
                                 Navigator::of(cx)
-                                    .push::<()>(PageRoute::<()>::new(move |_| build())),
+                                    .push::<()>(PageRoute::<()>::new(move |_| build(lang))),
                             );
                         }
                         DebugOpen::Dialog(build) => {
                             drop(show_dialog::<(), _>(
                                 cx,
-                                move |_| Dialog::new(build()).into(),
+                                move |_| Dialog::new(build(lang)).into(),
                                 DialogOptions::default(),
                             ));
                         }
@@ -113,7 +121,8 @@ impl State for DebugMenuState {
     fn build(&self, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
         let strings = l10n::of(cx);
-        let rows = Rc::new(rows());
+        let lang = lang(cx);
+        let rows = Rc::new(rows(lang));
         let count = rows.len();
         let row_tokens = tokens.clone();
         // rtwk's selection list owns the cursor and scrolls it into view
@@ -133,7 +142,7 @@ impl State for DebugMenuState {
                 Text::new(row.label.clone()).style(style).into()
             },
         )
-        .on_submitted(cx.map(MenuMsg::Open))
+        .on_submitted(cx.map(move |index| MenuMsg::Open(index, lang)))
         .autofocus(true);
         Focus::new(
             Column::new()
