@@ -47,6 +47,7 @@ The oracle is started with `-c analytics.enabled=false -C <workdir>`;
 | `scenarios/*.py` | one file per scenario |
 | `server.py` | `ScenarioServer`: the harness server plus a title-request hook, response status/headers, body-matched responses, the router hook (below) |
 | `serve.py`, `home.py`, `bins.py`, `try.sh`, `check.py` | the tools |
+| `selftest.py` | `python3 -I selftest.py`: queued() constant over reloads; `harness.verify()` fails naming each missing private name |
 
 ### Why `ScenarioServer` adds a hook
 
@@ -306,6 +307,13 @@ For each built binary and each scenario, a fresh server, home and workdir.
 - The tool-call check also covers `tool_search_call`; a scenario with
   `allow_unsupported` (custom-tool-unknown, router) expects the refusal.
 - A binary that is not built is reported and skipped; nothing is built.
+- The server subclasses private names of Codex's harness (`_ResponsesHandler`,
+  `MockResponsesServer._record_request` / `_next_response` / `_server` /
+  `_responses`, the `ev_*` helpers). `harness.verify()` runs when `harness.py` is
+  imported (so before `check.py` or `serve.py` build a server): a missing name
+  stops them with exit 2 and a message naming it, instead of an error inside a
+  request thread. In `--loop` mode `load()` resets the matched responses on every
+  reload, so `queued()` no longer grows by the unused matched ones (batch review 1, G11).
 
 ## Result of the full run (2026-11-18)
 

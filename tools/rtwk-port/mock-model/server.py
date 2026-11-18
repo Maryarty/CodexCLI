@@ -140,11 +140,12 @@ class ScenarioServer(harness.MockResponsesServer):
 
     def load(self, scenario: scenarios.Scenario) -> None:
         self._scenario = scenario
+        # A reload (--loop plays the scenario again) starts the matched responses afresh: the
+        # ones the earlier play did not use must not stay next to their new copies.
+        with self._matched_lock:
+            self._matched = [resp for resp in scenario.responses if resp.matched]
         for resp in scenario.responses:
-            if resp.matched:
-                with self._matched_lock:
-                    self._matched.append(resp)
-            else:
+            if not resp.matched:
                 self._responses.put(
                     ScenarioSse(body=resp.body(), delay_between_events_s=resp.pace, status=resp.status, headers=resp.headers)
                 )
