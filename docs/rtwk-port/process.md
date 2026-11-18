@@ -232,13 +232,20 @@ What carried over and why is said where it applies.
 pending ─ brief in tm (§A4) ─ porter claims in a worktree
   ─ commit 1: parity tests, red (§A4.2) ─ commits: the slice, green
   ─ parity pack (§A4.3) ─ scoped + full checks ─ task_done → in_review
-  ─ codex-reviewer: MERGE | MERGE-WITH-NOTES | FIX
-       FIX → orchestrator rejects in tm with the findings → fix porter
-             (same worktree) → task_done → review again (≤ 2 fix rounds)
-  ─ candidate on the integration tip, in dependency order (§A6) ─ land
+  ─ orchestrator sanity check (crate tree, codex-rs untouched, layer and
+    rules tests green) ─ candidate on the integration tip (§A6) ─ land
+  ─ batch review after the hand-out round's tasks have landed:
+    codex-reviewer over the batch diff: MERGE | MERGE-WITH-NOTES | FIX
+       FIX → a fix task per finding group (fix forward on the integration
+             branch; ≤ 2 fix rounds per batch)
   ─ registry row `built` ─ the person accepts in tm (now or at wave end)
   ─ deltas decided → registry row `parity-accepted`
 ```
+
+**Review per batch, not per slice** (the person, 2026-11-18): the skeleton
+took four review rounds; at that density 20+ slices cost more in review than
+in work. A slice lands on green checks and the orchestrator's sanity check;
+one review covers a batch, normally the tasks of one hand-out round (§A7).
 
 **Landing does not wait for the person's acceptance**, except for the
 skeleton (§A7). Successor slices need their predecessors' code on the
@@ -403,10 +410,11 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 
 ## A5. Review
 
-| what | reviewer | blocks landing |
+| what | reviewer | blocks (the next batch's hand-out; a landed defect is fixed forward) |
 |---|---|---|
-| every slice | `codex-reviewer`, Sonnet | a defect; a missing pack item; an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
-| risky slices: skeleton, session-core, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
+| landing a slice | the orchestrator: sanity check only (crate tree, codex-rs untouched, layer and rules tests, the porter's checks) | a red check, a layer or rules test failing, codex-rs touched |
+| each batch (one hand-out round) | `codex-reviewer`, Sonnet, over the batch diff | a defect; a missing pack item; an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
+| a batch with a risky slice: skeleton, session-core, chat-nav, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
 | the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or the manner; a rule enforced only on paper |
 | the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |
 
