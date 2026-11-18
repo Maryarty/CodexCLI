@@ -47,9 +47,9 @@ pub enum Ev {
 pub enum Intent {}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
+    let _ = fx;
     match ev {
-        Ev::Listed(_rows) => todo!("resume::apply Listed"),
+        Ev::Listed(rows) => model.rows = rows,
     }
 }
 
