@@ -42,7 +42,6 @@ pub struct Strings {
     pub usage_voice: &'static str,
     pub usage_keymap: &'static str,
     pub usage_mcp: &'static str,
-    pub usage_mcp_login: &'static str,
     pub mcp_login_needs_session: &'static str,
     /// The part of a command that needs the session (session-core) is not
     /// built yet: the slice's own text, not the oracle's.
@@ -79,8 +78,7 @@ pub const EN: Strings = Strings {
     usage_raw: "Usage: /raw [on|off]",
     usage_voice: "Usage: /voice [settings|mute|stop]",
     usage_keymap: "Usage: /keymap [debug]",
-    usage_mcp: "Usage: /mcp [verbose | login <name> [--environment <id>]]",
-    usage_mcp_login: "Usage: /mcp login <name> [--environment <id>]",
+    usage_mcp: "Usage: /mcp [verbose | login <name>]",
     mcp_login_needs_session: "MCP sign-in requires an active session.",
     not_available: msg!("'/{0}' is not available yet."),
     search_idle: msg!("reverse-i-search: {0}"),
@@ -133,7 +131,6 @@ impl Strings {
                 UsageKey::Voice => self.usage_voice,
                 UsageKey::Keymap => self.usage_keymap,
                 UsageKey::Mcp => self.usage_mcp,
-                UsageKey::McpLogin => self.usage_mcp_login,
             }
             .to_string(),
         }
@@ -219,7 +216,7 @@ fn description_en(command: SlashCommand) -> &'static str {
         SlashCommand::Experimental => "toggle experimental features",
         SlashCommand::AutoReview => "approve one retry of a recent auto-review denial",
         SlashCommand::Memories => "configure memory use and generation",
-        SlashCommand::Mcp => "list MCP tools; /mcp verbose or /mcp login <name> [--environment <id>]",
+        SlashCommand::Mcp => "list MCP tools; use /mcp verbose or /mcp login <name>",
         SlashCommand::Apps => "manage apps",
         SlashCommand::Plugins => "browse plugins",
         SlashCommand::Logout => "log out of Codex",

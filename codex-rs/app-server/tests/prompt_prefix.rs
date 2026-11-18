@@ -1,4 +1,4 @@
-//! Compare model-visible prefixes from two app-server versions using the same client and inputs.
+//! Compare model-visible prefixes from two app-server versions using the same catalog and inputs.
 //! The contract runner supplies a released CLI; ordinary runs check same-version determinism.
 
 use anyhow::Context;
@@ -19,6 +19,14 @@ use tempfile::TempDir;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompt_prefix_matches_release() -> Result<()> {
     let release = std::env::var_os("CONTRACT_EXECUTOR_BIN").map(std::path::PathBuf::from);
+    // Catalog content is an input to the harness. Give both executors the same
+    // current catalog so normal model and prompt updates cannot cause skew.
+    let catalog_dir = TempDir::new()?;
+    let catalog_path = catalog_dir.path().join("models.json");
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_vec(&codex_models_manager::bundled_models_response()?)?,
+    )?;
     let mut prefixes = Vec::new();
 
     for program in [release.as_deref(), None] {
@@ -33,10 +41,12 @@ async fn prompt_prefix_matches_release() -> Result<()> {
         )
         .await;
         let home = TempDir::new()?;
-        // Use each binary's bundled model catalog and feature defaults. Supplying a
-        // catalog or base instructions from the test would hide changes to them.
         MockResponsesConfig::new(&server.uri())
             .with_model("gpt-6-astra")
+            .with_root_config(&format!(
+                "model_catalog_json = {}",
+                serde_json::to_string(&catalog_path)?
+            ))
             // CCA disables bundled skills in its orchestrator.
             .with_root_config("skills.bundled.enabled = false")
             .write(home.path())?;
@@ -114,19 +124,19 @@ async fn prompt_prefix_matches_release() -> Result<()> {
     if release.is_some() && prefixes[0] != prefixes[1] {
         let mut released: Value = serde_json::from_str(&prefixes[0])?;
         let current: Value = serde_json::from_str(&prefixes[1])?;
-        accept_default_tool_description_rollouts(&mut released, &current);
+        accept_unified_image_budget_rollout(&mut released, &current);
         prefixes[0] = serde_json::to_string_pretty(&released)?;
     }
     assert_eq!(
         prefixes[0], prefixes[1],
-        "the default inference prefix differs from the released version; gate the change behind a default-off feature key"
+        "the inference prefix differs from the released version for identical catalog and inputs; gate the harness change behind a default-off feature key"
     );
     Ok(())
 }
 
-// Accept only the exact default-on changes to the released functions.exec description.
-// Once the release includes them, the ordinary byte-for-byte comparison succeeds.
-fn accept_default_tool_description_rollouts(released: &mut Value, current: &Value) {
+// Compare the released functions.exec description against the exact default-on image budget
+// rollout. Once the release includes it, the ordinary byte-for-byte comparison succeeds.
+fn accept_unified_image_budget_rollout(released: &mut Value, current: &Value) {
     const TOOL: &str = "/input/0/tools/0/tools/0";
     for prefix in [&*released, current] {
         if prefix.pointer("/input/0/role").and_then(Value::as_str) != Some("developer")
@@ -168,28 +178,12 @@ fn accept_default_tool_description_rollouts(released: &mut Value, current: &Valu
   // Data URL for the loaded image.
   image_url: string;
 }>; };"#;
-    const OLD_LOGIN: &str = "  // True runs the shell with -l/-i semantics; false disables them. Defaults to true.\n  login?: boolean;";
-    const UNIX_LOGIN: &str =
-        "  // Request login-shell startup. Omit to inherit.\n  login?: boolean;";
-    const POWERSHELL_LOGIN: &str = "  // Login-shell startup. In PowerShell, false skips profiles. Keep them enabled for profile-defined commands, even unattended. Omit to inherit.\n  login?: boolean;";
-    let current_description = current
-        .pointer(TOOL)
-        .and_then(|tool| tool["description"].as_str())
-        .unwrap_or_default();
-    let new_login = if current_description.contains(POWERSHELL_LOGIN) {
-        POWERSHELL_LOGIN
-    } else {
-        UNIX_LOGIN
-    };
-    let mut updated = old.to_owned();
-    if old.matches(OLD_IMAGE).count() == 1 && old.matches(OLD_VIEW_IMAGE).count() == 1 {
-        updated = updated
-            .replace(OLD_IMAGE, NEW_IMAGE)
-            .replace(OLD_VIEW_IMAGE, NEW_VIEW_IMAGE);
+    if old.matches(OLD_IMAGE).count() != 1 || old.matches(OLD_VIEW_IMAGE).count() != 1 {
+        return;
     }
-    if old.matches(OLD_LOGIN).count() == 1 {
-        updated = updated.replace(OLD_LOGIN, new_login);
-    }
+    let updated = old
+        .replace(OLD_IMAGE, NEW_IMAGE)
+        .replace(OLD_VIEW_IMAGE, NEW_VIEW_IMAGE);
     if current
         .pointer(TOOL)
         .and_then(|tool| tool["description"].as_str())

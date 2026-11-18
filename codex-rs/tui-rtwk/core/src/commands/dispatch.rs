@@ -136,7 +136,6 @@ pub enum UsageKey {
     Voice,
     Keymap,
     Mcp,
-    McpLogin,
 }
 
 /// What the session is asked for: the commands that act on the thread or the
@@ -444,25 +443,6 @@ fn dispatch_mcp(args: &str, cx: &DispatchCx) -> Outcome {
     {
         if !cx.thread_started {
             return Outcome::Notice(Notice::McpLoginNeedsSession);
-        }
-        let has_environment = name
-            .split_whitespace()
-            .any(|w| w == "--environment" || w.starts_with("--environment="));
-        // With `--environment` the name is what is left of the words: none
-        // left is the login usage line.
-        if has_environment {
-            let mut words = name.split_whitespace();
-            let mut positionals = 0;
-            while let Some(word) = words.next() {
-                if word == "--environment" {
-                    words.next();
-                } else if !word.starts_with("--environment=") {
-                    positionals += 1;
-                }
-            }
-            if positionals == 0 {
-                return Outcome::Notice(Notice::Usage(UsageKey::McpLogin));
-            }
         }
         return session(
             command,

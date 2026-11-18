@@ -299,9 +299,8 @@ fn screen_lines(
             if row.unread {
                 title.push(("● ".to_string(), Look::Accent));
             }
-            let mark = if row.cloud { strings.cloud_mark } else { "" };
             let room = list_width.saturating_sub(marker.chars().count() + 2 * usize::from(row.unread));
-            let text = format!("{mark}{}", layout::truncate(row.display_preview(), room));
+            let text = layout::truncate(row.display_preview(), room);
             title.push((text, if is_selected { Look::Bold } else { Look::Plain }));
             body.push(title);
             body.extend(metas[index].iter().cloned());

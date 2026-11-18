@@ -241,9 +241,7 @@ impl Session {
             || update.summary.is_some()
             || update.service_tier.is_some();
         let requires_model_switching = updates_model_settings
-            || (update.approvals_reviewer.is_none()
-                && update.environments.is_none()
-                && update.request_country.is_none());
+            || (update.approvals_reviewer.is_none() && update.environments.is_none());
         if requires_model_switching && !self.features.enabled(Feature::StepModelSwitching) {
             return TurnSettingsUpdateOutcome::Rejected {
                 reason: "turn settings updates require the step_model_switching feature"
@@ -286,7 +284,6 @@ impl Session {
             };
         }
         let TurnSettingsUpdate {
-            request_country,
             approvals_reviewer,
             environments: environment_requests,
             model,
@@ -302,10 +299,8 @@ impl Session {
                 })
                 .collect::<Vec<_>>()
         });
-        let updates_step_settings =
-            updates_model_settings || approvals_reviewer.is_some() || request_country.is_some();
+        let updates_step_settings = updates_model_settings || approvals_reviewer.is_some();
         let update = StepSettingsUpdate {
-            request_country,
             approvals_reviewer,
             model,
             effort,

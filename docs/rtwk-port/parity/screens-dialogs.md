@@ -185,3 +185,13 @@ n/a until `scenario-harness`.
   `apply_app` (app.rs) should forward server requests to approvals, and a real answer command is needed.
 - rtwk: `Dialog` has no frameless / bottom-pane mode (N01, N02); the `dialogs-pane` slice un-ignores the open tests.
 - `core/src/screens/settings.rs`: `ActionItem::is_unbound`, `KeymapPicker::{query, visible}` (search of the keymap picker).
+
+
+## Oracle 0.170.0 (oracle-0170)
+
+ORACLE_REF = 29eb79e9 (release rust-v0.170.0). the release branch (older than the previous oracle c6a41e32; the tag is a cut of main at 72532eca plus four commits) lacks 66 tui files that c6a41e32 had, among them `app/sidebar_document*.rs`, `app/sidebar_files*.rs`, `sidebar_image.rs`, `app/statusline_picker*.rs`, `app/status_line_settings*.rs`, `statusline_provider*`, `chatwidget/statusline_*`, `statusline_metrics*`, `app/cloud_environments*.rs`, `app/archived_thread.rs`, `thread_label.rs`, `bottom_pane/shortcut_overlay/keyboard.rs`, `bottom_pane/chat_composer/edit_history.rs`, `transcript_view/select_mode/table.rs`, `chatwidget/read_only.rs`, `command_output.rs`. Our code for them stays (the person decides).
+
+Rows changed here:
+- D8 (S15) keymap catalogue: `keymap_picker_first_actions` now reads All 153 / Composer 5 / Navigation 21 selectable (156 / 7 / 22 before: `undo`, `redo`, `mark_markdown` and `choose_cloud_environment` are not in the release); `settings/fixtures/keymap.jsonl` follows.
+- The status line setup (`app/status_line_settings*`, `app/statusline_picker*`, `statusline_provider*`, `chatwidget/statusline_*`): not in oracle 0.170.0; the S15 `status_line` rows and fixture stay until the person decides.
+- `bottom_pane/shortcut_overlay/keyboard.rs` and its snapshots (`shortcut_keyboard_base`, `_roomy`, `_off_diagram_keys`): not in oracle 0.170.0; the `tests/dialogs.rs` tests that read them were already `#[ignore]` (open) and now say so.

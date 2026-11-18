@@ -14,14 +14,12 @@ use codex_protocol::protocol::RealtimeConversationVersion;
 use codex_protocol::protocol::RealtimeOutputModality;
 use color_eyre::eyre::Result;
 use color_eyre::eyre::WrapErr;
-use uuid::Uuid;
 
 impl AppServerSession {
     pub(crate) async fn thread_realtime_start(
         &mut self,
         thread_id: ThreadId,
         call_id: String,
-        voice_session_id: Uuid,
     ) -> Result<()> {
         let request_id = self.next_request_id();
         let _: ThreadRealtimeStartResponse = self
@@ -46,7 +44,7 @@ impl AppServerSession {
                     realtime_end_instructions: None,
                     prompt: None,
                     realtime_session_id: Some(thread_id.to_string()),
-                    voice_session_id: Some(voice_session_id.to_string()),
+                    voice_session_id: None,
                     transport: Some(ThreadRealtimeStartTransport::ExistingCall {
                         // The TUI owns the peer connection and has already negotiated this call.
                         call_id,

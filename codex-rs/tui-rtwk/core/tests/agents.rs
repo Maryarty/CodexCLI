@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
 
 const LISTED: &str = r#"{"step":"screen","dir":"agents","ev":{"listed":[
-{"id":"r1","title":"Build the dashboard","status":"idle","model":"gpt-6.1-sol","reasoning":null,"cwd":"/tmp/project","prompt":"Build the dashboard","child":{"name":"Inspect keyboard shortcuts","waits":["approval"]}},
+{"id":"r1","title":"Build the dashboard","status":"idle","model":"gpt-6.2-sol","reasoning":null,"cwd":"/tmp/project","prompt":"Build the dashboard","child":{"name":"Inspect keyboard shortcuts","waits":["approval"]}},
 {"id":"r2","title":"Repair authentication","status":"active","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Repair authentication","child":null},
 {"id":"r3","title":"Review yesterday's changes","status":"not_loaded","model":null,"reasoning":null,"cwd":"/tmp/project","prompt":"Review yesterday's changes","child":null}]}}"#;
 

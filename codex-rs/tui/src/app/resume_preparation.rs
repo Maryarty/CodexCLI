@@ -103,14 +103,6 @@ impl App {
         target_session: &SessionTarget,
         source: ResumeSource<'_>,
     ) -> std::result::Result<PreparedResume, AppRunControl> {
-        if self
-            .agents_overview
-            .pending_archives
-            .contains_key(&target_session.thread_id)
-        {
-            self.add_session_picker_error("This task is still being archived.".into());
-            return Err(AppRunControl::Continue);
-        }
         if let Some(owner) = self.backend_registry.owner(target_session.thread_id)
             && let Err(error) = target_session.ensure_backend(owner)
         {
@@ -159,7 +151,7 @@ impl App {
             Some(thread) => Ok(thread),
             None => {
                 app_server
-                    .resume_thread_for_navigation(
+                    .resume_thread_with_permission_overrides(
                         &local_settings,
                         resume_config.clone(),
                         thread_id,

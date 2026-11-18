@@ -22,12 +22,9 @@
 
 mod cloud;
 pub mod cloud_backend;
-pub use codex_cloud_client::EnvironmentSelection;
 pub use codex_cloud_client::ProjectEnvironment;
-pub use codex_cloud_client::SavedEnvironment;
 mod path;
 mod remote;
-mod remote_addr;
 mod remote_websocket;
 pub use cloud::CloudClient;
 pub use cloud::CloudCommand;
@@ -86,8 +83,6 @@ pub use crate::path::AppServerPath;
 pub use crate::remote::RemoteAppServerClient;
 pub use crate::remote::RemoteAppServerConnectArgs;
 pub use crate::remote::RemoteAppServerEndpoint;
-pub use crate::remote_addr::resolve_remote_addr;
-pub use crate::remote_addr::resolve_remote_endpoint;
 
 /// Transitional access to core-only embedded app-server types.
 ///
@@ -727,22 +722,22 @@ impl InProcessAppServerRequestHandle {
 }
 
 impl AppServerRequestHandle {
-    /// Starts a native Cloud thread with a saved config or a default project checkout.
-    pub async fn start_cloud_thread_with_environment(
+    /// Starts a native cloud thread with host project metadata without adding wire fields.
+    pub async fn start_cloud_project_thread(
         &self,
         request_id: RequestId,
         params: codex_app_server_protocol::ThreadStartParams,
-        environment: codex_cloud_client::EnvironmentSelection,
+        project: codex_cloud_client::ProjectEnvironment,
     ) -> Result<codex_app_server_protocol::ThreadStartResponse, TypedRequestError> {
         let response = match self {
             Self::Cloud(handle) => {
                 handle
-                    .start_thread_with_environment(request_id, params, environment)
+                    .start_project_thread(request_id, params, project)
                     .await
             }
             Self::InProcess(_) | Self::Remote(_) => Err(IoError::new(
                 std::io::ErrorKind::Unsupported,
-                "Selecting an environment requires the native Cloud transport.",
+                "Project checkout requires the native cloud transport.",
             )),
         };
         decode_typed_response("thread/start", response)

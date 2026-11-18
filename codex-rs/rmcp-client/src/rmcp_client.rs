@@ -775,7 +775,6 @@ impl RmcpClient {
         Ok(result)
     }
 
-    /// List a page of Codex Apps tools and restore any shared connector metadata.
     #[instrument(level = "trace", skip_all)]
     pub async fn list_tools_with_connector_ids(
         &self,
@@ -783,49 +782,24 @@ impl RmcpClient {
         timeout: Option<Duration>,
     ) -> Result<ListToolsWithConnectorIdResult> {
         let result = self.list_tools(params, timeout).await?;
-        let apps: HashMap<_, _> = result
-            .meta
-            .as_ref()
-            .and_then(|meta| meta.get("openai/apps"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|app| Some((app["connectorId"].as_str()?, app)))
-            .collect();
         let tools = result
             .tools
             .into_iter()
-            .map(|mut tool| {
-                let connector_id = Self::meta_string(tool.meta.as_ref(), "connector_id");
-                if let Some(app) = connector_id.as_deref().and_then(|id| apps.get(id))
-                    && let Some(meta) = &mut tool.meta
-                {
-                    // Preserve the wire strings for callers that read the raw tool metadata.
-                    for (shared_key, tool_key) in [
-                        ("connectorName", "connector_name"),
-                        ("connectorDescription", "connector_description"),
-                    ] {
-                        if let Some(value) = app[shared_key]
-                            .as_str()
-                            .filter(|value| !value.trim().is_empty())
-                        {
-                            meta.insert(tool_key.into(), Value::from(value));
-                        }
-                    }
-                }
+            .map(|tool| {
                 let meta = tool.meta.as_ref();
+                let connector_id = Self::meta_string(meta, "connector_id");
                 let connector_name = Self::meta_string(meta, "connector_name")
                     .or_else(|| Self::meta_string(meta, "connector_display_name"));
                 let connector_description = Self::meta_string(meta, "connector_description")
                     .or_else(|| Self::meta_string(meta, "connectorDescription"));
-                ToolWithConnectorId {
+                Ok(ToolWithConnectorId {
                     tool,
                     connector_id,
                     connector_name,
                     connector_description,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         Ok(ListToolsWithConnectorIdResult {
             meta: result.meta.map(|meta| serde_json::json!(meta)),
             next_cursor: result.next_cursor,

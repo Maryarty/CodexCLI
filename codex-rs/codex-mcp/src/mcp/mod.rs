@@ -57,7 +57,6 @@ use crate::McpProtocolMode;
 use crate::McpServerKey;
 use crate::McpServerSource;
 use crate::ResolvedMcpCatalog;
-use crate::ResolvedMcpServer;
 use crate::connection_manager::McpConnectionSet;
 use crate::runtime::McpPublicationGate;
 use crate::runtime::McpRuntimeContext;
@@ -126,23 +125,6 @@ pub enum McpServerPermissions {
     Environment(Arc<FileSystemSandboxContext>),
 }
 
-/// Runtime-wide settings used to initialize MCP clients and discover their tools.
-#[derive(Debug, Clone, PartialEq)]
-pub struct McpClientConfig {
-    /// Base URL for ChatGPT-hosted app MCP servers, copied from the root config.
-    pub chatgpt_base_url: String,
-    /// Requests server-side read-only filtering and invocation checks for MCP tools.
-    pub requires_read_only_mcp_tools: bool,
-    /// Protocol mode for servers other than the host-owned Codex Apps registration.
-    pub protocol_mode: McpProtocolMode,
-    /// Try protocol discovery before initializing eligible local stdio servers.
-    pub discover_local_stdio: bool,
-    /// Refresh ordinary server catalogs after tools/list_changed notifications.
-    pub mcp_tool_list_changed: bool,
-    /// Client-side elicitation capabilities advertised during MCP initialization.
-    pub client_elicitation_capability: ElicitationCapability,
-}
-
 /// MCP runtime settings derived from `codex_core::config::Config`.
 ///
 /// Each published runtime and prepared call owns one immutable copy of these
@@ -151,10 +133,12 @@ pub struct McpClientConfig {
 /// runtime entry points such as [`effective_mcp_servers`].
 #[derive(Debug, Clone)]
 pub struct McpConfig {
-    /// Shared settings that shape client initialization and tool discovery.
-    pub client: McpClientConfig,
+    /// Base URL for ChatGPT-hosted app MCP servers, copied from the root config.
+    pub chatgpt_base_url: String,
     /// Optional product SKU forwarded to the host-owned apps MCP server.
     pub apps_mcp_product_sku: Option<String>,
+    /// Requests server-side read-only filtering and invocation checks for MCP tools.
+    pub requires_read_only_mcp_tools: bool,
     /// Codex home directory used for MCP OAuth state and app-tool cache files.
     pub codex_home: PathBuf,
     /// Trusted enterprise IdP inherited after normal catalog and policy resolution.
@@ -219,8 +203,16 @@ pub struct McpConfig {
     pub prefix_mcp_tool_names: bool,
     /// MCP servers whose model-visible tool namespaces omit the `mcp__` prefix.
     pub non_prefixed_mcp_tool_servers: Vec<String>,
+    /// Protocol mode for servers other than the host-owned Codex Apps registration.
+    pub protocol_mode: McpProtocolMode,
+    /// Try protocol discovery before initializing eligible local stdio servers.
+    pub discover_local_stdio: bool,
+    /// Refresh ordinary server catalogs after tools/list_changed notifications.
+    pub mcp_tool_list_changed: bool,
     /// Independent protocol mode for the trusted, HTTP Codex Apps registration.
     pub host_owned_apps_protocol_mode: McpProtocolMode,
+    /// Client-side elicitation capabilities advertised during MCP initialization.
+    pub client_elicitation_capability: ElicitationCapability,
     /// Resolved MCP registrations keyed by exact server identity.
     pub mcp_server_catalog: ResolvedMcpCatalog,
     /// Plugin declarations used to attribute connector tools to plugin display names.
@@ -447,36 +439,31 @@ pub fn effective_mcp_servers(
     config: &McpConfig,
     auth: Option<&CodexAuth>,
 ) -> HashMap<McpServerKey, EffectiveMcpServer> {
-    config
+    let mut servers = config
         .mcp_server_catalog
         .servers()
-        .filter_map(|(key, registration)| {
-            effective_mcp_server(config, auth, registration).map(|server| (key.clone(), server))
+        .map(|(key, registration)| {
+            let mut server = registration.config().clone();
+            match &server.auth {
+                McpServerAuth::ChatGpt => {
+                    if !is_trusted_chatgpt_mcp_server(&server.transport, &config.chatgpt_base_url) {
+                        server.auth = McpServerAuth::OAuth;
+                    }
+                }
+                McpServerAuth::OAuth | McpServerAuth::EmaAuth => {}
+            }
+            let effective = EffectiveMcpServer::from_config_with_policy(
+                server,
+                registration.credential_policy(),
+            )
+            .with_agent_plugin(registration.source().is_agent_plugin());
+            (key.clone(), effective)
         })
-        .collect()
-}
-
-/// Materializes one registration under the same auth rules used for full catalog discovery.
-pub(crate) fn effective_mcp_server(
-    config: &McpConfig,
-    auth: Option<&CodexAuth>,
-    registration: &ResolvedMcpServer,
-) -> Option<EffectiveMcpServer> {
-    if registration.name() == CODEX_APPS_MCP_SERVER_NAME
-        && !host_owned_codex_apps_enabled(config, auth)
-    {
-        return None;
+        .collect::<HashMap<_, _>>();
+    if !host_owned_codex_apps_enabled(config, auth) {
+        servers.retain(|key, _| key.name() != CODEX_APPS_MCP_SERVER_NAME);
     }
-    let mut server = registration.config().clone();
-    if matches!(server.auth, McpServerAuth::ChatGpt)
-        && !is_trusted_chatgpt_mcp_server(&server.transport, &config.client.chatgpt_base_url)
-    {
-        server.auth = McpServerAuth::OAuth;
-    }
-    Some(
-        EffectiveMcpServer::from_config_with_policy(server, registration.credential_policy())
-            .with_agent_plugin(registration.source().is_agent_plugin()),
-    )
+    servers
 }
 
 pub fn tool_plugin_context(config: &McpConfig) -> ToolPluginContext {
@@ -495,14 +482,10 @@ pub async fn read_mcp_resource(
     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     server: &str,
-    environment_id: Option<&str>,
     params: ReadResourceRequestParams,
 ) -> anyhow::Result<ReadResourceResult> {
-    let server_key = config
-        .mcp_server_catalog
-        .resolve_server_key(server, environment_id);
     let mut mcp_servers = effective_mcp_servers(config, auth);
-    mcp_servers.retain(|key, _| key == &server_key);
+    mcp_servers.retain(|key, _| config.mcp_server_catalog.legacy_server_name(key) == Some(server));
     let cancel_token = CancellationToken::new();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
     let manager = McpConnectionSet::new(
@@ -535,37 +518,25 @@ pub async fn read_mcp_resource(
     )
     .await;
 
-    let result = manager.read_resource(&server_key, params).await;
+    let result = match manager.resolve_server_name(server) {
+        Some(key) => manager.read_resource(key, params).await,
+        None => Err(anyhow::anyhow!("unknown MCP server '{server}'")),
+    };
     cancel_token.cancel();
     result
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct McpServerStatusSnapshot {
-    pub server_infos: HashMap<McpServerKey, McpServerInfo>,
-    pub server_capabilities: HashMap<McpServerKey, serde_json::Value>,
-    pub tool_list_meta: HashMap<McpServerKey, Arc<serde_json::Value>>,
-    pub tools_by_server: HashMap<McpServerKey, HashMap<String, Tool>>,
-    pub tools_errors: HashMap<McpServerKey, String>,
-    pub resources: HashMap<McpServerKey, Vec<Resource>>,
-    pub resource_templates: HashMap<McpServerKey, Vec<ResourceTemplate>>,
-    pub auth_statuses: HashMap<McpServerKey, McpAuthStatus>,
-    pub server_keys: HashSet<McpServerKey>,
-}
-
-impl McpServerStatusSnapshot {
-    /// Combines discovery results for disjoint sets of servers on a status page.
-    pub fn extend(&mut self, other: Self) {
-        self.server_infos.extend(other.server_infos);
-        self.server_capabilities.extend(other.server_capabilities);
-        self.tool_list_meta.extend(other.tool_list_meta);
-        self.tools_by_server.extend(other.tools_by_server);
-        self.tools_errors.extend(other.tools_errors);
-        self.resources.extend(other.resources);
-        self.resource_templates.extend(other.resource_templates);
-        self.auth_statuses.extend(other.auth_statuses);
-        self.server_keys.extend(other.server_keys);
-    }
+    pub server_infos: HashMap<String, McpServerInfo>,
+    pub server_capabilities: HashMap<String, serde_json::Value>,
+    pub tool_list_meta: HashMap<String, Arc<serde_json::Value>>,
+    pub tools_by_server: HashMap<String, HashMap<String, Tool>>,
+    pub tools_errors: HashMap<String, String>,
+    pub resources: HashMap<String, Vec<Resource>>,
+    pub resource_templates: HashMap<String, Vec<ResourceTemplate>>,
+    pub auth_statuses: HashMap<String, McpAuthStatus>,
+    pub server_names: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -581,14 +552,40 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     detail: McpSnapshotDetail,
-    mcp_servers: HashMap<McpServerKey, EffectiveMcpServer>,
+    server_name: Option<&str>,
 ) -> McpServerStatusSnapshot {
+    let mut mcp_servers = effective_mcp_servers(config, auth);
+    mcp_servers.retain(|key, _| {
+        config
+            .mcp_server_catalog
+            .legacy_server_name(key)
+            .is_some_and(|name| server_name.is_none_or(|selected| name == selected))
+    });
     if mcp_servers.is_empty() {
-        return McpServerStatusSnapshot::default();
+        return McpServerStatusSnapshot {
+            server_infos: HashMap::new(),
+            server_capabilities: HashMap::new(),
+            tool_list_meta: HashMap::new(),
+            tools_by_server: HashMap::new(),
+            tools_errors: HashMap::new(),
+            resources: HashMap::new(),
+            resource_templates: HashMap::new(),
+            auth_statuses: HashMap::new(),
+            server_names: Vec::new(),
+        };
     }
 
+    let named_servers = mcp_servers
+        .iter()
+        .filter_map(|(key, server)| {
+            config
+                .mcp_server_catalog
+                .legacy_server_name(key)
+                .map(|name| (name.to_owned(), server.clone()))
+        })
+        .collect::<HashMap<_, _>>();
     let auth_status_entries = compute_auth_statuses(
-        mcp_servers.iter(),
+        named_servers.iter(),
         config.mcp_oauth_credentials_store_mode,
         config.auth_keyring_backend_kind,
         auth,
@@ -598,7 +595,7 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     )
     .await;
 
-    let server_keys = mcp_servers.keys().cloned().collect();
+    let server_names = named_servers.into_keys().collect();
 
     let cancel_token = CancellationToken::new();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
@@ -635,7 +632,7 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     let snapshot = collect_mcp_server_status_snapshot_from_manager(
         &mcp_connection_manager,
         auth_status_entries,
-        server_keys,
+        server_names,
         detail,
     )
     .await;
@@ -777,8 +774,8 @@ fn protocol_tool_from_rmcp_tool(name: &str, tool: &rmcp::model::Tool) -> Option<
 }
 
 fn auth_statuses_from_entries(
-    auth_status_entries: &HashMap<McpServerKey, crate::mcp::auth::McpAuthStatusEntry>,
-) -> HashMap<McpServerKey, McpAuthStatus> {
+    auth_status_entries: &HashMap<String, crate::mcp::auth::McpAuthStatusEntry>,
+) -> HashMap<String, McpAuthStatus> {
     auth_status_entries
         .iter()
         .map(|(name, entry)| (name.clone(), McpAuthStatus::from(entry.auth_state)))
@@ -786,8 +783,8 @@ fn auth_statuses_from_entries(
 }
 
 fn convert_mcp_resources(
-    resources: HashMap<McpServerKey, Vec<rmcp::model::Resource>>,
-) -> HashMap<McpServerKey, Vec<Resource>> {
+    resources: HashMap<String, Vec<rmcp::model::Resource>>,
+) -> HashMap<String, Vec<Resource>> {
     resources
         .into_iter()
         .map(|(name, resources)| {
@@ -825,8 +822,8 @@ fn convert_mcp_resources(
 }
 
 fn convert_mcp_resource_templates(
-    resource_templates: HashMap<McpServerKey, Vec<rmcp::model::ResourceTemplate>>,
-) -> HashMap<McpServerKey, Vec<ResourceTemplate>> {
+    resource_templates: HashMap<String, Vec<rmcp::model::ResourceTemplate>>,
+) -> HashMap<String, Vec<ResourceTemplate>> {
     resource_templates
         .into_iter()
         .map(|(name, templates)| {
@@ -866,11 +863,12 @@ fn convert_mcp_resource_templates(
 
 pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
     mcp_connection_manager: &McpConnectionSet,
-    auth_status_entries: HashMap<McpServerKey, crate::mcp::auth::McpAuthStatusEntry>,
-    server_keys: HashSet<McpServerKey>,
+    auth_status_entries: HashMap<String, crate::mcp::auth::McpAuthStatusEntry>,
+    server_names: Vec<String>,
     detail: McpSnapshotDetail,
 ) -> McpServerStatusSnapshot {
-    let include_server = |key: &McpServerKey| server_keys.contains(key);
+    let selected_servers: HashSet<&str> = server_names.iter().map(String::as_str).collect();
+    let include_server = |name: &str| selected_servers.contains(name);
     let ((server_infos, (tools, tools_errors, tool_list_meta)), resources, resource_templates) = tokio::join!(
         async {
             let server_infos = mcp_connection_manager
@@ -903,7 +901,7 @@ pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
 
     let server_capabilities =
         mcp_connection_manager.list_available_server_capabilities(include_server);
-    let mut tools_by_server = HashMap::<McpServerKey, HashMap<String, Tool>>::new();
+    let mut tools_by_server = HashMap::<String, HashMap<String, Tool>>::new();
     for tool_info in tools {
         let raw_tool_name = tool_info.tool.name.to_string();
         let Some(tool) = protocol_tool_from_rmcp_tool(&raw_tool_name, &tool_info.tool) else {
@@ -911,7 +909,7 @@ pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
         };
         let tool_name = tool.name.clone();
         tools_by_server
-            .entry(tool_info.server_key)
+            .entry(tool_info.server_name().to_owned())
             .or_default()
             .insert(tool_name, tool);
     }
@@ -919,17 +917,20 @@ pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
     // Status-only discovery has no event channel. Report OAuth and EMA failures from the completed
     // connection attempt instead of retaining the credential-presence status read beforehand.
     let mut auth_statuses = auth_statuses_from_entries(&auth_status_entries);
-    for key in mcp_connection_manager
-        .authentication_failed_servers(include_server)
-        .await
-    {
-        if auth_statuses.get(&key) == Some(&McpAuthStatus::OAuth)
+    for key in mcp_connection_manager.authentication_failed_servers().await {
+        let Some(server_name) = mcp_connection_manager
+            .legacy_server_name(&key)
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if auth_statuses.get(&server_name) == Some(&McpAuthStatus::OAuth)
             || auth_status_entries
-                .get(&key)
+                .get(&server_name)
                 .and_then(|entry| entry.config.as_ref())
                 .is_some_and(|config| matches!(config.auth, McpServerAuth::EmaAuth))
         {
-            auth_statuses.insert(key, McpAuthStatus::NotLoggedIn);
+            auth_statuses.insert(server_name, McpAuthStatus::NotLoggedIn);
         }
     }
 
@@ -942,7 +943,7 @@ pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
         resources: convert_mcp_resources(resources),
         resource_templates: convert_mcp_resource_templates(resource_templates),
         auth_statuses,
-        server_keys,
+        server_names,
     }
 }
 
