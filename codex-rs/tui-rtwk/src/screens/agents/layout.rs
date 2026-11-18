@@ -68,7 +68,13 @@ pub struct Strip {
 pub fn strip(labels: &[String], active: usize, width: usize) -> Strip {
     let count = labels.len();
     if count == 0 || width == 0 {
-        return Strip { start: 0, end: 0, left: false, right: false, widths: Vec::new() };
+        return Strip {
+            start: 0,
+            end: 0,
+            left: false,
+            right: false,
+            widths: Vec::new(),
+        };
     }
     let active = active.min(count - 1);
     let widths: Vec<usize> = labels.iter().map(|l| columns(l) + 2).collect();
@@ -94,7 +100,13 @@ pub fn strip(labels: &[String], active: usize, width: usize) -> Strip {
         shown.push(w);
         x += w + 1;
     }
-    Strip { start, end, left, right, widths: shown }
+    Strip {
+        start,
+        end,
+        left,
+        right,
+        widths: shown,
+    }
 }
 
 /// The cells `text` takes on the screen.
@@ -155,7 +167,14 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 /// `truncate_line_with_ellipsis_if_overflow`).
 pub fn ellipsize(text: &str, width: usize) -> String {
     let room = isize::try_from(width).unwrap_or(isize::MAX);
-    fit_text(&TextSegmenter::default(), text, room, TextOverflow::Ellipsis, "\u{2026}").into_owned()
+    fit_text(
+        &TextSegmenter::default(),
+        text,
+        room,
+        TextOverflow::Ellipsis,
+        "\u{2026}",
+    )
+    .into_owned()
 }
 
 /// The end of `original` that fits `allowed` cells behind a `…`.
@@ -170,8 +189,14 @@ fn front_truncate(original: &str, allowed: usize) -> String {
         return "\u{2026}".to_owned();
     }
     let room = isize::try_from(allowed).unwrap_or(isize::MAX);
-    fit_text(&TextSegmenter::default(), original, room, TextOverflow::EllipsisStart, "\u{2026}")
-        .into_owned()
+    fit_text(
+        &TextSegmenter::default(),
+        original,
+        room,
+        TextOverflow::EllipsisStart,
+        "\u{2026}",
+    )
+    .into_owned()
 }
 
 /// One segment of a path while it is cut to fit.
@@ -198,7 +223,13 @@ fn assemble(leading: bool, pieces: &[Piece<'_>]) -> String {
 
 /// Cuts `pieces` until the path fits `max` cells: the segment that may be
 /// cut, tail ones first, loses its start behind a `…`.
-fn fit_pieces(leading: bool, pieces: &mut [Piece<'_>], max: usize, cut: bool, count: usize) -> Option<String> {
+fn fit_pieces(
+    leading: bool,
+    pieces: &mut [Piece<'_>],
+    max: usize,
+    cut: bool,
+    count: usize,
+) -> Option<String> {
     loop {
         let candidate = assemble(leading, pieces);
         let width = columns(&candidate);
@@ -211,7 +242,11 @@ fn fit_pieces(leading: bool, pieces: &mut [Piece<'_>], max: usize, cut: bool, co
         let order: Vec<usize> = (0..pieces.len())
             .rev()
             .filter(|at| pieces[*at].cuttable && pieces[*at].tail)
-            .chain((0..pieces.len()).rev().filter(|at| pieces[*at].cuttable && !pieces[*at].tail))
+            .chain(
+                (0..pieces.len())
+                    .rev()
+                    .filter(|at| pieces[*at].cuttable && !pieces[*at].tail),
+            )
             .collect();
         let mut changed = false;
         for at in order {
@@ -253,7 +288,11 @@ pub fn center_truncate_path(path: &str, max: usize) -> String {
     }
     let count = segments.len();
     if count == 0 {
-        return if leading && max >= 1 { "/".to_owned() } else { "\u{2026}".to_owned() };
+        return if leading && max >= 1 {
+            "/".to_owned()
+        } else {
+            "\u{2026}".to_owned()
+        };
     }
     let suffix = if count > 1 { count.min(3) - 1 } else { 0 };
     let mut combos: Vec<(usize, usize)> = (1..=count)
@@ -262,17 +301,32 @@ pub fn center_truncate_path(path: &str, max: usize) -> String {
             (least..=count - left).map(move |right| (left, right))
         })
         .collect();
-    let by_room = |a: &(usize, usize), b: &(usize, usize)| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((b.0 + b.1).cmp(&(a.0 + a.1)));
+    let by_room = |a: &(usize, usize), b: &(usize, usize)| {
+        b.0.cmp(&a.0)
+            .then(b.1.cmp(&a.1))
+            .then((b.0 + b.1).cmp(&(a.0 + a.1)))
+    };
     combos.sort_by(by_room);
-    let (preferred, rest): (Vec<_>, Vec<_>) = combos.into_iter().partition(|(_, right)| *right >= suffix);
+    let (preferred, rest): (Vec<_>, Vec<_>) =
+        combos.into_iter().partition(|(_, right)| *right >= suffix);
     for (left, right) in preferred.into_iter().chain(rest) {
         let mut pieces: Vec<Piece<'_>> = segments[..left]
             .iter()
-            .map(|seg| Piece { original: seg, text: (*seg).to_owned(), cuttable: true, tail: false })
+            .map(|seg| Piece {
+                original: seg,
+                text: (*seg).to_owned(),
+                cuttable: true,
+                tail: false,
+            })
             .collect();
         let ellipsis = left + right < count;
         if ellipsis {
-            pieces.push(Piece { original: "\u{2026}", text: "\u{2026}".to_owned(), cuttable: false, tail: false });
+            pieces.push(Piece {
+                original: "\u{2026}",
+                text: "\u{2026}".to_owned(),
+                cuttable: false,
+                tail: false,
+            });
         }
         pieces.extend(segments[count - right..].iter().map(|seg| Piece {
             original: seg,
@@ -310,11 +364,20 @@ fn line_width(line: &HelpLine) -> usize {
 }
 
 fn group_rows(group: &HelpGroup) -> Vec<HelpLine> {
-    let key_width = group.entries.iter().map(|(key, _)| columns(key)).max().unwrap_or(0);
+    let key_width = group
+        .entries
+        .iter()
+        .map(|(key, _)| columns(key))
+        .max()
+        .unwrap_or(0);
     let mut rows = vec![vec![(Ink::Title, group.title.clone())]];
     for (key, action) in &group.entries {
         let pad = " ".repeat(key_width.saturating_sub(columns(key)) + 2);
-        rows.push(vec![(Ink::Key, key.clone()), (Ink::Plain, pad), (Ink::Plain, action.clone())]);
+        rows.push(vec![
+            (Ink::Key, key.clone()),
+            (Ink::Plain, pad),
+            (Ink::Plain, action.clone()),
+        ]);
     }
     rows
 }
@@ -343,8 +406,10 @@ fn join_columns(groups: &[Vec<HelpLine>], widths: &[usize]) -> Vec<HelpLine> {
 /// (oracle: `shortcut_help.rs` `group_lines`).
 pub fn help_rows(groups: &[HelpGroup; 3], width: usize) -> Vec<HelpLine> {
     let groups: Vec<Vec<HelpLine>> = groups.iter().map(group_rows).collect();
-    let widths: Vec<usize> =
-        groups.iter().map(|rows| rows.iter().map(line_width).max().unwrap_or(0)).collect();
+    let widths: Vec<usize> = groups
+        .iter()
+        .map(|rows| rows.iter().map(line_width).max().unwrap_or(0))
+        .collect();
     let width = width.max(1);
     if widths.iter().sum::<usize>() + COLUMN_GAP * 2 <= width {
         return join_columns(&groups, &widths);
@@ -353,7 +418,10 @@ pub fn help_rows(groups: &[HelpGroup; 3], width: usize) -> Vec<HelpLine> {
         let mut right = groups[1].clone();
         right.push(HelpLine::new());
         right.extend(groups[2].clone());
-        return join_columns(&[groups[0].clone(), right], &[widths[0], widths[1].max(widths[2])]);
+        return join_columns(
+            &[groups[0].clone(), right],
+            &[widths[0], widths[1].max(widths[2])],
+        );
     }
     let mut rows = Vec::new();
     for (index, group) in groups.into_iter().enumerate() {
@@ -372,10 +440,16 @@ mod tests {
     #[test]
     fn two_panes_from_ninety_body_cells() {
         let wide = areas(96, 25);
-        assert_eq!((wide.list_width, wide.gap_x, wide.details_x), (51, Some(53), Some(56)));
+        assert_eq!(
+            (wide.list_width, wide.gap_x, wide.details_x),
+            (51, Some(53), Some(56))
+        );
         let narrow = areas(48, 25);
         assert_eq!((narrow.list_width, narrow.details_x), (44, None));
-        assert_eq!((narrow.header, narrow.footer_row, narrow.body_height), (3, 24, 21));
+        assert_eq!(
+            (narrow.header, narrow.footer_row, narrow.body_height),
+            (3, 24, 21)
+        );
     }
 
     #[test]
@@ -392,7 +466,10 @@ mod tests {
 
     #[test]
     fn test_center_truncate_doesnt_truncate_short_path() {
-        assert_eq!(center_truncate_path("/Users/codex/Public", 40), "/Users/codex/Public");
+        assert_eq!(
+            center_truncate_path("/Users/codex/Public", 40),
+            "/Users/codex/Public"
+        );
     }
 
     #[test]
@@ -406,7 +483,10 @@ mod tests {
     #[test]
     fn test_center_truncate_truncates_long_windows_path() {
         let path = "C:/Users/codex/Projects/super/long/windows/path/file.txt";
-        assert_eq!(center_truncate_path(path, 36), "C:/Users/codex/\u{2026}/path/file.txt");
+        assert_eq!(
+            center_truncate_path(path, 36),
+            "C:/Users/codex/\u{2026}/path/file.txt"
+        );
     }
 
     #[test]

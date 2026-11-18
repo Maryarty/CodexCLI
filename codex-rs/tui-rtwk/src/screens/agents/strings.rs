@@ -301,10 +301,21 @@ impl Strings {
         Fmt::new(self.filter_count, [Arg::Text(label), Arg::Int(count)], num).to_string()
     }
 
-    pub fn group_heading(&self, heading: &str, shown: usize, total: usize, num: &NumSyms) -> String {
+    pub fn group_heading(
+        &self,
+        heading: &str,
+        shown: usize,
+        total: usize,
+        num: &NumSyms,
+    ) -> String {
         let shown = u64::try_from(shown).unwrap_or(0);
         if shown as usize == total {
-            return Fmt::new(self.group_heading, [Arg::Text(heading), Arg::Int(shown)], num).to_string();
+            return Fmt::new(
+                self.group_heading,
+                [Arg::Text(heading), Arg::Int(shown)],
+                num,
+            )
+            .to_string();
         }
         let total = u64::try_from(total).unwrap_or(0);
         Fmt::new(
@@ -318,8 +329,13 @@ impl Strings {
     /// `12 in · 3 out`: the parts that are known.
     pub fn tokens_line(&self, input: Option<&str>, output: Option<&str>, num: &NumSyms) -> String {
         let a = input.map(|input| Fmt::new(self.tokens_in, [Arg::Text(input)], num).to_string());
-        let b = output.map(|output| Fmt::new(self.tokens_out, [Arg::Text(output)], num).to_string());
-        [a, b].into_iter().flatten().collect::<Vec<_>>().join(self.tokens_sep)
+        let b =
+            output.map(|output| Fmt::new(self.tokens_out, [Arg::Text(output)], num).to_string());
+        [a, b]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(self.tokens_sep)
     }
 
     pub fn credits(&self, amount: &str, num: &NumSyms) -> String {

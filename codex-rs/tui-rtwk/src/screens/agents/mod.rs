@@ -8,14 +8,14 @@
 
 use std::rc::Rc;
 
+use rtwk::binding::AppBinding;
 use rtwk::controls::SelectionController;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
-use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::binding::AppBinding;
 use rtwk::layout::{Stack, StackFit};
+use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, watch};
 use rtwk::style::Theme;
@@ -43,67 +43,133 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "overview",
             description: "three tasks of one project; the first one needs you",
             script: include_str!("fixtures/overview.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "attention",
             description: "a task whose child waits for an approval and a response",
             script: include_str!("fixtures/attention.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "navigation",
             description: "a ready, an errored and an unloaded task under the chat",
             script: include_str!("fixtures/navigation.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "search",
             description: "one task, for the search line",
             script: include_str!("fixtures/search.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "clip",
             description: "one task, for long text in the search and rename lines",
             script: include_str!("fixtures/clip.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "paging5",
             description: "five tasks of one project",
             script: include_str!("fixtures/paging5.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "paging30",
             description: "thirty tasks of two projects",
             script: include_str!("fixtures/paging30.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "confirm",
             description: "one task, for the archive and delete confirmations",
             script: include_str!("fixtures/confirm.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "progress",
             description: "three inactive tasks, for the archive and delete in progress",
             script: include_str!("fixtures/progress.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "columns",
             description: "six tasks of every status and age, pins, an unread one",
             script: include_str!("fixtures/columns.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
         },
         DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: false, open: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: false,
+                    open: false,
+                }
+                .into()
+            }),
         },
     ]
 }
@@ -453,7 +519,9 @@ impl State for ScreenState {
         let hs = read::<Hs, _>(cx);
         let mut send = |intent: AgentsIntent| cx.emit(&hs.screen, ScreenIntent::Agents(intent));
         let center = model.center();
-        let selected = center.selected_entry().map(|entry| view::key_of(&center, entry));
+        let selected = center
+            .selected_entry()
+            .map(|entry| view::key_of(&center, entry));
         match msg {
             Msg::Key(key) => {
                 let editing = model.searching || model.rename.is_some();
@@ -461,12 +529,17 @@ impl State for ScreenState {
                     // The confirmation takes every key (oracle: the view on
                     // top of the bottom pane): Esc and the digits answer, the
                     // arrows and Enter are the list's.
-                    match (key.code, key.as_text().filter(|_| !key.mods.contains(Mods::CTRL))) {
+                    match (
+                        key.code,
+                        key.as_text().filter(|_| !key.mods.contains(Mods::CTRL)),
+                    ) {
                         (KeyCode::Escape, _) => send(AgentsIntent::Confirmed(false)),
                         (_, Some(digit @ ("1" | "2"))) => {
                             let index = usize::from(digit == "2");
                             // A delete waits for Enter: the digit only moves the cursor.
-                            if index == 1 && confirm.action == codex_tui_core::screens::agents::Action::Delete {
+                            if index == 1
+                                && confirm.action == codex_tui_core::screens::agents::Action::Delete
+                            {
                                 self.confirm_selection.set_cursor(Some(1));
                             } else {
                                 send(AgentsIntent::Confirmed(index == 1));
@@ -575,7 +648,9 @@ impl State for ScreenState {
                     })
                     .collect(),
             ),
-            tabs: (0..5).map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index))).collect(),
+            tabs: (0..5)
+                .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
+                .collect(),
         };
         let controls = view::Controls {
             selection: self.selection.clone(),
@@ -599,12 +674,16 @@ impl State for ScreenState {
             let mut column = rtwk::layout::Column::new()
                 .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
             if areas.header > 0 {
-                column = column.child(view::header(&look, strings, &num, model, &center, width, &taps));
+                column = column.child(view::header(
+                    &look, strings, &num, model, &center, width, &taps,
+                ));
             }
             if model.help {
                 column = column.child(view::help(&look, strings, model, &center, &areas, width));
             } else {
-                column = column.child(view::body(&look, strings, &num, &screens, &center, &areas, &controls, &taps));
+                column = column.child(view::body(
+                    &look, strings, &num, &screens, &center, &areas, &controls, &taps,
+                ));
             }
             if areas.footer_row < height {
                 column = column.child(view::footer_row(&look, strings, model, can_return, width));
@@ -615,9 +694,21 @@ impl State for ScreenState {
             Stack::new()
                 .fit(StackFit::Expand)
                 .child(column)
-                .child(view::confirm_dialog(&look, strings, &num, model, &center, confirm, (width, height), &controls))
+                .child(view::confirm_dialog(
+                    &look,
+                    strings,
+                    &num,
+                    model,
+                    &center,
+                    confirm,
+                    (width, height),
+                    &controls,
+                ))
                 .into()
         });
-        Focus::new(body).focus_node(self.root_focus.clone()).on_key(cx.keys(on_key)).into()
+        Focus::new(body)
+            .focus_node(self.root_focus.clone())
+            .on_key(cx.keys(on_key))
+            .into()
     }
 }

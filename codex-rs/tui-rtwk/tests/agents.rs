@@ -56,7 +56,10 @@ fn app_oracle(name: &str) -> Vec<String> {
 /// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
 /// the footer reads `tab/⇧tab`, as the view writes it there).
 fn assert_app(h: &Harness, name: &str) {
-    let actual: Vec<String> = oracle_snap::screen(&h.t).iter().map(|row| as_snapshot_cells(row)).collect();
+    let actual: Vec<String> = oracle_snap::screen(&h.t)
+        .iter()
+        .map(|row| as_snapshot_cells(row))
+        .collect();
     oracle_snap::assert_same(name, &actual, &app_oracle(name));
 }
 
@@ -265,7 +268,10 @@ fn agents_overview_preview_links_survive_wrapping_and_clipping() {
     );
     let h = open("overview", 96, 40);
     let screen = h.t.screen();
-    assert!(screen.contains("a pull request with a label that wraps"), "{screen}");
+    assert!(
+        screen.contains("a pull request with a label that wraps"),
+        "{screen}"
+    );
 }
 
 /// `agents_overview_markdown_preview_preserves_layout_and_bounds` (agents_overview_tests.rs:1271).
@@ -356,7 +362,10 @@ fn delete_task_confirmation_and_failure_snapshots() {
     h.press("2");
     h.settle();
     let screen = h.t.screen();
-    assert!(screen.contains("\u{203a} 2. Permanently delete task and child agents"), "{screen}");
+    assert!(
+        screen.contains("\u{203a} 2. Permanently delete task and child agents"),
+        "{screen}"
+    );
     h.press("enter");
     h.settle();
     let screen = h.t.screen();
@@ -375,7 +384,10 @@ fn lifecycle_failure_dialogs() {
         Owner::CoreSeed,
         "core keeps a failed removal as `Notice::Error` text in the footer (refresh.rs:211, `let _ = action`) and has no failure to show as a dialog (action, error, attempted); the dialog's rows are the oracle's `LifecycleHeader` + one `Back to agents` row",
     );
-    for (key, snapshot) in [("a", "actions__archive_task_failure"), ("backspace", "actions__delete_task_failure")] {
+    for (key, snapshot) in [
+        ("a", "actions__archive_task_failure"),
+        ("backspace", "actions__delete_task_failure"),
+    ] {
         let mut h = open("confirm", 80, 24);
         h.press(key);
         h.press("2");
@@ -429,8 +441,13 @@ fn modal_consumes_input_and_finishes_after_input_closes() {
         h.settle();
         let screen = h.t.screen();
         assert!(screen.contains(notice), "{screen}");
-        let rows: Vec<String> = oracle_snap::screen(&h.t).iter().map(|row| age(row)).collect();
-        let expected = oracle_snap::rows(&format!("app/snapshots/codex_tui__app__agents_overview_actions__progress_tests__{snapshot}.snap"));
+        let rows: Vec<String> = oracle_snap::screen(&h.t)
+            .iter()
+            .map(|row| age(row))
+            .collect();
+        let expected = oracle_snap::rows(&format!(
+            "app/snapshots/codex_tui__app__agents_overview_actions__progress_tests__{snapshot}.snap"
+        ));
         oracle_snap::assert_same(snapshot, &rows, &expected);
     }
 }
@@ -496,7 +513,12 @@ fn pages_visible_rows(count: usize, search: bool, loop_key: &str, wraps: bool) {
         // Down from the last task wraps to the first (`move_selection`).
         h.press("down");
         let screen = h.t.screen();
-        assert!(screen.lines().any(|line| line.trim_start().starts_with("/tmp/project")), "{screen}");
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.trim_start().starts_with("/tmp/project")),
+            "{screen}"
+        );
     }
 }
 

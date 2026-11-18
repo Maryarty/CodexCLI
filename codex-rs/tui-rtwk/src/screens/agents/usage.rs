@@ -28,7 +28,10 @@ pub fn lines(strings: &Strings, num: &NumSyms, usage: &Usage, ent26: bool) -> Ve
         num,
     );
     if !tokens.is_empty() {
-        lines.push(UsageLine { label: strings.tokens, value: tokens });
+        lines.push(UsageLine {
+            label: strings.tokens,
+            value: tokens,
+        });
     }
     if let Some(estimate) = &usage.estimate {
         let mut values = Vec::new();
@@ -38,12 +41,19 @@ pub fn lines(strings: &Strings, num: &NumSyms, usage: &Usage, ent26: bool) -> Ve
                 num,
             ));
         }
-        let cost = if ent26 { estimate.native_usage_usd_micros } else { estimate.estimated_usage_usd_micros };
+        let cost = if ent26 {
+            estimate.native_usage_usd_micros
+        } else {
+            estimate.estimated_usage_usd_micros
+        };
         if let Some(cost) = cost.and_then(format_estimated_usd_micros) {
             values.push(cost);
         }
         if !values.is_empty() {
-            lines.push(UsageLine { label: strings.est_usage, value: strings.join_values(&values) });
+            lines.push(UsageLine {
+                label: strings.est_usage,
+                value: strings.join_values(&values),
+            });
         }
     }
     lines
@@ -104,7 +114,10 @@ mod tests {
             ]
         }))
         .unwrap();
-        let usage = Usage { estimate: Some(estimate), ..Usage::default() };
+        let usage = Usage {
+            estimate: Some(estimate),
+            ..Usage::default()
+        };
         let text: Vec<String> = lines(&EN, &NumSyms::ENGLISH, &usage, false)
             .into_iter()
             .map(|line| format!("{}{}", line.label, line.value))
@@ -117,7 +130,10 @@ mod tests {
         assert_eq!(format_credit_micros(1_500_000_000), "1.5K");
         assert_eq!(format_credit_micros(12_000_000), "12");
         assert_eq!(format_estimated_usd_micros(50), Some("~$0.000050".into()));
-        assert_eq!(format_estimated_usd_micros(1_234_500), Some("~$1.23".into()));
+        assert_eq!(
+            format_estimated_usd_micros(1_234_500),
+            Some("~$1.23".into())
+        );
         assert_eq!(format_estimated_usd_micros(-1), None);
     }
 }

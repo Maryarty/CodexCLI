@@ -17,7 +17,9 @@ use rtwk::focus::{ExcludeFocus, FocusNode};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Positioned, Row, SizedBox};
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Positioned, Row, SizedBox,
+};
 use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign};
@@ -210,7 +212,11 @@ pub fn header(
     let title = one(vec![
         span(strings.header, &look.bold),
         span(
-            strings.group(grouping_name(strings, model.grouping), strings.grouping_key, num),
+            strings.group(
+                grouping_name(strings, model.grouping),
+                strings.grouping_key,
+                num,
+            ),
             &look.dim,
         ),
     ]);
@@ -224,18 +230,28 @@ pub fn header(
     let hint_text = format!("{} {}", strings.filter_keys, strings.filter_label);
     let hint_width = layout::columns(&hint_text);
     let show_hint = inner >= 80 && !editing;
-    let tabs_width = if show_hint { inner.saturating_sub(hint_width + 2) } else { inner };
+    let tabs_width = if show_hint {
+        inner.saturating_sub(hint_width + 2)
+    } else {
+        inner
+    };
     let strip = layout::strip(&labels, model.filter, tabs_width);
     let mut tabs = Row::new();
     let mut used = 0;
     if strip.left {
-        tabs = tabs.child(cell(1, one(vec![span(strings.tab_left, &look.dim)]))).child(pad(1));
+        tabs = tabs
+            .child(cell(1, one(vec![span(strings.tab_left, &look.dim)])))
+            .child(pad(1));
         used += 2;
     }
     for (offset, shown) in strip.widths.iter().enumerate() {
         let index = strip.start + offset;
         let text = layout::ellipsize(&format!(" {} ", labels[index]), *shown);
-        let style = if index == model.filter { &look.tab } else { &look.dim };
+        let style = if index == model.filter {
+            &look.tab
+        } else {
+            &look.dim
+        };
         let tab = cell(*shown as i32, one(vec![span(text, style)]));
         if offset > 0 {
             tabs = tabs.child(pad(1));
@@ -246,26 +262,36 @@ pub fn header(
     }
     if strip.right {
         let gap = (tabs_width - 1).saturating_sub(used);
-        tabs = tabs.child(pad(gap)).child(cell(1, one(vec![span(strings.tab_right, &look.dim)])));
+        tabs = tabs
+            .child(pad(gap))
+            .child(cell(1, one(vec![span(strings.tab_right, &look.dim)])));
         used = tabs_width;
     }
     if show_hint {
         tabs = tabs
             .child(pad(tabs_width.saturating_sub(used) + 2))
-            .child(cell(hint_width as i32, one(vec![
-                span(strings.filter_keys, &look.plain),
-                span(format!(" {}", strings.filter_label), &look.muted),
-            ])));
+            .child(cell(
+                hint_width as i32,
+                one(vec![
+                    span(strings.filter_keys, &look.plain),
+                    span(format!(" {}", strings.filter_label), &look.muted),
+                ]),
+            ));
     }
     let rule = one(vec![span("\u{2500}".repeat(inner), &look.dim)]);
     let indent = |child: AnyWidget| -> AnyWidget {
-        Row::new().child(pad(2)).child(cell(inner as i32, child)).into()
+        Row::new()
+            .child(pad(2))
+            .child(cell(inner as i32, child))
+            .into()
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(indent(title))
-        .child(indent(SizedBox::new(Some(inner as i32), Some(1), Some(tabs.into())).into()))
+        .child(indent(
+            SizedBox::new(Some(inner as i32), Some(1), Some(tabs.into())).into(),
+        ))
         .child(indent(rule))
         .into()
 }
@@ -319,7 +345,10 @@ fn age(strings: &Strings, now: i64, updated: i64) -> String {
 /// The text shown when no row is (oracle: the `indices.is_empty()` arm).
 pub fn empty_text<'a>(strings: &'a Strings, model: &Model, no_rows: bool) -> &'a str {
     use codex_tui_core::screens::agents::Notice;
-    if matches!(model.notice, Some(Notice::Reconnecting | Notice::ReconnectFailed)) {
+    if matches!(
+        model.notice,
+        Some(Notice::Reconnecting | Notice::ReconnectFailed)
+    ) {
         strings.reconnecting_empty
     } else if model.history.is_some() {
         strings.no_match
@@ -349,11 +378,16 @@ fn entry(
     let inner = width.saturating_sub(1);
     match &center.entries[index] {
         CenterRow::Gap => blank(),
-        CenterRow::Group { label, count } => {
-            cell(inner as i32, heading(look, strings, model, label, count, inner))
-        }
+        CenterRow::Group { label, count } => cell(
+            inner as i32,
+            heading(look, strings, model, label, count, inner),
+        ),
         CenterRow::ShowMore => {
-            let fill = if selected { look.selection.clone() } else { look.plain.clone() };
+            let fill = if selected {
+                look.selection.clone()
+            } else {
+                look.plain.clone()
+            };
             let label = if let Some(history) = &model.history {
                 if history.loading {
                     strings.searching_history
@@ -378,12 +412,19 @@ fn entry(
         }
         CenterRow::Task(at) => {
             let row = &center.rows[*at];
-            let fill = if selected { look.selection.clone() } else { look.plain.clone() };
+            let fill = if selected {
+                look.selection.clone()
+            } else {
+                look.plain.clone()
+            };
             let (status_text, mut dot) = status(row, strings, look);
             let idle = matches!(row.group, Group::Ready | Group::Finished);
             if row.unread || idle {
                 let color = if row.unread { &look.blue } else { &look.muted };
-                dot = span(if row.unread { "\u{25cf}" } else { "\u{25cb}" }, &fill.merge(color));
+                dot = span(
+                    if row.unread { "\u{25cf}" } else { "\u{25cb}" },
+                    &fill.merge(color),
+                );
             } else if selected {
                 dot = span(dot.text.to_string(), &fill);
             }
@@ -396,27 +437,46 @@ fn entry(
             if row.pinned && model.grouping == Grouping::Status {
                 title = format!("\u{1f4cc} {title}");
             }
-            let title_style = if selected { fill.clone() } else { look.plain.clone() };
+            let title_style = if selected {
+                fill.clone()
+            } else {
+                look.plain.clone()
+            };
             let mut cells = Row::new()
-                .child(cell(1, one(vec![span(if selected { "\u{203a}" } else { " " }, &fill)])))
+                .child(cell(
+                    1,
+                    one(vec![span(if selected { "\u{203a}" } else { " " }, &fill)]),
+                ))
                 .child(pad(1))
                 .child(cell(1, one(vec![dot])))
                 .child(pad(1))
-                .child(cell(title_width as i32, one(vec![span(title, &title_style)])));
+                .child(cell(
+                    title_width as i32,
+                    one(vec![span(title, &title_style)]),
+                ));
             if metadata {
-                let age_style = if selected { fill.clone() } else { look.dim.clone() };
+                let age_style = if selected {
+                    fill.clone()
+                } else {
+                    look.dim.clone()
+                };
                 cells = cells
                     .child(pad(2))
                     .child(cell(11, one(vec![span(status_text, &fill)])))
                     .child(pad(2))
                     .child(cell(
                         9,
-                        Text::rich_line(vec![span(age(strings, model.now, row.thread.updated_at), &age_style)])
-                            .text_align(TextAlign::Right),
+                        Text::rich_line(vec![span(
+                            age(strings, model.now, row.thread.updated_at),
+                            &age_style,
+                        )])
+                        .text_align(TextAlign::Right),
                     ));
             }
             cells = cells.child(pad(1));
-            let boxed = BoxWidget::new().style(fill).child(cell(width as i32, cells));
+            let boxed = BoxWidget::new()
+                .style(fill)
+                .child(cell(width as i32, cells));
             tappable(tap, boxed.into())
         }
     }
@@ -446,10 +506,19 @@ pub fn list(
     }
     let padding = usize::from(height >= 3);
     let viewport = height.saturating_sub(2 * padding);
-    let keys: Rc<Vec<RowKey>> = Rc::new((0..center.entries.len()).map(|at| key_of(center, at)).collect());
+    let keys: Rc<Vec<RowKey>> = Rc::new(
+        (0..center.entries.len())
+            .map(|at| key_of(center, at))
+            .collect(),
+    );
     let builder = {
-        let (look, screens, center, taps, keys) =
-            (look.clone(), screens.clone(), center.clone(), taps.clone(), keys.clone());
+        let (look, screens, center, taps, keys) = (
+            look.clone(),
+            screens.clone(),
+            center.clone(),
+            taps.clone(),
+            keys.clone(),
+        );
         let strings = *strings;
         let selection = controls.selection.clone();
         move |index: usize| -> AnyWidget {
@@ -457,7 +526,16 @@ pub fn list(
                 let (look, screens, center, taps) =
                     (look.clone(), screens.clone(), center.clone(), taps.clone());
                 move |selected: bool| {
-                    entry(&look, &strings, &screens.agents, &center, index, width, selected, taps.get(index))
+                    entry(
+                        &look,
+                        &strings,
+                        &screens.agents,
+                        &center,
+                        index,
+                        width,
+                        selected,
+                        taps.get(index),
+                    )
                 }
             };
             if !keys[index].selectable() {
@@ -505,7 +583,9 @@ pub fn list(
         });
         false
     });
-    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
     if padding > 0 {
         let metadata = inner >= 56;
         let title_width = inner - 4 - if metadata { 24 } else { 0 };
@@ -513,17 +593,27 @@ pub fn list(
         let arrow = {
             let (look, scroll) = (look.clone(), controls.scroll.clone());
             move |down: bool| {
-            let look = look.clone();
-            ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
-                let show = if down { scrolled.below } else { scrolled.above };
-                cell(1, one(vec![span(if show { if down { "\u{2193}" } else { "\u{2191}" } } else { " " }, &look.dim)]))
-            })
+                let look = look.clone();
+                ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
+                    let show = if down { scrolled.below } else { scrolled.above };
+                    cell(
+                        1,
+                        one(vec![span(
+                            if show {
+                                if down { "\u{2193}" } else { "\u{2191}" }
+                            } else {
+                                " "
+                            },
+                            &look.dim,
+                        )]),
+                    )
+                })
             }
         };
-        let mut labels = Row::new()
-            .child(arrow(false))
-            .child(pad(3))
-            .child(cell(title_width as i32, one(vec![span(strings.tasks, &look.dim)])));
+        let mut labels = Row::new().child(arrow(false)).child(pad(3)).child(cell(
+            title_width as i32,
+            one(vec![span(strings.tasks, &look.dim)]),
+        ));
         if metadata {
             labels = labels
                 .child(pad(2))
@@ -590,7 +680,10 @@ pub fn details(
         clip_pair(strings.model, row.model(), look, width),
         clip_pair(
             strings.reasoning,
-            row.thread.reasoning_effort.as_ref().map_or(strings.unknown, |e| e.as_str()),
+            row.thread
+                .reasoning_effort
+                .as_ref()
+                .map_or(strings.unknown, |e| e.as_str()),
             look,
             width,
         ),
@@ -598,12 +691,24 @@ pub fn details(
         vec![span(strings.project, &look.dim)],
     ];
     let mut head: Vec<Line> = lines.split_off(0);
-    head.extend(wrapped(&row.thread.cwd.display().to_string(), &look.plain, width));
+    head.extend(wrapped(
+        &row.thread.cwd.display().to_string(),
+        &look.plain,
+        width,
+    ));
     let usage_lines = usage::lines(strings, num, &row.details.usage, bills_in_dollars(model));
     for line in &usage_lines {
-        head.push(vec![span(line.label, &look.dim), span(line.value.clone(), &look.plain)]);
+        head.push(vec![
+            span(line.label, &look.dim),
+            span(line.value.clone(), &look.plain),
+        ]);
     }
-    if let Some(branch) = row.thread.git_info.as_ref().and_then(|git| git.branch.as_ref()) {
+    if let Some(branch) = row
+        .thread
+        .git_info
+        .as_ref()
+        .and_then(|git| git.branch.as_ref())
+    {
         head.push(Vec::new());
         head.push(vec![span(strings.branch, &look.dim)]);
         head.extend(wrapped(branch, &look.plain, width));
@@ -612,9 +717,16 @@ pub fn details(
     head.push(Vec::new());
     head.push(vec![span(strings.prompt, &look.dim)]);
     let prompt_text = codex_tui_core::screens::agents::preview_markdown(
-        row.details.latest_prompt.as_deref().unwrap_or(&row.thread.preview),
+        row.details
+            .latest_prompt
+            .as_deref()
+            .unwrap_or(&row.thread.preview),
     );
-    let prompt_text = if prompt_text.is_empty() { strings.no_prompt.to_owned() } else { prompt_text };
+    let prompt_text = if prompt_text.is_empty() {
+        strings.no_prompt.to_owned()
+    } else {
+        prompt_text
+    };
     let mut prompt = wrapped(&prompt_text, &look.plain, width);
     if prompt.len() > 2 {
         prompt.truncate(2);
@@ -627,13 +739,22 @@ pub fn details(
         match line {
             DetailLine::Blank => activity.push(Vec::new()),
             DetailLine::Agent(name) => {
-                activity.push(vec![span(strings.agent_label, &look.dim), span(name.clone(), &look.plain)]);
+                activity.push(vec![
+                    span(strings.agent_label, &look.dim),
+                    span(name.clone(), &look.plain),
+                ]);
             }
-            DetailLine::NeedsAttention => activity.push(vec![span(strings.needs_attention, &look.red)]),
+            DetailLine::NeedsAttention => {
+                activity.push(vec![span(strings.needs_attention, &look.red)])
+            }
             DetailLine::Request(text) => activity.extend(wrapped(text, &look.plain, width)),
             DetailLine::OpenToReview => activity.push(vec![span(strings.open_task, &look.dim)]),
-            DetailLine::WaitingApproval => activity.push(vec![span(strings.wait_approval, &look.plain)]),
-            DetailLine::WaitingResponse => activity.push(vec![span(strings.wait_response, &look.plain)]),
+            DetailLine::WaitingApproval => {
+                activity.push(vec![span(strings.wait_approval, &look.plain)])
+            }
+            DetailLine::WaitingResponse => {
+                activity.push(vec![span(strings.wait_response, &look.plain)])
+            }
             DetailLine::TaskError => activity.push(vec![span(strings.task_error, &look.plain)]),
             DetailLine::LatestActivity(header) => {
                 activity.push(vec![span(strings.latest_activity, &look.dim)]);
@@ -648,8 +769,10 @@ pub fn details(
     }
     let offline = matches!(
         model.notice,
-        Some(codex_tui_core::screens::agents::Notice::Reconnecting
-            | codex_tui_core::screens::agents::Notice::ReconnectFailed)
+        Some(
+            codex_tui_core::screens::agents::Notice::Reconnecting
+                | codex_tui_core::screens::agents::Notice::ReconnectFailed
+        )
     );
     if !offline && !activity.is_empty() {
         if !usage_lines.is_empty() && activity.len() > height.saturating_sub(lines.len()) {
@@ -667,7 +790,9 @@ pub fn details(
         lines.extend(tail);
     }
     lines.truncate(height);
-    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
     for line in lines {
         column = column.child(cell(width as i32, one(line)));
     }
@@ -676,7 +801,11 @@ pub fn details(
 
 fn clip_pair(label: &str, value: &str, look: &Look, width: usize) -> Line {
     let text = layout::ellipsize(&format!("{label}{value}"), width);
-    let split = if text.starts_with(label) { label.len() } else { text.len() };
+    let split = if text.starts_with(label) {
+        label.len()
+    } else {
+        text.len()
+    };
     let (head, tail) = text.split_at(split);
     vec![span(head, &look.dim), span(tail, &look.plain)]
 }
@@ -693,7 +822,8 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
         Some(Notice::ServerVersion(text) | Notice::Error(text)) => Some(text.clone()),
         None => {
-            let failed = model.paging.failed || model.history.as_ref().is_some_and(|history| history.failed);
+            let failed =
+                model.paging.failed || model.history.as_ref().is_some_and(|history| history.failed);
             (failed && !model.paging.loading).then(|| strings.load_failed.to_owned())
         }
     };
@@ -714,7 +844,14 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
     if !editing {
         items.push((strings.key_move, strings.move_));
     }
-    items.push((strings.key_open, if model.rename.is_some() { strings.rename } else { strings.open }));
+    items.push((
+        strings.key_open,
+        if model.rename.is_some() {
+            strings.rename
+        } else {
+            strings.open
+        },
+    ));
     if !editing {
         items.push((strings.key_new, strings.new));
     }
@@ -736,8 +873,18 @@ fn hint_line(look: &Look, items: &[(&str, &str)]) -> Line {
 /// The search or rename row above the list: the label and a `TextField`
 /// that edits the controller's text (a search tells the model each change, a
 /// rename its text on Enter).
-pub fn editor(look: &Look, strings: &Strings, model: &Model, width: usize, controls: &Controls) -> AnyWidget {
-    let label = if model.rename.is_some() { strings.rename_label } else { strings.search_label };
+pub fn editor(
+    look: &Look,
+    strings: &Strings,
+    model: &Model,
+    width: usize,
+    controls: &Controls,
+) -> AnyWidget {
+    let label = if model.rename.is_some() {
+        strings.rename_label
+    } else {
+        strings.search_label
+    };
     let label_style = look.cyan.clone().attrs(Attrs::BOLD);
     let mut field = TextField::new()
         .controller(controls.edit.clone())
@@ -757,7 +904,10 @@ pub fn editor(look: &Look, strings: &Strings, model: &Model, width: usize, contr
             Some(1),
             Some(
                 Row::new()
-                    .child(cell(layout::columns(label) as i32, one(vec![span(label, &label_style)])))
+                    .child(cell(
+                        layout::columns(label) as i32,
+                        one(vec![span(label, &label_style)]),
+                    ))
                     .child(Expanded::new(1, field))
                     .into(),
             ),
@@ -782,28 +932,60 @@ pub fn body(
     let editing = model.searching || model.rename.is_some();
     let search_rows = usize::from(editing && areas.body_height > 0);
     let list_height = areas.body_height - search_rows;
-    let mut pane = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut pane = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
     if search_rows > 0 {
         pane = pane.child(editor(look, strings, model, areas.list_width, controls));
     }
     // The list gives the focus to the editing line while one is open.
-    let rows = list(look, strings, screens, center, areas.list_width, list_height, controls, &taps.rows);
+    let rows = list(
+        look,
+        strings,
+        screens,
+        center,
+        areas.list_width,
+        list_height,
+        controls,
+        &taps.rows,
+    );
     pane = pane.child(ExcludeFocus::new(rows).excluding(editing || model.confirm.is_some()));
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(pad(areas.list_x))
-        .child(SizedBox::new(Some(areas.list_width as i32), Some(areas.body_height as i32), Some(pane.into())));
+        .child(SizedBox::new(
+            Some(areas.list_width as i32),
+            Some(areas.body_height as i32),
+            Some(pane.into()),
+        ));
     if let Some(_gap) = areas.gap_x {
         let mut gap = Column::new().main_axis_size(MainAxisSize::Min);
         for _ in 0..areas.body_height {
-            gap = gap.child(cell(3, Row::new().child(pad(1)).child(cell(1, one(vec![span("\u{2502}", &look.dim)])))));
+            gap = gap.child(cell(
+                3,
+                Row::new()
+                    .child(pad(1))
+                    .child(cell(1, one(vec![span("\u{2502}", &look.dim)]))),
+            ));
         }
-        row = row.child(SizedBox::new(Some(3), Some(areas.body_height as i32), Some(gap.into())));
+        row = row.child(SizedBox::new(
+            Some(3),
+            Some(areas.body_height as i32),
+            Some(gap.into()),
+        ));
         if let Some(selected) = center.selected_row() {
             row = row.child(SizedBox::new(
                 Some(areas.details_width as i32),
                 Some(areas.body_height as i32),
-                Some(details(look, strings, num, selected, model, areas.details_width, areas.body_height)),
+                Some(details(
+                    look,
+                    strings,
+                    num,
+                    selected,
+                    model,
+                    areas.details_width,
+                    areas.body_height,
+                )),
             ));
         }
     }
@@ -811,11 +993,20 @@ pub fn body(
 }
 
 /// The footer row, inset two cells.
-pub fn footer_row(look: &Look, strings: &Strings, model: &Model, can_return: bool, width: usize) -> AnyWidget {
+pub fn footer_row(
+    look: &Look,
+    strings: &Strings,
+    model: &Model,
+    can_return: bool,
+    width: usize,
+) -> AnyWidget {
     let inner = width.saturating_sub(4);
     Row::new()
         .child(pad(2))
-        .child(cell(inner as i32, one(footer(look, strings, model, can_return))))
+        .child(cell(
+            inner as i32,
+            one(footer(look, strings, model, can_return)),
+        ))
         .into()
 }
 
@@ -832,7 +1023,10 @@ pub fn help(
 ) -> AnyWidget {
     let inner = width.saturating_sub(4);
     let pair = |entries: &[(&str, &str)]| -> Vec<(String, String)> {
-        entries.iter().map(|(key, action)| ((*key).to_owned(), (*action).to_owned())).collect()
+        entries
+            .iter()
+            .map(|(key, action)| ((*key).to_owned(), (*action).to_owned()))
+            .collect()
     };
     // Pinning is offered while the server has pins and a task is selected.
     let can_pin = model.pinned.is_some() && center.selected_row().is_some();
@@ -844,15 +1038,24 @@ pub fn help(
             (can_pin || *action != "Pin/unpin") && (model.worktrees || *action != "New worktree")
         })
         .collect();
-    let mut view = vec![(strings.filter_keys.to_owned(), strings.help_filter.to_owned())];
+    let mut view = vec![(
+        strings.filter_keys.to_owned(),
+        strings.help_filter.to_owned(),
+    )];
     view.extend(pair(&strings.help_entries_view));
     let groups = [
         layout::HelpGroup {
             title: strings.help_navigate.to_owned(),
             entries: pair(&strings.help_entries_navigate),
         },
-        layout::HelpGroup { title: strings.help_tasks.to_owned(), entries: pair(&tasks) },
-        layout::HelpGroup { title: strings.help_view.to_owned(), entries: view },
+        layout::HelpGroup {
+            title: strings.help_tasks.to_owned(),
+            entries: pair(&tasks),
+        },
+        layout::HelpGroup {
+            title: strings.help_view.to_owned(),
+            entries: view,
+        },
     ];
     let paint = |ink: layout::Ink| match ink {
         layout::Ink::Title => look.bold.clone(),
@@ -860,16 +1063,18 @@ pub fn help(
         layout::Ink::Plain => look.plain.clone(),
     };
     let mut rows: Vec<Line> = vec![vec![span(strings.help_title, &look.bold)], Vec::new()];
-    rows.extend(
-        layout::help_rows(&groups, inner)
-            .into_iter()
-            .map(|row| row.into_iter().map(|(ink, text)| span(text, &paint(ink))).collect()),
-    );
+    rows.extend(layout::help_rows(&groups, inner).into_iter().map(|row| {
+        row.into_iter()
+            .map(|(ink, text)| span(text, &paint(ink)))
+            .collect()
+    }));
     if rows.len() > areas.body_height {
         rows.truncate(areas.body_height.saturating_sub(1));
         rows.push(vec![span(strings.help_resize, &look.dim)]);
     }
-    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
     for row in rows {
         column = column.child(cell(inner as i32, one(row)));
     }
@@ -890,7 +1095,10 @@ pub fn help(
 /// The name a confirmation asks about: the task's name or its preview, the
 /// first non-empty line (oracle: `confirm_agents_overview_action`).
 fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String {
-    let row = center.rows.iter().find(|row| row.id() == confirm.thread.as_str());
+    let row = center
+        .rows
+        .iter()
+        .find(|row| row.id() == confirm.thread.as_str());
     let name = row
         .map(|row| row.thread.name.as_deref().unwrap_or(&row.thread.preview))
         .unwrap_or_default();
@@ -915,6 +1123,7 @@ fn dialog_row(spans: Line, width: usize, fill: &Style) -> AnyWidget {
 /// The archive and delete confirmation: a centered panel over the screen
 /// (oracle: `CenteredView` with `SelectionViewParams::confirmation()`): the
 /// title and the description wrapped, the two rows, a hint.
+#[allow(clippy::too_many_arguments)]
 pub fn confirm_dialog(
     look: &Look,
     strings: &Strings,
@@ -951,14 +1160,24 @@ pub fn confirm_dialog(
         .into_iter()
         .map(|line| (line, bold.clone()))
         .collect();
-    header.extend(layout::wrap(description, inner).into_iter().map(|line| (line, look.dim.clone())));
+    header.extend(
+        layout::wrap(description, inner)
+            .into_iter()
+            .map(|line| (line, look.dim.clone())),
+    );
     let rows_at = 1 + header.len() + 2;
     let total = (rows_at + 2 + 2).min(height);
     let plain = look.plain.clone();
-    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Start);
     column = column.child(dialog_row(Vec::new(), panel, &plain));
     for (line, style) in header {
-        column = column.child(dialog_row(vec![span("  ", &plain), span(line, &style)], panel, &plain));
+        column = column.child(dialog_row(
+            vec![span("  ", &plain), span(line, &style)],
+            panel,
+            &plain,
+        ));
     }
     column = column.child(dialog_row(Vec::new(), panel, &plain));
     column = column.child(dialog_row(Vec::new(), panel, &plain));
@@ -966,14 +1185,26 @@ pub fn confirm_dialog(
     let accent = look.accent.clone().attrs(Attrs::BOLD);
     let builder = {
         let selection = controls.confirm_selection.clone();
-        let (labels, plain) = (labels.clone(), plain.clone());
+        let plain = plain.clone();
         move |index: usize| -> AnyWidget {
-            let (selection, labels, plain, accent) = (selection.clone(), labels.clone(), plain.clone(), accent.clone());
+            let (selection, labels, plain, accent) = (
+                selection.clone(),
+                labels.clone(),
+                plain.clone(),
+                accent.clone(),
+            );
             ListenableBuilder::new(selection.listenable(), move |_, _| {
                 let selected = selection.cursor() == Some(index);
                 let style = if selected { &accent } else { &plain };
                 let marker = if selected { "\u{203a} " } else { "  " };
-                dialog_row(vec![span(format!("{marker}{}. {}", index + 1, labels[index]), style)], panel, &plain)
+                dialog_row(
+                    vec![span(
+                        format!("{marker}{}. {}", index + 1, labels[index]),
+                        style,
+                    )],
+                    panel,
+                    &plain,
+                )
             })
             .into()
         }
@@ -988,13 +1219,25 @@ pub fn confirm_dialog(
         .idle_style(Style::new())
         .selected_style(Style::new())
         .disabled_style(Style::new());
-    column = column.child(SizedBox::new(Some(panel as i32), Some(2), Some(list.into())));
+    column = column.child(SizedBox::new(
+        Some(panel as i32),
+        Some(2),
+        Some(list.into()),
+    ));
     column = column.child(dialog_row(Vec::new(), panel, &plain));
-    column = column.child(dialog_row(vec![span("  ", &plain), span(strings.select_hint, &look.dim)], panel, &plain));
+    column = column.child(dialog_row(
+        vec![span("  ", &plain), span(strings.select_hint, &look.dim)],
+        panel,
+        &plain,
+    ));
     let left = (width - panel) / 2;
     let top = (height - total) / 2;
-    Positioned::new(SizedBox::new(Some(panel as i32), Some(total as i32), Some(column.into())))
-        .left(left as i32)
-        .top(top as i32)
-        .into()
+    Positioned::new(SizedBox::new(
+        Some(panel as i32),
+        Some(total as i32),
+        Some(column.into()),
+    ))
+    .left(left as i32)
+    .top(top as i32)
+    .into()
 }
