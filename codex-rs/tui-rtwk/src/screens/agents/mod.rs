@@ -323,6 +323,9 @@ pub struct Screen {
     pub open: bool,
 }
 
+/// The handlers of the rows' clicks.
+type RowTaps = Rc<Vec<Handler<PointerEvent>>>;
+
 /// What the editing line is for; the controller's text is reset when it
 /// changes (a rename starts from the task's name, a search from nothing).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -352,7 +355,7 @@ pub struct ScreenState {
     listed: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     /// The row handlers made for the rows the list last showed.
-    row_taps: RefCell<Option<(Vec<view::RowKey>, Rc<Vec<Handler<PointerEvent>>>)>>,
+    row_taps: RefCell<Option<(Vec<view::RowKey>, RowTaps)>>,
     listening: Option<Listening>,
     editing: Editing,
     /// What the usage request of the highlighted task depends on, as the

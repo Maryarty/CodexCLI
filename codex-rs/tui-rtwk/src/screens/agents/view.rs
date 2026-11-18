@@ -1241,7 +1241,7 @@ mod tests {
         let base = inputs(center(entries(), false), &agents);
         assert!(base == inputs(center(entries(), true), &agents), "cursor on `Show more`");
         assert!(base != inputs(center(vec![CenterRow::Gap], false), &agents), "other rows");
-        let mut later = agents.clone();
+        let mut later = agents;
         later.now += 1;
         assert!(base != inputs(center(entries(), false), &later), "other model");
     }
