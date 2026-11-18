@@ -1,0 +1,7 @@
+# `analytics_loading_errors_and_empty_reports_stay_independent`: four panels
+# in four states (loading, unavailable, a credits error, an empty range).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"overview":"loading"}}
+{"step":"screen","dir":"usage","ev":{"history":"unavailable"}}
+{"step":"screen","dir":"usage","ev":{"credits":{"failed":"credits"}}}
+{"step":"screen","dir":"usage","ev":{"usage":{"ready":[]}}}

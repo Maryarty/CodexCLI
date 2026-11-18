@@ -103,6 +103,53 @@ pub struct Overview {
     pub longest_chat_secs: u64,
     pub current_streak_days: u32,
     pub longest_streak_days: u32,
+    /// The heat map of the last year (oracle: `activity_chart`).
+    #[serde(default)]
+    pub activity: Activity,
+    /// The "Activity insights" rows, label and shown value.
+    #[serde(default)]
+    pub insights: Vec<Insight>,
+    /// The most used plugins and skills.
+    #[serde(default)]
+    pub top: Vec<TopUse>,
+}
+
+/// The weeks of the heat map and its month marks; `cells` holds the days that
+/// have activity (week, weekday from Sunday, level 1..=4), the rest are empty.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Activity {
+    pub weeks: usize,
+    /// The weekday (from Sunday) of the last day: the last week has no cells
+    /// after it.
+    #[serde(default = "last_day_default")]
+    pub last_day: usize,
+    #[serde(default)]
+    pub months: Vec<MonthMark>,
+    #[serde(default)]
+    pub cells: Vec<(usize, usize, u8)>,
+}
+
+fn last_day_default() -> usize {
+    6
+}
+
+/// A month label over the week the month starts in.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MonthMark {
+    pub week: usize,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Insight {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct TopUse {
+    pub name: String,
+    pub runs: u64,
 }
 
 /// One day of a history.

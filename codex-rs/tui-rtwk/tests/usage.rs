@@ -1,9 +1,6 @@
 //! Screen tests of S20, the `/usage` dashboard. The oracle's wide summary
-//! snapshot (140x44) is compared by the rows ours draws (header, tabs, the
-//! profile block, the five numbers, the activity title, the footer); the rows
-//! of the activity heat map, the insights and the plugin list are listed as
-//! missing in the parity pack. Oracle: `codex-rs/tui/src/analytics/` and
-//! `analytics_tests.rs`.
+//! snapshot (140x44) is compared whole; the panel snapshot is the four
+//! panels' messages. Oracle: `codex-rs/tui/src/analytics/`.
 
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
@@ -20,26 +17,15 @@ fn open(entry: &str, width: u16, height: u16) -> Harness {
     h
 }
 
-fn rows_at(rows: &[String], at: &[usize]) -> Vec<String> {
-    at.iter()
-        .map(|i| rows.get(*i).cloned().unwrap_or_default())
-        .collect()
-}
-
 #[test]
 fn summary_daily_wide_header_numbers_and_footer() {
     let h = open("overview", 140, 44);
-    let ours = oracle_snap::screen(&h.t);
-    let oracle = oracle_snap::rows(SUMMARY);
-    // Row 2 is the rule under the tabs; the oracle's `g Daily` row, the heat
-    // map and the insight blocks are missing (parity pack).
-    let rows: Vec<usize> = vec![0, 1, 8, 9, 10, 12, 13, 15, 16, 41, 42, 43];
-    let footer = oracle.len();
-    assert!(footer >= 43, "oracle snapshot has {footer} rows");
+    // The whole screen: header, tabs, rule, the profile block, the five
+    // numbers, the heat map, the insights and the footer.
     oracle_snap::assert_same(
         "summary_daily_wide",
-        &rows_at(&ours, &rows),
-        &rows_at(&oracle, &rows),
+        &oracle_snap::screen(&h.t),
+        &oracle_snap::rows(SUMMARY),
     );
 }
 
