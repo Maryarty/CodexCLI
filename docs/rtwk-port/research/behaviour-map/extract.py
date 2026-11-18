@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """List candidate behaviours of codex-tui Rust files, deterministically.
 
-Usage: extract.py --screen S14 --root <codex-rs/tui/src> FILE... > candidates.csv
+Usage: extract.py --screen S14 --root <codex-rs/tui/src> FILE[@@REGEX]... > candidates.csv
+
+FILE@@REGEX keeps only that file's candidates whose cited range matches REGEX
+(a host file such as bottom_pane/mod.rs, of which only the screen's wiring counts).
 
 Stdlib only. The script finds *where* behaviour is decided; describing *what*
 it does is the describer's job (behaviour-map-pilot, process.md Part 1 §3
@@ -105,7 +108,7 @@ def excerpt(lines, a, b, n=3):
     return re.sub(r"\s+", " ", text)[:220]
 
 
-def scan(path, rel, screen):
+def scan(path, rel, screen, focus=None):
     lines = path.read_text(encoding="utf-8").splitlines()
     tests = test_ranges(lines)
     rows = []
@@ -150,6 +153,9 @@ def scan(path, rel, screen):
         if sm:
             rows.append(("snapshot", i, i, sm.group(1) or "", line.strip()[:220]))
         i += 1
+    if focus:
+        rx = re.compile(focus)
+        rows = [r for r in rows if rx.search("\n".join(lines[r[1] : r[2] + 1]))]
     out = []
     for kind, a, b, sym, ex in rows:
         out.append(dict(screen=screen, kind=kind, file=rel, line=a + 1, end_line=b + 1, symbol=sym, excerpt=ex))
@@ -165,8 +171,9 @@ def main():
     root = Path(a.root).resolve()
     rows = []
     for f in a.files:
+        f, _, focus = f.partition("@@")
         p = Path(f).resolve()
-        rows += scan(p, str(p.relative_to(root)), a.screen)
+        rows += scan(p, str(p.relative_to(root)), a.screen, focus or None)
     order = {"key-arm": 0, "view-hook": 1, "mutator": 2, "send": 3, "field": 4, "test": 5, "snapshot": 6}
     rows.sort(key=lambda r: (order[r["kind"]], r["file"], r["line"]))
     w = csv.DictWriter(sys.stdout, fieldnames=["id", "screen", "kind", "file", "line", "end_line", "symbol", "excerpt"])

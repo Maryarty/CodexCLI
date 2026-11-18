@@ -1,0 +1,205 @@
+side,id,a_rows,coverage,missing_or_note
+B,S14-R001,S14-H128;S14-H081,partial,"title bold above subtitle dim, both wrapped, placed after custom header: not stated; only gap rule"
+B,S14-R002,S14-H109,full,
+B,S14-R003,S14-H109,full,
+B,S14-R004,-,none,tabs empty -> tabs disabled / left-right ignored: not stated
+B,S14-R005,S14-H109;S14-H134,full,
+B,S14-R006,S14-H109;S14-H059,full,
+B,S14-R007,S14-H109;S14-H114;S14-H097,full,
+B,S14-R008,S14-H109,full,
+B,S14-R009,S14-H109;S14-H160,full,
+B,S14-R010,S14-H028;S14-H027;S14-H027,full,
+B,S14-R011,S14-H029,full,
+B,S14-R012,S14-H030,full,A adds that tab items are not stripped
+B,S14-R013,-,none,"picker() preset (Panel, AutoAllRows, hide <24) not stated"
+B,S14-R014,S14-H108;S14-H114,full,
+B,S14-R015,S14-H108;S14-H127,full,
+B,S14-R016,S14-H107,full,
+B,S14-R017,S14-H108;S14-H127;S14-H121,partial,disabled current row is not preselected: not stated
+B,S14-R018,S14-H107;S14-H085,full,
+B,S14-R019,S14-H101,full,
+B,S14-R020,S14-H096,full,
+B,S14-R021,S14-H094;S14-H093,partial,"A states construction firing but wrongly says it fires for initial/current highlight (code: only when new != initial/current preselect, L:737-742)"
+B,S14-R022,S14-H160;S14-H159,partial,fallback to max_visible_rows when rendered count is 0 not stated
+B,S14-R023,S14-H043;S14-H100,full,
+B,S14-R024,S14-H044;S14-H100,full,
+B,S14-R025,S14-H043;S14-H044;S14-H093,full,
+B,S14-R026,S14-H101,full,
+B,S14-R027,S14-H041;S14-H043,full,
+B,S14-R028,S14-H041,partial,"idle on-demand search leaves plain-char navigation: only implied by ""while the search field is visible"""
+B,S14-R029,S14-H060,full,
+B,S14-R030,S14-H061,partial,C0 control-char normalisation of a remapped binding not stated
+B,S14-R031,S14-H046;S14-H159;S14-H100,full,
+B,S14-R032,S14-H045;S14-H100,partial,"A says skips upward only; code: nearest enabled above, else below, else stays (H100 gives the opposite order)"
+B,S14-R033,S14-H047,full,
+B,S14-R034,S14-H048,full,
+B,S14-R035,S14-H159;S14-H045,full,
+B,S14-R036,S14-H102,full,
+B,S14-R037,S14-H049,full,
+B,S14-R038,S14-H050,full,
+B,S14-R039,S14-H049,partial,only the enabled case is stated; ignore/not-typed when tabs off is implied
+B,S14-R040,S14-H095,full,
+B,S14-R041,S14-H095,full,
+B,S14-R042,S14-H095,partial,new tab current-row preference (non-searchable) and rendered-count reset not stated
+B,S14-R043,S14-H131,full,
+B,S14-R044,-,none,blank row between tab strip and search: not stated (layout)
+B,S14-R045,S14-H130,full,
+B,S14-R046,S14-H086;S14-H057,full,
+B,S14-R047,S14-H087,full,
+B,S14-R048,S14-H088,full,
+B,S14-R049,S14-H087;S14-H088,partial,stays open with no completion only implied
+B,S14-R050,S14-H099;S14-H084,full,
+B,S14-R051,S14-H085,full,
+B,S14-R052,S14-H084,full,
+B,S14-R053,S14-H089,full,
+B,S14-R054,S14-H057,partial,"plain-char accept binding with Immediate search accepts instead of typing: only implied by ""plain-char actions allowed"""
+B,S14-R055,S14-H052,full,
+B,S14-R056,S14-H058;S14-H090,full,
+B,S14-R057,S14-H058,full,
+B,S14-R058,S14-H058;S14-H041,full,
+B,S14-R059,S14-H085,partial,disabled row with secondary key does nothing: A states it only for accept
+B,S14-R060,S14-H063,full,A also flags items-vs-active_items risk
+B,S14-R061,S14-H091,full,
+B,S14-R062,S14-H064,full,
+B,S14-R063,S14-H064,partial,digit 0 / above the count ignored not stated
+B,S14-R064,S14-H139,full,
+B,S14-R065,S14-H140;S14-H064,partial,digits do not select rows when auto numbering is off: only implied
+B,S14-R066,S14-H138,full,
+B,S14-R067,S14-H139,full,
+B,S14-R068,S14-H140,full,
+B,S14-R069,S14-H143,full,
+B,S14-R070,S14-H122;S14-H138,full,
+B,S14-R071,S14-H138;S14-H121,full,
+B,S14-R072,S14-H054;S14-H083,full,
+B,S14-R073,S14-H054;S14-H062,partial,Space typed into a non-empty Immediate query: only implied
+B,S14-R074,S14-H054,partial,Space typed into the on-demand query: only implied
+B,S14-R075,S14-H054,full,
+B,S14-R076,S14-H054;S14-H083,partial,fall-through to typing/ignored not stated
+B,S14-R077,S14-H055,full,
+B,S14-R078,S14-H042,full,
+B,S14-R079,S14-H084,full,
+B,S14-R080,S14-H142,full,
+B,S14-R081,S14-H074;S14-H036,full,
+B,S14-R082,S14-H073,full,
+B,S14-R083,S14-H062,full,
+B,S14-R084,S14-H053,full,
+B,S14-R085,S14-H053,partial,backspace ignored when search hidden: only implied
+B,S14-R086,S14-H060,full,
+B,S14-R087,S14-H106;S14-H125,partial,rows without search_value disappear and plain (non-fuzzy) substring not stated
+B,S14-R088,S14-H106,full,
+B,S14-R089,S14-H107,full,
+B,S14-R090,S14-H107,full,
+B,S14-R091,S14-H135,full,
+B,S14-R092,S14-H094,full,
+B,S14-R093,S14-H104;S14-H105,full,
+B,S14-R094,S14-H097,full,
+B,S14-R095,S14-H075;S14-H031,full,A also derives the defect
+B,S14-R096,S14-H059,full,
+B,S14-R097,S14-H051;S14-H098,full,
+B,S14-R098,S14-H056;S14-H077,full,
+B,S14-R099,S14-H056;S14-H041,partial,plain-char cancel/accept binding typed as query text while on-demand search is open: only implied
+B,S14-R100,S14-H132;S14-H134,full,
+B,S14-R101,S14-H133;S14-H080,full,
+B,S14-R102,-,none,no search row reserved while on-demand search is idle: not stated
+B,S14-R103,S14-H011,full,
+B,S14-R104,S14-H011,full,
+B,S14-R105,S14-H010,full,
+B,S14-R106,S14-H012,full,
+B,S14-R107,S14-H056;S14-H079,full,
+B,S14-R108,S14-H056;S14-H078,full,
+B,S14-R109,S14-H005,full,
+B,S14-R110,S14-H077;S14-H008,full,A correct that the quit hint is disabled
+B,S14-R111,S14-H079;S14-H008,full,
+B,S14-R112,S14-H078,full,
+B,S14-R113,S14-H014,full,
+B,S14-R114,S14-H015,full,
+B,S14-R115,S14-H033,full,
+B,S14-R116,S14-H002,full,
+B,S14-R117,S14-H065,full,
+B,S14-R118,S14-H066;S14-H067;S14-H071;S14-H072;S14-H076;S14-H040;S14-H040,full,
+B,S14-R119,-,none,zero-size render does not panic: not stated
+B,S14-R120,S14-H169;S14-H158,full,
+B,S14-R121,S14-H082,full,
+B,S14-R122,S14-H157,partial,extra blank row above the header not stated
+B,S14-R123,S14-H157,full,
+B,S14-R124,S14-H147;S14-H141,full,
+B,S14-R125,S14-H147,partial,selected disabled row gets no highlight not stated
+B,S14-R126,S14-H141,full,
+B,S14-R127,S14-H144,full,A wrongly adds is_disabled-only rows to the (disabled) suffix
+B,S14-R128,S14-H146,full,
+B,S14-R129,S14-H136;S14-H152;S14-H145,full,
+B,S14-R130,S14-H136,partial,"list height clamp rows.len to [1,max] not stated"
+B,S14-R131,S14-H148;S14-H151,full,
+B,S14-R132,S14-H150,full,
+B,S14-R133,S14-H149,full,
+B,S14-R134,S14-H149,full,
+B,S14-R135,S14-H162,full,
+B,S14-R136,S14-H163;S14-H164,full,
+B,S14-R137,S14-H161;S14-H130,full,
+B,S14-R138,S14-H137;S14-H170,full,
+B,S14-R139,S14-H135,full,
+B,S14-R140,S14-H158,partial,"selected row stays visible as the viewport shrinks: only ""enlarge keeps selection"""
+B,S14-R141,S14-H158,full,
+B,S14-R142,S14-H129,full,
+B,S14-R143,S14-H165,partial,"A omits list width >= 40, Half formula and the 2-cell gap"
+B,S14-R144,S14-H166,full,
+B,S14-R145,S14-H167;S14-H168,full,
+B,S14-R146,-,none,rows laid out at the reduced width: not stated
+B,S14-R147,-,none,theme-picker subtitle (caller)
+B,S14-R148,S14-H081,full,
+B,S14-R149,S14-H158,partial,footer truncation after reserving minimum content only implied
+B,S14-R150,S14-H062,full,
+B,S14-R151,S14-H065,full,
+B,S14-R152,S14-H091;S14-H092,partial,no ensure_visible after a shortcut / no callback when accepted at once only implied
+B,S14-R153,-,none,no mouse handling: not stated
+B,S14-R154,S14-H116;S14-H120,partial,position after gutter and toggle prefix not stated
+B,S14-R155,S14-H116;S14-H120,partial,"kept when description hides, name truncated first: not stated"
+A-only,S14-H001,-,A-only noise,host modality
+A-only,S14-H003,-,A-only noise,covered-view hook
+A-only,S14-H004,-,A-only real,activation-key guard: the key that opened the view cannot act on it (a press that opens a picker must not pick row 1)
+A-only,S14-H006,-,A-only noise,generic path of other views
+A-only,S14-H007,-,A-only noise,task interrupt host rule
+A-only,S14-H009,-,A-only noise,host paste routing
+A-only,S14-H013,-,A-only noise,host tick
+A-only,S14-H016,-,A-only noise,host
+A-only,S14-H017,-,A-only noise,host push
+A-only,S14-H018,-,A-only noise,reconnect
+A-only,S14-H019,-,A-only noise,offline routing
+A-only,S14-H020,-,A-only noise,offline exit
+A-only,S14-H021,-,A-only noise,shutdown
+A-only,S14-H022,-,A-only noise,approval
+A-only,S14-H023,-,A-only noise,approval
+A-only,S14-H024,-,A-only noise,attach image
+A-only,S14-H025,-,A-only noise,composer guards
+A-only,S14-H026,-,A-only noise,trait default hook
+A-only,S14-H032,-,A-only real,"defect (verified): replace_selection_view_if_active copies search_query() = Some("""") of any searchable view and set_search_query opens the on-demand bar the user had closed (mod.rs:1579-1586, list_selection_view.rs:1060-1074, 1524-1526)"
+A-only,S14-H034,-,A-only noise,replace by id
+A-only,S14-H035,-,A-only noise,replace by id
+A-only,S14-H037,-,A-only noise,dismiss by id
+A-only,S14-H038,-,A-only noise,dismiss by id
+A-only,S14-H039,-,A-only noise,pointer row
+A-only,S14-H068,-,A-only noise,trait hook
+A-only,S14-H069,-,A-only noise,trait hook
+A-only,S14-H070,-,A-only noise,trait hook
+A-only,S14-H103,-,A-only noise,other views only
+A-only,S14-H110,-,A-only noise,plumbing
+A-only,S14-H111,-,A-only noise,plumbing
+A-only,S14-H112,-,A-only noise,plumbing
+A-only,S14-H113,-,A-only noise,plumbing
+A-only,S14-H115,-,A-only noise,plumbing
+A-only,S14-H117,-,A-only noise,plumbing
+A-only,S14-H118,-,A-only noise,plumbing
+A-only,S14-H119,-,A-only noise,plumbing
+A-only,S14-H123,-,A-only noise,field list
+A-only,S14-H124,-,A-only noise,field list
+A-only,S14-H126,-,A-only noise,field list
+A-only,S14-H153,-,A-only noise,"halfwidth width measure (layout, test)"
+A-only,S14-H154,-,A-only noise,test restate
+A-only,S14-H155,-,A-only noise,test restate
+A-only,S14-H156,-,A-only noise,not S14
+A-only,S14-H171,-,A-only noise,approval
+A-only,S14-H172,-,A-only noise,other views
+A-only,S14-H173,-,A-only noise,other views
+A-only,S14-H174,-,A-only noise,test pointer
+A-only,S14-H175,-,A-only noise,test pointer
+A-only,S14-H176,-,A-only noise,test pointer

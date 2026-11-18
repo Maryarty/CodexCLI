@@ -8,7 +8,46 @@ Piloted on S14, the generic selection dialog
 (`codex-rs/tui/src/bottom_pane/list_selection_view.rs`, 1,936 production
 lines, 1,622 test lines, plus `selection_picker_tests.rs`).
 
-## Summary
+## Conclusion after two rounds (2026-11-18)
+
+- **The map is evidence, not a specification.** Round 2 (fixed input) passed
+  recall — 94.8 % of the reference, full or partial — but only **40 %** of its
+  176 rows are product behaviour; the rest is how the oracle implements it
+  (view stack, completion flags, callbacks: 56 rows), layout (22), one caller
+  (11), fixtures (10), input plumbing (6). The Sonnet reference is 70 %
+  product. Nobody should build from either directly.
+- **The deliverable is a short specification in the port's terms**
+  (`behaviour-map/s14/spec.md`, template `behaviour-map/spec-template.md`):
+  the API callers use, use cases as Given → action → result with their
+  acceptance test, the key table in precedence order, a few rules, the
+  oracle snapshots as the look, and open points for the person.
+- **A specification must be checked against the code.** The first S14 spec,
+  written from the maps, had 9 statements the code contradicts and 15
+  missing product rules (`s14/judge2-spec-gaps.md`) — e.g. the preview
+  callback's firing rules, what Enter does when every row is disabled, when
+  plain keys are typed into an open search bar. All are fixed in spec.md;
+  five are open points (oracle quirks: keep for parity or fix).
+- **Pipeline per screen:** script candidates → Haiku map (cheap; the
+  completeness checklist) → Sonnet writes the spec from the map's product
+  rows and the code → an independent Sonnet check: every spec statement
+  against the code, every product row of the map covered or listed as not
+  carried → the person decides the open points → the porter gets the spec.
+  The map stays as the evidence index behind the spec's row references.
+
+## Round 2 (fixed input)
+
+v3 candidates (304: public struct fields, arm precedence, the host
+`bottom_pane/mod.rs` filtered to selection wiring, the selection helpers),
+the precedence prompt. Haiku: 176 rules, all 263 citations valid, 48.5k
+tokens reported, 21 min. Judge (Sonnet, every row read): 164 correct, 11
+imprecise, **1 wrong** (H094: the preview callback at construction). Recall
+against the same reference: full 118, partial 29, none 8 = **94.8 %**; 49
+rows the reference lacks, 2 of them real (the activation-key guard, and an
+oracle defect: a refresh reopens a closed on-demand search bar). The recall
+criterion (≥ 90 %) is met, the precision one (0 wrong) missed by one row;
+the bigger finding is the noise share above.
+
+## Round 1
 
 - **Haiku is accurate where it looks**: of its 127 rules, a blind Sonnet
   judge reading every cited range found 119 correct, 8 imprecise, **0 wrong**;
@@ -23,11 +62,8 @@ lines, 1,622 test lines, plus `selection_picker_tests.rs`).
 - **Test links are unreliable from either model**: a test listed on a rule
   fully asserts that rule in 6 of 15 sampled Haiku rows and 7 of 15 Sonnet
   rows; the rest assert part of it or the neighbouring branch.
-- **Recommendation**: adopt the map as the specification index, built by
-  script + Haiku + a Sonnet gap pass, after one more S14 round that shows the
-  fixed input closes the gap (criterion below). Risky screens get Sonnet
-  maps. The tests column is "candidate tests"; the exact test → rule mapping
-  stays the porter's, in the parity pack.
+- Round-1 recommendation (superseded by the conclusion above): adopt the
+  map as the specification index after one more round.
 
 ## Method
 
@@ -91,7 +127,7 @@ fires at construction when nothing is preselected; the shortcut path searches
 all items, not the active tab's). A porter writes a test for those from the
 code.
 
-## Recommendation for the full run
+## Recommendation for the full run (round 1; see the conclusion at the top)
 
 1. **One more round on S14 before scaling** (~130k Haiku + a judge): v2
    candidates, the file set with `bottom_pane/mod.rs` and the selection

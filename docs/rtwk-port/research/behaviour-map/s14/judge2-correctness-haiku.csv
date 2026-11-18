@@ -1,0 +1,177 @@
+id,verdict,reason
+S14-H001,correct,cited range read; claim matches the code
+S14-H002,imprecise,handle_key_release goes to every view in the stack including the top one (mod.rs:914-918); only handle_key_event is withheld from it; also the transition-key guard (mod.rs:911) consumes first
+S14-H003,correct,cited range read; claim matches the code
+S14-H004,correct,cited range read; claim matches the code
+S14-H005,correct,cited range read; claim matches the code
+S14-H006,correct,cited range read; claim matches the code
+S14-H007,correct,cited range read; claim matches the code
+S14-H008,correct,"verified: DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED=false and show_quit_shortcut_hint returns early (mod.rs:258, 1373-1376)"
+S14-H009,correct,cited range read; claim matches the code
+S14-H010,correct,cited range read; claim matches the code
+S14-H011,correct,cited range read; claim matches the code
+S14-H012,correct,cited range read; claim matches the code
+S14-H013,correct,cited range read; claim matches the code
+S14-H014,correct,cited range read; claim matches the code
+S14-H015,correct,cited range read; claim matches the code
+S14-H016,correct,cited range read; claim matches the code
+S14-H017,correct,cited range read; claim matches the code
+S14-H018,correct,cited range read; claim matches the code
+S14-H019,correct,cited range read; claim matches the code
+S14-H020,correct,cited range read; claim matches the code
+S14-H021,correct,cited range read; claim matches the code
+S14-H022,correct,cited range read; claim matches the code
+S14-H023,correct,cited range read; claim matches the code
+S14-H024,correct,cited range read; claim matches the code
+S14-H025,correct,cited range read; claim matches the code
+S14-H026,correct,cited range read; claim matches the code
+S14-H027,correct,cited range read; claim matches the code
+S14-H028,correct,cited range read; claim matches the code
+S14-H029,correct,cited range read; claim matches the code
+S14-H030,correct,verified: apply_standard_popup_hint iterates params.items only (mod.rs:1537-1548)
+S14-H031,correct,cited range read; claim matches the code
+S14-H032,correct,"defect verified: trait search_query() is_searchable.then_some(..) = Some("""") (L:1524-1526); replace_selection_view_if_active calls set_search_query for any searchable params (mod.rs:1579-1586); set_search_query sets search_active = true (L:1066)"
+S14-H033,correct,cited range read; claim matches the code
+S14-H034,correct,cited range read; claim matches the code
+S14-H035,correct,cited range read; claim matches the code
+S14-H036,correct,cited range read; claim matches the code
+S14-H037,correct,cited range read; claim matches the code
+S14-H038,correct,cited range read; claim matches the code
+S14-H039,imprecise,"not a behaviour row; trigger ""view pushed"" does not match the cited accessors (mod.rs:1717-1729 selected_index_for_present_view); content is a pointer"
+S14-H040,correct,cited range read; claim matches the code
+S14-H041,correct,cited range read; claim matches the code
+S14-H042,correct,cited range read; claim matches the code
+S14-H043,correct,cited range read; claim matches the code
+S14-H044,correct,cited range read; claim matches the code
+S14-H045,imprecise,"after the clamped page move a disabled landing row goes to the nearest enabled above, else below, else stays (list_selection_view.rs:1256-1270); A says upward only"
+S14-H046,correct,cited range read; claim matches the code
+S14-H047,correct,cited range read; claim matches the code
+S14-H048,correct,cited range read; claim matches the code
+S14-H049,correct,cited range read; claim matches the code
+S14-H050,correct,cited range read; claim matches the code
+S14-H051,correct,cited range read; claim matches the code
+S14-H052,correct,cited range read; claim matches the code
+S14-H053,correct,cited range read; claim matches the code
+S14-H054,correct,cited range read; claim matches the code
+S14-H055,correct,cited range read; claim matches the code
+S14-H056,correct,verified: cancel arm precedes accept arm (L:1394-1402); on_ctrl_c closes the on-demand search first
+S14-H057,correct,cited range read; claim matches the code
+S14-H058,correct,cited range read; claim matches the code
+S14-H059,correct,cited range read; claim matches the code
+S14-H060,correct,cited range read; claim matches the code
+S14-H061,correct,cited range read; claim matches the code
+S14-H062,correct,cited range read; claim matches the code
+S14-H063,correct,risk verified: position over self.items (L:1436-1450) but select_shortcut indexes active_items (L:1025-1040)
+S14-H064,correct,cited range read; claim matches the code
+S14-H065,correct,cited range read; claim matches the code
+S14-H066,correct,cited range read; claim matches the code
+S14-H067,correct,cited range read; claim matches the code
+S14-H068,correct,cited range read; claim matches the code
+S14-H069,correct,cited range read; claim matches the code
+S14-H070,correct,cited range read; claim matches the code
+S14-H071,correct,cited range read; claim matches the code
+S14-H072,correct,cited range read; claim matches the code
+S14-H073,imprecise,"selection_toggle_states returns Some only for toggle rows with pending_toggle_actions > 0 (L:1502-1515), not ""each active row"""
+S14-H074,correct,cited range read; claim matches the code
+S14-H075,correct,cited range read; claim matches the code
+S14-H076,correct,cited range read; claim matches the code
+S14-H077,correct,cited range read; claim matches the code
+S14-H078,correct,cited range read; claim matches the code
+S14-H079,correct,cited range read; claim matches the code
+S14-H080,correct,cited range read; claim matches the code
+S14-H081,correct,cited range read; claim matches the code
+S14-H082,correct,cited range read; claim matches the code
+S14-H083,correct,cited range read; claim matches the code
+S14-H084,correct,cited range read; claim matches the code
+S14-H085,correct,cited range read; claim matches the code
+S14-H086,correct,cited range read; claim matches the code
+S14-H087,correct,cited range read; claim matches the code
+S14-H088,imprecise,"the flag is set on the view whose row was accepted (self.dismiss_after_child_accept = true, L:1013-1014); A says it flags ""the parent"" of this child, which inverts the relation (the host pops it when a later child is accepted, mod.rs:780-790)"
+S14-H089,correct,cited range read; claim matches the code
+S14-H090,correct,cited range read; claim matches the code
+S14-H091,correct,cited range read; claim matches the code
+S14-H092,correct,cited range read; claim matches the code
+S14-H093,correct,cited range read; claim matches the code
+S14-H094,wrong,"claims the callback fires ""including when the initial or current highlight is set at construction""; apply_filter fires only if new_actual != previously_selected, and previously_selected is the initial_selected_idx / enabled current row (L:673-690, 737-742), so those cases do not fire; only a default first-row highlight does (see test drain at L:2807-2815)"
+S14-H095,correct,cited range read; claim matches the code
+S14-H096,correct,cited range read; claim matches the code
+S14-H097,correct,cited range read; claim matches the code
+S14-H098,correct,cited range read; claim matches the code
+S14-H099,correct,cited range read; claim matches the code
+S14-H100,imprecise,"clamped up variants search backward then forward (L:1256-1270), only the down variants search forward then backward; A says forward then backward for all"
+S14-H101,correct,cited range read; claim matches the code
+S14-H102,correct,cited range read; claim matches the code
+S14-H103,correct,cited range read; claim matches the code
+S14-H104,correct,cited range read; claim matches the code
+S14-H105,correct,cited range read; claim matches the code
+S14-H106,correct,cited range read; claim matches the code
+S14-H107,correct,cited range read; claim matches the code
+S14-H108,correct,cited range read; claim matches the code
+S14-H109,correct,cited range read; claim matches the code
+S14-H110,correct,cited range read; claim matches the code
+S14-H111,correct,cited range read; claim matches the code
+S14-H112,correct,cited range read; claim matches the code
+S14-H113,correct,cited range read; claim matches the code
+S14-H114,correct,cited range read; claim matches the code
+S14-H115,correct,cited range read; claim matches the code
+S14-H116,correct,cited range read; claim matches the code
+S14-H117,correct,cited range read; claim matches the code
+S14-H118,correct,cited range read; claim matches the code
+S14-H119,correct,cited range read; claim matches the code
+S14-H120,correct,cited range read; claim matches the code
+S14-H121,correct,cited range read; claim matches the code
+S14-H122,correct,cited range read; claim matches the code
+S14-H123,correct,cited range read; claim matches the code
+S14-H124,correct,cited range read; claim matches the code
+S14-H125,correct,cited range read; claim matches the code
+S14-H126,correct,cited range read; claim matches the code
+S14-H127,correct,cited range read; claim matches the code
+S14-H128,correct,cited range read; claim matches the code
+S14-H129,correct,cited range read; claim matches the code
+S14-H130,correct,cited range read; claim matches the code
+S14-H131,correct,cited range read; claim matches the code
+S14-H132,correct,cited range read; claim matches the code
+S14-H133,correct,cited range read; claim matches the code
+S14-H134,correct,cited range read; claim matches the code
+S14-H135,correct,cited range read; claim matches the code
+S14-H136,correct,cited range read; claim matches the code
+S14-H137,correct,cited range read; claim matches the code
+S14-H138,correct,cited range read; claim matches the code
+S14-H139,correct,cited range read; claim matches the code
+S14-H140,correct,cited range read; claim matches the code
+S14-H141,correct,cited range read; claim matches the code
+S14-H142,correct,cited range read; claim matches the code
+S14-H143,correct,cited range read; claim matches the code
+S14-H144,imprecise,""" (disabled)"" is appended only when disabled_reason is Some (selection_row_layout.rs:122-124); is_disabled alone only dims. Reason-alone only applies with no description (selection_row_layout.rs:55-64)"
+S14-H145,correct,cited range read; claim matches the code
+S14-H146,correct,cited range read; claim matches the code
+S14-H147,imprecise,"""other rows use the text accent"" is unsupported: only selected and disabled rows are styled (selection_popup_common.rs:234-274); the full-width selected style is not Panel-only"
+S14-H148,correct,cited range read; claim matches the code
+S14-H149,correct,cited range read; claim matches the code
+S14-H150,correct,cited range read; claim matches the code
+S14-H151,correct,cited range read; claim matches the code
+S14-H152,correct,cited range read; claim matches the code
+S14-H153,correct,cited range read; claim matches the code
+S14-H154,correct,cited range read; claim matches the code
+S14-H155,correct,cited range read; claim matches the code
+S14-H156,correct,cited range read; claim matches the code
+S14-H157,correct,cited range read; claim matches the code
+S14-H158,correct,cited range read; claim matches the code
+S14-H159,correct,cited range read; claim matches the code
+S14-H160,correct,cited range read; claim matches the code
+S14-H161,correct,cited range read; claim matches the code
+S14-H162,correct,cited range read; claim matches the code
+S14-H163,correct,cited range read; claim matches the code
+S14-H164,correct,cited range read; claim matches the code
+S14-H165,correct,cited range read; claim matches the code
+S14-H166,correct,cited range read; claim matches the code
+S14-H167,correct,cited range read; claim matches the code
+S14-H168,correct,cited range read; claim matches the code
+S14-H169,correct,cited range read; claim matches the code
+S14-H170,correct,cited range read; claim matches the code
+S14-H171,correct,cited range read; claim matches the code
+S14-H172,correct,cited range read; claim matches the code
+S14-H173,correct,cited range read; claim matches the code
+S14-H174,imprecise,not a behaviour row (pointer to snapshot tests)
+S14-H175,imprecise,not a behaviour row (pointer to snapshot tests)
+S14-H176,imprecise,not a behaviour row (list of test ids)
