@@ -370,7 +370,14 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Screen(ScreenIntent::Agents(intent)) => {
-            let outs = agents::update(&mut Rc::make_mut(&mut app.screens).agents, intent);
+            let screens = Rc::make_mut(&mut app.screens);
+            if matches!(intent, agents::Intent::Open) {
+                // Opened over a chat: its thread is the one `esc` returns to
+                // and the one the list starts on.
+                screens.agents.current =
+                    app.session.active.as_ref().map(|id| id.as_str().to_owned());
+            }
+            let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),

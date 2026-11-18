@@ -39,19 +39,19 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "overview",
             description: "three tasks of one project; the first one needs you",
             script: include_str!("fixtures/overview.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true }.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
         },
         DebugEntry {
             name: "attention",
             description: "a task whose child waits for an approval and a response",
             script: include_str!("fixtures/attention.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true }.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
         },
         DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: false }.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: false, open: false }.into()),
         },
     ]
 }
@@ -59,12 +59,73 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// The route of this screen, pushed by the widget that opens it
 /// (`Navigator::of(cx).push`).
 pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Screen { can_return: true }.into())
+    PageRoute::new(|_| {
+        Screen {
+            can_return: true,
+            open: true,
+        }
+        .into()
+    })
 }
 
 /// Opens the command center on the live model (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen { can_return: true }.into())
+    DebugOpen::Route(|_| {
+        Screen {
+            can_return: true,
+            open: true,
+        }
+        .into()
+    })
+}
+
+/// `codex-rtwk agents`: the chat is the navigator's home as ever, and the
+/// command center is pushed over it at once with nowhere to go back to; a
+/// session opened from it pops the center and shows the chat.
+pub fn standalone(chat: AnyWidget) -> AnyWidget {
+    Standalone { chat }.into()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Standalone {
+    chat: AnyWidget,
+}
+
+struct StandaloneState;
+
+impl StatefulWidget for Standalone {
+    type State = StandaloneState;
+
+    fn create_state(&self) -> StandaloneState {
+        StandaloneState
+    }
+}
+
+impl_widget!(stateful eq Standalone);
+
+impl State for StandaloneState {
+    type Widget = Standalone;
+    type Msg = ();
+
+    fn init_state(&mut self, _: &Standalone, cx: &mut Cx<'_, Self>) {
+        let push = cx.send(());
+        cx.emit(&push, ());
+    }
+
+    fn update(&mut self, _: (), _: &Standalone, cx: &mut Cx<'_, Self>) -> Rebuild {
+        drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| {
+            Screen {
+                can_return: false,
+                open: true,
+            }
+            .into()
+        })));
+        Rebuild::No
+    }
+
+    fn build(&self, w: &Standalone, _: &mut Cx<'_, Self>) -> AnyWidget {
+        w.chat.clone()
+    }
 }
 
 /// The command center; `can_return` is whether a chat lies under it (the
@@ -72,6 +133,9 @@ pub fn open_empty() -> DebugOpen {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen {
     pub can_return: bool,
+    /// Whether mounting asks for the tasks (a live screen); a seeded one
+    /// shows its fixture as it is.
+    pub open: bool,
 }
 
 /// Widget state: the list's scroll (view state, R14) and the rows the last
@@ -79,10 +143,13 @@ pub struct Screen {
 pub struct ScreenState {
     list: ListController,
     page: Rc<Cell<usize>>,
-    scroll: Rc<Cell<usize>>,
-    /// The thread the screen was opened over: when the model's current thread
-    /// is another (a resume answered), the screen has done its work.
-    entered: Option<Option<String>>,
+    /// The highlighted entry the list was last asked to show: the list is
+    /// moved when the highlight moves, not on every model change (a wheel
+    /// scroll stays where it is).
+    followed: Option<usize>,
+    /// How many resumes the model had answered when the screen opened: one
+    /// more means a session was opened from here.
+    entered: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,7 +166,7 @@ impl StatefulWidget for Screen {
         ScreenState {
             list: ListController::new(),
             page: Rc::new(Cell::new(10)),
-            scroll: Rc::new(Cell::new(0)),
+            followed: None,
             entered: None,
         }
     }
@@ -175,15 +242,37 @@ impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
+    fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
+        if w.open {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::Open));
+        }
+    }
+
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        let current = watch::<ScreenStates, _>(cx).agents.current.clone();
-        match &self.entered {
-            None => self.entered = Some(current),
-            Some(entered) if *entered != current && current.is_some() => {
+        let screens = watch::<ScreenStates, _>(cx);
+        let model = &screens.agents;
+        match self.entered {
+            None => self.entered = Some(model.resumes),
+            Some(entered) if model.resumes > entered => {
                 // A resume was answered: the chat shows the thread now.
                 Navigator::maybe_pop(cx);
             }
             Some(_) => {}
+        }
+        // The oracle's window (`render_center_rows`): it moves the least that
+        // shows the highlighted row, and shows the heading above a first task
+        // that scrolls in from above.
+        let center = model.center();
+        let selected = center.selected_entry();
+        if selected != self.followed {
+            self.followed = selected;
+            if let Some(selected) = selected {
+                self.list.ensure_index_visible(selected);
+                if selected > 0 && matches!(center.entries[selected - 1], CenterRow::Group { .. }) {
+                    self.list.ensure_index_visible(selected - 1);
+                }
+            }
         }
     }
 
@@ -246,7 +335,6 @@ impl State for ScreenState {
         let can_return = w.can_return;
         let list = self.list.clone();
         let page = self.page.clone();
-        let remembered = self.scroll.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
             let width = usize::try_from(constraints.max_width).unwrap_or(0);
             let height = usize::try_from(constraints.max_height).unwrap_or(0);
@@ -256,7 +344,6 @@ impl State for ScreenState {
             let list_rows = areas.body_height.saturating_sub(usize::from(editing));
             let viewport = list_rows.saturating_sub(2 * usize::from(list_rows >= 3));
             page.set(viewport);
-            sync_scroll(&list, &remembered, &center, viewport);
             let mut column = rtwk::layout::Column::new()
                 .cross_axis_alignment(rtwk::layout::CrossAxisAlignment::Start);
             if areas.header > 0 {
@@ -273,26 +360,5 @@ impl State for ScreenState {
             column.into()
         });
         Focus::new(body).autofocus().on_key(cx.keys(on_key)).into()
-    }
-}
-
-/// Keeps the highlighted entry in the window the way the oracle does
-/// (`render_center_rows`): the window moves the least, and shows the heading
-/// above a first task that scrolls into view from above.
-fn sync_scroll(list: &ListController, remembered: &Cell<usize>, center: &codex_tui_core::screens::agents::Center, viewport: usize) {
-    let Some(selected) = center.selected_entry() else {
-        return;
-    };
-    let entries = center.entries.len();
-    let current = if list.has_clients() {
-        usize::try_from(list.offset()).unwrap_or(0)
-    } else {
-        remembered.get()
-    };
-    let group_above = selected > 0 && matches!(center.entries[selected - 1], CenterRow::Group { .. });
-    let start = layout::scroll(current, selected, entries, viewport, group_above);
-    remembered.set(start);
-    if start != current {
-        list.jump_to_index(start);
     }
 }

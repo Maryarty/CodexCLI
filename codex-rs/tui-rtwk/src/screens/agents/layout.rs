@@ -153,18 +153,6 @@ pub fn center_truncate_path(path: &str, max: usize) -> String {
     format!("{start}\u{2026}{end}")
 }
 
-/// The list's scroll after `selected` moved (oracle: `render_center_rows`).
-pub fn scroll(current: usize, selected: usize, entries: usize, height: usize, group_above: bool) -> usize {
-    let mut start = current.min(entries.saturating_sub(height));
-    if selected < start {
-        start = if height > 1 && selected > 0 && group_above { selected - 1 } else { selected };
-    }
-    if selected >= start + height {
-        start = (selected + 1).saturating_sub(height);
-    }
-    start
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,6 +27,9 @@ pub struct UiState {
     pub lang: Lang,
     /// Open the debug menu at start (`--debug-screens`).
     pub debug: bool,
+    /// Open the agent command center over the chat at start (`codex-rtwk
+    /// agents`).
+    pub start_agents: bool,
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
@@ -54,6 +57,7 @@ impl UiApp {
                 thread_ui: ThreadUiMap::default(),
                 lang: Lang::default(),
                 debug: false,
+                start_agents: false,
                 presenter: Presenter::new(),
             },
             link: shell::Link::new(backend),
@@ -62,6 +66,11 @@ impl UiApp {
 
     pub fn with_debug_screens(mut self, on: bool) -> Self {
         self.ui.debug = on;
+        self
+    }
+
+    pub fn with_start_agents(mut self, on: bool) -> Self {
+        self.ui.start_agents = on;
         self
     }
 

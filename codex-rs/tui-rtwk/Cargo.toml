@@ -142,3 +142,7 @@ path = "tests/fixtures.rs"
 [[test]]
 name = "carried"
 path = "tests/carried.rs"
+
+[[test]]
+name = "agents_mouse"
+path = "tests/agents_mouse.rs"

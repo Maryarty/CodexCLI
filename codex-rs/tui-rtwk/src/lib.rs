@@ -24,6 +24,8 @@ pub struct Cli {
     pub locale: Option<rtwk::l10n::Locale>,
     /// `-m` / `--model`: the model for the new thread, over the config's.
     pub model: Option<String>,
+    /// The `agents` subcommand: open the agent command center first.
+    pub agents: bool,
 }
 
 impl Cli {
@@ -33,6 +35,7 @@ impl Cli {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
+                "agents" => cli.agents = true,
                 "-m" | "--model" => {
                     let value = args
                         .next()

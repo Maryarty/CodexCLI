@@ -200,6 +200,8 @@ pub struct Model {
     pub now: i64,
     /// The home directory (the shell reads it): `~` in displayed paths.
     pub home: Option<String>,
+    /// How many resumes were answered (the view pops itself on a new one).
+    pub resumes: u32,
     pub paging: Paging,
     pub notice: Option<Notice>,
     pub confirm: Option<Confirm>,

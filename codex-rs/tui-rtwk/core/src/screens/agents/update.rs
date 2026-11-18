@@ -420,7 +420,10 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 }
             }
         }
-        (Ctx::Resume { thread }, Ok(_)) => model.current = Some(thread),
+        (Ctx::Resume { thread }, Ok(_)) => {
+            model.current = Some(thread);
+            model.resumes += 1;
+        }
         (Ctx::Start, _) => {}
     }
     Vec::new()

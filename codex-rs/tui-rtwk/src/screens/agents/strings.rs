@@ -114,7 +114,13 @@ pub const EN: Strings = Strings {
     grouping_key: "g",
     filters: ["All", "Needs you", "Working", "Ready", "Inactive"],
     filter_count: msg!("{0} {1}"),
-    filter_keys: "tab/\u{21e7}tab",
+    // The oracle's `key_hint` labels Shift with a glyph on macOS and with
+    // the word elsewhere (`MODIFIER_LABELS`).
+    filter_keys: if cfg!(target_os = "macos") {
+        "tab/\u{21e7}tab"
+    } else {
+        "tab/shift+tab"
+    },
     filter_label: "filter",
     tasks: "Tasks",
     group_heading: msg!("{0}  {1}"),
