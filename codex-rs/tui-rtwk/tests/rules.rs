@@ -415,8 +415,16 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
         // The agents screen's list cursor (`SelectionController`) and its
         // search/rename line (`TextEditingController`) are view state of the
         // screen's widget, not app data: the model keeps the highlighted task
-        // and the search text it filters by.
-        |name| name == "src/ui/thread_ui.rs" || name == "src/screens/agents/mod.rs",
+        // and the search text it filters by; so is the cursor of the
+        // confirmation dialog's two rows (`agents/dialogs.rs`).
+        |name| {
+            matches!(
+                name,
+                "src/ui/thread_ui.rs"
+                    | "src/screens/agents/mod.rs"
+                    | "src/screens/agents/dialogs.rs"
+            )
+        },
     );
     assert!(found.is_empty(), "R14: {found:#?}");
 }

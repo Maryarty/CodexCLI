@@ -6,20 +6,22 @@
 //! holds the keys, the mouse and the widget state, `view.rs` the widgets.
 //! Oracle: `tui/src/app/agent_center/` and `app/agents_overview_view.rs`.
 
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::controls::SelectionController;
 use rtwk::editing::TextEditingController;
-use rtwk::focus::{Focus, FocusNode, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Stack, StackFit};
+use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded};
 use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
 use codex_tui_core::screens::agents::{Action, Center, CenterRow, Lens, Model, Sel};
@@ -32,6 +34,7 @@ use crate::screens::EntryOpen;
 use crate::ui::seeded::Seeded;
 use crate::ui::view::Hs;
 
+mod dialogs;
 mod help;
 mod path;
 mod soft;
@@ -320,6 +323,9 @@ pub struct Screen {
     pub open: bool,
 }
 
+/// The handlers of the rows' clicks.
+type RowTaps = Rc<Vec<Handler<PointerEvent>>>;
+
 /// What the editing line is for; the controller's text is reset when it
 /// changes (a rename starts from the task's name, a search from nothing).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,13 +344,7 @@ pub struct ScreenState {
     /// The screen's own focus: the keys have it while the help replaces the list.
     root_focus: FocusNode,
     edit_focus: FocusNode,
-    /// The confirmation's two rows and the focus they take while it shows.
-    confirm_selection: SelectionController<usize>,
-    confirm_focus: FocusNode,
-    /// The removal waiting for the user's answer (the view's own state; the
-    /// model learns of it only when it is answered yes).
-    confirm: Option<view::Confirm>,
-    /// The failure dialog shows (it takes the focus).
+    /// The failure dialog was opened for the model's failure.
     failing: bool,
     /// The shortcut help replaces the list.
     help: bool,
@@ -354,6 +354,8 @@ pub struct ScreenState {
     /// holds no focus, so the keys go to the screen's root.
     listed: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
+    /// The row handlers made for the rows the list last showed.
+    row_taps: RefCell<Option<(Vec<view::RowKey>, RowTaps)>>,
     listening: Option<Listening>,
     editing: Editing,
     /// What the usage request of the highlighted task depends on, as the
@@ -372,7 +374,7 @@ pub struct ScreenState {
 
 /// The center's model, the one part of the app's screens this screen reads: it
 /// is rebuilt when this model changes, not when another screen's does.
-fn watched<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
+pub(super) fn watched<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
     select::<ScreenStates, Shared<Model>, _>(cx, |states| states.agents.clone())
 }
 
@@ -388,7 +390,7 @@ struct UsageKey {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
-    Key(KeyPress),
+    Act(Act),
     /// The list's cursor moved.
     Cursor,
     /// A row was clicked.
@@ -402,8 +404,8 @@ pub enum Msg {
     Open,
     /// The mode changed (help, editing): the keys go to what shows now.
     Refocus,
-    /// Enter on a row of the confirmation.
-    ConfirmPick(usize),
+    /// The confirmation dialog was answered yes: the removal.
+    Confirmed(view::Confirm),
 }
 
 impl StatefulWidget for Screen {
@@ -416,14 +418,12 @@ impl StatefulWidget for Screen {
             list_focus: FocusNode::new(),
             root_focus: FocusNode::new(),
             edit_focus: FocusNode::new(),
-            confirm_selection: SelectionController::new(),
-            confirm_focus: FocusNode::new(),
-            confirm: None,
             failing: false,
             help: false,
             filter: 0,
             listed: true,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
+            row_taps: RefCell::new(None),
             listening: None,
             editing: Editing::No,
             usage_seen: None,
@@ -436,88 +436,81 @@ impl StatefulWidget for Screen {
 
 impl_widget!(stateful eq Screen);
 
-fn on_key(key: KeyPress) -> Option<Msg> {
-    (key.code != KeyCode::F12).then_some(Msg::Key(key))
+/// What a bound key means: a request to the model, or a change of the
+/// screen's own state. The task a request is about is the list's cursor,
+/// read when the key arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Act {
+    /// `ctrl+c`: it cancels a line, otherwise it quits (the app's).
+    Interrupt,
+    Escape,
+    Step { forward: bool },
+    Filter { back: bool },
+    Help,
+    Search,
+    Grouping,
+    New,
+    NewWorktree,
+    Rename,
+    Archive,
+    Delete,
+    Hide,
+    Pin,
+    Stop,
+    Open,
+    Fork,
+    Right,
 }
 
-/// What a key means: a request to the model, or a change of the screen's own
-/// state (the help, the tab, the editing line, the confirmation).
-enum Act {
-    Core(AgentsIntent),
-    CloseHelp,
-    ToggleHelp,
-    CycleFilter { back: bool },
-    CancelEditing,
-    BeginSearch,
-    BeginRename(String),
-    Confirm(String, Action),
-    Right(Sel),
-}
-
-/// The act a key means on the screen (oracle: `handle_key_event`,
-/// `command_center_key`, `rename_key` with the default keymap), or `None`
-/// for a key the screen does not take. The list moves its own cursor by the
-/// arrows, the page keys, Home and End; the editing line takes the text.
-fn act_of(key: &KeyPress, editing: bool, help: bool, at: Option<&Sel>) -> Option<Act> {
-    let task = || match at {
-        Some(Sel::Task(id)) => Some(id.clone()),
-        _ => None,
-    };
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    let shift = key.mods.contains(Mods::SHIFT);
-    let text = key.as_text().filter(|_| !ctrl && !alt);
-    if help {
-        return match key.code {
-            KeyCode::Escape => Some(Act::CloseHelp),
-            _ if text == Some("?") => Some(Act::CloseHelp),
-            _ => None,
-        };
-    }
-    match key.code {
-        KeyCode::Escape => return Some(Act::CancelEditing),
-        KeyCode::Tab if !editing => return Some(Act::CycleFilter { back: shift }),
-        KeyCode::F3 => return Some(Act::BeginSearch),
-        _ => {}
-    }
-    if ctrl {
-        return (key.ch == Some('c')).then_some(Act::CancelEditing);
-    }
-    if editing {
-        return None;
-    }
-    match (key.code, text) {
-        (KeyCode::Backspace, _) => task().map(|id| Act::Confirm(id, Action::Delete)),
-        (KeyCode::Right, _) if !shift => at.cloned().map(Act::Right),
-        (_, Some("?")) => Some(Act::ToggleHelp),
-        (_, Some("g")) => Some(Act::Core(AgentsIntent::CycleGrouping)),
-        (_, Some("/")) => Some(Act::BeginSearch),
-        (_, Some("n")) => Some(Act::Core(AgentsIntent::New(task()))),
-        (_, Some("r")) => task().map(Act::BeginRename),
-        (_, Some("a")) => task().map(|id| Act::Confirm(id, Action::Archive)),
-        (_, Some("h")) => task().map(|id| Act::Core(AgentsIntent::Hide(id))),
-        (_, Some("p")) => task().map(|id| Act::Core(AgentsIntent::TogglePin(id))),
-        (_, Some("x")) => task().map(|id| Act::Core(AgentsIntent::Stop(id))),
-        (_, Some("o")) => at.cloned().map(|sel| Act::Core(AgentsIntent::Accept(sel))),
-        (_, Some("f")) => task().map(|id| Act::Core(AgentsIntent::Fork(id))),
-        (_, Some("w")) => Some(Act::Core(AgentsIntent::NewWorktree(task()))),
-        _ => None,
-    }
-}
-
-/// Whether a key steps the highlight (`Some(true)` down): the list keymap's
-/// defaults beyond the arrows (oracle: `list.move_up`, `list.move_down`).
-fn step_of(key: &KeyPress) -> Option<bool> {
-    let ctrl = key.mods.contains(Mods::CTRL);
-    let alt = key.mods.contains(Mods::ALT);
-    match (key.ch, ctrl, alt) {
-        (Some('j' | 'n'), true, false) => Some(true),
-        (Some('k' | 'p'), true, false) => Some(false),
-        (Some('j'), false, false) => Some(true),
-        (Some('k'), false, false) => Some(false),
-        _ => None,
-    }
-}
+/// The keys of each mode (oracle: `handle_key_event`, `command_center_key`,
+/// `rename_key` with the default keymap), bound with rtwk's `KeyBindings`:
+/// the keys a focused widget takes (the arrows, the page keys, Home and End
+/// of the list; the text of the editing line) never reach them. The list
+/// keymap's `j`/`k` and ctrl+n/p/j/k step the highlight.
+const HELP_KEYS: &[(&str, Act)] = &[
+    ("escape", Act::Escape),
+    ("?", Act::Help),
+    ("ctrl+c", Act::Interrupt),
+];
+const SEARCH_KEYS: &[(&str, Act)] = &[
+    ("escape", Act::Escape),
+    ("f3", Act::Search),
+    ("ctrl+c", Act::Interrupt),
+    ("down", Act::Step { forward: true }),
+    ("up", Act::Step { forward: false }),
+];
+const RENAME_KEYS: &[(&str, Act)] = &[
+    ("escape", Act::Escape),
+    ("f3", Act::Search),
+    ("ctrl+c", Act::Interrupt),
+];
+const BROWSE_KEYS: &[(&str, Act)] = &[
+    ("escape", Act::Escape),
+    ("tab", Act::Filter { back: false }),
+    ("shift+tab", Act::Filter { back: true }),
+    ("f3", Act::Search),
+    ("ctrl+c", Act::Interrupt),
+    ("ctrl+j", Act::Step { forward: true }),
+    ("ctrl+n", Act::Step { forward: true }),
+    ("j", Act::Step { forward: true }),
+    ("ctrl+k", Act::Step { forward: false }),
+    ("ctrl+p", Act::Step { forward: false }),
+    ("k", Act::Step { forward: false }),
+    ("backspace", Act::Delete),
+    ("right", Act::Right),
+    ("?", Act::Help),
+    ("g", Act::Grouping),
+    ("/", Act::Search),
+    ("n", Act::New),
+    ("r", Act::Rename),
+    ("a", Act::Archive),
+    ("h", Act::Hide),
+    ("p", Act::Pin),
+    ("x", Act::Stop),
+    ("o", Act::Open),
+    ("f", Act::Fork),
+    ("w", Act::NewWorktree),
+];
 
 impl ScreenState {
     /// The list's cursor as the highlight core knows.
@@ -552,7 +545,6 @@ impl ScreenState {
             help: self.help,
             searching: self.editing == Editing::Search,
             renaming: matches!(self.editing, Editing::Rename(_)),
-            confirming: self.confirm.is_some(),
         }
     }
 
@@ -575,21 +567,15 @@ impl ScreenState {
 
     /// The answer to the confirmation: a yes asks the model to remove the
     /// task (the cursor leaves it at once).
-    fn answer(&mut self, model: &Model, yes: bool, cx: &mut Cx<'_, Self>) {
-        let Some(confirm) = self.confirm.take() else {
-            return;
-        };
-        self.refocus_after_frame(cx);
-        if yes {
-            self.after_removal(model, &confirm.thread);
-            Self::send(
-                cx,
-                match confirm.action {
-                    Action::Archive => AgentsIntent::Archive(confirm.thread),
-                    Action::Delete => AgentsIntent::Delete(confirm.thread),
-                },
-            );
-        }
+    fn removal(&mut self, model: &Model, confirm: view::Confirm, cx: &mut Cx<'_, Self>) {
+        self.after_removal(model, &confirm.thread);
+        Self::send(
+            cx,
+            match confirm.action {
+                Action::Archive => AgentsIntent::Archive(confirm.thread),
+                Action::Delete => AgentsIntent::Delete(confirm.thread),
+            },
+        );
     }
 
     /// The editing line changes mode; its text is reset for the new one.
@@ -639,6 +625,39 @@ impl ScreenState {
                 }
             }
         }
+    }
+
+    /// Esc or ctrl+c on an open line: a search is cleared, the line closes.
+    fn cancel_editing(&mut self, _model: &Model, center: &Center, cx: &mut Cx<'_, Self>) {
+        if self.editing == Editing::Search {
+            Self::send(cx, AgentsIntent::ClearSearch);
+        }
+        self.set_editing(Editing::No, center, cx);
+    }
+
+    /// Opens the confirmation of a removal (a dialog of rtwk's overlay).
+    fn ask_removal(&mut self, model: &Model, confirm: view::Confirm, cx: &mut Cx<'_, Self>) {
+        let ask = view::Ask {
+            name: view::confirm_name(strings::of(cx), model, &confirm),
+            cloud: model.cloud,
+            confirm: confirm.clone(),
+        };
+        let answer = cx.map(move |_: bool| Msg::Confirmed(confirm.clone()));
+        drop(show_dialog::<(), _>(
+            cx,
+            move |_| {
+                dialogs::ConfirmDialog {
+                    ask: ask.clone(),
+                    answer: answer.clone(),
+                }
+                .into()
+            },
+            DialogOptions {
+                barrier_alpha: Some(0),
+                fade_in: Duration::ZERO,
+                ..DialogOptions::default()
+            },
+        ));
     }
 
     /// The cursor, the keys' focus and the usage request follow the rows the
@@ -701,7 +720,6 @@ impl State for ScreenState {
             listening.cancel();
         }
         self.selection.dispose();
-        self.confirm_selection.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -731,7 +749,21 @@ impl State for ScreenState {
         self.sync(model, cx);
         if model.failure.is_some() != self.failing {
             self.failing = model.failure.is_some();
-            self.refocus_after_frame(cx);
+            if self.failing {
+                // The refusal's view replaces the screen's content (the
+                // build draws none while it shows) at the top left.
+                drop(show_dialog::<(), _>(
+                    cx,
+                    |_| dialogs::FailureDialog.into(),
+                    DialogOptions {
+                        alignment: Alignment::TOP_LEFT,
+                        barrier_dismissible: false,
+                        barrier_alpha: Some(0),
+                        fade_in: Duration::ZERO,
+                        ..DialogOptions::default()
+                    },
+                ));
+            }
         }
     }
 
@@ -744,150 +776,125 @@ impl State for ScreenState {
         let at = selected.clone().and_then(view::RowKey::into_sel);
         let center = model.center_at(at.as_ref(), &self.lens());
         match msg {
-            Msg::Key(key) => {
+            Msg::Act(act) => {
                 let editing = self.editing_now();
-                if model.failure.is_some() {
-                    // The refusal's dialog has one row, `Back to agents`
-                    // (oracle: a selection view with `dismiss_on_select`).
-                    if matches!(key.code, KeyCode::Escape | KeyCode::Enter)
-                        || key.as_text().is_some_and(|text| text == "1")
-                    {
-                        Self::send(cx, AgentsIntent::DismissFailure);
-                    }
-                    return Rebuild::No;
-                }
-                if let Some(confirm) = self.confirm.clone() {
-                    // The confirmation takes every key (oracle: the view on
-                    // top of the bottom pane): Esc and the digits answer, the
-                    // arrows and Enter are the list's.
-                    match (
-                        key.code,
-                        key.as_text().filter(|_| !key.mods.contains(Mods::CTRL)),
-                    ) {
-                        (KeyCode::Escape, _) => self.answer(model, false, cx),
-                        (_, Some(digit @ ("1" | "2"))) => {
-                            let index = usize::from(digit == "2");
-                            // A delete waits for Enter: the digit only moves the cursor.
-                            if index == 1 && confirm.action == Action::Delete {
-                                self.confirm_selection.set_cursor(Some(1));
-                            } else {
-                                self.answer(model, index == 1, cx);
-                            }
-                        }
-                        _ => {}
-                    }
-                    return Rebuild::Yes;
-                }
-                // `on_ctrl_c` takes the key while a line is open (it cancels
-                // it) or a removal runs; otherwise it is the app's: quit.
-                if key.mods.contains(Mods::CTRL)
-                    && key.ch == Some('c')
-                    && !editing
-                    && !matches!(
-                        model.notice,
-                        Some(codex_tui_core::screens::agents::Notice::Removing(_))
-                    )
-                {
-                    let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.quit, ());
-                    return Rebuild::No;
-                }
-                if key.code == KeyCode::Escape && !editing && !self.help {
-                    if w.can_return {
-                        Navigator::maybe_pop(cx);
-                    }
-                    return Rebuild::No;
-                }
-                // While the search line has the focus, the arrows that bubble
-                // up from it move the highlight (oracle: the list actions
-                // stay live under the search line).
-                if self.editing == Editing::Search {
-                    let forward = match key.code {
-                        KeyCode::Down => Some(true),
-                        KeyCode::Up => Some(false),
-                        _ => None,
-                    };
-                    if let (Some(forward), Some(from)) = (forward, center.selected_entry())
-                        && let Some(sel) = view::neighbour(&center, from, forward)
-                    {
-                        self.put_cursor(view::RowKey::from(sel));
-                        return Rebuild::Yes;
-                    }
-                }
-                // The list keymap's other defaults for a step: `j`/`k` and
-                // Ctrl with N/P/J/K (the arrows are the list's own).
-                if !editing
-                    && !self.help
-                    && let Some(forward) = step_of(&key)
-                    && let Some(from) = center.selected_entry()
-                    && let Some(sel) = view::neighbour(&center, from, forward)
-                {
-                    self.put_cursor(view::RowKey::from(sel));
-                    return Rebuild::Yes;
-                }
-                let Some(act) = act_of(&key, editing, self.help, at.as_ref()) else {
-                    return Rebuild::No;
+                let task = || match &at {
+                    Some(Sel::Task(id)) => Some(id.clone()),
+                    _ => None,
                 };
                 match act {
-                    Act::Core(intent) => {
-                        if let AgentsIntent::Hide(id) = &intent {
-                            self.after_removal(model, id);
+                    Act::Interrupt => {
+                        // `on_ctrl_c` takes the key while a line is open (it
+                        // cancels it) or a removal runs; otherwise it is the
+                        // app's: quit.
+                        if editing {
+                            self.cancel_editing(model, &center, cx);
+                            return Rebuild::Yes;
                         }
-                        Self::send(cx, intent);
+                        if !matches!(
+                            model.notice,
+                            Some(codex_tui_core::screens::agents::Notice::Removing(_))
+                        ) {
+                            let hs = read::<Hs, _>(cx);
+                            cx.emit(&hs.quit, ());
+                        }
                     }
-                    Act::CloseHelp | Act::ToggleHelp => {
-                        self.help = matches!(act, Act::ToggleHelp) && !self.help;
+                    Act::Escape if self.help => {
+                        self.help = false;
                         self.refocus_after_frame(cx);
                         return Rebuild::Yes;
                     }
-                    Act::CycleFilter { back } => {
+                    Act::Escape if editing => {
+                        self.cancel_editing(model, &center, cx);
+                        return Rebuild::Yes;
+                    }
+                    Act::Escape => {
+                        if w.can_return {
+                            Navigator::maybe_pop(cx);
+                        }
+                    }
+                    Act::Step { forward } => {
+                        if let Some(from) = center.selected_entry()
+                            && let Some(sel) = view::neighbour(&center, from, forward)
+                        {
+                            self.put_cursor(view::RowKey::from(sel));
+                            return Rebuild::Yes;
+                        }
+                    }
+                    Act::Filter { back } => {
                         let count = view::FILTERS;
                         self.filter = (self.filter + if back { count - 1 } else { 1 }) % count;
                         self.sync(model, cx);
                         return Rebuild::Yes;
                     }
-                    Act::CancelEditing => {
-                        if editing {
-                            if self.editing == Editing::Search {
-                                Self::send(cx, AgentsIntent::ClearSearch);
-                            }
-                            self.set_editing(Editing::No, &center, cx);
-                            return Rebuild::Yes;
-                        }
+                    Act::Help => {
+                        self.help = !self.help;
+                        self.refocus_after_frame(cx);
+                        return Rebuild::Yes;
                     }
-                    Act::BeginSearch => {
+                    Act::Search => {
                         if !matches!(self.editing, Editing::Rename(_)) {
                             self.set_editing(Editing::Search, &center, cx);
                             return Rebuild::Yes;
                         }
                     }
-                    Act::BeginRename(id) => {
-                        if !editing && !model.held() && model.row(&id).is_some() {
+                    Act::Rename => {
+                        if let Some(id) = task()
+                            && !model.held()
+                            && model.row(&id).is_some()
+                        {
                             Self::send(cx, AgentsIntent::ClearSearch);
                             self.set_editing(Editing::Rename(id), &center, cx);
                             return Rebuild::Yes;
                         }
                     }
-                    Act::Confirm(thread, action) => {
-                        if !model.held() && model.row(&thread).is_some() {
-                            self.confirm = Some(view::Confirm { thread, action });
-                            self.confirm_selection.set_cursor(Some(0));
-                            self.refocus_after_frame(cx);
-                            return Rebuild::Yes;
+                    Act::Archive | Act::Delete => {
+                        if let Some(thread) = task()
+                            && !model.held()
+                            && model.row(&thread).is_some()
+                        {
+                            let action = if act == Act::Archive {
+                                Action::Archive
+                            } else {
+                                Action::Delete
+                            };
+                            self.ask_removal(model, view::Confirm { thread, action }, cx);
                         }
                     }
-                    Act::Right(sel) => {
-                        if !editing {
+                    Act::Right => {
+                        if let Some(sel) = at {
                             self.accept(model, sel, &center, cx);
+                        }
+                    }
+                    Act::Open => {
+                        if let Some(sel) = at {
+                            Self::send(cx, AgentsIntent::Accept(sel));
+                        }
+                    }
+                    Act::Grouping => Self::send(cx, AgentsIntent::CycleGrouping),
+                    Act::New => Self::send(cx, AgentsIntent::New(task())),
+                    Act::NewWorktree => Self::send(cx, AgentsIntent::NewWorktree(task())),
+                    Act::Hide | Act::Pin | Act::Stop | Act::Fork => {
+                        if let Some(id) = task() {
+                            if act == Act::Hide {
+                                self.after_removal(model, &id);
+                            }
+                            Self::send(
+                                cx,
+                                match act {
+                                    Act::Hide => AgentsIntent::Hide(id),
+                                    Act::Pin => AgentsIntent::TogglePin(id),
+                                    Act::Stop => AgentsIntent::Stop(id),
+                                    _ => AgentsIntent::Fork(id),
+                                },
+                            );
                         }
                     }
                 }
             }
             Msg::Refocus => {
-                if model.failure.is_some() || self.help {
+                if self.help {
                     self.root_focus.request_focus();
-                } else if self.confirm.is_some() {
-                    self.confirm_focus.request_focus();
                 } else if self.editing_now() {
                     self.edit_focus.request_focus();
                 } else if center.entries.is_empty() {
@@ -926,8 +933,8 @@ impl State for ScreenState {
                     return Rebuild::Yes;
                 }
             }
-            Msg::ConfirmPick(index) => {
-                self.answer(model, index == 1, cx);
+            Msg::Confirmed(confirm) => {
+                self.removal(model, confirm, cx);
                 return Rebuild::Yes;
             }
             Msg::Search(text) => {
@@ -965,16 +972,32 @@ impl State for ScreenState {
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
         let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
-        let confirm = self.confirm.clone();
+        // The row handlers are kept while the rows are the same ones: a
+        // handler made anew is never equal to the last, and the list would
+        // not compare equal (a cursor that moves leaves it as it is).
+        let keys: Vec<view::RowKey> = (0..center.entries.len())
+            .map(|index| view::key_of(&center, index))
+            .collect();
+        let rows = {
+            let mut kept = self.row_taps.borrow_mut();
+            match &*kept {
+                Some((was, taps)) if *was == keys => taps.clone(),
+                _ => {
+                    let taps = Rc::new(
+                        keys.iter()
+                            .map(|key| {
+                                let key = key.clone();
+                                cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                    *kept = Some((keys, taps.clone()));
+                    taps
+                }
+            }
+        };
         let taps = view::Taps {
-            rows: Rc::new(
-                (0..center.entries.len())
-                    .map(|index| {
-                        let key = view::key_of(&center, index);
-                        cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
-                    })
-                    .collect(),
-            ),
+            rows,
             tabs: (0..5)
                 .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
                 .collect(),
@@ -985,18 +1008,15 @@ impl State for ScreenState {
             focus: self.list_focus.clone(),
             edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
-            open: cx.map(|_: view::RowKey| Msg::Open),
+            open: rtwk::map_static!(cx, view::RowKey => Msg, |_| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
-            confirm_selection: self.confirm_selection.clone(),
-            confirm_focus: self.confirm_focus.clone(),
-            confirm_pick: cx.map(Msg::ConfirmPick),
         };
         let can_return = w.can_return;
         let body = LayoutBuilder::new(move |_, constraints| {
             let model = &*agents;
-            if let Some(failure) = &model.failure {
-                return view::failure_dialog(&look, strings, failure);
+            if model.failure.is_some() {
+                return AnyWidget::default();
             }
             // The header takes three rows from six, the footer one from two.
             let mut column = Column::new()
@@ -1014,18 +1034,21 @@ impl State for ScreenState {
             if constraints.max_height >= 2 {
                 column = column.child(view::footer_row(&look, strings, model, &ui, can_return));
             }
-            let Some(confirm) = &confirm else {
-                return column.into();
-            };
-            Stack::new()
-                .fit(StackFit::Expand)
-                .child(column)
-                .child(view::confirm_dialog(&look, strings, &num, model, &center, confirm, &controls))
-                .into()
+            column.into()
         });
-        Focus::new(body)
-            .focus_node(self.root_focus.clone())
-            .on_key(cx.keys(on_key))
-            .into()
+        let keys: &[(&str, Act)] = if self.help {
+            HELP_KEYS
+        } else {
+            match self.editing {
+                Editing::Search => SEARCH_KEYS,
+                Editing::Rename(_) => RENAME_KEYS,
+                Editing::No => BROWSE_KEYS,
+            }
+        };
+        KeyBindings::new(
+            keys.iter().map(|(name, act)| (*name, cx.send(Msg::Act(*act)))),
+            Focus::new(body).focus_node(self.root_focus.clone()),
+        )
+        .into()
     }
 }

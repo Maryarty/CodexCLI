@@ -11,6 +11,9 @@
 use std::rc::Rc;
 
 use rtwk::AnyWidget;
+use rtwk::BuildCx;
+use rtwk::StatelessWidget;
+use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
 use rtwk::NotificationListener;
@@ -43,7 +46,7 @@ use super::tabs::Tabs;
 use super::usage;
 use crate::theme::ThreadPalette;
 /// What the screen's own state decides the view shows (the model holds none
-/// of it): the status tab, the help, the editing line and the confirmation.
+/// of it): the status tab, the help, and the editing line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ui {
     pub filter: usize,
@@ -51,7 +54,6 @@ pub struct Ui {
     pub searching: bool,
     /// A task's name is being edited.
     pub renaming: bool,
-    pub confirming: bool,
 }
 
 /// The number of status tabs.
@@ -72,7 +74,7 @@ pub struct Confirm {
 }
 
 /// The styles of the screen, taken from the theme.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Look {
     pub plain: Style,
     pub dim: Style,
@@ -254,9 +256,15 @@ pub struct Controls {
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
-    pub confirm_selection: SelectionController<usize>,
-    pub confirm_focus: FocusNode,
-    pub confirm_pick: Handler<usize>,
+}
+
+/// The part of the controls the list takes.
+#[derive(Clone)]
+struct ListControls {
+    selection: SelectionController<RowKey>,
+    focus: FocusNode,
+    scroll: Rc<ValueNotifier<Scrolled>>,
+    open: Handler<RowKey>,
 }
 
 /// What the screen is told by a click: the handlers the widget made.
@@ -536,20 +544,97 @@ fn entry(
 /// the keys and the mouse), the overflow arrows.
 pub fn list(
     look: &Look,
-    strings: &Strings,
+    strings: &'static Strings,
     agents: &Shared<Model>,
     center: &Rc<Center>,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    let (look, strings, agents, center, controls, taps) = (
-        look.clone(),
-        *strings,
-        agents.clone(),
-        center.clone(),
-        controls.clone(),
-        taps.clone(),
-    );
+    RowsList {
+        inputs: ListInputs {
+            look: look.clone(),
+            strings,
+            agents: agents.clone(),
+            center: center.clone(),
+        },
+        selection: controls.selection.clone(),
+        focus: controls.focus.clone(),
+        scroll: controls.scroll.clone(),
+        open: controls.open.clone(),
+        taps: taps.clone(),
+    }
+    .into()
+}
+
+/// What the list's rows are made of: the center's rows and entries, the model
+/// they read and the look. The cursor is not among them (the list's own
+/// controller keeps it and each row paints from it), so a cursor that moves
+/// leaves the inputs equal and rtwk does not build the list again.
+#[derive(Clone)]
+pub struct ListInputs {
+    pub look: Look,
+    pub strings: &'static Strings,
+    pub agents: Shared<Model>,
+    pub center: Rc<Center>,
+}
+
+impl PartialEq for ListInputs {
+    fn eq(&self, other: &Self) -> bool {
+        self.look == other.look
+            && self.strings == other.strings
+            && self.agents == other.agents
+            && self.center.rows == other.center.rows
+            && self.center.entries == other.center.entries
+    }
+}
+
+/// The list pane: its inputs, the list's controller, focus and scroll
+/// notifier, and the handlers of the rows.
+#[derive(Clone)]
+pub struct RowsList {
+    inputs: ListInputs,
+    selection: SelectionController<RowKey>,
+    focus: FocusNode,
+    scroll: Rc<ValueNotifier<Scrolled>>,
+    open: Handler<RowKey>,
+    taps: Rc<Vec<Handler<PointerEvent>>>,
+}
+
+impl PartialEq for RowsList {
+    fn eq(&self, other: &Self) -> bool {
+        self.inputs == other.inputs
+            && self.selection == other.selection
+            && self.focus == other.focus
+            && Rc::ptr_eq(&self.scroll, &other.scroll)
+            && self.open == other.open
+            && self.taps == other.taps
+    }
+}
+
+impl StatelessWidget for RowsList {
+    fn build(&self, _cx: &mut BuildCx<'_>) -> AnyWidget {
+        let ListInputs { look, strings, agents, center } = self.inputs.clone();
+        let (strings, taps) = (*strings, self.taps.clone());
+        let controls = ListControls {
+            selection: self.selection.clone(),
+            focus: self.focus.clone(),
+            scroll: self.scroll.clone(),
+            open: self.open.clone(),
+        };
+        rows_in(look, strings, agents, center, controls, taps)
+    }
+}
+
+impl_widget!(stateless eq RowsList);
+
+fn rows_in(
+    look: Look,
+    strings: Strings,
+    agents: Shared<Model>,
+    center: Rc<Center>,
+    controls: ListControls,
+    taps: Rc<Vec<Handler<PointerEvent>>>,
+) -> AnyWidget {
     LayoutBuilder::new(move |_, constraints| {
         let width = constraints.max_width;
         let model = &*agents;
@@ -888,7 +973,7 @@ pub fn editor(look: &Look, strings: &Strings, ui: &Ui, controls: &Controls) -> A
 #[allow(clippy::too_many_arguments)]
 pub fn body(
     look: &Look,
-    strings: &Strings,
+    strings: &'static Strings,
     num: &NumSyms,
     agents: &Shared<Model>,
     ui: &Ui,
@@ -906,7 +991,7 @@ pub fn body(
     // The list gives the focus to the editing line while one is open.
     let rows = list(look, strings, agents, center, controls, &taps.rows);
     let pane: AnyWidget = pane
-        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing || ui.confirming)))
+        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing)))
         .into();
     let details = details(look, strings, num, center, agents);
     let rule = VerticalDivider::new()
@@ -987,12 +1072,10 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
 
 /// The name a confirmation asks about: the task's name or its preview, the
 /// first non-empty line (oracle: `confirm_agents_overview_action`).
-fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String {
-    let row = center
-        .rows
-        .iter()
-        .find(|row| row.id() == confirm.thread.as_str());
+pub fn confirm_name(strings: &Strings, model: &Model, confirm: &Confirm) -> String {
+    let row = model.row(&confirm.thread);
     let name = row
+        .as_ref()
         .map(|row| row.name.as_deref().unwrap_or(&row.preview))
         .unwrap_or_default();
     name.trim()
@@ -1014,6 +1097,17 @@ fn panel(look: &Look, rows: Vec<AnyWidget>) -> AnyWidget {
     BoxWidget::new().style(look.plain.clone()).child(stacked(rows)).into()
 }
 
+/// What the confirmation asks: the removal, the task's name and whether the
+/// archive is the cloud's. They are the question's own text, taken when it
+/// is asked: the dialog is a route of the `Navigator`, above the providers
+/// of a seeded debug screen, so it does not read the model by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ask {
+    pub confirm: Confirm,
+    pub name: String,
+    pub cloud: bool,
+}
+
 /// The archive and delete confirmation: a centered panel over the screen
 /// (oracle: `CenteredView` with `SelectionViewParams::confirmation()`): the
 /// title and the description wrapped, the two rows, a hint.
@@ -1021,38 +1115,37 @@ pub fn confirm_dialog(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    model: &Model,
-    center: &Center,
-    confirm: &Confirm,
-    controls: &Controls,
+    ask: &Ask,
+    selection: &SelectionController<usize>,
+    pick: Handler<usize>,
 ) -> AnyWidget {
-    let name = confirm_name(strings, center, confirm);
-    let (title, description, label) = match confirm.action {
-        Action::Archive if model.cloud => (
-            strings.archive_title(&name, num),
+    let name = &ask.name;
+    let (title, description, label) = match ask.confirm.action {
+        Action::Archive if ask.cloud => (
+            strings.archive_title(name, num),
             strings.archive_description_cloud,
             strings.archive_label_cloud,
         ),
         Action::Archive => (
-            strings.archive_title(&name, num),
+            strings.archive_title(name, num),
             strings.archive_description,
             strings.archive_label,
         ),
         Action::Delete => (
-            strings.delete_title(&name, num),
+            strings.delete_title(name, num),
             strings.delete_description,
             strings.delete_label,
         ),
     };
     let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
-    let (selection, accent, plain) = (
-        controls.confirm_selection.clone(),
+    let (watch, accent, plain) = (
+        selection.clone(),
         look.accent.clone().attrs(Attrs::BOLD),
         look.plain.clone(),
     );
     let choices = SelectionList::new(2, |index| index, move |index: usize| -> AnyWidget {
         let (selection, labels, accent, plain) =
-            (selection.clone(), labels.clone(), accent.clone(), plain.clone());
+            (watch.clone(), labels.clone(), accent.clone(), plain.clone());
         ListenableBuilder::new(selection.listenable(), move |_, _| {
             let selected = selection.cursor() == Some(index);
             let marker = if selected { "\u{203a} " } else { "  " };
@@ -1061,9 +1154,8 @@ pub fn confirm_dialog(
         })
         .into()
     })
-    .controller(controls.confirm_selection.clone())
-    .on_submitted(controls.confirm_pick.clone())
-    .focus_node(controls.confirm_focus.clone())
+    .controller(selection.clone())
+    .on_submitted(pick)
     .autofocus(true)
     .item_extent(1)
     .bar(false)
@@ -1110,4 +1202,47 @@ pub fn failure_dialog(look: &Look, strings: &Strings, failure: &Failure) -> AnyW
         note(strings.select_hint, &look.dim),
     ]);
     Dialog::bare(panel(look, rows)).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::agents::strings::EN;
+    use rtwk::style::ThemeData;
+
+    fn inputs(center: Center, agents: &Shared<Model>) -> ListInputs {
+        ListInputs {
+            look: Look::new(&ThemeData::NORD, false),
+            strings: &EN,
+            agents: agents.clone(),
+            center: Rc::new(center),
+        }
+    }
+
+    fn center(entries: Vec<CenterRow>, show_more_selected: bool) -> Center {
+        Center {
+            rows: Vec::new(),
+            entries,
+            tab_counts: [0; 5],
+            selected: None,
+            show_more_selected,
+            more: false,
+        }
+    }
+
+    /// S5 (vs1-review): a cursor that moves changes the center's
+    /// `show_more_selected` and `selected`, not what the rows are made of,
+    /// so the list compares equal and is not built again; a changed entry
+    /// or model does build it.
+    #[test]
+    fn the_list_inputs_ignore_the_cursor() {
+        let agents: Shared<Model> = Shared::default();
+        let entries = || vec![CenterRow::Gap, CenterRow::ShowMore];
+        let base = inputs(center(entries(), false), &agents);
+        assert!(base == inputs(center(entries(), true), &agents), "cursor on `Show more`");
+        assert!(base != inputs(center(vec![CenterRow::Gap], false), &agents), "other rows");
+        let mut later = agents;
+        later.now += 1;
+        assert!(base != inputs(center(entries(), false), &later), "other model");
+    }
 }
