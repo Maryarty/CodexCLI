@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs:475 proposed_plan_cell_unwraps_markdown_fenced_table
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"plan","id":"plan-1","text":"## Plan\n\n```markdown\n| Step | Owner |\n| --- | --- |\n| Verify | Codex |\n```\n"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

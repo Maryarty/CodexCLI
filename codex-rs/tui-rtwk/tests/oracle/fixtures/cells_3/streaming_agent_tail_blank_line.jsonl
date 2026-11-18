@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs:119 streaming_agent_tail_blank_line_uses_one_viewport_row (the tail of a streamed answer: first, a blank line, second)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"first\n \nsecond"}}}
