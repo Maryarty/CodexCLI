@@ -4,7 +4,7 @@
 
 use codex_tui_rtwk::screens::chat::open;
 use codex_tui_rtwk::screens::{
-    agents, approvals, backtrack, dialogs, import, pager, pets, resume, settings, usage, voice,
+    agents, approvals, backtrack, import, pager, pets, resume, settings, usage, voice,
 };
 use codex_tui_rtwk::shell::fake::FAKE_THREAD;
 use codex_tui_rtwk_core::commands::Target;
@@ -77,7 +77,7 @@ fn target_of(dir: &str) -> Target {
 
 /// The widget the screen of directory `dir` puts up: its own type, so a
 /// stub or the real screen is found by what it is, never by what it prints.
-/// (`status` and `select` keep their dialogs private: found by type name.)
+/// (`status`, `select` and `dialogs` keep their dialogs private: found by type name.)
 fn widget_of(dir: &str) -> Finder {
     match dir {
         "resume" => find::by_type::<resume::Screen>(),
@@ -86,7 +86,7 @@ fn widget_of(dir: &str) -> Finder {
         "usage" => find::by_type::<usage::Screen>(),
         "pager" => find::by_type::<pager::Screen>(),
         "settings" => find::by_type::<settings::Screen>(),
-        "dialogs" => find::by_type::<dialogs::Screen>(),
+        "dialogs" => find::widget_where("SmallDialog", |w| w.type_name() == "SmallDialog"),
         "pets" => find::by_type::<pets::Screen>(),
         "voice" => find::by_type::<voice::Screen>(),
         "approvals" => find::by_type::<approvals::Screen>(),
