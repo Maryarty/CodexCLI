@@ -84,3 +84,38 @@ fn no_dependency_points_at_the_moving_rtwk_checkout() {
     );
     assert_eq!(rtwk_ref().len(), 40, "RTWK_REF holds one full commit id");
 }
+
+/// The text of the table `[header]` of `manifest`, up to the next table.
+fn table(manifest: &str, header: &str) -> String {
+    let mut out = String::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        if line.trim_end() == header {
+            inside = true;
+        } else if inside && line.starts_with('[') {
+            break;
+        }
+        if inside {
+            out.push_str(line.trim_end());
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// ADR-001: codex-rs's patches are not applied to another workspace, so
+/// ours copies them verbatim and this test diffs the two.
+#[test]
+fn the_patch_tables_are_codex_rs_s_verbatim() {
+    let outer =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml"))
+            .expect("codex-rs/Cargo.toml");
+    for header in [
+        "[patch.crates-io]",
+        "[patch.\"ssh://git@github.com/openai-oss-forks/tungstenite-rs.git\"]",
+    ] {
+        let theirs = table(&outer, header);
+        assert!(theirs.lines().count() > 1, "{header} missing in codex-rs");
+        assert_eq!(table(&manifest(), header), theirs, "{header} differs");
+    }
+}

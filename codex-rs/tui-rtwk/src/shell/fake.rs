@@ -259,6 +259,17 @@ pub fn turn_completed(thread: &str, turn_id: &str) -> BackendEv {
 
 /// A `item/tool/requestUserInput` server request, the simplest kind that
 /// carries a thread id.
+/// `serverRequest/resolved`, as the server sends it when a request is
+/// answered or withdrawn.
+pub fn server_request_resolved(thread: &str, request_id: i64) -> BackendEv {
+    note(ServerNotification::ServerRequestResolved(
+        codex_app_server_protocol::ServerRequestResolvedNotification {
+            thread_id: thread.to_string(),
+            request_id: RequestId::Integer(request_id),
+        },
+    ))
+}
+
 pub fn tool_input_request(thread: &str, turn_id: &str, request_id: i64) -> BackendEv {
     BackendEv::Request(Box::new(ServerRequest::ToolRequestUserInput {
         request_id: RequestId::Integer(request_id),

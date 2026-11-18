@@ -69,11 +69,20 @@ pub fn start_quittable(debug: bool) -> Harness {
     }
 }
 
+/// As `start_debug`/`start` at another terminal size.
+pub fn start_sized(debug: bool, width: u16, height: u16) -> Harness {
+    start_at(debug, width, height)
+}
+
 fn start_with(debug: bool) -> Harness {
+    start_at(debug, WIDTH, HEIGHT)
+}
+
+fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     let guard = rtwk_tokio::enter(runtime());
     let (server, fake) = FakeServer::new();
     let app = CodexApp::new(Backend::Fake(server)).with_debug_screens(debug);
-    let mut t = Tester::with(Options::new().size(WIDTH, HEIGHT));
+    let mut t = Tester::with(Options::new().size(width, height));
     // The app under the overlay `run_app` puts above it.
     t.pump_widget(rtwk::overlay::App::new(app_view(app)));
     t.pump_for(ms(200));

@@ -7,10 +7,11 @@ use codex_tui_rtwk::app::{AppEv, Command};
 use codex_tui_rtwk::ids::{ConnEpoch, ThreadId, Ticket};
 use codex_tui_rtwk::screens::{self, Kind};
 use codex_tui_rtwk::shell::fake::{
-    FAKE_THREAD, agent_completed, agent_delta, tool_input_request, turn_completed,
+    FAKE_THREAD, agent_completed, agent_delta, server_request_resolved, tool_input_request,
+    turn_completed,
 };
 
-use crate::common::{assert_snapshot, start, start_debug, start_quittable};
+use crate::common::{assert_snapshot, start, start_debug, start_quittable, start_sized};
 
 const DIRS: [(&str, &str, Kind); 22] = [
     ("chat", "S10", Kind::Home),
@@ -159,7 +160,8 @@ fn an_event_of_an_older_connection_is_dropped() {
     let mut h = start();
     h.wait_for("ready", |s| s.contains("ready"));
     let epoch = h.fake.epoch().expect("attached");
-    let stale = ConnEpoch(epoch.0 + 100);
+    assert!(epoch.0 >= 1, "the first connection is epoch 1");
+    let stale = ConnEpoch(epoch.0 - 1);
     let item = || {
         AppEv::Backend(agent_completed(
             FAKE_THREAD,
@@ -196,4 +198,149 @@ fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
         .filter(|command| matches!(command, Command::RejectRequest { .. }))
         .collect();
     assert_eq!(rejected.len(), 1, "{rejected:?}");
+}
+
+/// 12 lines show 10 rows of the menu; the cursor must scroll the list.
+#[test]
+fn debug_menu_scrolls_to_the_cursor() {
+    let mut h = start_sized(true, 80, 12);
+    assert!(h.t.screen().contains("chat"));
+    for _ in 0..16 {
+        h.press("down");
+    }
+    let screen = h.t.screen();
+    assert!(screen.contains("agents"), "{screen}");
+    assert!(!screen.contains(" chat "), "scrolled off: {screen}");
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("agents (S21): empty slot"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn f12_opens_the_debug_menu_from_chat() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.press("f12");
+    assert!(
+        h.t.screen().contains("codex-rtwk debug screens"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("escape");
+    assert!(h.t.screen().contains("Ask Codex to do anything"));
+}
+
+/// ADR-002: the presenter wraps the home, whichever home it is.
+#[test]
+fn a_request_opens_the_dialog_under_debug_screens_too() {
+    let mut h = start_debug();
+    let fake = h.fake.clone();
+    h.wait_for("a connection", |_| fake.epoch().is_some());
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(tool_input_request(FAKE_THREAD, "turn-1", 3)),
+    );
+    h.wait_for("the dialog", |s| s.contains("needs an answer"));
+}
+
+#[test]
+fn a_second_request_waits_for_the_first_dialog() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    let epoch = h.fake.epoch().expect("attached");
+    for id in [7, 8] {
+        h.fake.inject(
+            epoch,
+            AppEv::Backend(tool_input_request(FAKE_THREAD, "turn-1", id)),
+        );
+    }
+    h.wait_for("the first dialog", |s| s.contains("7 needs an answer"));
+    assert!(!h.t.screen().contains("8 needs an answer"));
+    h.press("enter");
+    h.wait_for("the second dialog", |s| s.contains("8 needs an answer"));
+    h.press("enter");
+    h.wait_for("no dialog", |s| !s.contains("needs an answer"));
+    assert_eq!(rejected(&h), 2);
+}
+
+/// `serverRequest/resolved`: the server answered (or gave up) first, so the
+/// dialog closes and nothing is rejected on top.
+#[test]
+fn server_request_resolved_closes_the_dialog_without_a_reject() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(tool_input_request(FAKE_THREAD, "turn-1", 7)),
+    );
+    h.wait_for("the dialog", |s| s.contains("needs an answer"));
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(server_request_resolved(FAKE_THREAD, 7)),
+    );
+    h.wait_for("the dialog to close", |s| !s.contains("needs an answer"));
+    assert_eq!(rejected(&h), 0);
+}
+
+fn rejected(h: &crate::common::Harness) -> usize {
+    h.fake
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, Command::RejectRequest { .. }))
+        .count()
+}
+
+#[test]
+fn a_resize_mid_stream_keeps_the_answer() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake.script_turn(vec![
+        agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello, "),
+        agent_delta(FAKE_THREAD, "turn-1", "msg-1", "world"),
+    ]);
+    h.t.type_text("hi");
+    h.press("enter");
+    h.wait_for("the streamed text", |s| s.contains("• Hello, world"));
+    h.t.resize(30, 10);
+    h.t.pump_for(crate::common::ms(100));
+    let screen = h.t.screen();
+    assert!(screen.contains("• Hello, world"), "{screen}");
+    assert!(screen.contains("working"), "{screen}");
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_completed(
+            FAKE_THREAD,
+            "turn-1",
+            "msg-1",
+            "Hello, world",
+        )),
+    );
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
+    h.wait_for("the turn to end", |s| s.contains("ready"));
+}
+
+/// R10: the model decides; a message sent while a turn runs is refused and
+/// the composer keeps its text.
+#[test]
+fn a_submit_while_a_turn_runs_keeps_the_composer_text() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
+    h.t.type_text("one");
+    h.press("enter");
+    h.wait_for("the turn to run", |s| s.contains("• so far"));
+    h.t.type_text("two");
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(100));
+    let screen = h.t.screen();
+    assert!(screen.contains("two"), "{screen}");
+    assert!(!screen.contains("› two"), "{screen}");
 }
