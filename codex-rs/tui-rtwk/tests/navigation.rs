@@ -124,10 +124,10 @@ fn the_menu_says_how_to_go_back_and_the_home_menu_says_q_quits() {
     h.wait_for("ready", |s| s.contains("ready"));
     h.press("f12");
     let pushed = h.t.screen();
-    assert!(pushed.contains("esc back"), "{pushed}");
+    assert!(pushed.contains("esc/q back"), "{pushed}");
     assert!(!pushed.contains("q quits"), "{pushed}");
     let home = start_debug();
     let screen = home.t.screen();
     assert!(screen.contains("q quits"), "{screen}");
-    assert!(!screen.contains("esc back"), "{screen}");
+    assert!(!screen.contains("esc/q back"), "{screen}");
 }

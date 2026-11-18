@@ -214,3 +214,16 @@ screen directory has an empty `strings.rs` template.
   it against `RTWK_REF`.
 - `AppView` has no way to give the overlay root a theme: the theme goes on
   `overlay::App` (`ui::run::root`), which `run_app_with` does not expose.
+
+Fix round 3 (navigation by hand): the chat shows a dim key-hints line under
+the composer (`F12 screens  Ctrl+C quit`, from the string table; the chat
+snapshots gained that row, ours only, no oracle row). Escape pops the route in
+front through the Navigator's own back key (menu, stub routes, dialogs: it
+already did, now pinned by `navigation::*`); `q` in the menu is back through
+`Navigator::maybe_pop` and quits only when the menu is the home
+(`--debug-screens`); the menu's hint says `esc/q back` when pushed and `q quits`
+as the home. Tests: `tests/navigation.rs` (7), with the chat's transcript and
+composer text checked intact after F12 and Esc. By hand in a pty on the built
+binary: F12 opens the menu, a bare ESC and the kitty `CSI 27 u` both return to
+the chat, `q` returns to the chat, Ctrl+C exits 0. Bites: `q` quitting again
+and the hint line removed each failed their tests (the red commit).

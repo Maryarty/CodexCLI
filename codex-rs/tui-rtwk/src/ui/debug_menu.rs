@@ -68,7 +68,8 @@ pub struct DebugMenuState;
 pub enum MenuMsg {
     /// The row at this index was submitted (Enter, or a click).
     Open(usize, Lang),
-    Quit,
+    /// `q`: back to the screen below, or quit from the home.
+    Back,
 }
 
 impl StatefulWidget for DebugMenu {
@@ -110,9 +111,13 @@ impl State for DebugMenuState {
                     }
                 }
             }
-            MenuMsg::Quit => {
-                let hs = read::<Hs, _>(cx);
-                cx.emit(&hs.quit, ());
+            MenuMsg::Back => {
+                // Back when there is a route to go back to; the menu as the
+                // home (`--debug-screens`) quits.
+                if !Navigator::maybe_pop(cx) {
+                    let hs = read::<Hs, _>(cx);
+                    cx.emit(&hs.quit, ());
+                }
             }
         }
         Rebuild::No
@@ -122,6 +127,11 @@ impl State for DebugMenuState {
         let tokens = theme::Tokens::of(cx);
         let strings = l10n::of(cx);
         let lang = lang(cx);
+        let hint = if Navigator::can_pop(cx) {
+            strings.debug.hint
+        } else {
+            strings.debug.hint_home
+        };
         let rows = Rc::new(rows(lang));
         let count = rows.len();
         let row_tokens = tokens.clone();
@@ -147,10 +157,10 @@ impl State for DebugMenuState {
         Focus::new(
             Column::new()
                 .child(Text::new(strings.debug.title).style(tokens.accent()))
-                .child(Text::new(strings.debug.hint).style(tokens.dim()))
+                .child(Text::new(hint).style(tokens.dim()))
                 .child(Expanded::new(1, list)),
         )
-        .bind('q', cx.send(MenuMsg::Quit))
+        .bind('q', cx.send(MenuMsg::Back))
         .into()
     }
 }
