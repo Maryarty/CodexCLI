@@ -384,7 +384,7 @@ fn startup_reset_hint_waits_for_active_output_snapshot() {
         Owner::ChatLive,
         "no rate-limit reset flow in the chat: no startup reset check with 2 available that waits behind an active tool cell (seed step), and no flush of the active cell",
     );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // The active tool output is on screen, the hint is held back (seed steps).
     s.assert_absent("usage limit resets available");
     // Flushing the active cell commits the hint after the output.

@@ -636,7 +636,7 @@ fn owned_transcript_keeps_text_out_of_the_pet_columns() {
         Owner::ChatLive,
         "no ambient pet column: the kitty pet image support and its reserved columns are not built; the screen draws the long row, the blank columns right of the history wrap width are not checked (no kit call for the pet)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
+    let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/long_row.jsonl"))
         .open();
@@ -886,7 +886,7 @@ fn composer_thumbnails_follow_draft_deletion_and_resize() {
         Owner::ChatLive,
         "no image attachment seed (attach_image of a portrait and a banner, Home/End/Delete over the draft) and no kitty image placements in the kit: the thumbnail strip at 20x24 and 60x24, the '+1' count and the '[Image #1][Image #2]' text fallback at insufficient height or without terminal support are not built; the 6-row strip snapshot composer_thumbnail_strip needs the placement row, so it is not compared yet",
     );
-    let mut s = Screen::build(Owner::ChatLive)
+    let s = Screen::build(Owner::ChatLive)
         .size(20, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
         .open();
@@ -1054,7 +1054,7 @@ fn copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery() {
         Owner::ChatLive,
         "no copy feedback row through the kit for Pending, Busy, Confirmed, Unconfirmed and Err results at 80, 32 and 18 columns: the clipboard results are not seedable; the rows are the snapshot of the gap text, right-aligned with a blank last column",
     );
-    let mut s = Screen::build(Owner::ChatLive)
+    let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
         .open();
@@ -1083,7 +1083,7 @@ fn tip_links_follow_alignment_and_release_stale_targets() {
         Owner::ChatLive,
         "no tip line with a hyperlink (Tip: plus the link text 文档 to https://example.com/docs) in the composer gap, and no ctrl-click (the kit's click has no modifiers): the link cell, the link target and the stale-target release after a feedback expiry are not built",
     );
-    let mut s = Screen::build(Owner::ChatLive)
+    let s = Screen::build(Owner::ChatLive)
         .size(30, 4)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
         .open();
