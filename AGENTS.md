@@ -57,8 +57,8 @@ as they are.
   store, optional reactive_graph).
 
 ## Agents and tokens
-- Implementation: agent type `codex-porter` (Sonnet; a hook refuses a model
-  override). Reviews and research: `codex-reviewer` (Sonnet; `model: opus`
+- Implementation: agent type `codex-porter` (Sonnet by default; a model override
+  is allowed — the person removed the guard hook 2026-11-18). Reviews and research: `codex-reviewer` (Sonnet; `model: opus`
   only for architecture and risky reviews). Long waits: `codex-waiter`
   (Haiku). Shared fleet rules: `.tm/fleet-brief.md`.
 - Briefs carry only the task: name sections and `file:line` ranges, grep
