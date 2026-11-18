@@ -12,7 +12,9 @@ use codex_tui_rtwk_core::fixtures::builders::{
 use codex_tui_rtwk_core::ids::{ConnEpoch, ThreadId};
 use codex_tui_rtwk_core::screens::Kind;
 
-use crate::common::{assert_snapshot, start, start_debug, start_quittable, start_sized};
+use crate::common::{
+    assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,
+};
 
 const DIRS: [(&str, &str, Kind); 22] = [
     ("chat", "S10", Kind::Home),
@@ -85,17 +87,33 @@ fn prompt_streams_the_answer_as_plain_text() {
 
 #[test]
 fn debug_menu_lists_the_directories() {
-    // 22 directories and the entries of the worked examples: more rows than
-    // the oracle's 24 lines, which this menu (not an oracle screen) need not
-    // fit.
-    let mut h = start_sized(true, 80, 30);
+    // 22 directories and every entry: more rows than the oracle's 24 lines,
+    // which this menu (not an oracle screen) need not fit. Tall, so that the
+    // entries a slice adds still show.
+    let mut h = start_sized(true, 80, 120);
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     for (name, id, _) in DIRS {
         assert!(screen.contains(name), "`{name}` missing:\n{screen}");
         assert!(screen.contains(id), "`{id}` missing:\n{screen}");
     }
-    assert_snapshot(&h.t, "debug", "menu");
+    // Every entry of every directory is listed, under its own heading ...
+    for dir in screens::dirs() {
+        for entry in (dir.debug_entries)() {
+            let row = format!("{} - {}", entry.name, entry.description);
+            assert!(screen.contains(&row), "`{row}` missing:\n{screen}");
+        }
+    }
+    // ... and the golden holds the heading rows only, so a slice that adds an
+    // entry does not edit it.
+    let entry_rows: Vec<String> = screens::dirs()
+        .iter()
+        .flat_map(|dir| (dir.debug_entries)())
+        .map(|entry| format!("{} - {}", entry.name, entry.description))
+        .collect();
+    assert_snapshot_where(&h.t, "debug", "menu", |line| {
+        !entry_rows.iter().any(|row| row == line.trim_start())
+    });
 }
 
 #[test]

@@ -1,19 +1,16 @@
                             codex-rtwk debug screens
                        up/down move, enter opens, q quits
 ▎chat        S10      home   main chat screen
-     streamed_answer - a chat transcript with a streamed answer
  cells       S11      part   streaming and history cells
  composer    S10      part   composer
  popovers    S12      part   composer popovers
  transcript  S10      part   transcript view
  select      S14      dialog generic selection dialog
  approvals   S13      dialog approvals and requests
-     exec_approval - an exec approval request waiting for the user
  settings    S15      dialog settings dialogs
  pager       S16      route  transcript pager
  backtrack   S17      part   backtrack (Esc Esc)
  resume      S18      route  resume and fork picker
-     fake_rollouts - a resume list from three fake rollouts
  status      S19      dialog /status card
  usage       S20      route  /usage dashboard
  agents      S21      route  agents command center
@@ -25,6 +22,3 @@
  onboarding  S02-S04  route  onboarding routes
  startup     S05      dialog startup prompts
  import      S06      route  import from other agents
-
-
-

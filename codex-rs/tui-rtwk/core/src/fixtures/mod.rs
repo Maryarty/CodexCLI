@@ -7,4 +7,5 @@
 //!   `resize`), applied through `CodexApp::ingest`.
 
 pub mod builders;
+pub mod sandbox;
 pub mod script;

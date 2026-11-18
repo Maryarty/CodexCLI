@@ -15,44 +15,51 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(crate_dir().join(rel)).unwrap_or_else(|_| panic!("read {rel}"))
 }
 
-/// The UI crate's view files: widgets, string tables, theme.
+/// The UI crate's view files: everything under `src/` except the shell, the
+/// model root (`app.rs`), the composition root (`run.rs`) and `lib.rs`. An
+/// allowlist of the non-views, so a new directory is a view until it is named
+/// here.
 fn is_view(name: &str) -> bool {
-    name.starts_with("src/screens/")
-        || name.starts_with("src/ui/")
-        || name.starts_with("src/l10n/")
-        || name == "src/theme.rs"
+    name.starts_with("src/")
+        && !is_shell(name)
+        && !matches!(name, "src/app.rs" | "src/run.rs" | "src/lib.rs")
 }
 
 fn is_shell(name: &str) -> bool {
     name == "src/shell.rs" || name.starts_with("src/shell/")
 }
 
-/// Names a dependency of `core/Cargo.toml` may never have: the UI framework,
-/// a terminal library or an async runtime (the crate itself or one of its
-/// `name-*` family).
-const BANNED_CORE_DEPS: &[&str] = &["rtwk", "tokio", "futures", "ratatui", "crossterm", "mio"];
-
-fn banned_core_dep(key: &str) -> bool {
-    key.starts_with("async-")
-        || BANNED_CORE_DEPS
-            .iter()
-            .any(|banned| key == *banned || key.starts_with(&format!("{banned}-")))
-}
+/// The direct dependencies core may have, by name: the protocol (which pulls
+/// tokio and others in transitively; core's sources name none, see
+/// `core_sources_name_no_ui_runtime_or_io`), serde, and the test helpers.
+/// Anything else is a decision, made here.
+const CORE_DEPS: &[&str] = &[
+    "codex-app-server-protocol",
+    "serde",
+    "serde_json",
+    "pretty_assertions",
+];
 
 #[test]
 fn core_manifest_has_no_ui_or_runtime_dependency() {
     let manifest = read("core/Cargo.toml");
     assert!(manifest.contains("name = \"codex-tui-rtwk-core\""));
     let mut found = Vec::new();
+    let mut in_deps = false;
     for (index, line) in manifest.lines().enumerate() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_deps = line.contains("dependencies");
+            continue;
+        }
         let key = line.split('=').next().unwrap_or_default().trim();
-        if line.contains('=') && banned_core_dep(key) {
-            found.push(format!("core/Cargo.toml:{}: {}", index + 1, line.trim()));
+        if in_deps && line.contains('=') && !CORE_DEPS.contains(&key) {
+            found.push(format!("core/Cargo.toml:{}: {line}", index + 1));
         }
     }
     assert!(
         found.is_empty(),
-        "core depends on a UI or runtime crate: {found:#?}"
+        "core has a direct dependency outside the allowlist (CORE_DEPS): {found:#?}"
     );
     // Core is a member of the workspace and the UI crate depends on it.
     let root = read("Cargo.toml");
@@ -70,6 +77,8 @@ fn core_sources_name_no_ui_runtime_or_io() {
             "rtwk",
             "tokio",
             "futures::",
+            "std::{",
+            "std::io",
             "std::fs",
             "std::net",
             "std::process",
@@ -131,6 +140,12 @@ fn views_never_name_protocol_shell_tokio_or_io() {
             "crate::shell",
             "shell::",
             "tokio",
+            "fixtures::script",
+            "std::{",
+            "std::io",
+            "stdout(",
+            "stderr(",
+            "stdin(",
             "std::fs",
             "std::net",
             "std::process",
@@ -157,6 +172,8 @@ fn views_never_apply_the_model() {
             "apply_thread(",
             "apply_reply(",
             "threads::apply(",
+            "ingest(",
+            "Ingress",
         ],
         |name| !is_view(name),
     );
@@ -242,6 +259,7 @@ fn shell_names_no_widget() {
             "rtwk::editing",
             "rtwk::scroll",
             "rtwk::provider",
+            "rtwk::prelude",
             "Dialog::",
             "DialogOptions",
             "show_dialog",

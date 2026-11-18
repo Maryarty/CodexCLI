@@ -203,10 +203,17 @@ fn snapshot_path(dir: &str, name: &str) -> PathBuf {
 /// Compares the screen with the golden text of `tests/snapshots/<dir>/<name>.snap`
 /// (trailing blanks trimmed per line). `UPDATE_SNAPSHOTS=1` writes it.
 pub fn assert_snapshot(t: &Tester, dir: &str, name: &str) {
+    assert_snapshot_where(t, dir, name, |_| true);
+}
+
+/// As `assert_snapshot`, over the screen lines `keep` accepts: a golden that
+/// must not change when a slice adds its own rows (the debug menu's entries).
+pub fn assert_snapshot_where(t: &Tester, dir: &str, name: &str, keep: impl Fn(&str) -> bool) {
     let actual = t
         .lines()
         .iter()
         .map(|line| line.trim_end().to_string())
+        .filter(|line| keep(line))
         .collect::<Vec<_>>()
         .join("\n");
     let path = snapshot_path(dir, name);
