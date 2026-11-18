@@ -1,4 +1,5 @@
 mod in_process;
+mod workspace;
 
 use anyhow::Context as _;
 use codex_arg0::Arg0DispatchPaths;
