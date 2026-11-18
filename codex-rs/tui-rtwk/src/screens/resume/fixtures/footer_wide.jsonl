@@ -1,0 +1,4 @@
+# `hint_line_snapshot_uses_distributed_wide_footer`: an empty picker (the
+# footer reads 0 / 0 · 100%); the test opens it at 220 cells.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[]}}}

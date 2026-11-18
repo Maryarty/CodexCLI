@@ -37,11 +37,14 @@ fn inset(rows: Vec<String>, by: usize) -> Vec<String> {
 // The chrome of `layout::areas`: header, toolbar, search, list, footer (4 rows)
 // with up to three one-row gaps while the list keeps six rows.
 const LIST_AT_22: usize = 6;
+// The oracle renders the list into an 80-cell area; our list is the screen
+// less its two-cell inset, so the screen is 82 cells wide.
+const WIDE_FOR_80_LIST: u16 = 82;
 const LIST_AT_13: usize = 3;
 
 #[test]
 fn resume_picker_table() {
-    let mut h = open("table", 80, 22);
+    let mut h = open("table", WIDE_FOR_80_LIST, 22);
     // The oracle's test selects the second row (`state.selected = 1`).
     h.press("down");
     oracle_snap::assert_fragment(
@@ -54,7 +57,7 @@ fn resume_picker_table() {
 
 #[test]
 fn resume_picker_more_indicators() {
-    let h = open("more_indicators", 80, 13);
+    let h = open("more_indicators", WIDE_FOR_80_LIST, 13);
     oracle_snap::assert_fragment(
         "resume_picker_more_indicators",
         &oracle_snap::screen(&h.t),
@@ -105,7 +108,7 @@ fn no_sessions_yet_line() {
 /// it back (oracle: `PickerState::move_selection`).
 #[test]
 fn down_and_up_move_the_marker() {
-    let mut h = open("table", 80, 22);
+    let mut h = open("table", WIDE_FOR_80_LIST, 22);
     let first = oracle_snap::screen(&h.t);
     assert!(first[LIST_AT_22].starts_with("  › "), "{first:?}");
     h.press("down");
