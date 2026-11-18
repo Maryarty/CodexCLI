@@ -14,11 +14,12 @@ use rtwk::scroll::ListView;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use crate::app::{Session, SessionSlice};
-use crate::ids::{ThreadId, Ticket};
+use codex_tui_rtwk_core::app::{Session, SessionSlice};
+use codex_tui_rtwk_core::ids::{ThreadId, Ticket};
+use codex_tui_rtwk_core::threads::{Failure, Item, ThreadModel};
+
 use crate::l10n::strings as l10n;
 use crate::theme;
-use crate::threads::{Failure, Item, ThreadModel};
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -47,6 +48,17 @@ pub enum ChatMsg {
     Quit,
     /// The hidden key: the debug menu over the chat.
     DebugMenu,
+}
+
+/// The words of a typed failure.
+fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Failure) -> String {
+    match failure {
+        Failure::Message(message) => strings.error(message).to_string(),
+        Failure::TurnFailed => strings.chat.turn_failed.to_string(),
+        Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
+        Failure::Stopped => strings.chat.server_stopped.to_string(),
+        Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),
+    }
 }
 
 impl StatefulWidget for Chat {
@@ -120,22 +132,18 @@ impl State for ChatState {
             }
         })
         .stick_to_bottom(true);
-        let status = match (&session.status, thread.is_running(), &thread.last_error) {
-            (Session::Failed(message), _, _) => {
-                Text::new(strings.error(message).to_string()).style(tokens.error())
+        // The session's failure first, then the thread's last one.
+        let failure = match (&session.status, &thread.last_error) {
+            (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
+            _ => None,
+        };
+        let status = match (failure, &session.status, thread.is_running()) {
+            (Some(failure), _, _) => {
+                Text::new(failure_text(strings, failure)).style(tokens.error())
             }
-            (_, _, Some(Failure::Message(message))) => {
-                Text::new(strings.error(message).to_string()).style(tokens.error())
-            }
-            (_, _, Some(Failure::TurnFailed)) => {
-                Text::new(strings.chat.turn_failed).style(tokens.error())
-            }
-            (_, _, Some(Failure::Lagged(skipped))) => {
-                Text::new(strings.lagged(*skipped).to_string()).style(tokens.error())
-            }
-            (Session::Starting, _, _) => Text::new(strings.chat.starting).style(tokens.dim()),
-            (Session::Ready, true, _) => Text::new(strings.chat.working).style(tokens.accent()),
-            (Session::Ready, false, _) => Text::new(strings.chat.ready).style(tokens.dim()),
+            (None, Session::Starting, _) => Text::new(strings.chat.starting).style(tokens.dim()),
+            (None, _, true) => Text::new(strings.chat.working).style(tokens.accent()),
+            (None, _, false) => Text::new(strings.chat.ready).style(tokens.dim()),
         };
         let composer = TextArea::new()
             .controller(w.ui.composer.clone())

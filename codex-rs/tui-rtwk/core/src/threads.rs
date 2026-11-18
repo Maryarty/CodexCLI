@@ -21,6 +21,7 @@ use crate::ids::TurnId;
 use crate::rpc::Answer;
 use crate::rpc::Pending;
 use crate::rpc::Reply;
+use crate::rpc::RpcError;
 use crate::screens;
 use crate::screens::ScreenCommand;
 use crate::screens::ScreenCtx;
@@ -171,15 +172,28 @@ pub enum ThreadEv {
     },
 }
 
-/// Why the last turn or start went wrong. A server's message is shown as
-/// it is; the bare failure is worded by the string table, not here.
+/// Why a turn, a start or the session went wrong. A server's message is
+/// shown as it is; every other failure is a typed value the UI's string
+/// tables word.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     Message(String),
     TurnFailed,
-    /// The backend dropped this many events (a `Lagged` gap): worded by the
-    /// string table.
+    /// The backend dropped this many events (a `Lagged` gap).
     Lagged(usize),
+    /// The backend stopped.
+    Stopped,
+    /// A reply of another screen than its ticket's.
+    ReplyMismatch,
+}
+
+impl From<RpcError> for Failure {
+    fn from(error: RpcError) -> Self {
+        match error {
+            RpcError::Remote(message) | RpcError::Malformed(message) => Failure::Message(message),
+            RpcError::Mismatch => Failure::ReplyMismatch,
+        }
+    }
 }
 
 /// One thread's model.
@@ -401,16 +415,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                         send_next(model, fx);
                     }
                 }
-                (ThreadCtx::StartTurn { .. }, Answer::Failed(message)) => {
+                (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
                     model.turn = TurnState::Idle;
-                    model.last_error = Some(Failure::Message(message));
+                    model.last_error = Some(Failure::from(error));
                     send_next(model, fx);
                 }
                 (ThreadCtx::Screen(ctx), Answer::Screen(reply)) => {
                     screens::apply_reply(&mut model.slots, ctx, Ok(reply), fx);
                 }
-                (ThreadCtx::Screen(ctx), Answer::Failed(message)) => {
-                    screens::apply_reply(&mut model.slots, ctx, Err(message), fx);
+                (ThreadCtx::Screen(ctx), Answer::Failed(error)) => {
+                    screens::apply_reply(&mut model.slots, ctx, Err(error), fx);
                 }
                 _ => {}
             }

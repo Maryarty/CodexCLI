@@ -1,0 +1,5 @@
+# An exec approval request waiting for the user.
+# The request is the shape of codex-tui's `exec_approval_request_from_params`
+# (chatwidget/tests/helpers.rs): a command approval for thread-1.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","threadId":"thread-1","turnId":"turn-1","itemId":"item-1","startedAtMs":0,"approvalId":"approval-1","environmentId":null,"command":"/bin/zsh -lc 'python3 -c '\"'\"'print(\"Hello, world!\")'\"'\"''","cwd":"/tmp"}}}

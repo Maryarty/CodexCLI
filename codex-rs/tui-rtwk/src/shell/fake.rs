@@ -7,30 +7,18 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use codex_app_server_protocol::AgentMessageDeltaNotification;
-use codex_app_server_protocol::ItemCompletedNotification;
-use codex_app_server_protocol::ItemStartedNotification;
-use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ServerRequest;
-use codex_app_server_protocol::ThreadItem;
-use codex_app_server_protocol::ThreadItemPayload;
-use codex_app_server_protocol::ToolRequestUserInputParams;
-use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::TurnCompletedNotification;
-use codex_app_server_protocol::TurnStartedNotification;
-use codex_app_server_protocol::TurnStatus;
-use codex_app_server_protocol::UserInput;
+use codex_tui_rtwk_core::app::AppEv;
+use codex_tui_rtwk_core::app::BackendEv;
+use codex_tui_rtwk_core::app::Command;
+use codex_tui_rtwk_core::app::Ingress;
+use codex_tui_rtwk_core::fixtures::builders::turn_started;
+use codex_tui_rtwk_core::fixtures::builders::user_item;
+use codex_tui_rtwk_core::ids::ConnEpoch;
+use codex_tui_rtwk_core::ids::ThreadId;
+use codex_tui_rtwk_core::ids::TurnId;
+use codex_tui_rtwk_core::rpc::Reply;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::app::AppEv;
-use crate::app::BackendEv;
-use crate::app::Command;
-use crate::app::Ingress;
-use crate::ids::ConnEpoch;
-use crate::ids::ThreadId;
-use crate::ids::TurnId;
-use crate::rpc::Reply;
 use crate::shell::IngressTx;
 
 /// The id of the one thread the fake starts.
@@ -133,7 +121,7 @@ pub(crate) async fn run(
             }
         };
         match command {
-            Command::StartThread { ticket } => emit(AppEv::Reply(
+            Command::StartThread { ticket, .. } => emit(AppEv::Reply(
                 ticket,
                 Reply::thread_started(ThreadId::new(FAKE_THREAD)),
             )),
@@ -141,6 +129,7 @@ pub(crate) async fn run(
                 ticket,
                 thread,
                 text,
+                ..
             } => {
                 let (n, events) = scripted.unwrap_or((0, None));
                 let turn_id = format!("turn-{n}");
@@ -165,144 +154,4 @@ pub(crate) async fn run(
             Command::RejectRequest { .. } | Command::Screen { .. } => {}
         }
     }
-}
-
-fn note(notification: ServerNotification) -> BackendEv {
-    BackendEv::Notification(Box::new(notification))
-}
-
-fn turn(id: &str, status: TurnStatus) -> Turn {
-    Turn {
-        id: id.to_string(),
-        root_turn_id: None,
-        items: Vec::new(),
-        items_view: Default::default(),
-        status,
-        error: None,
-        started_at: None,
-        completed_at: None,
-        duration_ms: None,
-    }
-}
-
-/// `turn/started`, as the server sends it.
-pub fn turn_started(thread: &str, turn_id: &str) -> BackendEv {
-    note(ServerNotification::TurnStarted(TurnStartedNotification {
-        thread_id: thread.to_string(),
-        turn: turn(turn_id, TurnStatus::InProgress),
-    }))
-}
-
-/// `item/started` of a user message.
-pub fn user_item(thread: &str, turn_id: &str, item: &str, text: &str) -> BackendEv {
-    note(ServerNotification::ItemStarted(ItemStartedNotification {
-        item: ThreadItem::untimed(ThreadItemPayload::UserMessage {
-            id: item.to_string(),
-            client_id: None,
-            content: vec![UserInput::Text {
-                text: text.to_string(),
-                text_elements: Vec::new(),
-            }],
-        }),
-        thread_id: thread.to_string(),
-        turn_id: turn_id.to_string(),
-        started_at_ms: 0,
-    }))
-}
-
-/// `item/agentMessage/delta`.
-pub fn agent_delta(thread: &str, turn_id: &str, item: &str, delta: &str) -> BackendEv {
-    note(ServerNotification::AgentMessageDelta(
-        AgentMessageDeltaNotification {
-            thread_id: thread.to_string(),
-            turn_id: turn_id.to_string(),
-            item_id: item.to_string(),
-            delta: delta.to_string(),
-        },
-    ))
-}
-
-/// `item/completed` of an agent message.
-pub fn agent_completed(thread: &str, turn_id: &str, item: &str, text: &str) -> BackendEv {
-    note(ServerNotification::ItemCompleted(
-        ItemCompletedNotification {
-            item: ThreadItem::untimed(ThreadItemPayload::AgentMessage {
-                moderation: None,
-                id: item.to_string(),
-                text: text.to_string(),
-                phase: None,
-                memory_citation: None,
-                delivery: None,
-                questions: None,
-            }),
-            thread_id: thread.to_string(),
-            turn_id: turn_id.to_string(),
-            content_token_count: None,
-            completed_at_ms: 0,
-        },
-    ))
-}
-
-/// `turn/completed`.
-pub fn turn_completed(thread: &str, turn_id: &str) -> BackendEv {
-    note(ServerNotification::TurnCompleted(
-        TurnCompletedNotification {
-            thread_id: thread.to_string(),
-            turn: turn(turn_id, TurnStatus::Completed),
-        },
-    ))
-}
-
-/// `turn/completed` of a failed turn.
-pub fn turn_failed(thread: &str, turn_id: &str) -> BackendEv {
-    note(ServerNotification::TurnCompleted(
-        TurnCompletedNotification {
-            thread_id: thread.to_string(),
-            turn: turn(turn_id, TurnStatus::Failed),
-        },
-    ))
-}
-
-/// The server's `error` notification: why a turn goes wrong.
-pub fn turn_error(thread: &str, turn_id: &str, message: &str, will_retry: bool) -> BackendEv {
-    note(ServerNotification::Error(
-        codex_app_server_protocol::ErrorNotification {
-            error: codex_app_server_protocol::TurnError {
-                message: message.to_string(),
-                codex_error_info: None,
-                additional_details: None,
-                misalignment: None,
-            },
-            will_retry,
-            thread_id: thread.to_string(),
-            turn_id: turn_id.to_string(),
-        },
-    ))
-}
-
-/// A `item/tool/requestUserInput` server request, the simplest kind that
-/// carries a thread id.
-/// `serverRequest/resolved`, as the server sends it when a request is
-/// answered or withdrawn.
-pub fn server_request_resolved(thread: &str, request_id: i64) -> BackendEv {
-    note(ServerNotification::ServerRequestResolved(
-        codex_app_server_protocol::ServerRequestResolvedNotification {
-            thread_id: thread.to_string(),
-            request_id: RequestId::Integer(request_id),
-        },
-    ))
-}
-
-pub fn tool_input_request(thread: &str, turn_id: &str, request_id: i64) -> BackendEv {
-    BackendEv::Request(Box::new(ServerRequest::ToolRequestUserInput {
-        request_id: RequestId::Integer(request_id),
-        params: ToolRequestUserInputParams {
-            thread_id: thread.to_string(),
-            turn_id: turn_id.to_string(),
-            item_id: "tool-1".to_string(),
-            questions: Vec::new(),
-            is_blocking: true,
-            auto_resolution_ms: None,
-        },
-    }))
 }

@@ -24,6 +24,10 @@ pub struct Chat {
     pub working: &'static str,
     pub ready: &'static str,
     pub turn_failed: &'static str,
+    /// The backend stopped (`Failure::Stopped`).
+    pub server_stopped: &'static str,
+    /// A reply of another screen than its ticket's (`Failure::ReplyMismatch`).
+    pub reply_mismatch: &'static str,
     /// The key hints under the composer.
     pub keys: &'static str,
     pub error: Msg<1>,
@@ -72,6 +76,8 @@ pub const EN: Shared = Shared {
         working: "working…",
         ready: "ready",
         turn_failed: "error: the turn failed",
+        server_stopped: "error: the app-server stopped",
+        reply_mismatch: "error: a reply of another screen",
         keys: "F12 screens  Ctrl+C quit",
         error: msg!("error: {0}"),
         lagged: msg!("error: the backend dropped {0} events"),

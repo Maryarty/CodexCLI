@@ -1,0 +1,38 @@
+# The core crate: R1, R11 and R12 as lints, without the rtwk paths (core has no
+# rtwk). It does no IO, spawns nothing and reads no clock: no `#[allow]` here.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+
+disallowed-methods = [
+    { path = "std::thread::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "tokio::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "tokio::runtime::Handle::spawn", reason = "R1: effects run only in `shell`" },
+    { path = "std::time::Instant::now", reason = "R11: the clock is a model input" },
+    { path = "std::time::SystemTime::now", reason = "R11: the clock is a model input" },
+    { path = "tokio::time::Instant::now", reason = "R11: the clock is a model input" },
+    { path = "chrono::Utc::now", reason = "R11: the clock is a model input" },
+    { path = "chrono::Local::now", reason = "R11: the clock is a model input" },
+    { path = "std::fs::read_to_string", reason = "R12: no IO outside effects" },
+    { path = "std::fs::write", reason = "R12: no IO outside effects" },
+    { path = "std::fs::File::open", reason = "R12: no IO outside effects" },
+    { path = "tokio::fs::read_to_string", reason = "R12: no IO outside effects" },
+    { path = "tokio::fs::write", reason = "R12: no IO outside effects" },
+    { path = "std::process::Command::new", reason = "R12: no processes outside effects" },
+    { path = "tokio::process::Command::new", reason = "R12: no processes outside effects" },
+    { path = "std::net::TcpStream::connect", reason = "R12: no network outside effects" },
+    { path = "std::net::TcpListener::bind", reason = "R12: no network outside effects" },
+    { path = "std::net::UdpSocket::bind", reason = "R12: no network outside effects" },
+    { path = "tokio::net::TcpStream::connect", reason = "R12: no network outside effects" },
+    { path = "codex_app_server_protocol::generate_ts", reason = "R12: the protocol's generators write files" },
+    { path = "codex_app_server_protocol::generate_ts_with_options", reason = "R12: the protocol's generators write files" },
+    { path = "codex_app_server_protocol::generate_json", reason = "R12: the protocol's generators write files" },
+    { path = "codex_app_server_protocol::generate_json_with_experimental", reason = "R12: the protocol's generators write files" },
+]
+
+# Types that are IO by being held: a file, a socket, a process, a stdio handle.
+disallowed-types = [
+    { path = "std::fs::File", reason = "R12: no IO outside effects" },
+    { path = "std::net::TcpStream", reason = "R12: no network outside effects" },
+    { path = "std::process::Command", reason = "R12: no processes outside effects" },
+    { path = "std::io::Stdout", reason = "R12: no stdio outside effects" },
+]

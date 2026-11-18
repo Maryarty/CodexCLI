@@ -1,0 +1,26 @@
+[package]
+name = "codex-tui-rtwk-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "codex_tui_rtwk_core"
+path = "src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+# The core of `codex-tui-rtwk`: models, `apply`, tickets, the protocol mapping.
+# It has no direct dependency but the protocol, serde and test helpers
+# (`tests/layers.rs` keeps the list); the protocol crate pulls a runtime in
+# transitively, so the sources name none and the lints ban the IO calls. The
+# compiler refuses any widget here.
+[dependencies]
+codex-app-server-protocol = { path = "../../app-server-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"

@@ -12,19 +12,19 @@ pub mod fake;
 
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
 
 use rtwk::app::AppCx;
 use rtwk_tokio::TokioApp;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::app::AppEv;
-use crate::app::AppFx;
-use crate::app::CodexApp;
-use crate::app::Command;
-use crate::app::Ingress;
-use crate::ids::ConnEpoch;
+use codex_tui_rtwk_core::app::AppEv;
+use codex_tui_rtwk_core::app::AppFx;
+use codex_tui_rtwk_core::app::Command;
+use codex_tui_rtwk_core::app::Ingress;
+use codex_tui_rtwk_core::ids::ConnEpoch;
+
+use crate::app::UiApp;
 
 /// What the shell connects the app to.
 pub enum Backend {
@@ -79,18 +79,21 @@ impl Link {
 /// Starts the connection: subscribes to the ingress, attaches the next
 /// epoch and runs the backend on the tokio runtime. Called once, from the
 /// root's `on_start`.
-pub fn start(app: &mut CodexApp, cx: &mut AppCx<'_, '_, CodexApp>) {
+pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let Some(backend) = app.link.backend.take() else {
         return;
     };
+    // Nothing to connect: state tests and seeded models never start the shell.
+    if matches!(backend, Backend::None) {
+        return;
+    }
     let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel::<Ingress>();
     cx.subscribe(
         futures::stream::poll_fn(move |task| ingress_rx.poll_recv(task)),
-        |app: &mut CodexApp, ingress, cx| app.ingest(ingress, cx),
+        |app: &mut UiApp, ingress, cx| app.ingest(ingress, cx),
         |_, _| {},
     );
-    let epoch = app.session.epoch.next();
-    Rc::make_mut(&mut app.session).epoch = epoch;
+    let epoch = app.core.attach();
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.ingress = Some(ingress_tx.clone());
     app.link.commands = Some(command_tx);
@@ -103,25 +106,26 @@ pub fn start(app: &mut CodexApp, cx: &mut AppCx<'_, '_, CodexApp>) {
 }
 
 /// Runs the effects of one `apply_app` call.
-pub fn run_effects(app: &CodexApp, fx: AppFx) {
+pub fn run_effects(app: &UiApp, fx: AppFx) {
     let Some(commands) = &app.link.commands else {
         return;
     };
-    for command in fx.commands {
+    for command in fx.into_commands() {
         let _ = commands.send(command);
     }
 }
 
 /// Puts an event into the ingress under `ingress.epoch`.
-pub fn send(app: &CodexApp, ingress: Ingress) {
+pub fn send(app: &UiApp, ingress: Ingress) {
     if let Some(sender) = &app.link.ingress {
         let _ = sender.send(ingress);
     }
 }
 
-/// Awaits the result of a dialog and delivers `msg` to the widget when it
-/// closes: the one place a widget's future is spawned (R1).
-pub fn on_dialog_closed<S, T>(
+/// What a widget awaits its dialog's result with (see
+/// `ui::presenter::Presenter`): the one `Cx::spawn` of a dialog future,
+/// handed to the UI by the root so the UI names no shell (R1).
+pub fn dialog_closed<S, T>(
     cx: &mut rtwk::Cx<'_, S>,
     result: rtwk::overlay::DialogResult<T>,
     msg: S::Msg,

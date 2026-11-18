@@ -10,8 +10,9 @@ use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use crate::app::RequestQueue;
-use crate::ids::RequestKey;
+use codex_tui_rtwk_core::app::RequestQueue;
+use codex_tui_rtwk_core::ids::RequestKey;
+
 use crate::l10n::strings as l10n;
 use crate::theme;
 use crate::ui::view::Hs;

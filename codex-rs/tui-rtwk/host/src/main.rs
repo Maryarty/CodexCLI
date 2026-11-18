@@ -5,9 +5,9 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
 use codex_core::config::ConfigBuilder;
 use codex_tui_rtwk::Cli;
-use codex_tui_rtwk::app::CodexApp;
+use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::run::run;
 use codex_tui_rtwk::shell::Backend;
-use codex_tui_rtwk::ui::run::run;
 
 /// How long `main` waits for the backend future to hand the client back.
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -35,7 +35,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         done: done_tx,
         model: cli.model.clone(),
     }));
-    let app = CodexApp::new(backend)
+    let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     let result = run(app);

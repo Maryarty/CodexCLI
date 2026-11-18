@@ -8,12 +8,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use codex_tui_rtwk::app::CodexApp;
+use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::l10n::Lang;
+use codex_tui_rtwk::run::{app_view, localized, root};
 use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
-use codex_tui_rtwk::ui::run::{app_view, localized, root};
+use codex_tui_rtwk_core::fixtures::script::Input;
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.
@@ -59,7 +60,7 @@ pub fn start_debug() -> Harness {
 pub fn start_quittable(debug: bool) -> Harness {
     let guard = rtwk_tokio::enter(runtime());
     let (server, fake) = FakeServer::new();
-    let app = CodexApp::new(Backend::Fake(server)).with_debug_screens(debug);
+    let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
     let mut t = Tester::with(Options::new().size(WIDTH, HEIGHT));
     t.pump_app(app_view(app));
     t.pump_for(ms(200));
@@ -74,7 +75,7 @@ pub fn start_quittable(debug: bool) -> Harness {
 pub fn start_lang(lang: Lang) -> Harness {
     let guard = rtwk_tokio::enter(runtime());
     let (server, fake) = FakeServer::new();
-    let app = CodexApp::new(Backend::Fake(server)).with_lang(lang);
+    let app = UiApp::new(Backend::Fake(server)).with_lang(lang);
     let mut t = Tester::with(Options::new().size(WIDTH, HEIGHT));
     t.pump_widget(localized(root(app_view(app)), lang));
     t.pump_for(ms(200));
@@ -97,7 +98,7 @@ fn start_with(debug: bool) -> Harness {
 fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     let guard = rtwk_tokio::enter(runtime());
     let (server, fake) = FakeServer::new();
-    let app = CodexApp::new(Backend::Fake(server)).with_debug_screens(debug);
+    let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
     let mut t = Tester::with(Options::new().size(width, height));
     // The app under the overlay `run_app` puts above it.
     t.pump_widget(localized(root(app_view(app)), Lang::En));
@@ -139,6 +140,47 @@ impl Harness {
     }
 }
 
+/// The index of a debug-menu row: a directory's heading, or one of its
+/// entries (the rows run directory by directory, each followed by its entries).
+pub fn debug_row(dir: &str, entry: Option<&str>) -> usize {
+    let mut index = 0;
+    for d in screens::dirs() {
+        if d.name == dir {
+            let Some(entry) = entry else { return index };
+            let at = (d.debug_entries)()
+                .iter()
+                .position(|e| e.name == entry)
+                .unwrap_or_else(|| panic!("`{dir}` has no debug entry `{entry}`"));
+            return index + 1 + at;
+        }
+        index += 1 + (d.debug_entries)().len();
+    }
+    panic!("`{dir}` is not a registered screen directory");
+}
+
+impl Harness {
+    /// Opens a row of the debug menu (the menu is the home, nothing above it).
+    pub fn open_debug_row(&mut self, dir: &str, entry: Option<&str>) {
+        for _ in 0..debug_row(dir, entry) {
+            self.press("down");
+        }
+        self.press("enter");
+    }
+
+    /// Plays the `key` and `resize` steps of a script, in order.
+    pub fn play_inputs(&mut self, inputs: &[Input]) {
+        for input in inputs {
+            match input {
+                Input::Key(keys) => self.press(keys),
+                Input::Resize { width, height } => {
+                    self.t.resize(*width, *height);
+                    self.t.pump_for(ms(100));
+                }
+            }
+        }
+    }
+}
+
 /// A slot of the screen map: registered once, with the id and kind the
 /// map says, and empty until its slice fills it.
 pub fn slot(name: &str) {
@@ -148,10 +190,6 @@ pub fn slot(name: &str) {
         .find(|dir| dir.name == name)
         .unwrap_or_else(|| panic!("`{name}` is not a registered screen directory"));
     assert!(!dir.id.is_empty());
-    assert!(
-        (dir.debug_entries)().is_empty(),
-        "`{name}` lists debug entries before it has screens"
-    );
     let _ = (dir.open_empty)();
 }
 
@@ -165,10 +203,17 @@ fn snapshot_path(dir: &str, name: &str) -> PathBuf {
 /// Compares the screen with the golden text of `tests/snapshots/<dir>/<name>.snap`
 /// (trailing blanks trimmed per line). `UPDATE_SNAPSHOTS=1` writes it.
 pub fn assert_snapshot(t: &Tester, dir: &str, name: &str) {
+    assert_snapshot_where(t, dir, name, |_| true);
+}
+
+/// As `assert_snapshot`, over the screen lines `keep` accepts: a golden that
+/// must not change when a slice adds its own rows (the debug menu's entries).
+pub fn assert_snapshot_where(t: &Tester, dir: &str, name: &str, keep: impl Fn(&str) -> bool) {
     let actual = t
         .lines()
         .iter()
         .map(|line| line.trim_end().to_string())
+        .filter(|line| keep(line))
         .collect::<Vec<_>>()
         .join("\n");
     let path = snapshot_path(dir, name);

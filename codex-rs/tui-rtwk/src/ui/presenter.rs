@@ -9,17 +9,24 @@ use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use crate::app::RequestQueue;
-use crate::ids::RequestKey;
+use codex_tui_rtwk_core::app::RequestQueue;
+use codex_tui_rtwk_core::ids::RequestKey;
+
 use crate::screens;
-use crate::shell;
+
+/// How the presenter awaits its dialog's result: given by the root (the
+/// shell's `dialog_closed`), because spawning is the shell's (R1).
+pub type CloseWatcher =
+    fn(&mut Cx<'_, PresenterState>, rtwk::overlay::DialogResult<()>, PresenterMsg);
 
 /// Shows the dialog of the queue's head; its child is what it wraps.
 pub struct Presenter {
+    pub watch: CloseWatcher,
     pub child: AnyWidget,
 }
 
 pub struct PresenterState {
+    watch: CloseWatcher,
     shown: Option<RequestKey>,
     /// The last request shown: a snapshot that still holds it (the view
     /// has not rerun yet) is not a new request.
@@ -36,6 +43,7 @@ impl StatefulWidget for Presenter {
 
     fn create_state(&self) -> PresenterState {
         PresenterState {
+            watch: self.watch,
             shown: None,
             last: None,
         }
@@ -64,7 +72,7 @@ impl PresenterState {
                 ..DialogOptions::default()
             },
         );
-        shell::on_dialog_closed(cx, result, PresenterMsg::Closed(key));
+        (self.watch)(cx, result, PresenterMsg::Closed(key));
     }
 }
 

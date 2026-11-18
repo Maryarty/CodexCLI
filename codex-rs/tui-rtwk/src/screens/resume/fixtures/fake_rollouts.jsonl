@@ -1,0 +1,8 @@
+# A resume list from fake rollouts.
+# The three rollouts of the app-server's `thread_list` test
+# (app-server/tests/suite/v2/thread_list.rs, `create_fake_rollout` with
+# "2025-01-02T12:00:00Z", "2025-01-01T13:00:00Z", "2025-01-01T12:00:00Z",
+# preview "Hello", provider "mock_provider"); the ids are made up, the oracle's
+# are random.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-4000-8000-00000000000a","preview":"Hello","model_provider":"mock_provider","timestamp":"2025-01-02T12:00:00Z"},{"id":"00000000-0000-4000-8000-00000000000b","preview":"Hello","model_provider":"mock_provider","timestamp":"2025-01-01T13:00:00Z"},{"id":"00000000-0000-4000-8000-00000000000c","preview":"Hello","model_provider":"mock_provider","timestamp":"2025-01-01T12:00:00Z"}]}}}

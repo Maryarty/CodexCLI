@@ -1,18 +1,18 @@
-//! `codex-tui-rtwk`: the Codex terminal UI on rtwk. The skeleton: the model
-//! and its one writer (`app`, `threads`), the shell that owns the backend
-//! (`shell`), the widgets outside the screens (`ui`) and the screen slots
-//! (`screens`) the port's slices fill. Architecture: `docs/rtwk-port/architecture.md`.
+//! `codex-tui-rtwk`: the Codex terminal UI on rtwk, the UI crate. Its model is
+//! `UiApp { core, ui }` (`app`): the core model of `codex-tui-rtwk-core` (models,
+//! `apply`, protocol mapping; no rtwk) plus UI-only state. The shell that runs
+//! effects and owns the backend (`shell`), the widgets outside the screens
+//! (`ui`), the screen directories (`screens`, view files only) and the
+//! composition root (`run`) are here. Architecture:
+//! `docs/rtwk-port/architecture.md`, "Layers".
 
 pub mod app;
-pub mod commands;
-pub mod ids;
 pub mod keymap;
 pub mod l10n;
-pub mod rpc;
+pub mod run;
 pub mod screens;
 pub mod shell;
 pub mod theme;
-pub mod threads;
 pub mod ui;
 
 /// The command line of `codex-rtwk`.

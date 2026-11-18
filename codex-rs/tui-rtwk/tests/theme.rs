@@ -3,11 +3,11 @@
 
 use std::rc::Rc;
 
+use codex_tui_rtwk::run::{app_view, root};
 use codex_tui_rtwk::theme::Tokens;
-use codex_tui_rtwk::ui::run::{app_view, root};
 use rtwk::prelude::ThemeData;
 
-use codex_tui_rtwk::app::CodexApp;
+use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::shell::Backend;
 
 #[test]
@@ -28,6 +28,6 @@ fn another_theme_gives_other_tokens() {
 
 #[test]
 fn the_root_carries_a_theme() {
-    let app = CodexApp::new(Backend::None);
+    let app = UiApp::new(Backend::None);
     assert!(root(app_view(app)).theme.is_some());
 }

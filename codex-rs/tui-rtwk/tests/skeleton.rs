@@ -3,15 +3,18 @@
 //! chat screen here is a placeholder, so its goldens are rtwk's own
 //! rendering (the parity pack records it as a delta against codex-tui).
 
-use codex_tui_rtwk::app::{AppEv, Command};
-use codex_tui_rtwk::ids::{ConnEpoch, ThreadId};
-use codex_tui_rtwk::screens::{self, Kind};
-use codex_tui_rtwk::shell::fake::{
-    FAKE_THREAD, agent_completed, agent_delta, server_request_resolved, tool_input_request,
-    turn_completed,
+use codex_tui_rtwk::screens;
+use codex_tui_rtwk::shell::fake::FAKE_THREAD;
+use codex_tui_rtwk_core::app::{AppEv, Command};
+use codex_tui_rtwk_core::fixtures::builders::{
+    agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
 };
+use codex_tui_rtwk_core::ids::{ConnEpoch, ThreadId};
+use codex_tui_rtwk_core::screens::Kind;
 
-use crate::common::{assert_snapshot, start, start_debug, start_quittable, start_sized};
+use crate::common::{
+    assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,
+};
 
 const DIRS: [(&str, &str, Kind); 22] = [
     ("chat", "S10", Kind::Home),
@@ -84,21 +87,39 @@ fn prompt_streams_the_answer_as_plain_text() {
 
 #[test]
 fn debug_menu_lists_the_directories() {
-    let mut h = start_debug();
+    // 22 directories and every entry: more rows than the oracle's 24 lines,
+    // which this menu (not an oracle screen) need not fit. Tall, so that the
+    // entries a slice adds still show.
+    let mut h = start_sized(true, 80, 120);
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     for (name, id, _) in DIRS {
         assert!(screen.contains(name), "`{name}` missing:\n{screen}");
         assert!(screen.contains(id), "`{id}` missing:\n{screen}");
     }
-    assert_snapshot(&h.t, "debug", "menu");
+    // Every entry of every directory is listed, under its own heading ...
+    for dir in screens::dirs() {
+        for entry in (dir.debug_entries)() {
+            let row = format!("{} - {}", entry.name, entry.description);
+            assert!(screen.contains(&row), "`{row}` missing:\n{screen}");
+        }
+    }
+    // ... and the golden holds the heading rows only, so a slice that adds an
+    // entry does not edit it.
+    let entry_rows: Vec<String> = screens::dirs()
+        .iter()
+        .flat_map(|dir| (dir.debug_entries)())
+        .map(|entry| format!("{} - {}", entry.name, entry.description))
+        .collect();
+    assert_snapshot_where(&h.t, "debug", "menu", |line| {
+        !entry_rows.iter().any(|row| row == line.trim_start())
+    });
 }
 
 #[test]
 fn debug_menu_opens_a_slot() {
     let mut h = start_debug();
-    h.press("down");
-    h.press("enter");
+    h.open_debug_row("cells", None);
     assert!(
         h.t.screen().contains("cells (S11): empty slot"),
         "{}",
@@ -111,8 +132,7 @@ fn debug_menu_opens_a_slot() {
 #[test]
 fn the_navigator_stack_survives_a_view_run() {
     let mut h = start_debug();
-    h.press("down");
-    h.press("enter");
+    h.open_debug_row("cells", None);
     assert!(h.t.screen().contains("cells (S11): empty slot"));
     let epoch = h.fake.epoch().expect("attached");
     let fake = h.fake.clone();
@@ -202,12 +222,12 @@ fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
 fn debug_menu_scrolls_to_the_cursor() {
     let mut h = start_sized(true, 80, 12);
     assert!(h.t.screen().contains("chat"));
-    for _ in 0..16 {
+    let pets = crate::common::debug_row("pets", None);
+    for _ in 0..pets {
         h.press("down");
     }
     let screen = h.t.screen();
-    // Row 16 (the cursor after 16 downs) is `pets`; the first rows scrolled
-    // off a 12-line screen.
+    // The cursor is on `pets`; the first rows scrolled off a 12-line screen.
     assert!(screen.contains("pets"), "{screen}");
     assert!(!screen.contains(" chat "), "scrolled off: {screen}");
     h.press("enter");
