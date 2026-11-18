@@ -10,6 +10,7 @@ use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadStatus;
 
 use super::Grouping;
+use super::History;
 use super::Model;
 use super::Sel;
 use super::carried::AgentsOverviewGroup;
@@ -118,9 +119,13 @@ impl Model {
                 children.entry(parent.clone()).or_default().push(thread);
             }
         }
+        // The rows of a history search count while it is open (oracle:
+        // `includes_row`).
+        let matches = self.history.iter().flat_map(|_| self.search_matches.iter());
         let mut roots = self
             .threads
             .iter()
+            .chain(matches)
             .filter(|thread| thread.parent_thread_id.is_none())
             .map(|root| (root, agents_overview_group(root, &children)))
             .collect::<Vec<_>>();
@@ -155,7 +160,7 @@ impl Model {
 
     /// The rows the filters keep, pinned first, in grouping order (oracle:
     /// `visible_indices`).
-    fn visible_indices(&self, rows: &[RowData]) -> Vec<usize> {
+    pub(super) fn visible_indices(&self, rows: &[RowData]) -> Vec<usize> {
         let search = self.search.to_lowercase();
         let status_group = FILTER_GROUPS[self.filter.min(FILTER_GROUPS.len() - 1)];
         let renaming = self.rename.as_ref().map(|rename| rename.target.as_str());
@@ -171,9 +176,15 @@ impl Model {
             .partition(|index| rows[*index].pinned);
         pinned.sort_by_key(|index| self.pin_rank(rows[*index].id()));
         match self.grouping {
-            Grouping::Project | Grouping::Directory => visible.sort_by_key(|index| {
+            Grouping::Project => visible.sort_by_key(|index| {
                 (
-                    rows[*index].thread.cwd.display().to_string(),
+                    self.project_key(&rows[*index].thread),
+                    std::cmp::Reverse(rows[*index].thread.updated_at),
+                )
+            }),
+            Grouping::Directory => visible.sort_by_key(|index| {
+                (
+                    self.directory_key(&rows[*index].thread),
                     std::cmp::Reverse(rows[*index].thread.updated_at),
                 )
             }),
@@ -194,18 +205,49 @@ impl Model {
         pinned
     }
 
+    /// The project of a thread: its repository and the path inside it, or
+    /// its `cwd` (oracle: `AgentsOverviewProjectGroup::key`).
+    fn project_key(&self, thread: &Thread) -> (String, String) {
+        let cwd = thread.cwd.display().to_string();
+        match self.dirs.get(&cwd).filter(|_| self.worktrees) {
+            Some(keys) => keys.project.clone(),
+            None => (cwd, String::new()),
+        }
+    }
+
+    fn project_heading(&self, thread: &Thread) -> String {
+        let cwd = thread.cwd.display().to_string();
+        match self.dirs.get(&cwd).filter(|_| self.worktrees) {
+            Some(keys) => keys.heading.clone(),
+            None => cwd,
+        }
+    }
+
+    /// The directory of a thread, canonical when the shell could tell
+    /// (oracle: `directory_group_key`).
+    fn directory_key(&self, thread: &Thread) -> String {
+        let cwd = thread.cwd.display().to_string();
+        match self.dirs.get(&cwd).filter(|_| self.worktrees) {
+            Some(keys) => keys.directory.clone(),
+            None => cwd,
+        }
+    }
+
     fn same_group(&self, rows: &[RowData], left: usize, right: usize) -> bool {
         let (l, r) = (&rows[left], &rows[right]);
         match self.grouping {
             Grouping::Status => l.group == r.group,
             _ if l.pinned || r.pinned => l.pinned && r.pinned,
-            Grouping::Project | Grouping::Directory => l.thread.cwd == r.thread.cwd,
+            Grouping::Project => self.project_key(&l.thread) == self.project_key(&r.thread),
+            Grouping::Directory => self.directory_key(&l.thread) == self.directory_key(&r.thread),
             Grouping::Model => model_name(&l.thread) == model_name(&r.thread),
         }
     }
 
     pub(super) fn more_available(&self) -> bool {
-        self.paging.has_more && !self.searching
+        self.history
+            .as_ref()
+            .map_or(self.paging.has_more && !self.searching, History::has_more)
     }
 
     /// Visible rows plus the "Show more" slot (`usize::MAX`).
@@ -243,7 +285,8 @@ impl Model {
         let label = match self.grouping {
             Grouping::Status => GroupLabel::Status(row.group),
             _ if row.pinned => GroupLabel::Pinned,
-            Grouping::Project | Grouping::Directory => GroupLabel::Path(row.thread.cwd.display().to_string()),
+            Grouping::Project => GroupLabel::Path(self.project_heading(&row.thread)),
+            Grouping::Directory => GroupLabel::Path(row.thread.cwd.display().to_string()),
             Grouping::Model => GroupLabel::Model(model_name(&row.thread).to_owned()),
         };
         let count = indices
@@ -316,9 +359,16 @@ impl Model {
     /// Drops a thread and everything below it, however deep (oracle:
     /// `remove_agents_overview_thread` with its descendants).
     pub(super) fn remove_subtree(&mut self, id: &str) {
+        self.remove_tree(id, true);
+    }
+
+    /// Drops a thread, and everything below it when `whole` (a cloud archive
+    /// keeps the children). Each shown root that leaves is a vacancy for
+    /// the refill (oracle: `remove_agents_overview_thread`).
+    pub(super) fn remove_tree(&mut self, id: &str, whole: bool) {
         let mut gone = vec![id.to_owned()];
         let mut next = 0;
-        while next < gone.len() {
+        while whole && next < gone.len() {
             let parent = gone[next].clone();
             gone.extend(
                 self.threads
@@ -328,6 +378,17 @@ impl Model {
             );
             next += 1;
         }
+        for held in &self.threads {
+            if gone.contains(&held.id)
+                && held.parent_thread_id.is_none()
+                && !held.ephemeral
+                && !self.hidden.contains(&held.id)
+            {
+                self.paging.refill += 1;
+            }
+        }
+        self.removed.extend(gone.iter().cloned());
+        self.search_matches.retain(|held| !gone.contains(&held.id));
         self.threads.retain(|held| !gone.contains(&held.id));
     }
 

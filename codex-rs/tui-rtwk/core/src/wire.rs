@@ -53,7 +53,7 @@ pub fn client_request(
         Command::Screen {
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
-        Command::RejectRequest { .. } => None,
+        Command::RejectRequest { .. } | Command::Worktree { .. } => None,
     }
 }
 
@@ -90,7 +90,7 @@ pub fn reply(
                 Err(message) => Reply::failed(message),
             },
         )),
-        Command::RejectRequest { .. } => None,
+        Command::RejectRequest { .. } | Command::Worktree { .. } => None,
     }
 }
 

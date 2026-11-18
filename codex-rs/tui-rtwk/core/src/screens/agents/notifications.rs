@@ -2,14 +2,13 @@
 //! `track_agents_overview_notification` and `track_agents_overview_activity`.
 //! Oracle: `agents_overview_threads.rs`.
 
+use super::Model;
+use super::carried::preview_markdown;
+use super::carried::preview_text;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadStatus;
-use super::Model;
-use super::Usage;
-use super::carried::preview_markdown;
-use super::carried::preview_text;
 
 use super::refresh::normalize;
 
@@ -65,7 +64,9 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) {
         ServerNotification::ThreadDeleted(gone) => remove(model, &gone.thread_id),
         ServerNotification::ThreadClosed(closed) => {
             model.activity.remove(&closed.thread_id);
-            model.usage.remove(&closed.thread_id);
+            if let Some(usage) = model.usage.get_mut(&closed.thread_id) {
+                usage.tokens = None;
+            }
             if let Some(thread) = model.threads.iter_mut().find(|t| t.id == closed.thread_id) {
                 thread.status = ThreadStatus::NotLoaded;
             }
@@ -79,16 +80,19 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) {
         }
         ServerNotification::ThreadTokenUsageUpdated(update) => {
             if model.threads.iter().any(|t| t.id == update.thread_id) {
-                model.usage.insert(
-                    update.thread_id.clone(),
-                    Usage {
-                        input: update.token_usage.total.input_tokens,
-                        output: update.token_usage.total.output_tokens,
-                    },
-                );
+                model
+                    .usage
+                    .entry(update.thread_id.clone())
+                    .or_default()
+                    .tokens = Some((
+                    update.token_usage.total.input_tokens,
+                    update.token_usage.total.output_tokens,
+                ));
             }
         }
-        ServerNotification::ItemCompleted(ItemCompletedNotification { thread_id, item, .. }) => {
+        ServerNotification::ItemCompleted(ItemCompletedNotification {
+            thread_id, item, ..
+        }) => {
             if let ThreadItemPayload::AgentMessage { text, .. } = &item.payload {
                 let activity = model.activity.entry(thread_id.clone()).or_default();
                 activity.last_message = Some(preview_markdown(text));

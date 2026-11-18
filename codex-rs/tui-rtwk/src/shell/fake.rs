@@ -151,7 +151,7 @@ pub(crate) async fn run(
                 }
             }
             // Slot RPCs are recorded; a test replies with `inject`.
-            Command::RejectRequest { .. } | Command::Screen { .. } => {}
+            Command::RejectRequest { .. } | Command::Worktree { .. } | Command::Screen { .. } => {}
         }
     }
 }

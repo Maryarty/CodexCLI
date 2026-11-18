@@ -36,12 +36,19 @@ pub struct Details {
     pub lines: Vec<DetailLine>,
     /// Tokens in and out of the root task, when known.
     pub tokens: Option<(i64, i64)>,
+    /// Tokens and the cached estimate of the root task; the UI turns them
+    /// into the `Tokens:` and `Est. usage:` lines (`Usage::token_counts`).
+    pub usage: super::Usage,
     /// The source's last message (markdown) when it has one.
     pub last_message: Option<String>,
 }
 
 impl Model {
-    pub(super) fn details(&self, root: &Thread, children: &HashMap<String, Vec<&Thread>>) -> Details {
+    pub(super) fn details(
+        &self,
+        root: &Thread,
+        children: &HashMap<String, Vec<&Thread>>,
+    ) -> Details {
         let mut lines = Vec::new();
         // Urgency comes first; on ties, prefer available current detail over history.
         let priority = |thread: &Thread| {
@@ -116,10 +123,8 @@ impl Model {
                 .get(&root.id)
                 .and_then(|activity| activity.latest_prompt.clone()),
             lines,
-            tokens: self
-                .usage
-                .get(&root.id)
-                .map(|usage| (usage.input, usage.output)),
+            tokens: self.usage.get(&root.id).and_then(|usage| usage.tokens),
+            usage: self.usage.get(&root.id).cloned().unwrap_or_default(),
             last_message,
         }
     }

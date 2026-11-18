@@ -138,6 +138,10 @@ pub enum Command {
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
+    /// A new worktree in `cwd`'s repository with a task in it: git work the
+    /// shell does; it answers with the agents screen's `Ev::Notice`.
+    #[non_exhaustive]
+    Worktree { cwd: Option<String> },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -388,6 +392,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
 /// RPCs are app-scoped: the command carries no thread.
 fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     for out in outs {
+        if let agents::Command::NewWorktree { cwd } = out.command {
+            fx.commands.push(Command::Worktree { cwd });
+            continue;
+        }
         let ticket = app.mint.next();
         app.outgoing
             .insert(ticket, AppCtx::Screen(ScreenCtx::Agents(out.ctx)));
@@ -407,7 +415,11 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
         Answer::Failed(error) => Err(error),
         _ => Err(RpcError::Mismatch),
     };
-    if let (agents::Ctx::Resume { .. }, Ok(agents::Reply::Resumed(thread))) = (&ctx, &result) {
+    if let (
+        agents::Ctx::Resume { .. } | agents::Ctx::Fork,
+        Ok(agents::Reply::Resumed(thread) | agents::Reply::Forked(thread)),
+    ) = (&ctx, &result)
+    {
         resume_into_chat(app, thread);
     }
     let outs = agents::apply_answer(&mut Rc::make_mut(&mut app.screens).agents, ctx, result);

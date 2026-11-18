@@ -1,11 +1,23 @@
 //! The wire form of the screen's RPCs and their replies, and a script's seed.
 //! Oracle: `agents_overview_discovery.rs` (list), `agents_overview_actions.rs`.
 
+use super::Command;
+use super::Ev;
+use super::PAGE_SIZE;
+use super::Page;
+use super::Reply;
+use super::UsageOutcome;
+use super::carried::is_overview_thread;
+use crate::rpc::RpcError;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::GetAccountTokenUsageParams;
+use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadDeleteParams;
+use codex_app_server_protocol::ThreadForkParams;
+use codex_app_server_protocol::ThreadForkResponse;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadReadParams;
@@ -18,15 +30,7 @@ use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStatus;
-use crate::rpc::RpcError;
 use serde::Deserialize;
-use super::Command;
-use super::Ev;
-use super::PAGE_SIZE;
-use super::Page;
-use super::Reply;
-use super::carried::is_overview_thread;
-
 
 /// The wire request of `command` (oracle: `agents_overview_discovery.rs`,
 /// `agents_overview_actions.rs`).
@@ -34,27 +38,7 @@ pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
     match command {
         Command::List { cursor } => ClientRequest::ThreadList {
             request_id,
-            params: ThreadListParams {
-                include_attached_threads: false,
-                current_account_only: true,
-                cursor: cursor.clone(),
-                limit: Some(PAGE_SIZE),
-                excluded_thread_ids: None,
-                sort_key: Some(ThreadSortKey::RecencyAt),
-                sort_direction: None,
-                model_providers: Some(Vec::new()),
-                source_kinds: Some(Vec::new()),
-                originators: None,
-                archived: Some(false),
-                section_id: None,
-                project_id: None,
-                cwd: None,
-                use_state_db_only: true,
-                search_term: None,
-                parent_thread_id: None,
-                ancestor_thread_id: None,
-                attached_to_thread_id: None,
-            },
+            params: list_params(cursor.clone()),
         },
         Command::Rename { thread, name } => ClientRequest::ThreadSetName {
             request_id,
@@ -104,13 +88,63 @@ pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 ..ThreadResumeParams::default()
             },
         },
-        Command::Start { cwd } => ClientRequest::ThreadStart {
+        Command::Fork { thread } => ClientRequest::ThreadFork {
+            request_id,
+            params: ThreadForkParams {
+                thread_id: thread.clone(),
+                ..ThreadForkParams::default()
+            },
+        },
+        Command::Search { cursor, .. } => ClientRequest::ThreadList {
+            request_id,
+            params: ThreadListParams {
+                limit: Some(SEARCH_PAGE_SIZE),
+                ..list_params(cursor.clone())
+            },
+        },
+        Command::Usage { thread } => ClientRequest::GetAccountTokenUsage {
+            request_id,
+            params: Some(GetAccountTokenUsageParams {
+                thread_id: Some(thread.clone()),
+            }),
+        },
+        // A worktree is git work, not an RPC: `app::send_agents` hands it to
+        // the shell, and never here. Were it asked, the task would start in
+        // the directory itself.
+        Command::Start { cwd } | Command::NewWorktree { cwd } => ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
                 cwd: cwd.clone(),
                 ..ThreadStartParams::default()
             },
         },
+    }
+}
+
+/// A search scans pages of this many rows (oracle: `page_size = 100`).
+const SEARCH_PAGE_SIZE: u32 = 100;
+
+fn list_params(cursor: Option<String>) -> ThreadListParams {
+    ThreadListParams {
+        include_attached_threads: false,
+        current_account_only: true,
+        cursor,
+        limit: Some(PAGE_SIZE),
+        excluded_thread_ids: None,
+        sort_key: Some(ThreadSortKey::RecencyAt),
+        sort_direction: None,
+        model_providers: Some(Vec::new()),
+        source_kinds: Some(Vec::new()),
+        originators: None,
+        archived: Some(false),
+        section_id: None,
+        project_id: None,
+        cwd: None,
+        use_state_db_only: true,
+        search_term: None,
+        parent_thread_id: None,
+        ancestor_thread_id: None,
+        attached_to_thread_id: None,
     }
 }
 
@@ -123,7 +157,7 @@ pub(super) fn decode_reply(
 ) -> Result<Reply, RpcError> {
     let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
     match command {
-        Command::List { .. } => {
+        Command::List { .. } | Command::Search { .. } => {
             let page: ThreadListResponse = serde_json::from_value(result).map_err(malformed)?;
             let unread = page
                 .read_states
@@ -133,23 +167,31 @@ pub(super) fn decode_reply(
                 .map(|(id, _)| id.clone())
                 .collect();
             Ok(Reply::Listed(Page {
-                threads: page
-                    .data
-                    .into_iter()
-                    .filter(is_overview_thread)
-                    .collect(),
+                threads: page.data.into_iter().filter(is_overview_thread).collect(),
                 unread,
                 next_cursor: page.next_cursor,
                 append: false,
             }))
         }
         Command::Resume { .. } => {
-            let response: ThreadResumeResponse = serde_json::from_value(result).map_err(malformed)?;
+            let response: ThreadResumeResponse =
+                serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Resumed(Box::new(response.thread)))
         }
-        Command::ActiveTurn { .. } => {
-            let response: ThreadReadResponse =
+        Command::Fork { .. } => {
+            let response: ThreadForkResponse = serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Forked(Box::new(response.thread)))
+        }
+        Command::Usage { .. } => {
+            let response: GetAccountTokenUsageResponse =
                 serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Usage(match response.thread_usage {
+                Some(estimate) => UsageOutcome::Available(estimate),
+                None => UsageOutcome::Disabled,
+            }))
+        }
+        Command::ActiveTurn { .. } => {
+            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::ActiveTurn(
                 response
                     .thread
@@ -190,6 +232,20 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
             }))
         }
         "home" => serde_json::from_value(body).map(Ev::Home).map_err(text),
+        "backend" => {
+            #[derive(Deserialize)]
+            struct Seed {
+                #[serde(default)]
+                cloud: bool,
+                #[serde(default)]
+                worktrees: bool,
+            }
+            let seed: Seed = serde_json::from_value(body).map_err(text)?;
+            Ok(Ev::Backend {
+                cloud: seed.cloud,
+                worktrees: seed.worktrees,
+            })
+        }
         "clock" => serde_json::from_value(body).map(Ev::Clock).map_err(text),
         "current" => serde_json::from_value(body).map(Ev::Current).map_err(text),
         "pinned" => serde_json::from_value(body).map(Ev::Pinned).map_err(text),

@@ -114,25 +114,23 @@ const CLOCK_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
 /// The environment's facts the core cannot read (R12): the home directory
 /// once, then the clock at every `CLOCK_EVERY`. The command center shows
 /// `~` for the home and ages from the clock.
-fn ambient(ingress: IngressTx, epoch: ConnEpoch) -> impl Future<Output = ()> + Send + 'static {
-    async move {
-        let home = std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned());
+async fn ambient(ingress: IngressTx, epoch: ConnEpoch) {
+    let home = std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned());
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(AgentsEv::Home(home))),
+    );
+    loop {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(0));
         emit(
             &ingress,
             epoch,
-            AppEv::Screen(ScreenEv::Agents(AgentsEv::Home(home))),
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(now))),
         );
-        loop {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(0));
-            emit(
-                &ingress,
-                epoch,
-                AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(now))),
-            );
-            tokio::time::sleep(CLOCK_EVERY).await;
-        }
+        tokio::time::sleep(CLOCK_EVERY).await;
     }
 }
 

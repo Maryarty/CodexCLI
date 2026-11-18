@@ -3,7 +3,6 @@
 //! Oracle: `agents_overview_view.rs` (`handle_key_event` arms),
 //! `agents_overview_actions.rs` (archive, delete, hide, rename, pin).
 
-use codex_app_server_protocol::ThreadStatus;
 use super::Action;
 use super::CenterRow;
 use super::Command;
@@ -16,6 +15,7 @@ use super::Rename;
 use super::Sel;
 use super::carried::supports_shared_pinning;
 use super::center::FILTER_GROUPS;
+use codex_app_server_protocol::ThreadStatus;
 
 use super::refresh::Out;
 use super::refresh::list;
@@ -24,8 +24,16 @@ use super::refresh::out;
 /// The intent's change and the RPCs it asks for.
 pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
     let mut outs = Vec::new();
+    if blocked(model, &intent) {
+        return outs;
+    }
     match intent {
-        Intent::Open | Intent::Refresh => outs.push(list(model, None, false)),
+        Intent::Open => {
+            model.paging.initialized = false;
+            model.removed.clear();
+            outs.push(list(model, None, false));
+        }
+        Intent::Refresh => outs.push(list(model, None, false)),
         Intent::Select(sel) => {
             if model.rename.is_none() {
                 model.selected = Some(sel);
@@ -52,7 +60,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                 model.searching = true;
             }
         }
-        Intent::SetSearch(text) => set_search(model, text),
+        Intent::SetSearch(text) => outs.extend(set_search(model, text)),
         Intent::CancelEditing => cancel_editing(model),
         Intent::BeginRename => {
             let center = model.center();
@@ -64,9 +72,16 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                 });
                 model.searching = false;
                 model.search.clear();
+                model.history = None;
+                model.search_matches.clear();
             }
         }
         Intent::Accept => accept(model, &mut outs),
+        Intent::Right => {
+            if !editing(model) {
+                accept(model, &mut outs);
+            }
+        }
         Intent::Commit(text) => commit_rename(model, text, &mut outs),
         Intent::Stop => {
             if let Some(row) = model.center().selected_row()
@@ -112,7 +127,11 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             if let Some(row) = center.selected_row() {
                 let id = row.id().to_owned();
                 let next = model.selection_after_removal(std::slice::from_ref(&id));
-                if model.rename.as_ref().is_some_and(|rename| rename.target == id) {
+                if model
+                    .rename
+                    .as_ref()
+                    .is_some_and(|rename| rename.target == id)
+                {
                     model.rename = None;
                 }
                 model.hidden.insert(id);
@@ -123,11 +142,13 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::TogglePin => {
             let center = model.center();
             if model.pinned.is_some()
+                && !model.pin_pending
                 && let Some(row) = center.selected_row()
                 && supports_shared_pinning(&row.thread.source)
             {
                 let thread = row.id().to_owned();
                 let pinned = !row.pinned;
+                model.pin_pending = true;
                 outs.push(out(
                     Command::Pin {
                         thread: thread.clone(),
@@ -144,6 +165,27 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                 .map(|row| row.thread.cwd.display().to_string());
             outs.push(out(Command::Start { cwd }, Ctx::Start));
         }
+        Intent::NewWorktree => {
+            if model.worktrees {
+                let center = model.center();
+                let cwd = center
+                    .selected_row()
+                    .map(|row| row.thread.cwd.display().to_string());
+                model.notice = Some(Notice::CreatingWorktree);
+                outs.push(out(Command::NewWorktree { cwd }, Ctx::NewWorktree));
+            }
+        }
+        Intent::Fork => {
+            if let Some(row) = model.center().selected_row() {
+                outs.push(out(
+                    Command::Fork {
+                        thread: row.id().to_owned(),
+                    },
+                    Ctx::Fork,
+                ));
+            }
+        }
+        Intent::NeedUsage => outs.extend(super::usage::refresh_usage(model)),
     }
     outs
 }
@@ -164,23 +206,58 @@ fn editing(model: &Model) -> bool {
 
 /// The text of the search line changed; the first match is highlighted
 /// again (oracle: `edit_input`).
-fn set_search(model: &mut Model, text: String) {
+fn set_search(model: &mut Model, text: String) -> Vec<Out> {
     if model.searching && model.rename.is_none() {
         model.search = text;
+        let outs = super::discovery::restart_history(model);
         search_changed(model);
+        return outs;
     }
+    Vec::new()
+}
+
+/// Whether the server's lock or the connection holds the intent back: while
+/// the center is offline, removing a task or creating a worktree, only moving,
+/// searching, filtering and leaving work (oracle: the gate in
+/// `handle_key_event`).
+fn blocked(model: &Model, intent: &Intent) -> bool {
+    let held = matches!(
+        model.notice,
+        Some(
+            Notice::Reconnecting
+                | Notice::ReconnectFailed
+                | Notice::Removing(_)
+                | Notice::CreatingWorktree
+        )
+    );
+    held && matches!(
+        intent,
+        Intent::Accept
+            | Intent::Right
+            | Intent::CycleGrouping
+            | Intent::SetGrouping(_)
+            | Intent::TogglePin
+            | Intent::New
+            | Intent::NewWorktree
+            | Intent::Fork
+            | Intent::BeginRename
+            | Intent::Archive
+            | Intent::Delete
+            | Intent::Hide
+            | Intent::Stop
+    )
 }
 
 /// The first match is highlighted again (oracle: `edit_input`).
 fn search_changed(model: &mut Model) {
     let center = model.center();
-    model.selected = center
-        .entries
-        .iter()
-        .find_map(|entry| match entry {
-            CenterRow::Task(index) => center.rows.get(*index).map(|row| Sel::Task(row.id().to_owned())),
-            _ => None,
-        });
+    model.selected = center.entries.iter().find_map(|entry| match entry {
+        CenterRow::Task(index) => center
+            .rows
+            .get(*index)
+            .map(|row| Sel::Task(row.id().to_owned())),
+        _ => None,
+    });
 }
 
 /// Oracle: `on_ctrl_c` of the view for the editing case.
@@ -192,6 +269,8 @@ fn cancel_editing(model: &mut Model) {
     model.searching = false;
     model.rename = None;
     model.search.clear();
+    model.history = None;
+    model.search_matches.clear();
     if let Some(selected) = restore {
         model.selected = selected;
     }
@@ -221,9 +300,13 @@ fn commit_rename(model: &mut Model, text: String, outs: &mut Vec<Out>) {
 fn accept(model: &mut Model, outs: &mut Vec<Out>) {
     let center = model.center();
     if center.show_more_selected {
-        if !model.paging.loading {
-            let cursor = model.paging.cursor.clone();
-            outs.push(list(model, cursor, true));
+        if model.searching {
+            outs.extend(super::discovery::load_matches(
+                model,
+                crate::screens::agents::PAGE_SIZE as usize,
+            ));
+        } else {
+            outs.extend(super::discovery::show_more(model));
         }
         return;
     }
@@ -240,6 +323,8 @@ fn accept(model: &mut Model, outs: &mut Vec<Out>) {
         ));
         if model.searching {
             model.searching = false;
+            model.history = None;
+            model.search_matches.clear();
             model.search.clear();
         }
     }

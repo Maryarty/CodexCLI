@@ -19,7 +19,7 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Action, CenterRow, Command, Confirm, Ctx, DetailLine, Ev, Group, Grouping,
+    Action, CenterRow, Command, Confirm, Ctx, DetailLine, DirKeys, Ev, Group, GroupLabel, Grouping,
     Intent as AgentsIntent, Model, Notice, Out, Page, Reply, Sel, apply_answer, observe, update,
     wire,
 };
@@ -214,7 +214,7 @@ fn live_center_sorts_arrivals_and_status_transitions_by_update_time() {
     let mut sandbox = sandbox();
     current(&mut sandbox, &bravo);
     list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&alpha, &bravo, &charlie]);
+    assert_row_ids(&sandbox, &[&alpha, &bravo, &charlie]);
     let mut arrival = thread(&delta, None, "Delta", working());
     arrival.updated_at += 100;
     threads.push(arrival);
@@ -222,32 +222,43 @@ fn live_center_sorts_arrivals_and_status_transitions_by_update_time() {
     child.parent_thread_id = Some(bravo.clone());
     threads.push(child);
     list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
+    assert_row_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
     threads[1] = {
         let mut bravo_thread = threads[1].clone();
         bravo_thread.status = serde_json::from_value(idle()).unwrap();
         bravo_thread
     };
     list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
+    assert_row_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
     let center = model(&sandbox).center();
     assert_eq!(center.selected_row().unwrap().group, Group::Ready);
     assert!(center.selected_row().unwrap().details.lines.is_empty());
     // A request from a descendant can still bring its idle parent to the top.
     threads.last_mut().unwrap().status = serde_json::from_value(waiting_approval()).unwrap();
     list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&bravo, &delta, &alpha, &charlie]);
-    threads.pop();
-    list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
+    assert_row_ids(&sandbox, &[&bravo, &delta, &alpha, &charlie]);
+    // The oracle feeds whole lists; a refresh only adds rows, so the child
+    // leaves by its archive notification.
+    archive(&mut sandbox, &child_id);
+    assert_row_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
     assert_eq!(selected(&sandbox), bravo);
     // Rediscovery restores the task to its position by update time.
-    let removed = threads.remove(0);
-    list(&mut sandbox, threads.clone());
-    assert_ids(&sandbox, &[&delta, &bravo, &charlie]);
-    threads.push(removed);
+    archive(&mut sandbox, &alpha);
+    assert_row_ids(&sandbox, &[&delta, &bravo, &charlie]);
+    intent(&mut sandbox, AgentsIntent::Open);
+    threads.pop();
     list(&mut sandbox, threads);
-    assert_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
+    assert_row_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
+}
+
+fn archive(sandbox: &mut Sandbox, thread: &str) {
+    sandbox.send(AppEv::Backend(
+        codex_tui_core::app::BackendEv::Notification(Box::new(ServerNotification::ThreadArchived(
+            codex_app_server_protocol::ThreadArchivedNotification {
+                thread_id: thread.to_owned(),
+            },
+        ))),
+    ));
 }
 
 /// `external_removals_preserve_adjacent_selection`
@@ -278,6 +289,19 @@ fn external_removals_preserve_adjacent_selection() {
     );
     intent(&mut sandbox, AgentsIntent::Hide);
     assert_eq!(selected(&sandbox), order[2]);
+}
+
+/// The oracle's `thread_ids()`: the view's rows in their own order (status,
+/// newest, id), not the display order of the grouping.
+fn assert_row_ids(sandbox: &Sandbox, expected: &[&String]) {
+    let got: Vec<String> = model(sandbox)
+        .center()
+        .rows
+        .iter()
+        .map(|row| row.id().to_owned())
+        .collect();
+    let expected: Vec<&str> = expected.iter().map(|id| id.as_str()).collect();
+    assert_eq!(got.iter().map(String::as_str).collect::<Vec<_>>(), expected);
 }
 
 fn assert_ids(sandbox: &Sandbox, expected: &[&String]) {
@@ -431,7 +455,7 @@ fn command_center_action_failures_remain_visible() {
         ),
         (
             Ctx::Action {
-                thread: thread.clone(),
+                thread,
                 action: None,
             },
             "Failed to stop background task",
@@ -473,6 +497,8 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
             pinned: true
         }
     );
+    // The second `p` while the first is in flight sends nothing.
+    assert!(update(&mut m, AgentsIntent::TogglePin).is_empty());
     let outs = update(&mut m, AgentsIntent::New);
     assert_eq!(outs.len(), 1);
     assert_eq!(
@@ -489,8 +515,9 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     assert_eq!(Grouping::Status.persisted(), Some("status"));
     let _ = update(&mut m, AgentsIntent::Select(Sel::Task(target.clone())));
     let _ = update(&mut m, AgentsIntent::BeginRename);
-    let _ = update(&mut m, AgentsIntent::SetSearch("nwogrxfhap".into()));
-    let outs = update(&mut m, AgentsIntent::Accept);
+    // The letters typed are the editor's text, not an intent; Enter commits it.
+    assert!(update(&mut m, AgentsIntent::Accept).is_empty());
+    let outs = update(&mut m, AgentsIntent::Commit("Task nwogrxfhap".into()));
     assert_eq!(outs.len(), 1);
     match &outs[0].command {
         Command::Rename { thread, name } => {
@@ -513,9 +540,61 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
 /// `AppEvent::NewAgentsOverviewWorktree { backend_id, cwd }`).
 #[test]
 fn command_center_new_worktree_uses_the_selected_directory() {
-    todo!(
-        "agents-live: Intent for `w` (new worktree in the highlighted task's directory) is missing; oracle AppEvent::NewAgentsOverviewWorktree"
-    )
+    let mut sandbox = sandbox();
+    let target = id(1);
+    let mut task = thread(&target, None, "Task", idle());
+    task.cwd = serde_json::from_value(json!("/tmp/checkout/subdir")).expect("a path");
+    list(&mut sandbox, vec![task]);
+    let mut m = model(&sandbox).clone();
+    // Worktrees disabled: `w` does nothing.
+    assert!(update(&mut m, AgentsIntent::NewWorktree).is_empty());
+    m.worktrees = true;
+    let outs = update(&mut m, AgentsIntent::NewWorktree);
+    assert_eq!(outs.len(), 1);
+    assert_eq!(
+        outs[0].command,
+        Command::NewWorktree {
+            cwd: Some("/tmp/checkout/subdir".into())
+        }
+    );
+    assert_eq!(m.notice, Some(Notice::CreatingWorktree));
+    // While the worktree is created, the center holds the other intents back.
+    assert!(update(&mut m, AgentsIntent::New).is_empty());
+    // Without a selection: no directory.
+    let empty_sandbox = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
+    let mut empty = model(&empty_sandbox).clone();
+    empty.worktrees = true;
+    let outs = update(&mut empty, AgentsIntent::NewWorktree);
+    assert_eq!(outs[0].command, Command::NewWorktree { cwd: None });
+}
+
+/// `ForkAgentsOverviewThread` (agents_overview_view.rs:808): the highlighted
+/// task is forked and the copy opens in the chat.
+#[test]
+fn fork_opens_the_copy_of_the_selected_task() {
+    let mut sandbox = sandbox();
+    let target = id(1);
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let outs = update(&mut m, AgentsIntent::Fork);
+    assert_eq!(
+        outs.iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
+        vec![Command::Fork {
+            thread: target
+        }]
+    );
+    let copy = thread(&id(9), None, "Task", idle());
+    let _ = apply_answer(&mut m, Ctx::Fork, Ok(Reply::Forked(Box::new(copy))));
+    assert_eq!(m.current, Some(id(9)));
+    assert_eq!(m.resumes, 1);
+    let mut empty = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
+    assert!(update(&mut empty_model(&mut empty), AgentsIntent::Fork).is_empty());
+}
+
+fn empty_model(sandbox: &mut Sandbox) -> Model {
+    model(sandbox).clone()
 }
 
 /// `worktrees_overview_groups_by_project_or_directory`
@@ -526,9 +605,127 @@ fn command_center_new_worktree_uses_the_selected_directory() {
 /// that the core does not read.
 #[test]
 fn worktrees_overview_groups_by_project_or_directory() {
-    todo!(
-        "agents-live: the project key of a cwd is its repository root (linked worktrees merge); core groups by raw cwd (center.rs:174)"
-    )
+    // The oracle builds a repository with a linked worktree on disk; the
+    // shell reads that (host `dirs`, tested there) and hands the keys over.
+    let root = "/tmp/worktree-root";
+    let keys = |project: &str, inside: &str, heading: &str, directory: &str| DirKeys {
+        project: (project.into(), inside.into()),
+        heading: heading.into(),
+        directory: directory.into(),
+    };
+    let common = format!("{root}/primary/.git");
+    let nested_common = format!("{root}/primary/subdir/.git");
+    let cwds = [
+        ("Primary README", format!("{root}/primary")),
+        ("Primary tree", format!("{root}/primary")),
+        ("Linked README", format!("{root}/linked")),
+        ("Linked tree", format!("{root}/linked")),
+        ("Primary child", format!("{root}/primary/shared/child")),
+        ("Linked child", format!("{root}/linked/shared/child")),
+        ("Nested repository", format!("{root}/primary/subdir/child")),
+    ];
+    let threads: Vec<Thread> = cwds
+        .iter()
+        .enumerate()
+        .map(|(index, (title, cwd))| {
+            let mut task = thread(&id(index as u128 + 1), None, title, idle());
+            task.cwd = serde_json::from_value(json!(cwd)).expect("a path");
+            task
+        })
+        .collect();
+    let mut sandbox = sandbox();
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Backend {
+        cloud: false,
+        worktrees: true,
+    })));
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Directories(vec![
+        (
+            format!("{root}/primary"),
+            keys(
+                &common,
+                "",
+                &format!("{root}/primary"),
+                &format!("{root}/primary"),
+            ),
+        ),
+        (
+            format!("{root}/linked"),
+            keys(
+                &common,
+                "",
+                &format!("{root}/primary"),
+                &format!("{root}/linked"),
+            ),
+        ),
+        (
+            format!("{root}/primary/shared/child"),
+            keys(
+                &common,
+                "shared/child",
+                &format!("{root}/primary/shared/child"),
+                &format!("{root}/primary/shared/child"),
+            ),
+        ),
+        (
+            format!("{root}/linked/shared/child"),
+            keys(
+                &common,
+                "shared/child",
+                &format!("{root}/primary/shared/child"),
+                &format!("{root}/linked/shared/child"),
+            ),
+        ),
+        (
+            format!("{root}/primary/subdir/child"),
+            keys(
+                &nested_common,
+                "child",
+                &format!("{root}/primary/subdir/child"),
+                &format!("{root}/primary/subdir/child"),
+            ),
+        ),
+    ]))));
+    list(&mut sandbox, threads);
+    let headings = |sandbox: &Sandbox| -> Vec<(String, String)> {
+        model(sandbox)
+            .center()
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                CenterRow::Group {
+                    label: GroupLabel::Path(path),
+                    count,
+                } => Some((path.clone(), count.clone())),
+                _ => None,
+            })
+            .collect()
+    };
+    // Project: the linked worktree merges into its repository (4 rows under
+    // the primary path), the nested repository is its own project.
+    let mut project = headings(&sandbox);
+    project.sort();
+    assert_eq!(
+        project,
+        vec![
+            (format!("{root}/primary"), "4".to_owned()),
+            (format!("{root}/primary/shared/child"), "2".to_owned()),
+            (format!("{root}/primary/subdir/child"), "1".to_owned()),
+        ]
+    );
+    // Directory: one group per canonical directory, by the raw `cwd` heading.
+    intent(&mut sandbox, AgentsIntent::SetGrouping(Grouping::Directory));
+    let mut directory = headings(&sandbox);
+    directory.sort();
+    assert_eq!(
+        directory,
+        vec![
+            (format!("{root}/linked"), "2".to_owned()),
+            (format!("{root}/linked/shared/child"), "1".to_owned()),
+            (format!("{root}/primary"), "2".to_owned()),
+            (format!("{root}/primary/shared/child"), "1".to_owned()),
+            (format!("{root}/primary/subdir/child"), "1".to_owned()),
+        ]
+    );
 }
 
 /// `overview_directory_group_keys_normalize_aliases`
@@ -537,9 +734,45 @@ fn worktrees_overview_groups_by_project_or_directory() {
 /// `directory_group_key`; the shell supplies the canonical path.
 #[test]
 fn overview_directory_group_keys_normalize_aliases() {
-    todo!(
-        "agents-live: directory_group_key(path, worktrees_enabled) is absent; canonicalization is a shell fact (IO)"
-    )
+    // `checkout` and its symlink `alias` share one canonical key when
+    // worktrees are enabled; disabled, the alias is its own directory. The
+    // canonical path is the shell's fact (host `dirs::directory_key`).
+    let [a, b] = [1, 2].map(id);
+    let mut checkout = thread(&a, None, "Checkout", idle());
+    checkout.cwd = serde_json::from_value(json!("/tmp/root/checkout")).expect("a path");
+    let mut alias = thread(&b, None, "Alias", idle());
+    alias.cwd = serde_json::from_value(json!("/tmp/root/alias")).expect("a path");
+    let key = |cwd: &str| {
+        (
+            cwd.to_owned(),
+            DirKeys {
+                project: (cwd.to_owned(), String::new()),
+                heading: cwd.to_owned(),
+                directory: "/tmp/root/checkout".to_owned(),
+            },
+        )
+    };
+    let groups = |worktrees: bool| {
+        let mut sandbox = sandbox();
+        sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Backend {
+            cloud: false,
+            worktrees,
+        })));
+        sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Directories(vec![
+            key("/tmp/root/checkout"),
+            key("/tmp/root/alias"),
+        ]))));
+        list(&mut sandbox, vec![checkout.clone(), alias.clone()]);
+        intent(&mut sandbox, AgentsIntent::SetGrouping(Grouping::Directory));
+        model(&sandbox)
+            .center()
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, CenterRow::Group { .. }))
+            .count()
+    };
+    assert_eq!(groups(true), 1);
+    assert_eq!(groups(false), 2);
 }
 
 /// `live_center_status_order_tracks_updates_while_filtered_and_pinned`
@@ -685,7 +918,7 @@ fn overview_right_opens_current_or_highlighted_task() {
     assert_eq!(
         on_other,
         vec![Command::Resume {
-            thread: other.clone()
+            thread: other
         }]
     );
     assert_eq!(
@@ -703,9 +936,36 @@ fn overview_right_opens_current_or_highlighted_task() {
 /// Enter commits. Needs a Right intent apart from `Accept`: agents-live.
 #[test]
 fn overview_right_preserves_editors_and_offline_state() {
-    todo!(
-        "agents-live: no Right intent (open) distinct from Accept; oracle agents_overview_view.rs:447 leaves a rename editor untouched on Right"
-    )
+    let mut sandbox = sandbox();
+    let task = id(1);
+    list(&mut sandbox, vec![thread(&task, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    // Right opens the task like Enter ...
+    let opened = update(&mut m.clone(), AgentsIntent::Right);
+    assert_eq!(
+        opened
+            .iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
+        vec![Command::Resume {
+            thread: task
+        }]
+    );
+    // ... but leaves a rename editor alone.
+    let _ = update(&mut m, AgentsIntent::BeginRename);
+    assert!(update(&mut m, AgentsIntent::Right).is_empty());
+    assert!(m.rename.is_some());
+    let _ = update(&mut m, AgentsIntent::CancelEditing);
+    assert!(m.rename.is_none());
+    // Offline: Right, `n` and the rest do nothing; leaving still works.
+    m.notice = Some(Notice::Reconnecting);
+    assert!(update(&mut m, AgentsIntent::Right).is_empty());
+    assert!(update(&mut m, AgentsIntent::New).is_empty());
+    assert!(update(&mut m, AgentsIntent::Accept).is_empty());
+    m.notice = Some(Notice::ReconnectFailed);
+    assert!(update(&mut m, AgentsIntent::Right).is_empty());
+    m.notice = None;
+    assert_eq!(update(&mut m, AgentsIntent::Right).len(), 1);
 }
 
 /// `overview_grouping_persists_across_config_reloads`
@@ -841,7 +1101,7 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
     assert_eq!(
         outs,
         vec![Command::Rename {
-            thread: target.clone(),
+            thread: target,
             name: "Target!".into(),
         }]
     );
@@ -914,9 +1174,109 @@ fn live_center_show_more_navigation_search_and_loading() {
     assert!(m.paging.loading);
     let second = update(&mut m, AgentsIntent::Accept);
     assert!(second.is_empty(), "no second page while one loads");
-    todo!(
-        "agents-live: SearchAgentsOverview (history search, oracle agent_center_tests.rs:886-930) has no Command in the core"
-    )
+    // The page fails: the center stops loading (the oracle's `loading =
+    // false`, `refresh_failed = true`); the cursor stays for a retry.
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: true },
+        Err(RpcError::Remote("transient".into())),
+    );
+    assert!(!m.paging.loading && m.paging.failed);
+    assert_eq!(m.paging.cursor.as_deref(), Some("cursor-2"));
+    // `/` then the text "Older task": a history search starts at once and
+    // asks for ten matches; the first page carries the debounce flag.
+    let _ = update(&mut m, AgentsIntent::BeginSearch);
+    let outs = update(&mut m, AgentsIntent::SetSearch("Older task".into()));
+    assert_eq!(outs.len(), 1);
+    let search = m.history.clone().expect("a history search");
+    assert!(search.loading);
+    assert_eq!(
+        outs[0],
+        Out {
+            command: Command::Search {
+                cursor: None,
+                first: true
+            },
+            ctx: Ctx::Search {
+                id: search.id,
+                limit: 10
+            }
+        }
+    );
+    // Typing on starts a new search that keeps the wanted count.
+    let outs = update(&mut m, AgentsIntent::SetSearch("Older task 1".into()));
+    let newer = m.history.clone().expect("a history search");
+    assert_ne!(newer.id, search.id);
+    assert_eq!(newer.target, 10);
+    assert_eq!(outs.len(), 1);
+    // The answer of the old search is dropped.
+    let stale = apply_answer(
+        &mut m,
+        Ctx::Search {
+            id: search.id,
+            limit: 10,
+        },
+        Err(RpcError::Remote("late".into())),
+    );
+    assert!(stale.is_empty());
+    assert!(m.history.as_ref().is_some_and(|held| held.loading));
+    // The page fails: the search can be retried with "Show more matches".
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Search {
+            id: newer.id,
+            limit: 10,
+        },
+        Err(RpcError::Remote("down".into())),
+    );
+    let failed = m.history.clone().expect("a history search");
+    assert!(failed.failed && !failed.loading);
+    m.selected = Some(Sel::ShowMore);
+    let retry = update(&mut m, AgentsIntent::Accept);
+    assert_eq!(retry.len(), 1);
+    // A page without a match scans on at once; one with a match shows it
+    // and keeps the rest of the scan for "Show more matches".
+    let again = apply_answer(
+        &mut m,
+        retry[0].ctx.clone(),
+        Ok(Reply::Listed(Page {
+            threads: vec![thread(&id(5), None, "Nothing here", idle())],
+            unread: Vec::new(),
+            next_cursor: Some("scan-2".into()),
+            append: false,
+        })),
+    );
+    assert_eq!(
+        again
+            .iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
+        vec![Command::Search {
+            cursor: Some("scan-2".into()),
+            first: false
+        }]
+    );
+    let done = apply_answer(
+        &mut m,
+        again[0].ctx.clone(),
+        Ok(Reply::Listed(Page {
+            threads: vec![thread(&id(6), None, "Older task 1 of many", idle())],
+            unread: Vec::new(),
+            next_cursor: Some("scan-3".into()),
+            append: false,
+        })),
+    );
+    assert!(done.is_empty());
+    assert_eq!(m.search_matches.len(), 1);
+    assert!(
+        m.history
+            .as_ref()
+            .is_some_and(|held| held.has_more() && !held.loading)
+    );
+    assert!(ids_of(&m).contains(&id(6)));
+    // Leaving the search drops its rows.
+    let _ = update(&mut m, AgentsIntent::CancelEditing);
+    assert!(m.history.is_none() && m.search_matches.is_empty());
 }
 
 /// `hiding_rename_target_does_not_transfer_draft_to_neighbor`
@@ -935,7 +1295,7 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
     );
     intent(
         &mut sandbox,
-        AgentsIntent::Select(Sel::Task(target.clone())),
+        AgentsIntent::Select(Sel::Task(target)),
     );
     intent(&mut sandbox, AgentsIntent::BeginRename);
     intent(&mut sandbox, AgentsIntent::Hide);
@@ -1080,7 +1440,7 @@ fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
         },
         Ok(Reply::Resumed(Box::new(task))),
     );
-    assert_eq!(ids_of(&m), vec![target.clone()]);
+    assert_eq!(ids_of(&m), vec![target]);
 }
 
 /// The core half of `rejected_delete_preserves_a_live_attachment_and_draft`
@@ -1106,7 +1466,7 @@ fn rejected_delete_preserves_a_live_attachment() {
         outs[0].ctx.clone(),
         Err(RpcError::Remote("Could not delete task".into())),
     );
-    assert_eq!(ids_of(&m), vec![target.clone()]);
+    assert_eq!(ids_of(&m), vec![target]);
     assert!(matches!(m.notice, Some(Notice::Error(_))));
 }
 
@@ -1226,9 +1586,33 @@ fn overview_cloud_discovery_uses_only_interactive_pages() {
 /// mode yet (the oracle's `ThreadParamsMode::Cloud`, agents_overview_actions.rs:296).
 #[test]
 fn cloud_archive_preserves_attached_child_and_other_tasks() {
-    todo!(
-        "agents-live: the core has no cloud backend mode; a cloud archive removes only the selected task (oracle agents_overview_actions.rs:296)"
-    )
+    let [parent, child, other] = [1, 2, 3].map(id);
+    let threads = vec![
+        thread(&parent, None, "Cloud parent", idle()),
+        thread(&child, Some(&parent), "Cloud child", working()),
+        thread(&other, None, "Other task", idle()),
+    ];
+    let archive = |cloud: bool| {
+        let mut sandbox = sandbox();
+        sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Backend {
+            cloud,
+            worktrees: false,
+        })));
+        list(&mut sandbox, threads.clone());
+        let mut m = model(&sandbox).clone();
+        let _ = update(&mut m, AgentsIntent::Select(Sel::Task(parent.clone())));
+        let _ = update(&mut m, AgentsIntent::Archive);
+        let outs = update(&mut m, AgentsIntent::Confirmed(true));
+        let _ = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+        m.threads
+            .iter()
+            .map(|held| held.id.clone())
+            .collect::<Vec<_>>()
+    };
+    // The cloud archives only the selected task: its child and the other task
+    // stay. Locally the child goes with its parent.
+    assert_eq!(archive(true), vec![child, other.clone()]);
+    assert_eq!(archive(false), vec![other]);
 }
 
 /// `overview_show_more_refills_archived_rows_and_retries_without_losing_rows`
@@ -1237,9 +1621,101 @@ fn cloud_archive_preserves_attached_child_and_other_tasks() {
 /// retry are not in the core's paging yet (oracle agents_overview_discovery.rs).
 #[test]
 fn overview_show_more_refills_archived_rows() {
-    todo!(
-        "agents-live: the core paging has no refill of archived rows nor cursor retry (oracle agents_overview_discovery.rs refill_count)"
-    )
+    // 24 roots, newest first, listed in pages of ten.
+    let tasks: Vec<Thread> = (0..24)
+        .map(|index| {
+            let mut task = thread(
+                &id(index + 1),
+                None,
+                &format!("Task {index}"),
+                json!({"type": "notLoaded"}),
+            );
+            task.updated_at += 24 - index as i64;
+            task
+        })
+        .collect();
+    let page = |from: usize, next: Option<&str>| {
+        Ok(Reply::Listed(Page {
+            threads: tasks[from..(from + 10).min(24)].to_vec(),
+            unread: Vec::new(),
+            next_cursor: next.map(str::to_owned),
+            append: false,
+        }))
+    };
+    let mut m = Model::default();
+    let open = update(&mut m, AgentsIntent::Open);
+    assert_eq!(open[0].command, Command::List { cursor: None });
+    let _ = apply_answer(&mut m, open[0].ctx.clone(), page(0, Some("10")));
+    assert_eq!(m.threads.len(), 10);
+    assert!(m.paging.has_more);
+    // Show more: the next page fails (transient); nothing is lost and the
+    // same cursor is asked again.
+    m.selected = Some(Sel::ShowMore);
+    let more = update(&mut m, AgentsIntent::Accept);
+    assert_eq!(
+        more[0].command,
+        Command::List {
+            cursor: Some("10".into())
+        }
+    );
+    let _ = apply_answer(
+        &mut m,
+        more[0].ctx.clone(),
+        Err(RpcError::Remote("transient".into())),
+    );
+    assert_eq!(m.threads.len(), 10);
+    assert!(m.paging.failed && m.paging.has_more);
+    let retry = update(&mut m, AgentsIntent::Accept);
+    assert_eq!(
+        retry[0].command,
+        Command::List {
+            cursor: Some("10".into())
+        }
+    );
+    let _ = apply_answer(&mut m, retry[0].ctx.clone(), page(10, Some("20")));
+    assert_eq!(m.threads.len(), 20);
+    assert!(!m.paging.failed);
+    // A task is archived elsewhere: its vacancy is refilled from the next
+    // page without growing the window, and a duplicate removal (the local
+    // completion after the notification) refills nothing more.
+    let gone = tasks[0].id.clone();
+    let archived =
+        ServerNotification::ThreadArchived(codex_app_server_protocol::ThreadArchivedNotification {
+            thread_id: gone.clone(),
+        });
+    observe(&mut m, &archived);
+    observe(&mut m, &archived);
+    assert_eq!(m.paging.refill, 1);
+    assert_eq!(m.threads.len(), 19);
+    let refill = codex_tui_core::screens::agents::refill(&mut m);
+    assert_eq!(
+        refill[0].command,
+        Command::List {
+            cursor: Some("20".into())
+        }
+    );
+    let _ = apply_answer(&mut m, refill[0].ctx.clone(), page(20, None));
+    // One row came from the fetched page; the other three wait unshown.
+    assert_eq!(m.threads.len(), 20);
+    assert_eq!(m.paging.refill, 0);
+    assert!(
+        m.threads.iter().all(|held| held.id != gone),
+        "a removed task never returns"
+    );
+    assert!(m.paging.has_more, "three fetched rows are still unshown");
+    assert_eq!(m.paging.buffer.len(), 3);
+    // Show more shows them from the buffer, without a request, and ends the list.
+    m.selected = Some(Sel::ShowMore);
+    let last = update(&mut m, AgentsIntent::Accept);
+    assert!(last.is_empty());
+    assert_eq!(m.threads.len(), 23);
+    assert!(!m.paging.has_more);
+    // Reopening sends the first page again; a removed task is not brought
+    // back by a refresh, the window's cursor stays where it was.
+    let refresh = update(&mut m, AgentsIntent::Refresh);
+    let _ = apply_answer(&mut m, refresh[0].ctx.clone(), page(0, Some("10")));
+    assert_eq!(m.threads.len(), 23);
+    assert!(!m.paging.has_more);
 }
 
 /// `selected_usage_is_cached_and_account_changes_discard_old_results`
@@ -1248,7 +1724,143 @@ fn overview_show_more_refills_archived_rows() {
 /// selected task (agents_overview_usage.rs).
 #[test]
 fn selected_usage_is_cached() {
-    todo!(
-        "agents-live: the core Usage has tokens only, no cached usage estimate per selected task (oracle agents_overview_usage.rs)"
-    )
+    use codex_app_server_protocol::ThreadUsage;
+    use codex_protocol::account::PlanType;
+    use codex_tui_core::screens::agents::{UsageOutcome, refresh_usage, usage_wait};
+    let [selected, other] = [1, 2].map(id);
+    let mut sandbox = sandbox();
+    list(
+        &mut sandbox,
+        vec![
+            thread(&selected, None, "Review parser", idle()),
+            thread(&other, None, "Other task", idle()),
+        ],
+    );
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Account {
+        plan: Some(PlanType::Business),
+        backend_auth: true,
+    })));
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Clock(1_000))));
+    let mut m = model(&sandbox).clone();
+    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(selected.clone())));
+    let estimate = |credits: i64, cost: i64, groups: bool| -> ThreadUsage {
+        serde_json::from_value(json!({
+            "threadId": selected, "estimatedUsageCreditsMicros": credits,
+            "estimatedUsageUsdMicros": cost,
+            "groups": if groups { json!([{"estimatedUsageCreditsMicros": 3_400_000, "inputTokens": 12_000, "outputTokens": 3_000}]) } else { json!([]) }
+        }))
+        .unwrap()
+    };
+    let full = estimate(3_400_000, 140_000, true);
+    // A request is pending: no second one.
+    m.pending_usage = Some((selected.clone(), 99));
+    assert!(refresh_usage(&mut m).is_none());
+    let finish = |m: &mut Model, outcome: UsageOutcome| {
+        let ctx = Ctx::Usage {
+            thread: selected.clone(),
+            id: m.pending_usage.as_ref().unwrap().1,
+        };
+        let _ = apply_answer(m, ctx, Ok(Reply::Usage(outcome)));
+    };
+    finish(&mut m, UsageOutcome::Available(full.clone()));
+    assert_eq!(m.pending_usage, None);
+    // Cached for a minute: the next refresh asks nothing and says when it is due.
+    assert!(refresh_usage(&mut m).is_none());
+    assert_eq!(usage_wait(&m), Some(60));
+    m.now += 61;
+    let due = refresh_usage(&mut m).expect("stale: asked again");
+    assert_eq!(
+        due.command,
+        Command::Usage {
+            thread: selected.clone()
+        }
+    );
+    // A settling estimate that reads zero keeps the known credits and cost.
+    let mut expected = full.clone();
+    for (credits, cost, kept_credits) in [(0, 200_000, 3_400_000), (5_000_000, 0, 5_000_000)] {
+        expected.estimated_usage_credits_micros = kept_credits;
+        expected.estimated_usage_usd_micros = Some(200_000);
+        m.pending_usage = Some((selected.clone(), 7));
+        let _ = apply_answer(
+            &mut m,
+            Ctx::Usage {
+                thread: selected.clone(),
+                id: 7,
+            },
+            Ok(Reply::Usage(UsageOutcome::Available(estimate(
+                credits, cost, false,
+            )))),
+        );
+        assert_eq!(m.usage[&selected].estimate, Some(expected.clone()));
+    }
+    // Tokens come with the notifications and survive; closing drops them only.
+    m.usage.get_mut(&selected).unwrap().tokens = Some((13_000, 4_000));
+    observe(
+        &mut m,
+        &ServerNotification::ThreadClosed(ThreadClosedNotification {
+            thread_id: selected.clone(),
+        }),
+    );
+    assert_eq!(m.usage[&selected].tokens, None);
+    assert_eq!(m.usage[&selected].estimate, Some(expected));
+    // A reply for a task that is not the pending one is dropped; an account
+    // without thread usage discards every estimate and is not asked again.
+    m.pending_usage = Some((selected.clone(), 8));
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Usage {
+            thread: selected.clone(),
+            id: 9,
+        },
+        Ok(Reply::Usage(UsageOutcome::Disabled)),
+    );
+    assert!(!m.usage_disabled);
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Usage {
+            thread: selected.clone(),
+            id: 8,
+        },
+        Ok(Reply::Usage(UsageOutcome::Disabled)),
+    );
+    assert!(m.usage_disabled);
+    assert!(m.usage.values().all(|usage| usage.estimate.is_none()));
+    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(other)));
+    m.now += 1_000;
+    assert!(
+        refresh_usage(&mut m).is_none(),
+        "an unavailable capability is not retried"
+    );
+    // The account changing discards everything, estimates, tokens and the flag.
+    m.usage.entry(selected.clone()).or_default().tokens = Some((1, 2));
+    let mut ev_model = m.clone();
+    codex_tui_core::screens::agents::apply(
+        &mut ev_model,
+        Ev::Account {
+            plan: Some(PlanType::Ent26),
+            backend_auth: true,
+        },
+        &mut Default::default(),
+    );
+    assert!(
+        ev_model.usage.is_empty() && !ev_model.usage_disabled && ev_model.pending_usage.is_none()
+    );
+    // Another backend keeps the tokens and drops the estimates.
+    let mut kept = full_usage_model(&selected, &full);
+    codex_tui_core::screens::agents::reset_for_backend_switch(&mut kept);
+    assert_eq!(kept.usage[&selected].tokens, Some((1, 2)));
+    assert_eq!(kept.usage[&selected].estimate, None);
+}
+
+fn full_usage_model(selected: &str, full: &codex_app_server_protocol::ThreadUsage) -> Model {
+    let mut m = Model::default();
+    m.usage.insert(
+        selected.to_owned(),
+        codex_tui_core::screens::agents::Usage {
+            tokens: Some((1, 2)),
+            estimate: Some(full.clone()),
+            fetched_at: Some(5),
+        },
+    );
+    m
 }

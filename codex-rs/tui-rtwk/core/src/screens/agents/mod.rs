@@ -24,9 +24,11 @@
 mod carried;
 mod center;
 mod details;
+mod discovery;
 mod notifications;
 mod refresh;
 mod update;
+mod usage;
 mod wire;
 
 use std::collections::BTreeMap;
@@ -35,6 +37,8 @@ use std::collections::BTreeSet;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadUsage;
+use codex_protocol::account::PlanType;
 
 use crate::app::AppFx;
 use crate::ids::ThreadId;
@@ -43,20 +47,25 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub use carried::AgentsOverviewGroup as Group;
+pub use carried::format_tokens_compact;
+pub use carried::preview_markdown;
 pub use center::Center;
 pub use center::CenterRow;
 pub use center::GroupLabel;
 pub use center::RowData;
+pub use center::display_directory;
 pub use details::DetailLine;
 pub use details::Details;
-pub use carried::format_tokens_compact;
-pub use carried::preview_markdown;
-pub use center::display_directory;
-pub use refresh::Out;
-pub use refresh::apply_answer;
+pub use discovery::refill;
 pub use notifications::observe;
 pub use notifications::observes;
+pub use refresh::Out;
+pub use refresh::apply_answer;
 pub use update::update;
+pub use usage::UsageOutcome;
+pub use usage::refresh_usage;
+pub use usage::reset_for_backend_switch;
+pub use usage::usage_wait;
 
 pub const NAME: &str = "agents";
 pub const ID: &str = "S21";
@@ -131,6 +140,8 @@ pub enum Notice {
     Reconnecting,
     ReconnectFailed,
     Removing(Action),
+    /// A worktree is being created for `w`.
+    CreatingWorktree,
     LoadFailed,
     /// The server's own words about its version.
     ServerVersion(String),
@@ -161,22 +172,83 @@ pub struct Activity {
     pub last_message: Option<String>,
 }
 
-/// Tokens of a task (oracle: `AgentsOverviewUsage.tokens`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What is known of a task's usage (oracle: `AgentsOverviewUsage`): the
+/// tokens its notifications reported, and the account's estimate with the
+/// time (epoch seconds) it was fetched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
-    pub input: i64,
-    pub output: i64,
+    /// Input and output tokens.
+    pub tokens: Option<(i64, i64)>,
+    pub estimate: Option<ThreadUsage>,
+    pub fetched_at: Option<i64>,
+}
+
+/// The keys the shell reads from the file system for one `cwd` (oracle:
+/// `AgentsOverviewProjectGroup` and `directory_group_key`): the project is
+/// its repository's common directory plus the path inside it, so linked
+/// worktrees of one repository merge; the directory key is the canonical
+/// path. Without an entry a `cwd` is its own key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirKeys {
+    pub project: (String, String),
+    /// The heading of the project group: the primary checkout's path.
+    pub heading: String,
+    pub directory: String,
+}
+
+/// A history search while a search line is open (oracle: `HistorySearch`);
+/// its rows are `Model::search_matches`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct History {
+    pub id: u64,
+    /// How many matches the center wants under the active filter.
+    pub target: usize,
+    pub loading: bool,
+    pub failed: bool,
+    /// The paging cursor of the search's scan; `exhausted` once it ended.
+    pub cursor: Option<String>,
+    pub exhausted: bool,
+    /// A page of this search was asked for (the shell debounces the first).
+    pub started: bool,
+    /// Matches the scan found beyond what was asked for.
+    pub buffer: Vec<Thread>,
+}
+
+impl Eq for History {}
+impl Eq for Paging {}
+
+impl History {
+    /// Oracle: `AgentsOverviewDiscovery::has_more`.
+    pub fn has_more(&self) -> bool {
+        !self.exhausted || !self.buffer.is_empty()
+    }
 }
 
 /// Where the paged list stands (oracle: `loading`, `has_more`,
 /// `refresh_failed` of the view state).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Paging {
     pub loading: bool,
     pub failed: bool,
     pub has_more: bool,
+    /// The first page was merged: a refresh no longer moves the cursor.
+    pub initialized: bool,
     /// The cursor the next page continues from.
     pub cursor: Option<String>,
+    /// Rows fetched but not shown yet (oracle: the source's retained rows).
+    pub buffer: Vec<Thread>,
+    /// Vacancies left by removals, refilled without growing the window
+    /// (oracle: `refill_count`).
+    pub refill: usize,
+    /// How many buffered rows the page in flight shows when it arrives.
+    pub want: usize,
+}
+
+impl Paging {
+    /// Oracle: `AgentsOverviewDiscovery::has_more`.
+    pub fn more(&self) -> bool {
+        self.cursor.is_some() || !self.buffer.is_empty()
+    }
 }
 
 /// The app-scoped model of the screen, changed only by `apply`.
@@ -188,12 +260,24 @@ pub struct Model {
     pub unread: BTreeSet<String>,
     /// Local visibility only (oracle: `hidden_threads`).
     pub hidden: BTreeSet<String>,
+    /// Removed by a lifecycle action; a later page never brings them back
+    /// (oracle: `removed_threads`).
+    pub removed: BTreeSet<String>,
     pub last_messages: BTreeMap<String, String>,
     pub activity: BTreeMap<String, Activity>,
     /// The first pending request of a thread, previewed (oracle:
     /// `agents_overview_request_preview`).
     pub requests: BTreeMap<String, String>,
     pub usage: BTreeMap<String, Usage>,
+    /// The account has no thread usage (oracle: `usage_disabled`).
+    pub usage_disabled: bool,
+    /// The usage request in flight: the thread and its ticket number.
+    pub pending_usage: Option<(String, u64)>,
+    pub usage_seq: u64,
+    /// The account's plan and whether it has Codex backend auth (usage is
+    /// fetched for the plans that show it).
+    pub plan: Option<PlanType>,
+    pub backend_auth: bool,
     /// The pinned threads in rank order; `None`: the server has no pins.
     pub pinned: Option<Vec<String>>,
     /// The thread the chat shows (oracle: `is_current`).
@@ -205,6 +289,17 @@ pub struct Model {
     /// How many resumes were answered (the view pops itself on a new one).
     pub resumes: u32,
     pub paging: Paging,
+    /// The backend is the cloud: a cloud archive removes only the task.
+    pub cloud: bool,
+    /// Worktrees are enabled (`w`, project grouping by repository).
+    pub worktrees: bool,
+    pub dirs: BTreeMap<String, DirKeys>,
+    /// A pin change is in flight (oracle: `pin_action_pending`).
+    pub pin_pending: bool,
+    pub history: Option<History>,
+    /// The rows a history search found beyond the browsed list.
+    pub search_matches: Vec<Thread>,
+    pub search_seq: u64,
     pub notice: Option<Notice>,
     pub confirm: Option<Confirm>,
     pub filter: usize,
@@ -230,6 +325,18 @@ pub enum Ev {
     Clock(i64),
     /// The home directory, for `~`.
     Home(Option<String>),
+    /// The backend and what it enables.
+    Backend {
+        cloud: bool,
+        worktrees: bool,
+    },
+    /// The directory keys of `cwd`s, read by the shell.
+    Directories(Vec<(String, DirKeys)>),
+    /// The account's plan and Codex backend auth.
+    Account {
+        plan: Option<PlanType>,
+        backend_auth: bool,
+    },
     /// The thread the chat shows.
     Current(Option<String>),
     Pinned(Option<Vec<String>>),
@@ -263,7 +370,9 @@ pub enum Intent {
     /// keeps the highlighted task as data).
     Select(Sel),
     /// Tab (`back`: shift-tab).
-    CycleFilter { back: bool },
+    CycleFilter {
+        back: bool,
+    },
     SetFilter(usize),
     CycleGrouping,
     SetGrouping(Grouping),
@@ -277,6 +386,8 @@ pub enum Intent {
     BeginRename,
     /// Enter: open the task or the "Show more" row.
     Accept,
+    /// Right: as `Accept`, but not while a line is edited.
+    Right,
     /// Enter in the rename line, with its text.
     Commit(String),
     Stop,
@@ -287,6 +398,12 @@ pub enum Intent {
     Hide,
     TogglePin,
     New,
+    /// `w`: a new task in a worktree of the highlighted task's directory.
+    NewWorktree,
+    /// Fork the highlighted task and open the copy.
+    Fork,
+    /// The usage of the highlighted task is wanted (the clock ticks).
+    NeedUsage,
 }
 
 /// The per-thread part of the screen: none.
@@ -300,19 +417,59 @@ pub enum ThreadEv {}
 /// (`update::Out`) and the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    List { cursor: Option<String> },
-    Rename { thread: String, name: String },
-    Archive { thread: String },
-    Delete { thread: String },
+    List {
+        cursor: Option<String>,
+    },
+    Rename {
+        thread: String,
+        name: String,
+    },
+    Archive {
+        thread: String,
+    },
+    Delete {
+        thread: String,
+    },
     /// The turn in progress of a thread (`thread/read` with turns), the first
     /// half of stopping it.
-    ActiveTurn { thread: String },
-    Interrupt { thread: String, turn: String },
-    Pin { thread: String, pinned: bool },
+    ActiveTurn {
+        thread: String,
+    },
+    Interrupt {
+        thread: String,
+        turn: String,
+    },
+    Pin {
+        thread: String,
+        pinned: bool,
+    },
     /// Resume a thread into the chat (`thread/resume`).
-    Resume { thread: String },
+    Resume {
+        thread: String,
+    },
     /// A new task in the same directory (`thread/start`).
-    Start { cwd: Option<String> },
+    Start {
+        cwd: Option<String>,
+    },
+    /// Fork a task (`thread/fork`).
+    Fork {
+        thread: String,
+    },
+    /// A new worktree in `cwd`'s repository with a task in it: git work,
+    /// done by the shell (no RPC).
+    NewWorktree {
+        cwd: Option<String>,
+    },
+    /// A page of the history search's scan (`thread/list`, 100 rows, no
+    /// server-side term: the core filters).
+    Search {
+        cursor: Option<String>,
+        first: bool,
+    },
+    /// The usage of a task (`account/usage/read`).
+    Usage {
+        thread: String,
+    },
 }
 
 /// The decoded replies.
@@ -323,6 +480,8 @@ pub enum Reply {
     /// The id of the thread's turn in progress, when it has one.
     ActiveTurn(Option<String>),
     Resumed(Box<Thread>),
+    Forked(Box<Thread>),
+    Usage(UsageOutcome),
 }
 
 impl Eq for Reply {}
@@ -330,15 +489,39 @@ impl Eq for Reply {}
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    List { append: bool },
-    Rename { thread: String },
-    Action { thread: String, action: Option<Action> },
-    Pin { thread: String },
-    Resume { thread: String },
+    List {
+        append: bool,
+    },
+    Rename {
+        thread: String,
+    },
+    Action {
+        thread: String,
+        action: Option<Action>,
+    },
+    Pin {
+        thread: String,
+    },
+    Resume {
+        thread: String,
+    },
     /// The read of the turn to stop.
-    Stop { thread: String },
+    Stop {
+        thread: String,
+    },
     Interrupt,
     Start,
+    Fork,
+    NewWorktree,
+    /// A page of the search `id`, asked for `limit` matches.
+    Search {
+        id: u64,
+        limit: usize,
+    },
+    Usage {
+        thread: String,
+        id: u64,
+    },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
