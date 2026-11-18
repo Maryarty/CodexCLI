@@ -455,12 +455,13 @@ fn the_lint_lists_name_the_rules_banned_paths() {
 }
 
 /// Item 11: colours come from the theme (`ThemeData` at the root), not from
-/// the code. Only `src/theme.rs` may name a style, and it names no colour.
+/// the code. The theme file alone holds colour values: the per-thread accents
+/// (`ThreadPalette`), which rtwk's `ThemeData` has no slot for.
 #[test]
 fn no_literal_colours_anywhere() {
     let found = violations(
         &["Color::", "Color::rgb", "rgb(", "Style::new().fg("],
-        |_| false,
+        |name| name == "src/theme.rs",
     );
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
@@ -545,4 +546,71 @@ fn adr010_no_format_literal_with_words_outside_the_tables() {
         }
     }
     assert!(found.is_empty(), "ADR-010: {found:#?}");
+}
+
+// The pending screen tests (a `pending(..)` marker fails the test by design)
+// run in the nextest profile `pending`, out of the default one. The list in
+// `.config/nextest.toml` and the markers in `tests/agents.rs` must agree, so
+// that nothing hides in the list and nothing pending is left in the gate.
+
+/// The test fns of `tests/agents.rs` whose first statement is `pending(`.
+fn pending_markers() -> Vec<String> {
+    let text = std::fs::read_to_string(crate_dir().join("tests/agents.rs")).expect("read");
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let Some(rest) = line.strip_prefix("fn ") else {
+            continue;
+        };
+        if lines
+            .get(i + 1)
+            .is_some_and(|next| next.trim() == "pending(")
+        {
+            found.push(rest.split('(').next().expect("a name").to_owned());
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The names the nextest config lists as pending (`test(=agents::<name>)`).
+fn pending_listed() -> Vec<String> {
+    let text = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
+    let mut found: Vec<String> = text
+        .split("test(=agents::")
+        .skip(1)
+        .map(|rest| rest.split(')').next().expect("a name").to_owned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn the_pending_profile_lists_exactly_the_pending_markers() {
+    let markers = pending_markers();
+    assert!(!markers.is_empty(), "the marker scan found nothing");
+    assert_eq!(pending_listed(), markers);
+}
+
+#[test]
+fn the_default_profile_leaves_out_the_pending_group_and_the_pending_profile_runs_it() {
+    let text = std::fs::read_to_string(crate_dir().join(".config/nextest.toml")).expect("read");
+    let section = |name: &str| -> String {
+        let start = text.find(&format!("[profile.{name}]")).expect("a profile");
+        let rest = &text[start + 1..];
+        let end = rest.find("\n[").unwrap_or(rest.len());
+        rest[..end].to_owned()
+    };
+    let default = section("default");
+    let pending = section("pending");
+    assert!(default.contains("binary(oracle)"), "{default}");
+    assert!(
+        default.contains("not (") && default.contains("agents::"),
+        "{default}"
+    );
+    assert!(pending.contains("default-filter"), "{pending}");
+    assert!(pending.contains("agents::"), "{pending}");
+    assert!(pending.contains("fail-fast = false"), "{pending}");
 }

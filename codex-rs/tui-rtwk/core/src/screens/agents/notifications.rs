@@ -5,6 +5,7 @@
 use super::Model;
 use super::carried::preview_markdown;
 use super::carried::preview_text;
+use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ThreadItemPayload;
@@ -27,6 +28,7 @@ pub fn observes(notification: &ServerNotification) -> bool {
             | ServerNotification::ItemCompleted(_)
             | ServerNotification::ReasoningSummaryTextDelta(_)
             | ServerNotification::TurnStarted(_)
+            | ServerNotification::AccountUpdated(_)
     )
 }
 
@@ -111,6 +113,22 @@ pub fn observe(model: &mut Model, notification: &ServerNotification) {
             if let Some(activity) = model.activity.get_mut(&started.thread_id) {
                 activity.reasoning_header = None;
             }
+        }
+        // A new account: what the old one had of usage is dropped, and the
+        // plan and the Codex backend auth are the new ones (oracle:
+        // `AccountUpdated`).
+        ServerNotification::AccountUpdated(update) => {
+            super::usage::reset(model);
+            model.plan = update.plan_type;
+            model.backend_auth = matches!(
+                update.auth_mode,
+                Some(
+                    AuthMode::Chatgpt
+                        | AuthMode::ChatgptAuthTokens
+                        | AuthMode::AgentIdentity
+                        | AuthMode::PersonalAccessToken
+                )
+            );
         }
         _ => return,
     }

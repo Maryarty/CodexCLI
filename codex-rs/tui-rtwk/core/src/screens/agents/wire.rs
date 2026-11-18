@@ -262,6 +262,9 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
         "current" => serde_json::from_value(body).map(Ev::Current).map_err(text),
         "pinned" => serde_json::from_value(body).map(Ev::Pinned).map_err(text),
         "voice" => serde_json::from_value(body).map(Ev::Voice).map_err(text),
+        "thread_colors" => serde_json::from_value(body)
+            .map(Ev::ThreadColors)
+            .map_err(text),
         "notice" => seed_notice(body).map(Ev::Notice),
         "request" => serde_json::from_value::<(String, String)>(body)
             .map(|(thread, preview)| Ev::Request(thread, Some(preview)))

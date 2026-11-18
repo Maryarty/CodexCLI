@@ -10,14 +10,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Command as AgentsCommand;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Notice;
 use codex_tui_core::screens::agents::Reply;
+use codex_tui_core::screens::agents::account_ev;
+use codex_tui_core::screens::agents::account_request;
 use codex_tui_core::screens::agents::decode;
 use codex_tui_core::screens::agents::wire as agents_wire;
 
@@ -94,7 +98,7 @@ pub async fn worktree<F, Fut>(
 ) -> AppEv
 where
     F: Fn(ClientRequest) -> Fut,
-    Fut: Future<Output = Result<serde_json::Value, String>>,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     let notice = |message: String| {
         AppEv::Screen(ScreenEv::Agents(AgentsEv::Notice(Some(Notice::Error(
@@ -124,6 +128,18 @@ where
         },
         Err(error) => return retained(format!("Failed to start session: {error}")),
     };
+    // Oracle: a task that cannot be bound to its checkout is unsubscribed
+    // (`thread_unsubscribe`) before the error shows; a failure of that is
+    // the server's own, not shown.
+    let unsubscribe = || async {
+        let wire = ClientRequest::ThreadUnsubscribe {
+            request_id: ids.next(),
+            params: ThreadUnsubscribeParams {
+                thread_id: started.id.clone(),
+            },
+        };
+        let _ = send(wire).await;
+    };
     let bound = {
         let workspace = workspace.clone();
         let checkout = checkout.clone();
@@ -133,7 +149,29 @@ where
     };
     match bound {
         Some(Ok(())) => AppEv::Screen(ScreenEv::Agents(AgentsEv::Started(Box::new(started)))),
-        Some(Err(error)) => retained(error),
-        None => retained("The worktree could not be bound.".to_owned()),
+        Some(Err(error)) => {
+            unsubscribe().await;
+            retained(error)
+        }
+        None => {
+            unsubscribe().await;
+            retained("The worktree could not be bound.".to_owned())
+        }
     }
+}
+
+/// The account the server is signed in to (oracle: `read_account` at
+/// bootstrap, `SessionAccount::from`): the plan and the Codex backend auth
+/// the center's usage fetch needs. `None` when the read fails or the reply
+/// is not an account: the center then keeps usage off, as the oracle's
+/// bootstrap would not have started either.
+pub async fn account<F, Fut>(ids: Ids, send: F) -> Option<AppEv>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let result = send(account_request(ids.next())).await.ok()?;
+    account_ev(result)
+        .ok()
+        .map(|ev| AppEv::Screen(ScreenEv::Agents(ev)))
 }

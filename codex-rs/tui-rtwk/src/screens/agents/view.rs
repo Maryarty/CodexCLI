@@ -32,6 +32,7 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::layout;
+use crate::theme::ThreadPalette;
 use super::strings::Strings;
 use super::usage;
 
@@ -49,10 +50,13 @@ pub struct Look {
     pub selection: Style,
     pub tab: Style,
     pub accent: Style,
+    /// The theme's accents for the per-task colours; `None` with
+    /// `tui.status_line_use_colors` off.
+    pub threads: Option<ThreadPalette>,
 }
 
 impl Look {
-    pub fn new(data: &ThemeData) -> Self {
+    pub fn new(data: &ThemeData, thread_colors: bool) -> Self {
         Self {
             plain: Style::new(),
             dim: data.dim(),
@@ -65,6 +69,15 @@ impl Look {
             selection: data.selection.clone(),
             tab: data.selection.clone().attrs(Attrs::BOLD),
             accent: data.accent.clone(),
+            threads: thread_colors.then(|| ThreadPalette::of(data)),
+        }
+    }
+
+    /// `base` in the colour of the thread `id`, when tasks have one.
+    fn thread(&self, base: &Style, id: &str) -> Style {
+        match self.threads.as_ref().and_then(|palette| palette.color(id)) {
+            Some(color) => base.clone().fg(color),
+            None => base.clone(),
         }
     }
 }
@@ -440,7 +453,7 @@ fn entry(
             let title_style = if selected {
                 fill.clone()
             } else {
-                look.plain.clone()
+                look.thread(&look.plain, row.id())
             };
             let mut cells = Row::new()
                 .child(cell(
@@ -678,7 +691,7 @@ pub fn details(
     let mut lines: Vec<Line> = vec![
         vec![span(strings.details, &look.bold)],
         Vec::new(),
-        clip(row.title(), &look.bold, width),
+        clip(row.title(), &look.thread(&look.bold, row.id()), width),
         vec![dot, span(" ", &look.plain), span(status_text, &look.plain)],
         Vec::new(),
         clip_pair(strings.model, row.model(), look, width),

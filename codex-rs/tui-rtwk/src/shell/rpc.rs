@@ -17,9 +17,11 @@ use codex_app_server_protocol::RequestId;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenCommand;
 use codex_tui_core::screens::ScreenReply;
 use codex_tui_core::screens::agents::Command as AgentsCommand;
+use codex_tui_core::screens::agents::PinReader;
 use codex_tui_core::screens::agents::fanout;
 use codex_tui_core::wire;
 
@@ -52,7 +54,7 @@ pub async fn answer<F, Fut>(
 ) -> Option<(Ticket, Reply)>
 where
     F: Fn(ClientRequest) -> Fut,
-    Fut: Future<Output = Result<serde_json::Value, String>>,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     answer_with(command, facts, ids, model, USAGE_TIMEOUT, send).await
 }
@@ -68,7 +70,7 @@ pub async fn answer_with<F, Fut>(
 ) -> Option<(Ticket, Reply)>
 where
     F: Fn(ClientRequest) -> Fut,
-    Fut: Future<Output = Result<serde_json::Value, String>>,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     // A page of the list or of a history search: one request per source,
     // merged by core.
@@ -80,8 +82,23 @@ where
         && let Some(fanout) = fanout(page, facts.cloud)
     {
         let requests = fanout.requests(|| ids.next());
-        let results = futures::future::join_all(requests.into_iter().map(&send)).await;
-        let reply = match fanout.reply(results) {
+        // The first page of the list also reads the pinned tasks, page after
+        // page; the two reads go out together.
+        let pins = async {
+            if !fanout.reads_pins() {
+                return None;
+            }
+            let mut reader = PinReader::new();
+            while let Some(request) = reader.next_request(ids.next()) {
+                reader.feed(send(request).await);
+            }
+            reader.finish()
+        };
+        let (results, pins) = futures::join!(
+            futures::future::join_all(requests.into_iter().map(&send)),
+            pins
+        );
+        let reply = match fanout.reply(results, pins) {
             Ok(reply) => Reply::screen(ScreenReply::Agents(reply)),
             Err(error) => Reply::error(error),
         };
@@ -98,10 +115,10 @@ where
     let result = if usage {
         match tokio::time::timeout(usage_timeout, send(request)).await {
             Ok(result) => result,
-            Err(_) => Err(USAGE_TIMED_OUT.to_owned()),
+            Err(_) => Err(ServerError::from(USAGE_TIMED_OUT)),
         }
     } else {
         send(request).await
     };
-    wire::reply(&command, result)
+    wire::reply(&command, result.map_err(|error| error.message))
 }

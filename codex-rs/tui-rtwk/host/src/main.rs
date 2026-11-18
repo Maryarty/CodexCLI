@@ -23,6 +23,12 @@ fn main() -> anyhow::Result<()> {
     // first lets the helper re-runs of this binary (`--codex-run-as-fs-helper`,
     // the exec helper, apply_patch) take their arguments and exit.
     arg0_dispatch_or_else(|arg0_paths| async move {
+        // `--help` and `--version` answer as the oracle's `codex` does, before
+        // any server starts.
+        if let Some(text) = Cli::early_answer(std::env::args().skip(1)) {
+            print!("{text}");
+            return Ok(());
+        }
         let cli = Cli::parse(std::env::args().skip(1))?;
         run_main(cli, arg0_paths).await
     })
