@@ -114,6 +114,15 @@ pub enum RowKey {
     ShowMore,
 }
 
+impl From<Sel> for RowKey {
+    fn from(sel: Sel) -> Self {
+        match sel {
+            Sel::Task(id) => Self::Task(id),
+            Sel::ShowMore => Self::ShowMore,
+        }
+    }
+}
+
 impl RowKey {
     /// The highlight this key stands for; none for a heading or a gap.
     pub fn into_sel(self) -> Option<Sel> {

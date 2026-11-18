@@ -325,8 +325,20 @@ impl Model {
         CenterRow::Group { label, count }
     }
 
-    /// Everything the view draws.
+    /// The row of task `id`.
+    pub fn row(&self, id: &str) -> Option<RowData> {
+        self.rows().into_iter().find(|row| row.id() == id)
+    }
+
+    /// Everything the view draws, with the highlight at the default row (the
+    /// current task's, else the first).
     pub fn center(&self) -> Center {
+        self.center_at(None)
+    }
+
+    /// Everything the view draws, the highlight at `cursor` (the list
+    /// widget's cursor, the only copy of it) when it is selectable.
+    pub fn center_at(&self, cursor: Option<&Sel>) -> Center {
         let rows = self.rows();
         let indices = self.selectable(&rows);
         let entries = self.entries(&rows, &indices);
@@ -337,7 +349,7 @@ impl Model {
                 .filter(|row| group.is_none_or(|group| group == row.group))
                 .count();
         }
-        let selected = self.selected_index(&rows, &indices);
+        let selected = self.selected_index(&rows, &indices, cursor);
         Center {
             show_more_selected: selected == Some(usize::MAX),
             selected: selected.filter(|index| *index != usize::MAX),
@@ -350,9 +362,14 @@ impl Model {
 
     /// The highlighted slot: the selection if it is selectable, else the
     /// first (oracle: `reconcile_command_center_selection`).
-    fn selected_index(&self, rows: &[RowData], indices: &[usize]) -> Option<usize> {
-        let wanted = match &self.selected {
-            Some(Sel::Task(id)) => rows.iter().position(|row| row.id() == id),
+    fn selected_index(
+        &self,
+        rows: &[RowData],
+        indices: &[usize],
+        cursor: Option<&Sel>,
+    ) -> Option<usize> {
+        let wanted = match cursor {
+            Some(Sel::Task(id)) => rows.iter().position(|row| row.id() == id.as_str()),
             Some(Sel::ShowMore) => Some(usize::MAX),
             None => None,
         };
@@ -362,19 +379,6 @@ impl Model {
             .or_else(|| rows.iter().position(|row| row.current))
             .filter(|index| indices.contains(index))
             .or_else(|| indices.first().copied())
-    }
-
-    /// Pins `selected` to what the view shows, so that a later change of rows
-    /// moves from there.
-    pub(super) fn reconcile(&mut self) {
-        let rows = self.rows();
-        let indices = self.selectable(&rows);
-        self.selected = self
-            .selected_index(&rows, &indices)
-            .map(|index| match rows.get(index) {
-                Some(row) => Sel::Task(row.id().to_owned()),
-                None => Sel::ShowMore,
-            });
     }
 
     /// Drops a thread and everything below it, however deep (oracle:
@@ -415,10 +419,13 @@ impl Model {
 
     /// The task after `removed` rows leave: the next displayed one, else the
     /// one before (oracle: `selection_after_removal`).
-    pub fn selection_after_removal(&self, removed: &[String]) -> Option<String> {
+    /// A pure function: the view applies it to its cursor (`from`: the id of
+    /// the task that is highlighted).
+    pub fn selection_after_removal(&self, from: &str, removed: &[String]) -> Option<String> {
         let rows = self.rows();
         let visible = self.visible_indices(&rows);
-        let selected = self.selected_index(&rows, &visible)?;
+        let from = Sel::Task(from.to_owned());
+        let selected = self.selected_index(&rows, &visible, Some(&from))?;
         let position = visible.iter().position(|index| *index == selected)?;
         visible[position..]
             .iter()

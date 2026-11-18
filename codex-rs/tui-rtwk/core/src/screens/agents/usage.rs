@@ -40,7 +40,7 @@ fn shows_usage(plan: Option<PlanType>) -> bool {
 /// The usage request of the highlighted task, if one is due (oracle:
 /// `refresh_agents_overview_usage`). `None` also when the cached estimate is
 /// younger than a minute; `usage_wait` says how long until it is due.
-pub fn refresh_usage(model: &mut Model) -> Option<Out> {
+pub fn refresh_usage(model: &mut Model, at: Option<String>) -> Option<Out> {
     if model.pending_usage.is_some()
         || !model.backend_auth
         || !shows_usage(model.plan)
@@ -52,8 +52,8 @@ pub fn refresh_usage(model: &mut Model) -> Option<Out> {
     {
         return None;
     }
-    let thread = model.center().selected_row()?.id().to_owned();
-    if usage_wait(model).is_some() {
+    let thread = model.row(&at?)?.id().to_owned();
+    if usage_wait(model, &thread).is_some() {
         return None;
     }
     model.usage_seq += 1;
@@ -69,9 +69,8 @@ pub fn refresh_usage(model: &mut Model) -> Option<Out> {
 
 /// Seconds until the highlighted task's cached estimate goes stale; `None`
 /// when there is none cached or it is stale.
-pub fn usage_wait(model: &Model) -> Option<i64> {
-    let thread = model.center().selected_row()?.id().to_owned();
-    let age = model.now - model.usage.get(&thread)?.fetched_at?;
+pub fn usage_wait(model: &Model, thread: &str) -> Option<i64> {
+    let age = model.now - model.usage.get(thread)?.fetched_at?;
     (age < REFRESH_SECS).then_some(REFRESH_SECS - age)
 }
 

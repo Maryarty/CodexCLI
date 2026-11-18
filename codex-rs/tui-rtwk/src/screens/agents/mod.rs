@@ -22,6 +22,7 @@ use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
+use codex_tui_core::screens::agents::{CenterRow, Model, Sel};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::l10n::strings as shared;
@@ -354,6 +355,11 @@ pub struct ScreenState {
     /// How many resumes the model had answered when the screen opened: one
     /// more means a session was opened from here.
     entered: Option<u32>,
+    /// The search text the screen last saw: a change highlights the first
+    /// match (oracle: `edit_input`).
+    search_seen: String,
+    /// The cursor before a search began (oracle: `browse_selection`).
+    browse: Option<view::RowKey>,
 }
 
 /// What the usage request depends on: the highlighted task, when its
@@ -407,6 +413,8 @@ impl StatefulWidget for Screen {
             editing: Editing::No,
             usage_seen: None,
             entered: None,
+            search_seen: String::new(),
+            browse: None,
         }
     }
 }
@@ -421,7 +429,11 @@ fn on_key(key: KeyPress) -> Option<Msg> {
 /// `command_center_key`, `rename_key` with the default keymap), or `None`
 /// for a key the screen does not take. The list moves its own cursor by the
 /// arrows, the page keys, Home and End; the editing line takes the text.
-fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> {
+fn intent_of(key: &KeyPress, editing: bool, help: bool, at: Option<&Sel>) -> Option<AgentsIntent> {
+    let task = || match at {
+        Some(Sel::Task(id)) => Some(id.clone()),
+        _ => None,
+    };
     let ctrl = key.mods.contains(Mods::CTRL);
     let alt = key.mods.contains(Mods::ALT);
     let shift = key.mods.contains(Mods::SHIFT);
@@ -446,20 +458,20 @@ fn intent_of(key: &KeyPress, editing: bool, help: bool) -> Option<AgentsIntent> 
         return None;
     }
     match (key.code, text) {
-        (KeyCode::Backspace, _) => Some(AgentsIntent::Delete),
-        (KeyCode::Right, _) if !shift => Some(AgentsIntent::Right),
+        (KeyCode::Backspace, _) => task().map(AgentsIntent::Delete),
+        (KeyCode::Right, _) if !shift => at.cloned().map(AgentsIntent::Right),
         (_, Some("?")) => Some(AgentsIntent::ToggleHelp),
         (_, Some("g")) => Some(AgentsIntent::CycleGrouping),
         (_, Some("/")) => Some(AgentsIntent::BeginSearch),
-        (_, Some("n")) => Some(AgentsIntent::New),
-        (_, Some("r")) => Some(AgentsIntent::BeginRename),
-        (_, Some("a")) => Some(AgentsIntent::Archive),
-        (_, Some("h")) => Some(AgentsIntent::Hide),
-        (_, Some("p")) => Some(AgentsIntent::TogglePin),
-        (_, Some("x")) => Some(AgentsIntent::Stop),
-        (_, Some("o")) => Some(AgentsIntent::Accept),
-        (_, Some("f")) => Some(AgentsIntent::Fork),
-        (_, Some("w")) => Some(AgentsIntent::NewWorktree),
+        (_, Some("n")) => Some(AgentsIntent::New(task())),
+        (_, Some("r")) => task().map(AgentsIntent::BeginRename),
+        (_, Some("a")) => task().map(AgentsIntent::Archive),
+        (_, Some("h")) => task().map(AgentsIntent::Hide),
+        (_, Some("p")) => task().map(AgentsIntent::TogglePin),
+        (_, Some("x")) => task().map(AgentsIntent::Stop),
+        (_, Some("o")) => at.cloned().map(AgentsIntent::Accept),
+        (_, Some("f")) => task().map(AgentsIntent::Fork),
+        (_, Some("w")) => Some(AgentsIntent::NewWorktree(task())),
         _ => None,
     }
 }
@@ -479,6 +491,34 @@ fn step_of(key: &KeyPress) -> Option<bool> {
 }
 
 impl ScreenState {
+    /// The list's cursor as the highlight core knows.
+    fn cursor(&self) -> Option<Sel> {
+        self.selection.cursor().and_then(view::RowKey::into_sel)
+    }
+
+    /// Moves the list's cursor (the one copy of the highlight).
+    fn put_cursor(&self, key: view::RowKey) {
+        if self.selection.cursor().as_ref() != Some(&key) {
+            self.selection.set_cursor(Some(key.clone()));
+            self.selection.select(key);
+        }
+    }
+
+    /// The cursor goes to the task after `id` leaves (oracle:
+    /// `selection_after_removal`, a pure function of the model).
+    fn after_removal(&self, model: &Model, id: &str) {
+        if let Some(next) = model.selection_after_removal(id, &[id.to_owned()]) {
+            self.put_cursor(view::RowKey::Task(next));
+        }
+    }
+
+    /// A "yes" to the confirmation removes the task it names.
+    fn settle(&self, model: &Model, yes: bool) {
+        if yes && let Some(confirm) = &model.confirm {
+            self.after_removal(model, &confirm.thread);
+        }
+    }
+
     /// The keys go to what the mode shows once the frame that shows it is
     /// out: the widget a mode drops lets go of the focus with the frame, and
     /// the one it adds (or frees from `ExcludeFocus`) cannot take it before.
@@ -519,14 +559,22 @@ impl State for ScreenState {
             }
             Some(_) => {}
         }
-        let center = model.center();
-        // The highlighted task is core's data; the list's cursor follows it.
-        if let Some(entry) = center.selected_entry() {
-            let key = view::key_of(&center, entry);
-            if self.selection.cursor().as_ref() != Some(&key) {
-                self.selection.set_cursor(Some(key.clone()));
-                self.selection.select(key);
+        // The list's cursor is the only copy of the highlight; a cursor whose
+        // row left the list moves to the default row.
+        if model.search != self.search_seen {
+            self.search_seen = model.search.clone();
+            let center = model.center();
+            if let Some(index) = center
+                .entries
+                .iter()
+                .position(|entry| matches!(entry, CenterRow::Task(_)))
+            {
+                self.put_cursor(view::key_of(&center, index));
             }
+        }
+        let center = model.center_at(self.cursor().as_ref());
+        if let Some(entry) = center.selected_entry() {
+            self.put_cursor(view::key_of(&center, entry));
         }
         let thread = center.selected_row().map(|row| row.id().to_owned());
         let usage_key = UsageKey {
@@ -541,7 +589,10 @@ impl State for ScreenState {
         if self.usage_seen.as_ref() != Some(&usage_key) {
             self.usage_seen = Some(usage_key);
             let hs = read::<Hs, _>(cx);
-            cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::NeedUsage));
+            cx.emit(
+                &hs.screen,
+                ScreenIntent::Agents(AgentsIntent::NeedUsage(self.usage_seen.as_ref().and_then(|key| key.thread.clone()))),
+            );
         }
         if model.confirm.is_some() != self.confirming {
             self.confirming = model.confirm.is_some();
@@ -570,6 +621,7 @@ impl State for ScreenState {
         if editing != self.editing {
             match &editing {
                 Editing::Search => {
+                    self.browse = self.selection.cursor();
                     self.edit.reset("");
                 }
                 Editing::Rename(target) => {
@@ -581,7 +633,13 @@ impl State for ScreenState {
                         .unwrap_or_default();
                     self.edit.reset(&name);
                 }
-                Editing::No => {}
+                Editing::No => {
+                    if self.editing == Editing::Search
+                        && let Some(key) = self.browse.take()
+                    {
+                        self.put_cursor(key);
+                    }
+                }
             }
             self.editing = editing;
             self.refocus_after_frame(cx);
@@ -593,10 +651,11 @@ impl State for ScreenState {
         let model = &screens.agents;
         let hs = read::<Hs, _>(cx);
         let mut send = |intent: AgentsIntent| cx.emit(&hs.screen, ScreenIntent::Agents(intent));
-        let center = model.center();
-        let selected = center
-            .selected_entry()
-            .map(|entry| view::key_of(&center, entry));
+        // The list's cursor is read here, when the key or click arrives: it
+        // moves at once, the model only at the flush.
+        let selected = self.selection.cursor();
+        let at = selected.clone().and_then(view::RowKey::into_sel);
+        let center = model.center_at(at.as_ref());
         match msg {
             Msg::Key(key) => {
                 let editing = model.searching || model.rename.is_some();
@@ -618,7 +677,7 @@ impl State for ScreenState {
                         key.code,
                         key.as_text().filter(|_| !key.mods.contains(Mods::CTRL)),
                     ) {
-                        (KeyCode::Escape, _) => send(AgentsIntent::Confirmed(false)),
+                        (KeyCode::Escape, _) => { let yes = false; self.settle(model, yes); send(AgentsIntent::Confirmed(yes)); }
                         (_, Some(digit @ ("1" | "2"))) => {
                             let index = usize::from(digit == "2");
                             // A delete waits for Enter: the digit only moves the cursor.
@@ -627,7 +686,7 @@ impl State for ScreenState {
                             {
                                 self.confirm_selection.set_cursor(Some(1));
                             } else {
-                                send(AgentsIntent::Confirmed(index == 1));
+                                { let yes = index == 1; self.settle(model, yes); send(AgentsIntent::Confirmed(yes)); }
                             }
                         }
                         _ => {}
@@ -662,11 +721,11 @@ impl State for ScreenState {
                         KeyCode::Up => Some(false),
                         _ => None,
                     };
-                    if let (Some(forward), Some(at)) = (forward, center.selected_entry())
-                        && let Some(sel) = view::neighbour(&center, at, forward)
+                    if let (Some(forward), Some(from)) = (forward, center.selected_entry())
+                        && let Some(sel) = view::neighbour(&center, from, forward)
                     {
-                        send(AgentsIntent::Select(sel));
-                        return Rebuild::No;
+                        self.put_cursor(view::RowKey::from(sel));
+                        return Rebuild::Yes;
                     }
                 }
                 // The list keymap's other defaults for a step: `j`/`k` and
@@ -674,13 +733,16 @@ impl State for ScreenState {
                 if !editing
                     && !model.help
                     && let Some(forward) = step_of(&key)
-                    && let Some(at) = center.selected_entry()
-                    && let Some(sel) = view::neighbour(&center, at, forward)
+                    && let Some(from) = center.selected_entry()
+                    && let Some(sel) = view::neighbour(&center, from, forward)
                 {
-                    send(AgentsIntent::Select(sel));
-                    return Rebuild::No;
+                    self.put_cursor(view::RowKey::from(sel));
+                    return Rebuild::Yes;
                 }
-                if let Some(intent) = intent_of(&key, editing, model.help) {
+                if let Some(intent) = intent_of(&key, editing, model.help, at.as_ref()) {
+                    if let AgentsIntent::Hide(id) = &intent {
+                        self.after_removal(model, id);
+                    }
                     send(intent);
                 }
             }
@@ -704,30 +766,34 @@ impl State for ScreenState {
                 if let Some(l) = &self.listening {
                     l.handled();
                 }
-                let cursor = self.selection.cursor();
-                if cursor != selected
-                    && let Some(sel) = cursor.and_then(view::RowKey::into_sel)
-                {
-                    send(AgentsIntent::Select(sel));
-                }
+                // The cursor is the list's own: only the rows that show it
+                // (details, keys) are rebuilt.
+                return Rebuild::Yes;
             }
             Msg::Row(key) => {
                 // A click on the row that is highlighted opens it, on another
                 // one highlights it (the list's cursor follows the model).
                 if selected.as_ref() == Some(&key) {
-                    send(AgentsIntent::Accept);
-                } else if let Some(sel) = key.into_sel() {
-                    send(AgentsIntent::Select(sel));
+                    if let Some(sel) = at {
+                        send(AgentsIntent::Accept(sel));
+                    }
+                } else if key.clone().into_sel().is_some() && model.rename.is_none() {
+                    self.put_cursor(key);
+                    return Rebuild::Yes;
                 }
             }
-            Msg::Open => send(AgentsIntent::Accept),
-            Msg::ConfirmPick(index) => send(AgentsIntent::Confirmed(index == 1)),
+            Msg::Open => {
+                if let Some(sel) = at {
+                    send(AgentsIntent::Accept(sel));
+                }
+            }
+            Msg::ConfirmPick(index) => { let yes = index == 1; self.settle(model, yes); send(AgentsIntent::Confirmed(yes)); }
             Msg::Search(text) => send(AgentsIntent::SetSearch(text)),
             Msg::Submit(text) => {
                 if model.rename.is_some() {
                     send(AgentsIntent::Commit(text));
-                } else {
-                    send(AgentsIntent::Accept);
+                } else if let Some(sel) = at {
+                    send(AgentsIntent::Accept(sel));
                 }
             }
             Msg::Tab(index) => send(AgentsIntent::SetFilter(index)),
@@ -740,7 +806,7 @@ impl State for ScreenState {
         let num = shared::of(cx).num;
         let screens = watch::<ScreenStates, _>(cx);
         let look = view::Look::new(&Theme::of(cx), screens.agents.thread_colors());
-        let center = Rc::new(screens.agents.center());
+        let center = Rc::new(screens.agents.center_at(self.cursor().as_ref()));
         let taps = view::Taps {
             rows: Rc::new(
                 (0..center.entries.len())

@@ -228,7 +228,7 @@ fn usage_command(app: &mut CodexApp) -> Command {
     let fx = run(
         app,
         AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
-            AgentsIntent::NeedUsage,
+            AgentsIntent::NeedUsage(Some("a1".into())),
         ))),
     );
     screen_commands(fx)

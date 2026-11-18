@@ -181,3 +181,38 @@ fn the_wheel_scrolls_the_list_by_item() {
         "the list moved one item or more:\n{screen}"
     );
 }
+
+/// VS1 review D2: two steps that arrive in one terminal read move two rows
+/// (the step starts from the list's cursor, which moves at once, not from the
+/// model, which changes at the flush).
+#[test]
+fn two_steps_in_one_read_move_two_rows() {
+    let mut slow = open("overview", 96, 25);
+    slow.press("j");
+    slow.press("j");
+    slow.settle();
+    let expected = highlighted(&slow);
+    let mut fast = open("overview", 96, 25);
+    fast.t.type_text("jj");
+    fast.settle();
+    assert_eq!(highlighted(&fast), expected, "{}", fast.t.screen());
+    assert!(!expected.contains("Build the dashboard"));
+}
+
+/// VS1 review D3: a click in the same flush as a step is judged against the
+/// list's cursor. Down moves to the second row; a click on the first row (the
+/// one that was highlighted) selects it, and does not open the second.
+#[test]
+fn a_click_after_a_step_in_one_flush_selects_the_clicked_row() {
+    let mut h = open("overview", 96, 25);
+    let (x, y) = find(&h, "Build the dashboard");
+    h.t.input(b"\x1b[B");
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        highlighted(&h).contains("Build the dashboard"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(h.t.screen().contains("Agent command center"));
+}
