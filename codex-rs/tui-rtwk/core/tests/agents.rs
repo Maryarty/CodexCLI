@@ -6,13 +6,22 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadClosedNotification;
+use codex_app_server_protocol::ThreadStartedNotification;
+use codex_app_server_protocol::ThreadStatus;
+use codex_app_server_protocol::ThreadStatusChangedNotification;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    CenterRow, Command, Ctx, DetailLine, Ev, Group, Grouping, Intent as AgentsIntent, Model,
-    Notice, Page, Reply, Sel, apply_answer, update,
+    Action, CenterRow, Command, Confirm, Ctx, DetailLine, Ev, Group, Grouping,
+    Intent as AgentsIntent, Model, Notice, Out, Page, Reply, Sel, apply_answer, observe, update,
+    wire,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
@@ -937,4 +946,308 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
             .all(|out| !matches!(out.command, Command::Rename { .. })),
         "{outs:?}"
     );
+}
+
+/// Applies `outs` the way the app does: each RPC answered with `Done`.
+fn answer_done(model: &mut Model, outs: Vec<Out>) {
+    for out in outs {
+        let _ = apply_answer(model, out.ctx, Ok(Reply::Done));
+    }
+}
+
+fn ids_of(model: &Model) -> Vec<String> {
+    let center = model.center();
+    center
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            CenterRow::Task(index) => Some(center.rows[*index].id().to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `pin_action_updates_shared_section_state` (agents_overview_actions_tests.rs:17),
+/// the core half: each toggle asks for the opposite of the row's pin, and the
+/// answer moves the task in or out of the shared pinned section. The app server
+/// round trip (`list_pinned_threads`) and the refresh notifications are the app's.
+#[test]
+fn pin_action_updates_shared_section_state() {
+    let mut sandbox = sandbox();
+    let target = id(1);
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(
+        Some(Vec::new()),
+    ))));
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    // A single task is highlighted until one is selected.
+    let mut m = model(&sandbox).clone();
+    for pinned in [true, false] {
+        let outs = update(&mut m, AgentsIntent::TogglePin);
+        assert_eq!(outs.len(), 1);
+        assert_eq!(
+            outs[0].command,
+            Command::Pin {
+                thread: target.clone(),
+                pinned
+            }
+        );
+        answer_done(&mut m, outs);
+        assert_eq!(
+            m.pinned.as_ref().is_some_and(|pins| pins.contains(&target)),
+            pinned
+        );
+    }
+}
+
+/// The core half of `lifecycle_shortcuts_target_filtered_task_in_any_state`
+/// (agents_overview_actions_tests.rs:223): the archive, delete and hide intents
+/// target the highlighted task whatever its status. The filter (search `Target`)
+/// and the F-key bindings are screen-level, and so is `Fork` (no intent yet).
+#[test]
+fn lifecycle_shortcuts_target_filtered_task_in_any_state() {
+    for status in [idle(), json!({"type": "notLoaded"}), working()] {
+        let target = id(1);
+        let mut sandbox = sandbox();
+        list(&mut sandbox, vec![thread(&target, None, "Target", status)]);
+        let mut m = model(&sandbox).clone();
+        let _ = update(&mut m, AgentsIntent::Archive);
+        assert_eq!(
+            m.confirm,
+            Some(Confirm {
+                thread: target.clone(),
+                action: Action::Archive
+            })
+        );
+        let _ = update(&mut m, AgentsIntent::Delete);
+        assert_eq!(
+            m.confirm,
+            Some(Confirm {
+                thread: target.clone(),
+                action: Action::Delete
+            })
+        );
+        let _ = update(&mut m, AgentsIntent::Hide);
+        assert!(m.hidden.contains(&target));
+        assert!(ids_of(&m).is_empty());
+    }
+}
+
+/// The core half of `hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume`
+/// (agents_overview_actions_tests.rs:734): a hidden task stays hidden through
+/// its notifications and a list refresh that returns it, and an explicit
+/// resume of it shows it again. RED: `Resume` does not unhide (the oracle's
+/// `resume_target_session` shows the task; update.rs `apply_answer`).
+#[test]
+fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
+    let target = id(1);
+    let task = thread(&target, None, "Hidden task", idle());
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![task.clone()]);
+    let mut m = model(&sandbox).clone();
+    let _ = update(&mut m, AgentsIntent::Hide);
+    assert!(ids_of(&m).is_empty());
+    let started = ServerNotification::ThreadStarted(ThreadStartedNotification {
+        thread: task.clone(),
+    });
+    observe(&mut m, &started);
+    let status = ServerNotification::ThreadStatusChanged(ThreadStatusChangedNotification {
+        thread_id: target.clone(),
+        status: serde_json::from_value::<ThreadStatus>(working()).expect("a status"),
+    });
+    observe(&mut m, &status);
+    let closed = ServerNotification::ThreadClosed(ThreadClosedNotification {
+        thread_id: target.clone(),
+    });
+    observe(&mut m, &closed);
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: false },
+        Ok(Reply::Listed(Page {
+            threads: vec![task.clone()],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+        })),
+    );
+    assert!(ids_of(&m).is_empty());
+    assert!(m.hidden.contains(&target));
+    // The explicit resume (the app's `resume_target_session`): its answer.
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Resume {
+            thread: target.clone(),
+        },
+        Ok(Reply::Resumed(Box::new(task))),
+    );
+    assert_eq!(ids_of(&m), vec![target.clone()]);
+}
+
+/// The core half of `rejected_delete_preserves_a_live_attachment_and_draft`
+/// (agents_overview_actions_tests.rs:819): a rejected delete keeps the task
+/// and reports the error. The chat draft and the primary are the app's.
+#[test]
+fn rejected_delete_preserves_a_live_attachment() {
+    let target = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let _ = update(&mut m, AgentsIntent::Delete);
+    let outs = update(&mut m, AgentsIntent::Confirmed(true));
+    assert_eq!(outs.len(), 1);
+    assert_eq!(
+        outs[0].command,
+        Command::Delete {
+            thread: target.clone()
+        }
+    );
+    let _ = apply_answer(
+        &mut m,
+        outs[0].ctx.clone(),
+        Err(RpcError::Remote("Could not delete task".into())),
+    );
+    assert_eq!(ids_of(&m), vec![target.clone()]);
+    assert!(matches!(m.notice, Some(Notice::Error(_))));
+}
+
+/// The core half of `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`
+/// (agents_overview_actions_tests.rs:851): removing a background task removes
+/// its whole subtree (child and grandchild) from the list. RED: `remove`
+/// drops only direct children (update.rs `apply_answer`, one level).
+#[test]
+fn lifecycle_removes_background_and_current_tasks() {
+    for archive in [true, false] {
+        let background = id(1);
+        let child = id(2);
+        let grandchild = id(3);
+        let mut sandbox = sandbox();
+        list(
+            &mut sandbox,
+            vec![
+                thread(
+                    &background,
+                    None,
+                    "Background task",
+                    json!({"type": "notLoaded"}),
+                ),
+                thread(
+                    &child,
+                    Some(&background),
+                    "Child",
+                    json!({"type": "notLoaded"}),
+                ),
+                thread(
+                    &grandchild,
+                    Some(&child),
+                    "Grandchild",
+                    json!({"type": "notLoaded"}),
+                ),
+            ],
+        );
+        let mut m = model(&sandbox).clone();
+        let _ = update(
+            &mut m,
+            if archive {
+                AgentsIntent::Archive
+            } else {
+                AgentsIntent::Delete
+            },
+        );
+        let outs = update(&mut m, AgentsIntent::Confirmed(true));
+        assert_eq!(outs.len(), 1);
+        answer_done(&mut m, outs);
+        assert!(
+            m.threads.is_empty(),
+            "archive={archive}: {:?}",
+            m.threads.len()
+        );
+    }
+}
+
+/// The core half of `overview_cloud_discovery_uses_only_interactive_pages`
+/// (agents_overview_discovery_tests.rs:21): the list asks for `sourceKinds: []`
+/// with the cursor of the page, and a page's `nextCursor` says whether more
+/// pages follow.
+#[test]
+fn overview_cloud_discovery_uses_only_interactive_pages() {
+    let mut m = Model::default();
+    let outs = update(&mut m, AgentsIntent::Open);
+    assert_eq!(outs.len(), 1);
+    assert_eq!(outs[0].command, Command::List { cursor: None });
+    let thread_id = ThreadId::new("00000000-0000-0000-0000-000000000000");
+    let ClientRequest::ThreadList { params, .. } =
+        wire(&outs[0].command, &thread_id, RequestId::Integer(1))
+    else {
+        panic!("expected thread/list");
+    };
+    assert_eq!(params.source_kinds, Some(Vec::new()));
+    assert_eq!(params.cursor, None);
+    let first = thread(
+        &id(1),
+        None,
+        "First Cloud task",
+        json!({"type": "notLoaded"}),
+    );
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: false },
+        Ok(Reply::Listed(Page {
+            threads: vec![first],
+            unread: Vec::new(),
+            next_cursor: Some("next".into()),
+            append: false,
+        })),
+    );
+    assert!(m.paging.has_more);
+    assert_eq!(m.paging.cursor.as_deref(), Some("next"));
+    let second = thread(
+        &id(2),
+        None,
+        "Second Cloud task",
+        json!({"type": "notLoaded"}),
+    );
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: true },
+        Ok(Reply::Listed(Page {
+            threads: vec![second],
+            unread: Vec::new(),
+            next_cursor: None,
+            append: true,
+        })),
+    );
+    assert!(!m.paging.has_more);
+    assert_eq!(ids_of(&m).len(), 2);
+}
+
+/// `cloud_archive_preserves_attached_child_and_other_tasks`
+/// (agents_overview_actions_tests.rs:71): a cloud archive removes only the
+/// selected task; a local one removes its subtree. The core has no backend
+/// mode yet (the oracle's `ThreadParamsMode::Cloud`, agents_overview_actions.rs:296).
+#[test]
+fn cloud_archive_preserves_attached_child_and_other_tasks() {
+    todo!(
+        "agents-live: the core has no cloud backend mode; a cloud archive removes only the selected task (oracle agents_overview_actions.rs:296)"
+    )
+}
+
+/// `overview_show_more_refills_archived_rows_and_retries_without_losing_rows`
+/// (agents_overview_discovery_tests.rs:65): archived rows are refilled from the
+/// next pages, and a failed page retries its cursor. The refill count and the
+/// retry are not in the core's paging yet (oracle agents_overview_discovery.rs).
+#[test]
+fn overview_show_more_refills_archived_rows() {
+    todo!(
+        "agents-live: the core paging has no refill of archived rows nor cursor retry (oracle agents_overview_discovery.rs refill_count)"
+    )
+}
+
+/// `selected_usage_is_cached_and_account_changes_discard_old_results`
+/// (agents_overview_usage_tests.rs:14): the core's `Usage` keeps tokens only;
+/// the oracle caches the usage estimate (credits, USD micros, groups) per
+/// selected task (agents_overview_usage.rs).
+#[test]
+fn selected_usage_is_cached() {
+    todo!(
+        "agents-live: the core Usage has tokens only, no cached usage estimate per selected task (oracle agents_overview_usage.rs)"
+    )
 }
