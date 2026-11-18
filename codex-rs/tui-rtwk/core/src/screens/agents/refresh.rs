@@ -124,6 +124,10 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             }
             model.notice = notice;
         }
+        Ev::Started(thread) => {
+            let _ = thread;
+            todo!("started")
+        }
         Ev::Request(thread, preview) => match preview {
             Some(preview) => {
                 model.requests.insert(thread, preview);

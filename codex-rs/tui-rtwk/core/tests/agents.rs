@@ -581,9 +581,7 @@ fn fork_opens_the_copy_of_the_selected_task() {
         outs.iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Fork {
-            thread: target
-        }]
+        vec![Command::Fork { thread: target }]
     );
     let copy = thread(&id(9), None, "Task", idle());
     let _ = apply_answer(&mut m, Ctx::Fork, Ok(Reply::Forked(Box::new(copy))));
@@ -915,12 +913,7 @@ fn overview_right_opens_current_or_highlighted_task() {
         .into_iter()
         .map(|out| out.command)
         .collect();
-    assert_eq!(
-        on_other,
-        vec![Command::Resume {
-            thread: other
-        }]
-    );
+    assert_eq!(on_other, vec![Command::Resume { thread: other }]);
     assert_eq!(
         on_current,
         vec![Command::Resume {
@@ -947,9 +940,7 @@ fn overview_right_preserves_editors_and_offline_state() {
             .iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Resume {
-            thread: task
-        }]
+        vec![Command::Resume { thread: task }]
     );
     // ... but leaves a rename editor alone.
     let _ = update(&mut m, AgentsIntent::BeginRename);
@@ -1293,10 +1284,7 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
             thread(&neighbor, None, "Neighbor", idle()),
         ],
     );
-    intent(
-        &mut sandbox,
-        AgentsIntent::Select(Sel::Task(target)),
-    );
+    intent(&mut sandbox, AgentsIntent::Select(Sel::Task(target)));
     intent(&mut sandbox, AgentsIntent::BeginRename);
     intent(&mut sandbox, AgentsIntent::Hide);
     assert_eq!(model(&sandbox).rename, None);

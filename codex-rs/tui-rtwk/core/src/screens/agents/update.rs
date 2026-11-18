@@ -329,3 +329,12 @@ fn accept(model: &mut Model, outs: &mut Vec<Out>) {
         }
     }
 }
+
+/// The `cwd`s of the center's tasks whose directory keys the shell has not
+/// been asked for, marked as asked (oracle: `AgentsOverviewProjectGroup::
+/// for_thread`, `directory_group_key`, read while building the rows). Only
+/// with worktrees on: the keys are used by nothing else.
+pub fn wanted_dirs(model: &mut Model) -> Vec<String> {
+    let _ = model;
+    todo!("directories")
+}

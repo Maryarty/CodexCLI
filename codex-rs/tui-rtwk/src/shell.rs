@@ -9,6 +9,8 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod fake;
+pub mod rpc;
+pub mod workspace;
 
 use std::future::Future;
 use std::pin::Pin;

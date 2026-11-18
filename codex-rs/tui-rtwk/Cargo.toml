@@ -146,3 +146,7 @@ path = "tests/carried.rs"
 [[test]]
 name = "agents_mouse"
 path = "tests/agents_mouse.rs"
+
+[[test]]
+name = "shell_agents"
+path = "tests/shell_agents.rs"

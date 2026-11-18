@@ -142,6 +142,11 @@ pub enum Command {
     /// shell does; it answers with the agents screen's `Ev::Notice`.
     #[non_exhaustive]
     Worktree { cwd: Option<String> },
+    /// The directory keys of these `cwd`s (canonical path, repository):
+    /// file-system reads the shell does; it answers with the agents
+    /// screen's `Ev::Directories`.
+    #[non_exhaustive]
+    Directories { cwds: Vec<String> },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {

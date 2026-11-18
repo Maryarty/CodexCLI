@@ -27,6 +27,7 @@ mod details;
 mod discovery;
 mod notifications;
 mod refresh;
+mod sources;
 mod update;
 mod usage;
 mod wire;
@@ -61,7 +62,10 @@ pub use notifications::observe;
 pub use notifications::observes;
 pub use refresh::Out;
 pub use refresh::apply_answer;
+pub use sources::Fanout;
+pub use sources::fanout;
 pub use update::update;
+pub use update::wanted_dirs;
 pub use usage::UsageOutcome;
 pub use usage::refresh_usage;
 pub use usage::reset_for_backend_switch;
@@ -294,6 +298,9 @@ pub struct Model {
     /// Worktrees are enabled (`w`, project grouping by repository).
     pub worktrees: bool,
     pub dirs: BTreeMap<String, DirKeys>,
+    /// The `cwd`s the shell was asked the keys of (oracle: none, the view
+    /// read them while building rows): asked once each.
+    pub dirs_asked: BTreeSet<String>,
     /// A pin change is in flight (oracle: `pin_action_pending`).
     pub pin_pending: bool,
     pub history: Option<History>,
@@ -346,6 +353,9 @@ pub enum Ev {
     Notice(Option<Notice>),
     /// A request waits on a thread (preview text), or was answered.
     Request(String, Option<String>),
+    /// The shell started a task by itself (a worktree's) and it opens in the
+    /// chat; the busy notice ends.
+    Started(Box<Thread>),
 }
 
 impl Eq for Ev {}
@@ -481,6 +491,8 @@ pub enum Reply {
     ActiveTurn(Option<String>),
     Resumed(Box<Thread>),
     Forked(Box<Thread>),
+    /// The task `thread/start` made.
+    Started(Box<Thread>),
     Usage(UsageOutcome),
 }
 
