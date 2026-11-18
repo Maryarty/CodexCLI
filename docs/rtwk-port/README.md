@@ -17,6 +17,10 @@ the design and the references agents read.
 | [research/state-management.md](research/state-management.md) | Rust state-management options compared for this port |
 | `refs/` | generated references (ADR-008), written by `tools/rtwk-port/` |
 
-Worktrees: `codex-rs/tui-rtwk` reaches rtwk by the relative path
-`../../../rtwk`. A worktree under `.claude/worktrees/<name>/` resolves it
-through the symlink `.claude/worktrees/rtwk` → the rtwk checkout.
+Worktrees: `codex-rs/tui-rtwk` builds against the rtwk pin, a checkout of the
+commit in [RTWK_REF](RTWK_REF) at `/Users/admin/.cache/codexcli/rtwk-pin`. Its
+`Cargo.toml` names the pin's crates by that absolute path: a relative path
+through a symlink makes cargo read the outer `codex-rs` workspace root and
+fail on `rust-version` inheritance. `tui-rtwk/tests/pin.rs` checks that the
+checkout is at RTWK_REF. A new pin is a new commit in RTWK_REF, in this
+crate's manifest paths and in the checkout, together.
