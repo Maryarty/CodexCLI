@@ -71,16 +71,23 @@ pub mod oracle {
     /// As `assert_rows`, for the oracle rows that are not `skip`: a row of
     /// the surrounding chat (the composer) that the dialog does not draw.
     pub fn assert_rows_except(screen: &str, path: &str, skip: &[&str]) {
-        let lines: Vec<&str> = screen.lines().collect();
-        let mut at = 0;
-        for row in rows(path)
+        let want: Vec<String> = rows(path)
             .into_iter()
             .filter(|row| !skip.contains(&row.trim()))
-        {
+            .collect();
+        assert_sequence(screen, path, &want);
+    }
+
+    /// Every row of `want` is on the screen, in order; `label` names where
+    /// the rows come from.
+    pub fn assert_sequence(screen: &str, label: &str, want: &[String]) {
+        let lines: Vec<&str> = screen.lines().collect();
+        let mut at = 0;
+        for row in want {
             let row = row.trim();
             let Some(found) = lines[at..].iter().position(|line| line.contains(row)) else {
                 panic!(
-                    "oracle row {row:?} ({path}) not found after line {at}; the screen:\n{screen}"
+                    "oracle row {row:?} ({label}) not found after line {at}; the screen:\n{screen}"
                 );
             };
             at += found + 1;
