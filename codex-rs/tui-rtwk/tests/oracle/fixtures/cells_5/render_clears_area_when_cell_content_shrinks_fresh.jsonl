@@ -1,0 +1,1 @@
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"agent-2","text":"fresh","phase":"final_answer","memoryCitation":null,"delivery":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
