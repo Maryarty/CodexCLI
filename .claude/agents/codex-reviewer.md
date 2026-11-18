@@ -28,14 +28,15 @@ not load tm skills.
     stored), the view built of rtwk widgets from the snapshot (no ported
     `render()` arithmetic, no ratatui painter), carried code only pure logic
     with its dependency closure and an oracle-file comment, renderers not
-    carried, rtwk gaps listed as deltas rather than worked around;
+    carried; a visual delta is a FIX unless it carries the rtwk route tried
+    (file:line) and a `rtwk-gaps.md` row showing rtwk cannot do it;
   - tests first: the first commit holds the parity tests; expected values
     come from the oracle (`.snap` text, oracle assertions), not from output
     of the new code;
   - the parity pack `docs/rtwk-port/parity/<alias>.md` is complete: every
     oracle test of the slice's files mapped (sample the n/a reasons), every
-    snapshot equal or a listed delta with both renderings, kinds from
-    `parity/delta-kinds.md` or NEW, pty scenarios run (or n/a before
+    snapshot equal (a delta only as above, with both renderings; kind R01 of
+    `parity/delta-kinds.md` is rejected), pty scenarios run (or n/a before
     scenario-harness);
   - ADR-002's four binding conditions (`eq` widgets; `show_dialog` callers
     and the presenter under the `Navigator`; fixed providers, keyed
@@ -52,7 +53,7 @@ not load tm skills.
     `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
   defect, a missing pack item, a broken condition or rule, or work outside
-  the area; deltas of a decided kind and gaps listed as deltas are not FIX.
+  the area, or a visual delta without a researched rtwk route.
   A re-review after a fix round reads only the fix commits and the open
   findings.
 - A wave review (Opus): the wave's diff on the integration branch for drift

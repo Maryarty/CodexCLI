@@ -75,8 +75,13 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
   oracle's size and compares it with the oracle through the replay helper.
   Port the codex-tui tests of your files, named after theirs; map every one
   in the parity pack.
-- A difference you cannot remove is a delta in the parity pack, with both
-  renderings; never loosen a test to hide it.
+- The oracle's look and behaviour are the spec; no visual delta is accepted
+  (the person, 2026-11-18). Compose rtwk primitives until rows and styles
+  equal the oracle's; never settle for the nearest ready widget that looks
+  different. Only what rtwk truly cannot do is a delta: both renderings, the
+  rtwk route you tried (file:line), a `docs/rtwk-port/rtwk-gaps.md` row, and
+  you report it to the orchestrator; never propose "accept", never loosen a
+  test to hide it.
 - Red then green across your commits is the bite; a test added later is
   shown biting: break the code, see it fail, restore.
 - Report what the checks actually said; claim nothing you did not run. Name
