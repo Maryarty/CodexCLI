@@ -1,0 +1,2 @@
+# turn-1 completes interrupted (the oracle's on_interrupted_turn).
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "interrupted", "error": null, "startedAt": null, "completedAt": null, "durationMs": 0}}}}

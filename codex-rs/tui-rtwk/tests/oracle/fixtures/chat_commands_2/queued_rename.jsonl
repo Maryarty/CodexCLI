@@ -1,0 +1,2 @@
+# The thread name updated to "Queued rename".
+{"step": "notify", "message": {"method": "thread/name/updated", "params": {"threadId": "thread-1", "threadName": "Queued rename"}}}
