@@ -120,6 +120,10 @@ name = "pin"
 path = "tests/pin.rs"
 
 [[test]]
+name = "layers"
+path = "tests/layers.rs"
+
+[[test]]
 name = "rules"
 path = "tests/rules.rs"
 
