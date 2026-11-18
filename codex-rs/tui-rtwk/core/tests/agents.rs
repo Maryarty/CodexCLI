@@ -9,8 +9,10 @@
 use codex_app_server_protocol::Thread;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Ev, Group, Grouping, Intent as AgentsIntent, Model, Page, Sel,
+    Command, Ctx, DetailLine, Ev, Group, Grouping, Intent as AgentsIntent, Model, Notice, Page,
+    Reply, Sel, apply_answer, update,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
@@ -265,4 +267,255 @@ fn assert_ids(sandbox: &Sandbox, expected: &[&String]) {
     let expected: Vec<&str> = expected.iter().map(|id| id.as_str()).collect();
     let got = ids(sandbox);
     assert_eq!(got.iter().map(String::as_str).collect::<Vec<_>>(), expected);
+}
+
+fn request(sandbox: &mut Sandbox, thread: &str, preview: Option<&str>) {
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Request(
+        thread.to_owned(),
+        preview.map(str::to_owned),
+    ))));
+}
+
+/// The activity block of a root row, without its blank separators.
+fn activity(sandbox: &Sandbox, thread: &str) -> Vec<DetailLine> {
+    let center = model(sandbox).center();
+    let row = center
+        .rows
+        .iter()
+        .find(|row| row.id() == thread)
+        .expect("a root row");
+    row.details
+        .lines
+        .iter()
+        .filter(|line| **line != DetailLine::Blank)
+        .cloned()
+        .collect()
+}
+
+/// `agents_overview_details_show_available_attention_without_expanding_rows`
+/// (agents_overview_tests.rs:1014), the model side: the child's question is
+/// previewed on the root row's activity block in the oracle's order; the
+/// answer removes the question and keeps the approval wait.
+#[test]
+fn agents_overview_details_show_available_attention_without_expanding_rows() {
+    let [root, failed_agent, child, unloaded] = [1, 2, 3, 4].map(id);
+    let waiting =
+        json!({"type": "active", "activeFlags": ["waitingOnApproval", "waitingOnUserInput"]});
+    let mut sandbox = sandbox();
+    current(&mut sandbox, &root);
+    list(
+        &mut sandbox,
+        vec![
+            thread(&root, None, "Repair authentication", waiting.clone()),
+            thread(&child, Some(&failed_agent), "Check dependencies", waiting),
+            thread(
+                &unloaded,
+                None,
+                "Investigate parser",
+                json!({"type": "notLoaded"}),
+            ),
+            thread(
+                &failed_agent,
+                Some(&root),
+                "Failed agent",
+                json!({"type": "systemError"}),
+            ),
+        ],
+    );
+    let question = "Which dependency version should I use?";
+    request(&mut sandbox, &child, Some(question));
+    assert_eq!(model(&sandbox).center().rows.len(), 2);
+    assert_eq!(selected(&sandbox), root);
+    // `NeedsAttention` is the oracle's `● Needs input` status line, first.
+    assert_eq!(
+        activity(&sandbox, &root),
+        [
+            DetailLine::NeedsAttention,
+            DetailLine::Agent("Check dependencies".into()),
+            DetailLine::Request(question.into()),
+            DetailLine::OpenToReview,
+            DetailLine::WaitingApproval,
+            DetailLine::WaitingResponse,
+        ]
+    );
+    // The answer removes the question; the approval wait stays (the oracle's
+    // two assertions after the resolution).
+    request(&mut sandbox, &child, None);
+    let after = activity(&sandbox, &root);
+    assert!(
+        !after.contains(&DetailLine::Request(question.into())),
+        "{after:?}"
+    );
+    assert!(after.contains(&DetailLine::WaitingApproval), "{after:?}");
+}
+
+/// `command_center_refresh_failure_is_inline_and_clears_on_success`
+/// (agents_overview_tests.rs:2971): a failed list shows "Error loading tasks"
+/// inline and keeps the search text; a successful list clears both the
+/// failure and the notice. GAP (listed in the result): the oracle's
+/// `recent_seed_complete: false` reply, which keeps the failure, has no core
+/// counterpart (a page carries no completeness flag), so that step is absent.
+#[test]
+fn command_center_refresh_failure_is_inline_and_clears_on_success() {
+    let mut sandbox = sandbox();
+    intent(&mut sandbox, AgentsIntent::BeginSearch);
+    intent(&mut sandbox, AgentsIntent::Type("Keep searching".into()));
+    let mut m = model(&sandbox).clone();
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: false },
+        Err(RpcError::Remote("unavailable".into())),
+    );
+    assert!(m.paging.failed);
+    assert_eq!(m.notice, Some(Notice::LoadFailed));
+    assert_eq!(m.search, "Keep searching");
+    let _ = apply_answer(
+        &mut m,
+        Ctx::List { append: false },
+        Ok(Reply::Listed(Page {
+            threads: Vec::new(),
+            unread: Vec::new(),
+            next_cursor: None,
+            append: false,
+        })),
+    );
+    assert!(!m.paging.failed);
+    assert_eq!(m.notice, None);
+    assert_eq!(m.search, "Keep searching");
+}
+
+/// `command_center_action_failures_remain_visible`
+/// (agents_overview_tests.rs:3029), the notice side: each failed action
+/// leaves its server message as the notice. The heading "Unable to complete
+/// action" and the sentences around the message are the view's strings.
+#[test]
+fn command_center_action_failures_remain_visible() {
+    let mut sandbox = sandbox();
+    list(&mut sandbox, Vec::new());
+    let thread = id(1);
+    let mut m = model(&sandbox).clone();
+    for (ctx, message) in [
+        (
+            Ctx::Resume {
+                thread: thread.clone(),
+            },
+            "is unavailable",
+        ),
+        (
+            Ctx::Rename {
+                thread: thread.clone(),
+            },
+            "Failed to rename task",
+        ),
+        (
+            Ctx::Action {
+                thread: thread.clone(),
+                action: None,
+            },
+            "Failed to stop background task",
+        ),
+    ] {
+        let _ = apply_answer(&mut m, ctx, Err(RpcError::Remote(message.into())));
+        assert_eq!(m.notice, Some(Notice::Error(message.into())));
+    }
+}
+
+/// `command_center_new_actions_use_selection_and_leave_metadata_text_alone`
+/// (agents_overview_tests.rs:3325), the model's steps: `p` pins the
+/// highlighted task; `n` starts a task in its directory, and without a
+/// selection in no directory; `g` cycles the grouping, Directory not
+/// persisted; `r` renames, and the letters typed are the name's text.
+/// The `w` step is the red test `command_center_new_worktree_uses_the_selected_directory`.
+#[test]
+fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
+    let mut sandbox = sandbox();
+    let target = id(1);
+    let mut task = thread(&target, None, "Task", idle());
+    task.cwd = serde_json::from_value(json!("/tmp/checkout/subdir")).expect("a path");
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(
+        Some(Vec::new()),
+    ))));
+    list(&mut sandbox, vec![task]);
+    intent(
+        &mut sandbox,
+        AgentsIntent::Select(Sel::Task(target.clone())),
+    );
+    assert_eq!(selected(&sandbox), target);
+    let mut m = model(&sandbox).clone();
+    let outs = update(&mut m, AgentsIntent::TogglePin);
+    assert_eq!(outs.len(), 1);
+    assert_eq!(
+        outs[0].command,
+        Command::Pin {
+            thread: target.clone(),
+            pinned: true
+        }
+    );
+    let outs = update(&mut m, AgentsIntent::New);
+    assert_eq!(outs.len(), 1);
+    assert_eq!(
+        outs[0].command,
+        Command::Start {
+            cwd: Some("/tmp/checkout/subdir".into())
+        }
+    );
+    for expected in [Grouping::Directory, Grouping::Status, Grouping::Model] {
+        let _ = update(&mut m, AgentsIntent::CycleGrouping);
+        assert_eq!(m.grouping, expected);
+    }
+    assert_eq!(Grouping::Directory.persisted(), None);
+    assert_eq!(Grouping::Status.persisted(), Some("status"));
+    let _ = update(&mut m, AgentsIntent::Select(Sel::Task(target.clone())));
+    let _ = update(&mut m, AgentsIntent::BeginRename);
+    let _ = update(&mut m, AgentsIntent::Type("nwogrxfhap".into()));
+    let outs = update(&mut m, AgentsIntent::Accept);
+    assert_eq!(outs.len(), 1);
+    match &outs[0].command {
+        Command::Rename { thread, name } => {
+            assert_eq!(thread, &target);
+            assert!(name.ends_with("nwogrxfhap"), "{name}");
+        }
+        other => panic!("expected a rename, got {other:?}"),
+    }
+    // The oracle's second view is a fresh empty center (no selection).
+    let empty_sandbox = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
+    let mut empty = model(&empty_sandbox).clone();
+    let outs = update(&mut empty, AgentsIntent::New);
+    assert_eq!(outs.len(), 1);
+    assert_eq!(outs[0].command, Command::Start { cwd: None });
+}
+
+/// The `w` step of `command_center_new_actions_use_selection_and_leave_metadata_text_alone`
+/// (agents_overview_tests.rs:3325): a new worktree in the highlighted task's
+/// directory. RED: no `Intent` for `w` exists (oracle
+/// `AppEvent::NewAgentsOverviewWorktree { backend_id, cwd }`).
+#[test]
+fn command_center_new_worktree_uses_the_selected_directory() {
+    todo!(
+        "agents-live: Intent for `w` (new worktree in the highlighted task's directory) is missing; oracle AppEvent::NewAgentsOverviewWorktree"
+    )
+}
+
+/// `worktrees_overview_groups_by_project_or_directory`
+/// (agents_overview_tests.rs:1380). RED: the core groups by the raw `cwd`
+/// (center.rs:174-247). Linked worktrees of one repository are one project in
+/// the oracle (four rows under the primary path), which needs the repository
+/// root of each cwd: a shell fact, read from the `.git` file and `commondir`,
+/// that the core does not read.
+#[test]
+fn worktrees_overview_groups_by_project_or_directory() {
+    todo!(
+        "agents-live: the project key of a cwd is its repository root (linked worktrees merge); core groups by raw cwd (center.rs:174)"
+    )
+}
+
+/// `overview_directory_group_keys_normalize_aliases`
+/// (agents_overview_tests.rs:1513). RED: the key is the canonical directory
+/// (a symlink and its target are one group), which needs IO. The core has no
+/// `directory_group_key`; the shell supplies the canonical path.
+#[test]
+fn overview_directory_group_keys_normalize_aliases() {
+    todo!(
+        "agents-live: directory_group_key(path, worktrees_enabled) is absent; canonicalization is a shell fact (IO)"
+    )
 }
