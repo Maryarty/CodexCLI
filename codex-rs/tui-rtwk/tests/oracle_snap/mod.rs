@@ -10,6 +10,55 @@ use std::path::PathBuf;
 
 use rtwk_test::Tester;
 
+/// The oracle snapshot called `name`, as a path relative to `codex-rs/tui/src`:
+/// `name` is the snapshot's whole file stem
+/// (`codex_tui__chatwidget__tests__approval_modal_exec`) or its test name, the
+/// tail after `__tests__` (`approval_modal_exec`). Panics when no file or
+/// several files have it.
+pub fn find(name: &str) -> String {
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "snap") {
+                out.push(path);
+            }
+        }
+    }
+    static ALL: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+    let root = oracle_path("");
+    let all = ALL.get_or_init(|| {
+        let mut out = Vec::new();
+        walk(&root, &mut out);
+        out
+    });
+    let stem = name.strip_suffix(".snap").unwrap_or(name);
+    let tail = format!("__tests__{stem}");
+    let found: Vec<&PathBuf> = all
+        .iter()
+        .filter(|p| {
+            let file = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            file == stem || file.ends_with(&tail)
+        })
+        .collect();
+    match found.as_slice() {
+        [one] => one
+            .strip_prefix(&root)
+            .unwrap_or(one)
+            .to_string_lossy()
+            .into_owned(),
+        [] => panic!("no oracle snapshot named `{name}` under codex-rs/tui/src"),
+        many => panic!(
+            "oracle snapshot `{name}` is ambiguous; use the whole file stem. Candidates: {:?}",
+            many.iter().map(|p| p.file_stem()).collect::<Vec<_>>()
+        ),
+    }
+}
+
 fn oracle_path(rel: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../tui/src")

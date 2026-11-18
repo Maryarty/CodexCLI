@@ -147,3 +147,16 @@ path = "tests/fixtures.rs"
 [[test]]
 name = "scenarios"
 path = "tests/scenarios/main.rs"
+
+# The screen-test kit (tests/kit): its proof (all green), and the oracle
+# suite of black-box shards (tests/oracle/*.rs, ported by the test swarm).
+# The suite holds pending and todo tests by design: it fails until the
+# slices land, so the default nextest profile leaves it out
+# (.config/nextest.toml); `acargo nextest run --profile oracle` runs it.
+[[test]]
+name = "kit_proof"
+path = "tests/kit_proof.rs"
+
+[[test]]
+name = "oracle"
+path = "tests/oracle.rs"

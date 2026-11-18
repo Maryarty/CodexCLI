@@ -1,0 +1,6 @@
+# A chat with one answered prompt, as a server sends it (kit proof).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"userMessage","id":"user-1","clientId":null,"content":[{"type":"text","text":"hi","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"Hello there\n"}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[{"type":"agentMessage","moderation":null,"id":"msg-1","text":"Hello there\n","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null}],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}
