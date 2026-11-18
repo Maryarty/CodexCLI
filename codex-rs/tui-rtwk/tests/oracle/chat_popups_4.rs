@@ -500,7 +500,7 @@ fn auto_model_advertising_advanced_effort_opens_reasoning_picker() {
 fn feedback_selection_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no /feedback popup in the port: the command suggestion and the category selection have no widget and no seed",
+        "the first frame (the /feedback suggestion) is the composer slash popup, not the dialogs screen; the category list itself is the feedback_categories entry (oracle data)",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 5).live().open();
     s.type_text("/feedback");
@@ -529,7 +529,7 @@ fn feedback_stops_before_collecting_a_note_when_no_destination_is_available() {
 fn feedback_upload_consent_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no /feedback consent popup in the port: the upload consent with the proxy diagnostics has no widget and no seed",
+        "no entry with the proxy connectivity diagnostics: feedback_consent and feedback_consent_windows carry the doctor report and no proxy headline",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 22).live().open();
     s.assert_snap("feedback_upload_consent_popup");
@@ -540,7 +540,7 @@ fn feedback_upload_consent_popup_snapshot() {
 fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename() {
     kit::pending(
         Owner::DialogsPane,
-        "no /feedback consent popup in the port: the good-result consent with the connectivity diagnostics filename has no widget and no seed",
+        "no entry with the good-result consent and its connectivity diagnostics filename: the port consent entries carry no proxy headline",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 17).live().open();
     s.assert_snap("feedback_good_result_consent_popup");
