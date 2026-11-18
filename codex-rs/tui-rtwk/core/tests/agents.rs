@@ -161,7 +161,7 @@ fn shared_overview_shows_only_root_sessions() {
     intent(&mut sandbox, AgentsIntent::BeginSearch);
     intent(
         &mut sandbox,
-        AgentsIntent::Type("Repair authentication".into()),
+        AgentsIntent::SetSearch("Repair authentication".into()),
     );
     assert_eq!(selected(&sandbox), second);
 }
@@ -193,7 +193,10 @@ fn overview_model_grouping_shows_details_and_preserves_selection() {
     assert_eq!(model(&sandbox).grouping, Grouping::Model);
     assert_eq!(selected(&sandbox), id(1));
     for (forward, expected) in [(false, 3), (true, 1), (true, 2), (true, 4)] {
-        intent(&mut sandbox, AgentsIntent::Move { forward });
+        // The list widget moves the cursor (wrapping is its own); core is told
+        // which task it is on.
+        let _ = forward;
+        intent(&mut sandbox, AgentsIntent::Select(Sel::Task(id(expected))));
         assert_eq!(selected(&sandbox), id(expected));
     }
 }
@@ -375,7 +378,10 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
 fn command_center_refresh_failure_is_inline_and_clears_on_success() {
     let mut sandbox = sandbox();
     intent(&mut sandbox, AgentsIntent::BeginSearch);
-    intent(&mut sandbox, AgentsIntent::Type("Keep searching".into()));
+    intent(
+        &mut sandbox,
+        AgentsIntent::SetSearch("Keep searching".into()),
+    );
     let mut m = model(&sandbox).clone();
     let _ = apply_answer(
         &mut m,
@@ -483,7 +489,7 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     assert_eq!(Grouping::Status.persisted(), Some("status"));
     let _ = update(&mut m, AgentsIntent::Select(Sel::Task(target.clone())));
     let _ = update(&mut m, AgentsIntent::BeginRename);
-    let _ = update(&mut m, AgentsIntent::Type("nwogrxfhap".into()));
+    let _ = update(&mut m, AgentsIntent::SetSearch("nwogrxfhap".into()));
     let outs = update(&mut m, AgentsIntent::Accept);
     assert_eq!(outs.len(), 1);
     match &outs[0].command {
@@ -551,7 +557,7 @@ fn live_center_status_order_tracks_updates_while_filtered_and_pinned() {
     current(&mut sandbox, &bravo);
     list(&mut sandbox, threads.clone());
     intent(&mut sandbox, AgentsIntent::BeginSearch);
-    intent(&mut sandbox, AgentsIntent::Type("Bravo".into()));
+    intent(&mut sandbox, AgentsIntent::SetSearch("Bravo".into()));
     assert_eq!(model(&sandbox).search, "Bravo");
     // A hidden row picks up its timestamp change when the filter clears.
     threads[2].updated_at += 100;
@@ -826,13 +832,9 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
         Some(target.clone()),
         "the rename keeps its target"
     );
-    let text = model(&sandbox).rename.as_ref().map(|r| r.text.clone());
-    for _ in 0..text.map_or(0, |t| t.chars().count()) {
-        intent(&mut sandbox, AgentsIntent::Backspace);
-    }
-    intent(&mut sandbox, AgentsIntent::Type("Target!".into()));
+    // The rename text is the field's; Enter hands it over.
     let mut m = model(&sandbox).clone();
-    let outs: Vec<Command> = update(&mut m, AgentsIntent::Accept)
+    let outs: Vec<Command> = update(&mut m, AgentsIntent::Commit("Target!".into()))
         .into_iter()
         .map(|out| out.command)
         .collect();
@@ -857,24 +859,22 @@ fn backspace_edits_search_and_rename_without_deleting_tasks() {
     let mut sandbox = sandbox();
     list(&mut sandbox, vec![thread(&task, None, "Task", idle())]);
     intent(&mut sandbox, AgentsIntent::BeginSearch);
-    intent(&mut sandbox, AgentsIntent::Type("!".into()));
+    // The search line is a text field; each change tells the model its text.
+    intent(&mut sandbox, AgentsIntent::SetSearch("!".into()));
     let mut m = model(&sandbox).clone();
-    assert!(update(&mut m, AgentsIntent::Backspace).is_empty());
+    assert!(update(&mut m, AgentsIntent::SetSearch(String::new())).is_empty());
     assert_eq!(m.search, "");
-    intent(&mut sandbox, AgentsIntent::Backspace);
+    intent(&mut sandbox, AgentsIntent::SetSearch(String::new()));
     assert_eq!(model(&sandbox).search, "");
     assert_ids(&sandbox, &[&task]);
     intent(&mut sandbox, AgentsIntent::CancelEditing);
     intent(&mut sandbox, AgentsIntent::Select(Sel::Task(task.clone())));
     intent(&mut sandbox, AgentsIntent::BeginRename);
-    intent(&mut sandbox, AgentsIntent::Type("!".into()));
+    // The rename text is the field's; a search text does not reach it.
     let mut m = model(&sandbox).clone();
-    assert!(update(&mut m, AgentsIntent::Backspace).is_empty());
-    assert_eq!(m.rename.as_ref().map(|r| r.text.as_str()), Some("Task"));
-    intent(&mut sandbox, AgentsIntent::Backspace);
+    assert!(update(&mut m, AgentsIntent::SetSearch(String::new())).is_empty());
     let rename = model(&sandbox).rename.clone().expect("a rename");
     assert_eq!(rename.target, task);
-    assert_eq!(rename.text, "Task");
     assert_ids(&sandbox, &[&task]);
 }
 
@@ -899,7 +899,7 @@ fn live_center_show_more_navigation_search_and_loading() {
         append: false,
     }))));
     assert!(model(&sandbox).paging.has_more);
-    intent(&mut sandbox, AgentsIntent::Move { forward: true });
+    intent(&mut sandbox, AgentsIntent::Select(Sel::ShowMore));
     let mut m = model(&sandbox).clone();
     let first: Vec<Command> = update(&mut m, AgentsIntent::Accept)
         .into_iter()
@@ -938,7 +938,6 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
         AgentsIntent::Select(Sel::Task(target.clone())),
     );
     intent(&mut sandbox, AgentsIntent::BeginRename);
-    intent(&mut sandbox, AgentsIntent::Type("Unsubmitted title".into()));
     intent(&mut sandbox, AgentsIntent::Hide);
     assert_eq!(model(&sandbox).rename, None);
     let mut m = model(&sandbox).clone();
