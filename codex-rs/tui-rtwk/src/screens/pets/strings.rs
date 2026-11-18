@@ -25,6 +25,13 @@ pub struct Strings {
     pub disable_row: &'static str,
     /// pets/preview.rs: `PetPickerPreviewStatus::Loading`.
     pub preview_loading: &'static str,
+    /// The two columns before a row of the pane: the cursor's `›` or blanks.
+    pub cursor_marker: &'static str,
+    pub indent: &'static str,
+    /// The marker under a list with rows below the window.
+    pub more_below: &'static str,
+    /// The marker above a list with rows above the window.
+    pub more_above: &'static str,
     /// The footer the oracle's snapshot shows.
     pub hint: &'static str,
     /// bottom_pane/list_selection_view.rs: the marker of the current row.
@@ -39,6 +46,10 @@ pub const EN: Strings = Strings {
     search_placeholder: "Type to filter pets...",
     disable_row: "Disable terminal pets",
     preview_loading: "Loading preview...",
+    cursor_marker: "\u{203a} ",
+    indent: "  ",
+    more_below: "\u{2193}",
+    more_above: "\u{2191}",
     hint: "enter select \u{b7} esc back",
     current_marker: " (current)",
 };

@@ -127,18 +127,21 @@ fn model_theme_files_preview_select_and_restore() {
 // keymap_setup.rs: picker_content_snapshot: the tabs and the first actions.
 #[test]
 fn picker_content_snapshot() {
-    let h = open(120, 30, "keymap");
-    let want: Vec<String> =
-        rows("snapshots/codex_tui__keymap_setup__tests__keymap_picker_first_actions.snap")
-            .into_iter()
-            .filter_map(|row| row.strip_prefix("tab: ").map(str::to_owned))
-            .collect();
-    assert!(!want.is_empty());
+    let h = open(200, 30, "keymap");
+    let path = "snapshots/codex_tui__keymap_setup__tests__keymap_picker_first_actions.snap";
+    let tabs: Vec<String> = rows(path)
+        .into_iter()
+        .filter_map(|row| row.strip_prefix("tab: ").map(str::to_owned))
+        .filter_map(|row| row.rsplit_once(" (").map(|(label, _)| label.to_owned()))
+        .collect();
+    assert_eq!(tabs.len(), 12);
+    let actions: Vec<String> = rows(path)
+        .into_iter()
+        .filter(|row| !row.starts_with("tab: "))
+        .filter_map(|row| row.split(" | ").next().map(str::to_owned))
+        .collect();
     let screen = h.t.screen();
-    for tab in ["All", "Common", "Unbound (5)", "Vim"] {
-        assert!(screen.contains(tab), "{screen}");
-    }
-    for row in ["Open Agents", "Open Transcript", "Copy", "Leader"] {
-        assert!(screen.contains(row), "{screen}");
+    for label in tabs.iter().chain(actions.iter()) {
+        assert!(screen.contains(label.as_str()), "{label}: {screen}");
     }
 }
