@@ -647,198 +647,918 @@ fn selection_keys_precede_find_and_typing_returns_to_query() {
 // ORACLE transcript_view/select_mode_tests.rs:37 entry_starts_on_the_last_selectable_visible_line kind=ui owner=chat-live
 #[test]
 fn entry_starts_on_the_last_selectable_visible_line() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: the select_transcript chord (leader, then `[`) starts none, so no cursor lands on the last selectable visible line",
+    );
+    // oracle case 1 (`top`, `bottom` at 32x6): `v` marks `b`, the first cell of the last line
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_1.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_text_style("b", "reversed");
+    // oracle case 2 (`text`, empty line): `t`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_2.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_text_style("t", "reversed");
+    // oracle case 3 (`abc` then six blank rows): `c`, the last text cell
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_3.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_text_style("c", "reversed");
+    // oracle case 4 (`a`..`j`, scrolled two rows up): `h` is the last selectable visible line
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_4.jsonl"))
+        .open();
+    s.wheel_up(0, 0, 2);
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_text_style("h", "reversed");
+    // oracle case 5 (`a` then nine blank rows): select mode starts (its footer is drawn)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_5.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.assert_contains("v mark · enter/q close");
+    // oracle case 6 (one empty line): begin_select_mode is refused, no select footer is drawn
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_entry_6.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.assert_absent("v mark · enter/q close");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:72 character_motion_crosses_line_and_entry_boundaries_without_invisible_stops kind=ui owner=chat-live
 #[test]
 fn character_motion_crosses_line_and_entry_boundaries_without_invisible_stops() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode with a character cursor: left, right and v do not move or mark a grapheme, and no reversed cell is drawn",
+    );
+    // oracle case 1: `a` / blank / blank / `b`; left, v marks `a`; esc, right, v marks `b`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_motion_1.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("left v");
+    s.assert_text_style("a", "reversed");
+    s.keys("esc right v");
+    s.assert_text_style("b", "reversed");
+    // oracle case 2: `ab` with the caret on its separator; right, v marks `a`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_motion_2.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("right v");
+    s.assert_text_style("a", "reversed");
+    // oracle case 3: a wrapped row of `1234567890` x3 then ` one`; left crosses the invisible space onto the `0` at column 29 of row 0
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_motion_3.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("left v");
+    s.assert_style(29, 0, "reversed");
+    // oracle case 4: `ab` / `cd`, a keyboard range from the start of `ab` to the start of `cd` (set through the oracle's API: no key reaches it yet)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_motion_4.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("o l");
+    s.assert_text_style("b", "reversed");
+    // oracle case 5: `abc`, the range `bc`; h moves the caret to `b`, a second h to `a`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_motion_5.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("h");
+    s.assert_text_style("b", "reversed");
+    s.keys("h");
+    s.assert_text_style("ab", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:166 vertical_motion_keeps_the_preferred_display_column kind=ui owner=chat-live
 #[test]
 fn vertical_motion_keeps_the_preferred_display_column() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: up does not move a caret, and v marks no grapheme",
+    );
+    // oracle: `abcdef` / `x` / `abcdef`; right x3, up x2, v marks the `d` of the first line (column 3)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_vertical.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("right right right up up v");
+    s.assert_style(3, 0, "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:181 enter_without_a_mark_exits_but_enter_with_a_mark_copies_and_follows kind=ui owner=chat-live
 #[test]
 fn enter_without_a_mark_exits_but_enter_with_a_mark_copies_and_follows() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: enter neither exits it nor copies a marked grapheme and follows the latest output",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_enter.jsonl"))
+        .open();
+    // enter without a mark exits: the select footer is gone
+    s.keys("leader [");
+    s.assert_contains("v mark · enter/q close");
+    s.keys("enter");
+    s.assert_absent("v mark · enter/q close");
+    // with a mark (v, then a repeated v), enter copies `c` and follows: the select footer is gone and the copied `c` is no longer reversed
+    s.keys("leader [");
+    s.keys("v");
+    s.assert_text_style("c", "reversed");
+    s.keys("enter");
+    s.assert_absent("v mark · enter/q close");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:207 word_motion_crosses_entries_and_word_end_selects_the_destination_word kind=ui owner=chat-live
 #[test]
 fn word_motion_crosses_entries_and_word_end_selects_the_destination_word() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: g, j, w, v and e move no cursor across entries and mark no word",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_word.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("g j w v e");
+    s.assert_text_style("beta", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:223 reverse_line_selection_copies_complete_lines_in_document_order kind=ui owner=chat-live
 #[test]
 fn reverse_line_selection_copies_complete_lines_in_document_order() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: V marks no line, so the second and third lines are not drawn reversed",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_reverse.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("g j j V k");
+    // the marked lines `second` and `third` are drawn reversed in document order (the copy payload is not drawn)
+    s.assert_text_style("second", "reversed");
+    s.assert_text_style("third", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:238 logical_line_end_handles_empty_lines_and_shifted_dollar kind=ui owner=chat-live
 #[test]
 fn logical_line_end_handles_empty_lines_and_shifted_dollar() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: g, $, End and v do not move a caret to a logical line end, so no cell is drawn reversed",
+    );
+    // oracle case 1: `abc` / blank / `z`; g then $ then v marks `c`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_logical_1.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("g $ v");
+    s.assert_text_style("c", "reversed");
+    // then esc, j, End, v marks nothing: no cell of the `z` row is reversed
+    s.keys("esc j End v");
+    s.assert_style(0, 2, "!reversed");
+    // oracle case 2: `abc` / blank; g j End
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_logical_2.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("g j End");
+    s.assert_contains("abc");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:270 configured_pager_page_motion_moves_the_select_cursor kind=ui owner=chat-live
 #[test]
 fn configured_pager_page_motion_moves_the_select_cursor() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: the configured pager page-down key (x) moves no select cursor",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .keymap(&[("pager.page_down", "x")])
+        .script(include_str!("fixtures/transcript_view_4/sm_pager.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("g v x");
+    // the cursor lands on row 5 (`line 5`) of the visible rows
+    s.assert_row(5, "line 5");
+    s.assert_style(0, 5, "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:303 transcript_end_character_selection_includes_the_last_grapheme kind=ui owner=chat-live
 #[test]
 fn transcript_end_character_selection_includes_the_last_grapheme() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: G moves no caret to the transcript end, so the last grapheme is not marked",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_transcript_end.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("G v");
+    s.assert_text_style("🙂", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:315 swapping_the_active_end_preserves_text_and_moves_the_shrinking_endpoint kind=ui owner=chat-live
 #[test]
 fn swapping_the_active_end_preserves_text_and_moves_the_shrinking_endpoint() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: v, o and l do not mark or swap a range, so no highlight is drawn",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_swap.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("v o");
+    s.assert_text_style("a", "reversed");
+    s.keys("o l l l");
+    s.assert_text_style("abcd", "reversed");
+    s.keys("o l");
+    s.assert_text_style("bcd", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:334 confirmed_copy_keeps_the_select_mode_caret_on_the_active_grapheme kind=ui owner=chat-live
 #[test]
 fn confirmed_copy_keeps_the_select_mode_caret_on_the_active_grapheme() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: y copies nothing, so the marked range is not cleared and the caret does not stay on `b`",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_confirmed.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("v l");
+    // the copy of `ab` is confirmed (not drawn); the select mode stays and its footer is still drawn
+    s.keys("y");
+    s.assert_contains("v mark · enter/q close");
+    s.keys("v");
+    s.assert_text_style("b", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:360 find_accepts_at_the_match_and_cancel_restores_the_saved_selection kind=ui owner=chat-live
 #[test]
 fn find_accepts_at_the_match_and_cancel_restores_the_saved_selection() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no find inside select mode: / opens no search, so enter accepts no match and esc restores no saved selection",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_find_accept.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("/");
+    s.type_text("gamma");
+    s.keys("enter");
+    // the accepted match `gamma` is on the first entry; the caret stays there when a newer query is cancelled
+    s.keys("/");
+    s.type_text("distant");
+    s.keys("esc");
+    s.keys("v right");
+    s.assert_text_style("ga", "reversed");
+    // a narrow render (8 columns), then esc, then ctrl+c cancels a find and keeps `ga` marked
+    s.resize(8, 6);
+    s.keys("/");
+    s.resize(32, 6);
+    s.keys("esc");
+    s.keys("/ ctrl+c");
+    s.assert_text_style("ga", "reversed");
+    // a fresh query `alpha` accepted at its match: the marked range runs `alpha beta g` (the range setup through the oracle's API is not reachable by keys yet)
+    s.keys("/");
+    s.type_text("alpha");
+    s.keys("enter");
+    s.assert_text_style("alpha beta g", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:469 accepted_find_repeats_into_the_select_cursor kind=ui owner=chat-live
 #[test]
 fn accepted_find_repeats_into_the_select_cursor() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no find inside select mode: an accepted needle does not place the select cursor on the second match",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_accepted_repeat.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("/");
+    s.type_text("needle");
+    s.keys("enter");
+    // the cursor is on the second `needle` (column 13)
+    s.assert_style(13, 0, "reversed");
+    // / then enter repeats the accepted needle: the cursor stays at column 13
+    s.keys("/ enter");
+    s.assert_style(13, 0, "reversed");
+    // n then right, then the next match wraps to column 14 after the search runs on
+    s.keys("n right");
+    s.assert_style(14, 0, "reversed");
+    // n wraps back to the first match at column 0
+    s.keys("n");
+    s.assert_style(0, 0, "reversed");
+    // v then shift+n extends the mark back to column 13
+    s.keys("v shift+n");
+    s.assert_style(13, 0, "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:536 accepted_find_pins_an_expanded_match_before_select_mode_exits kind=ui owner=chat-live
 #[test]
 fn accepted_find_pins_an_expanded_match_before_select_mode_exits() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no find inside select mode and no expandable command output: `hidden needle` is not in the transcript view",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_pin.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("/");
+    s.type_text("needle");
+    s.keys("enter");
+    // the accepted hidden match is brought into view with its cursor
+    s.assert_contains("hidden needle");
+    // / then esc, then q exits: the expanded match stays on screen
+    s.keys("/ esc q");
+    s.assert_contains("hidden needle");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:617 beginning_motion_finishes_at_the_first_grapheme_after_paging kind=ui owner=chat-live
 #[test]
 fn beginning_motion_finishes_at_the_first_grapheme_after_paging() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no partial history load: g starts no beginning load, and the older entry is not paged in under the select cursor",
+    );
+    // the oracle starts with `newer` only (partial history); g loads `older` and the caret finishes on its first grapheme
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_beginning.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("g");
+    s.wait_for("older");
+    s.keys("v");
+    s.assert_text_style("o", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:637 shift_click_extends_from_the_keyboard_marks_fixed_anchor kind=ui owner=chat-live
 #[test]
 fn shift_click_extends_from_the_keyboard_marks_fixed_anchor() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode and the kit has no shift+click (a modifier mouse down): the keyboard mark does not extend to the clicked column",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_shift_click.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("g right right v right right");
+    s.assert_text_style("cde", "reversed");
+    // KIT GAP: a shift+click at column 0, row 0 is not in the kit; the step is not written
+    s.assert_text_style("abc", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:664 existing_mouse_selection_keeps_its_word_or_line_unit kind=ui owner=chat-live
 #[test]
 fn existing_mouse_selection_keeps_its_word_or_line_unit() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode taking over a mouse selection, and the kit has no triple click: a line unit cannot be made by a click",
+    );
+    // oracle case 1: a double click on `beta` (column 1 of `alpha beta` is in `alpha`): select mode, h, the word unit keeps `alph` marked
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_mouse_word.jsonl"
+        ))
+        .open();
+    s.double_click(1, 0);
+    s.keys("leader [");
+    s.keys("h");
+    s.assert_text_style("alph", "reversed");
+    // oracle case 2: a triple click on `second` (KIT GAP: no triple click), then select mode and k keep the line unit `first\nsecond`
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sm_mouse_line.jsonl"
+        ))
+        .open();
+    s.keys("leader [");
+    s.keys("k");
+    s.assert_text_style("first", "reversed");
+    s.assert_text_style("second", "reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:699 passive_mouse_events_do_not_reanchor_a_reverse_line_mark kind=ui owner=chat-live
 #[test]
 fn passive_mouse_events_do_not_reanchor_a_reverse_line_mark() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode with a reverse line mark: V marks no line, and the kit has no pointer-move event alone (only clicks, wheel and drags)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_passive.jsonl"))
+        .open();
+    s.keys("leader [");
+    s.keys("g j V k");
+    // the passive wheel at (0,0) and a press outside the transcript at (80,80) do not move the mark; j then leaves `second` alone
+    s.wheel_down(0, 0, 1);
+    s.click(80, 80);
+    s.keys("j");
+    s.assert_text_style("second", "reversed");
+    s.assert_style(0, 0, "!reversed");
 }
 
 // ORACLE transcript_view/select_mode_tests.rs:735 select_mode_renders_cursor_and_scannable_footer_hints kind=snap owner=chat-live snap=select_mode_renders_cursor_and_scannable_footer_hints
 #[test]
 fn select_mode_renders_cursor_and_scannable_footer_hints() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript select mode: no cursor is drawn on `alpha beta` and no select footer hint row is drawn",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 6)
+        .script(include_str!("fixtures/transcript_view_4/sm_footer.jsonl"))
+        .open();
+    s.keys("leader [");
+    // unmarked: the rows are the oracle's; the cursor is on `g` of `gamma` (bold, underlined, reversed); the wide footer is the one-line hint row
+    s.assert_row(0, "alpha beta");
+    s.assert_row(1, "gamma");
+    s.assert_style(0, 1, "bold underlined reversed");
+    s.assert_contains("arrows/hjkl move · v/space/V mark · / find · enter/q/esc close");
+    // the narrow footer (32 columns)
+    s.assert_contains("v mark · enter/q close");
+    // marked (g, v, right x5): `alpha` is reversed and the cursor is on the sixth column of row 0
+    s.keys("g v right right right right right");
+    s.assert_style(0, 0, "reversed");
+    s.assert_style(5, 0, "bold underlined reversed");
+    s.assert_contains("y/⌃c copy · enter copy & latest · esc clear · q close");
+    // find: esc, / then `beta`, advance: the match `beta` is reversed from column 6 and the find footer shows the query
+    s.keys("esc /");
+    s.type_text("beta");
+    s.assert_contains("Find: beta");
+    s.assert_contains("enter accept · ⌃p older · ⌃n newer · esc cancel");
+    s.assert_style(6, 0, "reversed");
+    // accepted and marked again (enter, v, right): the mark starts at column 6 and the cursor is on column 7
+    s.keys("enter v right");
+    s.assert_style(6, 0, "reversed");
+    s.assert_style(7, 0, "bold underlined reversed");
 }
 
 // ---- oracle: transcript_view/selection_tests.rs (14 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/selection_tests.rs:22 selection_highlights_hard_breaks_within_and_between_entries kind=snap owner=chat-live snap=selection_highlights_hard_breaks_within_and_between_entries
 #[test]
 fn selection_highlights_hard_breaks_within_and_between_entries() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript mouse selection: a drag from column 0 to column 7 on the first row reverses no cells, and the hard break is not highlighted",
+    );
+    // oracle frame 1 (one entry `code` / `next`, 8x3): the selection `code` reverses columns 0 to 4, the rest is plain
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(8, 3)
+        .script(include_str!("fixtures/transcript_view_4/sl_hard_1.jsonl"))
+        .open();
+    s.mouse_down(0, 0);
+    s.mouse_drag(7, 0);
+    s.assert_row(0, "code");
+    s.assert_row(1, "next");
+    s.assert_style(0, 0, "reversed");
+    s.assert_style(4, 0, "reversed");
+    s.assert_style(5, 0, "!reversed");
+    s.mouse_drag(0, 1);
+    s.mouse_up(0, 1);
+    s.assert_style(0, 1, "!reversed");
+    // oracle frame 2 (two entries `code`, `next` with a separator row, 8x3): the same `code` reverse, the separator row blank, `next` plain
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(8, 3)
+        .script(include_str!("fixtures/transcript_view_4/sl_hard_2.jsonl"))
+        .open();
+    s.mouse_down(0, 0);
+    s.mouse_drag(7, 0);
+    s.assert_style(0, 0, "reversed");
+    s.assert_row(1, "");
+    s.assert_row(2, "next");
+    s.mouse_drag(0, 2);
+    s.mouse_up(0, 2);
+    s.assert_style(0, 2, "!reversed");
 }
 
 // ORACLE transcript_view/selection_tests.rs:60 copy_shortcuts_clear_selection_only_after_confirmed_delivery kind=ui owner=chat-live
 #[test]
 fn copy_shortcuts_clear_selection_only_after_confirmed_delivery() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript selection with a triple click and no copy shortcut that clears it: the selection is not drawn reversed and no copy is delivered",
+    );
+    // the oracle loops over the copy keys (enter, ctrl+c, cmd+c, ctrl+shift+c, ctrl+C) x delivery (confirmed, unconfirmed) x a find open or not
+    // KIT GAP: the clipboard delivery status (confirmed / unconfirmed / failed) cannot be driven by keys; the first case is written with the confirmed status
+    for key in ["enter", "ctrl+c", "cmd+c", "ctrl+shift+c", "ctrl+C"] {
+        for searching in [false, true] {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(32, 3)
+                .script(include_str!("fixtures/transcript_view_4/sl_copy.jsonl"))
+                .open();
+            if searching {
+                s.keys("/");
+            }
+            // a triple click selects the whole entry (KIT GAP: no triple click; a double click is written as its nearest step)
+            s.double_click(0, 0);
+            s.assert_text_style("selected", "reversed");
+            s.keys(key);
+            // a confirmed copy clears the selection (the copy text itself is not drawn)
+            s.assert_style(0, 0, "!reversed");
+        }
+    }
 }
 
 // ORACLE transcript_view/selection_tests.rs:147 command_c_ignores_release_and_copies_only_an_active_selection kind=ui owner=chat-live
 #[test]
 fn command_c_ignores_release_and_copies_only_an_active_selection() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript selection to copy: cmd+c with no selection draws nothing, and no key-release event or triple click exists in the kit",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(24, 3)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sl_command_c.jsonl"
+        ))
+        .open();
+    // no selection yet: cmd+c copies nothing and draws nothing reversed
+    s.keys("cmd+c");
+    s.assert_style(0, 0, "!reversed");
+    // KIT GAP: a triple click selects `selected café`; the step is written as its nearest step (a double click)
+    s.double_click(0, 0);
+    s.assert_text_style("selected", "reversed");
+    // KIT GAP: a cmd+c release event is not in the kit; the selection stays
+    // cmd+c copies the selection; the confirmed copy clears it
+    s.keys("cmd+c");
+    s.assert_style(0, 0, "!reversed");
+    // a later cmd+c and ctrl+c with no selection draw nothing
+    s.keys("cmd+c ctrl+c");
+    s.assert_style(0, 0, "!reversed");
 }
 
 // ORACLE transcript_view/selection_tests.rs:187 enter_on_an_empty_selection_does_not_copy_or_reach_the_composer kind=ui owner=chat-live
 #[test]
 fn enter_on_an_empty_selection_does_not_copy_or_reach_the_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no selection that a single click starts, and enter on an empty selection is not a copy action in the chat yet: nothing is drawn reversed and the composer is not checked",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 3)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sl_enter_empty.jsonl"
+        ))
+        .open();
+    // a single click starts an empty selection; enter on it neither copies nor leaves a reversed cell
+    s.click(0, 0);
+    s.keys("enter");
+    s.assert_style(0, 0, "!reversed");
+    s.assert_contains("select this");
 }
 
 // ORACLE transcript_view/selection_tests.rs:258 clicking_and_clearing_selection_preserves_the_separator_row kind=snap owner=chat-live
 #[test]
 fn clicking_and_clearing_selection_preserves_the_separator_row() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no transcript reading position that a click on the separator keeps, and no double click selects a word in an agent entry",
+    );
+    // prepend=false: `first`, `alpha beta gamma` / `second line` / `third line`, `tail` (32x3), scrolled one row up
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 3)
+        .script(include_str!(
+            "fixtures/transcript_view_4/sl_clicking_1.jsonl"
+        ))
+        .open();
+    s.wheel_up(0, 0, 1);
+    let before = s.shot();
+    s.assert_row(0, "• alpha beta gamma");
+    s.assert_row(1, "  second line");
+    s.assert_row(2, "");
+    // a single click at (9,1) and its release leave the frame and the position as they were
+    s.click(9, 1);
+    s.assert_same_rows(&before);
+    // a double click on `beta` selects it; esc clears it, and the frame is the one before
+    s.double_click(9, 1);
+    s.assert_text_style("beta", "reversed");
+    s.keys("esc");
+    s.assert_same_rows(&before);
+    // repeated clicks on padding (31,1) and on the separator (9,0) select nothing
+    s.double_click(31, 1);
+    s.double_click(9, 0);
+    s.assert_same_rows(&before);
+    // prepend=true: `older` is loaded above; the frame is unchanged
+    s.feed(include_str!(
+        "fixtures/transcript_view_4/sl_clicking_older.jsonl"
+    ));
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/selection_tests.rs:350 live_selection_survives_commits_finalization_new_live_content_and_resize kind=snap owner=chat-live
 #[test]
 fn live_selection_survives_commits_finalization_new_live_content_and_resize() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no live tail that a mouse selection survives: a streaming tail cannot be selected, committed, finalized or resized under a selection",
+    );
+    // the streaming tail `tail selected` is selected by a triple click (KIT GAP: no triple click; a double click is written as its nearest step)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 4)
+        .script(include_str!("fixtures/transcript_view_4/sl_live.jsonl"))
+        .open();
+    s.double_click(4, 1);
+    s.assert_row(0, "• first");
+    s.assert_row(1, "  tail selected");
+    s.assert_text_style("tail selected", "reversed");
+    // the tail is committed and finalized as `first` / `tail selected`; the selection still covers `tail selected` after the reflow to 10x6
+    s.resize(10, 6);
+    s.assert_text_style("tail selected", "reversed");
+    // an older page is loaded above: the selection stays on `tail selected`
+    s.feed(include_str!(
+        "fixtures/transcript_view_4/sl_clicking_older.jsonl"
+    ));
+    s.resize(32, 5);
+    s.assert_text_style("tail selected", "reversed");
+    // esc clears the selection and leaves the following mode; a second esc follows the output again: the unrelated next tail shows
+    s.keys("esc");
+    s.assert_style(0, 1, "!reversed");
+    s.keys("esc");
+    s.assert_contains("unrelated next tail");
 }
 
 // ORACLE transcript_view/selection_tests.rs:405 tool_selection_copies_its_displayed_revision_after_the_tool_commits kind=ui owner=chat-live
 #[test]
 fn tool_selection_copies_its_displayed_revision_after_the_tool_commits() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no tool output row that a mouse selection can hold across a commit: the tool call is not a selectable row of the chat",
+    );
+    // the tool prints `selected tool output` (32x8, live); a triple click on its row (KIT GAP: a double click is written as its nearest step) selects it
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 8)
+        .script(include_str!("fixtures/transcript_view_4/sl_tool.jsonl"))
+        .open();
+    s.double_click(4, 1);
+    s.assert_text_style("selected tool output", "reversed");
+    // another answer starts; the tool commits: the selection still shows the revision it was made on
+    s.feed(include_str!(
+        "fixtures/transcript_view_4/sl_clicking_older.jsonl"
+    ));
+    s.assert_text_style("selected", "reversed");
+    // ctrl+c copies the displayed revision (the copy is not drawn)
+    s.keys("ctrl+c");
 }
 
 // ORACLE transcript_view/selection_tests.rs:452 word_and_line_drags_keep_the_initial_unit_when_direction_changes kind=ui owner=chat-live
 #[test]
 fn word_and_line_drags_keep_the_initial_unit_when_direction_changes() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no word or line unit for a drag: a double-click drag keeps no word unit and a triple-click drag keeps no line unit (no triple click in the kit)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!("fixtures/transcript_view_4/sl_drags.jsonl"))
+        .open();
+    // a word drag from column 9 (double click) to 16 selects `beta gamma`; back to 3 it selects `alpha beta`; back to 16 `beta gamma` again
+    s.mouse_down(9, 0);
+    s.mouse_drag(16, 0);
+    s.assert_text_style("beta gamma", "reversed");
+    s.mouse_drag(3, 0);
+    s.assert_text_style("alpha beta", "reversed");
+    s.mouse_drag(16, 0);
+    s.mouse_up(16, 0);
+    s.assert_text_style("beta gamma", "reversed");
+    // a line drag from row 1 (KIT GAP: a triple click starts it) to row 0 selects the first two lines
+    s.mouse_down(4, 1);
+    s.mouse_drag(3, 0);
+    s.assert_text_style("alpha beta gamma", "reversed");
+    s.assert_text_style("second line", "reversed");
+    s.mouse_drag(4, 2);
+    s.mouse_up(4, 2);
+    s.assert_text_style("second line", "reversed");
+    s.assert_text_style("third", "reversed");
 }
 
 // ORACLE transcript_view/selection_tests.rs:478 keyboard_selection_moves_by_grapheme_and_keeps_its_column_across_short_lines kind=ui owner=chat-live
 #[test]
 fn keyboard_selection_moves_by_grapheme_and_keeps_its_column_across_short_lines() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no keyboard selection extension: right does not move the selection end by grapheme, and down/up keep no column",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!("fixtures/transcript_view_4/sl_keyboard.jsonl"))
+        .open();
+    // a click at (2,0) starts the selection; four right presses extend it over the family emoji, the wide 界 and `e` with its combining mark
+    s.click(2, 0);
+    s.keys("right right right right");
+    s.assert_text_style("A👨‍👩‍👧‍👦界e\u{301}", "reversed");
+    // down, down, up, up leave the selection end where it was
+    let original = s.shot();
+    s.keys("down down up up");
+    s.assert_same_rows(&original);
+    // ten downs, then ten ups, end back on the original column
+    s.keys("down down down down down down down down down down");
+    s.keys("up up up up up up up up up up");
+    s.assert_same_rows(&original);
 }
 
 // ORACLE transcript_view/selection_tests.rs:511 plain_and_shift_arrows_move_selection_on_press_and_repeat kind=ui owner=chat-live
 #[test]
 fn plain_and_shift_arrows_move_selection_on_press_and_repeat() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no keyboard movement of a mouse selection: left, right, up and down do not move the selection end on press or repeat, plain or shifted",
+    );
+    // the oracle: `abc` / `def` / `ghi` (32x5) with a click at (3,1); left marks `d`, right `e`, up `bc` and `d`, down `ef` and `g`
+    for (key, expected) in [("left", "d"), ("right", "e"), ("up", "bc"), ("down", "ef")] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(32, 5)
+            .script(include_str!("fixtures/transcript_view_4/sl_arrows.jsonl"))
+            .open();
+        s.click(3, 1);
+        s.keys(key);
+        s.assert_text_style(expected, "reversed");
+    }
+    // the shift variant and the repeat variant are the same moves (KIT GAP: no key-repeat kind for an arrow with a modifier)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!("fixtures/transcript_view_4/sl_arrows.jsonl"))
+        .open();
+    s.click(3, 1);
+    s.keys("shift+left");
+    s.assert_text_style("d", "reversed");
 }
 
 // ORACLE transcript_view/selection_tests.rs:535 modified_arrows_end_selection_and_return_input_to_the_owner kind=ui owner=chat-live
 #[test]
 fn modified_arrows_end_selection_and_return_input_to_the_owner() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no word selection that a modified arrow ends: ctrl, alt, super, hyper and meta arrows do not clear a double-click selection of `beta`",
+    );
+    // the oracle: `alpha beta gamma` (32x5) with `beta` selected by a double click at (9,0); each modified arrow (press and repeat, with and without shift) ends the selection and goes to the owner
+    for key in [
+        "ctrl+left",
+        "ctrl+right",
+        "ctrl+up",
+        "ctrl+down",
+        "alt+left",
+        "alt+right",
+        "alt+up",
+        "alt+down",
+        "cmd+left",
+        "cmd+right",
+        "cmd+up",
+        "cmd+down",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(32, 5)
+            .script(include_str!("fixtures/transcript_view_4/sl_modified.jsonl"))
+            .open();
+        s.double_click(9, 0);
+        s.assert_text_style("beta", "reversed");
+        s.keys(key);
+        s.assert_text_style("beta", "!reversed");
+    }
 }
 
 // ORACLE transcript_view/selection_tests.rs:569 released_arrows_preserve_selection_and_reading_position kind=ui owner=chat-live
 #[test]
 fn released_arrows_preserve_selection_and_reading_position() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no selection that a released arrow preserves: the kit has no key-release event, so the release case is not written",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!("fixtures/transcript_view_4/sl_modified.jsonl"))
+        .open();
+    s.double_click(9, 0);
+    let before = s.shot();
+    s.assert_text_style("beta", "reversed");
+    // KIT GAP: an arrow release event (no press, a release kind) is not in the kit; the oracle's release arrows keep the selection and the position
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/selection_tests.rs:600 loading_older_history_extends_the_snapshot_without_adopting_new_commits kind=ui owner=chat-live
 #[test]
 fn loading_older_history_extends_the_snapshot_without_adopting_new_commits() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no history load under a selection: an older page is not prepended with the selection held, and the frame keeps `selected` reversed",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!("fixtures/transcript_view_4/sl_loading.jsonl"))
+        .open();
+    s.double_click(4, 2);
+    s.assert_text_style("selected", "reversed");
+    // a new commit arrives and an older entry is prepended: `selected` stays the one selected, the new commit is not adopted into the snapshot
+    s.feed(include_str!(
+        "fixtures/transcript_view_4/sl_loading_older.jsonl"
+    ));
+    s.resize(32, 6);
+    s.assert_text_style("selected", "reversed");
 }
 
 // ORACLE transcript_view/selection_tests.rs:630 pending_copy_only_finishes_the_original_selection kind=ui owner=chat-live
 #[test]
 fn pending_copy_only_finishes_the_original_selection() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no pending copy that a selection finishes: the copy's delivery status (pending, then confirmed) cannot be driven by keys, and there is no triple click, hide or detail-toggle key in the kit",
+    );
+    // the oracle: `selected text` (32x3), a triple click selects it, a pending copy is followed, then one change happens and the copy finishes confirmed
+    for change in [
+        "none",
+        "replace",
+        "move",
+        "navigate",
+        "hide",
+        "presentation",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(32, 3)
+            .script(include_str!("fixtures/transcript_view_4/sl_pending.jsonl"))
+            .open();
+        // KIT GAP: a triple click selects the whole entry; a double click is written as its nearest step
+        s.double_click(0, 0);
+        s.assert_text_style("selected text", "reversed");
+        match change {
+            "replace" => s.double_click(0, 0),
+            "move" => s.keys("left"),
+            "navigate" => s.keys("ctrl+end"),
+            "presentation" => s.keys("ctrl+t"),
+            // KIT GAP: `hide` (the pane hidden under the copy) has no key or step in the kit
+            _ => &mut s,
+        };
+        if change == "none" {
+            // the copy finished on the original selection: it is cleared
+            s.assert_style(0, 0, "!reversed");
+        } else {
+            // the selection is kept on the changed view
+            s.assert_contains("selected text");
+        }
+    }
 }
