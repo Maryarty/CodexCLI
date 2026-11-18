@@ -3,6 +3,8 @@
 //! `resume_picker.rs` `resume_picker_table` (rows, ages) and
 //! `format_relative_time`-style inputs; the oracle keeps them in `PickerState`.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use codex_tui_rtwk_core::app::{AppEv, Intent};
 use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
 use codex_tui_rtwk_core::ids::ThreadId;

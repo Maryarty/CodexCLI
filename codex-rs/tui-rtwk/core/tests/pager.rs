@@ -3,6 +3,8 @@
 //! oracle keeps them in the overlay's own fields); the oracle's own
 //! `TranscriptHistoryState::has_unloaded_history` is ported.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
 use codex_tui_rtwk_core::screens::pager::{HistoryState, StaticPage};
 use pretty_assertions::assert_eq;
