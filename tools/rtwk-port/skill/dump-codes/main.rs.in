@@ -1,0 +1,56 @@
+// Generated crate root for tools/rtwk-port/skill/refresh-codes.sh; do not commit its copy.
+// It compiles the gallery's own modules from the pin and prints, for every page, its
+// inspector options and the Code-tab Rust at the initial option values, as JSON lines.
+#![allow(dead_code, unused_imports, unreachable_pub, clippy::all, clippy::pedantic)]
+@MODS@
+
+fn esc(s: &str) -> String {
+    let mut o = String::with_capacity(s.len() + 2);
+    o.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
+fn main() {
+    for page in pages::PAGES {
+        let initial: Vec<usize> = page.options.iter().map(|o| o.initial).collect();
+        let code = (page.code)(&initial);
+        let mut options = Vec::new();
+        for o in page.options {
+            let values: Vec<String> = o.values.iter().map(|v| esc(v)).collect();
+            let kind = match o.kind {
+                reference_inspector::OptionKind::Choice => "choice".to_string(),
+                reference_inspector::OptionKind::ChoiceLabels(_) => "choice".to_string(),
+                reference_inspector::OptionKind::Switch => "switch".to_string(),
+                reference_inspector::OptionKind::Slider { min, max } => format!("slider {min}..{max}"),
+                reference_inspector::OptionKind::Color => "color".to_string(),
+            };
+            options.push(format!(
+                "{{\"key\":{},\"label\":{},\"values\":[{}],\"initial\":{},\"kind\":{}}}",
+                esc(o.key),
+                esc(o.label),
+                values.join(","),
+                o.initial,
+                esc(&kind)
+            ));
+        }
+        println!(
+            "{{\"id\":{},\"route\":{},\"options\":[{}],\"code\":{}}}",
+            esc(page.id),
+            esc(page.route),
+            options.join(","),
+            esc(&code)
+        );
+    }
+}
