@@ -201,7 +201,10 @@ fn r13_ids_are_newtypes_not_strings() {
 
 #[test]
 fn r14_no_app_data_in_local_state() {
-    let found = violations(&["use_state(", "use_state::", "Obs<", "rtwk::Obs", "use_ref"], |_| false);
+    let found = violations(
+        &["use_state(", "use_state::", "Obs<", "rtwk::Obs", "use_ref"],
+        |_| false,
+    );
     assert!(found.is_empty(), "R14: {found:#?}");
 }
 
