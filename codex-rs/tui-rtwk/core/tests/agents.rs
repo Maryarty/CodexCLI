@@ -340,11 +340,13 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
     request(&mut sandbox, &child, Some(question));
     assert_eq!(model(&sandbox).center().rows.len(), 2);
     assert_eq!(selected(&sandbox), root);
-    // `NeedsAttention` is the oracle's `● Needs input` status line, first.
+    // The oracle's snapshot (agents_overview_attention) has no "Needs attention"
+    // head here: the root's details come from its child's question (`!is_child`
+    // is false for the child source). The `● Needs input` status is the row
+    // header, not this block.
     assert_eq!(
         activity(&sandbox, &root),
         [
-            DetailLine::NeedsAttention,
             DetailLine::Agent("Check dependencies".into()),
             DetailLine::Request(question.into()),
             DetailLine::OpenToReview,
