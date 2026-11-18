@@ -62,12 +62,13 @@ impl State for DismissDialogState {
     }
 
     fn build(&self, w: &DismissDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let tokens = theme::Tokens::of(cx);
         Focus::new(
             Dialog::new(
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .child(Text::new(format!("{} needs an answer.", w.key.id)))
-                    .child(Text::new("This build cannot answer it yet.").style(theme::dim()))
+                    .child(Text::new("This build cannot answer it yet.").style(tokens.dim()))
                     .child(
                         Button::new("Dismiss")
                             .autofocus(true)

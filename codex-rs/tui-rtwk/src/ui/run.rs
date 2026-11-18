@@ -26,6 +26,12 @@ pub fn app_view(app: CodexApp) -> AppView<CodexApp> {
     AppView::new(app, view).on_start(shell::start)
 }
 
+/// The app under the overlay layer, with the app's theme at the root: what
+/// the dialogs and routes below it read their tokens from.
+pub fn root(view: AppView<CodexApp>) -> rtwk::overlay::App {
+    rtwk::overlay::App::new(view).theme(crate::theme::data())
+}
+
 /// Opens the terminal and runs `app` until it quits.
 pub fn run(app: CodexApp) -> Result<(), AppError> {
     let terminal = Terminal::open(TerminalOptions {
@@ -42,7 +48,7 @@ pub fn run(app: CodexApp) -> Result<(), AppError> {
         },
     )?;
     frame_loop.styles_mut().pen(&Pen::new());
-    let root = rtwk::overlay::App::new(app_view(app).with_handle(frame_loop.handle()));
+    let root = root(app_view(app).with_handle(frame_loop.handle()));
     let localized = TwkLocalizations::from_env(root);
     AppHost::of_widget(
         &mut frame_loop,

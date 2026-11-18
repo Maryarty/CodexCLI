@@ -110,8 +110,10 @@ impl State for DebugMenuState {
     }
 
     fn build(&self, _: &DebugMenu, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let tokens = theme::Tokens::of(cx);
         let rows = Rc::new(rows());
         let count = rows.len();
+        let row_tokens = tokens.clone();
         // rtwk's selection list owns the cursor and scrolls it into view
         // (R11): the menu has more rows than a terminal has lines.
         let list = SelectionList::new(
@@ -122,9 +124,9 @@ impl State for DebugMenuState {
                     return AnyWidget::default();
                 };
                 let style = if row.heading {
-                    theme::bold()
+                    row_tokens.bold()
                 } else {
-                    theme::dim()
+                    row_tokens.dim()
                 };
                 Text::new(row.label.clone()).style(style).into()
             },
@@ -133,8 +135,8 @@ impl State for DebugMenuState {
         .autofocus(true);
         Focus::new(
             Column::new()
-                .child(Text::new("codex-rtwk debug screens").style(theme::accent()))
-                .child(Text::new("up/down move, enter opens, q quits").style(theme::dim()))
+                .child(Text::new("codex-rtwk debug screens").style(tokens.accent()))
+                .child(Text::new("up/down move, enter opens, q quits").style(tokens.dim()))
                 .child(Expanded::new(1, list)),
         )
         .bind('q', cx.send(MenuMsg::Quit))

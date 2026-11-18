@@ -12,7 +12,7 @@ use codex_tui_rtwk::app::CodexApp;
 use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
-use codex_tui_rtwk::ui::run::app_view;
+use codex_tui_rtwk::ui::run::{app_view, root};
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.
@@ -84,7 +84,7 @@ fn start_at(debug: bool, width: u16, height: u16) -> Harness {
     let app = CodexApp::new(Backend::Fake(server)).with_debug_screens(debug);
     let mut t = Tester::with(Options::new().size(width, height));
     // The app under the overlay `run_app` puts above it.
-    t.pump_widget(rtwk::overlay::App::new(app_view(app)));
+    t.pump_widget(root(app_view(app)));
     t.pump_for(ms(200));
     Harness {
         t,

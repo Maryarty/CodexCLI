@@ -98,13 +98,15 @@ impl State for ChatState {
     }
 
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let tokens = theme::Tokens::of(cx);
         let thread = watch::<ThreadModel, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let rows = thread.clone();
+        let row_tokens = tokens.clone();
         let transcript = ListView::builder(thread.transcript.len(), move |index| {
             match rows.transcript.get(index) {
                 Some((_, Item::User { text })) => {
-                    Text::new(format!("› {text}")).style(theme::bold()).into()
+                    Text::new(format!("› {text}")).style(row_tokens.bold()).into()
                 }
                 Some((_, Item::Agent { text })) => Text::new(format!("• {text}")).into(),
                 None => AnyWidget::default(),
@@ -113,12 +115,12 @@ impl State for ChatState {
         .stick_to_bottom(true);
         let status = match (&session.status, thread.is_running(), &thread.last_error) {
             (Session::Failed(message), _, _) => {
-                Text::new(format!("error: {message}")).style(theme::error())
+                Text::new(format!("error: {message}")).style(tokens.error())
             }
-            (_, _, Some(message)) => Text::new(format!("error: {message}")).style(theme::error()),
-            (Session::Starting, _, _) => Text::new("starting…").style(theme::dim()),
-            (Session::Ready, true, _) => Text::new("working…").style(theme::accent()),
-            (Session::Ready, false, _) => Text::new("ready").style(theme::dim()),
+            (_, _, Some(message)) => Text::new(format!("error: {message}")).style(tokens.error()),
+            (Session::Starting, _, _) => Text::new("starting…").style(tokens.dim()),
+            (Session::Ready, true, _) => Text::new("working…").style(tokens.accent()),
+            (Session::Ready, false, _) => Text::new("ready").style(tokens.dim()),
         };
         let composer = TextArea::new()
             .controller(w.ui.composer.clone())
@@ -132,7 +134,7 @@ impl State for ChatState {
             .child(Expanded::new(1, transcript))
             .child(status);
         for text in &thread.queue {
-            body = body.child(Text::new(format!("(queued) {text}")).style(theme::dim()));
+            body = body.child(Text::new(format!("(queued) {text}")).style(tokens.dim()));
         }
         let body = body.child(composer);
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);
