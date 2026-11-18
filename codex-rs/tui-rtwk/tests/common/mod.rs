@@ -107,6 +107,16 @@ impl Harness {
         panic!("never saw {what}; the screen:\n{}", self.t.screen());
     }
 
+    /// Lets the backend thread run what the app sent it: commands travel
+    /// to the fake on the runtime thread, so the app's screen can be ahead
+    /// of what the fake has recorded.
+    pub fn settle(&mut self) {
+        for _ in 0..10 {
+            self.t.pump_for(ms(20));
+            std::thread::sleep(ms(10));
+        }
+    }
+
     pub fn press(&mut self, keys: &str) {
         self.t.press(keys);
         self.t.pump_for(ms(100));

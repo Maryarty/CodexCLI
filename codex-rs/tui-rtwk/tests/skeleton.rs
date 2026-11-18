@@ -187,6 +187,7 @@ fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
     h.wait_for("the dialog", |s| s.contains("needs an answer"));
     h.press("enter");
     h.wait_for("the dialog to close", |s| !s.contains("needs an answer"));
+    h.settle();
     let rejected: Vec<_> = h
         .fake
         .commands()
@@ -262,6 +263,7 @@ fn a_second_request_waits_for_the_first_dialog() {
     h.wait_for("the second dialog", |s| s.contains("8 needs an answer"));
     h.press("enter");
     h.wait_for("no dialog", |s| !s.contains("needs an answer"));
+    h.settle();
     assert_eq!(rejected(&h), 2);
 }
 
@@ -282,6 +284,7 @@ fn server_request_resolved_closes_the_dialog_without_a_reject() {
         AppEv::Backend(server_request_resolved(FAKE_THREAD, 7)),
     );
     h.wait_for("the dialog to close", |s| !s.contains("needs an answer"));
+    h.settle();
     assert_eq!(rejected(&h), 0);
 }
 
@@ -351,6 +354,7 @@ fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     h.wait_for("the queued line", |s| s.contains("(queued) two"));
     let screen = h.t.screen();
     assert!(!screen.contains("› two"), "{screen}");
+    h.settle();
     assert_eq!(turn_texts(&h), vec!["one".to_string()], "not sent yet");
 }
 
@@ -381,6 +385,7 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
     h.wait_for("the third turn", |s| !s.contains("(queued) three"));
+    h.settle();
     assert_eq!(
         turn_texts(&h),
         ["one", "two", "three"].map(String::from).to_vec()

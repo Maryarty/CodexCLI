@@ -67,17 +67,10 @@ impl<T> HandBack<T> {
     }
 }
 
-impl<T> std::ops::Deref for HandBack<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        self.value.as_ref().expect("held until dropped")
-    }
-}
-
-impl<T> std::ops::DerefMut for HandBack<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        self.value.as_mut().expect("held until dropped")
+impl<T> HandBack<T> {
+    /// The value, until the guard is dropped.
+    pub fn get(&mut self) -> Option<&mut T> {
+        self.value.as_mut()
     }
 }
 
@@ -149,7 +142,7 @@ pub struct InProcess {
     pub args: InProcessClientStartArgs,
     /// Receives the client when the backend future ends or is aborted, so
     /// that `main` shuts it down (see `HandBack`).
-    pub done: Option<oneshot::Sender<InProcessAppServerClient>>,
+    pub done: oneshot::Sender<InProcessAppServerClient>,
 }
 
 impl Connector for InProcess {
@@ -179,15 +172,14 @@ async fn run(
             return;
         }
     };
-    let mut client = match done {
-        Some(done) => Held::Back(HandBack::new(started, done)),
-        None => Held::Own(started),
-    };
+    let mut held = HandBack::new(started, done);
     emit(&ingress, epoch, AppEv::Connected);
-    let handle = client.request_handle();
+    let Some(handle) = held.get().map(|client| client.request_handle()) else {
+        return;
+    };
     let mut next_id = 0_i64;
     let mut inflight = FuturesUnordered::new();
-    loop {
+    while let Some(client) = held.get() {
         tokio::select! {
             event = client.next_event() => match event {
                 None => {
@@ -206,7 +198,7 @@ async fn run(
             },
             command = commands.recv() => match command {
                 None => break,
-                Some(Command::RejectRequest { key, .. }) => reject(&client, &key).await,
+                Some(Command::RejectRequest { key, .. }) => reject(client, &key).await,
                 Some(command) => {
                     next_id += 1;
                     inflight.push(request(command, handle.clone(), RequestId::Integer(next_id)));
@@ -218,60 +210,6 @@ async fn run(
         }
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
-}
-
-/// The client, handed back on drop where `main` waits for it.
-enum Held {
-    Back(HandBack<InProcessAppServerClient>),
-    Own(InProcessAppServerClient),
-}
-
-impl std::ops::Deref for Held {
-    type Target = InProcessAppServerClient;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Held::Back(held) => held,
-            Held::Own(client) => client,
-        }
-    }
-}
-
-impl std::ops::DerefMut for Held {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Held::Back(held) => held,
-            Held::Own(client) => client,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_dropped_guard_hands_its_value_back() {
-        let (tx, mut rx) = oneshot::channel();
-        drop(HandBack::new(7_u8, tx));
-        assert_eq!(rx.try_recv().ok(), Some(7));
-    }
-
-    /// The case that matters: the future is dropped at an `.await`, as
-    /// rtwk's abort does on quit.
-    #[tokio::test]
-    async fn an_aborted_future_hands_its_value_back() {
-        let (tx, rx) = oneshot::channel();
-        let (parked_tx, parked_rx) = oneshot::channel::<()>();
-        let task = tokio::spawn(async move {
-            let _held = HandBack::new(7_u8, tx);
-            let _ = parked_tx.send(());
-            std::future::pending::<()>().await;
-        });
-        parked_rx.await.expect("the future started");
-        task.abort();
-        assert_eq!(rx.await.ok(), Some(7));
-    }
 }
 
 /// One request of ours and the reply the app is waiting for.
@@ -358,4 +296,35 @@ async fn reject(client: &InProcessAppServerClient, key: &RequestKey) {
             },
         )
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dropped_guard_hands_its_value_back() {
+        let (tx, mut rx) = oneshot::channel();
+        drop(HandBack::new(7_u8, tx));
+        assert_eq!(rx.try_recv().ok(), Some(7));
+    }
+
+    /// The case that matters: the future is dropped at an `.await`, as
+    /// rtwk's abort does on quit.
+    #[test]
+    fn a_future_dropped_at_an_await_hands_its_value_back() {
+        use futures::FutureExt as _;
+        let (tx, mut rx) = oneshot::channel();
+        let mut future = Box::pin(async move {
+            let _held = HandBack::new(7_u8, tx);
+            std::future::pending::<()>().await;
+        });
+        assert!(
+            (&mut future).now_or_never().is_none(),
+            "parked at the await"
+        );
+        assert!(rx.try_recv().is_err(), "still held");
+        drop(future);
+        assert_eq!(rx.try_recv().ok(), Some(7));
+    }
 }

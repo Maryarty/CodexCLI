@@ -157,6 +157,13 @@ fn r11_r12_no_clock_and_no_file_system_outside_the_shell() {
             "std::fs::",
             "File::open",
             "tokio::fs",
+            "tokio::time::Instant",
+            "chrono::Utc",
+            "chrono::Local",
+            "Command::new",
+            "TcpStream",
+            "TcpListener",
+            "UdpSocket",
         ],
         is_shell,
     );
@@ -195,6 +202,71 @@ fn r14_no_app_data_in_local_state() {
     assert!(found.is_empty(), "R14: {found:#?}");
 }
 
+/// The names of the structs that are widget state in `text`: those named
+/// `…State` (any visibility, braces or tuple form) and those given to
+/// `impl State for X` or `impl rtwk::State for X`.
+fn state_struct_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.split("impl State for ").nth(1)
+            && trimmed.starts_with("impl State for ")
+        {
+            names.push(ident(rest));
+        }
+        if let Some(rest) = trimmed.split("impl rtwk::State for ").nth(1) {
+            names.push(ident(rest));
+        }
+        let declared = trimmed
+            .trim_start_matches("pub(crate) ")
+            .trim_start_matches("pub(super) ")
+            .trim_start_matches("pub ");
+        if let Some(rest) = declared.strip_prefix("struct ") {
+            let name = ident(rest);
+            if name.ends_with("State") {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn ident(text: &str) -> String {
+    text.chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+/// `(line number, line)` of the fields of struct `name` in `text`.
+fn struct_fields<'a>(text: &'a str, name: &str) -> Vec<(usize, &'a str)> {
+    let mut fields = Vec::new();
+    let mut inside = false;
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        let declared = trimmed
+            .trim_start_matches("pub(crate) ")
+            .trim_start_matches("pub(super) ")
+            .trim_start_matches("pub ");
+        if let Some(rest) = declared.strip_prefix("struct ")
+            && ident(rest) == name
+        {
+            fields.push((index, trimmed)); // tuple form: the line has its fields
+            inside = trimmed.ends_with('{');
+            continue;
+        }
+        if inside {
+            if trimmed.starts_with('}') {
+                inside = false;
+            } else {
+                fields.push((index, trimmed));
+            }
+        }
+    }
+    fields
+}
+
 #[test]
 fn r14_widget_state_fields_hold_no_model_types() {
     // `State` structs under src/ui and src/screens: no model type in a field.
@@ -204,30 +276,56 @@ fn r14_widget_state_fields_hold_no_model_types() {
         "CodexApp",
         "RequestQueue",
         "SessionSlice",
+        "ThreadSlots",
+        "Pending<",
     ];
     let mut found = Vec::new();
+    let mut checked = 0;
     for (name, text) in sources() {
         if !(name.starts_with("src/ui/") || name.starts_with("src/screens/")) {
             continue;
         }
-        let mut in_state = false;
-        for (index, line) in code_lines(&text) {
-            let trimmed = line.trim();
-            if trimmed.starts_with("pub struct ")
-                && trimmed.contains("State")
-                && trimmed.ends_with('{')
-            {
-                in_state = true;
-                continue;
-            }
-            if in_state && trimmed == "}" {
-                in_state = false;
-            }
-            if in_state && model_types.iter().any(|ty| trimmed.contains(ty)) {
-                found.push(format!("{name}:{}: {trimmed}", index + 1));
+        for state in state_struct_names(&text) {
+            for (index, line) in struct_fields(&text, &state) {
+                checked += 1;
+                if model_types.iter().any(|ty| line.contains(ty)) {
+                    found.push(format!("{name}:{}: {line}", index + 1));
+                }
             }
         }
     }
+    assert!(checked > 0, "the scan found no State struct at all");
+    assert!(found.is_empty(), "R14: {found:#?}");
+}
+
+#[test]
+fn r14_the_state_scan_sees_every_declaration_form() {
+    let text = "pub struct AState {\n    a: u8,\n}\nstruct BState(u8);\n\
+                pub(crate) struct CState { c: u8 }\nstruct Hidden {\n    d: u8,\n}\n\
+                impl State for Hidden {}\nstruct Plain;\n";
+    assert_eq!(
+        state_struct_names(text),
+        ["AState", "BState", "CState", "Hidden"]
+    );
+    let fields = struct_fields("struct Hidden {\n    d: ThreadModel,\n}\n", "Hidden");
+    assert!(fields.iter().any(|(_, line)| line.contains("ThreadModel")));
+}
+
+/// R14: a controller (rtwk's local UI state) is made only in the UI-only
+/// allowlist; `new`, `default` and the other constructors are caught here,
+/// `new` is also in `clippy.toml`.
+#[test]
+fn r14_controllers_are_made_only_in_the_allowlist() {
+    let found = violations(
+        &[
+            "Controller::new(",
+            "Controller::default(",
+            "Controller::with_",
+            "Controller::from",
+            "Controller::<",
+        ],
+        |name| name == "src/ui/thread_ui.rs",
+    );
     assert!(found.is_empty(), "R14: {found:#?}");
 }
 
@@ -245,6 +343,20 @@ fn the_lint_lists_name_the_rules_banned_paths() {
         "std::time::SystemTime::now",
         "rtwk::hooks::use_state",
         "rtwk::Obs",
+        "std::process::Command::new",
+        "tokio::process::Command::new",
+        "std::net::TcpStream::connect",
+        "std::net::TcpListener::bind",
+        "std::net::UdpSocket::bind",
+        "tokio::net::TcpStream::connect",
+        "tokio::fs::read_to_string",
+        "tokio::fs::write",
+        "std::fs::File::open",
+        "chrono::Utc::now",
+        "chrono::Local::now",
+        "tokio::time::Instant::now",
+        "rtwk::editing::TextEditingController::new",
+        "rtwk::scroll::ScrollController::new",
     ] {
         assert!(clippy.contains(path), "clippy.toml bans `{path}`");
     }
