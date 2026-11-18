@@ -10,6 +10,11 @@
 //!   `key` and `resize` steps. A `seed` step is skipped (the live app is
 //!   already in its session).
 //! - `live()`: the live chat as the session left it, nothing fed.
+//!
+//! Options on any seed: `early()` stops at the first frame (a loading state
+//! before the data arrives), `keymap(..)` remaps keys. After opening,
+//! `Screen::feed(jsonl)` applies more script steps to the open screen
+//! (history prepended, a tail absorbed, a result arriving, a dialog's own data).
 
 use codex_tui_core::app::{AppEv, BackendEv};
 use codex_tui_core::fixtures::script::{self, Step};
@@ -35,6 +40,8 @@ pub struct Open {
     pub(super) width: u16,
     pub(super) height: u16,
     pub(super) seed: Seed,
+    pub(super) early: bool,
+    pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
 }
 
 impl Screen {
@@ -46,6 +53,8 @@ impl Screen {
             width: crate::common::WIDTH,
             height: crate::common::HEIGHT,
             seed: Seed::Live,
+            early: false,
+            keymap: None,
         }
     }
 }
@@ -77,7 +86,29 @@ impl Open {
         self
     }
 
+    /// Stops at the screen's first frame: the state before the data arrives
+    /// (`Loading sessions…` before the list). `Screen::wait_for(..)` runs on.
+    pub fn early(mut self) -> Open {
+        self.early = true;
+        self
+    }
+
+    /// The user's key bindings: `(action, key)` pairs as the keymap config
+    /// names them, `&[("list.move_down", "z")]`.
+    pub fn keymap(mut self, bindings: &'static [(&'static str, &'static str)]) -> Open {
+        self.keymap = Some(bindings);
+        self
+    }
+
     pub fn open(self) -> Screen {
+        if self.keymap.is_some() {
+            // The port has no keymap config yet (`src/keymap` is empty): the
+            // test is written in full under this pending.
+            missing(
+                Owner::ReuseCarry,
+                "no keymap seed: the port reads no key bindings from a config yet (the keymap slice); the test's remapped keys cannot be set",
+            );
+        }
         match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
             Seed::Entry { dir, entry } => self.open_entry(dir, entry),
@@ -110,43 +141,64 @@ impl Open {
         }
         let mut h = crate::common::start_sized(true, self.width, self.height);
         h.open_debug_row(dir, Some(entry));
-        h.t.pump_for(ms(800));
+        h.t.pump_for(ms(if self.early { 20 } else { 800 }));
         Screen::from(h)
     }
 
     fn open_script(self, text: &str) -> Screen {
-        let script = match script::parse(text) {
-            Ok(script) => script,
-            Err(err) => panic!("script line {}: {}", err.line, err.message),
-        };
         let mut h = self.live_harness();
-        let Some(epoch) = h.fake.epoch() else {
-            panic!("the live app never connected");
-        };
-        let mut inputs = Vec::new();
-        for (line, step) in script.steps {
-            match step {
-                Step::Seed(_) => {}
-                Step::Screen { dir, ev } => match seed_ev(&dir, ev) {
-                    Ok(ev) => h.fake.inject(epoch, AppEv::Screen(ev)),
-                    Err(err) => panic!("script line {line}: screen `{dir}`: {err:?}"),
-                },
-                Step::Notify { message } => {
-                    h.fake
-                        .inject(epoch, AppEv::Backend(BackendEv::Notification(message)));
-                }
-                Step::Request { message } => {
-                    h.fake
-                        .inject(epoch, AppEv::Backend(BackendEv::Request(message)));
-                }
-                Step::Key { keys } => inputs.push(script::Input::Key(keys)),
-                Step::Resize { width, height } => {
-                    inputs.push(script::Input::Resize { width, height });
-                }
-            }
-        }
-        h.settle();
-        h.play_inputs(&inputs);
+        feed(&mut h, text);
         Screen::from(h)
     }
+}
+
+impl Screen {
+    /// Applies more steps of a JSONL script to the open screen, as a server
+    /// and the user would deliver them: `notify`, `request`, a directory's
+    /// `screen` events, then its `key` and `resize` steps.
+    pub fn feed(&mut self, jsonl: &str) -> &mut Screen {
+        feed(&mut self.h, jsonl);
+        self
+    }
+}
+
+fn feed(h: &mut Harness, text: &str) {
+    let script = match script::parse(text) {
+        Ok(script) => script,
+        Err(err) => panic!("script line {}: {}", err.line, err.message),
+    };
+    for _ in 0..200 {
+        if h.fake.epoch().is_some() {
+            break;
+        }
+        h.t.pump_for(ms(20));
+        std::thread::sleep(ms(5));
+    }
+    let Some(epoch) = h.fake.epoch() else {
+        panic!("the app never connected");
+    };
+    let mut inputs = Vec::new();
+    for (line, step) in script.steps {
+        match step {
+            Step::Seed(_) => {}
+            Step::Screen { dir, ev } => match seed_ev(&dir, ev) {
+                Ok(ev) => h.fake.inject(epoch, AppEv::Screen(ev)),
+                Err(err) => panic!("script line {line}: screen `{dir}`: {err:?}"),
+            },
+            Step::Notify { message } => {
+                h.fake
+                    .inject(epoch, AppEv::Backend(BackendEv::Notification(message)));
+            }
+            Step::Request { message } => {
+                h.fake
+                    .inject(epoch, AppEv::Backend(BackendEv::Request(message)));
+            }
+            Step::Key { keys } => inputs.push(script::Input::Key(keys)),
+            Step::Resize { width, height } => {
+                inputs.push(script::Input::Resize { width, height });
+            }
+        }
+    }
+    h.settle();
+    h.play_inputs(&inputs);
 }

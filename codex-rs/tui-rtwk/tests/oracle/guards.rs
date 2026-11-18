@@ -65,11 +65,94 @@ const FORBIDDEN: [(&str, &str); 14] = [
     ("unsafe", "no unsafe"),
 ];
 
-fn code_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    text.lines()
+/// The code of a shard with its comments and the insides of its string
+/// literals blanked (a pending reason may say `rtwk` or `oracle_snap`; the
+/// rules are about what the code names), lines kept.
+fn code_only(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
+                if chars[i] == '\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 2;
+        } else if c == '\'' && next == Some('"') && chars.get(i + 2) == Some(&'\'') {
+            out.push_str("' '");
+            i += 3;
+        } else if c == 'r' && matches!(next, Some('"' | '#')) && is_raw_start(&chars, i) {
+            let mut j = i + 1;
+            let mut hashes = 0;
+            while chars.get(j) == Some(&'#') {
+                hashes += 1;
+                j += 1;
+            }
+            j += 1; // the opening quote
+            out.push_str("\"\"");
+            loop {
+                match chars.get(j) {
+                    None => break,
+                    Some('"') if (1..=hashes).all(|k| chars.get(j + k) == Some(&'#')) => {
+                        j += 1 + hashes;
+                        break;
+                    }
+                    Some('\n') => out.push('\n'),
+                    _ => {}
+                }
+                j += 1;
+            }
+            i = j;
+        } else if c == '"' {
+            out.push_str("\"\"");
+            i += 1;
+            while i < chars.len() && chars[i] != '"' {
+                if chars[i] == '\\' {
+                    i += 1;
+                }
+                if chars.get(i) == Some(&'\n') {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 1;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// `r"` or `r#"` that starts a raw string (not the end of an identifier).
+fn is_raw_start(chars: &[char], i: usize) -> bool {
+    let before = i.checked_sub(1).and_then(|b| chars.get(b));
+    if before.is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+        return false;
+    }
+    let mut j = i + 1;
+    while chars.get(j) == Some(&'#') {
+        j += 1;
+    }
+    chars.get(j) == Some(&'"')
+}
+
+fn code_lines(text: &str) -> impl Iterator<Item = (usize, String)> {
+    code_only(text)
+        .lines()
         .enumerate()
-        .filter(|(_, l)| !l.trim_start().starts_with("//"))
-        .map(|(i, l)| (i + 1, l))
+        .map(|(i, l)| (i + 1, l.to_string()))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 #[test]
@@ -125,4 +208,23 @@ fn every_shard_is_registered() {
         }
     }
     assert!(loose.is_empty(), "not in tests/oracle.rs: {loose:?}");
+}
+
+/// What a pending reason says is not code: a reason may name `rtwk` or
+/// `oracle_snap`; a call in the code still is seen, and so is code after a
+/// string, a char literal holding a quote, and a raw string.
+#[test]
+fn words_in_strings_and_comments_are_not_code() {
+    let src = concat!(
+        "kit::pending(O, \"the oracle_snap and rtwk words, an \\\" quote\"); // assert!(c)\n",
+        "let raw = r#\"std::fs \"inside\" \"#; let q = '\"'; assert!(real);\n",
+        "/* block\n assert_eq!(b) */ let z = codex_tui_core::x;\n",
+    );
+    let code = code_only(src);
+    for word in ["oracle_snap", "rtwk", "std::fs", "assert!(c)", "assert_eq!(b)"] {
+        assert!(!code.contains(word), "`{word}` is in:\n{code}");
+    }
+    assert!(code.contains("assert!(real)"), "{code}");
+    assert!(code.contains("codex_tui_core"), "{code}");
+    assert_eq!(code.lines().count(), 4, "lines are kept:\n{code}");
 }
