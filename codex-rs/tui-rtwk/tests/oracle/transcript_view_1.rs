@@ -476,37 +476,157 @@ fn external_writer_escape_returns_to_command_center_without_editing() {
 // ORACLE app/owned_transcript_tests.rs:153 list_spacing_completion_preserves_the_scrolled_reader kind=ui owner=chat-live
 #[test]
 fn list_spacing_completion_preserves_the_scrolled_reader() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no list-spacing consolidation in the port's chat: an agent message of list items is not re-rendered as a Markdown list when its turn completes, and the scrolled one-row reader is not drawn",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(26, 1)
+        .script(include_str!(
+            "fixtures/transcript_view_1/list_spacing.jsonl"
+        ))
+        .open();
+    s.wheel_up(0, 0, 1);
+    s.assert_contains("• c");
 }
 
 // ORACLE app/owned_transcript_tests.rs:200 older_page_loading_uses_the_status_row_without_moving_content_or_cursor kind=snap owner=chat-live snap=owned_history_loading_footer
 #[test]
 fn older_page_loading_uses_the_status_row_without_moving_content_or_cursor() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no owned history loading footer: the history states (loading older, loading beginning, failed, complete) are not settable from the kit, and the status row under the scrolled transcript is not drawn (snapshot owned_history_loading_footer, 80, 40 and 28 columns)",
+    );
+    for width in [80, 40, 28] {
+        for state in ["LoadingOlder", "LoadingBeginning", "Failed", "Complete"] {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(width, 12)
+                .script(include_str!(
+                    "fixtures/transcript_view_1/numbered_rows.jsonl"
+                ))
+                .open();
+            s.type_text("draft");
+            s.wheel_up(0, 4, 1);
+            s.assert_snap_section(
+                "owned_history_loading_footer",
+                &format!("{width} columns · {state}"),
+            );
+        }
+    }
 }
 
 // ORACLE app/owned_transcript_tests.rs:265 recap_spacing_belongs_to_the_transcript_tail kind=snap owner=chat-live snap=recap_tail_spacing
 #[test]
 fn recap_spacing_belongs_to_the_transcript_tail() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no thread recap cell in the port's chat (ThreadRecapHistoryCell with a next action), so the recap's spacing at the transcript tail and after a follow-up or a live message is not drawn (snapshot recap_tail_spacing)",
+    );
+    for (width, height) in [(80, 10), (80, 12), (32, 12), (80, 7), (32, 6)] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(width, height)
+            .script(include_str!(
+                "fixtures/transcript_view_1/numbered_rows.jsonl"
+            ))
+            .open();
+        s.assert_snap_section(
+            "recap_tail_spacing",
+            &format!("{width}x{height}, Recap at tail"),
+        );
+        s.feed(include_str!("fixtures/transcript_view_1/follow_up.jsonl"));
+        s.assert_snap_section(
+            "recap_tail_spacing",
+            &format!("{width}x{height}, Message after recap"),
+        );
+        s.feed(include_str!("fixtures/transcript_view_1/streaming.jsonl"));
+        s.assert_snap_section(
+            "recap_tail_spacing",
+            &format!("{width}x{height}, Live message after recap"),
+        );
+    }
 }
 
 // ORACLE app/owned_transcript_tests.rs:328 owned_transcript_reserves_a_row_above_the_composer kind=snap owner=chat-live snap=owned_transcript_composer_gap
 #[test]
 fn owned_transcript_reserves_a_row_above_the_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no owned transcript gap row: the row above the composer is not reserved in the port's chat, the 'Back to bottom' row of a reading view and the detailed view with an image cell are not drawn (snapshot owned_transcript_composer_gap, one section per label)",
+    );
+    for (label, width, height, draft) in [
+        ("Latest", 80, 12, "draft"),
+        ("Reading", 80, 12, "draft"),
+        (
+            "Resized multiline composer",
+            40,
+            12,
+            "draft\nsecond line\nthird line",
+        ),
+        ("Tiny terminal", 40, 5, "draft"),
+        ("Detailed", 80, 12, "preserved draft"),
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(width, height)
+            .script(include_str!(
+                "fixtures/transcript_view_1/numbered_rows.jsonl"
+            ))
+            .open();
+        for (i, line) in draft.split('\n').enumerate() {
+            if i > 0 {
+                s.keys("ctrl+j");
+            }
+            s.type_text(line);
+        }
+        if label == "Reading" {
+            s.keys("pageup");
+            s.assert_contains("Back to bottom");
+        }
+        if label == "Detailed" {
+            s.keys("ctrl+t");
+        }
+        s.assert_snap_section("owned_transcript_composer_gap", label);
+    }
 }
 
 // ORACLE app/owned_transcript_tests.rs:422 owned_drag_stops_when_focus_or_input_ownership_is_lost kind=ui owner=chat-live
 #[test]
 fn owned_drag_stops_when_focus_or_input_ownership_is_lost() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no owned transcript selection: a drag over the scrolled rows selects text, and the selection stops when focus is lost, the session resumes, an overlay or a popup takes the input; none of that is built (the focus, resume, overlay and popup events have no kit call)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 12)
+        .script(include_str!("fixtures/transcript_view_1/row_nn.jsonl"))
+        .open();
+    s.type_text("retained draft 界");
+    s.keys("left");
+    s.wheel_up(0, 4, 4);
+    for _owner in ["focus", "resume", "overlay", "popup"] {
+        s.drag(3, 2, 3, 0);
+        s.assert_contains("retained draft 界");
+    }
 }
 
 // ORACLE app/owned_transcript_tests.rs:503 owned_details_keep_the_composer_cursor_and_screen kind=snap owner=chat-live snap=conversation_in_offset_rect
 #[test]
 fn owned_details_keep_the_composer_cursor_and_screen() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no detailed transcript overlay with the composer's cursor kept: the ctrl+t details view, an offset conversation rect with a neighbouring kitty image placement and an OSC 8 link are not built (snapshot conversation_in_offset_rect; the image and the caret checks have no kit call)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .open();
+    s.type_text("preserved draft");
+    s.keys("ctrl+t");
+    s.assert_contains("First prompt");
+    s.assert_contains("Second prompt");
+    s.assert_contains("preserved draft");
+    s.resize(36, 18);
+    s.assert_snap("conversation_in_offset_rect");
+    s.assert_link("manual", "https://example.com/docs");
 }
 
 // ORACLE app/owned_transcript_tests.rs:709 owned_transcript_keeps_text_out_of_the_pet_columns kind=ui owner=chat-live
