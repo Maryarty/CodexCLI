@@ -33,6 +33,33 @@ Tally: 34 rows (the 14 numbered in architecture.md, G17..G28 new, G29..G34
 from the issue files); 20 confirmed open, 4 by design, 2 not a gap or
 conditional, 6 fixed in rtwk (all in the pin).
 
+## rtwk's answers (2026-11-18)
+
+rtwk's orchestrator answered rows G13–G28 with code checked on rtwk branch
+`claude/app-dialogs` (not yet landed): `docs/rtwk-port/refs/rtwk-answers-2026-11-18.md`.
+Where the answers and the table below differ, the answers win:
+- **Not gaps (app work):** G21 (listen to the `ScrollController`, which
+  notifies on the first layout; only the initial `ScrollNotification` is
+  absent, as in twk), G22 (styled `BoxWidget` in a stretch column, or
+  `SelectionList` styles), G23 (`LayoutBuilder` + `~` rows), G26 (by design as
+  in twk: `Text::new("› ").wrap(TextWrap::None)`), G27 (a passing handler,
+  `on_key(cx.keys(..).passing())`), G28 (an unframed `show_dialog` builder; a
+  pane that replaces the composer is drawn in the page, ADR-002 amendment).
+- **Solved on `claude/app-dialogs`, repin when it lands:** G13 (show from a
+  memo node under the Navigator; `show_dialog_from` for queued requests), G16
+  (`AppCx::show_dialog(builder, options, closed)`; `shell::dialog_closed`,
+  the `CloseWatcher` and the shell's `DialogResult` go after the repin). G14 is
+  by design: decide on the model in `closed`.
+- **Intended fix already in use:** G15 (`GlobalKey` in app state).
+- **Answered:** G17 (`run_app_with` takes `RunOptions { theme, locale }`),
+  G18 (app-lifetime work on the runtime, `main` owns shutdown), G19
+  (`Tester::pump_app` gives an `AppHandle`; tokio via `rtwk_tokio::enter`),
+  G24/G25 (the pick order is twk's; act on `Suggestion.text`; a pane-growing
+  popup is `inline_suggestions()`, own marker and match ranges need our own
+  list; tui-rtwk draws its own list in the bottom pane, research
+  `parity-routes` item 4).
+- **Real, coming in rtwk's gap batch:** G20 (`rtwk::style::{Attrs, Color}`).
+
 ## Open and by-design rows, by what blocks the port soonest
 
 W1 = the screens and dialogs wave in progress; W2 = chat composer and

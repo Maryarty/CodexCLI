@@ -47,7 +47,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | # | decision | in one line |
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
-| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
+| ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, inline views as the chat page's bottom-pane slot over a core view stack (amendment 2026-11-18), centered views and dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
 | ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`, kept in the UI model (`UiApp.ui`), never in the core model; entities+notify as reserve; chosen on per-approach trade-offs |
 | ADR-004 | screens and content | 24 screen-map rows (§1) as pushed routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
@@ -56,6 +56,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 | ADR-008 | performance | the pty A/B harness of perf-compare.md, baseline of the original first, report.html + side-by-side casts + milestone trend |
 | ADR-009 | migration | foundation → main chat screen → screen slices in parallel → inline mode and rtwk gaps |
 | ADR-010 | localization | the app's strings are typed `const` tables (rtwk-l10n's form), one `strings.rs` per screen directory plus `src/l10n/`; English is the oracle's text byte for byte; the locale is negotiated once and reaches the tree as rtwk's `TwkLocalizations`; a rules test bans user-visible literals in widget code |
+| ADR-011 | mouse | mouse support is added though codex-tui has none (the person, 2026-11-18): capture on, wheel scrolls, click selects, click on the selected row or double click accepts, tabs and buttons clickable; tested with rtwk_test mouse events |
 
 ## 1. What we build (facts and the screen map)
 
@@ -302,6 +303,22 @@ detection, history recall; Ctrl+Y is redo in rtwk) is rtwk gap G12, built in
 rtwk. Codex's pure composer logic (paste-burst detector, mention codec,
 history store) is carried as ADAPT. Until G12 lands, S10 lists the missing
 behaviours as deltas.
+
+### Amendment 2026-11-18: the bottom pane is a slot of the chat page
+
+The person, after research `parity-routes` (`docs/rtwk-port/research/parity-routes.md`)
+and rtwk's answers (`docs/rtwk-port/refs/rtwk-answers-2026-11-18.md`, G28):
+codex-tui draws its inline views (approvals, selection lists, the composer's
+popups, settings panes) *in place of the composer*, with the transcript tail
+still visible. In tui-rtwk these are **a slot of the chat page**, one widget
+under `Expanded(transcript)` in the chat `Column`, rendering the top of a
+**core view stack** (ids only, changed by `apply`; no rtwk in core). Their rows
+are drawn by one shared `Picker` (the twin of `ListSelectionView`). Only the
+oracle's `Centered` views and real dialogs use `show_dialog`, with an unframed
+builder (barrier alpha 0, width `min(w-4, 72)`), under the Navigator as before.
+For inline views nothing reopens and no close watcher is needed (G14/G16 do
+not apply to them). The binding conditions below hold for the dialogs that
+remain.
 
 ## ADR-003 — App state
 
@@ -614,6 +631,19 @@ and costly once they are scattered; English tables are parity, since they
 hold the oracle's strings byte for byte, so the port loses nothing and gains
 the structure. Following rtwk-l10n's form means no new mechanism: the same
 table shape, the same plural rules, the same `TwkLocalizations` carrier.
+
+## ADR-011 — Mouse
+
+The person (2026-11-18): tui-rtwk adds mouse support, which codex-tui does not
+have. It is a decided addition, not a delta: the keyboard behaviour stays the
+oracle's, and with the mouse unused every screen equals the oracle's. Mouse
+capture is turned on through rtwk; the wheel scrolls lists, the transcript and
+the pager; a click selects a row (Picker, lists, the command center), a click
+on the selected row or a double click accepts it; tabs, buttons and the
+composer take clicks (focus). Terminal text selection and copy must keep
+working (rtwk-gaps G9, G11). Every view a slice builds wires the mouse and
+tests it with rtwk_test mouse events; the `mouse` slice of VS1 closes what is
+left across views and adds a pty scenario.
 
 ## Skeleton (tm `port-skeleton`, layered by `skeleton-layers`)
 
