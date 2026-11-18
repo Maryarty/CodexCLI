@@ -34,3 +34,9 @@ pub fn of(cx: &mut impl DependCx) -> &'static Strings {
 pub fn title(lang: Lang) -> &'static str {
     TABLES.pick(lang).title
 }
+
+/// The description of a command in the popup (`slash_command.rs`).
+pub fn description(lang: Lang, command: codex_tui_rtwk_core::commands::SlashCommand) -> &'static str {
+    let _ = (lang, command);
+    todo!()
+}
