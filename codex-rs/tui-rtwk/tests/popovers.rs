@@ -7,9 +7,13 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
-use crate::common::{Harness, ms, start_debug};
+use codex_tui_rtwk::screens::chat::open;
+use codex_tui_rtwk_core::commands::Target;
+
+use crate::common::{Harness, ms, start_debug, start_quittable};
 
 fn open_chat() -> Harness {
+    open::reset_last_opened();
     let mut h = start_debug();
     h.settle();
     h.open_debug_row("popovers", Some("composer_popups"));
@@ -161,11 +165,8 @@ fn up_and_down_move_the_selection_and_enter_runs_the_selected_command() {
     h.press("down");
     h.press("enter");
     h.t.pump_for(ms(800));
-    assert!(
-        h.t.screen().contains("settings (S15): empty slot"),
-        "{}",
-        h.t.screen()
-    );
+    // /memories opens the settings: the target, not the stub's text.
+    assert_eq!(open::last_opened(), Some(Target::Settings));
 }
 
 #[test]
@@ -338,4 +339,131 @@ fn esc_cancels_and_restores_the_draft() {
         "{}",
         h.t.screen()
     );
+}
+
+// ------------------------------------------------- chat-nav-fix (G2): the oracle's keys
+
+/// `chat_composer.rs:2141`: only `history_search_previous` begins a search.
+#[test]
+fn ctrl_s_outside_a_search_does_not_open_one() {
+    let mut h = open_chat();
+    type_in(&mut h, "keep");
+    h.press("ctrl+s");
+    h.t.pump_for(ms(200));
+    assert!(
+        !h.t.screen().contains("reverse-i-search"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(h.t.screen().contains("› keep"), "{}", h.t.screen());
+}
+
+/// `history_search.rs:172-184`: Up is older, Down is newer.
+#[test]
+fn up_and_down_walk_the_matches_inside_a_search() {
+    let mut h = open_chat();
+    h.press("ctrl+r");
+    type_in(&mut h, "c");
+    assert!(h.t.screen().contains("› cargo test"), "{}", h.t.screen());
+    h.press("up");
+    assert!(h.t.screen().contains("› cargo build"), "{}", h.t.screen());
+    h.press("down");
+    assert!(h.t.screen().contains("› cargo test"), "{}", h.t.screen());
+}
+
+/// `history_search.rs:213-230`: Enter accepts only a match.
+#[test]
+fn history_search_no_match_restores_preview_but_keeps_search_open() {
+    let mut h = open_chat();
+    type_in(&mut h, "keep me");
+    h.press("ctrl+r");
+    type_in(&mut h, "zzz");
+    h.press("enter");
+    h.t.pump_for(ms(200));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("reverse-i-search: zzz  no match"),
+        "{screen}"
+    );
+    // The draft stands where the preview would.
+    assert!(screen.contains("› keep me"), "{screen}");
+}
+
+#[test]
+fn enter_on_an_idle_search_keeps_it_open() {
+    let mut h = open_chat();
+    h.press("ctrl+r");
+    h.press("enter");
+    h.t.pump_for(ms(200));
+    assert!(
+        h.t.screen().contains("reverse-i-search"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// `history_search.rs:195-199`: Ctrl+C cancels the search and restores the
+/// draft; it does not quit the app (parity pack N6).
+#[test]
+fn ctrl_c_in_a_search_restores_the_draft_and_does_not_quit() {
+    let mut h = start_quittable(true);
+    h.settle();
+    h.open_debug_row("popovers", Some("composer_popups"));
+    h.t.pump_for(ms(200));
+    type_in(&mut h, "keep me");
+    h.press("ctrl+r");
+    type_in(&mut h, "git");
+    h.press("ctrl+c");
+    h.t.pump_for(ms(400));
+    assert!(h.t.is_running(), "Ctrl+C in a search quit the app");
+    let screen = h.t.screen();
+    assert!(screen.contains("› keep me"), "{screen}");
+    assert!(!screen.contains("reverse-i-search"), "{screen}");
+    // Outside a search it still quits.
+    h.press("ctrl+c");
+    h.t.pump_for(ms(400));
+    assert!(!h.t.is_running(), "Ctrl+C outside a search did not quit");
+}
+
+/// `history_search.rs:224-240`: Ctrl+H is Backspace, Ctrl+U empties the query.
+#[test]
+fn ctrl_h_and_ctrl_u_edit_the_query() {
+    let mut h = open_chat();
+    h.press("ctrl+r");
+    type_in(&mut h, "gitx");
+    assert!(
+        h.t.screen().contains("reverse-i-search: gitx  no match"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("ctrl+h");
+    assert!(
+        h.t.screen().contains("reverse-i-search: git "),
+        "{}",
+        h.t.screen()
+    );
+    assert!(h.t.screen().contains("› git status"), "{}", h.t.screen());
+    h.press("ctrl+u");
+    let screen = h.t.screen();
+    assert!(!screen.contains("git status"), "{screen}");
+    assert!(screen.contains("reverse-i-search:"), "{screen}");
+}
+
+// ------------------------------------------------- chat-nav-fix (G10): Ctrl+/ aliases
+
+/// `keymap.rs:730-735`: Ctrl+/ is also Ctrl+7 and, on a terminal that cannot
+/// tell them apart, the raw 0x1f byte (Ctrl+_).
+#[test]
+fn ctrl_slash_and_its_aliases_toggle_side_conversation() {
+    let side = "'/side' is not available yet.";
+    for (name, bytes) in [
+        ("ctrl+/ (kitty)", b"\x1b[47;5u".to_vec()),
+        ("ctrl+7 (kitty)", b"\x1b[55;5u".to_vec()),
+        ("ctrl+_ (raw 0x1f)", vec![0x1f]),
+    ] {
+        let mut h = open_chat();
+        h.t.input(&bytes);
+        h.t.pump_for(ms(400));
+        h.wait_for(name, |s| s.contains(side));
+    }
 }

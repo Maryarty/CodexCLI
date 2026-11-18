@@ -272,14 +272,8 @@ impl State for ChatState {
                     return Rebuild::No;
                 };
                 let intent = match key {
-                    SearchKey::Char(text) => {
-                        popovers::Intent::SearchEdit(format!("{}{text}", search.query))
-                    }
-                    SearchKey::Backspace => {
-                        let mut query = search.query.clone();
-                        query.pop();
-                        popovers::Intent::SearchEdit(query)
-                    }
+                    SearchKey::Char(text) => popovers::Intent::SearchAppend(text.to_string()),
+                    SearchKey::Backspace => popovers::Intent::SearchBackspace,
                     SearchKey::Older => popovers::Intent::SearchStep(Direction::Older),
                     SearchKey::Newer => popovers::Intent::SearchStep(Direction::Newer),
                     SearchKey::Accept => {

@@ -3,9 +3,13 @@
 //! share. Snapshots in `tests/snapshots/chat/`.
 
 use codex_tui_rtwk::screens::chat::open;
+use codex_tui_rtwk::screens::{
+    agents, approvals, backtrack, dialogs, import, pager, pets, resume, settings, usage, voice,
+};
 use codex_tui_rtwk::shell::fake::FAKE_THREAD;
 use codex_tui_rtwk_core::commands::Target;
 use codex_tui_rtwk_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
+use rtwk_test::{Finder, find};
 
 use crate::common::{Harness, slot};
 
@@ -71,10 +75,31 @@ fn target_of(dir: &str) -> Target {
     }
 }
 
-/// Whether the chat opened the screen of directory `dir` last: the identity
-/// of the opened target, which holds for a stub and for the real screen
-/// alike (a dialog whose model is not seeded draws nothing, so the screen
-/// itself is no evidence).
-pub(crate) fn shows(dir: &str) -> bool {
-    open::last_opened() == Some(target_of(dir))
+/// The widget the screen of directory `dir` puts up: its own type, so a
+/// stub or the real screen is found by what it is, never by what it prints.
+/// (`status` and `select` keep their dialogs private: found by type name.)
+fn widget_of(dir: &str) -> Finder {
+    match dir {
+        "resume" => find::by_type::<resume::Screen>(),
+        "agents" => find::by_type::<agents::Screen>(),
+        "import" => find::by_type::<import::Screen>(),
+        "usage" => find::by_type::<usage::Screen>(),
+        "pager" => find::by_type::<pager::Screen>(),
+        "settings" => find::by_type::<settings::Screen>(),
+        "dialogs" => find::by_type::<dialogs::Screen>(),
+        "pets" => find::by_type::<pets::Screen>(),
+        "voice" => find::by_type::<voice::Screen>(),
+        "approvals" => find::by_type::<approvals::Screen>(),
+        "backtrack" => find::by_type::<backtrack::Screen>(),
+        "status" => find::widget_where("CardDialog", |w| w.type_name() == "CardDialog"),
+        "select" => find::widget_where("MenuDialog", |w| w.type_name() == "MenuDialog"),
+        _ => panic!("`{dir}` is not a screen the chat opens"),
+    }
+}
+
+/// Whether the chat opened the screen of directory `dir`: the target the
+/// opener recorded (after it ran) is `dir`'s, and the widget of `dir` is in
+/// the tree. A no-op opener, or one that opens another directory, fails.
+pub(crate) fn shows(h: &Harness, dir: &str) -> bool {
+    open::last_opened() == Some(target_of(dir)) && widget_of(dir).count(&h.t) > 0
 }

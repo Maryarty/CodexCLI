@@ -76,6 +76,9 @@ pub enum Notice {
     UnavailableInReview(SlashCommand),
     /// `Session is still starting; try /cmd again in a moment.`
     SessionStarting(SlashCommand),
+    /// `Model selection is disabled until startup completes.` (an info line,
+    /// `model_popups.rs:19-24`: `/model` before the thread exists).
+    ModelStartup,
     /// `Sign in with ChatGPT to use /usage.`
     UsageNeedsLogin,
     /// A usage line: `Usage: /pwd`, `Usage: /raw [on|off]`, ...
@@ -84,6 +87,38 @@ pub enum Notice {
     McpLoginNeedsSession,
     /// The session's part of the command is not built yet (session-core).
     NotAvailable(SlashCommand),
+}
+
+impl Notice {
+    /// STUB (red).
+    pub fn is_info(&self) -> bool {
+        false
+    }
+}
+
+/// The view `/usage <arg>` opens the dashboard on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenActivityView {
+    Daily,
+    Weekly,
+    Cumulative,
+}
+
+impl TokenActivityView {
+    /// STUB (red): carried from the oracle in the green commit.
+    pub fn parse(value: &str) -> Option<Self> {
+        let _ = value;
+        None
+    }
+
+    /// The argument the dashboard opens with.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::Cumulative => "cumulative",
+        }
+    }
 }
 
 /// Which usage line.

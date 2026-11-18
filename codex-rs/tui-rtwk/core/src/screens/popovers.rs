@@ -236,9 +236,17 @@ pub enum Intent {
     /// A prompt was submitted: history search finds it later.
     Record(String),
     SearchStart { draft: String },
-    SearchEdit(String),
+    /// Typed or pasted text after the query.
+    SearchAppend(String),
+    /// Backspace (and Ctrl+H): the query loses its last character.
+    SearchBackspace,
+    /// Ctrl+U: the query is emptied.
+    SearchClear,
     SearchStep(Direction),
-    /// The search ended (accepted or cancelled: the composer keeps the text).
+    /// Enter: ends the search only when a match is previewed
+    /// (`history_search.rs:213-230`); otherwise the search stays open.
+    SearchAccept,
+    /// The search was cancelled (Esc, Ctrl+C): the composer keeps its draft.
     SearchEnd,
 }
 
@@ -260,12 +268,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::SearchStart { draft } => model.search = Some(HistorySearch::new(draft)),
-        Intent::SearchEdit(query) => {
-            let history = model.history.clone();
-            if let Some(search) = model.search.as_mut() {
-                search.set_query(query, &history);
-            }
-        }
+        // STUBS (red): the green commit gives them their behaviour.
+        Intent::SearchAppend(_) | Intent::SearchBackspace | Intent::SearchClear => {}
+        Intent::SearchAccept => {}
         Intent::SearchStep(direction) => {
             let history = model.history.clone();
             if let Some(search) = model.search.as_mut() {

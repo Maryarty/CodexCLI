@@ -31,7 +31,7 @@ macro_rules! command_opens {
             let mut h = chat();
             let before = h.t.screen();
             run_command(&mut h, $line);
-            assert!(shows($dir), "{} did not open {}:\n{}", $line, $dir, h.t.screen());
+            assert!(shows(&h, $dir), "{} did not open {}:\n{}", $line, $dir, h.t.screen());
             h.press("escape");
             h.t.pump_for(ms(400));
             assert_chat_back(&h, None, &before);
@@ -78,7 +78,7 @@ fn a_command_picked_in_the_popup_opens_its_screen() {
     h.t.pump_for(ms(100));
     h.press("enter");
     h.t.pump_for(ms(800));
-    assert!(shows("status"), "{}", h.t.screen());
+    assert!(shows(&h, "status"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
     assert_chat_back(&h, None, &before);
@@ -94,7 +94,7 @@ macro_rules! chord_opens {
             let before = h.t.screen();
             h.press($keys);
             h.t.pump_for(ms(800));
-            assert!(shows($dir), "{} did not open {}:\n{}", $keys, $dir, h.t.screen());
+            assert!(shows(&h, $dir), "{} did not open {}:\n{}", $keys, $dir, h.t.screen());
             h.press("escape");
             h.t.pump_for(ms(400));
             assert_chat_back(&h, Some("a draft"), &before);
@@ -116,7 +116,7 @@ fn esc_esc_starts_backtrack_and_esc_leaves_it() {
     h.press("escape");
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert!(shows("backtrack"), "{}", h.t.screen());
+    assert!(shows(&h, "backtrack"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
     assert_chat_back(&h, None, &before);
@@ -145,7 +145,7 @@ fn f8_toggles_voice_which_opens_the_voice_strip() {
     let before = h.t.screen();
     h.press("f8");
     h.t.pump_for(ms(400));
-    assert!(shows("voice"), "{}", h.t.screen());
+    assert!(shows(&h, "voice"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
     assert_chat_back(&h, None, &before);
