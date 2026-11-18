@@ -26,7 +26,11 @@ fn play() -> Sandbox {
 fn a_waiting_child_makes_its_task_need_you_and_status_decides_the_rest() {
     let sandbox = play();
     let model = &sandbox.app().screens.agents;
-    let kinds: Vec<Attention> = model.tasks.iter().map(codex_tui_rtwk_core::screens::agents::Task::attention).collect();
+    let kinds: Vec<Attention> = model
+        .tasks
+        .iter()
+        .map(codex_tui_rtwk_core::screens::agents::Task::attention)
+        .collect();
     assert_eq!(
         kinds,
         [Attention::NeedsYou, Attention::Working, Attention::Inactive]
