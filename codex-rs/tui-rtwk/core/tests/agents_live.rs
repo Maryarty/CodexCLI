@@ -371,3 +371,33 @@ fn a_failed_worktree_replaces_the_busy_notice_with_the_error() {
         Some(Notice::Error("The source project is not trusted.".into()))
     );
 }
+
+/// `codex agents` opens the overview instead of starting a thread (oracle:
+/// `cli.rs` `agents_overview`, "open the agents overview instead of starting
+/// a thread"): connecting starts none, so no `Untitled task` row exists.
+#[test]
+fn an_agents_start_does_not_start_a_thread() {
+    use codex_tui_core::app::Session;
+    let mut app = CodexApp::new();
+    app.start_thread_on_connect = false;
+    let mut fx = AppFx::default();
+    apply_app(&mut app, AppEv::Connected, &mut fx);
+    assert!(
+        !fx.into_commands()
+            .iter()
+            .any(|command| matches!(command, Command::StartThread { .. })),
+        "no thread is started"
+    );
+    assert_eq!(app.session.status, Session::Ready);
+    assert_eq!(app.session.active, None);
+
+    let mut chat = CodexApp::new();
+    let mut fx = AppFx::default();
+    apply_app(&mut chat, AppEv::Connected, &mut fx);
+    assert!(
+        fx.into_commands()
+            .iter()
+            .any(|command| matches!(command, Command::StartThread { .. })),
+        "the chat starts its first thread"
+    );
+}

@@ -602,6 +602,19 @@ impl State for ScreenState {
                     }
                     return Rebuild::No;
                 }
+                // `on_ctrl_c` takes the key while a line is open (it cancels
+                // it) or a removal runs; otherwise it is the app's: quit.
+                if key.mods.contains(Mods::CTRL)
+                    && key.ch == Some('c')
+                    && !editing
+                    && !matches!(
+                        model.notice,
+                        Some(codex_tui_core::screens::agents::Notice::Removing(_))
+                    )
+                {
+                    cx.emit(&hs.quit, ());
+                    return Rebuild::No;
+                }
                 if key.code == KeyCode::Escape && !editing && !model.help {
                     if w.can_return {
                         Navigator::maybe_pop(cx);

@@ -193,6 +193,10 @@ pub struct CodexApp {
     pub(crate) mint: TicketMint,
     pub(crate) outgoing: Pending<AppCtx>,
     pub(crate) queued_submits: Vec<String>,
+    /// Whether connecting starts the first thread. `codex agents` opens the
+    /// overview instead (oracle: `agents_overview`), and a task starts when
+    /// the user asks for one.
+    pub start_thread_on_connect: bool,
 }
 
 impl Default for CodexApp {
@@ -216,6 +220,7 @@ impl CodexApp {
             mint: TicketMint::default(),
             outgoing: Pending::default(),
             queued_submits: Vec::new(),
+            start_thread_on_connect: true,
         }
     }
 
@@ -269,6 +274,9 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
 
 fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     match ev {
+        AppEv::Connected if !app.start_thread_on_connect => {
+            Rc::make_mut(&mut app.session).status = Session::Ready;
+        }
         AppEv::Connected => {
             let ticket = app.mint.next();
             app.outgoing.insert(ticket, AppCtx::StartThread);

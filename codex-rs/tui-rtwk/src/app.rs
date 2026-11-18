@@ -71,6 +71,8 @@ impl UiApp {
 
     pub fn with_start_agents(mut self, on: bool) -> Self {
         self.ui.start_agents = on;
+        // The overview opens instead of a first thread (`codex agents`).
+        self.core.start_thread_on_connect = !on;
         self
     }
 

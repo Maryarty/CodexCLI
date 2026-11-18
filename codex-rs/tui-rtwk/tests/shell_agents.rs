@@ -548,12 +548,33 @@ mod live {
         height: u16,
         script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
     ) -> Live {
+        start_with(width, height, false, script)
+    }
+
+    /// On `pump_app`, which gives the app the frame loop's handle: only
+    /// there does a quit end the loop.
+    pub fn start_quittable(
+        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+    ) -> Live {
+        start_with(100, 30, true, script)
+    }
+
+    fn start_with(
+        width: u16,
+        height: u16,
+        quittable: bool,
+        script: impl Fn(&Value) -> Option<Result<Value, String>> + Send + Sync + 'static,
+    ) -> Live {
         let guard = rtwk_tokio::enter(runtime());
         let (server, fake) = FakeServer::new();
         fake.respond(script);
         let app = UiApp::new(Backend::Fake(server)).with_start_agents(true);
         let mut t = Tester::with(Options::new().size(width, height));
-        t.pump_widget(localized(root(app_view(app)), Lang::En));
+        if quittable {
+            t.pump_app(app_view(app));
+        } else {
+            t.pump_widget(localized(root(app_view(app)), Lang::En));
+        }
         t.pump_for(ms(200));
         Live {
             t,
@@ -665,6 +686,23 @@ fn typing_a_word_asks_the_server_once() {
     std::thread::sleep(Duration::from_millis(300));
     // One request per source, for the one search that was left.
     assert_eq!(scans() - before, 2, "{:?}", h.fake.requests());
+}
+
+/// `agents_overview_view.rs` `on_ctrl_c`: with a line open Ctrl+C closes it
+/// (the center stays); otherwise it is the app's, and the app quits
+/// (pty scenario `agents`: `ctrl-c` then exit 0).
+#[test]
+fn ctrl_c_closes_a_line_first_then_quits() {
+    let mut h = live::start_quittable(server);
+    h.wait_for("the tasks", |s| s.contains("Interactive task"));
+    h.t.press("/");
+    h.t.press("e");
+    h.wait_for("the search line", |s| s.contains("Search \u{203a} e"));
+    h.t.press("ctrl+c");
+    h.wait_for("the line closed", |s| !s.contains("Search \u{203a}"));
+    assert!(h.t.is_running(), "the first Ctrl+C only closed the line");
+    h.t.press("ctrl+c");
+    assert!(!h.t.is_running(), "the second one quits");
 }
 
 /// `w`: a worktree is made of the highlighted task's directory, a task is
