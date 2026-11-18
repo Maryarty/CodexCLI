@@ -1,0 +1,4 @@
+# Oracle data of codex-tui history_cell/patches_tests.rs:45 (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"imageView","id":"view-1","path":"/workspace/assets/example.png"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
