@@ -6,6 +6,7 @@
 //! holds the keys, the mouse and the widget state, `view.rs` the widgets.
 //! Oracle: `tui/src/app/agent_center/` and `app/agents_overview_view.rs`.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use rtwk::binding::AppBinding;
@@ -19,7 +20,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
 use codex_tui_core::screens::agents::{Action, Center, CenterRow, Lens, Model, Sel};
@@ -354,6 +355,8 @@ pub struct ScreenState {
     /// holds no focus, so the keys go to the screen's root.
     listed: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
+    /// The row handlers made for the rows the list last showed.
+    row_taps: RefCell<Option<(Vec<view::RowKey>, Rc<Vec<Handler<PointerEvent>>>)>>,
     listening: Option<Listening>,
     editing: Editing,
     /// What the usage request of the highlighted task depends on, as the
@@ -424,6 +427,7 @@ impl StatefulWidget for Screen {
             filter: 0,
             listed: true,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
+            row_taps: RefCell::new(None),
             listening: None,
             editing: Editing::No,
             usage_seen: None,
@@ -966,15 +970,32 @@ impl State for ScreenState {
         let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
         let confirm = self.confirm.clone();
+        // The row handlers are kept while the rows are the same ones: a
+        // handler made anew is never equal to the last, and the list would
+        // not compare equal (a cursor that moves leaves it as it is).
+        let keys: Vec<view::RowKey> = (0..center.entries.len())
+            .map(|index| view::key_of(&center, index))
+            .collect();
+        let rows = {
+            let mut kept = self.row_taps.borrow_mut();
+            match &*kept {
+                Some((was, taps)) if *was == keys => taps.clone(),
+                _ => {
+                    let taps = Rc::new(
+                        keys.iter()
+                            .map(|key| {
+                                let key = key.clone();
+                                cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                    *kept = Some((keys, taps.clone()));
+                    taps
+                }
+            }
+        };
         let taps = view::Taps {
-            rows: Rc::new(
-                (0..center.entries.len())
-                    .map(|index| {
-                        let key = view::key_of(&center, index);
-                        cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
-                    })
-                    .collect(),
-            ),
+            rows,
             tabs: (0..5)
                 .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
                 .collect(),
@@ -985,7 +1006,7 @@ impl State for ScreenState {
             focus: self.list_focus.clone(),
             edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
-            open: cx.map(|_: view::RowKey| Msg::Open),
+            open: rtwk::map_static!(cx, view::RowKey => Msg, |_| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
             confirm_selection: self.confirm_selection.clone(),

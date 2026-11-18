@@ -11,6 +11,9 @@
 use std::rc::Rc;
 
 use rtwk::AnyWidget;
+use rtwk::BuildCx;
+use rtwk::StatelessWidget;
+use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
 use rtwk::NotificationListener;
@@ -72,7 +75,7 @@ pub struct Confirm {
 }
 
 /// The styles of the screen, taken from the theme.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Look {
     pub plain: Style,
     pub dim: Style,
@@ -257,6 +260,15 @@ pub struct Controls {
     pub confirm_selection: SelectionController<usize>,
     pub confirm_focus: FocusNode,
     pub confirm_pick: Handler<usize>,
+}
+
+/// The part of the controls the list takes.
+#[derive(Clone)]
+struct ListControls {
+    selection: SelectionController<RowKey>,
+    focus: FocusNode,
+    scroll: Rc<ValueNotifier<Scrolled>>,
+    open: Handler<RowKey>,
 }
 
 /// What the screen is told by a click: the handlers the widget made.
@@ -536,20 +548,97 @@ fn entry(
 /// the keys and the mouse), the overflow arrows.
 pub fn list(
     look: &Look,
-    strings: &Strings,
+    strings: &'static Strings,
     agents: &Shared<Model>,
     center: &Rc<Center>,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    let (look, strings, agents, center, controls, taps) = (
-        look.clone(),
-        *strings,
-        agents.clone(),
-        center.clone(),
-        controls.clone(),
-        taps.clone(),
-    );
+    RowsList {
+        inputs: ListInputs {
+            look: look.clone(),
+            strings,
+            agents: agents.clone(),
+            center: center.clone(),
+        },
+        selection: controls.selection.clone(),
+        focus: controls.focus.clone(),
+        scroll: controls.scroll.clone(),
+        open: controls.open.clone(),
+        taps: taps.clone(),
+    }
+    .into()
+}
+
+/// What the list's rows are made of: the center's rows and entries, the model
+/// they read and the look. The cursor is not among them (the list's own
+/// controller keeps it and each row paints from it), so a cursor that moves
+/// leaves the inputs equal and rtwk does not build the list again.
+#[derive(Clone)]
+pub struct ListInputs {
+    pub look: Look,
+    pub strings: &'static Strings,
+    pub agents: Shared<Model>,
+    pub center: Rc<Center>,
+}
+
+impl PartialEq for ListInputs {
+    fn eq(&self, other: &Self) -> bool {
+        self.look == other.look
+            && self.strings == other.strings
+            && self.agents == other.agents
+            && self.center.rows == other.center.rows
+            && self.center.entries == other.center.entries
+    }
+}
+
+/// The list pane: its inputs, the list's controller, focus and scroll
+/// notifier, and the handlers of the rows.
+#[derive(Clone)]
+pub struct RowsList {
+    inputs: ListInputs,
+    selection: SelectionController<RowKey>,
+    focus: FocusNode,
+    scroll: Rc<ValueNotifier<Scrolled>>,
+    open: Handler<RowKey>,
+    taps: Rc<Vec<Handler<PointerEvent>>>,
+}
+
+impl PartialEq for RowsList {
+    fn eq(&self, other: &Self) -> bool {
+        self.inputs == other.inputs
+            && self.selection == other.selection
+            && self.focus == other.focus
+            && Rc::ptr_eq(&self.scroll, &other.scroll)
+            && self.open == other.open
+            && self.taps == other.taps
+    }
+}
+
+impl StatelessWidget for RowsList {
+    fn build(&self, _cx: &mut BuildCx<'_>) -> AnyWidget {
+        let ListInputs { look, strings, agents, center } = self.inputs.clone();
+        let (strings, taps) = (*strings, self.taps.clone());
+        let controls = ListControls {
+            selection: self.selection.clone(),
+            focus: self.focus.clone(),
+            scroll: self.scroll.clone(),
+            open: self.open.clone(),
+        };
+        rows_in(look, strings, agents, center, controls, taps)
+    }
+}
+
+impl_widget!(stateless eq RowsList);
+
+fn rows_in(
+    look: Look,
+    strings: Strings,
+    agents: Shared<Model>,
+    center: Rc<Center>,
+    controls: ListControls,
+    taps: Rc<Vec<Handler<PointerEvent>>>,
+) -> AnyWidget {
     LayoutBuilder::new(move |_, constraints| {
         let width = constraints.max_width;
         let model = &*agents;
@@ -888,7 +977,7 @@ pub fn editor(look: &Look, strings: &Strings, ui: &Ui, controls: &Controls) -> A
 #[allow(clippy::too_many_arguments)]
 pub fn body(
     look: &Look,
-    strings: &Strings,
+    strings: &'static Strings,
     num: &NumSyms,
     agents: &Shared<Model>,
     ui: &Ui,
@@ -1110,4 +1199,47 @@ pub fn failure_dialog(look: &Look, strings: &Strings, failure: &Failure) -> AnyW
         note(strings.select_hint, &look.dim),
     ]);
     Dialog::bare(panel(look, rows)).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::agents::strings::EN;
+    use rtwk::style::ThemeData;
+
+    fn inputs(center: Center, agents: &Shared<Model>) -> ListInputs {
+        ListInputs {
+            look: Look::new(&ThemeData::NORD, false),
+            strings: &EN,
+            agents: agents.clone(),
+            center: Rc::new(center),
+        }
+    }
+
+    fn center(entries: Vec<CenterRow>, show_more_selected: bool) -> Center {
+        Center {
+            rows: Vec::new(),
+            entries,
+            tab_counts: [0; 5],
+            selected: None,
+            show_more_selected,
+            more: false,
+        }
+    }
+
+    /// S5 (vs1-review): a cursor that moves changes the center's
+    /// `show_more_selected` and `selected`, not what the rows are made of,
+    /// so the list compares equal and is not built again; a changed entry
+    /// or model does build it.
+    #[test]
+    fn the_list_inputs_ignore_the_cursor() {
+        let agents: Shared<Model> = Shared::default();
+        let entries = || vec![CenterRow::Gap, CenterRow::ShowMore];
+        let base = inputs(center(entries(), false), &agents);
+        assert!(base == inputs(center(entries(), true), &agents), "cursor on `Show more`");
+        assert!(base != inputs(center(vec![CenterRow::Gap], false), &agents), "other rows");
+        let mut later = agents.clone();
+        later.now += 1;
+        assert!(base != inputs(center(entries(), false), &later), "other model");
+    }
 }
