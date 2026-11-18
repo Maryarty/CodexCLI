@@ -18,15 +18,16 @@ mod oracle_snap;
 
 mod compare;
 mod grid;
+mod labels;
 mod seed;
 mod verdict;
 
 #[allow(unused_imports)]
-pub use compare::{
-    Want, assert_snap as assert_snap_on, normalize_labels, snap_frames, snap_rows, snap_size,
-};
+pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
 #[allow(unused_imports)]
 pub use grid::{Grid, check_style, color_name, modifier_name};
+#[allow(unused_imports)]
+pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};
 #[allow(unused_imports)]
 pub use verdict::{Owner, missing, na, pending, todo};
 

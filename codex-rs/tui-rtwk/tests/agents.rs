@@ -9,6 +9,21 @@
 mod oracle_snap;
 
 use crate::common::{Harness, start_sized};
+
+/// The kit's key-label normalization of our rows (platform labels: `delete`
+/// shipped for the `backspace` of the oracle's `cfg(test)` snapshots, the
+/// modifier symbols), the same one the kit's comparison makes.
+#[allow(clippy::duplicate_mod)]
+#[path = "kit/labels.rs"]
+mod labels;
+
+/// The screen's rows equal the oracle's: ours go through the kit's label
+/// normalization, the oracle's expected rows are compared as they are.
+fn assert_rows(name: &str, actual: &[String], expected: &[String]) {
+    let actual = labels::normalize(actual.to_vec(), expected);
+    let actual: Vec<String> = actual.iter().map(|r| r.trim_end().to_owned()).collect();
+    oracle_snap::assert_same(name, &actual, expected);
+}
 use rtwk_core::style::{Attrs, Color};
 
 /// Who makes a pending test pass (tm aliases of the slices).
@@ -49,58 +64,9 @@ fn app_snap(name: &str) -> String {
     format!("app/snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
 }
 
-/// The oracle's snapshots are recorded under `cfg(test)`, where its key hint
-/// prints the Delete key as `backspace` (`key_hint.rs`); the shipped binary
-/// prints `delete`, and so does codex-rtwk. This is the one comparison-only
-/// normalization of the expected rows to the shipped form: the label, and the
-/// three cells of padding the shorter key takes out of its column (every row
-/// of the Tasks block moves its text left by three, as the help lays its
-/// columns out by the longest key).
-fn as_shipped(rows: Vec<String>) -> Vec<String> {
-    // Only the help screen lists keys.
-    if !rows.iter().any(|row| row.contains("Task shortcuts")) {
-        return rows;
-    }
-    let mut cells: Vec<Vec<char>> = rows.iter().map(|row| row.chars().collect()).collect();
-    let heading: Vec<char> = "Tasks".chars().collect();
-    // The Tasks block: its heading, and the rows under it that hold a key
-    // padded to the column's width.
-    let Some((top, col)) = cells.iter().enumerate().find_map(|(y, row)| {
-        let x = row
-            .windows(heading.len())
-            .position(|w| w == heading.as_slice())?;
-        let alone = row.get(x + heading.len()).is_none_or(|c| *c == ' ');
-        let below = cells.get(y + 1)?.get(x).is_some_and(|c| *c != ' ');
-        (alone && below && (x == 0 || row[x - 1] == ' ')).then_some((y, x))
-    }) else {
-        return rows;
-    };
-    let padded = |row: &[char]| {
-        row.len() < col + 9 || (row[col + 9] == ' ' && row.get(col + 10).is_none_or(|c| *c == ' '))
-    };
-    let mut y = top;
-    while y < cells.len() && (y == top || cells[y].get(col).is_some_and(|c| *c != ' ')) {
-        if padded(&cells[y]) {
-            let row = &mut cells[y];
-            let label: Vec<char> = "backspace".chars().collect();
-            if row.get(col..col + 9) == Some(label.as_slice()) {
-                row.splice(col..col + 9, "delete   ".chars());
-            }
-            if row.len() >= col + 9 && row[col + 6..col + 9].iter().all(|c| *c == ' ') {
-                row.drain(col + 6..col + 9);
-            }
-        }
-        y += 1;
-    }
-    cells
-        .into_iter()
-        .map(|row| row.into_iter().collect::<String>().trim_end().to_owned())
-        .collect()
-}
-
 /// The oracle's rows of an `app/snapshots` snapshot.
 fn app_oracle(name: &str) -> Vec<String> {
-    as_shipped(oracle_snap::rows(&app_snap(name)))
+    oracle_snap::rows(&app_snap(name))
 }
 
 /// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
@@ -110,7 +76,7 @@ fn assert_app(h: &Harness, name: &str) {
         .iter()
         .map(|row| as_snapshot_cells(row))
         .collect();
-    oracle_snap::assert_same(name, &actual, &app_oracle(name));
+    assert_rows(name, &actual, &app_oracle(name));
 }
 
 /// The oracle's snapshot writer prints the empty second cell of a wide
@@ -137,7 +103,7 @@ fn open(entry: &str, width: u16, height: u16) -> Harness {
 /// The oracle snapshot's rows and the height they were taken at (blank rows
 /// to the footer included: the footer is its last row).
 fn oracle(name: &str) -> (Vec<String>, u16) {
-    let rows = as_shipped(oracle_snap::rows(&snap(name)));
+    let rows = oracle_snap::rows(&snap(name));
     let height = rows.len() as u16;
     (rows, height)
 }
@@ -146,14 +112,14 @@ fn oracle(name: &str) -> (Vec<String>, u16) {
 fn shared_overview_shows_only_root_sessions() {
     let (expected, height) = oracle("agents_overview");
     let h = open("overview", 96, height);
-    oracle_snap::assert_same("agents_overview", &oracle_snap::screen(&h.t), &expected);
+    assert_rows("agents_overview", &oracle_snap::screen(&h.t), &expected);
 }
 
 #[test]
 fn agents_overview_details_show_available_attention_without_expanding_rows() {
     let (expected, height) = oracle("agents_overview_attention");
     let h = open("attention", 96, height);
-    oracle_snap::assert_same(
+    assert_rows(
         "agents_overview_attention",
         &oracle_snap::screen(&h.t),
         &expected,
@@ -164,7 +130,7 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
 fn empty_command_center_can_open_resume_picker() {
     let (expected, height) = oracle("agents_overview_empty_narrow");
     let h = open("empty_narrow", 48, height);
-    oracle_snap::assert_same(
+    assert_rows(
         "agents_overview_empty_narrow",
         &oracle_snap::screen(&h.t),
         &expected,
@@ -503,7 +469,7 @@ fn modal_consumes_input_and_finishes_after_input_closes() {
         let expected = oracle_snap::rows(&format!(
             "app/snapshots/codex_tui__app__agents_overview_actions__progress_tests__{snapshot}.snap"
         ));
-        oracle_snap::assert_same(snapshot, &rows, &expected);
+        assert_rows(snapshot, &rows, &expected);
     }
 }
 
