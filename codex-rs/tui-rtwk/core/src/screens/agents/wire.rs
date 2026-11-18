@@ -190,6 +190,16 @@ pub(super) fn decode_reply(
                 None => UsageOutcome::Disabled,
             }))
         }
+        Command::Start { .. } => {
+            // Only the task is read: the rest of the response is the
+            // server's settings, which the center does not use.
+            let thread = result
+                .get("thread")
+                .cloned()
+                .ok_or_else(|| RpcError::Malformed("thread/start: no thread".to_owned()))?;
+            let thread: Thread = serde_json::from_value(thread).map_err(malformed)?;
+            Ok(Reply::Started(Box::new(thread)))
+        }
         Command::ActiveTurn { .. } => {
             let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::ActiveTurn(

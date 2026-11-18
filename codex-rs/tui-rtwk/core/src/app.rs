@@ -256,6 +256,18 @@ impl CodexApp {
 /// Applies one event to the app-scoped model, thread events to their thread
 /// model (`threads::apply`), and returns effects as data (R3, R10).
 pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
+    // Only events that can bring tasks of other directories into the center.
+    let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
+    apply_event(app, ev, fx);
+    if lists {
+        let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
+        if !cwds.is_empty() {
+            fx.commands.push(Command::Directories { cwds });
+        }
+    }
+}
+
+fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     match ev {
         AppEv::Connected => {
             let ticket = app.mint.next();
@@ -306,7 +318,12 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
         AppEv::Intent(intent) => apply_intent(app, intent, fx),
-        AppEv::Screen(ev) => screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx),
+        AppEv::Screen(ev) => {
+            if let ScreenEv::Agents(agents::Ev::Started(thread)) = &ev {
+                resume_into_chat(app, thread);
+            }
+            screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+        }
     }
 }
 
@@ -421,8 +438,12 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
         _ => Err(RpcError::Mismatch),
     };
     if let (
-        agents::Ctx::Resume { .. } | agents::Ctx::Fork,
-        Ok(agents::Reply::Resumed(thread) | agents::Reply::Forked(thread)),
+        agents::Ctx::Resume { .. } | agents::Ctx::Fork | agents::Ctx::Start,
+        Ok(
+            agents::Reply::Resumed(thread)
+            | agents::Reply::Forked(thread)
+            | agents::Reply::Started(thread),
+        ),
     ) = (&ctx, &result)
     {
         resume_into_chat(app, thread);

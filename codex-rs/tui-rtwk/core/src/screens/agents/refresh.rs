@@ -124,10 +124,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             }
             model.notice = notice;
         }
-        Ev::Started(thread) => {
-            let _ = thread;
-            todo!("started")
-        }
+        Ev::Started(thread) => opened(model, &thread),
         Ev::Request(thread, preview) => match preview {
             Some(preview) => {
                 model.requests.insert(thread, preview);
@@ -136,6 +133,16 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
                 model.requests.remove(&thread);
             }
         },
+    }
+}
+
+/// A task the app started opens in the chat; the busy notice ends.
+fn opened(model: &mut Model, thread: &Thread) {
+    model.hidden.remove(&thread.id);
+    model.current = Some(thread.id.clone());
+    model.resumes += 1;
+    if matches!(model.notice, Some(Notice::CreatingWorktree)) {
+        model.notice = None;
     }
 }
 
@@ -234,7 +241,11 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.current = Some(thread);
             model.resumes += 1;
         }
-        (Ctx::Start, _) => {}
+        (Ctx::Start, Ok(Reply::Started(thread))) => opened(model, &thread),
+        (Ctx::Start, Ok(_)) => {}
+        (Ctx::Start, Err(error)) => {
+            model.notice = Some(Notice::Error(error_text(error)));
+        }
     }
     Vec::new()
 }

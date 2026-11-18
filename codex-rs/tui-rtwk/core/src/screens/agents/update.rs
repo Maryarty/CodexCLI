@@ -335,6 +335,20 @@ fn accept(model: &mut Model, outs: &mut Vec<Out>) {
 /// for_thread`, `directory_group_key`, read while building the rows). Only
 /// with worktrees on: the keys are used by nothing else.
 pub fn wanted_dirs(model: &mut Model) -> Vec<String> {
-    let _ = model;
-    todo!("directories")
+    if !model.worktrees {
+        return Vec::new();
+    }
+    let cwds: Vec<String> = model
+        .threads
+        .iter()
+        .chain(&model.search_matches)
+        .map(|thread| thread.cwd.display().to_string())
+        .collect();
+    let mut wanted = Vec::new();
+    for cwd in cwds {
+        if model.dirs_asked.insert(cwd.clone()) {
+            wanted.push(cwd);
+        }
+    }
+    wanted
 }
