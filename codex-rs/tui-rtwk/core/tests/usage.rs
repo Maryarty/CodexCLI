@@ -2,6 +2,8 @@
 //! oracle's `Remote<T>` (`analytics/data.rs`: loading, unavailable, error,
 //! ready) as events, and the report intent.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use codex_tui_rtwk_core::app::{AppEv, Intent};
 use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
 use codex_tui_rtwk_core::screens::ScreenIntent;
