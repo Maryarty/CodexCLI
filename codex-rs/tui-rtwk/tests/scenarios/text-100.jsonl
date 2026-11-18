@@ -1,0 +1,10 @@
+{"scenario":"text-100","mock":"text-100","size":[100,30],"oracle_args":["-c","analytics.enabled=false","-c","tui.disable_paste_burst=true"],"rtwk_args":[],"timeout_ms":15000}
+{"check":"startup","until":"Ask Codex to do anything","gap":"VS2: no welcome banner, footer hints differ (the skeleton chat)"}
+{"send":"Stream 100 events per second."}
+{"sleep_ms":300}
+{"key":"enter"}
+{"check":"answer","until":"END-text-100","gap":"VS2: the skeleton chat has no user-message echo, no Worked-for line, a different footer"}
+{"send":"/quit"}
+{"sleep_ms":300}
+{"key":"enter"}
+{"wait_exit":true,"gap":"VS2: no token-usage / resume hint printed on exit"}

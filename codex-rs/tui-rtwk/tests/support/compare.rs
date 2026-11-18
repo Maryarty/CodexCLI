@@ -69,3 +69,58 @@ pub fn side_by_side(oracle: &Shot, rtwk: &Shot, n: &Normalize) -> String {
     ));
     out
 }
+
+/// What a checkpoint showed: the differences, and the gap the script names
+/// for it, if any.
+#[derive(Debug, Clone)]
+pub struct Finding {
+    pub checkpoint: String,
+    pub gap: Option<String>,
+    pub diffs: Vec<String>,
+}
+
+/// The verdict of a comparison. A gap is a difference the script names and
+/// explains (codex-rtwk's chat is still the skeleton's); it is printed on
+/// every run, fails under `SCENARIO_STRICT=1`, and fails when it has closed
+/// (the marker must then go), so it can neither hide nor outlive its cause.
+#[derive(Debug, Clone, Default)]
+pub struct Report {
+    /// Notes that are never excused: a wait in vain, a differing exit code.
+    pub general: Vec<String>,
+    pub findings: Vec<Finding>,
+}
+
+impl Report {
+    pub fn failures(&self, strict: bool) -> Vec<String> {
+        let mut out = self.general.clone();
+        for f in &self.findings {
+            match (&f.gap, f.diffs.is_empty()) {
+                (None, true) => {}
+                (Some(_), true) if strict => {}
+                (Some(gap), true) => out.push(format!(
+                    "{}: now agrees with the oracle; remove its gap marker ({gap})",
+                    f.checkpoint
+                )),
+                (Some(_), false) if !strict => {}
+                _ => {
+                    out.push(format!("{}: {} difference(s)", f.checkpoint, f.diffs.len()));
+                    out.extend(f.diffs.iter().map(|d| format!("    {d}")));
+                }
+            }
+        }
+        out
+    }
+
+    /// The gaps that still differ, one line each.
+    pub fn expected_gaps(&self) -> Vec<String> {
+        self.findings
+            .iter()
+            .filter(|f| !f.diffs.is_empty())
+            .filter_map(|f| {
+                f.gap.as_ref().map(|gap| {
+                    format!("{}: {} difference(s), expected: {gap}", f.checkpoint, f.diffs.len())
+                })
+            })
+            .collect()
+    }
+}

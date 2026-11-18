@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::support::compare::{compare, side_by_side};
+use crate::support::compare::{Finding, Report, compare, side_by_side};
 use crate::support::normalize::Normalize;
 use crate::support::pty::Shot;
 use crate::support::script::{Step, key_bytes, parse};
@@ -29,6 +29,14 @@ fn timers_become_a_placeholder() {
     assert_eq!(n.row("Worked for 1m 23s"), "Worked for <t>");
     assert_eq!(n.row("took 100ms"), "took <t>");
     assert_eq!(n.row("3d ago"), "<t> ago");
+}
+
+#[test]
+fn clock_times_become_a_placeholder() {
+    let n = Normalize::new();
+    assert_eq!(n.row("Worked for 1s • 11:59"), "Worked for <t> • <clock>");
+    assert_eq!(n.row("at 9:05 and 23:40."), "at <clock> and <clock>.");
+    assert_eq!(n.row("ratio 1:2 or 12:345"), "ratio 1:2 or 12:345");
 }
 
 #[test]
@@ -74,7 +82,7 @@ fn a_shot_is_normalized_row_by_row_and_in_its_scrollback() {
 // ---- the script
 
 const FILE: &str = r#"
-{"scenario":"demo","mock":"text-100","size":[100,30],"seed":"agents-3","oracle_args":["agents","--no-daemon"],"rtwk_args":["agents"],"scrollback":true,"gap":"VS2","timeout_ms":3000}
+{"scenario":"demo","mock":"text-100","size":[100,30],"seed":"agents-3","oracle_args":["agents","--no-daemon"],"rtwk_args":["agents"],"scrollback":true,"timeout_ms":3000}
 {"wait":"›"}
 {"send":"hi\r"}
 {"key":"ctrl-c"}
@@ -82,8 +90,8 @@ const FILE: &str = r#"
 {"resize":[80,24]}
 {"sleep_ms":300}
 {"check":"first","until":"done"}
-{"check":"second"}
-{"wait_exit":true}
+{"check":"second","gap":"VS2: chat"}
+{"wait_exit":true,"gap":"VS2: exit"}
 "#;
 
 #[test]
@@ -97,7 +105,6 @@ fn a_scenario_file_parses_to_its_header_and_steps() {
     assert_eq!(h.oracle_args, ["agents", "--no-daemon"]);
     assert_eq!(h.rtwk_args, ["agents"]);
     assert!(h.scrollback);
-    assert_eq!(h.gap.as_deref(), Some("VS2"));
     assert_eq!(h.timeout, Duration::from_secs(3));
     assert_eq!(
         scn.steps,
@@ -108,9 +115,9 @@ fn a_scenario_file_parses_to_its_header_and_steps() {
             Step::Paste("two\nlines".into()),
             Step::Resize(80, 24),
             Step::Sleep(Duration::from_millis(300)),
-            Step::Check { name: "first".into(), until: Some("done".into()) },
-            Step::Check { name: "second".into(), until: None },
-            Step::WaitExit,
+            Step::Check { name: "first".into(), until: Some("done".into()), gap: None },
+            Step::Check { name: "second".into(), until: None, gap: Some("VS2: chat".into()) },
+            Step::WaitExit { gap: Some("VS2: exit".into()) },
         ]
     );
 }
@@ -121,7 +128,7 @@ fn header_defaults() {
     let h = &scn.header;
     assert_eq!(h.size, (100, 30));
     assert!(h.oracle_args.is_empty() && h.rtwk_args.is_empty());
-    assert!(!h.scrollback && h.gap.is_none() && h.seed.is_none());
+    assert!(!h.scrollback && h.seed.is_none());
     assert_eq!(h.timeout, Duration::from_secs(20));
     assert!(scn.steps.is_empty());
 }
@@ -219,4 +226,56 @@ fn side_by_side_puts_the_oracle_left_and_marks_differing_rows() {
         rows.iter().any(|r| r.starts_with("! left") && r.contains("| right")),
         "{text}"
     );
+}
+
+// ---- the report: gaps are named, never silent
+
+fn finding(checkpoint: &str, gap: Option<&str>, diffs: &[&str]) -> Finding {
+    Finding {
+        checkpoint: checkpoint.to_owned(),
+        gap: gap.map(str::to_owned),
+        diffs: diffs.iter().map(|d| (*d).to_owned()).collect(),
+    }
+}
+
+#[test]
+fn a_difference_without_a_gap_fails() {
+    let report = Report {
+        general: vec![],
+        findings: vec![finding("a", None, &["row 1: x"]), finding("b", None, &[])],
+    };
+    let failures = report.failures(false);
+    assert_eq!(failures.len(), 2, "{failures:?}");
+    assert!(failures[0].contains("a") && failures[1].contains("row 1"), "{failures:?}");
+    assert!(report.expected_gaps().is_empty());
+}
+
+#[test]
+fn a_difference_under_a_gap_is_reported_as_expected_and_fails_only_when_strict() {
+    let report = Report {
+        general: vec![],
+        findings: vec![finding("a", Some("VS2: chat"), &["row 1: x", "row 2: y"])],
+    };
+    assert!(report.failures(false).is_empty());
+    let expected = report.expected_gaps();
+    assert_eq!(expected.len(), 1);
+    assert!(expected[0].contains("VS2: chat") && expected[0].contains("2 difference"), "{expected:?}");
+    let strict = report.failures(true);
+    assert!(strict.iter().any(|f| f.contains("row 1")), "{strict:?}");
+}
+
+#[test]
+fn a_gap_that_closed_must_be_removed_from_the_script() {
+    let report = Report { general: vec![], findings: vec![finding("a", Some("VS2: chat"), &[])] };
+    let failures = report.failures(false);
+    assert!(failures.iter().any(|f| f.contains("a") && f.contains("remove")), "{failures:?}");
+    assert!(report.failures(true).is_empty());
+    assert!(report.expected_gaps().is_empty());
+}
+
+#[test]
+fn general_notes_always_fail() {
+    let report = Report { general: vec!["rtwk: did not exit".into()], findings: vec![] };
+    assert_eq!(report.failures(false), ["rtwk: did not exit"]);
+    assert_eq!(report.failures(true), ["rtwk: did not exit"]);
 }

@@ -53,13 +53,12 @@ impl Backend {
     /// Serves the mock scenario `mock`, writes a fresh home for it and
     /// applies `seed` to the home.
     pub fn start(mock: &str, seed_name: Option<&str>) -> Result<Backend, String> {
-        let root = std::env::temp_dir().join(format!(
-            "rtwk-scn-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.subsec_nanos())
-        ));
+        // The same root for both binaries of a test (they run one after the
+        // other and the first one's is gone by then), and a short one: the
+        // working directory is shown on screen, and a path that differs in
+        // length would wrap differently.
+        let root = PathBuf::from("/tmp").join(format!("rtwk-scn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).map_err(|e| format!("{}: {e}", root.display()))?;
         let url_file = root.join("url");
         let server = Command::new("python3")

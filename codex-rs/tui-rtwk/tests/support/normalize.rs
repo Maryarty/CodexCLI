@@ -121,6 +121,20 @@ fn duration_len(chars: &[char], at: usize) -> Option<usize> {
     boundary_after(chars, i).then_some(i - at)
 }
 
+/// `11:59`, `9:05` (one or two digits, a colon, two digits) → its length.
+fn clock_len(chars: &[char], at: usize) -> Option<usize> {
+    let digits = |from: usize| chars[from..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let hours = digits(at);
+    if !(1..=2).contains(&hours) || chars.get(at + hours) != Some(&':') {
+        return None;
+    }
+    let minutes = at + hours + 1;
+    if digits(minutes) != 2 {
+        return None;
+    }
+    boundary_after(chars, minutes + 2).then_some(hours + 3)
+}
+
 fn is_spinner(c: char) -> bool {
     ('\u{2800}'..='\u{28ff}').contains(&c)
 }
@@ -139,6 +153,11 @@ fn tokens(text: &str) -> String {
             }
             if let Some(len) = version_len(&chars, i) {
                 out.push_str("vX");
+                i += len;
+                continue;
+            }
+            if let Some(len) = clock_len(&chars, i) {
+                out.push_str("<clock>");
                 i += len;
                 continue;
             }

@@ -10,7 +10,9 @@
 //! {"resize":[80,24]}
 //! {"sleep_ms":300}
 //! {"check":"after-answer","until":"END-text-100"}   compare both screens here
+//! {"check":"x","gap":"VS2: why"}     ... and codex-rtwk is expected to differ here
 //! {"wait_exit":true}                 wait for the program to end; checks the final screen
+//!                                    (checkpoint `after-exit`; it takes a "gap" too)
 //! ```
 
 use std::time::Duration;
@@ -32,8 +34,6 @@ pub struct Header {
     pub rtwk_args: Vec<String>,
     /// Compare the scrollback too (inline mode).
     pub scrollback: bool,
-    /// Why codex-rtwk is expected to differ today, if it is.
-    pub gap: Option<String>,
     /// How long a `wait` may take.
     pub timeout: Duration,
 }
@@ -45,8 +45,10 @@ pub enum Step {
     Paste(String),
     Resize(u16, u16),
     Sleep(Duration),
-    Check { name: String, until: Option<String> },
-    WaitExit,
+    /// A checkpoint; `gap` says why codex-rtwk is expected to differ here.
+    Check { name: String, until: Option<String>, gap: Option<String> },
+    /// The program ends (the screen it leaves is the checkpoint `after-exit`).
+    WaitExit { gap: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +126,6 @@ fn header(value: &Value, line: usize) -> Result<Header, String> {
         oracle_args: string_list(value, "oracle_args", line)?,
         rtwk_args: string_list(value, "rtwk_args", line)?,
         scrollback: value.get("scrollback").and_then(Value::as_bool).unwrap_or(false),
-        gap: text("gap"),
         timeout: Duration::from_millis(value.get("timeout_ms").and_then(Value::as_u64).unwrap_or(20_000)),
     })
 }
@@ -161,10 +162,10 @@ fn step(value: &Value, line: usize) -> Result<Step, String> {
         return Ok(Step::Sleep(Duration::from_millis(ms)));
     }
     if let Some(name) = str_of("check") {
-        return Ok(Step::Check { name, until: str_of("until") });
+        return Ok(Step::Check { name, until: str_of("until"), gap: str_of("gap") });
     }
     if value.get("wait_exit").is_some() {
-        return Ok(Step::WaitExit);
+        return Ok(Step::WaitExit { gap: str_of("gap") });
     }
     Err(err("unknown step (wait, send, key, paste, resize, sleep_ms, check, wait_exit)"))
 }
