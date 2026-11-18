@@ -151,7 +151,9 @@ impl State for ChatState {
         for text in &thread.queue {
             body = body.child(Text::new(strings.queued(text).to_string()).style(tokens.dim()));
         }
-        let body = body.child(composer);
+        let body = body
+            .child(composer)
+            .child(Text::new(strings.chat.keys).style(tokens.dim()));
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);
         Focus::new(body)
             .bind(quit, cx.send(ChatMsg::Quit))

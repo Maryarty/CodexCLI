@@ -24,6 +24,8 @@ pub struct Chat {
     pub working: &'static str,
     pub ready: &'static str,
     pub turn_failed: &'static str,
+    /// The key hints under the composer.
+    pub keys: &'static str,
     pub error: Msg<1>,
     pub lagged: Msg<1>,
     pub queued: Msg<1>,
@@ -44,7 +46,10 @@ pub struct Presenter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Debug {
     pub title: &'static str,
+    /// The hint of a menu that was pushed (Esc and q go back).
     pub hint: &'static str,
+    /// The hint of the menu as the home (q quits).
+    pub hint_home: &'static str,
     pub empty_slot: Msg<2>,
 }
 
@@ -67,6 +72,7 @@ pub const EN: Shared = Shared {
         working: "working…",
         ready: "ready",
         turn_failed: "error: the turn failed",
+        keys: "F12 screens  Ctrl+C quit",
         error: msg!("error: {0}"),
         lagged: msg!("error: the backend dropped {0} events"),
         queued: msg!("(queued) {0}"),
@@ -81,7 +87,8 @@ pub const EN: Shared = Shared {
     },
     debug: Debug {
         title: "codex-rtwk debug screens",
-        hint: "up/down move, enter opens, q quits",
+        hint: "up/down move, enter opens, esc/q back",
+        hint_home: "up/down move, enter opens, q quits",
         empty_slot: msg!("{0} ({1}): empty slot"),
     },
 };

@@ -10,6 +10,8 @@ mod cli;
 mod l10n;
 #[path = "model.rs"]
 mod model;
+#[path = "navigation.rs"]
+mod navigation;
 #[path = "skeleton.rs"]
 mod skeleton;
 
