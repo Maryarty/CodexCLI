@@ -1,10 +1,10 @@
-//! The strings of `pager` (S16): a table of `&'static str` fields and typed
-//! messages (`Msg<N>` behind a method) per locale, read by reference through
-//! `of(cx)`. `EN` is the oracle's text byte for byte; each group of strings
-//! names the oracle file it comes from. A language is one more `const` here,
-//! registered with `with_ru(&RU)`-style on `TABLES`; a screen never changes
-//! for it. Nothing else in this directory holds user-visible text (the rules
-//! test `adr010_no_user_visible_literal_outside_the_string_tables`).
+//! The strings of `pager` (S16): a table of `&'static str` fields per locale,
+//! read by reference through `of(cx)`. `EN` is the oracle's text byte for
+//! byte; each group names the oracle file it comes from. A language is one
+//! more `const` here, registered with `with_ru(&RU)`-style on `TABLES`; a
+//! screen never changes for it. Nothing else in this directory holds
+//! user-visible text (the rules test
+//! `adr010_no_user_visible_literal_outside_the_string_tables`).
 
 use rtwk::l10n::DependCx;
 
@@ -17,10 +17,37 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    /// The slot's heading (the empty form).
+    /// Oracle: `pager_overlay/transcript.rs` (the transcript overlay's title).
+    pub transcript_title: &'static str,
+    /// The navigation hints (oracle: `pager_overlay.rs` `render_navigation_hints`
+    /// with the default keymap's primary keys).
+    pub navigation: &'static str,
+    /// Oracle: `StaticOverlay::render_hints`, the second row.
+    pub close_static: &'static str,
+    /// Oracle: `TranscriptOverlay::render_hints`, the second row.
+    pub close_transcript: &'static str,
+    /// Oracle: `transcript_view/footer.rs` `status_line_with_navigation`.
+    pub select: &'static str,
+    pub loading_marker: &'static str,
+    pub loading: &'static str,
+    pub earlier: &'static str,
+    pub retry: &'static str,
 }
 
-/// English: the oracle's text (the slice names the oracle file per group).
-pub const EN: Strings = Strings { title: "transcript pager" };
+/// English: the oracle's text.
+pub const EN: Strings = Strings {
+    title: "Pager",
+    transcript_title: "T R A N S C R I P T",
+    navigation: " ↑/↓ to scroll · pgup/pgdn to page · home/end to jump",
+    close_static: " q close",
+    close_transcript: " q close · f3 find · esc browse prompts",
+    select: "⌃space select",
+    loading_marker: "↑ ",
+    loading: "Loading earlier messages…",
+    earlier: "Earlier messages available.  ",
+    retry: "Retry history: ⌥</⌃home.",
+};
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
 

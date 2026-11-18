@@ -98,7 +98,7 @@ fn static_pager_scrolls_and_q_closes() {
     assert!(h.t.screen().contains(" 100% "), "{}", h.t.screen());
     h.press("q");
     assert!(
-        !h.t.screen().contains("to scroll"),
+        !h.t.screen().contains("S T A T I C"),
         "q closed the pager: {}",
         h.t.screen()
     );

@@ -1,0 +1,4 @@
+# The static pager (`/diff` form) with three lines.
+# Oracle: pager_overlay.rs static_overlay_snapshot_basic (lines one, two, three; title S T A T I C).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"pager","ev":{"page":{"title":"S T A T I C","lines":["one","two","three"]}}}
