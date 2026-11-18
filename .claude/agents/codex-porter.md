@@ -20,8 +20,10 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
    brief (`.tm/fleet-brief.md`) whole once, and the notes. The task's
    description is your brief (goal, oracle rows, sections, area, manner,
    evidence). Do not load tm skills.
-2. Read `docs/rtwk-port/architecture.md` only at the sections your task
-   names. Find rtwk API in the generated references (`docs/rtwk-port/refs/`,
+2. Read `docs/rtwk-port/process.md` Part 1 §2–§4 once (the concept map,
+   the eight steps of translating a screen, the worked example) and work by
+   its steps; read `docs/rtwk-port/architecture.md` only at the sections your
+   task names. Find rtwk API in the generated references (`docs/rtwk-port/refs/`,
    one `grep` first) before opening rtwk source; open rtwk source in ranges,
    only for what the references do not answer.
 3. A finished slice shows the manner (the brief names it): copy it, renamed

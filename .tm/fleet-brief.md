@@ -2,9 +2,13 @@
 
 You are `{FORK}`. The tm hook supplies your session and subagent identity.
 Your prompt carries only your task; the brief is the task's description in
-tm, the working rules are in your agent file and here. The whole process (for
-the orchestrator): `docs/rtwk-port/process.md` — read only the section this
-file points to.
+tm, the working rules are in your agent file and here.
+
+**How a screen is translated** — `docs/rtwk-port/process.md` Part 1: §2 (the
+codex-tui → rtwk concept map) and §3 (the eight steps), with the worked
+example in §4. Read them once before your first edit; a porter and a reviewer
+both work by them. Appendix A (the fleet's process) is for the orchestrator;
+read only the subsection this file points to.
 
 ## What the port is
 - `codex-rs/tui` (ratatui) is the oracle at the commit in
@@ -20,7 +24,7 @@ file points to.
   scenarios: `~/.cache/codexcli/oracle-bin/` (never build codex-tui yourself).
 - Never edit `codex-rs/tui/**`, `codex-rs/Cargo.toml` or `codex-rs/Cargo.lock`.
 
-## A slice is done when (process.md §4)
+## A slice is done when (process.md §3, §A4)
 1. **Tests first**: your first commit is `<alias>: parity tests (red)` —
    screen tests at the oracle's size with expected values from the oracle
    (its `.snap` text, its assertions), state tests (events in, model and
@@ -28,7 +32,7 @@ file points to.
 2. **Every oracle test** of your oracle files is mapped: ported (named after
    it) / n/a with a reason / delta.
 3. **Parity pack** `docs/rtwk-port/parity/<alias>.md` (format: process.md
-   §4.3): oracle-test map, snapshots, visual deltas (kind from
+   §A4.3): oracle-test map, snapshots, visual deltas (kind from
    `parity/delta-kinds.md` or NEW, cause, the differing rows of both sides,
    proposal), pty scenarios `<alias>-<name>` and their result (or "n/a until
    scenario-harness"), rules extended, rtwk needs.

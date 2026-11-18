@@ -13,7 +13,7 @@ A command over ~4 minutes: `~/.cache/rtwk/bgrun.sh start <name> -- <cmd>`,
 then `~/.cache/rtwk/bgrun.sh wait <name>` until it prints `exit N`.
 Cargo goes through `~/.cache/rtwk/acargo`, nextest with `--status-level fail
 --final-status-level fail --hide-progress-bar`.
-A landing candidate's check (`docs/rtwk-port/process.md` §6) is several
+A landing candidate's check (`docs/rtwk-port/process.md` §A6) is several
 commands: run them all even after one fails, and report each. A test that
 fails once is rerun once in the same way; report it as FLAKY if it then
 passes, as FAIL if it fails again.
