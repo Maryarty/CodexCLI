@@ -522,3 +522,8 @@ Bites of chat-nav-fix (tests added in its red commit `7780edcfb`, all red there)
 - Intents from the chat (`Intent::Session`) end in a notice until session-core
   gives each command its effect: every `SessionIntent` is typed, none is a
   silent no-op (`a_command_that_needs_the_session_is_a_typed_intent_never_a_silent_noop`).
+
+
+## Oracle 0.170.0 (oracle-0170)
+
+ORACLE_REF = 29eb79e9 (release rust-v0.170.0). Row changed: `/mcp` has no `--environment` option in the release: description "list MCP tools; use /mcp verbose or /mcp login <name>", usage `Usage: /mcp [verbose | login <name>]`; core `dispatch_mcp` and `chat/strings.rs` follow (`UsageKey::McpLogin` removed). Slash popup `UnavailableThread` input mode, `edit_history` (composer undo/redo) and sidebar: not in oracle 0.170.0.

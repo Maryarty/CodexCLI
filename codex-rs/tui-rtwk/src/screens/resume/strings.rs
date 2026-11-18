@@ -35,8 +35,6 @@ pub struct Strings {
     /// Oracle: `render_list`: the indicators above and below the rows.
     pub more_above: &'static str,
     pub more_below: &'static str,
-    /// The marks of a cloud thread before its title (`label_style`).
-    pub cloud_mark: &'static str,
     /// Oracle: `FooterPart::text` for a missing cwd and branch.
     pub no_cwd: &'static str,
     pub no_branch: &'static str,
@@ -94,7 +92,6 @@ pub const EN: Strings = Strings {
     empty: "No sessions yet",
     more_above: "↑ more",
     more_below: "↓ more",
-    cloud_mark: "\u{2601}\u{fe0e} ",
     no_cwd: "no cwd",
     no_branch: "no branch",
     age_missing: "-",

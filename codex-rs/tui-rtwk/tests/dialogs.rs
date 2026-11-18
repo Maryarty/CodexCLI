@@ -125,7 +125,7 @@ fn footer_mode_shortcut_overlay() {
 
 // shortcut_overlay_tests.rs: shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list
 #[test]
-#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
+#[ignore = "not in oracle 0.170.0: bottom_pane/shortcut_overlay/keyboard.rs, snapshot shortcut_keyboard_base; open: the oracle draws this in its bottom pane"]
 fn shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list() {
     let mut h = open(120, 30, "shortcut_overlay");
     assert!(

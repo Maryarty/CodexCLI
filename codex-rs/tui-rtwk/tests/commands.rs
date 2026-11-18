@@ -132,14 +132,8 @@ fn usage_notices_of_the_oracle() {
         ("/usage monthly", "Usage: /usage [daily|weekly|cumulative]"),
         ("/raw maybe", "Usage: /raw [on|off]"),
         ("/keymap nope", "Usage: /keymap [debug]"),
-        (
-            "/mcp full",
-            "Usage: /mcp [verbose | login <name> [--environment <id>]]",
-        ),
-        (
-            "/mcp login",
-            "Usage: /mcp [verbose | login <name> [--environment <id>]]",
-        ),
+        ("/mcp full", "Usage: /mcp [verbose | login <name>]"),
+        ("/mcp login", "Usage: /mcp [verbose | login <name>]"),
     ] {
         let mut h = chat();
         send(&mut h, line);

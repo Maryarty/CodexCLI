@@ -163,3 +163,13 @@ n/a until scenario-harness. The screens open from the debug menu (F12 from chat)
 - G-new: `Scrollable` sends no initial `ScrollMetrics` notification (only after a move): a listener cannot know the largest offset of a page that has not moved. Wanted: a `ScrollMetricsNotification` on layout, as Flutter's, or a `ScrollController`-free metrics read.
 - Selected-row fill (D2): a row-level background widget would remove the delta.
 - `~` filler (D1): an option on `ListView`/`SingleChildScrollView` to fill unused rows with a glyph.
+
+
+## Oracle 0.170.0 (oracle-0170)
+
+ORACLE_REF = 29eb79e9 (release rust-v0.170.0). the release branch (older than the previous oracle c6a41e32; the tag is a cut of main at 72532eca plus four commits) lacks 66 tui files that c6a41e32 had, among them `app/sidebar_document*.rs`, `app/sidebar_files*.rs`, `sidebar_image.rs`, `app/statusline_picker*.rs`, `app/status_line_settings*.rs`, `statusline_provider*`, `chatwidget/statusline_*`, `statusline_metrics*`, `app/cloud_environments*.rs`, `app/archived_thread.rs`, `thread_label.rs`, `bottom_pane/shortcut_overlay/keyboard.rs`, `bottom_pane/chat_composer/edit_history.rs`, `transcript_view/select_mode/table.rs`, `chatwidget/read_only.rs`, `command_output.rs`. Our code for them stays (the person decides).
+
+Rows changed here:
+- `resume_picker.rs` (S-resume): the oracle has no cloud mark (`thread_label.rs` and `label_style` are gone): the table row `resume_picker_table` now shows the plain title; the view no longer draws `cloud_mark` (core `Row.cloud` stays, unused by the view).
+- `app/agents_overview_tests.rs`: 44 tests at the tag (47 before); `app/agents_overview_actions_tests.rs`: 12 (13 before); the oracle `agents_overview` snapshot shows `Model: gpt-6.2-sol` (fixture `agents/fixtures/overview.jsonl` and `core/tests/agents.rs` follow). Tests of the removed ones stay mapped as before; the cloud-only ones are "not in oracle 0.170.0".
+- Sidebar (`sidebar_document*`, `sidebar_files*`, `sidebar_image`) and the transcript table select mode: not in oracle 0.170.0.
