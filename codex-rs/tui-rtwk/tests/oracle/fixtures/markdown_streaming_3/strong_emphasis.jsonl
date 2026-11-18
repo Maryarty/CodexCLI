@@ -1,0 +1,6 @@
+# Oracle markdown_render_tests.rs:874 `strong_emphasis`: the markdown the test renders, sent as the agent's answer.
+# The oracle renders the text with no chat around it; the chat's own bullet and indent are not part of the test.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/agentMessage/delta", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1", "delta": "**Strong *emphasis***"}}}
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [{"type": "agentMessage", "moderation": null, "id": "msg-1", "text": "**Strong *emphasis***", "phase": "final_answer", "memoryCitation": null, "delivery": null, "questions": null, "startedAtMs": null, "completedAtMs": null}], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": 1000}}}}
