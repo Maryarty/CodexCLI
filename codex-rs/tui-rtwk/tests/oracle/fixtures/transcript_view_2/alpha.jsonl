@@ -1,0 +1,5 @@
+# One plain answer (copy_on_select_tests.rs:145, input_tests.rs:178).
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/agentMessage/delta", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1-0", "delta": "alpha beta gamma"}}}
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
