@@ -37,6 +37,10 @@ pub struct SideRun {
     pub checkpoints: Vec<(String, Shot)>,
     /// What went wrong on the way (a `wait` that timed out, ...).
     pub notes: Vec<String>,
+    /// What went wrong at a checkpoint (a wait in vain, a screen that never
+    /// got quiet): (checkpoint, note). They belong to the checkpoint's
+    /// finding, so a gap named there covers them.
+    pub checkpoint_notes: Vec<(String, String)>,
     pub exit_code: Option<i32>,
     pub server_log: String,
     /// The program ended before the script did: (exit code, its screen).
@@ -52,7 +56,10 @@ pub fn run_side(scn: &Scenario, side: Side, exe: &Path) -> Result<SideRun, Strin
         Side::Rtwk => &scn.header.rtwk_args,
     };
     let workdir = backend.workdir.display().to_string();
-    let args: Vec<String> = template.iter().map(|a| a.replace("{workdir}", &workdir)).collect();
+    let args: Vec<String> = template
+        .iter()
+        .map(|a| a.replace("{workdir}", &workdir))
+        .collect();
     let env = pty::environment(&backend.codex_home, &backend.home);
     let mut pty = Pty::start(exe, &args, &backend.workdir, &env, scn.header.size)?;
     let mut run = SideRun::default();
@@ -65,7 +72,10 @@ pub fn run_side(scn: &Scenario, side: Side, exe: &Path) -> Result<SideRun, Strin
         match step {
             Step::Wait(text) => {
                 if !pty.wait_text(text, scn.header.timeout) {
-                    run.notes.push(format!("waited {:?} for {text:?} in vain", scn.header.timeout));
+                    run.notes.push(format!(
+                        "waited {:?} for {text:?} in vain",
+                        scn.header.timeout
+                    ));
                 }
             }
             Step::Send(bytes) => pty.send(bytes),
@@ -82,10 +92,16 @@ pub fn run_side(scn: &Scenario, side: Side, exe: &Path) -> Result<SideRun, Strin
                 if let Some(text) = until
                     && !pty.wait_text(text, scn.header.timeout)
                 {
-                    run.notes.push(format!("{name}: waited {:?} for {text:?} in vain", scn.header.timeout));
+                    run.checkpoint_notes.push((
+                        name.clone(),
+                        format!("waited {:?} for {text:?} in vain", scn.header.timeout),
+                    ));
                 }
                 if !pty.wait_quiet(QUIET, QUIET_MAX) {
-                    run.notes.push(format!("{name}: the screen never got quiet; shot after {QUIET_MAX:?}"));
+                    run.checkpoint_notes.push((
+                        name.clone(),
+                        format!("the screen never got quiet; shot after {QUIET_MAX:?}"),
+                    ));
                 }
                 let shot = n.shot(&pty.shot());
                 save(&scn.header.name, name, side, &shot);
@@ -94,7 +110,10 @@ pub fn run_side(scn: &Scenario, side: Side, exe: &Path) -> Result<SideRun, Strin
             Step::WaitExit { .. } => {
                 run.exit_code = pty.wait_exit(EXIT_WAIT);
                 if run.exit_code.is_none() {
-                    run.notes.push(format!("did not exit within {EXIT_WAIT:?}"));
+                    run.checkpoint_notes.push((
+                        "after-exit".to_owned(),
+                        format!("did not exit within {EXIT_WAIT:?}"),
+                    ));
                 }
                 pty.wait_quiet(QUIET, QUIET_MAX);
                 let shot = n.shot(&pty.shot());
@@ -112,7 +131,10 @@ fn save(scenario: &str, checkpoint: &str, side: Side, shot: &Shot) {
     let dir = report_dir(scenario);
     let _ = std::fs::create_dir_all(&dir);
     let mut text = shot.rows.join("\n");
-    text.push_str(&format!("\n--- cursor {:?} visible {} alt {}\n", shot.cursor, shot.cursor_visible, shot.alt_screen));
+    text.push_str(&format!(
+        "\n--- cursor {:?} visible {} alt {}\n",
+        shot.cursor, shot.cursor_visible, shot.alt_screen
+    ));
     for line in &shot.scrollback {
         text.push_str(&format!("scrollback: {line}\n"));
     }
@@ -130,7 +152,9 @@ fn normalizer(backend: &Backend) -> Normalize {
 
 /// Where the side-by-side files go: `target/tmp/scenarios/<name>/`.
 pub fn report_dir(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("scenarios").join(name)
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("scenarios")
+        .join(name)
 }
 
 /// Both binaries, one after the other (never together: the screens'
@@ -168,10 +192,17 @@ pub fn differences(scn: &Scenario, oracle: &SideRun, rtwk: &SideRun) -> Report {
     let dir = report_dir(&scn.header.name);
     let _ = std::fs::create_dir_all(&dir);
     let mut report = Report::default();
-    report.general.extend(oracle.notes.iter().map(|note| format!("oracle: {note}")));
-    report.general.extend(rtwk.notes.iter().map(|note| format!("rtwk: {note}")));
+    report
+        .general
+        .extend(oracle.notes.iter().map(|note| format!("oracle: {note}")));
+    report
+        .general
+        .extend(rtwk.notes.iter().map(|note| format!("rtwk: {note}")));
     if oracle.exit_code != rtwk.exit_code {
-        report.general.push(format!("exit code: oracle {:?}, rtwk {:?}", oracle.exit_code, rtwk.exit_code));
+        report.general.push(format!(
+            "exit code: oracle {:?}, rtwk {:?}",
+            oracle.exit_code, rtwk.exit_code
+        ));
     }
     let gap_of = |name: &str| {
         scn.steps.iter().find_map(|step| match step {
@@ -182,15 +213,29 @@ pub fn differences(scn: &Scenario, oracle: &SideRun, rtwk: &SideRun) -> Report {
     };
     for (name, o) in &oracle.checkpoints {
         let Some((_, r)) = rtwk.checkpoints.iter().find(|(other, _)| other == name) else {
-            report.general.push(format!("{name}: rtwk has no such checkpoint"));
+            report
+                .general
+                .push(format!("{name}: rtwk has no such checkpoint"));
             continue;
         };
-        let diffs = compare(o, r, &n, scn.header.scrollback);
+        let mut diffs = compare(o, r, &n, scn.header.scrollback);
+        for (side, run) in [("oracle", oracle), ("rtwk", rtwk)] {
+            diffs.extend(
+                run.checkpoint_notes
+                    .iter()
+                    .filter(|(checkpoint, _)| checkpoint == name)
+                    .map(|(_, note)| format!("{side}: {note}")),
+            );
+        }
         if !diffs.is_empty() {
             let file = dir.join(format!("{name}.txt"));
             let _ = std::fs::write(&file, side_by_side(o, r, &n));
         }
-        report.findings.push(Finding { checkpoint: name.clone(), gap: gap_of(name), diffs });
+        report.findings.push(Finding {
+            checkpoint: name.clone(),
+            gap: gap_of(name),
+            diffs,
+        });
     }
     report
 }

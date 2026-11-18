@@ -29,7 +29,8 @@ pub fn apply(name: &str, codex_home: &Path, workdir: &Path) -> Result<(), String
     match name {
         "agents-3" => {
             for (ts, id, preview) in AGENTS {
-                rollout(codex_home, workdir, ts, id, preview).map_err(|e| format!("seed {name}: {e}"))?;
+                rollout(codex_home, workdir, ts, id, preview)
+                    .map_err(|e| format!("seed {name}: {e}"))?;
             }
             Ok(())
         }
@@ -40,7 +41,13 @@ pub fn apply(name: &str, codex_home: &Path, workdir: &Path) -> Result<(), String
 /// `sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl`: the session meta, the user's
 /// message as a response item and as an event; the file's mtime is the
 /// session's time.
-fn rollout(codex_home: &Path, workdir: &Path, ts: &str, id: &str, preview: &str) -> std::io::Result<()> {
+fn rollout(
+    codex_home: &Path,
+    workdir: &Path,
+    ts: &str,
+    id: &str,
+    preview: &str,
+) -> std::io::Result<()> {
     let dir = codex_home
         .join("sessions")
         .join(&ts[0..4])

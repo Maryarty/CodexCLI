@@ -13,7 +13,7 @@ mod unit;
 use std::path::Path;
 
 use support::backend;
-use support::run::{Outcome, Side, SideRun, report_dir, run_both, run_side};
+use support::run::{Outcome, Side, SideRun, differences, report_dir, run_both, run_side};
 use support::script::{Scenario, parse};
 
 fn load(name: &str) -> Scenario {
@@ -31,9 +31,34 @@ fn oracle_alone(name: &str) -> SideRun {
     let scn = load(name);
     let exe = backend::binary("oracle").unwrap_or_else(|e| panic!("{e}"));
     let run = run_side(&scn, Side::Oracle, &exe).unwrap_or_else(|e| panic!("{e}"));
-    assert!(run.notes.is_empty(), "oracle notes: {:#?}\nscreens in {}", run.notes, report_dir(name).display());
-    assert!(run.ended_early.is_none(), "the oracle ended early: {:?}", run.ended_early);
+    assert!(
+        run.notes.is_empty() && run.checkpoint_notes.is_empty(),
+        "oracle notes: {:#?} {:#?}\nscreens in {}",
+        run.notes,
+        run.checkpoint_notes,
+        report_dir(name).display()
+    );
+    assert!(
+        run.ended_early.is_none(),
+        "the oracle ended early: {:?}",
+        run.ended_early
+    );
     run
+}
+
+/// The oracle twice: the same screens at every checkpoint, which shows the
+/// normalizer leaves nothing in the comparison that changes from run to run.
+fn oracle_is_stable(name: &str) {
+    let scn = load(name);
+    let exe = backend::binary("oracle").unwrap_or_else(|e| panic!("{e}"));
+    let first = run_side(&scn, Side::Oracle, &exe).unwrap_or_else(|e| panic!("{e}"));
+    let second = run_side(&scn, Side::Oracle, &exe).unwrap_or_else(|e| panic!("{e}"));
+    let failures = differences(&scn, &first, &second).failures(true);
+    assert!(
+        failures.is_empty(),
+        "{name}: two oracle runs differ:\n{}",
+        failures.join("\n")
+    );
 }
 
 /// Both binaries, compared at every checkpoint. Gaps the script names are
@@ -70,4 +95,29 @@ fn text_100_oracle() {
 #[ignore = "pty scenario: run with `~/.cache/rtwk/acargo nextest run --run-ignored only --test scenarios`"]
 fn text_100_parity() {
     parity("text-100");
+}
+
+#[test]
+#[ignore = "pty scenario: run with `~/.cache/rtwk/acargo nextest run --run-ignored only --test scenarios`"]
+fn agents_oracle() {
+    let run = oracle_alone("agents");
+    assert_eq!(run.exit_code, Some(0));
+}
+
+#[test]
+#[ignore = "pty scenario: run with `~/.cache/rtwk/acargo nextest run --run-ignored only --test scenarios`"]
+fn agents_parity() {
+    parity("agents");
+}
+
+#[test]
+#[ignore = "pty scenario: run with `~/.cache/rtwk/acargo nextest run --run-ignored only --test scenarios`"]
+fn text_100_oracle_is_stable() {
+    oracle_is_stable("text-100");
+}
+
+#[test]
+#[ignore = "pty scenario: run with `~/.cache/rtwk/acargo nextest run --run-ignored only --test scenarios`"]
+fn agents_oracle_is_stable() {
+    oracle_is_stable("agents");
 }

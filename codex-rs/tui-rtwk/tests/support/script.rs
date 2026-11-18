@@ -46,9 +46,15 @@ pub enum Step {
     Resize(u16, u16),
     Sleep(Duration),
     /// A checkpoint; `gap` says why codex-rtwk is expected to differ here.
-    Check { name: String, until: Option<String>, gap: Option<String> },
+    Check {
+        name: String,
+        until: Option<String>,
+        gap: Option<String>,
+    },
     /// The program ends (the screen it leaves is the checkpoint `after-exit`).
-    WaitExit { gap: Option<String> },
+    WaitExit {
+        gap: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,17 +112,25 @@ fn string_list(value: &Value, key: &str, line: usize) -> Result<Vec<String>, Str
         return Ok(Vec::new());
     };
     list.as_array()
-        .and_then(|items| items.iter().map(|i| i.as_str().map(str::to_owned)).collect())
+        .and_then(|items| {
+            items
+                .iter()
+                .map(|i| i.as_str().map(str::to_owned))
+                .collect()
+        })
         .ok_or_else(|| format!("line {line}: `{key}` must be a list of strings"))
 }
 
 fn header(value: &Value, line: usize) -> Result<Header, String> {
     let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
-    let name = text("scenario").ok_or_else(|| format!("line {line}: the header needs `scenario`"))?;
+    let name =
+        text("scenario").ok_or_else(|| format!("line {line}: the header needs `scenario`"))?;
     let mock = text("mock").ok_or_else(|| format!("line {line}: the header needs `mock`"))?;
     let size = match value.get("size") {
         None => (100, 30),
-        Some(size) => dims(size).ok_or_else(|| format!("line {line}: `size` is [width, height]"))?,
+        Some(size) => {
+            dims(size).ok_or_else(|| format!("line {line}: `size` is [width, height]"))?
+        }
     };
     Ok(Header {
         name,
@@ -125,8 +139,16 @@ fn header(value: &Value, line: usize) -> Result<Header, String> {
         size,
         oracle_args: string_list(value, "oracle_args", line)?,
         rtwk_args: string_list(value, "rtwk_args", line)?,
-        scrollback: value.get("scrollback").and_then(Value::as_bool).unwrap_or(false),
-        timeout: Duration::from_millis(value.get("timeout_ms").and_then(Value::as_u64).unwrap_or(20_000)),
+        scrollback: value
+            .get("scrollback")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        timeout: Duration::from_millis(
+            value
+                .get("timeout_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(20_000),
+        ),
     })
 }
 
@@ -135,7 +157,10 @@ fn dims(value: &Value) -> Option<(u16, u16)> {
     let [w, h] = list.as_slice() else {
         return None;
     };
-    Some((u16::try_from(w.as_u64()?).ok()?, u16::try_from(h.as_u64()?).ok()?))
+    Some((
+        u16::try_from(w.as_u64()?).ok()?,
+        u16::try_from(h.as_u64()?).ok()?,
+    ))
 }
 
 fn step(value: &Value, line: usize) -> Result<Step, String> {
@@ -162,12 +187,18 @@ fn step(value: &Value, line: usize) -> Result<Step, String> {
         return Ok(Step::Sleep(Duration::from_millis(ms)));
     }
     if let Some(name) = str_of("check") {
-        return Ok(Step::Check { name, until: str_of("until"), gap: str_of("gap") });
+        return Ok(Step::Check {
+            name,
+            until: str_of("until"),
+            gap: str_of("gap"),
+        });
     }
     if value.get("wait_exit").is_some() {
         return Ok(Step::WaitExit { gap: str_of("gap") });
     }
-    Err(err("unknown step (wait, send, key, paste, resize, sleep_ms, check, wait_exit)"))
+    Err(err(
+        "unknown step (wait, send, key, paste, resize, sleep_ms, check, wait_exit)",
+    ))
 }
 
 /// Parses a scenario file.

@@ -42,7 +42,13 @@ fn clock_times_become_a_placeholder() {
 #[test]
 fn text_that_only_looks_like_a_timer_stays() {
     let n = Normalize::new();
-    for row in ["w0001 w0002", "END-text-100", "gpt-5.4 high", "5 files", "x12s"] {
+    for row in [
+        "w0001 w0002",
+        "END-text-100",
+        "gpt-5.4 high",
+        "5 files",
+        "x12s",
+    ] {
         assert_eq!(n.row(row), row);
     }
 }
@@ -115,9 +121,19 @@ fn a_scenario_file_parses_to_its_header_and_steps() {
             Step::Paste("two\nlines".into()),
             Step::Resize(80, 24),
             Step::Sleep(Duration::from_millis(300)),
-            Step::Check { name: "first".into(), until: Some("done".into()), gap: None },
-            Step::Check { name: "second".into(), until: None, gap: Some("VS2: chat".into()) },
-            Step::WaitExit { gap: Some("VS2: exit".into()) },
+            Step::Check {
+                name: "first".into(),
+                until: Some("done".into()),
+                gap: None
+            },
+            Step::Check {
+                name: "second".into(),
+                until: None,
+                gap: Some("VS2: chat".into())
+            },
+            Step::WaitExit {
+                gap: Some("VS2: exit".into())
+            },
         ]
     );
 }
@@ -135,7 +151,8 @@ fn header_defaults() {
 
 #[test]
 fn parse_errors_name_the_line() {
-    let err = parse("{\"scenario\":\"d\",\"mock\":\"m\"}\n{\"key\":\"nope\"}").expect_err("bad key");
+    let err =
+        parse("{\"scenario\":\"d\",\"mock\":\"m\"}\n{\"key\":\"nope\"}").expect_err("bad key");
     assert!(err.contains("line 2") && err.contains("nope"), "{err}");
     let err = parse("{\"scenario\":\"d\",\"mock\":\"m\"}\n{\"frob\":1}").expect_err("bad step");
     assert!(err.contains("line 2"), "{err}");
@@ -221,9 +238,14 @@ fn side_by_side_puts_the_oracle_left_and_marks_differing_rows() {
     let b = shot(&["same", "right"], (0, 0));
     let text = side_by_side(&a, &b, &Normalize::new());
     let rows: Vec<&str> = text.lines().collect();
-    assert!(rows.iter().any(|r| r.starts_with("  same") && r.contains("| same")), "{text}");
     assert!(
-        rows.iter().any(|r| r.starts_with("! left") && r.contains("| right")),
+        rows.iter()
+            .any(|r| r.starts_with("  same") && r.contains("| same")),
+        "{text}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r.starts_with("! left") && r.contains("| right")),
         "{text}"
     );
 }
@@ -246,7 +268,10 @@ fn a_difference_without_a_gap_fails() {
     };
     let failures = report.failures(false);
     assert_eq!(failures.len(), 2, "{failures:?}");
-    assert!(failures[0].contains("a") && failures[1].contains("row 1"), "{failures:?}");
+    assert!(
+        failures[0].contains("a") && failures[1].contains("row 1"),
+        "{failures:?}"
+    );
     assert!(report.expected_gaps().is_empty());
 }
 
@@ -259,23 +284,37 @@ fn a_difference_under_a_gap_is_reported_as_expected_and_fails_only_when_strict()
     assert!(report.failures(false).is_empty());
     let expected = report.expected_gaps();
     assert_eq!(expected.len(), 1);
-    assert!(expected[0].contains("VS2: chat") && expected[0].contains("2 difference"), "{expected:?}");
+    assert!(
+        expected[0].contains("VS2: chat") && expected[0].contains("2 difference"),
+        "{expected:?}"
+    );
     let strict = report.failures(true);
     assert!(strict.iter().any(|f| f.contains("row 1")), "{strict:?}");
 }
 
 #[test]
 fn a_gap_that_closed_must_be_removed_from_the_script() {
-    let report = Report { general: vec![], findings: vec![finding("a", Some("VS2: chat"), &[])] };
+    let report = Report {
+        general: vec![],
+        findings: vec![finding("a", Some("VS2: chat"), &[])],
+    };
     let failures = report.failures(false);
-    assert!(failures.iter().any(|f| f.contains("a") && f.contains("remove")), "{failures:?}");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("a") && f.contains("remove")),
+        "{failures:?}"
+    );
     assert!(report.failures(true).is_empty());
     assert!(report.expected_gaps().is_empty());
 }
 
 #[test]
 fn general_notes_always_fail() {
-    let report = Report { general: vec!["rtwk: did not exit".into()], findings: vec![] };
+    let report = Report {
+        general: vec!["rtwk: did not exit".into()],
+        findings: vec![],
+    };
     assert_eq!(report.failures(false), ["rtwk: did not exit"]);
     assert_eq!(report.failures(true), ["rtwk: did not exit"]);
 }

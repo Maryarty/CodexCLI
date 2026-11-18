@@ -8,7 +8,11 @@ fn cursor_text(shot: &Shot) -> String {
         "({}, {}) {}",
         shot.cursor.0,
         shot.cursor.1,
-        if shot.cursor_visible { "visible" } else { "hidden" }
+        if shot.cursor_visible {
+            "visible"
+        } else {
+            "hidden"
+        }
     )
 }
 
@@ -19,7 +23,11 @@ pub fn compare(oracle: &Shot, rtwk: &Shot, n: &Normalize, scrollback: bool) -> V
     let (o, r) = (n.shot(oracle), n.shot(rtwk));
     let mut found = Vec::new();
     if o.rows.len() != r.rows.len() {
-        found.push(format!("rows: oracle {}, rtwk {}", o.rows.len(), r.rows.len()));
+        found.push(format!(
+            "rows: oracle {}, rtwk {}",
+            o.rows.len(),
+            r.rows.len()
+        ));
     }
     for (y, (a, b)) in o.rows.iter().zip(&r.rows).enumerate() {
         if a != b {
@@ -27,10 +35,17 @@ pub fn compare(oracle: &Shot, rtwk: &Shot, n: &Normalize, scrollback: bool) -> V
         }
     }
     if o.cursor != r.cursor || o.cursor_visible != r.cursor_visible {
-        found.push(format!("cursor: oracle {} | rtwk {}", cursor_text(&o), cursor_text(&r)));
+        found.push(format!(
+            "cursor: oracle {} | rtwk {}",
+            cursor_text(&o),
+            cursor_text(&r)
+        ));
     }
     if o.alt_screen != r.alt_screen {
-        found.push(format!("alternate screen: oracle {} | rtwk {}", o.alt_screen, r.alt_screen));
+        found.push(format!(
+            "alternate screen: oracle {} | rtwk {}",
+            o.alt_screen, r.alt_screen
+        ));
     }
     if scrollback {
         if o.scrollback.len() != r.scrollback.len() {
@@ -42,7 +57,10 @@ pub fn compare(oracle: &Shot, rtwk: &Shot, n: &Normalize, scrollback: bool) -> V
         }
         for (i, (a, b)) in o.scrollback.iter().zip(&r.scrollback).enumerate() {
             if a != b {
-                found.push(format!("scrollback line {}: oracle {a:?} | rtwk {b:?}", i + 1));
+                found.push(format!(
+                    "scrollback line {}: oracle {a:?} | rtwk {b:?}",
+                    i + 1
+                ));
             }
         }
     }
@@ -53,7 +71,13 @@ pub fn compare(oracle: &Shot, rtwk: &Shot, n: &Normalize, scrollback: bool) -> V
 /// the columns and a `!` in front of rows that differ.
 pub fn side_by_side(oracle: &Shot, rtwk: &Shot, n: &Normalize) -> String {
     let (o, r) = (n.shot(oracle), n.shot(rtwk));
-    let width = o.rows.iter().map(|row| row.chars().count()).max().unwrap_or(0).max("oracle".len());
+    let width = o
+        .rows
+        .iter()
+        .map(|row| row.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max("oracle".len());
     let mut out = format!("  {:<width$} | rtwk\n", "oracle");
     let empty = String::new();
     for y in 0..o.rows.len().max(r.rows.len()) {
@@ -118,7 +142,11 @@ impl Report {
             .filter(|f| !f.diffs.is_empty())
             .filter_map(|f| {
                 f.gap.as_ref().map(|gap| {
-                    format!("{}: {} difference(s), expected: {gap}", f.checkpoint, f.diffs.len())
+                    format!(
+                        "{}: {} difference(s), expected: {gap}",
+                        f.checkpoint,
+                        f.diffs.len()
+                    )
                 })
             })
             .collect()

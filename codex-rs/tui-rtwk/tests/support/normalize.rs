@@ -112,7 +112,10 @@ fn duration_len(chars: &[char], at: usize) -> Option<usize> {
     }
     let unit = if chars.get(i) == Some(&'m') && chars.get(i + 1) == Some(&'s') {
         2
-    } else if chars.get(i).is_some_and(|c| matches!(c, 's' | 'm' | 'h' | 'd')) {
+    } else if chars
+        .get(i)
+        .is_some_and(|c| matches!(c, 's' | 'm' | 'h' | 'd'))
+    {
         1
     } else {
         return None;
@@ -123,7 +126,12 @@ fn duration_len(chars: &[char], at: usize) -> Option<usize> {
 
 /// `11:59`, `9:05` (one or two digits, a colon, two digits) → its length.
 fn clock_len(chars: &[char], at: usize) -> Option<usize> {
-    let digits = |from: usize| chars[from..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let digits = |from: usize| {
+        chars[from..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit())
+            .count()
+    };
     let hours = digits(at);
     if !(1..=2).contains(&hours) || chars.get(at + hours) != Some(&':') {
         return None;

@@ -35,7 +35,10 @@ pub fn environment(codex_home: &Path, home: &Path) -> Vec<(String, String)> {
     let parent = |key: &str| std::env::var(key).ok();
     let mut env = vec![
         ("CODEX_HOME".to_owned(), codex_home.display().to_string()),
-        ("CODEX_SQLITE_HOME".to_owned(), codex_home.display().to_string()),
+        (
+            "CODEX_SQLITE_HOME".to_owned(),
+            codex_home.display().to_string(),
+        ),
         ("HOME".to_owned(), home.display().to_string()),
         ("OPENAI_API_KEY".to_owned(), "dummy".to_owned()),
         ("TERM".to_owned(), "xterm-256color".to_owned()),
@@ -52,9 +55,15 @@ pub fn environment(codex_home: &Path, home: &Path) -> Vec<(String, String)> {
     env
 }
 
+/// After input, the screen is not shot before the program answered with
+/// output, for this long at most (input that changes nothing waits it out).
+const RESPONSE_MAX: Duration = Duration::from_millis(800);
+
 pub struct Pty {
     session: TerminalSession,
     last_output: Instant,
+    /// Input was sent and the program has not written since.
+    awaiting_output: Option<Instant>,
     pub bytes: usize,
 }
 
@@ -81,6 +90,7 @@ impl Pty {
         Ok(Pty {
             session,
             last_output: Instant::now(),
+            awaiting_output: None,
             bytes: 0,
         })
     }
@@ -91,6 +101,7 @@ impl Pty {
         if n > 0 {
             self.bytes += n;
             self.last_output = Instant::now();
+            self.awaiting_output = None;
         }
         n
     }
@@ -101,18 +112,20 @@ impl Pty {
 
     /// Writes `bytes` as typed at the terminal.
     pub fn send(&mut self, bytes: &[u8]) {
+        self.awaiting_output = Some(Instant::now());
         self.session
             .with_pty(|pty| pty.map(|pty| pty.write(bytes)).unwrap_or_default());
     }
 
     /// Pastes `text`, bracketed when the program asked for it.
     pub fn paste(&mut self, text: &str) {
+        self.awaiting_output = Some(Instant::now());
         self.session.send_paste(text);
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
-        self.session
-            .resize(usize::from(width), usize::from(height));
+        self.awaiting_output = Some(Instant::now());
+        self.session.resize(usize::from(width), usize::from(height));
     }
 
     fn contains(&self, text: &str) -> bool {
@@ -142,6 +155,13 @@ impl Pty {
         let start = Instant::now();
         loop {
             self.pump();
+            if let Some(since) = self.awaiting_output
+                && since.elapsed() < RESPONSE_MAX
+                && !self.ended()
+            {
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
+            }
             let in_update = self
                 .session
                 .emulator()
@@ -184,7 +204,12 @@ impl Pty {
             .map(|y| em.line_text(y).trim_end().to_owned())
             .collect();
         let scrollback = (0..em.scrollback_len())
-            .map(|i| em.scrollback_line(i).text(em.glyphs()).trim_end().to_owned())
+            .map(|i| {
+                em.scrollback_line(i)
+                    .text(em.glyphs())
+                    .trim_end()
+                    .to_owned()
+            })
             .collect();
         Shot {
             rows,
