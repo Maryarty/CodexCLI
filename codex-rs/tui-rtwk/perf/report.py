@@ -165,7 +165,7 @@ def line_chart(series, xlabel, ylabel, w=700, h=190, marks=(), ymin=0.0):
     for t in ya.ticks():
         o.append(f'<line x1="50" x2="{w - 15}" y1="{ya(t):.1f}" y2="{ya(t):.1f}" stroke="#e2e8f0"/><text x="46" y="{ya(t) + 4:.1f}" text-anchor="end" fill="#718096">{fmt(t)}</text>')
     for t in xa.ticks():
-        o.append(f'<text x="{xa(t):.1f}" y="{h - 10}" text-anchor="middle" fill="#718096">{fmt(t)}</text>')
+        o.append(f'<text x="{xa(t):.1f}" y="{h - 14}" text-anchor="middle" fill="#718096">{fmt(t)}</text>')
     for x, label in marks:
         if xa.lo <= x <= xa.hi:
             o.append(f'<line x1="{xa(x):.1f}" x2="{xa(x):.1f}" y1="10" y2="{h - 26}" stroke="#a0aec0" stroke-dasharray="3 3"/><text x="{xa(x) + 3:.1f}" y="20" fill="#718096">{esc(label)}</text>')
@@ -200,7 +200,7 @@ def histogram(series, xlabel, w=700, h=170, log_x=True, bins=40):
     ya = Axis(0, top * 1.1, h - 26, 10)
     o = [svg_open(w, h)]
     for t in xa.ticks():
-        o.append(f'<text x="{xa(t):.1f}" y="{h - 10}" text-anchor="middle" fill="#718096">{fmt(t)}</text><line x1="{xa(t):.1f}" x2="{xa(t):.1f}" y1="10" y2="{h - 26}" stroke="#edf2f7"/>')
+        o.append(f'<text x="{xa(t):.1f}" y="{h - 14}" text-anchor="middle" fill="#718096">{fmt(t)}</text><line x1="{xa(t):.1f}" x2="{xa(t):.1f}" y1="10" y2="{h - 26}" stroke="#edf2f7"/>')
     for (label, colour, _), sh in zip(series, shares):
         pts = []
         for i, s in enumerate(sh):
@@ -292,7 +292,7 @@ th{background:#edf2f7}td:first-child,th:first-child{text-align:left}
 .g{background:#c6f6d5}.r{background:#fed7d7}.n{background:#edf2f7}.w{background:#fefcbf}
 .A{color:#2b6cb0}.B{color:#dd6b20}.logv{display:none}body.log .logv{display:block}body.log .lin{display:none}
 pre{background:#edf2f7;padding:8px;overflow:auto;font-size:12px}.warn{background:#fefcbf;border:1px solid #ecc94b;padding:6px 10px;border-radius:4px}
-.player{display:flex;gap:8px}.player pre{margin:0;flex:1;background:#1a202c;color:#e2e8f0;font-size:9px;line-height:1.1;white-space:pre;overflow:hidden}
+.player{display:flex;gap:8px}.player pre{margin:0;flex:1;background:#1a202c;color:#e2e8f0;font-size:6.3px;line-height:1.15;white-space:pre;overflow:hidden}
 .scr{width:100%}
 """
 
@@ -483,7 +483,7 @@ def build(d: Path, history: Path | None) -> str:
                 cpu_series.append((lb, colour[lb], cpu_curve(rep, t0)))
                 rss_series.append((lb, colour[lb], rss_curve(rep, t0)))
                 if win == "stream":
-                    marks = [(0, "stream start"), ((S.get(rep, "stream.t1_ms") - t0) / 1000, f"end ({lb})")] if not marks else marks + [((S.get(rep, "stream.t1_ms") - t0) / 1000, f"end ({lb})")]
+                    marks = [(0, "stream start"), ((S.get(rep, "stream.t1_ms") - t0) / 1000, "end")] if not marks else marks + [((S.get(rep, "stream.t1_ms") - t0) / 1000, "end")]
             xl = "seconds since " + ("stream start" if win == "stream" else "start of the idle window")
             out.append("<h3>CPU over time (median run per binary, 1 s window)</h3>" + line_chart(cpu_series, xl, "% of one core", marks=marks))
             out.append("<h3>RSS over time (same runs)</h3>" + line_chart(rss_series, xl, "MB", marks=marks, ymin=0))

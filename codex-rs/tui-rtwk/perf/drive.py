@@ -138,7 +138,7 @@ class Session:
         self.first_byte: float | None = None
         self.eof = False
         self.stop_sampler = False
-        self.t0 = time.monotonic()
+        self.t0 = time.monotonic()  # before the fork: the child may run before the parent is scheduled again
         self.pid, self.fd = pty.fork()
         if self.pid == 0:  # child
             try:
@@ -147,7 +147,6 @@ class Session:
                 os.execvpe(argv[0], argv, env)
             finally:
                 os._exit(127)
-        self.t0 = time.monotonic()
         self.reader = threading.Thread(target=self._read_loop, daemon=True)
         self.sampler = threading.Thread(target=self._sample_loop, daemon=True)
         self.reader.start()
