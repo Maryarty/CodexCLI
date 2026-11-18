@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/markdown.md. -->
+<!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # Markdown documents
 
 Use `MarkdownView::new(source).into_viewport()` for a document pane.
@@ -159,8 +159,8 @@ was removed because in a chat of messages it lost to this composition at
 every size (a token on the newest answer: 24 µs against 67 µs, 329 µs and
 4.64 ms at 10, 100 and 1,000 turns), and the one thing it did better, a
 message with a very large live table, is what `ComposedMarkdownView` is for.
-[The measurements](../../research/transcript-composition/README.md) and
-[the decision](../design/transcript.md).
+The measurements and
+the decision.
 
 Limits, as in twk. A selection is of what is built: an entry that scrolls out
 of the list leaves it. A drag whose first entry scrolls out of the list finds
@@ -200,7 +200,7 @@ messages, see [Chat transcripts](#chat-transcripts).
 Composition is the primary path for new bounded document panes. Its
 native widgets supply theme inheritance, pointer interaction and
 cross-block selection. On matched workloads it also improves large
-table appends, while the direct renderer uses less RSS in the measured workloads. See the [measurements and parity matrix](../research/markdown-v2-inventory.md).
+table appends, while the direct renderer uses less RSS in the measured workloads. See the measurements and parity matrix.
 
 The direct renderer remains a public compatibility path during migration.
 Moving it behind an internal interface would leave callers that need

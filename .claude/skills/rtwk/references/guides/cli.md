@@ -1,4 +1,4 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. Copied from docs/guide/cli.md. -->
+<!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # The `rtwk` command line
 
 `rtwk` is the developer tool of the framework: it starts projects, runs and
@@ -74,7 +74,7 @@ older than a `rust-version`. A rustc or cargo that cannot be asked is reported
 and is no failure. The JSON has `agree` (the crates are one release) and `ok`
 (what the exit code says), and its Terminal part is the one twk's `doctor --json`
 prints. rtwk's own terminal answers XTVERSION `rtwk-term <version>`; the design is
-[dev-doctor.md](../design/dev-doctor.md).
+dev-doctor.md.
 
 ## A test from a recording
 

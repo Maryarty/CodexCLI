@@ -1,21 +1,19 @@
-<!-- Written by tools/rtwk-port/skill/generate.py from rtwk 9f28b7fb; do not edit. -->
-
+<!-- Written by `cargo xtask skill-references` from docs/widgets; do not edit. -->
 # Text
 
+Paragraphs and spans of styled text, wrapped, cut off, aligned, and right to left.
+
 [All widgets](../widgets.md)
+
+A Code is the body of the gallery's preview: it names widgets by the last segment of the paths under API (`use` them) and may use `cx` or values of the gallery's page.
 
 ## Text
 
 A paragraph in one style, its lines broken to fit, cut off and aligned as asked.
 
-API:
-
-- `rtwk::text::Text` (struct, `crates/rtwk-widgets/src/text/widgets.rs:66`) Text in `style` merged onto the `DefaultTextStyle` above it: a string (`data`), or `spans`, each in its own style merged onto that one (`Text::rich`), a span with a gradient (`Span::gradient`) in its colors grapheme by ...
-  - public fields: `data: Option<Str>`, `spans: Option<Rc<[Span]>>`, `style: Style`, `wrap: TextWrap`, `overflow: TextOverflow`, `max_lines: Option<usize>`, `text_align: TextAlign`, `on_link_tap: Option<Handler<Arc<str>>>`
+- `rtwk::text::Text` (struct) in `crates/rtwk-widgets/src/text/widgets.rs:66`: Text in style merged onto the DefaultTextStyle above it: a string (data), or spans, each in its own style merged onto that one (Text::rich), a span with a gradient (Span::gradient) in its colors grapheme by grapheme, laid out as it would be without.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/text/text`, `crates/rtwk-gallery/src/pages/mod.rs:116`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -43,61 +41,22 @@ SizedBox::new(
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | wrap | word, grapheme, none | word |
 | overflow | clip, ellipsis, ellipsisStart, ellipsisMiddle | ellipsis |
 | align | left, center, right, justify | left |
-| lines | all, 3, 1 | all |
-| width | 14..50 (a slider) | 32 cells |
-
-### Methods
-
-#### `Text`: constructors and associated functions
-
-- `pub fn new(data: impl Into<Str>) -> Text` - Shows `data`; the text breaks at words, is clipped, shows as many lines as it has and is aligned left unless told otherwise.
-- `pub fn rich(spans: impl Into<Rc<[Span]>>) -> Text` - Shows `spans`, each in its style merged onto `style`, as one paragraph: a line breaks between spans as it does inside one.
-- `pub fn line(data: impl Into<Str>) -> Text` - Shows `data` on one line, cut off with the ellipsis where it is wider than its room: `Text::new` with `TextWrap::None`, `TextOverflow::Ellipsis` and one line at most.
-- `pub fn rich_line(spans: impl Into<Rc<[Span]>>) -> Text` - `spans` as `Text::line` shows a string: `Text::rich` on one line, cut off with the ellipsis.
-
-#### `Text`: builder methods (take and return `self`)
-
-- `pub fn style(mut self, style: Style) -> Text` - In `style`, merged onto the `DefaultTextStyle` above.
-- `pub fn wrap(mut self, wrap: TextWrap) -> Text` - Breaking its lines as `wrap` says.
-- `pub fn overflow(mut self, overflow: TextOverflow) -> Text` - Showing text cut off as `overflow` says.
-- `pub fn max_lines(mut self, max_lines: impl Into<Option<usize>>) -> Text` - Showing at most `max_lines` lines (none for any number).
-- `pub fn text_align(mut self, align: TextAlign) -> Text` - Placing each line as `align` says.
-- `pub fn on_link_tap(mut self, h: Handler<Arc<str>>) -> Text` - Telling `h` the link of the text clicked on.
-
-#### `Text`: methods
-
-- `pub fn configure(&self, cx: &mut Cx<'_>, o: &mut RenderStyledParagraph) -> Change` - Configures `o` from this text, at `cx`: its spans in their styles merged onto the `DefaultTextStyle`, the theme's ellipsis.
-
-### Also used in the code
-
-- `rtwk::text::TextWrap` (enum, `crates/rtwk-render/src/objects/text.rs:55`) Where a `RenderParagraph` may break a line too long for it.
-  - variants: `Word`, `Grapheme`, `None`
-- `rtwk::text::TextOverflow` (enum, `crates/rtwk-unicode/src/fit.rs:30`) How a paragraph (or `fit_text`) shows that it cut text off.
-  - variants: `Clip`, `Ellipsis`, `EllipsisStart`, `EllipsisMiddle`
-- `rtwk::text::TextAlign` (enum, `crates/rtwk-unicode/src/fit.rs:11`) Where a paragraph puts each line across its width.
-  - variants: `Left`, `Center`, `Right`, `Justify`, `Start`, `End`
+| max lines | all, 3, 1 | all |
+| width | 14 cells, 15 cells, 16 cells, 17 cells, 18 cells, 19 cells, 20 cells, 21 cells, 22 cells, 23 cells, 24 cells, 25 cells, 26 cells, 27 cells, 28 cells, 29 cells, 30 cells, 31 cells, 32 cells, 33 cells, 34 cells, 35 cells, 36 cells, 37 cells, 38 cells, 39 cells, 40 cells, 41 cells, 42 cells, 43 cells, 44 cells, 45 cells, 46 cells, 47 cells, 48 cells, 49 cells, 50 cells | 32 cells |
 
 ## Rich text
 
 Spans in styles of their own: attributes, colors and links, 'text'.bold.fg(…) for short.
 
-API:
-
-- `rtwk::style::Span` (struct, `crates/rtwk-widgets/src/style/style.rs:296`) Text in one `Style`, what styled text is made of, its text colors along a `Gradient` when it has one (`Span::gradient`) (twk's `Span`).
-  - public fields: `text: Str`, `style: Style`, `gradient: Option<Gradient>`, `on_tap: Option<Handler<()>>`
-- `rtwk::text::Text` (struct, `crates/rtwk-widgets/src/text/widgets.rs:66`) Text in `style` merged onto the `DefaultTextStyle` above it: a string (`data`), or `spans`, each in its own style merged onto that one (`Text::rich`), a span with a gradient (`Span::gradient`) in its colors grapheme by ...
-  - public fields: `data: Option<Str>`, `spans: Option<Rc<[Span]>>`, `style: Style`, `wrap: TextWrap`, `overflow: TextOverflow`, `max_lines: Option<usize>`, `text_align: TextAlign`, `on_link_tap: Option<Handler<Arc<str>>>`
+- `rtwk::style::Span` (struct) in `crates/rtwk-widgets/src/style/style.rs:296`: Text in one Style, what styled text is made of, its text colors along a Gradient when it has one (Span::gradient) (twk's `Span`).
+- `rtwk::text::Text` (struct) in `crates/rtwk-widgets/src/text/widgets.rs:66`: Text in style merged onto the DefaultTextStyle above it: a string (data), or spans, each in its own style merged onto that one (Text::rich), a span with a gradient (Span::gradient) in its colors grapheme by grapheme, laid out as it would be without.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/text/rich-text`, `crates/rtwk-gallery/src/pages/mod.rs:438`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let theme = Theme::of(cx);
@@ -149,70 +108,17 @@ Text::rich([
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| labels | on, off | true |
-
-### Methods
-
-#### `Span`: constructors and associated functions
-
-- `pub fn new(text: impl Into<Str>) -> Span` - `text`, its style unset.
-- `pub fn styled(text: impl Into<Str>, style: Style) -> Span` - `text` in `style` (twk's `Span(text, style)`).
-- `pub fn gradient(text: impl Into<Str>, gradient: Gradient) -> Span` - `text`, its text colors along `gradient` (twk's `Span.gradient`).
-
-#### `Span`: builder methods (take and return `self`)
-
-- `pub fn bold(self) -> Span` - This span in bold.
-- `pub fn dim(self) -> Span` - This span dimmed.
-- `pub fn italic(self) -> Span` - This span in italics.
-- `pub fn underline(self) -> Span` - This span underlined with a single line.
-- `pub fn double_underline(self) -> Span` - This span underlined with a double line.
-- `pub fn curly_underline(self) -> Span` - This span underlined with a curly line.
-- `pub fn dotted_underline(self) -> Span` - This span underlined with a dotted line.
-- `pub fn dashed_underline(self) -> Span` - This span underlined with a dashed line.
-- `pub fn reverse(self) -> Span` - This span in reverse video.
-- `pub fn strike(self) -> Span` - This span struck through.
-- `pub fn overline(self) -> Span` - This span with a line over it.
-- `pub fn fg(self, color: Color) -> Span` - This span in the text color `color`, opaque.
-- `pub fn bg(self, color: Color) -> Span` - This span on the background `color`, opaque.
-- `pub fn link(self, url: impl Into<Arc<str>>) -> Span` - This span as a hyperlink to `url` (OSC 8).
-- `pub fn tap(mut self, on_tap: Handler<()>) -> Span` - This span calling `on_tap` when it is clicked, in place of the handler it had.
-
-#### `Text`: constructors and associated functions
-
-- `pub fn new(data: impl Into<Str>) -> Text` - Shows `data`; the text breaks at words, is clipped, shows as many lines as it has and is aligned left unless told otherwise.
-- `pub fn rich(spans: impl Into<Rc<[Span]>>) -> Text` - Shows `spans`, each in its style merged onto `style`, as one paragraph: a line breaks between spans as it does inside one.
-- `pub fn line(data: impl Into<Str>) -> Text` - Shows `data` on one line, cut off with the ellipsis where it is wider than its room: `Text::new` with `TextWrap::None`, `TextOverflow::Ellipsis` and one line at most.
-- `pub fn rich_line(spans: impl Into<Rc<[Span]>>) -> Text` - `spans` as `Text::line` shows a string: `Text::rich` on one line, cut off with the ellipsis.
-
-#### `Text`: builder methods (take and return `self`)
-
-- `pub fn style(mut self, style: Style) -> Text` - In `style`, merged onto the `DefaultTextStyle` above.
-- `pub fn wrap(mut self, wrap: TextWrap) -> Text` - Breaking its lines as `wrap` says.
-- `pub fn overflow(mut self, overflow: TextOverflow) -> Text` - Showing text cut off as `overflow` says.
-- `pub fn max_lines(mut self, max_lines: impl Into<Option<usize>>) -> Text` - Showing at most `max_lines` lines (none for any number).
-- `pub fn text_align(mut self, align: TextAlign) -> Text` - Placing each line as `align` says.
-- `pub fn on_link_tap(mut self, h: Handler<Arc<str>>) -> Text` - Telling `h` the link of the text clicked on.
-
-#### `Text`: methods
-
-- `pub fn configure(&self, cx: &mut Cx<'_>, o: &mut RenderStyledParagraph) -> Change` - Configures `o` from this text, at `cx`: its spans in their styles merged onto the `DefaultTextStyle`, the theme's ellipsis.
+| row labels | false, true | true |
 
 ## DefaultTextStyle
 
 The style of the text below it, which a Text merges its own over.
 
-API:
-
-- `rtwk::text::DefaultTextStyle` (struct, `crates/rtwk-widgets/src/text/widgets.rs:375`) The style the `Text`s below it are drawn in under their own: `style` merged onto that of the `DefaultTextStyle` above it (twk's `DefaultTextStyle`).
-  - public fields: `style: Style`, `child: AnyWidget`
+- `rtwk::text::DefaultTextStyle` (struct) in `crates/rtwk-widgets/src/text/widgets.rs:375`: The style the Texts below it are drawn in under their own: style merged onto that of the DefaultTextStyle above it (twk's `DefaultTextStyle`).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/text/defaulttextstyle`, `crates/rtwk-gallery/src/pages/mod.rs:451`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 DefaultTextStyle::new(
@@ -229,32 +135,17 @@ DefaultTextStyle::new(
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
 | style | bold, italic, green, on navy | bold |
-
-### Methods
-
-#### `DefaultTextStyle`: constructors and associated functions
-
-- `pub fn new(style: Style, child: impl Into<AnyWidget>) -> DefaultTextStyle` - Gives the `Text`s in `child`'s subtree `style`, merged onto the one above.
-- `pub fn merge(style: Option<Style>, child: impl Into<AnyWidget>) -> DefaultTextStyle` - As `new` (twk's `DefaultTextStyle.merge`): a field `style` leaves unset stays as the style above has it.
-- `pub fn of<S>(cx: &mut Cx<'_, S>) -> Style` - The style the `Text`s at `cx` are drawn in under their own: that of the nearest `DefaultTextStyle`, merged onto those above it; an empty style without one.
 
 ## Right to left
 
 Hebrew and Arabic among left-to-right text: put in the order it reads where the app reorders it (TextOrder.visual), left as stored where the terminal reorders it itself.
 
-API:
-
-- `rtwk_render::TextOrder` [path inferred] (enum, `crates/rtwk-render/src/tree.rs:531`) The order a tree draws text in, from left to right (`RenderTree::set_text_order`): where it holds right-to-left characters, as they are stored or as they are read.
-  - variants: `Logical`, `Visual`
+- `rtwk_unicode::BidiText` (struct) in `crates/rtwk-unicode/src/bidi/mod.rs:381`: A text's bidirectional layout by UAX #9: its paragraphs, the embedding level of each character and, for a line of a paragraph, the runs it is drawn in.
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/text/right-to-left`, `crates/rtwk-gallery/src/pages/mod.rs:464`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 let visual = true;
@@ -288,33 +179,19 @@ Column::new()
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| order | visual, logical | visual |
+| text order | visual, logical | visual |
 | align | start, end, left, right | start |
-
-### Also used in the code
-
-- `rtwk::text::TextAlign` (enum, `crates/rtwk-unicode/src/fit.rs:11`) Where a paragraph puts each line across its width.
-  - variants: `Left`, `Center`, `Right`, `Justify`, `Start`, `End`
-- `rtwk_core::unicode::BidiText` (struct, `crates/rtwk-unicode/src/bidi/mod.rs:381`) A text's bidirectional layout by UAX #9: its paragraphs, the embedding level of each character and, for a line of a paragraph, the runs it is drawn in.
-- `rtwk_core::unicode::TextDirection` (enum, `crates/rtwk-unicode/src/bidi/mod.rs:208`) The direction text runs in.
-  - variants: `Ltr`, `Rtl`
 
 ## ANSI
 
 Output with ANSI colour codes, from a program or a log, as styled spans: all at once with parseAnsi, or as it streams in with AnsiStream.
 
-API:
-
-- `rtwk::ansi::AnsiStream` (struct, `crates/rtwk-widgets/src/ansi/stream.rs:104`) Output of a program, such as a compiler or a test runner, that arrives in pieces, read as lines of spans: the lines a terminal would show it in, with nothing in them that could act on the terminal they are drawn on ...
-  - public fields: `tab_width: usize`
+- `rtwk::ansi::AnsiStream` (struct) in `crates/rtwk-widgets/src/ansi/stream.rs:104`: Output of a program, such as a compiler or a test runner, that arrives in pieces, read as lines of spans: the lines a terminal would show it in, with nothing in them that could act on the terminal they are drawn on (twk's `AnsiStream`).
+- `rtwk::ansi::parse_ansi` (fn) in `crates/rtwk-widgets/src/ansi/stream.rs:29`: The lines of `text`, output of a program with ANSI escape sequences, as AnsiStream reads it, a tab moving to the next multiple of 8 columns (twk's `parseAnsi`; parse_ansi_with for another tab width).
 
 ### Code
-
-The gallery's Code tab at the initial options (route `#/text/ansi`, `crates/rtwk-gallery/src/pages/mod.rs:486`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`.
 
 ```rust
 //  dart test 
@@ -335,37 +212,8 @@ Column::new().children(lines.into_iter().map(|line| {
 
 ### Options
 
-The gallery's inspector; each value is one setting of the example above.
-
 | option | values | starts at |
 | --- | --- | --- |
-| output | test, ls, log | test |
-| read | parseAnsi, AnsiStream | parseAnsi |
-| piece | 7, 16, 64 | 7 |
-
-### Methods
-
-#### `AnsiStream`: constructors and associated functions
-
-- `pub fn new() -> Self` - An empty stream, whose tabs move to the next multiple of 8 columns.
-
-#### `AnsiStream`: builder methods (take and return `self`)
-
-- `pub fn tab_width(mut self, width: usize) -> Self` - Tabs moving to the next multiple of `width` columns.
-
-#### `AnsiStream`: methods
-
-- `pub fn lines(&mut self) -> &[Vec<Span>]` - The lines so far: those ended, then the one being written, unless no cell of it is written yet.
-- `pub fn settled_lines(&self) -> &[Vec<Span>]` - The lines ended so far: the first `settled` of `lines`, which no output added later changes.
-- `pub fn settled(&self) -> usize` - How many of `lines`, from the first, are ended: no output added later changes them.
-- `pub fn take_settled(&mut self) -> Vec<Vec<Span>>` - Takes the ended lines out of `lines` and returns them, for a reader that keeps them elsewhere, as a log view does: what is held is then only the line being written, and `settled` is 0.
-- `pub fn is_closed(&self) -> bool` - Whether `close` was called.
-- `pub fn add(&mut self, text: &str)` - Reads `text`.
-- `pub fn add_bytes(&mut self, bytes: &[u8])` - Reads `bytes` of UTF-8; malformed bytes are U+FFFD, each maximal part of a character that is not one a U+FFFD, as twk's decoder makes them.
-- `pub fn close(&mut self)` - Ends the output: the last line is ended, a UTF-8 character cut off is U+FFFD, and a sequence cut off is dropped.
-- `pub fn reset(&mut self)` - Starts over, as a new stream does (twk's `reset`): the lines, the one being written, a character or a sequence cut off, the style and a link are forgotten, the `tab_width` is kept, and a closed stream is open again.
-
-### Also used in the code
-
-- `rtwk::text::TextWrap` (enum, `crates/rtwk-render/src/objects/text.rs:55`) Where a `RenderParagraph` may break a line too long for it.
-  - variants: `Word`, `Grapheme`, `None`
+| output | dart test, ls, log | dart test |
+| read with | parseAnsi, AnsiStream | parseAnsi |
+| piece | 7 chars, 16, 64 | 7 chars |

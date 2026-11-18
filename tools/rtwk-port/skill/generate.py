@@ -4,16 +4,20 @@
     python3 -I tools/rtwk-port/skill/generate.py            # write
     python3 -I tools/rtwk-port/skill/generate.py --check    # exit 1 when stale
 
-Reads: the pin's crates/rtwk/SKILL.md (copied to references/guides/getting-started.md), docs/guide,
-crates/*/src (API index),
-crates/rtwk-gallery (catalog, imports) and tools/rtwk-port/skill/gallery-codes.jsonl
-(the gallery's Code-tab Rust and options, from refresh-codes.sh);
-authored inputs: tools/rtwk-port/skill/{skill.src.md (the whole SKILL.md), widgets-by-need.src.md,
-recipes.src.md, snippets/*.rs}. Python standard library only.
+The skill is rtwk's own: the pin's skills/rtwk/SKILL.md and skills/rtwk/references/** (written
+there by rtwk's `cargo xtask skill-references` from docs/widgets) are copied verbatim. What this
+repository adds:
+  * SKILL.md ends with the port part, tools/rtwk-port/skill/skill.src.md (ratatui -> rtwk table and
+    port pitfalls), whose rtwk names are checked against the pin;
+  * references/guides/: app-api.md and testing-api.md (the public methods of ViewCx, AppCx, Tester ...,
+    from the source), recipes.md (snippets/*.rs, compiled by compile-snippets.sh) and
+    widgets-by-need.md (which widget for which codex-tui need), from recipes.src.md and
+    widgets-by-need.src.md.
+--check also fails when docs/rtwk-port/RTWK_REF names another commit than the pin. Python
+standard library only.
 """
 import argparse
 import glob
-import hashlib
 import json
 import os
 import re
@@ -37,21 +41,6 @@ FACADE_OF_CRATE = {
     "rtwk_rich": "rtwk_rich", "rtwk_test": "rtwk_test", "rtwk_tokio": "rtwk_tokio", "rtwk_term": "rtwk_term",
     "rtwk_overlay_base": "rtwk::overlay", "rtwk_state": "rtwk_state", "rtwk_core": "rtwk_core", "rtwk_render": "rtwk_render",
 }
-# widgets whose catalog title is not the name of their type
-TITLE_ALIAS = {
-    "Rich text": ["Span", "Text"], "Right to left": ["TextOrder"], "ANSI": ["AnsiStream"],
-    "Window title": [], "Notifications": [], "Static": ["StaticOutput"], "Viewport": [],
-    "Repaint rainbow": [], "Image": ["ImageWidget"], "Cli": ["Cli"], "Effect": ["Effect"],
-    "Console": ["Console"], "Theme": ["Theme", "ThemeData"], "Table": ["Table", "TableColumn", "TableController"],
-    "Navigator": ["Navigator", "PageRoute"], "Overlay": ["Overlay"], "App": ["App"],
-    "Dialog": ["Dialog", "DialogOptions"], "Toast": ["ToastOptions"], "Calendar": ["Calendar", "CalendarController"],
-    "TextArea": ["TextArea", "TextEditingController"], "TextField": ["TextField", "TextEditingController"],
-    "Row, Column, Flex": ["Row", "Column", "Flex"], "KeyBindings, LeaderKey": ["KeyBindings", "LeaderKey"],
-    "IntrinsicWidth/Height": ["IntrinsicWidth", "IntrinsicHeight"],
-    "Box": ["BoxWidget"], "Gauge, LineGauge": ["Gauge", "LineGauge"],
-}
-
-
 def read(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -94,7 +83,7 @@ class Index:
         files = glob.glob(os.path.join(self.pin, "crates", "rtwk-gallery", "src", "**", "*.rs"), recursive=True)
         files += glob.glob(os.path.join(self.pin, "crates", "rtwk-gallery", "tests", "code", "**", "*.rs"), recursive=True)
         files += glob.glob(os.path.join(self.pin, "crates", "rtwk", "examples", "**", "*.rs"), recursive=True)
-        files += [os.path.join(self.pin, "crates", "rtwk", "SKILL.md")]
+        files += [os.path.join(self.pin, "skills", "rtwk", "SKILL.md")]
         for f in sorted(files):
             text = read(f)
             for m in re.finditer(r"\buse\s+(rtwk(?:_[a-z]+)?::[^;]+);", text):
@@ -187,123 +176,10 @@ def expand_use(s):
 
 # ---------------------------------------------------------------- the gallery
 
-def parse_catalog(pin):
-    """The gallery catalog: groups and their pages. A group's `pages: &[...]` may hold one page
-    (`&[CatalogPage {`) or many, so groups are cut at `CatalogGroup {` and pages found in the rest."""
-    t = read(os.path.join(pin, "crates/rtwk-gallery/src/reference_catalog.rs"))
-    t = t[t.index("pub(crate) const CATALOG"):]
-    groups = []
-    for chunk in t.split("CatalogGroup {")[1:]:
-        gt = re.search(r'title: "([^"]+)"', chunk)
-        gs = re.search(r'\n\s*slug: "([^"]+)",\s*pages:', chunk)
-        if not gt or not gs:
-            raise SystemExit("catalog: a group without title or slug; the parser needs updating")
-        pages = []
-        for p in re.finditer(r'title: "((?:[^"\\]|\\.)*)",\s*about: "((?:[^"\\]|\\.)*)",\s*slug: "([^"]+)",\s*route: "([^"]+)"', chunk):
-            pages.append({"title": unesc(p.group(1)), "about": unesc(p.group(2)), "slug": p.group(3), "route": p.group(4)})
-        groups.append({"title": gt.group(1), "slug": gs.group(1), "pages": pages})
-    n_routes = len(re.findall(r'\broute: "', t))
-    if sum(len(g["pages"]) for g in groups) != n_routes:
-        raise SystemExit("catalog: parsed %d pages but the file has %d routes" % (sum(len(g["pages"]) for g in groups), n_routes))
-    return groups
-
-
-def unesc(s):
-    return s.replace('\\"', '"').replace("\\\\", "\\")
-
-
-def load_codes(path):
-    rows = {}
-    head = None
-    with open(path, encoding="utf-8") as f:
-        for n, line in enumerate(f):
-            d = json.loads(line)
-            if n == 0:
-                head = d
-            else:
-                rows[d["route"]] = d
-    return head, rows
-
-
-def inputs_hash(pin):
-    h = hashlib.sha256()
-    base = os.path.join(pin, "crates", "rtwk-gallery")
-    files = sorted(glob.glob(os.path.join(base, "src", "**", "*.rs"), recursive=True))
-    files += sorted(glob.glob(os.path.join(base, "tests", "code", "**", "*.rs"), recursive=True))
-    for f in files:
-        h.update(os.path.relpath(f, base).encode())
-        h.update(b"\0")
-        h.update(read(f).encode())
-        h.update(b"\0")
-    return h.hexdigest()[:16]
-
-
-def page_sources(pin):
-    """route -> 'crates/rtwk-gallery/src/pages/x.rs:LINE' (where the page is defined)."""
-    out = {}
-    for f in sorted(glob.glob(os.path.join(pin, "crates/rtwk-gallery/src/pages/*.rs"))):
-        t = read(f)
-        for m in re.finditer(r'"(#/[a-z0-9-]+/[a-z0-9-]+)"', t):
-            r = m.group(1)
-            if r not in out and "?" not in r:
-                out[r] = "%s:%d" % (os.path.relpath(f, pin), rsscan.line_of(t, m.start()))
-    return out
-
-
 # ---------------------------------------------------------------- rendering
 
 def header(pid, extra=""):
     return "<!-- Written by %s from rtwk %s; do not edit.%s -->\n" % (GEN, pid, extra)
-
-
-def md_escape_cell(s):
-    return s.replace("|", "\\|")
-
-
-def fmt_values(values, kind):
-    if kind.startswith("slider"):
-        return kind.replace("slider ", "") + " (a slider)"
-    if kind == "switch":
-        return "on, off"
-    if len(values) > 12:
-        return "%s, ... %s (%d values)" % (", ".join(values[:5]), ", ".join(values[-2:]), len(values))
-    return ", ".join(values)
-
-
-def title_types(index, title):
-    names = []
-    if title in TITLE_ALIAS:
-        names = list(TITLE_ALIAS[title])
-    else:
-        toks = [t for t in re.split(r"[,/ ]+", title) if t]
-        for t in toks:
-            names.append(t)
-    out = []
-    for n in names:
-        if index.def_of(n) and n not in out:
-            out.append(n)
-    return out
-
-
-COMMON = {"Text", "Theme", "ThemeData", "SizedBox", "Column", "Row", "AnyWidget", "Handler", "Some", "None", "Ok", "Err",
-          "String", "Vec", "Rc", "Option", "Box", "Self", "Span", "Style", "Key", "Message", "Cx", "ViewCx", "BuildCx",
-          "State", "StatefulWidget", "StatelessWidget", "Rebuild", "Duration", "Instant", "BoxWidget", "Border", "BorderType",
-          "EdgeInsets", "MainAxisSize", "CrossAxisAlignment", "MainAxisAlignment", "Color", "Attrs", "Widget"}
-
-
-def code_types(index, code, skip):
-    """Types the code names, in order of first use: (name, def or None, path)."""
-    out = []
-    seen = set()
-    for m in re.finditer(r"\b([A-Z][A-Za-z0-9]+)\b(?=::|\s*\{|\()", code):
-        n = m.group(1)
-        if n in skip or n in seen:
-            continue
-        seen.add(n)
-        # only a name the gallery imports from rtwk: a type the example declares itself is not rtwk's
-        if n in index.imports:
-            out.append((n, index.def_of(n)))
-    return out
 
 
 def method_kind(sig):
@@ -365,96 +241,6 @@ def render_type(index, item, full=True):
         lines.append("")
         lines.extend(method_lines(index, item))
     return lines
-
-
-def render_page(index, page, row, src, pid):
-    out = ["## %s" % page["title"], "", page["about"], ""]
-    prim = title_types(index, page["title"])
-    skip = set(prim)
-    used = code_types(index, row["code"], skip) if row else []
-    if not prim and used:
-        # the catalog title names no type: the types of the example that carry the page
-        picks = [(n, d) for n, d in used if n not in COMMON][:3]
-        prim = [n for n, d in picks if d]
-        skip |= set(prim)
-        used = [(n, d) for n, d in used if n not in skip]
-    out.append("API:")
-    out.append("")
-    for n in prim:
-        out.extend(type_line(index, n, index.def_of(n)))
-    out.append("")
-    if row:
-        out.append("### Code")
-        out.append("")
-        out.append("The gallery's Code tab at the initial options (route `%s`, `%s`): a body for a widget's `build` with `cx` in scope, or a whole module where it starts with `use`." % (page["route"], src or "?"))
-        out.append("")
-        out.append("```rust")
-        out.append(row["code"].rstrip("\n"))
-        out.append("```")
-        out.append("")
-        if row["options"]:
-            out.append("### Options")
-            out.append("")
-            out.append("The gallery's inspector; each value is one setting of the example above.")
-            out.append("")
-            out.append("| option | values | starts at |")
-            out.append("| --- | --- | --- |")
-            for o in row["options"]:
-                vals = o["values"]
-                init = vals[o["initial"]] if vals and o["initial"] < len(vals) else str(o["initial"])
-                out.append("| %s | %s | %s |" % (md_escape_cell(o["key"]), md_escape_cell(fmt_values(vals, o["kind"])), md_escape_cell(init)))
-            out.append("")
-    ml = []
-    for n in prim:
-        d = index.def_of(n)
-        if d:
-            ml.extend(method_lines(index, d))
-    if ml:
-        out.append("### Methods")
-        out.append("")
-        out.extend(ml)
-    rel = [(n, d) for n, d in used if n not in skip and n not in COMMON]
-    if rel:
-        out.append("### Also used in the code")
-        out.append("")
-        for n, d in rel:
-            out.extend(type_line(index, n, d))
-        out.append("")
-    return "\n".join(out).rstrip("\n") + "\n"
-
-
-def gen_widgets(index, groups, codes, srcs, pid, report):
-    files = {}
-    top = [header(pid), "# rtwk widgets", "",
-           "Every widget of the gallery catalog, one line each: its name and what it is, by group. A group's file has each widget's API paths, the Rust that builds it, the inspector options and the builder methods. The catalog is twk's, ported: `ported` means a page of `crates/rtwk-gallery`.", ""]
-    for g in groups:
-        top.append("## %s" % g["title"])
-        top.append("")
-        top.append("File: `widgets/%s.md`." % g["slug"])
-        top.append("")
-        for p in g["pages"]:
-            top.append("- %s: %s" % (p["title"], p["about"]))
-        top.append("")
-        body = [header(pid), "# %s" % g["title"], "", "[All widgets](../widgets.md)", ""]
-        for p in g["pages"]:
-            row = codes.get(p["route"])
-            if not row:
-                report.append("no code row: %s" % p["route"])
-            prim = title_types(index, p["title"])
-            if not prim:
-                report.append("no API type for the title: %s" % p["title"])
-            body.append(render_page(index, p, row, srcs.get(p["route"]), pid))
-        files["references/widgets/%s.md" % g["slug"]] = "\n".join(body)
-    files["references/widgets.md"] = "\n".join(top).rstrip("\n") + "\n"
-    return files
-
-
-def gen_guides(pin, pid):
-    files = {}
-    for f in sorted(glob.glob(os.path.join(pin, "docs", "guide", "*.md"))):
-        name = os.path.basename(f)
-        files["references/guides/%s" % name] = header(pid, " Copied from docs/guide/%s." % name) + read(f)
-    return files
 
 
 def gen_api(index, pid, report):
@@ -566,61 +352,51 @@ def expand_directives(text, base, index, report, snippets_dir):
     return text
 
 
+def copy_rtwk_skill(pin):
+    """rtwk's own skill: relative path under the output -> text."""
+    base = os.path.join(pin, "skills", "rtwk")
+    files = {}
+    for dp, _dn, fn in os.walk(base):
+        for f in fn:
+            full = os.path.join(dp, f)
+            files[os.path.relpath(full, base)] = read(full)
+    return files
+
+
 def build(pin, ref_file=None):
     pid = pin_id(pin)
     report = []
-    files = {}
+    problems = []
+    files = copy_rtwk_skill(pin)
+    if "SKILL.md" not in files:
+        problems.append("the pin has no skills/rtwk/SKILL.md")
+        files["SKILL.md"] = ""
     index = Index(pin)
-    groups = parse_catalog(pin)
-    head, codes = load_codes(os.path.join(HERE, "gallery-codes.jsonl"))
-    srcs = page_sources(pin)
-    files.update(gen_widgets(index, groups, codes, srcs, pid, report))
-    files.update(gen_guides(pin, pid))
     files.update(gen_api(index, pid, report))
     snippets_dir = os.path.join(HERE, "snippets")
-    for src_name, dest in (("recipes.src.md", "references/guides/recipes.md"), ("widgets-by-need.src.md", "references/guides/widgets-by-need.md")):
+    for src_name, dest in (("recipes.src.md", "references/guides/recipes.md"),
+                           ("widgets-by-need.src.md", "references/guides/widgets-by-need.md")):
         p = os.path.join(HERE, src_name)
-        if os.path.exists(p):
-            files[dest] = header(pid, " Source: tools/rtwk-port/skill/%s." % src_name) + expand_directives(read(p), HERE, index, report, snippets_dir)
-    # SKILL.md: authored whole in skill.src.md (twk's skill's shape); rtwk's own guide goes to
-    # references/guides/getting-started.md, verbatim but for its frontmatter
-    skill = read(os.path.join(pin, "crates/rtwk/SKILL.md"))
-    m = re.match(r"(---\n.*?\n---\n)(.*)", skill, re.S)
-    files["references/guides/getting-started.md"] = (
-        header(pid, " Copied from crates/rtwk/SKILL.md, rtwk's own guide for agents.") + m.group(2).lstrip("\n"))
-    problems = []
-    src = read(os.path.join(HERE, "skill.src.md"))
-    m = re.match(r"(---\n.*?\n---\n)(.*)", src, re.S)
-    front, body = m.group(1), m.group(2)
+        files[dest] = header(pid, " Source: tools/rtwk-port/skill/%s." % src_name) + expand_directives(read(p), HERE, index, report, snippets_dir)
+    # the port part: appended to rtwk's SKILL.md
+    port = read(os.path.join(HERE, "skill.src.md"))
     not_rtwk = set()
     def take_not_rtwk(mm):
         not_rtwk.update(mm.group(1).split())
         return ""
-    body = re.sub(r"<!-- not rtwk: (.*?) -->\n", take_not_rtwk, body, flags=re.S)
-    n_pages = sum(len(g["pages"]) for g in groups)
-    n_heads = 0  # page headings, outside code fences (a Code tab may hold Markdown with "## ")
-    for k, t in files.items():
-        if k.startswith("references/widgets/"):
-            fenced = False
-            for ln in t.split("\n"):
-                if ln.startswith("```"):
-                    fenced = not fenced
-                elif not fenced and ln.startswith("## "):
-                    n_heads += 1
-    if n_heads != n_pages:
-        problems.append("widgets/*.md has %d page headings for %d catalog pages" % (n_heads, n_pages))
-    body = body.replace("{{pages}}", str(n_pages)).replace("{{groups}}", ", ".join(g["slug"] for g in groups))
-    body = body.replace("{{n_groups}}", str(len(groups)))
-    problems.extend("skill.src.md: %s" % u for u in check_names(index, pin, body, not_rtwk))
-    body = expand_directives(body, HERE, index, report, snippets_dir)
-    problems.extend("skill.src.md: %s" % ln for ln in re.findall(r"\(missing [^)]*\)", body))
-    files["SKILL.md"] = (front + "<!-- rtwk %s. Written by %s from tools/rtwk-port/skill/skill.src.md and snippets/; do not edit. -->\n" % (pid, GEN)
-                         + body.rstrip("\n") + "\n")
-    # freshness inputs
-    if head["pin"] != pid:
-        problems.append("gallery-codes.jsonl is from pin %s, the pin is %s: run refresh-codes.sh" % (head["pin"], pid))
-    elif head.get("inputs") != inputs_hash(pin):
-        problems.append("gallery-codes.jsonl is stale against the pin's gallery sources: run refresh-codes.sh")
+    port = re.sub(r"<!-- not rtwk: (.*?) -->\n", take_not_rtwk, port, flags=re.S)
+    problems.extend("skill.src.md: %s" % u for u in check_names(index, pin, port, not_rtwk))
+    port = expand_directives(port, HERE, index, report, snippets_dir)
+    problems.extend("skill.src.md: %s" % ln for ln in re.findall(r"\(missing [^)]*\)", port))
+    files["SKILL.md"] = (files["SKILL.md"].rstrip("\n") + "\n\n"
+                         + "<!-- The part below is CodexCLI's: written by %s from tools/rtwk-port/skill/skill.src.md (rtwk %s); do not edit. -->\n\n" % (GEN, pid)
+                         + port.rstrip("\n") + "\n")
+    # every `references/...` file the port part and the by-need guide name exists
+    for name in ("SKILL.md", "references/guides/widgets-by-need.md", "references/guides/recipes.md"):
+        for m in re.finditer(r"`((?:references/)?widgets/[a-z-]+\.md)`", files[name]):
+            rel = m.group(1) if m.group(1).startswith("references/") else "references/" + m.group(1)
+            if rel not in files:
+                problems.append("%s names %s, which the pin's references lack" % (name, m.group(1)))
     ref_path = ref_file or os.path.join(ROOT, "docs/rtwk-port/RTWK_REF")
     if os.path.exists(ref_path):
         ref = read(ref_path).strip()
@@ -635,12 +411,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, OUT_REL))
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--ref-file", default=None, help="the RTWK_REF to compare with the pin (default docs/rtwk-port/RTWK_REF)")
-    ap.add_argument("--print-inputs-hash", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
-    if a.print_inputs_hash:
-        print(inputs_hash(a.pin))
-        return 0
     files, report, problems, pid = build(a.pin, a.ref_file)
     if a.verbose:
         for r in report:
