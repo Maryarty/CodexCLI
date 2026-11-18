@@ -140,20 +140,24 @@ no literal colours; no user-visible literal outside the string tables
 key, a `Text::new("hello")` in `src/ui/view.rs` each failed their rule; the
 queue test failed with the order of `send_next` reversed; the `HandBack` tests
 failed with the hand-back removed.
-ADR-002 conditions, numbered as architecture.md has them:
-(1) the provider list is fixed and the stateful widgets compare equal
-(`impl_widget!(stateful eq …)` on every screen widget, so a view run does not
-rebuild them);
-(2) the handlers are provided with `update_should_notify(false)` and readers
-read the current handlers when they emit;
-(3) the Navigator carries a `GlobalKey` kept in `CodexApp.nav_key`
-(`rules::adr002_the_navigator_is_keyed`; the runtime test
+ADR-002 binding conditions, numbered as architecture.md (decided-after-review
+item 1) has them:
+(1) `eq` widgets: every stateful widget of the skeleton is declared with
+`impl_widget!(stateful eq …)`, so a view run that rebuilds the parents does
+not rebuild them;
+(2) the presenter sits under the Navigator and over the home: `Presenter {
+child: home }` is the Navigator's home, so it is mounted once, also under
+`--debug-screens`, and shows a request's dialog from `did_change_dependencies`
+(`skeleton::a_request_opens_the_dialog_under_debug_screens_too`);
+(3) fixed providers plus a keyed Navigator: the provider list is fixed
+(session, active thread, requests, screens, handlers; the handlers with
+`update_should_notify(false)`) and the Navigator carries a `GlobalKey` kept in
+`CodexApp.nav_key` (`rules::adr002_the_navigator_is_keyed`; the runtime test
 `the_navigator_stack_survives_a_view_run` passes with or without the key
 today, since the list does not change);
-(4) the decision of a submit is `apply`'s, the view only sends the intent; the
-presenter wraps the home (`Presenter { child: home }` under the keyed
-Navigator, so it is mounted once under `--debug-screens` too) and shows
-dialogs from `did_change_dependencies`.
+(4) no same-flush decisions: the decision of a submit is `apply`'s, the view
+only sends the intent (R10), and the composer clears when the model has
+accepted or queued it.
 ADR-003: one writer (`CodexApp::ingest` / `apply_app`, `threads::apply`),
 effects as data (`AppFx`, `ThreadFx`; `AppFx.commands` is private, a thread
 slot reaches the backend only through `ThreadFx::request`), the shell the only
