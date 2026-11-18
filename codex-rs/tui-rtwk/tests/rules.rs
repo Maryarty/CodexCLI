@@ -466,6 +466,112 @@ fn no_literal_colours_anywhere() {
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
 
+/// R15: a view is built of rtwk's widgets (`Text` with wrap and overflow,
+/// `Row`, `Column`, `Expanded`, `Divider`, `Table`, `show_dialog`), never of
+/// hand text and width math: no width counting by `.chars().count()` or the
+/// unicode crates, no blank or rule strings made by `.repeat(`, no function
+/// whose name is wrap, ellipsis, truncate, pad or clip. An entry in
+/// `R15_GAPS` is a documented rtwk gap; one in `R15_NOT_YET` is a screen
+/// whose own rework task has not landed (it leaves the list when it does).
+const R15_GAPS: &[(&str, &str)] = &[(
+    "src/screens/agents/path.rs",
+    "G37: no TextOverflow mode cuts a path by its segments (oracle center_truncate_path)",
+)];
+const R15_NOT_YET: &[&str] = &[
+    "src/screens/approvals/dialog.rs",
+    "src/screens/chat/home.rs",
+    "src/screens/dialogs/feedback.rs",
+    "src/screens/dialogs/shortcuts.rs",
+    "src/screens/pager/mod.rs",
+    "src/screens/pets/mod.rs",
+    "src/screens/resume/layout.rs",
+    "src/screens/resume/mod.rs",
+    "src/screens/select/dialog.rs",
+    "src/screens/status/card.rs",
+    "src/screens/status/format.rs",
+    "src/screens/usage/mod.rs",
+];
+const R15_PATTERNS: &[&str] = &[
+    ".chars().count()",
+    "UnicodeWidth",
+    "unicode_width",
+    "TextSegmenter",
+    "fit_text",
+    ".repeat(",
+];
+const R15_FN_WORDS: &[&str] = &["wrap", "ellips", "truncat", "pad", "clip"];
+
+fn r15_found(name: &str, text: &str) -> Vec<String> {
+    let code = text.split("#[cfg(test)]").next().unwrap_or(text);
+    let mut found = Vec::new();
+    for (index, line) in code_lines(code) {
+        let fn_name = line
+            .split("fn ")
+            .nth(1)
+            .map(|rest| rest.split(['(', '<']).next().unwrap_or(""));
+        let by_name = line.contains("fn ")
+            && fn_name.is_some_and(|n| R15_FN_WORDS.iter().any(|word| n.contains(word)));
+        if by_name || R15_PATTERNS.iter().any(|pattern| line.contains(pattern)) {
+            found.push(format!("{name}:{}: {}", index + 1, line.trim()));
+        }
+    }
+    found
+}
+
+#[test]
+fn r15_views_have_no_hand_text_or_width_math() {
+    let mut found = Vec::new();
+    for (name, text) in sources() {
+        let in_scope = name.starts_with("src/screens/") || name.starts_with("src/ui/");
+        let allowed =
+            R15_GAPS.iter().any(|(file, _)| *file == name) || R15_NOT_YET.contains(&name.as_str());
+        if in_scope && !allowed {
+            found.extend(r15_found(&name, &text));
+        }
+    }
+    assert!(found.is_empty(), "R15 hand text/width math: {found:#?}");
+}
+
+#[test]
+fn r15_the_not_yet_list_names_only_files_that_still_violate() {
+    let sources = sources();
+    for name in R15_NOT_YET {
+        let text = sources
+            .iter()
+            .find(|(file, _)| file == name)
+            .map(|(_, text)| text.as_str());
+        assert!(
+            text.is_some_and(|text| !r15_found(name, text).is_empty()),
+            "{name} no longer violates R15 (or is gone): remove it from R15_NOT_YET"
+        );
+    }
+}
+
+#[test]
+fn r15_the_gap_entries_are_small_and_documented() {
+    let sources = sources();
+    for (name, why) in R15_GAPS {
+        assert!(why.starts_with('G'), "{name}: a gap entry names its Gxx");
+        let text = sources.iter().find(|(file, _)| file == name);
+        assert!(text.is_some(), "{name}: the gap entry's file is gone");
+        let code = text.map_or(0, |(_, text)| {
+            text.split("#[cfg(test)]")
+                .next()
+                .unwrap_or("")
+                .lines()
+                .filter(|line| {
+                    let line = line.trim();
+                    !line.is_empty() && !line.starts_with("//")
+                })
+                .count()
+        });
+        assert!(
+            code <= 140,
+            "{name}: {code} lines, a gap entry is one small function"
+        );
+    }
+}
+
 /// ADR-010: no user-visible string literal in widget code. The strings are
 /// in `src/l10n` and the per-directory `strings.rs`, which are the only
 /// files that may hold them.
