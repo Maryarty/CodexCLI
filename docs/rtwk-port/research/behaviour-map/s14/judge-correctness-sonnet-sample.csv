@@ -1,0 +1,31 @@
+id,verdict,reason
+S14-R005,correct,cited range read; rule matches the code
+S14-R010,correct,"correct; applies only when allow_cancel is true (R011 gives the other branch); mod.rs:1524-1562, popup_consts 26-37 verified"
+S14-R015,correct,cited range read; rule matches the code
+S14-R020,correct,cited range read; rule matches the code
+S14-R025,correct,cited range read; rule matches the code
+S14-R030,correct,cited range read; rule matches the code
+S14-R035,correct,cited range read; rule matches the code
+S14-R040,correct,cited range read; rule matches the code
+S14-R045,correct,cited range read; rule matches the code
+S14-R050,correct,cited range read; rule matches the code
+S14-R055,correct,cited range read; rule matches the code
+S14-R060,correct,cited range read; rule matches the code
+S14-R065,correct,cited range read; rule matches the code
+S14-R070,correct,correct; indent is prefix+4 spaces (list_selection_view.rs ~ 793)
+S14-R075,correct,cited range read; rule matches the code
+S14-R080,correct,cited range read; rule matches the code
+S14-R085,correct,cited range read; rule matches the code
+S14-R090,imprecise,"""or its row disabled"" case does not fall back to the previously selected item: an in-range disabled index goes straight to the first enabled row (apply_filter 708-731); only the out-of-range case uses previously_selected. A B050 states it correctly."
+S14-R095,correct,cited range read; rule matches the code
+S14-R100,correct,cited range read; rule matches the code
+S14-R105,correct,cited range read; rule matches the code
+S14-R110,correct,cited range read; rule matches the code
+S14-R115,correct,cited range read; rule matches the code
+S14-R120,correct,cited range read; rule matches the code
+S14-R125,correct,cited range read; rule matches the code
+S14-R130,correct,cited range read; rule matches the code
+S14-R135,correct,cited range read; rule matches the code
+S14-R140,correct,cited range read; rule matches the code
+S14-R145,correct,cited range read; rule matches the code
+S14-R150,correct,cited range read; rule matches the code

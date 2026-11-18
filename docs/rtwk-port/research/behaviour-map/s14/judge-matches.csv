@@ -1,0 +1,160 @@
+b_id,a_ids,verdict,note
+S14-R001,S14-B007;S14-B008,full,omits ordering after a custom header and header_gap=0 when header height is 0
+S14-R002,S14-B005,full,
+S14-R003,S14-B005,full,
+S14-R004,,none,no A row for empty-tabs = tabs disabled
+S14-R005,S14-B014;S14-B017,full,
+S14-R006,S14-B015,full,
+S14-R007,S14-B016,full,
+S14-R008,,none,search_placeholder discarded when not searchable
+S14-R009,,none,max_visible_rows 0 clamped to 1
+S14-R010,,none,BottomPane footer-hint normalisation
+S14-R011,,none,BottomPane drops standard hint when allow_cancel false
+S14-R012,,none,BottomPane drops secondary_action whose key is a bound list action
+S14-R013,S14-B100;S14-B107;S14-B111,partial,"pieces (AutoAllRows, Panel, HideWhenNarrow 24) in separate rows; the preset as one unit and Panel-via-preset not stated"
+S14-R014,S14-B004,full,
+S14-R015,S14-B001,full,
+S14-R016,S14-B003,full,
+S14-R017,S14-B002,full,
+S14-R018,S14-B052,full,
+S14-R019,S14-B059;S14-B058,partial,empty list only implied (no-selection never stated)
+S14-R020,S14-B006,full,
+S14-R021,S14-B053,partial,A drops the condition that the callback fires only if the first selection differs from the preselected item (initial_selected_idx / current row)
+S14-R022,S14-B040,full,
+S14-R023,S14-B038;S14-B039,full,
+S14-R024,S14-B038;S14-B039,full,
+S14-R025,S14-B055,full,
+S14-R026,,none,"no-rows navigation (nothing selected, nothing fires)"
+S14-R027,S14-B021;S14-B020,partial,plain-char list bindings (j/k/h/l) become query text when search visible is not stated; B038 lists j/k with no such condition
+S14-R028,S14-B020;S14-B038,partial,"j/k navigate while OnDemand search idle only implied; B020 says ""the letter does nothing"""
+S14-R029,S14-B023,full,
+S14-R030,S14-B024,full,
+S14-R031,S14-B040;S14-B041,full,
+S14-R032,S14-B040;S14-B041,full,
+S14-R033,S14-B042,full,
+S14-R034,S14-B042,full,
+S14-R035,S14-B040,full,
+S14-R036,S14-B105;S14-B119,full,
+S14-R037,S14-B044,full,
+S14-R038,S14-B044,full,
+S14-R039,,none,left/right ignored without tabs
+S14-R040,S14-B046,full,
+S14-R041,,none,search query kept on tab switch when search_items non-empty
+S14-R042,S14-B045,full,
+S14-R043,S14-B115,full,
+S14-R044,,none,blank row between tab strip and search line
+S14-R045,S14-B114,full,
+S14-R046,S14-B060,full,
+S14-R047,S14-B061,full,
+S14-R048,S14-B062,full,
+S14-R049,S14-B063,full,
+S14-R050,S14-B090,full,
+S14-R051,S14-B064,full,
+S14-R052,S14-B069,full,
+S14-R053,S14-B059,full,
+S14-R054,S14-B068,full,
+S14-R055,S14-B027,full,
+S14-R056,S14-B065,full,
+S14-R057,S14-B065,full,
+S14-R058,S14-B066,full,
+S14-R059,S14-B067,full,
+S14-R060,S14-B071,full,
+S14-R061,S14-B073,full,
+S14-R062,S14-B070,full,
+S14-R063,S14-B070,full,
+S14-R064,S14-B021;S14-B076,full,
+S14-R065,S14-B072,full,
+S14-R066,S14-B074;S14-B075,full,
+S14-R067,S14-B076,full,
+S14-R068,S14-B077,full,
+S14-R069,,none,"display_shortcut shown as "" (key)"" after the name when auto numbering"
+S14-R070,S14-B074;S14-B070,full,A omits the indent under the parent
+S14-R071,S14-B074,full,
+S14-R072,S14-B033,full,
+S14-R073,S14-B034,full,
+S14-R074,S14-B033;S14-B021,partial,Space typed (no toggle) while OnDemand search is active only implied
+S14-R075,,none,Space bound to a list action wins over the toggle (A only links the test to cancel)
+S14-R076,,none,Space on disabled / toggle-less row
+S14-R077,S14-B035,full,
+S14-R078,S14-B036;S14-B037,full,
+S14-R079,S14-B069,full,
+S14-R080,S14-B079,full,
+S14-R081,S14-B081,full,
+S14-R082,S14-B080,full,
+S14-R083,S14-B021;S14-B054,full,
+S14-R084,S14-B025,full,
+S14-R085,,none,Backspace ignored when search field hidden
+S14-R086,S14-B023;S14-B022,partial,"A covers C0 only when action unbound and Ctrl/Alt letters; not ""any ASCII control char ignored"""
+S14-R087,S14-B049,full,
+S14-R088,,none,query empty or not searchable shows all rows (implicit only)
+S14-R089,S14-B050,full,
+S14-R090,S14-B051;S14-B050;S14-B052,full,
+S14-R091,S14-B058,full,
+S14-R092,S14-B054,full,
+S14-R093,S14-B047;S14-B048,full,
+S14-R094,S14-B056,full,
+S14-R095,S14-B057,full,
+S14-R096,S14-B019,full,
+S14-R097,S14-B026,full,
+S14-R098,S14-B026;S14-B028,partial,non-Esc cancel binding acting like Ctrl-C while OnDemand search open is not stated
+S14-R099,,none,plain-char accept/cancel binding is query text while OnDemand search active
+S14-R100,S14-B017,full,
+S14-R101,S14-B018,full,
+S14-R102,S14-B015,full,
+S14-R103,S14-B092,full,
+S14-R104,S14-B093,full,
+S14-R105,S14-B094,full,
+S14-R106,,none,BottomPane clears the whole view stack when the view completes on paste
+S14-R107,S14-B030;S14-B032,full,
+S14-R108,S14-B031,full,
+S14-R109,S14-B084,full,
+S14-R110,S14-B028,full,
+S14-R111,S14-B030,full,
+S14-R112,S14-B029,full,
+S14-R113,S14-B082;S14-B062,partial,A: BottomPane removes the view; the popping of parents flagged dismiss_after_child_accept is not stated
+S14-R114,S14-B082,partial,clearing the parent dismiss_after_child_accept flag on cancel is not stated
+S14-R115,,none,replace_selection_view_if_present inherits dismiss_after_child_accept
+S14-R116,,none,Release key events ignored
+S14-R117,S14-B091,full,
+S14-R118,S14-B083;S14-B085;S14-B086;S14-B087;S14-B088,full,
+S14-R119,S14-B117,full,
+S14-R120,S14-B117,full,
+S14-R121,S14-B112,partial,vertical order of elements not stated; only height components
+S14-R122,S14-B107,partial,"A says the Panel adds a spare line at the bottom; oracle: blank row ABOVE the header (top_gap, when height>2)"
+S14-R123,S14-B107,full,
+S14-R124,S14-B108,full,
+S14-R125,S14-B109,full,
+S14-R126,S14-B078,full,
+S14-R127,S14-B110,full,
+S14-R128,,none,selected_description shown for the highlighted row
+S14-R129,S14-B095;S14-B101;S14-B102;S14-B103;S14-B104,full,
+S14-R130,S14-B096,full,
+S14-R131,S14-B098;S14-B099;S14-B100,full,
+S14-R132,S14-B097,full,
+S14-R133,S14-B111,full,
+S14-R134,S14-B013,full,
+S14-R135,S14-B012,full,
+S14-R136,S14-B010,full,
+S14-R137,S14-B011;S14-B113,full,
+S14-R138,S14-B106,partial,"A puts the arrows ""on the first/last list row""; oracle: in the reserved indicator rows above/below the list, column 0"
+S14-R139,S14-B058,full,
+S14-R140,S14-B119,full,
+S14-R141,S14-B118,full,
+S14-R142,S14-B009,full,
+S14-R143,S14-B122,full,
+S14-R144,S14-B123;S14-B124,full,
+S14-R145,S14-B125;S14-B126;S14-B127,full,
+S14-R146,,none,rows laid out at the reduced width when side-by-side
+S14-R147,S14-B121,full,
+S14-R148,S14-B112,partial,A omits the 2 indicator rows and the header/tab gaps in the height sum
+S14-R149,S14-B118,full,
+S14-R150,S14-B022,full,
+S14-R151,S14-B091,full,
+S14-R152,S14-B073;S14-B070,partial,"""no selection callback when accepted at once / no scroll adjustment"" not stated"
+S14-R153,,none,no mouse handling
+S14-R154,,none,name_prefix_spans
+S14-R155,,none,category_tag
+S14-B043,,A-only noise,"keymap rebinding restates keymap configurability; B states keys as ""default ..."" and covers remap in R030"
+S14-B089,,A-only real,active_tab_id() accessor reported to the parent (minor API rule); B lists no row for it
+S14-B116,,A-only noise,60x18 browser fixture: duplicate of selected-row highlight (R124) and rows-that-fit paging (R035)
+S14-B120,,A-only real,"theme picker sets preserve_side_content_bg (theme_picker.rs:406); lives outside the generic view, B has only the generic flag in R145"

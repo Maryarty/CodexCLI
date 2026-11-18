@@ -1,0 +1,128 @@
+id,verdict,reason
+S14-B001,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B002,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B003,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B004,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B005,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B006,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B007,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B008,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B009,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B010,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B011,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B012,correct,minor: if the selected row has no description the footer note still shows (1128-1131)
+S14-B013,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B014,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B015,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B016,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B017,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B018,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B019,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B020,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B021,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B022,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B023,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B024,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B025,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B026,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B027,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B028,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B029,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B030,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B031,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B032,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B033,correct,"narrow: omits ""Space not bound to a list action"" (1378) but stated rule holds"
+S14-B034,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B035,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B036,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B037,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B038,imprecise,"keys listed include plain k/j (and Ctrl-N etc.); with a visible search field plain-char bindings are typed, not navigation (list_selection_view.rs:1311-1313)"
+S14-B039,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B040,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B041,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B042,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B043,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B044,correct,minor: callback fires only when a row is selected (fire_selection_changed 972-978)
+S14-B045,imprecise,"adds ""else first enabled row"" correctly but omits that the current row is only used for non-searchable lists (apply_filter 683-690); searchable tabbed lists always start on the first enabled row"
+S14-B046,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B047,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B048,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B049,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B050,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B051,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B052,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B053,imprecise,"fires only when the first selection differs from the preselected item (previously_selected = initial_selected_idx or current row, 739-741); with is_current or initial_selected_idx the callback does not fire"
+S14-B054,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B055,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B056,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B057,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B058,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B059,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B060,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B061,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B062,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B063,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B064,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B065,correct,"narrow: non-plain secondary key also works with on-demand search open (guard is allow_plain_char_navigation, 1403-1411)"
+S14-B066,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B067,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B068,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B069,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B070,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B071,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B072,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B073,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B074,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B075,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B076,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B077,imprecise,"only rows that have display_shortcut show a label; searchable list overrides (771-773); ""each row shows its own shortcut label"" is too general"
+S14-B078,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B079,correct,"narrow: toggle_placeholder wins even when a toggle exists (or_else, 427-429)"
+S14-B080,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B081,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B082,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B083,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B084,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B085,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B086,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B087,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B088,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B089,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B090,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B091,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B092,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B093,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B094,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B095,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B096,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B097,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B098,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B099,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B100,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B101,correct,"true as asserted (""3."" present at each width); fixture-level"
+S14-B102,correct,"true; ""description wraps or hides"" is not asserted by the test (only ""3."" present)"
+S14-B103,correct,"true but vacuous: restates a snapshot fixture, no rule"
+S14-B104,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B105,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B106,imprecise,"arrows are drawn in the reserved indicator rows above and below the list (picker_areas: above_area/below_area, selection_picker_layout.rs:55-57), not on the first/last list row"
+S14-B107,imprecise,"Panel adds one row, but as a blank top gap above the header (top_gap, 1699-1706) with a +1 in desired_height; not a spare line at the bottom"
+S14-B108,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B109,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B110,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B111,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B112,imprecise,"height sum also includes the 2 indicator rows, header_gap and tab/search gap (1594-1598); stated list is incomplete"
+S14-B113,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B114,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B115,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B116,correct,true but a fixture restatement of B108/B040
+S14-B117,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B118,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B119,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B120,correct,"rule right; cited range is the test, behaviour is theme_picker.rs:406"
+S14-B121,imprecise,"only the 94x35 test fixture is described; rule (theme_picker.rs:283-300) is: fallback subtitle when the ""Custom .tmTheme ... directory"" subtitle does not fit the available width; cited range is the test, not the code"
+S14-B122,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B123,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B124,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B125,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B126,correct,cited range read; stated trigger/precondition/outcome match the code
+S14-B127,correct,cited range read; stated trigger/precondition/outcome match the code

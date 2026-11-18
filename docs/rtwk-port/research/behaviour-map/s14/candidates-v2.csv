@@ -1,0 +1,201 @@
+id,screen,kind,file,line,end_line,symbol,excerpt
+S14-C001,S14,key-arm,bottom_pane/list_selection_view.rs,1318,1325,handle_key_event_with_activation_key#arm1/22,_ if self .search_toggle_key .is_some_and(|key| key.is_press(key_event)) && self.keymap.action_for(key_event).is_none()
+S14-C002,S14,key-arm,bottom_pane/list_selection_view.rs,1326,1328,handle_key_event_with_activation_key#arm2/22,_ if allow_plain_char_navigation && self.keymap.move_up.is_pressed(key_event) => { self.move_up() }
+S14-C003,S14,key-arm,bottom_pane/list_selection_view.rs,1329,1331,handle_key_event_with_activation_key#arm3/22,_ if allow_plain_char_navigation && self.keymap.move_down.is_pressed(key_event) => { self.move_down() }
+S14-C004,S14,key-arm,bottom_pane/list_selection_view.rs,1332,1334,handle_key_event_with_activation_key#arm4/22,_ if allow_plain_char_navigation && self.keymap.page_up.is_pressed(key_event) => { self.page_up() }
+S14-C005,S14,key-arm,bottom_pane/list_selection_view.rs,1335,1337,handle_key_event_with_activation_key#arm5/22,_ if allow_plain_char_navigation && self.keymap.page_down.is_pressed(key_event) => { self.page_down() }
+S14-C006,S14,key-arm,bottom_pane/list_selection_view.rs,1338,1340,handle_key_event_with_activation_key#arm6/22,_ if allow_plain_char_navigation && self.keymap.jump_top.is_pressed(key_event) => { self.jump_top() }
+S14-C007,S14,key-arm,bottom_pane/list_selection_view.rs,1341,1343,handle_key_event_with_activation_key#arm7/22,_ if allow_plain_char_navigation && self.keymap.jump_bottom.is_pressed(key_event) => { self.jump_bottom() }
+S14-C008,S14,key-arm,bottom_pane/list_selection_view.rs,1344,1349,handle_key_event_with_activation_key#arm8/22,_ if allow_plain_char_navigation && self.tabs_enabled() && self.keymap.move_left.is_pressed(key_event) => {
+S14-C009,S14,key-arm,bottom_pane/list_selection_view.rs,1350,1355,handle_key_event_with_activation_key#arm9/22,_ if allow_plain_char_navigation && self.tabs_enabled() && self.keymap.move_right.is_pressed(key_event) => {
+S14-C010,S14,key-arm,bottom_pane/list_selection_view.rs,1356,1360,handle_key_event_with_activation_key#arm10/22,"KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, .."
+S14-C011,S14,key-arm,bottom_pane/list_selection_view.rs,1361,1365,handle_key_event_with_activation_key#arm11/22,"KeyEvent { code: KeyCode::Enter, modifiers: KeyModifiers::NONE, .."
+S14-C012,S14,key-arm,bottom_pane/list_selection_view.rs,1366,1373,handle_key_event_with_activation_key#arm12/22,"KeyEvent { code: KeyCode::Backspace, .. } if search_field_visible => {"
+S14-C013,S14,key-arm,bottom_pane/list_selection_view.rs,1374,1385,handle_key_event_with_activation_key#arm13/22,"KeyEvent { code: KeyCode::Char(' '), modifiers: KeyModifiers::NONE, .."
+S14-C014,S14,key-arm,bottom_pane/list_selection_view.rs,1386,1393,handle_key_event_with_activation_key#arm14/22,"KeyEvent { code: KeyCode::Char(' '), modifiers: KeyModifiers::NONE, .."
+S14-C015,S14,key-arm,bottom_pane/list_selection_view.rs,1394,1399,handle_key_event_with_activation_key#arm15/22,_ if allow_plain_char_actions && self.allow_cancel && self.keymap.cancel.is_pressed(key_event) => {
+S14-C016,S14,key-arm,bottom_pane/list_selection_view.rs,1400,1402,handle_key_event_with_activation_key#arm16/22,"_ if allow_plain_char_actions && self.keymap.accept.is_pressed(key_event) => { self.accept(SelectionActionKind::Primary, key) }"
+S14-C017,S14,key-arm,bottom_pane/list_selection_view.rs,1403,1411,handle_key_event_with_activation_key#arm17/22,_ if allow_plain_char_navigation && self .selected_actual_idx() .and_then(|idx| self.active_items().get(idx))
+S14-C018,S14,key-arm,bottom_pane/list_selection_view.rs,1412,1421,handle_key_event_with_activation_key#arm18/22,"_ if self.is_searchable && !self.search_active && matches!( self.search_mode,"
+S14-C019,S14,key-arm,bottom_pane/list_selection_view.rs,1422,1425,handle_key_event_with_activation_key#arm19/22,"KeyEvent { code: KeyCode::Char(c), .. } if c.is_ascii_control() => {}"
+S14-C020,S14,key-arm,bottom_pane/list_selection_view.rs,1426,1435,handle_key_event_with_activation_key#arm20/22,"KeyEvent { code: KeyCode::Char(c), modifiers, .."
+S14-C021,S14,key-arm,bottom_pane/list_selection_view.rs,1436,1462,handle_key_event_with_activation_key#arm21/22,"KeyEvent { code: KeyCode::Char(c), modifiers, .."
+S14-C022,S14,key-arm,bottom_pane/list_selection_view.rs,1463,1463,handle_key_event_with_activation_key#arm22/22,_ => {}
+S14-C023,S14,view-hook,bottom_pane/list_selection_view.rs,1287,1289,BottomPaneView::presentation,fn presentation(&self) -> super::ViewPresentation { self.presentation
+S14-C024,S14,view-hook,bottom_pane/list_selection_view.rs,1291,1293,BottomPaneView::keymap_contexts,fn keymap_contexts(&self) -> crate::keymap::KeymapContextSet { crate::keymap::KeymapContextSet::new(crate::keymap::KeymapContext::List)
+S14-C025,S14,view-hook,bottom_pane/list_selection_view.rs,1295,1297,BottomPaneView::accepts_input_when_disconnected,fn accepts_input_when_disconnected(&self) -> bool { self.allow_input_when_disconnected
+S14-C026,S14,view-hook,bottom_pane/list_selection_view.rs,1299,1301,BottomPaneView::handle_key_event,"fn handle_key_event(&mut self, key_event: KeyEvent) { self.handle_key_event_with_activation_key(key_event, /*activation_key*/ None);"
+S14-C027,S14,view-hook,bottom_pane/list_selection_view.rs,1303,1465,BottomPaneView::handle_key_event_with_activation_key,"fn handle_key_event_with_activation_key( &mut self,"
+S14-C028,S14,view-hook,bottom_pane/list_selection_view.rs,1467,1476,BottomPaneView::handle_paste,"fn handle_paste(&mut self, pasted: String) -> bool { if !self.search_field_visible() {"
+S14-C029,S14,view-hook,bottom_pane/list_selection_view.rs,1478,1480,BottomPaneView::is_complete,fn is_complete(&self) -> bool { self.completion.is_some()
+S14-C030,S14,view-hook,bottom_pane/list_selection_view.rs,1482,1484,BottomPaneView::completion,fn completion(&self) -> Option<ViewCompletion> { self.completion
+S14-C031,S14,view-hook,bottom_pane/list_selection_view.rs,1486,1488,BottomPaneView::dismiss_after_child_accept,fn dismiss_after_child_accept(&self) -> bool { self.dismiss_after_child_accept
+S14-C032,S14,view-hook,bottom_pane/list_selection_view.rs,1490,1492,BottomPaneView::clear_dismiss_after_child_accept,fn clear_dismiss_after_child_accept(&mut self) { self.dismiss_after_child_accept = false;
+S14-C033,S14,view-hook,bottom_pane/list_selection_view.rs,1494,1496,BottomPaneView::view_id,fn view_id(&self) -> Option<&'static str> { self.view_id
+S14-C034,S14,view-hook,bottom_pane/list_selection_view.rs,1498,1500,BottomPaneView::selected_index,fn selected_index(&self) -> Option<usize> { self.selected_actual_idx()
+S14-C035,S14,view-hook,bottom_pane/list_selection_view.rs,1502,1515,BottomPaneView::selection_toggle_states,fn selection_toggle_states(&self) -> Vec<Option<SelectionToggleState>> { self.active_items()
+S14-C036,S14,view-hook,bottom_pane/list_selection_view.rs,1517,1522,BottomPaneView::complete_selection_toggle,"fn complete_selection_toggle(&mut self, index: usize) { if let Some(item) = self.active_items_mut().get_mut(index) {"
+S14-C037,S14,view-hook,bottom_pane/list_selection_view.rs,1524,1526,BottomPaneView::search_query,fn search_query(&self) -> Option<&str> { self.is_searchable.then_some(self.search_query.as_str())
+S14-C038,S14,view-hook,bottom_pane/list_selection_view.rs,1528,1530,BottomPaneView::active_tab_id,fn active_tab_id(&self) -> Option<&str> { ListSelectionView::active_tab_id(self)
+S14-C039,S14,view-hook,bottom_pane/list_selection_view.rs,1532,1534,BottomPaneView::prefer_esc_to_handle_key_event,fn prefer_esc_to_handle_key_event(&self) -> bool { true
+S14-C040,S14,view-hook,bottom_pane/list_selection_view.rs,1536,1549,BottomPaneView::on_ctrl_c,fn on_ctrl_c(&mut self) -> CancellationEvent { if self.on_demand_search_active() {
+S14-C041,S14,view-hook,bottom_pane/list_selection_view.rs,1553,1559,Renderable::cursor_pos,"fn cursor_pos(&self, _area: Rect) -> Option<(u16, u16)> { if self.on_demand_search_active() {"
+S14-C042,S14,view-hook,bottom_pane/list_selection_view.rs,1561,1634,Renderable::desired_height,"fn desired_height(&self, width: u16) -> u16 { // Inner content width after menu surface horizontal insets (2 per side)."
+S14-C043,S14,view-hook,bottom_pane/list_selection_view.rs,1636,1928,Renderable::render,"fn render(&self, area: Rect, buf: &mut Buffer) { self.rendered_item_count.set(/*val*/ 0);"
+S14-C044,S14,mutator,bottom_pane/list_selection_view.rs,441,459,toggle_selected,fn toggle_selected(&mut self) { let Some(actual_idx) = self.selected_actual_idx() else {
+S14-C045,S14,mutator,bottom_pane/list_selection_view.rs,572,579,edit_search_query,"fn edit_search_query(&mut self, edit: impl FnOnce(&mut String)) { let search_items_were_active = self.search_items_active();"
+S14-C046,S14,mutator,bottom_pane/list_selection_view.rs,591,601,active_items_mut,fn active_items_mut(&mut self) -> &mut [SelectionItem] { if self.search_items_active() {
+S14-C047,S14,mutator,bottom_pane/list_selection_view.rs,673,743,apply_filter,fn apply_filter(&mut self) { let previously_selected = self
+S14-C048,S14,mutator,bottom_pane/list_selection_view.rs,833,858,switch_tab,"fn switch_tab(&mut self, step: isize) { let Some(active_idx) = self.active_tab_idx else {"
+S14-C049,S14,mutator,bottom_pane/list_selection_view.rs,860,866,select_first_enabled_row,fn select_first_enabled_row(&mut self) { let selected_visible_idx = self
+S14-C050,S14,mutator,bottom_pane/list_selection_view.rs,900,910,move_up,fn move_up(&mut self) { let before = self.selected_actual_idx();
+S14-C051,S14,mutator,bottom_pane/list_selection_view.rs,912,922,move_down,fn move_down(&mut self) { let before = self.selected_actual_idx();
+S14-C052,S14,mutator,bottom_pane/list_selection_view.rs,924,934,page_up,fn page_up(&mut self) { let before = self.selected_actual_idx();
+S14-C053,S14,mutator,bottom_pane/list_selection_view.rs,936,946,page_down,fn page_down(&mut self) { let before = self.selected_actual_idx();
+S14-C054,S14,mutator,bottom_pane/list_selection_view.rs,948,958,jump_top,fn jump_top(&mut self) { let before = self.selected_actual_idx();
+S14-C055,S14,mutator,bottom_pane/list_selection_view.rs,960,970,jump_bottom,fn jump_bottom(&mut self) { let before = self.selected_actual_idx();
+S14-C056,S14,mutator,bottom_pane/list_selection_view.rs,980,1023,accept,"fn accept(&mut self, kind: SelectionActionKind, key: KeyBinding) { let selected_actual_idx = self.selected_actual_idx();"
+S14-C057,S14,mutator,bottom_pane/list_selection_view.rs,1025,1039,select_shortcut,"fn select_shortcut(&mut self, actual_idx: usize, key: KeyBinding) { let previously_selected = self.selected_actual_idx();"
+S14-C058,S14,mutator,bottom_pane/list_selection_view.rs,1055,1058,stop_on_demand_search,fn stop_on_demand_search(&mut self) { self.search_active = false;
+S14-C059,S14,mutator,bottom_pane/list_selection_view.rs,1060,1074,set_search_query,"pub(crate) fn set_search_query(&mut self, query: String) { let selected_actual_idx = self.selected_actual_idx();"
+S14-C060,S14,mutator,bottom_pane/list_selection_view.rs,1076,1078,take_last_selected_index,pub(crate) fn take_last_selected_index(&mut self) -> Option<usize> { self.last_selected_actual_idx.take()
+S14-C061,S14,mutator,bottom_pane/list_selection_view.rs,1215,1224,skip_disabled_down,fn skip_disabled_down(&mut self) { let len = self.visible_len();
+S14-C062,S14,mutator,bottom_pane/list_selection_view.rs,1226,1235,skip_disabled_up,fn skip_disabled_up(&mut self) { let len = self.visible_len();
+S14-C063,S14,mutator,bottom_pane/list_selection_view.rs,1237,1254,skip_disabled_down_clamped,fn skip_disabled_down_clamped(&mut self) { let Some(start) = self.state.selected_idx else {
+S14-C064,S14,mutator,bottom_pane/list_selection_view.rs,1256,1270,skip_disabled_up_clamped,fn skip_disabled_up_clamped(&mut self) { let Some(start) = self.state.selected_idx else {
+S14-C065,S14,send,bottom_pane/list_selection_view.rs,458,458,,"(toggle.action)(toggle.is_on, &app_event_tx);"
+S14-C066,S14,send,bottom_pane/list_selection_view.rs,998,998,,act(&self.app_event_tx);
+S14-C067,S14,send,bottom_pane/list_selection_view.rs,1001,1001,,"action(&self.app_event_tx, key);"
+S14-C068,S14,send,bottom_pane/list_selection_view.rs,1008,1008,,(action.action)(&self.app_event_tx);
+S14-C069,S14,send,bottom_pane/list_selection_view.rs,1019,1019,,cb(&self.app_event_tx);
+S14-C070,S14,send,bottom_pane/list_selection_view.rs,1545,1545,,cb(&self.app_event_tx);
+S14-C071,S14,field,bottom_pane/list_selection_view.rs,130,130,SelectionSecondaryAction.key,"pub key: KeyBinding,"
+S14-C072,S14,field,bottom_pane/list_selection_view.rs,131,131,SelectionSecondaryAction.action,"pub action: SelectionAction,"
+S14-C073,S14,field,bottom_pane/list_selection_view.rs,132,132,SelectionSecondaryAction.footer_hint,"pub footer_hint: Line<'static>,"
+S14-C074,S14,field,bottom_pane/list_selection_view.rs,142,142,SelectionToggle.is_on,"pub is_on: bool,"
+S14-C075,S14,field,bottom_pane/list_selection_view.rs,143,143,SelectionToggle.action,"pub action: Box<SelectionToggleAction>,"
+S14-C076,S14,field,bottom_pane/list_selection_view.rs,149,149,SelectionToggleState.is_on,"pub is_on: bool,"
+S14-C077,S14,field,bottom_pane/list_selection_view.rs,150,150,SelectionToggleState.pending_actions,"pub pending_actions: usize,"
+S14-C078,S14,field,bottom_pane/list_selection_view.rs,171,171,SelectionItem.name,"pub name: String,"
+S14-C079,S14,field,bottom_pane/list_selection_view.rs,172,173,SelectionItem.child_label,"/// Indent beneath the preceding parent, using this letter instead of a numeric shortcut. pub child_label: Option<char>,"
+S14-C080,S14,field,bottom_pane/list_selection_view.rs,174,174,SelectionItem.name_prefix_spans,"pub name_prefix_spans: Vec<Span<'static>>,"
+S14-C081,S14,field,bottom_pane/list_selection_view.rs,175,175,SelectionItem.toggle,"pub toggle: Option<SelectionToggle>,"
+S14-C082,S14,field,bottom_pane/list_selection_view.rs,176,177,SelectionItem.checkbox_toggle,"/// Render `[x]` and treat the primary accept key as a toggle action. pub checkbox_toggle: bool,"
+S14-C083,S14,field,bottom_pane/list_selection_view.rs,178,179,SelectionItem.pending_toggle_actions,"/// Toggle actions sent from this row that have not finished saving yet. pub pending_toggle_actions: usize,"
+S14-C084,S14,field,bottom_pane/list_selection_view.rs,180,180,SelectionItem.toggle_placeholder,"pub toggle_placeholder: Option<&'static str>,"
+S14-C085,S14,field,bottom_pane/list_selection_view.rs,181,181,SelectionItem.display_shortcut,"pub display_shortcut: Option<ShortcutHint>,"
+S14-C086,S14,field,bottom_pane/list_selection_view.rs,182,183,SelectionItem.category_tag,"/// Required row metadata retained when the secondary description hides. pub category_tag: Option<String>,"
+S14-C087,S14,field,bottom_pane/list_selection_view.rs,184,184,SelectionItem.description,"pub description: Option<String>,"
+S14-C088,S14,field,bottom_pane/list_selection_view.rs,185,185,SelectionItem.selected_description,"pub selected_description: Option<String>,"
+S14-C089,S14,field,bottom_pane/list_selection_view.rs,186,186,SelectionItem.is_current,"pub is_current: bool,"
+S14-C090,S14,field,bottom_pane/list_selection_view.rs,187,187,SelectionItem.is_disabled,"pub is_disabled: bool,"
+S14-C091,S14,field,bottom_pane/list_selection_view.rs,188,188,SelectionItem.actions,"pub actions: Vec<SelectionAction>,"
+S14-C092,S14,field,bottom_pane/list_selection_view.rs,189,190,SelectionItem.on_accept_key,"/// Primary action that also needs the physical key to guard a view transition. pub on_accept_key: Option<SelectionKeyAction>,"
+S14-C093,S14,field,bottom_pane/list_selection_view.rs,191,191,SelectionItem.secondary_action,"pub secondary_action: Option<SelectionSecondaryAction>,"
+S14-C094,S14,field,bottom_pane/list_selection_view.rs,192,193,SelectionItem.footer_hint,"/// Footer hint shown while this row is selected. pub footer_hint: Option<Line<'static>>,"
+S14-C095,S14,field,bottom_pane/list_selection_view.rs,194,195,SelectionItem.search_footer_hint,"/// Footer hint shown instead while on-demand search is active. pub search_footer_hint: Option<Line<'static>>,"
+S14-C096,S14,field,bottom_pane/list_selection_view.rs,196,196,SelectionItem.dismiss_on_select,"pub dismiss_on_select: bool,"
+S14-C097,S14,field,bottom_pane/list_selection_view.rs,197,198,SelectionItem.require_explicit_confirmation,"/// Require an explicit accept key after a direct shortcut highlights this sensitive item. pub require_explicit_confirmation: bool,"
+S14-C098,S14,field,bottom_pane/list_selection_view.rs,199,199,SelectionItem.dismiss_parent_on_child_accept,"pub dismiss_parent_on_child_accept: bool,"
+S14-C099,S14,field,bottom_pane/list_selection_view.rs,200,200,SelectionItem.search_value,"pub search_value: Option<String>,"
+S14-C100,S14,field,bottom_pane/list_selection_view.rs,201,201,SelectionItem.disabled_reason,"pub disabled_reason: Option<String>,"
+S14-C101,S14,field,bottom_pane/list_selection_view.rs,202,203,SelectionItem.disabled_gutter_marker,"/// Optional marker rendered in place of the number for a disabled row. pub disabled_gutter_marker: Option<&'static str>,"
+S14-C102,S14,field,bottom_pane/list_selection_view.rs,218,218,SelectionViewParams.presentation,"pub presentation: super::ViewPresentation,"
+S14-C103,S14,field,bottom_pane/list_selection_view.rs,219,219,SelectionViewParams.picker_surface,"pub picker_surface: PickerSurface,"
+S14-C104,S14,field,bottom_pane/list_selection_view.rs,220,221,SelectionViewParams.max_visible_rows,"/// Upper row budget; compact completion menus retain the default of eight. pub max_visible_rows: usize,"
+S14-C105,S14,field,bottom_pane/list_selection_view.rs,222,223,SelectionViewParams.reserve_result_rows,"/// Keep the result area at its configured row budget when filtering shrinks it. pub reserve_result_rows: bool,"
+S14-C106,S14,field,bottom_pane/list_selection_view.rs,224,225,SelectionViewParams.allow_input_when_disconnected,"/// Whether this picker can continue handling input without the app server. pub allow_input_when_disconnected: bool,"
+S14-C107,S14,field,bottom_pane/list_selection_view.rs,226,226,SelectionViewParams.view_id,"pub view_id: Option<&'static str>,"
+S14-C108,S14,field,bottom_pane/list_selection_view.rs,227,227,SelectionViewParams.title,"pub title: Option<String>,"
+S14-C109,S14,field,bottom_pane/list_selection_view.rs,228,228,SelectionViewParams.subtitle,"pub subtitle: Option<String>,"
+S14-C110,S14,field,bottom_pane/list_selection_view.rs,229,229,SelectionViewParams.footer_note,"pub footer_note: Option<Line<'static>>,"
+S14-C111,S14,field,bottom_pane/list_selection_view.rs,230,230,SelectionViewParams.footer_hint,"pub footer_hint: Option<Line<'static>>,"
+S14-C112,S14,field,bottom_pane/list_selection_view.rs,231,231,SelectionViewParams.tab_footer_hints,"pub tab_footer_hints: Vec<(String, Line<'static>)>,"
+S14-C113,S14,field,bottom_pane/list_selection_view.rs,232,232,SelectionViewParams.items,"pub items: Vec<SelectionItem>,"
+S14-C114,S14,field,bottom_pane/list_selection_view.rs,233,234,SelectionViewParams.search_items,"/// Optional flat item list used while a tabbed picker has a non-empty search query. pub search_items: Vec<SelectionItem>,"
+S14-C115,S14,field,bottom_pane/list_selection_view.rs,235,235,SelectionViewParams.tabs,"pub tabs: Vec<SelectionTab>,"
+S14-C116,S14,field,bottom_pane/list_selection_view.rs,236,236,SelectionViewParams.initial_tab_id,"pub initial_tab_id: Option<String>,"
+S14-C117,S14,field,bottom_pane/list_selection_view.rs,237,237,SelectionViewParams.is_searchable,"pub is_searchable: bool,"
+S14-C118,S14,field,bottom_pane/list_selection_view.rs,238,239,SelectionViewParams.search_toggle_key,"/// Optional non-text key that can toggle a row while printable keys edit the search query. pub search_toggle_key: Option<KeyBinding>,"
+S14-C119,S14,field,bottom_pane/list_selection_view.rs,240,240,SelectionViewParams.search_mode,"pub search_mode: SearchMode,"
+S14-C120,S14,field,bottom_pane/list_selection_view.rs,241,242,SelectionViewParams.auto_number_shortcuts,"/// Use ordinal digits in the gutter; when false, use only each row's explicit shortcut. pub auto_number_shortcuts: bool,"
+S14-C121,S14,field,bottom_pane/list_selection_view.rs,243,243,SelectionViewParams.search_placeholder,"pub search_placeholder: Option<String>,"
+S14-C122,S14,field,bottom_pane/list_selection_view.rs,244,244,SelectionViewParams.col_width_mode,"pub col_width_mode: ColumnWidthMode,"
+S14-C123,S14,field,bottom_pane/list_selection_view.rs,245,245,SelectionViewParams.row_display,"pub row_display: SelectionRowDisplay,"
+S14-C124,S14,field,bottom_pane/list_selection_view.rs,246,246,SelectionViewParams.description_layout,"pub description_layout: SelectionDescriptionLayout,"
+S14-C125,S14,field,bottom_pane/list_selection_view.rs,247,248,SelectionViewParams.name_column_width,"/// Rendered left-column width to use for auto-sized rows. pub name_column_width: Option<usize>,"
+S14-C126,S14,field,bottom_pane/list_selection_view.rs,249,249,SelectionViewParams.header,"pub header: Box<dyn Renderable>,"
+S14-C127,S14,field,bottom_pane/list_selection_view.rs,250,251,SelectionViewParams.header_view_all_hint,"/// Optional shortcut to the complete header, shown when its text is clipped. pub header_view_all_hint: Option<ShortcutHint>,"
+S14-C128,S14,field,bottom_pane/list_selection_view.rs,252,253,SelectionViewParams.header_gap,"/// Blank rows after the header; defaults to one. Inline banners use zero. pub header_gap: u16,"
+S14-C129,S14,field,bottom_pane/list_selection_view.rs,254,254,SelectionViewParams.initial_selected_idx,"pub initial_selected_idx: Option<usize>,"
+S14-C130,S14,field,bottom_pane/list_selection_view.rs,255,256,SelectionViewParams.initial_search_query,"/// Restore a filter together with its actual selected item after a source refresh. pub initial_search_query: Option<String>,"
+S14-C131,S14,field,bottom_pane/list_selection_view.rs,258,261,SelectionViewParams.side_content,"/// Rich content rendered beside (wide terminals) or below (narrow terminals) /// the list items, inside the bordered menu surface. Used by the theme picker /// to show a syntax-highlighted preview."
+S14-C132,S14,field,bottom_pane/list_selection_view.rs,263,264,SelectionViewParams.side_content_width,"/// Width mode for side content when side-by-side layout is active. pub side_content_width: SideContentWidth,"
+S14-C133,S14,field,bottom_pane/list_selection_view.rs,266,267,SelectionViewParams.side_content_min_width,"/// Minimum side panel width required before side-by-side layout activates. pub side_content_min_width: u16,"
+S14-C134,S14,field,bottom_pane/list_selection_view.rs,269,271,SelectionViewParams.stacked_side_content,"/// Optional fallback content rendered when side-by-side does not fit. /// When absent, `side_content` is reused. pub stacked_side_content: Option<Box<dyn Renderable>>,"
+S14-C135,S14,field,bottom_pane/list_selection_view.rs,273,275,SelectionViewParams.preserve_side_content_bg,"/// Keep side-content background colors after rendering in side-by-side mode. /// Disabled by default so existing popups preserve their reset-background look. pub preserve_side_content_bg: bool,"
+S14-C136,S14,field,bottom_pane/list_selection_view.rs,277,279,SelectionViewParams.on_selection_changed,"/// Called when the highlighted item changes (navigation, filter, number-key). /// Receives the *actual* item index, not the filtered/visible index. pub on_selection_changed: OnSelectionChangedCallback,"
+S14-C137,S14,field,bottom_pane/list_selection_view.rs,281,282,SelectionViewParams.allow_cancel,"/// Whether cancellation keys can dismiss the picker. pub allow_cancel: bool,"
+S14-C138,S14,field,bottom_pane/list_selection_view.rs,284,285,SelectionViewParams.on_cancel,"/// Called when the picker is dismissed via Esc/Ctrl+C without selecting. pub on_cancel: OnCancelCallback,"
+S14-C139,S14,field,bottom_pane/list_selection_view.rs,361,361,ListSelectionView.dismiss_after_child_accept,"pub(super) dismiss_after_child_accept: bool,"
+S14-C140,S14,field,bottom_pane/list_selection_view.rs,362,362,ListSelectionView.app_event_tx,"pub(super) app_event_tx: AppEventSender,"
+S14-C141,S14,test,bottom_pane/list_selection_view.rs,2001,2041,secondary_action_respects_search_disabled_rows_and_dismissal,fn secondary_action_respects_search_disabled_rows_and_dismissal() {
+S14-C142,S14,test,bottom_pane/list_selection_view.rs,2044,2074,searchable_list_honors_configured_printable_accept_alternative,fn searchable_list_honors_configured_printable_accept_alternative() {
+S14-C143,S14,test,bottom_pane/list_selection_view.rs,2188,2194,renders_blank_line_between_title_and_items_without_subtitle,fn renders_blank_line_between_title_and_items_without_subtitle() {
+S14-C144,S14,test,bottom_pane/list_selection_view.rs,2197,2200,renders_blank_line_between_subtitle_and_items,fn renders_blank_line_between_subtitle_and_items() {
+S14-C145,S14,test,bottom_pane/list_selection_view.rs,2203,2217,theme_picker_subtitle_uses_fallback_text_in_94x35_terminal,fn theme_picker_subtitle_uses_fallback_text_in_94x35_terminal() {
+S14-C146,S14,test,bottom_pane/list_selection_view.rs,2220,2230,theme_picker_enables_side_content_background_preservation,fn theme_picker_enables_side_content_background_preservation() {
+S14-C147,S14,test,bottom_pane/list_selection_view.rs,2233,2273,preserve_side_content_bg_keeps_rendered_background_colors,fn preserve_side_content_bg_keeps_rendered_background_colors() {
+S14-C148,S14,test,bottom_pane/list_selection_view.rs,2276,2305,snapshot_footer_note_wraps,fn snapshot_footer_note_wraps() {
+S14-C149,S14,test,bottom_pane/list_selection_view.rs,2308,2336,renders_search_query_line_when_enabled,fn renders_search_query_line_when_enabled() {
+S14-C150,S14,test,bottom_pane/list_selection_view.rs,2339,2359,empty_searchable_list_keeps_search_and_no_matches_visible,fn empty_searchable_list_keeps_search_and_no_matches_visible() {
+S14-C151,S14,test,bottom_pane/list_selection_view.rs,2362,2391,paste_appends_to_search_query_and_filters_items,fn paste_appends_to_search_query_and_filters_items() {
+S14-C152,S14,test,bottom_pane/list_selection_view.rs,2394,2414,whitespace_only_paste_is_ignored,fn whitespace_only_paste_is_ignored() {
+S14-C153,S14,test,bottom_pane/list_selection_view.rs,2417,2466,switching_tabs_changes_visible_items_and_clears_search,fn switching_tabs_changes_visible_items_and_clears_search() {
+S14-C154,S14,test,bottom_pane/list_selection_view.rs,2469,2526,tabbed_view_preserves_current_row_on_initial_selection_and_tab_switch,fn tabbed_view_preserves_current_row_on_initial_selection_and_tab_switch() {
+S14-C155,S14,test,bottom_pane/list_selection_view.rs,2529,2566,space_appends_to_active_search_instead_of_toggling_selected_item,fn space_appends_to_active_search_instead_of_toggling_selected_item() {
+S14-C156,S14,test,bottom_pane/list_selection_view.rs,2569,2614,configured_list_binding_takes_precedence_over_search_toggle_key,fn configured_list_binding_takes_precedence_over_search_toggle_key() {
+S14-C157,S14,test,bottom_pane/list_selection_view.rs,2617,2651,configured_cancel_binding_takes_precedence_over_space_toggle,fn configured_cancel_binding_takes_precedence_over_space_toggle() {
+S14-C158,S14,test,bottom_pane/list_selection_view.rs,2654,2706,single_line_row_display_truncates_instead_of_wrapping,fn single_line_row_display_truncates_instead_of_wrapping() {
+S14-C159,S14,test,bottom_pane/list_selection_view.rs,2709,2773,name_column_width_override_moves_description_column_right,fn name_column_width_override_moves_description_column_right() {
+S14-C160,S14,test,bottom_pane/list_selection_view.rs,2776,2804,enter_with_no_matches_triggers_cancel_callback,fn enter_with_no_matches_triggers_cancel_callback() {
+S14-C161,S14,test,bottom_pane/list_selection_view.rs,2807,2833,move_down_without_selection_change_does_not_fire_callback,fn move_down_without_selection_change_does_not_fire_callback() {
+S14-C162,S14,test,bottom_pane/list_selection_view.rs,2836,2891,disabled_current_rows_skip_default_selection_and_number_shortcuts,fn disabled_current_rows_skip_default_selection_and_number_shortcuts() {
+S14-C163,S14,test,bottom_pane/list_selection_view.rs,2894,2915,automatic_shortcuts_stop_at_nine,fn automatic_shortcuts_stop_at_nine() {
+S14-C164,S14,test,bottom_pane/list_selection_view.rs,2918,2947,c0_ctrl_p_respects_unbound_list_move_up,fn c0_ctrl_p_respects_unbound_list_move_up() {
+S14-C165,S14,test,bottom_pane/list_selection_view.rs,2950,2978,c0_ctrl_n_respects_unbound_list_move_down,fn c0_ctrl_n_respects_unbound_list_move_down() {
+S14-C166,S14,test,bottom_pane/list_selection_view.rs,2981,3009,c0_ctrl_p_respects_remapped_list_move_down,fn c0_ctrl_p_respects_remapped_list_move_down() {
+S14-C167,S14,test,bottom_pane/list_selection_view.rs,3012,3048,page_and_jump_navigation_use_list_keymap,fn page_and_jump_navigation_use_list_keymap() {
+S14-C168,S14,test,bottom_pane/list_selection_view.rs,3051,3080,page_and_jump_navigation_skip_trailing_disabled_rows_without_wrapping,fn page_and_jump_navigation_skip_trailing_disabled_rows_without_wrapping() {
+S14-C169,S14,test,bottom_pane/list_selection_view.rs,3083,3121,wraps_long_option_without_overflowing_columns,fn wraps_long_option_without_overflowing_columns() {
+S14-C170,S14,test,bottom_pane/list_selection_view.rs,3124,3175,width_changes_do_not_hide_rows,fn width_changes_do_not_hide_rows() {
+S14-C171,S14,test,bottom_pane/list_selection_view.rs,3178,3203,narrow_width_keeps_all_rows_visible,fn narrow_width_keeps_all_rows_visible() {
+S14-C172,S14,test,bottom_pane/list_selection_view.rs,3206,3250,snapshot_model_picker_width_80,fn snapshot_model_picker_width_80() {
+S14-C173,S14,test,bottom_pane/list_selection_view.rs,3253,3277,snapshot_narrow_width_preserves_third_option,fn snapshot_narrow_width_preserves_third_option() {
+S14-C174,S14,test,bottom_pane/list_selection_view.rs,3280,3312,snapshot_narrow_width_counts_halfwidth_sound_marks,fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
+S14-C175,S14,test,bottom_pane/list_selection_view.rs,3315,3320,snapshot_auto_visible_col_width_mode_scroll_behavior,fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
+S14-C176,S14,test,bottom_pane/list_selection_view.rs,3323,3328,snapshot_auto_all_rows_col_width_mode_scroll_behavior,fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
+S14-C177,S14,test,bottom_pane/list_selection_view.rs,3331,3363,auto_all_rows_col_width_does_not_shift_when_scrolling,fn auto_all_rows_col_width_does_not_shift_when_scrolling() {
+S14-C178,S14,test,bottom_pane/list_selection_view.rs,3366,3390,side_layout_width_half_uses_exact_split,fn side_layout_width_half_uses_exact_split() {
+S14-C179,S14,test,bottom_pane/list_selection_view.rs,3393,3415,side_layout_width_half_falls_back_when_list_would_be_too_narrow,fn side_layout_width_half_falls_back_when_list_would_be_too_narrow() {
+S14-C180,S14,test,bottom_pane/list_selection_view.rs,3418,3453,stacked_side_content_is_used_when_side_by_side_does_not_fit,fn stacked_side_content_is_used_when_side_by_side_does_not_fit() {
+S14-C181,S14,test,bottom_pane/list_selection_view.rs,3456,3512,side_content_clearing_resets_symbols_and_style,fn side_content_clearing_resets_symbols_and_style() {
+S14-C182,S14,test,bottom_pane/list_selection_view.rs,3515,3553,side_content_clearing_handles_non_zero_buffer_origin,fn side_content_clearing_handles_non_zero_buffer_origin() {
+S14-C183,S14,test,bottom_pane/selection_picker_tests.rs,62,108,shared_menu_presentation_at_wide_and_narrow_sizes,fn shared_menu_presentation_at_wide_and_narrow_sizes() {
+S14-C184,S14,test,bottom_pane/selection_picker_tests.rs,111,127,tiny_viewports_preserve_query_and_selection_when_enlarged,fn tiny_viewports_preserve_query_and_selection_when_enlarged() {
+S14-C185,S14,test,bottom_pane/selection_picker_tests.rs,130,143,short_browser_keeps_header_tabs_search_and_footer,fn short_browser_keeps_header_tabs_search_and_footer() {
+S14-C186,S14,test,bottom_pane/selection_picker_tests.rs,146,164,browser_page_navigation_uses_rows_that_fit,fn browser_page_navigation_uses_rows_that_fit() {
+S14-C187,S14,test,bottom_pane/selection_picker_tests.rs,167,189,shrinking_the_browser_keeps_selection_visible_without_navigation,fn shrinking_the_browser_keeps_selection_visible_without_navigation() {
+S14-C188,S14,test,bottom_pane/selection_picker_tests.rs,192,250,overflow_arrows_follow_the_painted_picker_surface,fn overflow_arrows_follow_the_painted_picker_surface() {
+S14-C189,S14,snapshot,bottom_pane/list_selection_view.rs,2190,2190,,assert_snapshot!(
+S14-C190,S14,snapshot,bottom_pane/list_selection_view.rs,2199,2199,list_selection_spacing_with_subtitle,"assert_snapshot!(""list_selection_spacing_with_subtitle"", render_lines(&view));"
+S14-C191,S14,snapshot,bottom_pane/list_selection_view.rs,2301,2301,,assert_snapshot!(
+S14-C192,S14,snapshot,bottom_pane/list_selection_view.rs,2358,2358,list_selection_empty_searchable,"assert_snapshot!(""list_selection_empty_searchable"", rendered);"
+S14-C193,S14,snapshot,bottom_pane/list_selection_view.rs,3246,3246,,assert_snapshot!(
+S14-C194,S14,snapshot,bottom_pane/list_selection_view.rs,3273,3273,,assert_snapshot!(
+S14-C195,S14,snapshot,bottom_pane/list_selection_view.rs,3311,3311,list_selection_halfwidth_sound_marks_narrow,"assert_snapshot!(""list_selection_halfwidth_sound_marks_narrow"", rendered);"
+S14-C196,S14,snapshot,bottom_pane/list_selection_view.rs,3316,3316,,assert_snapshot!(
+S14-C197,S14,snapshot,bottom_pane/list_selection_view.rs,3324,3324,,assert_snapshot!(
+S14-C198,S14,snapshot,bottom_pane/selection_picker_tests.rs,107,107,,"insta::assert_snapshot!(snapshots.join(""\n\n""));"
+S14-C199,S14,snapshot,bottom_pane/selection_picker_tests.rs,142,142,,"insta::assert_snapshot!(snapshots.join(""\n---\n""));"
+S14-C200,S14,snapshot,bottom_pane/selection_picker_tests.rs,153,153,,insta::assert_snapshot!(text);
