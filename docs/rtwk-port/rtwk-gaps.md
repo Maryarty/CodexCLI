@@ -29,8 +29,8 @@ code and say so.
   behaviour; the workaround is the intended use), **not a gap / conditional**,
   **fixed in rtwk `<commit>`** (in the pin).
 
-Tally: 34 rows (the 14 numbered in architecture.md, G17..G28 new, G29..G34
-from the issue files); 20 confirmed open, 4 by design, 2 not a gap or
+Tally: 35 rows (the 14 numbered in architecture.md, G17..G28 new, G29..G34
+from the issue files, G35 from agents-live); 21 confirmed open, 4 by design, 2 not a gap or
 conditional, 6 fixed in rtwk (all in the pin).
 
 ## rtwk's answers (2026-11-18)
@@ -104,6 +104,7 @@ transcript (S10, S16); W4 = inline mode.
 | G32 | A `Select` notified inside a flush wakes the frame loop again (+13 ms first frame after idle) (§4; architecture.md "rtwk-state `Select`") | ADR-003 reserve (family 4) | none | `frame_phase_after_idle` in the old `app-state-proto` | | fixed in rtwk `71ffcb7e` (a flush no longer wakes the loop for work it consumes itself) |
 | G33 | `ViewCx::memo`: cache lookup grows with the square of the memo calls (81 calls 9.5 µs, 1,031 calls 648 µs) (`rtwk-viewcx-memo.md` §1) | long lists, W2 transcript | none (the port memoises rows) | `src/scale.rs` of the old `app-state-proto` | | fixed in rtwk `40352a88` (merge of `viewcx-memo-scaling`); `ViewCx::memo_keyed` added in `3bc4bfdf` (after the pin: repin to use it) |
 | G34 | `ViewCx::memo`: an outer hit released the inner entries, so the next outer miss rebuilt every inner subtree (§2) | same | none | same | | fixed in rtwk `40352a88` (`tests/viewcx_memo.rs`, "an outer hit keeping its inner entries"); the issue files in `~/.cache/codexcli/rtwk-issues/` are closed by it |
+| G35 | `SelectionList` keeps its `ListController` private (`rtwk-controls/src/selection_list.rs:351` `ListCore.list`, built at `:386`; only `move_to` scrolls, `:503`). The app cannot scroll the list to a cursor it moved itself through `SelectionController::set_cursor`, cannot put a heading row above the first task in view, cannot wrap in `move_selection`, and cannot add keys (j/k, ctrl-n/ctrl-p). Wanted: `SelectionList::list_controller(ListController)` (or `scroll_to_cursor`), a `wrap(bool)` and a key table | agents (command center: oracle `move_selection`, `ensure_selected_visible`, the first group heading, `j`/`k`/ctrl-n/ctrl-p of the agents key table) | `src/screens/agents/view.rs` (UI porter, `agents-live-ui`) takes the arrow, page and home/end keys the widget owns; the other four oracle rules are n/a until the gap is closed (`parity/agents-live.md`, UI section) | `SelectionList::new(..).controller(c)`, then `c.set_cursor(Some(far_key))` in a 5-row tester: the row stays out of view (no handle for `ensure_index_visible`) | | open |
 
 ## Repros
 
