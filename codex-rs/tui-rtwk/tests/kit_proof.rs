@@ -508,3 +508,15 @@ fn feed_applies_more_of_a_script_to_an_open_screen() {
     s.feed(include_str!("kit/fixtures/typed.jsonl"));
     s.assert_contains("fed");
 }
+
+/// A debug entry's screen plays its own fixture; feeding it would silently do
+/// nothing, so it says so.
+#[test]
+#[should_panic(expected = "feed works on a script() or live() screen")]
+fn feed_on_an_entry_screen_says_it_cannot() {
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(82, 22)
+        .entry("resume", "table")
+        .open();
+    s.feed(include_str!("kit/fixtures/typed.jsonl"));
+}

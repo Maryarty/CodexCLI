@@ -14,7 +14,8 @@
 //! Options on any seed: `early()` stops at the first frame (a loading state
 //! before the data arrives), `keymap(..)` remaps keys. After opening,
 //! `Screen::feed(jsonl)` applies more script steps to the open screen
-//! (history prepended, a tail absorbed, a result arriving, a dialog's own data).
+//! (history prepended, a tail absorbed, a result arriving). An `entry` screen
+//! plays its fixture in a model of its own: `feed` is for the live app.
 
 use codex_tui_core::app::{AppEv, BackendEv};
 use codex_tui_core::fixtures::script::{self, Step};
@@ -142,7 +143,10 @@ impl Open {
         let mut h = crate::common::start_sized(true, self.width, self.height);
         h.open_debug_row(dir, Some(entry));
         h.t.pump_for(ms(if self.early { 20 } else { 800 }));
-        Screen::from(h)
+        Screen {
+            entry: true,
+            ..Screen::from(h)
+        }
     }
 
     fn open_script(self, text: &str) -> Screen {
@@ -157,6 +161,10 @@ impl Screen {
     /// and the user would deliver them: `notify`, `request`, a directory's
     /// `screen` events, then its `key` and `resize` steps.
     pub fn feed(&mut self, jsonl: &str) -> &mut Screen {
+        assert!(
+            !self.entry,
+            "feed works on a script() or live() screen: a debug entry's screen plays its own fixture, the app's events do not reach it"
+        );
         feed(&mut self.h, jsonl);
         self
     }

@@ -60,11 +60,14 @@ fn repeat_bytes(key: &str) -> String {
 /// The screen under test.
 pub struct Screen {
     h: Harness,
+    /// Opened from a debug entry: the screen has a model of its own, which
+    /// the app's events do not reach (`feed` cannot change it).
+    entry: bool,
 }
 
 impl From<Harness> for Screen {
     fn from(h: Harness) -> Screen {
-        Screen { h }
+        Screen { h, entry: false }
     }
 }
 
