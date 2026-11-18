@@ -1176,7 +1176,7 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
     let outs: Vec<Command> = update(
         &mut m,
         AgentsIntent::Rename {
-            thread: target.clone(),
+            thread: target,
             name: "Target!".into(),
         },
     )

@@ -199,3 +199,39 @@ fn a_server_error_has_its_code_and_prints_its_message() {
     assert_eq!(error.to_string(), "invalid params");
     assert_eq!(ServerError::from("down").code, None);
 }
+
+/// VS1 review P1/P6: an event of another screen, or a notification the center
+/// does not take, copies none of the center's model: the new `ScreenStates`
+/// holds the same one, so a reader that selects it is not woken and the
+/// provider's comparison is a pointer.
+#[test]
+fn another_screens_events_leave_the_centers_model_shared() {
+    use codex_tui_core::screens::agents::Model;
+    use codex_tui_core::screens::{Shared, pager};
+    let mut app = CodexApp::new();
+    let before = app.screens.clone();
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Pager(pager::Ev::Page(None))),
+    );
+    assert!(
+        !std::rc::Rc::ptr_eq(&before, &app.screens),
+        "the event changed the screens"
+    );
+    let same: fn(&Shared<Model>, &Shared<Model>) -> bool = Shared::ptr_eq;
+    assert!(same(&before.agents, &app.screens.agents));
+    // A notification no screen takes changes nothing at all.
+    let before = app.screens.clone();
+    run(
+        &mut app,
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::DeprecationNotice(
+                codex_app_server_protocol::DeprecationNoticeNotification {
+                    summary: "old".into(),
+                    details: None,
+                },
+            ),
+        ))),
+    );
+    assert!(same(&before.agents, &app.screens.agents));
+}

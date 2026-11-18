@@ -79,6 +79,59 @@ macro_rules! screen_list {
     };
 }
 
+/// A screen model kept in its own `Rc`: the app's `ScreenStates` is cloned
+/// whenever any screen changes (the root provider holds the previous one), and
+/// a model with a long history inside it would be copied each time. Cloning
+/// this is a count; a write (`DerefMut`) copies the model only while another
+/// holder has it, and comparing two takes the pointer first. A reader that
+/// selects it is woken only when this model changed (VS1 review P1, P6).
+#[derive(Debug, Default)]
+pub struct Shared<T>(std::rc::Rc<T>);
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> Shared<T> {
+    /// Both are the same model, not equal copies.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T> std::ops::Deref for Shared<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: Clone> std::ops::DerefMut for Shared<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        std::rc::Rc::make_mut(&mut self.0)
+    }
+}
+
+impl<T: PartialEq> PartialEq for Shared<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr_eq(other) || *self.0 == *other.0
+    }
+}
+
+impl<T: Eq> Eq for Shared<T> {}
+
+/// The type a directory's model has inside `ScreenStates`.
+macro_rules! slot {
+    (agents) => {
+        Shared<agents::Model>
+    };
+    ($dir:ident) => {
+        $dir::Model
+    };
+}
+
 macro_rules! core_dirs {
     ($($dir:ident => $variant:ident;)*) => {
         $(pub mod $dir;)*
@@ -86,7 +139,7 @@ macro_rules! core_dirs {
         /// The app-scoped model parts of every screen.
         #[derive(Clone, Debug, Default, PartialEq, Eq)]
         pub struct ScreenStates {
-            $(pub $dir: $dir::Model,)*
+            $(pub $dir: slot!($dir),)*
         }
 
         /// The per-thread parts of every screen: part of each `ThreadModel`.

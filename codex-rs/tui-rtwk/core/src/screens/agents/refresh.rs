@@ -3,6 +3,9 @@
 //! Oracle: `agents_overview.rs` (refresh apply, open),
 //! `agents_overview_actions.rs` (action results), `agents_overview_loading.rs`.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+
 use super::Action;
 use super::Command;
 use super::Ctx;
@@ -45,8 +48,28 @@ pub(super) fn normalize(mut thread: Thread) -> Thread {
     thread
 }
 
+/// The position of each task by id.
+fn positions(threads: &[Thread]) -> HashMap<String, usize> {
+    threads
+        .iter()
+        .enumerate()
+        .map(|(at, thread)| (thread.id.clone(), at))
+        .collect()
+}
+
+/// Replaces the held task of that id or adds it at the end.
+fn upsert(threads: &mut Vec<Thread>, at: &mut HashMap<String, usize>, thread: Thread) {
+    match at.get(&thread.id) {
+        Some(&held) => threads[held] = thread,
+        None => {
+            at.insert(thread.id.clone(), threads.len());
+            threads.push(thread);
+        }
+    }
+}
+
 fn merge_page(model: &mut Model, page: Page) {
-    let known: Vec<String> = page
+    let known: HashSet<String> = page
         .threads
         .iter()
         .map(|thread| thread.id.clone())
@@ -58,11 +81,9 @@ fn merge_page(model: &mut Model, page: Page) {
         .map(normalize)
         .collect::<Vec<_>>();
     if page.append {
+        let mut at = positions(&model.threads);
         for thread in fresh {
-            match model.threads.iter_mut().find(|held| held.id == thread.id) {
-                Some(held) => *held = thread,
-                None => model.threads.push(thread),
-            }
+            upsert(&mut model.threads, &mut at, thread);
         }
     } else {
         // A refresh keeps what the list does not reach (children, rows past
@@ -81,22 +102,19 @@ fn merge_page(model: &mut Model, page: Page) {
     }
     if let Some(pins) = page.pins {
         // A pinned task need not be among the recent ones: it is a row too.
+        let mut at = positions(&model.threads);
         for thread in pins.threads {
             if thread.ephemeral || model.removed.contains(&thread.id) {
                 continue;
             }
-            let thread = normalize(thread);
-            match model.threads.iter_mut().find(|held| held.id == thread.id) {
-                Some(held) => *held = thread,
-                None => model.threads.push(thread),
-            }
+            upsert(&mut model.threads, &mut at, normalize(thread));
         }
         model.pinned = pins.ids;
     }
-    let arrived: Vec<String> = model.threads.iter().map(|held| held.id.clone()).collect();
+    let arrived: HashSet<&str> = model.threads.iter().map(|held| held.id.as_str()).collect();
     model
         .search_matches
-        .retain(|held| !arrived.contains(&held.id));
+        .retain(|held| !arrived.contains(held.id.as_str()));
     // The first page sets where the list continues; a refresh after the
     // window grew leaves it (oracle: a refresh without discovery).
     if !model.paging.initialized || page.append {

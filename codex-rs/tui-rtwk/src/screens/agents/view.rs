@@ -25,7 +25,7 @@ use rtwk::style::{Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign};
 use rtwk_core::style::Attrs;
 
-use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::{
     Action, Center, CenterRow, DetailLine, Failure, Group, GroupLabel, Grouping, Model,
     RowData, Sel, display_directory,
@@ -548,14 +548,14 @@ fn entry(
 pub fn list(
     look: &Look,
     strings: &Strings,
-    screens: &Rc<ScreenStates>,
+    agents: &Shared<Model>,
     center: &Rc<Center>,
     width: usize,
     height: usize,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    let model = &screens.agents;
+    let model = &**agents;
     let inner = width.saturating_sub(1);
     if center.entries.is_empty() {
         let text = empty_text(strings, model, model.threads.is_empty());
@@ -571,9 +571,9 @@ pub fn list(
             .collect(),
     );
     let builder = {
-        let (look, screens, center, taps, keys) = (
+        let (look, agents, center, taps, keys) = (
             look.clone(),
-            screens.clone(),
+            agents.clone(),
             center.clone(),
             taps.clone(),
             keys.clone(),
@@ -582,13 +582,13 @@ pub fn list(
         let selection = controls.selection.clone();
         move |index: usize| -> AnyWidget {
             let paint = {
-                let (look, screens, center, taps) =
-                    (look.clone(), screens.clone(), center.clone(), taps.clone());
+                let (look, agents, center, taps) =
+                    (look.clone(), agents.clone(), center.clone(), taps.clone());
                 move |selected: bool| {
                     entry(
                         &look,
                         &strings,
-                        &screens.agents,
+                        &agents,
                         &center,
                         index,
                         width,
@@ -971,14 +971,14 @@ pub fn body(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    screens: &Rc<ScreenStates>,
+    agents: &Shared<Model>,
     ui: &Ui,
     center: &Rc<Center>,
     areas: &layout::Areas,
     controls: &Controls,
     taps: &Taps,
 ) -> AnyWidget {
-    let model = &screens.agents;
+    let model = &**agents;
     let editing = ui.editing();
     let search_rows = usize::from(editing && areas.body_height > 0);
     let list_height = areas.body_height - search_rows;
@@ -992,7 +992,7 @@ pub fn body(
     let rows = list(
         look,
         strings,
-        screens,
+        agents,
         center,
         areas.list_width,
         list_height,

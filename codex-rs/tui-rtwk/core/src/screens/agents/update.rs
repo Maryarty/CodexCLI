@@ -219,23 +219,19 @@ pub fn wants_dirs(model: &Model) -> bool {
             .threads
             .iter()
             .chain(&model.search_matches)
-            .any(|thread| !model.dirs_asked.contains(thread.cwd.display().to_string().as_str()))
+            .any(|thread| !model.dirs_asked.contains(thread.cwd.to_string_lossy().as_ref()))
 }
 
 pub fn wanted_dirs(model: &mut Model) -> Vec<String> {
     if !model.worktrees {
         return Vec::new();
     }
-    let cwds: Vec<String> = model
-        .threads
-        .iter()
-        .chain(&model.search_matches)
-        .map(|thread| thread.cwd.display().to_string())
-        .collect();
     let mut wanted = Vec::new();
-    for cwd in cwds {
-        if model.dirs_asked.insert(cwd.clone()) {
-            wanted.push(cwd);
+    for thread in model.threads.iter().chain(&model.search_matches) {
+        let cwd = thread.cwd.to_string_lossy();
+        if !model.dirs_asked.contains(cwd.as_ref()) {
+            model.dirs_asked.insert(cwd.to_string());
+            wanted.push(cwd.into_owned());
         }
     }
     wanted

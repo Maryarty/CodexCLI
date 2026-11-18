@@ -17,13 +17,13 @@ use rtwk::gestures::PointerEvent;
 use rtwk::layout::{Stack, StackFit};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select};
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
 use codex_tui_core::screens::agents::{Action, Center, CenterRow, Lens, Model, Sel};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;
@@ -367,6 +367,12 @@ pub struct ScreenState {
     browse: Option<view::RowKey>,
 }
 
+/// The center's model, the one part of the app's screens this screen reads: it
+/// is rebuilt when this model changes, not when another screen's does.
+fn watched<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
+    select::<ScreenStates, Shared<Model>, _>(cx, |states| states.agents.clone())
+}
+
 /// What the usage request depends on: the highlighted task, when its
 /// estimate was fetched, whether a request is in flight, the clock.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -691,8 +697,8 @@ impl State for ScreenState {
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.agents;
+        let agents = watched(cx);
+        let model = &*agents;
         match self.entered {
             None => self.entered = Some(model.resumes),
             Some(entered) if model.resumes > entered => {
@@ -722,8 +728,8 @@ impl State for ScreenState {
     }
 
     fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let screens = watch::<ScreenStates, _>(cx);
-        let model = &screens.agents;
+        let agents = read::<ScreenStates, _>(cx).agents.clone();
+        let model = &*agents;
         // The list's cursor is read here, when the key or click arrives: it
         // moves at once, the model only at the flush.
         let selected = self.selection.cursor();
@@ -947,9 +953,9 @@ impl State for ScreenState {
     fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
-        let screens = watch::<ScreenStates, _>(cx);
-        let look = view::Look::new(&Theme::of(cx), screens.agents.thread_colors());
-        let center = Rc::new(screens.agents.center_at(self.cursor().as_ref(), &self.lens()));
+        let agents = watched(cx);
+        let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
+        let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
         let confirm = self.confirm.clone();
         let taps = view::Taps {
@@ -982,7 +988,7 @@ impl State for ScreenState {
         let body = LayoutBuilder::new(move |_, constraints| {
             let width = usize::try_from(constraints.max_width).unwrap_or(0);
             let height = usize::try_from(constraints.max_height).unwrap_or(0);
-            let model = &screens.agents;
+            let model = &*agents;
             if let Some(failure) = &model.failure {
                 return view::failure_dialog(&look, strings, failure, width);
             }
@@ -998,7 +1004,7 @@ impl State for ScreenState {
                 column = column.child(view::help(&look, strings, model, &center, &areas, width));
             } else {
                 column = column.child(view::body(
-                    &look, strings, &num, &screens, &ui, &center, &areas, &controls, &taps,
+                    &look, strings, &num, &agents, &ui, &center, &areas, &controls, &taps,
                 ));
             }
             if areas.footer_row < height {

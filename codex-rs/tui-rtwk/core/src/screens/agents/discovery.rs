@@ -6,6 +6,8 @@
 //! (`refill_count`, `apply_agents_overview_thread_refresh`),
 //! `agents_overview_view.rs` (`load_search_matches`).
 
+use std::collections::HashSet;
+
 use codex_app_server_protocol::Thread;
 
 use super::Command;
@@ -23,15 +25,21 @@ use super::refresh::out;
 
 /// The rows a page may add: not removed, not already shown or buffered.
 fn fresh(model: &Model, rows: Vec<Thread>) -> Vec<Thread> {
+    let known: HashSet<&str> = model
+        .threads
+        .iter()
+        .chain(&model.paging.buffer)
+        .map(|held| held.id.as_str())
+        .collect();
     let mut kept: Vec<Thread> = Vec::new();
     for thread in rows {
-        let known = model.threads.iter().any(|held| held.id == thread.id)
-            || model.paging.buffer.iter().any(|held| held.id == thread.id)
-            || kept.iter().any(|held| held.id == thread.id);
-        if !known && !model.removed.contains(&thread.id) {
+        if !known.contains(thread.id.as_str()) && !model.removed.contains(&thread.id) {
             kept.push(thread);
         }
     }
+    // A page that repeats an id keeps its first row only.
+    let mut seen = HashSet::new();
+    kept.retain(|thread| seen.insert(thread.id.clone()));
     kept
 }
 
