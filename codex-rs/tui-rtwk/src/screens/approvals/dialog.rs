@@ -32,7 +32,6 @@ pub struct RequestDialog {
 }
 
 pub struct RequestDialogState {
-    prompt: Option<Prompt>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,11 +44,19 @@ impl StatefulWidget for RequestDialog {
     type State = RequestDialogState;
 
     fn create_state(&self) -> RequestDialogState {
-        RequestDialogState { prompt: None }
+        RequestDialogState {}
     }
 }
 
 impl_widget!(stateful eq RequestDialog);
+
+/// The prompt the model holds for `key`, read where it is drawn or answered.
+fn prompt_of(key: &RequestKey, cx: &mut Cx<'_, RequestDialogState>) -> Option<Prompt> {
+    let key = key.clone();
+    select::<ScreenStates, Option<Prompt>, _>(cx, move |states| {
+        states.approvals.prompt(&key.thread, &key.id).cloned()
+    })
+}
 
 impl State for RequestDialogState {
     type Widget = RequestDialog;
@@ -60,16 +67,11 @@ impl State for RequestDialogState {
         let queued = select::<RequestQueue, bool, _>(cx, move |queue| queue.contains(&key));
         if !queued {
             close_dialog::<_, ()>(cx, None);
-            return;
         }
-        let key = w.key.clone();
-        self.prompt = select::<ScreenStates, Option<Prompt>, _>(cx, move |states| {
-            states.approvals.prompt(&key.thread, &key.id).cloned()
-        });
     }
 
     fn update(&mut self, msg: Msg, w: &RequestDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Some(prompt) = &self.prompt else {
+        let Some(prompt) = prompt_of(&w.key, cx) else {
             return Rebuild::No;
         };
         let decisions = prompt.decisions();
@@ -98,9 +100,10 @@ impl State for RequestDialogState {
     }
 
     fn build(&self, w: &RequestDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(prompt) = &self.prompt else {
+        let Some(prompt) = prompt_of(&w.key, cx) else {
             return DismissDialog { key: w.key.clone() }.into();
         };
+        let prompt = &prompt;
         let tokens = theme::Tokens::of(cx);
         let s = strings::of(cx);
         let body = present::body(prompt, s);

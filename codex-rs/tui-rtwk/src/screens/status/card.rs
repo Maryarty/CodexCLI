@@ -21,7 +21,7 @@ use crate::ui::view::Hs;
 pub struct CardDialog;
 
 pub struct CardDialogState {
-    card: Option<Card>,
+    shown: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,7 +33,7 @@ impl StatefulWidget for CardDialog {
     type State = CardDialogState;
 
     fn create_state(&self) -> CardDialogState {
-        CardDialogState { card: None }
+        CardDialogState { shown: false }
     }
 }
 
@@ -44,11 +44,11 @@ impl State for CardDialogState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, _: &CardDialog, cx: &mut Cx<'_, Self>) {
-        let card = select::<ScreenStates, Option<Card>, _>(cx, |states| states.status.card.clone());
-        if card.is_none() && self.card.is_some() {
+        let present = select::<ScreenStates, bool, _>(cx, |states| states.status.card.is_some());
+        if !present && self.shown {
             close_dialog::<_, ()>(cx, None);
         }
-        self.card = card;
+        self.shown = present;
     }
 
     fn update(&mut self, msg: Msg, _: &CardDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -60,7 +60,8 @@ impl State for CardDialogState {
     }
 
     fn build(&self, _: &CardDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let Some(card) = &self.card else {
+        let card = select::<ScreenStates, Option<Card>, _>(cx, |states| states.status.card.clone());
+        let Some(card) = &card else {
             return AnyWidget::default();
         };
         let tokens = theme::Tokens::of(cx);
