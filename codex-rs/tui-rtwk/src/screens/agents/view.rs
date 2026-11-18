@@ -13,7 +13,7 @@ use rtwk::Handler;
 use rtwk::NotificationListener;
 use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
-use rtwk::focus::FocusNode;
+use rtwk::focus::{ExcludeFocus, FocusNode};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
@@ -45,6 +45,7 @@ pub struct Look {
     pub blue: Style,
     pub selection: Style,
     pub tab: Style,
+    pub accent: Style,
 }
 
 impl Look {
@@ -60,6 +61,7 @@ impl Look {
             blue: data.primary.clone(),
             selection: data.selection.clone(),
             tab: data.selection.clone().attrs(Attrs::BOLD),
+            accent: data.accent.clone(),
         }
     }
 }
@@ -146,6 +148,7 @@ pub struct Controls {
     pub selection: SelectionController<RowKey>,
     pub edit: TextEditingController,
     pub focus: FocusNode,
+    pub edit_focus: FocusNode,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
@@ -179,7 +182,7 @@ fn status<'a>(row: &RowData, strings: &'a Strings, look: &Look) -> (&'a str, Spa
     }
 }
 
-fn grouping_name<'a>(strings: &'a Strings, grouping: Grouping) -> &'a str {
+fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
     match grouping {
         Grouping::Project => strings.grouping[0],
         Grouping::Directory => strings.grouping[1],
@@ -230,8 +233,12 @@ pub fn header(
         let text = layout::ellipsize(&format!(" {} ", labels[index]), *shown);
         let style = if index == model.filter { &look.tab } else { &look.dim };
         let tab = cell(*shown as i32, one(vec![span(text, style)]));
-        tabs = tabs.child(tappable(taps.tabs.get(index), tab)).child(pad(1));
-        used += shown + 1;
+        if offset > 0 {
+            tabs = tabs.child(pad(1));
+            used += 1;
+        }
+        tabs = tabs.child(tappable(taps.tabs.get(index), tab));
+        used += shown;
     }
     if strip.right {
         let gap = (tabs_width - 1).saturating_sub(used);
@@ -660,6 +667,7 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
         Some(Notice::ReconnectFailed) => Some(strings.reconnect_failed.to_owned()),
         Some(Notice::Removing(Action::Archive)) => Some(strings.archiving.to_owned()),
         Some(Notice::Removing(Action::Delete)) => Some(strings.deleting.to_owned()),
+        Some(Notice::CreatingWorktree) => Some(strings.creating_worktree.to_owned()),
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
         Some(Notice::ServerVersion(text) | Notice::Error(text)) => Some(text.clone()),
         None => (model.paging.failed && !model.paging.loading).then(|| strings.load_failed.to_owned()),
@@ -711,6 +719,7 @@ pub fn editor(look: &Look, strings: &Strings, model: &Model, width: usize, contr
         .style(look.tab.clone())
         .focused_style(look.tab.clone())
         .key_hints(false)
+        .focus_node(controls.edit_focus.clone())
         .autofocus(true)
         .on_submitted(controls.submit.clone());
     if model.rename.is_none() {
@@ -752,7 +761,9 @@ pub fn body(
     if search_rows > 0 {
         pane = pane.child(editor(look, strings, model, areas.list_width, controls));
     }
-    pane = pane.child(list(look, strings, screens, center, areas.list_width, list_height, controls, &taps.rows));
+    // The list gives the focus to the editing line while one is open.
+    let rows = list(look, strings, screens, center, areas.list_width, list_height, controls, &taps.rows);
+    pane = pane.child(ExcludeFocus::new(rows).excluding(editing));
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(pad(areas.list_x))
@@ -784,8 +795,69 @@ pub fn footer_row(look: &Look, strings: &Strings, model: &Model, can_return: boo
 }
 
 /// The shortcut help in place of the list and the details (oracle:
-/// `center_help_lines`).
-pub fn help(look: &Look, strings: &Strings, areas: &layout::Areas, width: usize) -> AnyWidget {
-    let _ = (look, strings, width);
-    SizedBox::new(None, Some(areas.body_height as i32), None).into()
+/// `center_help_lines` and the `help` arm of `render`): three groups flowed
+/// into as many columns as the width holds, cut to the room with a note.
+pub fn help(
+    look: &Look,
+    strings: &Strings,
+    model: &Model,
+    center: &Center,
+    areas: &layout::Areas,
+    width: usize,
+) -> AnyWidget {
+    let inner = width.saturating_sub(4);
+    let pair = |entries: &[(&str, &str)]| -> Vec<(String, String)> {
+        entries.iter().map(|(key, action)| ((*key).to_owned(), (*action).to_owned())).collect()
+    };
+    // Pinning is offered while the server has pins and a task is selected.
+    let can_pin = model.pinned.is_some() && center.selected_row().is_some();
+    let tasks: Vec<(&str, &str)> = strings
+        .help_entries_tasks
+        .iter()
+        .copied()
+        .filter(|(_, action)| {
+            (can_pin || *action != "Pin/unpin") && (model.worktrees || *action != "New worktree")
+        })
+        .collect();
+    let mut view = vec![(strings.filter_keys.to_owned(), strings.help_filter.to_owned())];
+    view.extend(pair(&strings.help_entries_view));
+    let groups = [
+        layout::HelpGroup {
+            title: strings.help_navigate.to_owned(),
+            entries: pair(&strings.help_entries_navigate),
+        },
+        layout::HelpGroup { title: strings.help_tasks.to_owned(), entries: pair(&tasks) },
+        layout::HelpGroup { title: strings.help_view.to_owned(), entries: view },
+    ];
+    let paint = |ink: layout::Ink| match ink {
+        layout::Ink::Title => look.bold.clone(),
+        layout::Ink::Key => look.accent.clone(),
+        layout::Ink::Plain => look.plain.clone(),
+    };
+    let mut rows: Vec<Line> = vec![vec![span(strings.help_title, &look.bold)], Vec::new()];
+    rows.extend(
+        layout::help_rows(&groups, inner)
+            .into_iter()
+            .map(|row| row.into_iter().map(|(ink, text)| span(text, &paint(ink))).collect()),
+    );
+    if rows.len() > areas.body_height {
+        rows.truncate(areas.body_height.saturating_sub(1));
+        rows.push(vec![span(strings.help_resize, &look.dim)]);
+    }
+    let mut column = Column::new().main_axis_size(MainAxisSize::Min).cross_axis_alignment(CrossAxisAlignment::Start);
+    for row in rows {
+        column = column.child(cell(inner as i32, one(row)));
+    }
+    SizedBox::new(
+        None,
+        Some(areas.body_height as i32),
+        Some(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(pad(2))
+                .child(column)
+                .into(),
+        ),
+    )
+    .into()
 }

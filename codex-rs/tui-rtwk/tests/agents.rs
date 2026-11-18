@@ -12,6 +12,21 @@ fn snap(name: &str) -> String {
     format!("snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
 }
 
+fn app_snap(name: &str) -> String {
+    format!("app/snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
+}
+
+/// The oracle's rows of an `app/snapshots` snapshot.
+fn app_oracle(name: &str) -> Vec<String> {
+    oracle_snap::rows(&app_snap(name))
+}
+
+/// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
+/// the footer reads `tab/⇧tab`, as the view writes it there).
+fn assert_app(h: &Harness, name: &str) {
+    oracle_snap::assert_same(name, &oracle_snap::screen(&h.t), &app_oracle(name));
+}
+
 fn open(entry: &str, width: u16, height: u16) -> Harness {
     let mut h = start_sized(true, width, height);
     h.open_debug_row("agents", Some(entry));
@@ -82,7 +97,8 @@ fn shift_label_as_linux(row: &str) -> String {
     };
     let head = &row[..at];
     let body = head.trim_end_matches(' ');
-    let pad = (head.len() - body.len()).saturating_sub("shift+".len() - "⇧".len());
+    let pad = (head.chars().count() - body.chars().count())
+        .saturating_sub("shift+".chars().count() - "⇧".chars().count());
     format!(
         "{body}{}tab/shift+tab{}",
         " ".repeat(pad),
@@ -92,18 +108,15 @@ fn shift_label_as_linux(row: &str) -> String {
 
 /// `daemon_startup__agents_overview_before_folder_consent` (cli snapshot): the
 /// first rows are the empty center at 120 columns (the consent dialog below
-/// them belongs to the daemon startup flow, not to this screen). RED: after the
-/// footer's label is normalized the footer matches, but the divider and the
-/// pane split sit 5 columns left of the oracle's: a view layout delta (the
-/// handover names it). The snapshot
+/// them belongs to the daemon startup flow, not to this screen). The snapshot
 /// was recorded on Linux, where the tab key reads `shift+tab`; on darwin the
-/// view writes the `⇧` glyph. The glyph is normalized in the actual rows only.
+/// view writes the `⇧` glyph, normalized in the actual rows only.
 #[test]
 fn agents_overview_before_folder_consent_empty_center_rows() {
     let rel =
         "../../cli/tests/snapshots/daemon_startup__agents_overview_before_folder_consent.snap";
     let expected = oracle_snap::rows(rel);
-    let h = open("empty_narrow", 118, 58);
+    let h = open("empty_narrow", 120, 58);
     let actual: Vec<String> = oracle_snap::screen(&h.t)
         .into_iter()
         .map(|row| shift_label_as_linux(&row))
@@ -247,18 +260,65 @@ fn live_center_pages_visible_rows_without_wrapping() {
 /// `live_center_metadata_clips_at_grapheme_boundaries` (agent_center_tests.rs:449).
 #[test]
 fn live_center_metadata_clips_at_grapheme_boundaries() {
-    todo!(
-        "agents-live: needs a debug row with long metadata at a clipping width; not registered (mod.rs:36)"
-    )
+    let mut h = open("clip", 40, 18);
+    let input = format!("{}日本語 e\u{301} 👩\u{200d}💻", "界".repeat(100_000));
+    for (key, label) in [("r", "Rename › "), ("/", "Search › ")] {
+        h.press(key);
+        h.t.paste(&input);
+        h.settle();
+        let rendered = h.t.screen();
+        let prompt = rendered.lines().find(|line| line.contains(label)).unwrap();
+        assert!(prompt.contains("e\u{301}"), "{rendered}");
+        assert!(prompt.trim_end().ends_with("👩\u{200d}💻"), "{rendered}");
+        h.t.assert_cursor(36, 3);
+        if key == "r" {
+            h.t.resize(24, 18);
+            h.settle();
+            let (x, _) = h.t.cursor();
+            assert!(x < 24, "cursor at {x}");
+            assert_app(&h, "command_center__live_center_narrow_rename");
+            h.t.resize(40, 18);
+            h.settle();
+        }
+        h.press("esc");
+    }
 }
 
 /// `live_center_navigation_and_complete_hints` (agent_center_tests.rs:588).
 /// Navigation: screen level through the rtwk list (scope change, orchestrator).
 #[test]
 fn live_center_navigation_and_complete_hints() {
-    todo!(
-        "agents-live: navigation moves to screen level on the rtwk list (SelectionList); the hint row needs the full footer"
-    )
+    let mut h = open("navigation", 40, 12);
+    h.press("tab");
+    assert!(h.t.screen().contains("› ! Needs input"), "{}", h.t.screen());
+    h.press("shift+tab");
+    h.press("shift+tab");
+    assert!(
+        h.t.screen().contains("› ○ Unloaded task"),
+        "{}",
+        h.t.screen()
+    );
+    assert_app(&h, "command_center__live_center_status_filter");
+    h.press("tab");
+    h.press("?");
+    for (name, width, height) in [
+        ("live_center_help_three_columns", 100, 24),
+        ("live_center_help_two_columns", 60, 24),
+        ("live_center_help_one_column", 40, 32),
+        ("live_center_navigation_and_complete_hints", 40, 24),
+    ] {
+        h.t.resize(width, height);
+        h.settle();
+        assert_app(&h, &format!("command_center__{name}"));
+    }
+    h.press("esc");
+    assert!(h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    h.press("esc");
+    assert!(
+        !h.t.screen().contains("Agent command center"),
+        "{}",
+        h.t.screen()
+    );
 }
 
 /// `live_center_fixed_shortcuts_yield_to_configured_actions` (agent_center_tests.rs:649).
@@ -281,7 +341,21 @@ fn live_center_hints_follow_configured_bindings() {
 /// Editing: screen level through the rtwk TextField (scope change, orchestrator).
 #[test]
 fn live_center_search_row_appears_only_while_editing() {
-    todo!(
-        "agents-live: the search row moves to screen level on the rtwk TextField; not present yet"
-    )
+    let mut h = open("search", 88, 16);
+    // The column headings carry one style.
+    let row = 3;
+    let screen = h.t.lines()[row].clone();
+    let at = |label: &str| screen[..screen.find(label).unwrap()].chars().count();
+    let styles =
+        ["Tasks", "Status", "Updated"].map(|label| rtwk_test::style_of(&h.t.cell(at(label), row)));
+    assert!(styles.iter().all(|style| *style == styles[0]), "{styles:?}");
+    let idle = oracle_snap::screen(&h.t);
+    for key in ["/", "f3"] {
+        h.press(key);
+        h.t.paste("find");
+        h.settle();
+        assert_app(&h, "command_center__live_center_search_active");
+        h.press("esc");
+        assert_eq!(oracle_snap::screen(&h.t), idle, "after {key} and esc");
+    }
 }

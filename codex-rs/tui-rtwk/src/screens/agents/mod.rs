@@ -49,6 +49,42 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
         },
         DebugEntry {
+            name: "navigation",
+            description: "a ready, an errored and an unloaded task under the chat",
+            script: include_str!("fixtures/navigation.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
+            name: "search",
+            description: "one task, for the search line",
+            script: include_str!("fixtures/search.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
+            name: "clip",
+            description: "one task, for long text in the search and rename lines",
+            script: include_str!("fixtures/clip.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
+            name: "paging5",
+            description: "five tasks of one project",
+            script: include_str!("fixtures/paging5.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
+            name: "paging30",
+            description: "thirty tasks of two projects",
+            script: include_str!("fixtures/paging30.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
+            name: "confirm",
+            description: "one task, for the archive and delete confirmations",
+            script: include_str!("fixtures/confirm.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),
@@ -154,6 +190,10 @@ pub struct ScreenState {
     selection: SelectionController<view::RowKey>,
     edit: TextEditingController,
     list_focus: FocusNode,
+    /// The screen's own focus: the keys have it while the help replaces the list.
+    root_focus: FocusNode,
+    edit_focus: FocusNode,
+    helping: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     listening: Option<Listening>,
     editing: Editing,
@@ -176,6 +216,8 @@ pub enum Msg {
     Submit(String),
     /// Enter on the list's cursor.
     Open,
+    /// The mode changed (help, editing): the keys go to what shows now.
+    Refocus,
 }
 
 impl StatefulWidget for Screen {
@@ -186,6 +228,9 @@ impl StatefulWidget for Screen {
             selection: SelectionController::new(),
             edit: TextEditingController::default(),
             list_focus: FocusNode::new(),
+            root_focus: FocusNode::new(),
+            edit_focus: FocusNode::new(),
+            helping: false,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
             listening: None,
             editing: Editing::No,
@@ -283,6 +328,11 @@ impl State for ScreenState {
                 self.selection.select(key);
             }
         }
+        if model.help != self.helping {
+            self.helping = model.help;
+            let refocus = cx.send(Msg::Refocus);
+            cx.emit(&refocus, ());
+        }
         let editing = match (&model.rename, model.searching) {
             (Some(rename), _) => Editing::Rename(rename.target.clone()),
             (None, true) => Editing::Search,
@@ -290,7 +340,9 @@ impl State for ScreenState {
         };
         if editing != self.editing {
             match &editing {
-                Editing::Search => self.edit.reset(""),
+                Editing::Search => {
+                    self.edit.reset("");
+                }
                 Editing::Rename(target) => {
                     let name = center
                         .rows
@@ -300,9 +352,11 @@ impl State for ScreenState {
                         .unwrap_or_default();
                     self.edit.reset(&name);
                 }
-                Editing::No => self.list_focus.request_focus(),
+                Editing::No => {}
             }
             self.editing = editing;
+            let refocus = cx.send(Msg::Refocus);
+            cx.emit(&refocus, ());
         }
     }
 
@@ -341,6 +395,16 @@ impl State for ScreenState {
                 if let Some(intent) = intent_of(&key, editing, model.help) {
                     send(intent);
                 }
+            }
+            Msg::Refocus => {
+                if model.help {
+                    self.root_focus.request_focus();
+                } else if model.searching || model.rename.is_some() {
+                    self.edit_focus.request_focus();
+                } else {
+                    self.list_focus.request_focus();
+                }
+                return Rebuild::No;
             }
             Msg::Cursor => {
                 if let Some(l) = &self.listening {
@@ -397,6 +461,7 @@ impl State for ScreenState {
             selection: self.selection.clone(),
             edit: self.edit.clone(),
             focus: self.list_focus.clone(),
+            edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
             open: cx.map(|_: view::RowKey| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
@@ -414,7 +479,7 @@ impl State for ScreenState {
                 column = column.child(view::header(&look, strings, &num, model, &center, width, &taps));
             }
             if model.help {
-                column = column.child(view::help(&look, strings, &areas, width));
+                column = column.child(view::help(&look, strings, model, &center, &areas, width));
             } else {
                 column = column.child(view::body(&look, strings, &num, &screens, &center, &areas, &controls, &taps));
             }
@@ -423,6 +488,6 @@ impl State for ScreenState {
             }
             column.into()
         });
-        Focus::new(body).on_key(cx.keys(on_key)).into()
+        Focus::new(body).focus_node(self.root_focus.clone()).on_key(cx.keys(on_key)).into()
     }
 }

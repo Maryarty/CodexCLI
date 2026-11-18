@@ -287,6 +287,84 @@ pub fn center_truncate_path(path: &str, max: usize) -> String {
     front_truncate(path, max)
 }
 
+/// What a span of a help line is for: the title of a group, a key, or text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ink {
+    Title,
+    Key,
+    Plain,
+}
+
+/// One row of the shortcut help, as spans.
+pub type HelpLine = Vec<(Ink, String)>;
+
+/// A titled group of `(key, action)` entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HelpGroup {
+    pub title: String,
+    pub entries: Vec<(String, String)>,
+}
+
+fn line_width(line: &HelpLine) -> usize {
+    line.iter().map(|(_, text)| columns(text)).sum()
+}
+
+fn group_rows(group: &HelpGroup) -> Vec<HelpLine> {
+    let key_width = group.entries.iter().map(|(key, _)| columns(key)).max().unwrap_or(0);
+    let mut rows = vec![vec![(Ink::Title, group.title.clone())]];
+    for (key, action) in &group.entries {
+        let pad = " ".repeat(key_width.saturating_sub(columns(key)) + 2);
+        rows.push(vec![(Ink::Key, key.clone()), (Ink::Plain, pad), (Ink::Plain, action.clone())]);
+    }
+    rows
+}
+
+const COLUMN_GAP: usize = 4;
+
+fn join_columns(groups: &[Vec<HelpLine>], widths: &[usize]) -> Vec<HelpLine> {
+    let height = groups.iter().map(Vec::len).max().unwrap_or(0);
+    (0..height)
+        .map(|row| {
+            let mut line = HelpLine::new();
+            for (column, group) in groups.iter().enumerate() {
+                let entry = group.get(row).cloned().unwrap_or_default();
+                let pad = widths[column].saturating_sub(line_width(&entry)) + COLUMN_GAP;
+                line.extend(entry);
+                if column + 1 < groups.len() {
+                    line.push((Ink::Plain, " ".repeat(pad)));
+                }
+            }
+            line
+        })
+        .collect()
+}
+
+/// The three groups flowed into three, two or one column by `width`
+/// (oracle: `shortcut_help.rs` `group_lines`).
+pub fn help_rows(groups: &[HelpGroup; 3], width: usize) -> Vec<HelpLine> {
+    let groups: Vec<Vec<HelpLine>> = groups.iter().map(group_rows).collect();
+    let widths: Vec<usize> =
+        groups.iter().map(|rows| rows.iter().map(line_width).max().unwrap_or(0)).collect();
+    let width = width.max(1);
+    if widths.iter().sum::<usize>() + COLUMN_GAP * 2 <= width {
+        return join_columns(&groups, &widths);
+    }
+    if widths[0] + COLUMN_GAP + widths[1].max(widths[2]) <= width {
+        let mut right = groups[1].clone();
+        right.push(HelpLine::new());
+        right.extend(groups[2].clone());
+        return join_columns(&[groups[0].clone(), right], &[widths[0], widths[1].max(widths[2])]);
+    }
+    let mut rows = Vec::new();
+    for (index, group) in groups.into_iter().enumerate() {
+        if index > 0 {
+            rows.push(HelpLine::new());
+        }
+        rows.extend(group);
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

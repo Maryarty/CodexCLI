@@ -80,6 +80,7 @@ pub struct Strings {
     pub load_failed_empty: &'static str,
     pub archiving: &'static str,
     pub deleting: &'static str,
+    pub creating_worktree: &'static str,
     pub load_failed: &'static str,
     pub reconnecting: &'static str,
     pub reconnect_failed: &'static str,
@@ -103,6 +104,16 @@ pub struct Strings {
     pub elision: &'static str,
     pub ago: [&'static str; 4],
     pub now: &'static str,
+    /// Oracle: `agent_center/hints.rs` `center_help_lines`.
+    pub help_title: &'static str,
+    pub help_resize: &'static str,
+    pub help_navigate: &'static str,
+    pub help_tasks: &'static str,
+    pub help_view: &'static str,
+    pub help_entries_navigate: [(&'static str, &'static str); 6],
+    pub help_entries_tasks: [(&'static str, &'static str); 10],
+    pub help_entries_view: [(&'static str, &'static str); 2],
+    pub help_filter: &'static str,
 }
 
 /// English: the oracle's text.
@@ -167,6 +178,7 @@ pub const EN: Strings = Strings {
     load_failed_empty: "Could not load tasks",
     archiving: "Archiving task\u{2026}  You can still browse.",
     deleting: "Deleting task\u{2026}  You can still browse.",
+    creating_worktree: "Creating worktree\u{2026}",
     load_failed: "Error loading tasks",
     reconnecting: "Reconnecting \u{2014} agent list is stale",
     reconnect_failed: "Reconnect failed \u{2014} agent list is stale; relaunch to retry",
@@ -189,6 +201,42 @@ pub const EN: Strings = Strings {
     elision: "\u{2026}",
     ago: ["s ago", "m ago", "h ago", "d ago"],
     now: "now",
+    help_title: "Task shortcuts",
+    help_resize: "\u{2026} resize to see all",
+    help_navigate: "Navigate",
+    help_tasks: "Tasks",
+    help_view: "View",
+    help_entries_navigate: [
+        ("\u{2191}", "Up"),
+        ("\u{2193}", "Down"),
+        ("enter", "Open"),
+        ("pgup", "Page up"),
+        ("pgdn", "Page down"),
+        (
+            if cfg!(target_os = "macos") {
+                "\u{2303}c"
+            } else if cfg!(target_os = "linux") {
+                "^c"
+            } else {
+                "ctrl+c"
+            },
+            "Quit",
+        ),
+    ],
+    help_entries_tasks: [
+        ("n", "New"),
+        ("w", "New worktree"),
+        ("o", "Resume"),
+        ("f", "Fork"),
+        ("r", "Rename"),
+        ("x", "Stop"),
+        ("a", "Archive"),
+        ("h", "Hide"),
+        ("backspace", "Delete"),
+        ("p", "Pin/unpin"),
+    ],
+    help_entries_view: [("f3", "Search"), ("g", "Group")],
+    help_filter: "Filter",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

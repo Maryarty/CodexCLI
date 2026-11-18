@@ -1,0 +1,6 @@
+# `archive_confirmation_number_keys_act_immediately` (oracle agents_overview_actions_tests.rs:185): one task, the confirmation is asked with `a`.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "agents", "ev": {"current": "00000000-0000-0000-0000-000000000101"}}
+{"step": "screen", "dir": "agents", "ev": {"clock": 1700000120}}
+{"step": "screen", "dir": "agents", "ev": {"listed": {"threads": [{"id": "00000000-0000-0000-0000-00000000002a", "environments": null, "extra": null, "sessionId": "00000000-0000-0000-0000-00000000002a", "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null, "preview": "Current task", "ephemeral": false, "section": null, "sectionEnteredAt": null, "projectId": null, "historyMode": "legacy", "modelProvider": "openai", "model": null, "reasoningEffort": null, "createdAt": 1700000000, "updatedAt": 1700000000, "recencyAt": 1700000000, "status": {"type": "idle"}, "path": null, "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null, "source": "cli", "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null, "agentRole": null, "gitInfo": null, "name": "Current task", "daybreakEnabled": null, "turns": []}]}}}
+{"step": "screen", "dir": "agents", "ev": {"backend": {"cloud": false, "worktrees": true}}}
