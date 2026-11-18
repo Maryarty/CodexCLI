@@ -42,6 +42,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+try:
+    import harness  # noqa: E402  (verifies on import the private names of Codex's harness that server.py uses)
+except RuntimeError as exc:  # harness.HarnessChanged: a missing name, said plainly, not a traceback
+    if type(exc).__name__ != "HarnessChanged":
+        raise
+    print(f"check.py: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
 import bins  # noqa: E402
 import home  # noqa: E402
 import scenario as scenarios  # noqa: E402

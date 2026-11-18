@@ -33,6 +33,52 @@ def _load() -> types.ModuleType:
 
 H = _load()
 
+
+class HarnessChanged(RuntimeError):
+    """The harness no longer has a name this tool relies on."""
+
+
+# What server.py subclasses or reads from the harness's private internals, and what
+# harness.py re-exports. An upstream change to app_server_harness.py breaks these
+# silently (an AttributeError deep in a request thread); verify() names them up front.
+_MODULE_NAMES = (
+    "_ResponsesHandler", "MockResponsesServer", "MockSseResponse", "sse", "ev_response_created", "ev_completed",
+    "ev_completed_with_usage", "ev_assistant_message", "ev_message_item_added", "ev_output_text_delta",
+    "ev_function_call", "ev_failed",
+)
+_SERVER_METHODS = ("_record_request", "_next_response", "requests", "close")  # overridden or called by server.py
+_SERVER_ATTRS = ("_server", "_responses")  # set by MockResponsesServer.__init__, used by server.py
+
+
+def verify(module: types.ModuleType | None = None) -> None:
+    """Raise HarnessChanged, naming every missing private name, unless the harness has them all."""
+    h = module if module is not None else H
+    missing = [f"{h.__name__}.{n}" for n in _MODULE_NAMES if not hasattr(h, n)]
+    server = getattr(h, "MockResponsesServer", None)
+    if server is not None:
+        missing += [f"MockResponsesServer.{n}" for n in _SERVER_METHODS if not callable(getattr(server, n, None))]
+        if not hasattr(server, "url"):
+            missing.append("MockResponsesServer.url")
+        if not missing:  # the attributes exist only on an instance: build one (bound, never started) and drop it
+            probe = server()
+            try:
+                missing += [f"MockResponsesServer.{n} (instance attribute)" for n in _SERVER_ATTRS if not hasattr(probe, n)]
+                if hasattr(probe, "_server") and not hasattr(probe._server, "RequestHandlerClass"):
+                    missing.append("MockResponsesServer._server.RequestHandlerClass")
+                if hasattr(probe, "_responses"):
+                    missing += [f"MockResponsesServer._responses.{n}" for n in ("put", "qsize", "empty") if not hasattr(probe._responses, n)]
+            finally:
+                if hasattr(probe, "_server"):
+                    probe._server.server_close()
+    if missing:
+        raise HarnessChanged(
+            "the mock tool relies on private names of Codex's test harness (sdk/python/tests/app_server_harness.py) "
+            "that are missing: " + ", ".join(missing) + ". The harness changed upstream; adapt harness.py/server.py."
+        )
+
+
+verify()
+
 # The helpers of the harness, re-exported under their own names.
 MockResponsesServer = H.MockResponsesServer
 MockSseResponse = H.MockSseResponse
