@@ -20,10 +20,10 @@ order, trimmed, with the `›` marker dropped.
   `max_width` 83 (select) / 84 (approvals, status) so the wrap points equal the
   oracle's at the oracle's column count. Terminal sizes of the tests are wider
   than the oracle's (100) because the frame and the debug menu need room.
-- N03 (NEW kind): the oracle's patch approval shows the destination file
-  diff via `apply_patch_header`; the fixture carries edits as protocol JSON of a
-  `FileChange` request, rendered as the oracle's header rows only
-  (`approval_overlay_patch_destination_unavailable`); no diff preview.
+- Patch approval: the oracle snapshot is the variant where the app-server request
+  carries no changes (`Destination: unavailable`); the fixture is that request. A
+  patch with changes (diff preview in the header) is not covered: no oracle
+  snapshot of it in the required rows.
 - Seeds are the oracle's test data, not protocol JSON, for S14 and S19
   (`menu`, `card` events); S13 seeds carry the protocol's own `ServerRequest` JSON.
 
