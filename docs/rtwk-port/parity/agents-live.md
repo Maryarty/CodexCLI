@@ -140,7 +140,7 @@ reason was checked to be the only difference).
 | agents_overview_tests::agents_overview_preview_links_survive_wrapping_and_clipping | same | pending (reuse-carry) | same, plus OSC 8 links |
 | agents_overview_tests::overview_worktree_creation_busy_state | same | pending (agents-live-shell) | `seed_ev` has no `notice` key (busy and server-version notices); the footer renders both (`footer`) |
 | agents_overview_tests::older_server_notice_is_visible_in_agents_overview, older_server_notice_truncates_in_narrow_overview | same | pending (agents-live-shell) | same |
-| agents_overview_tests::overview_thread_colors_match_footer_and_respect_color_suppression | same | pending (agents-live-shell) | no per-thread colour on `RowData`, no `status_line_use_colors` setting in the model; snapshot is a ratatui `Style` dump |
+| agents_overview_tests::overview_thread_colors_match_footer_and_respect_color_suppression | same | green (`vs1-followups`) | see the follow-ups section: colour from the theme, checked on cells (fg, bold) rather than the ratatui `Style` dump |
 | agents_overview_actions_tests::archive_confirmation_number_keys_act_immediately | same | green | snapshot `archive_task_confirmation`; `1` cancels, `2` starts the archive (the removing notice appears) |
 | agents_overview_actions_tests (delete) `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`, confirmation half | `delete_task_confirmation_and_failure_snapshots` | green | snapshot `delete_task_confirmation`; `2` only moves the cursor, Enter confirms |
 | (same, failure half) archive_task_failure, delete_task_failure | `lifecycle_failure_dialogs` | pending (agents-live-shell) | core keeps a failed removal as footer text (`Notice::Error`, refresh.rs:211, `let _ = action`); it has no failure (action, error, attempted) to show as the dialog |
@@ -222,3 +222,25 @@ oracle's binary reads `delete` (oracle `key_hint.rs` prints `backspace` under
 `delete`; the columns of the help widen with it), and (2) the cursor position
 of a hidden cursor, which `tests/support/compare.rs` compares (oracle leaves it
 where it last drew; unobservable).
+
+## Follow-ups (task `vs1-followups`)
+
+Tests first (commit `b95c3b2c1`, red), code in the next. Tests: `core/tests/agents_followups.rs`,
+`core/tests/agents_live.rs`, `tests/shell_agents.rs`, `tests/agents.rs`, `tests/theme.rs`,
+`tests/cli.rs`, `tests/rules.rs`, `tests/scenarios/unit.rs`.
+
+| Item | What | Oracle | Tests |
+|---|---|---|---|
+| 0 Thread colours | core `thread_color::slot(id, n)` = the oracle's FNV-1a over the id text; the colours are `theme::ThreadPalette` (mocha on a dark theme, latte on a light one: the 14 accents the oracle's `theme_accents` finds in its default syntax theme, computed once with its own function, written as values, no syntect); the view reads `ThreadPalette::of(Theme::of(cx))`; `Ev::ThreadColors(bool)` carries `tui.status_line_use_colors` (the host reads it from the config; off: every title plain). Unselected title in the thread's colour, the details title too (bold); the selected row keeps the selection style | `thread_color.rs`, `agents_overview_view.rs:348`, `rows.rs:246` | `assignments_reach_all_fourteen_default_accents`, `the_slot_is_the_oracles_fnv_1a_of_the_full_id`, `thread_colours_are_on_until_the_setting_turns_them_off`, `theme::the_thread_palette_is_the_oracles_default_accents`, `a_thread_gets_the_colour_the_oracle_gives_it` (id 42 is `Rgb(242, 205, 205)`), `agents::overview_thread_colors_match_footer_and_respect_color_suppression` (cells: on and off) |
+| 1 Delete label | the help entry reads `delete` as the shipped binary does; the screen tests normalize the oracle's rows (`as_shipped` in `tests/agents.rs`: the label and the three cells it takes out of the Tasks column, help screen only) in the comparison only | `key_hint.rs:108` (`cfg(test)` arms) | the four help snapshots, strict scenario `agents_parity` with no help-column difference |
+| 2 Account | the shell reads `account/read` at connect (`shell::workspace::account`, host and scripted backend), core `account_request`/`account_ev`; `AccountUpdated` is observed (usage dropped, plan, Codex backend auth) | `read_account`, `SessionAccount::from`, `app_server_events.rs:403` | `the_account_*`, `an_account_update_changes_the_plan_and_drops_the_usage`, `the_live_center_fetches_the_usage_of_the_highlighted_task` |
+| 3 Pins | `PinReader` follows each source's cursor to its end; the refusal is told by `ServerError.code` (the host maps `TypedRequestError::Server`), never by the message; the pins ride with the first page, read next to the list's own two requests | `list_pinned_threads` | `pins_follow_the_cursor_beyond_the_first_page`, `a_server_without_pins_and_a_failed_read` (a message that reads like a refusal is not one) |
+| 4 Hidden cursor | the harness compares the cursor position only when it is visible on both sides | | `a_cursor_hidden_on_both_sides_is_not_compared`, `a_cursor_visible_on_one_side_or_at_another_place_differs` |
+| 5 Unsubscribe | a task started in a worktree that cannot be bound is unsubscribed before the error shows | `agents_overview_new.rs` | `a_task_that_cannot_be_bound_is_unsubscribed`, `a_bound_task_stays_subscribed` |
+| 6 Help, version | `Cli::early_answer`: the oracle's own text for `--help`, `-h`, `help`, `help agents`, `agents --help|-h`, `-V`, `--version` (captured from the shipped 0.170.0 into `src/shell/help/`, pinned by the copies in `tests/cli_help/`); `agents --version` is no answer, as in the oracle | `codex --help` | `tests/cli.rs` (6 tests) |
+| 7 Pending out of the gate | the seven `pending(..)` screen tests run in `--profile pending` (each must fail with its owner), the default profile leaves them out; `tests/rules.rs` keeps the list in `.config/nextest.toml` equal to the markers | | `the_pending_profile_lists_exactly_the_pending_markers`, `..._leaves_out_the_pending_group_and_the_pending_profile_runs_it` |
+| 8 Flaky debounce | the search's first page waits at a `Gate` in the tests (`Latest::paused_by`, `FakeHandle::hold_searches`), not 180 ms of wall clock; the live tests also wait for the search line and for a confirmation before their next key (a key that came first went to the list) | | `typing_a_word_asks_the_server_once` and the three `Latest` tests; 3 x 20 stress runs of the binary, and 20 with the screens binary running beside it, all green |
+
+Deltas: none visual. Known differences that are the person's to see: `codex-rtwk --help` and `-h`
+print the oracle's whole command list (the commands we do not have too), as the shipped binary
+does; the wrap of the long help is the one clap uses without a terminal (width 100).
