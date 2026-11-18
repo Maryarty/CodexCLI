@@ -135,6 +135,24 @@ pub fn ellipsize(text: &str, width: usize) -> String {
     format!("{kept}…")
 }
 
+/// A path cut to `max` cells, keeping its head and tail around one `…`
+/// (oracle: `center_truncate_path`; the by-path carry of `text_formatting.rs`
+/// replaces this once the crate root registers it).
+pub fn center_truncate_path(path: &str, max: usize) -> String {
+    let count = path.chars().count();
+    if count <= max {
+        return path.to_owned();
+    }
+    if max <= 1 {
+        return "\u{2026}".repeat(max);
+    }
+    let tail = (max - 1) / 2 + (max - 1) % 2;
+    let head = max - 1 - tail;
+    let start: String = path.chars().take(head).collect();
+    let end: String = path.chars().skip(count - tail).collect();
+    format!("{start}\u{2026}{end}")
+}
+
 /// The list's scroll after `selected` moved (oracle: `render_center_rows`).
 pub fn scroll(current: usize, selected: usize, entries: usize, height: usize, group_above: bool) -> usize {
     let mut start = current.min(entries.saturating_sub(height));

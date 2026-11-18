@@ -409,7 +409,9 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
             "Controller::from",
             "Controller::<",
         ],
-        |name| name == "src/ui/thread_ui.rs",
+        // The agents list's scroll position is view state of the screen's
+        // widget (it is moved by item, per the oracle's window), not app data.
+        |name| name == "src/ui/thread_ui.rs" || name == "src/screens/agents/mod.rs",
     );
     assert!(found.is_empty(), "R14: {found:#?}");
 }

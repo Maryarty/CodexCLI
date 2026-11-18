@@ -64,6 +64,45 @@ pub struct Strings {
     pub open: &'static str,
     pub key_new: &'static str,
     pub new: &'static str,
+    /// Oracle: `agent_center/render.rs`, `rows.rs`.
+    pub grouping: [&'static str; 4],
+    pub rename: &'static str,
+    pub agent_label: &'static str,
+    pub status_header: &'static str,
+    pub updated_header: &'static str,
+    pub pinned: &'static str,
+    pub error: &'static str,
+    pub show_more: &'static str,
+    pub loading_more: &'static str,
+    pub retry: &'static str,
+    pub reconnecting_empty: &'static str,
+    pub loading: &'static str,
+    pub load_failed_empty: &'static str,
+    pub archiving: &'static str,
+    pub deleting: &'static str,
+    pub load_failed: &'static str,
+    pub reconnecting: &'static str,
+    pub reconnect_failed: &'static str,
+    pub search_label: &'static str,
+    pub rename_label: &'static str,
+    pub key_filter_label: &'static str,
+    pub scroll_up: &'static str,
+    pub scroll_down: &'static str,
+    pub tab_left: &'static str,
+    pub tab_right: &'static str,
+    /// Oracle: `agents_overview_view.rs` `render_details`, `agents_overview_details.rs`.
+    pub tokens: &'static str,
+    pub tokens_in: Msg<1>,
+    pub tokens_out: Msg<1>,
+    pub tokens_sep: &'static str,
+    pub branch: &'static str,
+    pub last_message: &'static str,
+    pub latest_activity: &'static str,
+    pub needs_attention: &'static str,
+    pub task_error: &'static str,
+    pub elision: &'static str,
+    pub ago: [&'static str; 4],
+    pub now: &'static str,
 }
 
 /// English: the oracle's text.
@@ -107,6 +146,43 @@ pub const EN: Strings = Strings {
     open: "open",
     key_new: "n",
     new: "new",
+    grouping: ["Project", "Directory", "Status", "Model"],
+    rename: "rename",
+    agent_label: "Agent: ",
+    status_header: "Status",
+    updated_header: "Updated",
+    pinned: "Pinned",
+    error: "Error",
+    show_more: "Show more",
+    loading_more: "Loading more\u{2026}",
+    retry: "Show more (retry)",
+    reconnecting_empty: "Reconnecting\u{2026}",
+    loading: "Loading tasks\u{2026}",
+    load_failed_empty: "Could not load tasks",
+    archiving: "Archiving task\u{2026}  You can still browse.",
+    deleting: "Deleting task\u{2026}  You can still browse.",
+    load_failed: "Error loading tasks",
+    reconnecting: "Reconnecting \u{2014} agent list is stale",
+    reconnect_failed: "Reconnect failed \u{2014} agent list is stale; relaunch to retry",
+    search_label: "Search \u{203a} ",
+    rename_label: "Rename \u{203a} ",
+    key_filter_label: "filter",
+    scroll_up: "\u{2191}",
+    scroll_down: "\u{2193}",
+    tab_left: "\u{2039}",
+    tab_right: "\u{203a}",
+    tokens: "Tokens: ",
+    tokens_in: msg!("{0} in"),
+    tokens_out: msg!("{0} out"),
+    tokens_sep: " \u{b7} ",
+    branch: "Branch",
+    last_message: "Last message",
+    latest_activity: "Latest activity",
+    needs_attention: "Needs attention",
+    task_error: "Task encountered an error.",
+    elision: "\u{2026}",
+    ago: ["s ago", "m ago", "h ago", "d ago"],
+    now: "now",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -144,6 +220,12 @@ impl Strings {
             num,
         )
         .to_string()
+    }
+
+    pub fn tokens_line(&self, input: &str, output: &str, num: &NumSyms) -> String {
+        let a = Fmt::new(self.tokens_in, [Arg::Text(input)], num).to_string();
+        let b = Fmt::new(self.tokens_out, [Arg::Text(output)], num).to_string();
+        format!("{a}{}{b}", self.tokens_sep)
     }
 
     pub fn agent(&self, name: &str, num: &NumSyms) -> String {
