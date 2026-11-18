@@ -12,13 +12,16 @@ pub mod oracle {
     //! `› ` of the oracle is dropped (delta N01 in the parity pack: the cursor
     //! row is highlighted by style). Rows must otherwise match byte for byte.
 
+    // Reading the oracle's `.snap` is the one IO of a test (R12 is about src).
+    #![allow(clippy::disallowed_methods)]
+
     use std::path::PathBuf;
 
     /// The rows of the oracle snapshot `path` (relative to `codex-rs/tui/src`):
     /// header cut off, trailing blanks trimmed, blank rows dropped.
     pub fn rows(path: &str) -> Vec<String> {
         let full = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tui/src")
+            .join("../tui/src")
             .join(path);
         let text = std::fs::read_to_string(&full)
             .unwrap_or_else(|err| panic!("oracle snapshot {}: {err}", full.display()));
@@ -42,7 +45,9 @@ pub mod oracle {
         for row in rows(path) {
             let row = row.trim().strip_prefix("› ").unwrap_or(row.trim()).trim();
             let Some(found) = lines[at..].iter().position(|line| line.contains(row)) else {
-                panic!("oracle row {row:?} ({path}) not found after line {at}; the screen:\n{screen}");
+                panic!(
+                    "oracle row {row:?} ({path}) not found after line {at}; the screen:\n{screen}"
+                );
             };
             at += found + 1;
         }

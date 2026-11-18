@@ -66,14 +66,22 @@ fn a_request_without_a_prompt_falls_back_to_the_dismiss_dialog() {
     let mut h = start_sized(true, 80, 24);
     h.open_debug_row("approvals", Some("exec_approval"));
     h.t.pump_for(ms(800));
-    assert!(h.t.screen().contains("1 needs an answer."), "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("1 needs an answer."),
+        "{}",
+        h.t.screen()
+    );
 }
 
 #[test]
 fn shortcut_triggers_selection() {
     // The `y` shortcut answers "Yes, proceed": the dialog closes.
     let mut h = open(100, 24, "exec_command");
-    assert!(h.t.screen().contains("Yes, proceed (y)"), "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("Yes, proceed (y)"),
+        "{}",
+        h.t.screen()
+    );
     h.press("y");
     h.t.pump_for(ms(800));
     assert!(!h.t.screen().contains("Yes, proceed"), "{}", h.t.screen());

@@ -1,0 +1,5 @@
+# A file-change approval; the app-server request has no changes.
+# Oracle data: bottom_pane/approval_overlay.rs approval_overlay_patch_destination_unavailable (FileChangeRequestApprovalParams, chatwidget.rs:930 patch_approval_request_from_params)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-approve-patch","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-approve-patch","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}}

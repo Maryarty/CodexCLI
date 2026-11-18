@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! State tests of S13: the request a script's `screen` step presents becomes
 //! a prompt of the model with its decisions; an answer is a model fact. The
 //! expected decisions are the oracle's (`bottom_pane/approval_overlay.rs`:
@@ -36,7 +38,9 @@ fn prompt(sandbox: &Sandbox) -> Prompt {
 
 #[test]
 fn exec_prefix_option_emits_execpolicy_amendment() {
-    let sandbox = play(&exec(r#","proposedExecpolicyAmendment":["echo","hello","world"]"#));
+    let sandbox = play(&exec(
+        r#","proposedExecpolicyAmendment":["echo","hello","world"]"#,
+    ));
     assert_eq!(
         prompt(&sandbox).decisions(),
         vec![
@@ -63,7 +67,11 @@ fn generic_exec_options_can_offer_allow_for_session() {
     ));
     assert_eq!(
         prompt(&sandbox).decisions(),
-        vec![Decision::Accept, Decision::AcceptForSession, Decision::Cancel]
+        vec![
+            Decision::Accept,
+            Decision::AcceptForSession,
+            Decision::Cancel
+        ]
     );
 }
 
@@ -74,7 +82,11 @@ fn network_exec_options_hide_execpolicy_amendment() {
     ));
     assert_eq!(
         prompt(&sandbox).decisions(),
-        vec![Decision::Accept, Decision::AcceptForSession, Decision::Cancel]
+        vec![
+            Decision::Accept,
+            Decision::AcceptForSession,
+            Decision::Cancel
+        ]
     );
 }
 
@@ -101,7 +113,11 @@ fn patch_options_use_expected_decisions() {
     );
     assert_eq!(
         prompt(&sandbox).decisions(),
-        vec![Decision::Accept, Decision::AcceptForSession, Decision::Cancel]
+        vec![
+            Decision::Accept,
+            Decision::AcceptForSession,
+            Decision::Cancel
+        ]
     );
 }
 
