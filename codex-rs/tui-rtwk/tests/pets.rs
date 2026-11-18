@@ -47,3 +47,27 @@ fn enter_picks_the_pet_and_closes() {
     h.t.pump_for(ms(800));
     assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
 }
+
+#[test]
+fn the_arrows_move_the_cursor_with_the_search_field_focused() {
+    let mut h = open("picker");
+    h.press("down");
+    assert!(h.t.screen().contains("› Dewey"), "{}", h.t.screen());
+    h.press("up");
+    h.press("up");
+    assert!(h.t.screen().contains("› BSOD"), "{}", h.t.screen());
+}
+
+#[test]
+fn esc_clears_the_search_then_leaves() {
+    let mut h = open("picker");
+    for key in "dew".chars() {
+        h.press(&key.to_string());
+    }
+    h.press("esc");
+    let screen = h.t.screen();
+    assert!(screen.contains("Fireball"), "{screen}");
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
+}
