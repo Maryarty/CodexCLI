@@ -27,6 +27,10 @@ class ScenarioServer(harness.MockResponsesServer):
         super().__init__()
         self._seen = threading.local()
         self.title_requests = 0
+        # Interactive runs (try.sh --loop) answer every later turn by playing the
+        # scenario again; check.py keeps the harness's strict queue (500 when empty).
+        self.loop = False
+        self._scenario: scenarios.Scenario | None = None
 
     def _record_request(self, handler, body: bytes) -> None:  # type: ignore[override]
         self._seen.is_title = bool(TITLE_RE.search(body))
@@ -43,6 +47,8 @@ class ScenarioServer(harness.MockResponsesServer):
                     ]
                 )
             )
+        if self.loop and self._scenario is not None and self._responses.empty():
+            self.load(self._scenario)
         return super()._next_response()
 
     def queued(self) -> int:
@@ -53,5 +59,6 @@ class ScenarioServer(harness.MockResponsesServer):
         return sum(1 for r in self.requests() if not TITLE_RE.search(r.body))
 
     def load(self, scenario: scenarios.Scenario) -> None:
+        self._scenario = scenario
         for resp in scenario.responses:
             self.enqueue_sse(resp.body(), delay_between_events_s=resp.pace)

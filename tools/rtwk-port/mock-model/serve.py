@@ -26,6 +26,7 @@ def main() -> int:
     ap.add_argument("scenario", nargs="?")
     ap.add_argument("--url-file", help="write the URL here once the server listens")
     ap.add_argument("--list", action="store_true", help="list the scenarios and exit")
+    ap.add_argument("--loop", action="store_true", help="replay the scenario when it runs out")
     ap.add_argument("--prompts", action="store_true", help="print the prompts and exit")
     args = ap.parse_args()
     if args.list or not args.scenario:
@@ -39,6 +40,7 @@ def main() -> int:
             print(f"{i}. {turn.prompt}")
         return 0
     with ScenarioServer() as server:
+        server.loop = args.loop
         server.load(sc)
         print(f"MOCK_URL={server.url}", flush=True)
         if args.url_file:

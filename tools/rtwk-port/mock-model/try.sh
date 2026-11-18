@@ -21,7 +21,7 @@ BIN="$("${PY[@]}" "$HERE/bins.py" "$WHICH")" || exit 1
 
 ROOT="$(mktemp -d -t rtwk-mock-model)"
 URLFILE="$ROOT/url"
-"${PY[@]}" "$HERE/serve.py" "$SCENARIO" --url-file "$URLFILE" >"$ROOT/serve.out" 2>"$ROOT/serve.err" &
+"${PY[@]}" "$HERE/serve.py" "$SCENARIO" --loop --url-file "$URLFILE" >"$ROOT/serve.out" 2>"$ROOT/serve.err" &
 SERVER=$!
 cleanup() {
   kill "$SERVER" 2>/dev/null || true
