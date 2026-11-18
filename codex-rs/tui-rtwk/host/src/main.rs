@@ -1,4 +1,10 @@
+// The in-process app-server client's start future nests the whole server's
+// async call tree, so its layout needs more than the default query depth (the
+// oracle's `codex-tui` and `codex-app-server-client` raise it to the same value).
+#![recursion_limit = "256"]
+
 mod in_process;
+mod workspace;
 
 use anyhow::Context as _;
 use codex_arg0::Arg0DispatchPaths;
@@ -37,6 +43,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     }));
     let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
+        .with_start_agents(cli.agents)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     let result = run(app);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts

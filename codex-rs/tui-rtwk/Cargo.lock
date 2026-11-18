@@ -3624,13 +3624,18 @@ dependencies = [
  "codex-config",
  "codex-core",
  "codex-feedback",
+ "codex-git-utils",
  "codex-protocol",
  "codex-tui-core",
  "codex-tui-rtwk",
+ "codex-utils-path",
+ "codex-worktree",
+ "dunce",
  "futures",
  "rtwk",
  "rtwk-tokio",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -3856,6 +3861,7 @@ name = "codex-tui-core"
 version = "0.0.0"
 dependencies = [
  "codex-app-server-protocol",
+ "codex-protocol",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -4196,6 +4202,20 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "codex-worktree"
+version = "0.170.0"
+dependencies = [
+ "anyhow",
+ "codex-git-utils",
+ "codex-protocol",
+ "dunce",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]

@@ -21,11 +21,15 @@ use crate::ids::TicketMint;
 use crate::rpc::Answer;
 use crate::rpc::Pending;
 use crate::rpc::Reply;
+use crate::rpc::RpcError;
 use crate::screens;
 use crate::screens::ScreenCommand;
+use crate::screens::ScreenCtx;
 use crate::screens::ScreenEv;
 use crate::screens::ScreenIntent;
+use crate::screens::ScreenReply;
 use crate::screens::ScreenStates;
+use crate::screens::agents;
 use crate::threads;
 use crate::threads::Failure;
 use crate::threads::ThreadEv;
@@ -134,6 +138,15 @@ pub enum Command {
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
+    /// A new worktree in `cwd`'s repository with a task in it: git work the
+    /// shell does; it answers with the agents screen's `Ev::Notice`.
+    #[non_exhaustive]
+    Worktree { cwd: Option<String> },
+    /// The directory keys of these `cwd`s (canonical path, repository):
+    /// file-system reads the shell does; it answers with the agents
+    /// screen's `Ev::Directories`.
+    #[non_exhaustive]
+    Directories { cwds: Vec<String> },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -165,6 +178,8 @@ impl AppFx {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppCtx {
     StartThread,
+    /// An RPC of an app-scoped screen (the agents command center).
+    Screen(ScreenCtx),
 }
 
 /// The model.
@@ -178,6 +193,10 @@ pub struct CodexApp {
     pub(crate) mint: TicketMint,
     pub(crate) outgoing: Pending<AppCtx>,
     pub(crate) queued_submits: Vec<String>,
+    /// Whether connecting starts the first thread. `codex agents` opens the
+    /// overview instead (oracle: `agents_overview`), and a task starts when
+    /// the user asks for one.
+    pub start_thread_on_connect: bool,
 }
 
 impl Default for CodexApp {
@@ -201,6 +220,7 @@ impl CodexApp {
             mint: TicketMint::default(),
             outgoing: Pending::default(),
             queued_submits: Vec::new(),
+            start_thread_on_connect: true,
         }
     }
 
@@ -241,7 +261,22 @@ impl CodexApp {
 /// Applies one event to the app-scoped model, thread events to their thread
 /// model (`threads::apply`), and returns effects as data (R3, R10).
 pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
+    // Only events that can bring tasks of other directories into the center.
+    let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
+    apply_event(app, ev, fx);
+    if lists {
+        let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
+        if !cwds.is_empty() {
+            fx.commands.push(Command::Directories { cwds });
+        }
+    }
+}
+
+fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
     match ev {
+        AppEv::Connected if !app.start_thread_on_connect => {
+            Rc::make_mut(&mut app.session).status = Session::Ready;
+        }
         AppEv::Connected => {
             let ticket = app.mint.next();
             app.outgoing.insert(ticket, AppCtx::StartThread);
@@ -267,6 +302,9 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
                 }
                 return;
             }
+            if agents::observes(&notification) {
+                agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
+            }
             if let Some((thread, ev)) = threads::project(&notification) {
                 apply_thread(app, &thread, ev, fx);
             }
@@ -288,7 +326,12 @@ pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
         AppEv::Intent(intent) => apply_intent(app, intent, fx),
-        AppEv::Screen(ev) => screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx),
+        AppEv::Screen(ev) => {
+            if let ScreenEv::Agents(agents::Ev::Started(thread)) = &ev {
+                resume_into_chat(app, thread);
+            }
+            screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+        }
     }
 }
 
@@ -300,8 +343,15 @@ fn set_status(app: &mut CodexApp, status: Session) {
 
 fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx) {
     if app.outgoing.contains(ticket) {
-        let Some((AppCtx::StartThread, answer)) = app.outgoing.resolve(ticket, reply) else {
+        let Some((ctx, answer)) = app.outgoing.resolve(ticket, reply) else {
             return;
+        };
+        let answer = match ctx {
+            AppCtx::StartThread => answer,
+            AppCtx::Screen(ctx) => {
+                screen_answer(app, ctx, answer, fx);
+                return;
+            }
         };
         match answer {
             Answer::ThreadStarted { thread } => {
@@ -353,8 +403,72 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 fx.commands.push(Command::RejectRequest { key });
             }
         }
+        Intent::Screen(ScreenIntent::Agents(intent)) => {
+            let screens = Rc::make_mut(&mut app.screens);
+            if matches!(intent, agents::Intent::Open) {
+                // Opened over a chat: its thread is the one `esc` returns to
+                // and the one the list starts on.
+                screens.agents.current =
+                    app.session.active.as_ref().map(|id| id.as_str().to_owned());
+            }
+            let outs = agents::update(&mut screens.agents, intent);
+            send_agents(app, outs, fx);
+        }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }
+}
+
+/// Mints a ticket for each RPC the agents screen asks for and sends it. The
+/// RPCs are app-scoped: the command carries no thread.
+fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
+    for out in outs {
+        if let agents::Command::NewWorktree { cwd } = out.command {
+            fx.commands.push(Command::Worktree { cwd });
+            continue;
+        }
+        let ticket = app.mint.next();
+        app.outgoing
+            .insert(ticket, AppCtx::Screen(ScreenCtx::Agents(out.ctx)));
+        fx.commands.push(Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(out.command),
+        });
+    }
+}
+
+/// The reply of an app-scoped screen RPC.
+fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut AppFx) {
+    let ScreenCtx::Agents(ctx) = ctx;
+    let result = match answer {
+        Answer::Screen(ScreenReply::Agents(reply)) => Ok(reply),
+        Answer::Failed(error) => Err(error),
+        _ => Err(RpcError::Mismatch),
+    };
+    if let (
+        agents::Ctx::Resume { .. } | agents::Ctx::Fork | agents::Ctx::Start,
+        Ok(
+            agents::Reply::Resumed(thread)
+            | agents::Reply::Forked(thread)
+            | agents::Reply::Started(thread),
+        ),
+    ) = (&ctx, &result)
+    {
+        resume_into_chat(app, thread);
+    }
+    let outs = agents::apply_answer(&mut Rc::make_mut(&mut app.screens).agents, ctx, result);
+    send_agents(app, outs, fx);
+}
+
+/// The resumed thread becomes the chat's: its model is made and active.
+fn resume_into_chat(app: &mut CodexApp, thread: &codex_app_server_protocol::Thread) {
+    let id = ThreadId::new(&thread.id);
+    app.threads
+        .entry(id.clone())
+        .or_insert_with(|| Rc::new(ThreadModel::new(id.clone())));
+    let session = Rc::make_mut(&mut app.session);
+    session.active = Some(id);
+    session.status = Session::Ready;
 }
 
 fn submit(app: &mut CodexApp, thread: &ThreadId, text: String, fx: &mut AppFx) {

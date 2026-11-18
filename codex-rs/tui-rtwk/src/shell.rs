@@ -9,6 +9,9 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod fake;
+pub mod rpc;
+pub mod search;
+pub mod workspace;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -23,6 +26,8 @@ use codex_tui_core::app::AppFx;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::ids::ConnEpoch;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::agents::Ev as AgentsEv;
 
 use crate::app::UiApp;
 
@@ -97,12 +102,39 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.ingress = Some(ingress_tx.clone());
     app.link.commands = Some(command_tx);
+    cx.spawn_tokio(ambient(ingress_tx.clone(), epoch), |_, (), _| {});
     let task: BackendTask = match backend {
         Backend::None => return,
         Backend::Connector(connector) => connector.run(ingress_tx, command_rx, epoch),
         Backend::Fake(server) => Box::pin(fake::run(server, ingress_tx, command_rx, epoch)),
     };
     cx.spawn_tokio(task, |_, (), _| {});
+}
+
+/// How often the clock the screens show ages by is moved on.
+const CLOCK_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The environment's facts the core cannot read (R12): the home directory
+/// once, then the clock at every `CLOCK_EVERY`. The command center shows
+/// `~` for the home and ages from the clock.
+async fn ambient(ingress: IngressTx, epoch: ConnEpoch) {
+    let home = std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned());
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(AgentsEv::Home(home))),
+    );
+    loop {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(0));
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(now))),
+        );
+        tokio::time::sleep(CLOCK_EVERY).await;
+    }
 }
 
 /// Runs the effects of one `apply_app` call.

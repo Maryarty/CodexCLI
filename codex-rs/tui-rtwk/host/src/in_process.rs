@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::workspace::Local;
 use anyhow::Context as _;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::EmbeddedNetworkPolicy;
@@ -14,8 +15,8 @@ use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessAppServerRequestHandle;
 use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_client::InProcessServerEvent;
+use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
-use codex_app_server_protocol::RequestId;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
@@ -27,13 +28,20 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
-use codex_tui_core::ids::Ticket;
-use codex_tui_core::rpc::Reply;
 use codex_tui_core::wire;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
 use codex_tui_rtwk::shell::emit;
+use codex_tui_rtwk::shell::rpc::Ids;
+use codex_tui_rtwk::shell::rpc::answer;
+use codex_tui_rtwk::shell::search::Latest;
+use codex_tui_rtwk::shell::workspace::Boxed;
+use codex_tui_rtwk::shell::workspace::Facts;
+use codex_tui_rtwk::shell::workspace::Workspace;
+use codex_tui_rtwk::shell::workspace::backend_ev;
+use codex_tui_rtwk::shell::workspace::directories;
+use codex_tui_rtwk::shell::workspace::worktree;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -158,7 +166,18 @@ async fn run(
     epoch: ConnEpoch,
 ) {
     let InProcess { args, done, model } = spec;
-    let started = match InProcessAppServerClient::start(args).await {
+    // Oracle: `worktrees_enabled` is a local workspace, and no cloud list.
+    let local = !args
+        .environment_manager
+        .default_environment()
+        .is_some_and(|environment| environment.is_remote());
+    let facts = Facts {
+        cloud: false,
+        worktrees: local,
+    };
+    let workspace: Arc<dyn Workspace> = Arc::new(Local::new(args.config.codex_home.to_path_buf()));
+    // Boxed: the start future is large, and the pump should not carry it inline.
+    let started = match Box::pin(InProcessAppServerClient::start(args)).await {
         Ok(client) => client,
         Err(error) => {
             emit(&ingress, epoch, AppEv::StartFailed(error.to_string()));
@@ -167,11 +186,15 @@ async fn run(
     };
     let mut held = HandBack::new(started, done);
     emit(&ingress, epoch, AppEv::Connected);
+    emit(&ingress, epoch, backend_ev(facts));
     let Some(handle) = held.get().map(|client| client.request_handle()) else {
         return;
     };
-    let mut next_id = 0_i64;
-    let mut inflight = FuturesUnordered::new();
+    let ids = Ids::default();
+    let mut inflight: FuturesUnordered<Boxed<Option<AppEv>>> = FuturesUnordered::new();
+    // The history search's debounce: the oracle waits 180 ms and a newer
+    // search drops the pending one.
+    let mut latest = Latest::default();
     while let Some(client) = held.get() {
         tokio::select! {
             event = client.next_event() => match event {
@@ -193,42 +216,62 @@ async fn run(
                 None => break,
                 Some(Command::RejectRequest { key, .. }) => reject(client, &key).await,
                 Some(command) => {
-                    next_id += 1;
-                    inflight.push(request(
-                        command,
+                    let job = work(
+                        command.clone(),
                         handle.clone(),
-                        RequestId::Integer(next_id),
+                        ids.clone(),
+                        facts,
+                        workspace.clone(),
                         model.clone(),
-                    ));
+                    );
+                    inflight.push(latest.wrap(&command, job));
                 }
             },
-            Some((ticket, reply)) = inflight.next(), if !inflight.is_empty() => {
-                emit(&ingress, epoch, AppEv::Reply(ticket, reply));
+            Some(done) = inflight.next(), if !inflight.is_empty() => {
+                if let Some(ev) = done {
+                    emit(&ingress, epoch, ev);
+                }
             }
         }
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
 }
 
-/// One request of ours and the reply the app is waiting for: core's `wire`
-/// makes the request and reads the result; this only sends it.
-async fn request(
+/// The work a command of ours asks, as one boxed future (the pump holds many
+/// of them; boxing keeps its type, and its stack, small) and the event the
+/// app is waiting for, if any. Core's `wire` makes the requests and reads the
+/// results; the shell's `answer`, `directories` and `worktree` run them; this
+/// only sends.
+fn work(
     command: Command,
     handle: InProcessAppServerRequestHandle,
-    request_id: RequestId,
+    ids: Ids,
+    facts: Facts,
+    workspace: Arc<dyn Workspace>,
     model: Option<String>,
-) -> (Ticket, Reply) {
-    // `RejectRequest` is handled by the pump, which owns the client.
-    let Some(wire_request) = wire::client_request(&command, request_id, model.as_deref()) else {
-        return std::future::pending().await;
+) -> Boxed<Option<AppEv>> {
+    let send = move |request: ClientRequest| -> Boxed<Result<serde_json::Value, String>> {
+        let handle = handle.clone();
+        Box::pin(async move {
+            handle
+                .request_typed::<serde_json::Value>(request)
+                .await
+                .map_err(|error| error.to_string())
+        })
     };
-    let result = handle
-        .request_typed::<serde_json::Value>(wire_request)
-        .await
-        .map_err(|error| error.to_string());
-    match wire::reply(&command, result) {
-        Some(answer) => answer,
-        None => std::future::pending().await,
+    match command {
+        Command::Directories { cwds, .. } => {
+            Box::pin(async move { Some(directories(workspace, cwds).await) })
+        }
+        Command::Worktree { cwd, .. } => {
+            Box::pin(async move { Some(worktree(workspace, cwd, ids, send).await) })
+        }
+        // `RejectRequest` is handled by the pump, which owns the client.
+        command => Box::pin(async move {
+            answer(command, facts, ids, model, send)
+                .await
+                .map(|(ticket, reply)| AppEv::Reply(ticket, reply))
+        }),
     }
 }
 

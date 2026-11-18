@@ -35,6 +35,9 @@ fn is_shell(name: &str) -> bool {
 /// Anything else is a decision, made here.
 const CORE_DEPS: &[&str] = &[
     "codex-app-server-protocol",
+    // The person (2026-11-18): core may take the protocol crates the carried
+    // oracle code names (ThreadId, SubAgentSource); still no rtwk, no IO.
+    "codex-protocol",
     "serde",
     "serde_json",
     "pretty_assertions",

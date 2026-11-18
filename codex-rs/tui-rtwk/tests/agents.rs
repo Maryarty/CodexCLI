@@ -2,14 +2,80 @@
 //! `codex-rs/tui/src/app/agents_overview_tests.rs` (the snapshots under
 //! `snapshots/codex_tui__app__agents_overview__tests__*.snap`).
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 #[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 
 use crate::common::{Harness, start_sized};
 
+/// Who makes a pending test pass (tm aliases of the slices).
+#[derive(Clone, Copy)]
+enum Owner {
+    Keymap,
+    Rtwk,
+    ReuseCarry,
+}
+
+impl Owner {
+    fn slice(self) -> &'static str {
+        match self {
+            Owner::Keymap => "keymap",
+            Owner::Rtwk => "rtwk",
+            Owner::ReuseCarry => "reuse-carry",
+        }
+    }
+}
+
+/// The screen, the state or the seed the test needs does not exist yet: the
+/// marker fails the test with the reason and the owner; under
+/// `KIT_PROBE_PENDING=1` the body below it runs (a stale marker shows).
+fn pending(owner: Owner, reason: &str) {
+    let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    if std::env::var_os("KIT_PROBE_PENDING").is_some_and(|v| v != "0") {
+        println!("PROBE[{}]: {reason}", owner.slice());
+        return;
+    }
+    panic!("PENDING[{}]: {reason}", owner.slice());
+}
+
 fn snap(name: &str) -> String {
     format!("snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
+}
+
+fn app_snap(name: &str) -> String {
+    format!("app/snapshots/codex_tui__app__agents_overview__tests__{name}.snap")
+}
+
+/// The oracle's rows of an `app/snapshots` snapshot.
+fn app_oracle(name: &str) -> Vec<String> {
+    oracle_snap::rows(&app_snap(name))
+}
+
+/// The screen compared with an `app/snapshots` snapshot (recorded on macOS:
+/// the footer reads `tab/⇧tab`, as the view writes it there).
+fn assert_app(h: &Harness, name: &str) {
+    let actual: Vec<String> = oracle_snap::screen(&h.t)
+        .iter()
+        .map(|row| as_snapshot_cells(row))
+        .collect();
+    oracle_snap::assert_same(name, &actual, &app_oracle(name));
+}
+
+/// The oracle's snapshot writer prints the empty second cell of a wide
+/// character as a space (`日 本 語`); the screen's text has none. A
+/// comparison-only normalization of our rows to the snapshot's form.
+fn as_snapshot_cells(row: &str) -> String {
+    let wide = |c: char| ('\u{2e80}'..='\u{ffff}').contains(&c) && c != '\u{2022}';
+    let mut out = String::new();
+    for c in row.chars() {
+        out.push(c);
+        if wide(c) {
+            out.push(' ');
+        }
+    }
+    out.trim_end().to_owned()
 }
 
 fn open(entry: &str, width: u16, height: u16) -> Harness {
@@ -70,4 +136,491 @@ fn down_moves_the_highlight_and_the_details() {
         .collect();
     assert!(details.contains(&"Repair authentication"), "{details:?}");
     assert!(details.contains(&"● Working"), "{details:?}");
+}
+
+/// The footer's `⇧tab` (one column on darwin) written as the Linux snapshot
+/// writes it, `shift+tab` (six columns). The footer is right-aligned, so the
+/// five columns the label gains come out of the padding before it. A
+/// comparison-only normalization: the expectation text is the snapshot's.
+fn shift_label_as_linux(row: &str) -> String {
+    let Some(at) = row.find("tab/⇧tab") else {
+        return row.to_owned();
+    };
+    let head = &row[..at];
+    let body = head.trim_end_matches(' ');
+    let pad = (head.chars().count() - body.chars().count())
+        .saturating_sub("shift+".chars().count() - "⇧".chars().count());
+    format!(
+        "{body}{}tab/shift+tab{}",
+        " ".repeat(pad),
+        &row[at + "tab/⇧tab".len()..]
+    )
+}
+
+/// `daemon_startup__agents_overview_before_folder_consent` (cli snapshot): the
+/// first rows are the empty center at 120 columns (the consent dialog below
+/// them belongs to the daemon startup flow, not to this screen). The snapshot
+/// was recorded on Linux, where the tab key reads `shift+tab`; on darwin the
+/// view writes the `⇧` glyph, normalized in the actual rows only.
+#[test]
+fn agents_overview_before_folder_consent_empty_center_rows() {
+    let rel =
+        "../../cli/tests/snapshots/daemon_startup__agents_overview_before_folder_consent.snap";
+    let expected = oracle_snap::rows(rel);
+    let h = open("empty_narrow", 120, 58);
+    let actual: Vec<String> = oracle_snap::screen(&h.t)
+        .into_iter()
+        .map(|row| shift_label_as_linux(&row))
+        .collect();
+    oracle_snap::assert_fragment(
+        "agents_overview_before_folder_consent",
+        &actual,
+        0,
+        &expected[..4],
+    );
+}
+
+// The oracle's screen tests that need a state the debug rows cannot give yet
+// are `pending` with their reason and owner (body written, the marker first);
+// the debug entries are in `src/screens/agents/mod.rs`.
+
+/// `overview_worktree_creation_busy_state` (agents_overview_tests.rs:25): with a
+/// worktree being created (and an older-server notice below it) the center
+/// holds back `n w o r x h a`; its footer says it is busy.
+#[test]
+fn overview_worktree_creation_busy_state() {
+    let mut h = open("busy", 80, 24);
+    for key in ["n", "w", "o", "r", "x", "h", "a"] {
+        h.press(key);
+    }
+    assert_app(&h, "overview_worktree_creation_busy_state");
+}
+
+/// `overview_thread_colors_match_footer_and_respect_color_suppression` (agents_overview_tests.rs:51):
+/// the title of a task is drawn in the colour of its thread (the footer's
+/// thread colour, `Rgb(242, 205, 205)` in the snapshot) unless the status-line
+/// colours are off, and an unread dot is the primary blue.
+#[test]
+fn overview_thread_colors_match_footer_and_respect_color_suppression() {
+    pending(
+        Owner::ReuseCarry,
+        "the thread colour needs the oracle's syntax-theme palette: `thread_color` (reuse-map REUSE row, `tui/src/thread_color.rs`) hashes the full thread id with FNV-1a and indexes the accents of the active syntect theme (`render/highlight.rs`: `current_syntax_theme`, two_face theme bundle), applied when `tui.status_line_use_colors` is on (`agents_overview_view.rs:348`). tui-rtwk has neither syntect/two_face nor the theme resolution, so any colour written here would be invented; once the palette is carried, the work left is the setting in core's settings model, a colour on `RowData`, and a seed of ids 42/43 unread/selected (expected: Rgb(242, 205, 205) for id 42)",
+    );
+    let h = open("columns", 100, 30);
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25cf} Failed task"), "{screen}");
+}
+/// `older_server_notice_is_visible_in_agents_overview` (agents_overview_tests.rs:100):
+/// the footer's last row is the notice.
+#[test]
+fn older_server_notice_is_visible_in_agents_overview() {
+    let h = open("older_server", 80, 24);
+    let rows = oracle_snap::screen(&h.t);
+    assert_eq!(
+        rows.last().map(String::as_str),
+        Some(app_oracle("older_server_notice_is_visible_in_agents_overview")[0].as_str())
+    );
+}
+
+/// `older_server_notice_truncates_in_narrow_overview` (agents_overview_tests.rs:127,
+/// snap older_server_narrow_overview): the whole screen at 12 cells.
+#[test]
+fn older_server_notice_truncates_in_narrow_overview() {
+    let height = app_oracle("older_server_narrow_overview").len() as u16;
+    let h = open("older_server", 12, height);
+    assert_app(&h, "older_server_narrow_overview");
+}
+
+/// `agents_overview_details_render_markdown` (agents_overview_tests.rs:1138):
+/// the last message and the prompt of the details are markdown, drawn as the
+/// oracle's `markdown_render` draws it (`## Findings` kept, `•` items, code
+/// lines, a table) in the rows left under the budget of the panel.
+#[test]
+fn agents_overview_details_render_markdown() {
+    pending(
+        Owner::ReuseCarry,
+        "the oracle's markdown renderer (`markdown_render`, wrapping, code and table layout) is not carried into tui-rtwk's core or rtwk-rich-backed view yet, and the scripts cannot seed a task's last message (wire.rs `seed_ev` has no key for it); the details print the text plain (view.rs `details`)",
+    );
+    let h = open("overview", 96, 40);
+    assert_app(&h, "agents_overview_markdown");
+}
+
+/// `agents_overview_preview_links_survive_wrapping_and_clipping` (agents_overview_tests.rs:1221):
+/// a link of the last message spans several rows and keeps its destination
+/// (OSC 8) when wrapped and when clipped (an ellipsis outside the link).
+#[test]
+fn agents_overview_preview_links_survive_wrapping_and_clipping() {
+    pending(
+        Owner::ReuseCarry,
+        "needs the markdown renderer with links (OSC 8 cells) and a seed for the last message, see agents_overview_details_render_markdown",
+    );
+    let h = open("overview", 96, 40);
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("a pull request with a label that wraps"),
+        "{screen}"
+    );
+}
+
+/// `agents_overview_markdown_preview_preserves_layout_and_bounds` (agents_overview_tests.rs:1271).
+#[test]
+fn agents_overview_markdown_preview_preserves_layout_and_bounds() {
+    let text = format!("a\r\n\t\u{1b}{}", "界".repeat(600));
+    assert_eq!(
+        codex_tui_core::screens::agents::preview_markdown(&text),
+        format!("a\n\t{}", "界".repeat(509))
+    );
+}
+
+/// `filtered_dashboard_actions_use_configured_shortcuts` (agents_overview_tests.rs:1753).
+/// Its filter and keys go through the rtwk list (screen level); its F-keys need
+/// the configured keymap, and `Fork` has no intent yet.
+#[test]
+fn filtered_dashboard_actions_use_configured_shortcuts() {
+    pending(
+        Owner::Keymap,
+        "the configured keymap (`agents.search/stop/resume`, `list.cancel/move_down`) does not exist in tui-rtwk; the screen's keys are the defaults (mod.rs `intent_of`)",
+    );
+}
+
+/// `command_center_cursor_tracks_fixed_footer` (agents_overview_tests.rs:2472):
+/// with the search line or the rename line open, the terminal cursor sits on
+/// its row at every width, inside the screen.
+#[test]
+fn command_center_cursor_tracks_fixed_footer() {
+    let mut h = open("confirm", 40, 24);
+    for (key, label) in [("/", "Search \u{203a}"), ("r", "Rename \u{203a}")] {
+        if key == "r" {
+            h.press("escape");
+        }
+        h.press(key);
+        for width in [48u16, 96, 120] {
+            h.t.resize(width + 1, 24);
+            h.t.resize(width, 24);
+            h.settle();
+            let screen = h.t.screen();
+            let prompt_row = screen
+                .lines()
+                .position(|row| row.contains(label))
+                .unwrap_or_else(|| panic!("no prompt row\n{screen}"));
+            let (_, y) = h.t.cursor();
+            assert!(h.t.cursor_visible(), "{screen}");
+            assert_eq!(y, prompt_row, "{label} at {width}\n{screen}");
+            assert!(y < 24);
+        }
+    }
+}
+
+/// `archive_confirmation_number_keys_act_immediately` (agents_overview_actions_tests.rs:185),
+/// with the confirmation snapshot archive_task_confirmation: the dialog is
+/// asked with `a`; `1` (Cancel) closes it with no action, `2` closes it and
+/// starts the archive (the center then holds back its keys: the removing
+/// notice).
+#[test]
+fn archive_confirmation_number_keys_act_immediately() {
+    let mut h = open("confirm", 80, 24);
+    h.press("a");
+    h.settle();
+    assert_app(&h, "actions__archive_task_confirmation");
+    h.press("1");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Archive \u{201c}"), "{screen}");
+    assert!(!screen.contains("Archiving"), "{screen}");
+    h.press("a");
+    h.settle();
+    h.press("2");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Archive \u{201c}"), "{screen}");
+    assert!(screen.contains("Archiving"), "{screen}");
+}
+
+/// The delete confirmation (delete_task_confirmation) of
+/// `lifecycle_removes_background_and_current_tasks_without_losing_the_dashboard`;
+/// its row waits for Enter (`require_explicit_confirmation`): the digit only
+/// moves the cursor to it. Its failure (delete_task_failure) is a backend
+/// answer of the live server.
+#[test]
+fn delete_task_confirmation_and_failure_snapshots() {
+    let mut h = open("confirm", 80, 24);
+    h.press("backspace");
+    h.settle();
+    assert_app(&h, "actions__delete_task_confirmation");
+    h.press("2");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("\u{203a} 2. Permanently delete task and child agents"),
+        "{screen}"
+    );
+    h.press("enter");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Permanently delete \u{201c}"), "{screen}");
+    assert!(screen.contains("Deleting"), "{screen}");
+}
+
+// `lifecycle_failure_dialogs` (agents_overview_actions_tests.rs:845, :1007):
+// the failure is a backend answer of the live server, so it is proven on the
+// live shell, in tests/shell_agents.rs (a debug row has no backend).
+
+/// `modal_consumes_input_and_finishes_after_input_closes` (agents_overview_action_progress_tests.rs:17),
+/// snapshots archive_progress and delete_progress: while the removal runs the
+/// footer says so, the removed task is gone, `End` still browses and
+/// Enter and `n` do nothing. (Esc and the input queue of the oracle's modal
+/// are the live shell's: here the model's gate lets Esc leave, see the parity pack.)
+#[test]
+fn modal_consumes_input_and_finishes_after_input_closes() {
+    let age = |row: &str| -> String {
+        // `[0-9]+d ago` with its padding is `[age]` in the snapshot.
+        let Some(end) = row.find("d ago") else {
+            return row.to_owned();
+        };
+        let head = &row[..end];
+        let digits = head.chars().rev().take_while(char::is_ascii_digit).count();
+        let head = head[..head.len() - digits].trim_end();
+        format!("{head} [age]{}", &row[end + "d ago".len()..])
+    };
+    for (key, snapshot, notice) in [
+        ("a", "archive_progress", "Archiving task"),
+        ("backspace", "delete_progress", "Deleting task"),
+    ] {
+        let mut h = open("progress", 80, 24);
+        h.press(key);
+        h.settle();
+        // Archive takes row 2 of the dialog; the delete waits for Enter.
+        h.press("2");
+        h.settle();
+        if key == "backspace" {
+            h.press("enter");
+            h.settle();
+        }
+        h.press("end");
+        for held in ["enter", "n"] {
+            h.press(held);
+        }
+        h.settle();
+        let screen = h.t.screen();
+        assert!(screen.contains(notice), "{screen}");
+        let rows: Vec<String> = oracle_snap::screen(&h.t)
+            .iter()
+            .map(|row| age(row))
+            .collect();
+        let expected = oracle_snap::rows(&format!(
+            "app/snapshots/codex_tui__app__agents_overview_actions__progress_tests__{snapshot}.snap"
+        ));
+        oracle_snap::assert_same(snapshot, &rows, &expected);
+    }
+}
+
+/// `live_center_columns` (agent_center_tests.rs:294): the columns at 160
+/// cells (snapshot live_center_columns) and the narrow status text at 50. The
+/// oracle's third part, the selected row's status glyph styles
+/// (`live_center_selected_status_styles`), dumps ratatui `Style` values, which
+/// have no counterpart in rtwk cells; see the parity pack.
+#[test]
+fn live_center_columns() {
+    let h = open("columns", 50, 24);
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25cf} Error: Failed task"), "{screen}");
+    let mut h = open("columns", 160, 22);
+    h.settle();
+    assert_app(&h, "command_center__live_center_columns");
+}
+
+/// The number of the task the highlight is on (`Paging task NN`).
+fn highlighted_task(h: &Harness) -> usize {
+    let screen = h.t.screen();
+    let row = screen
+        .lines()
+        .find(|line| line.trim_start().starts_with("\u{203a} ") && line.contains("Paging task"))
+        .unwrap_or_else(|| panic!("no highlighted task\n{screen}"));
+    let at = row.find("Paging task ").unwrap() + "Paging task ".len();
+    row[at..at + 2].parse().unwrap()
+}
+
+/// The paging flow of `live_center_pages_visible_rows_without_wrapping`
+/// (agent_center_tests.rs:387) on `count` tasks, with the search line open
+/// when `search`.
+fn pages_visible_rows(count: usize, search: bool, loop_key: &str, wraps: bool) {
+    let entry = if count == 5 { "paging5" } else { "paging30" };
+    paging_flow(entry, count, search, loop_key, wraps);
+}
+
+/// The flow on the debug entry `entry` (`count` tasks).
+fn paging_flow(entry: &str, count: usize, search: bool, loop_key: &str, wraps: bool) {
+    let mut h = open(entry, 110, 18);
+    if search {
+        h.press("/");
+        h.t.paste("Paging");
+        h.settle();
+    }
+    assert_eq!(highlighted_task(&h), 0);
+    h.press("pagedown");
+    // Eleven visible rows: skip the next heading/gap, or clamp a short list.
+    assert_eq!(highlighted_task(&h), (count - 1).min(10));
+    let page_down = highlighted_task(&h);
+    h.press("pageup");
+    assert!(highlighted_task(&h) < page_down);
+    h.press("pageup");
+    assert_eq!(highlighted_task(&h), 0);
+    // Repeated pages eventually reach the last filtered task and stay there.
+    for _ in 0..count {
+        h.press(loop_key);
+    }
+    let last = highlighted_task(&h);
+    h.press("pagedown");
+    assert_eq!((last, highlighted_task(&h)), (count - 1, last));
+    if wraps {
+        // Down from the last task wraps to the first (`move_selection`).
+        h.press("down");
+        let screen = h.t.screen();
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.trim_start().starts_with("/tmp/project")),
+            "{screen}"
+        );
+    }
+}
+
+/// `live_center_pages_visible_rows_without_wrapping` (agent_center_tests.rs:387),
+/// the online flow: five tasks, then thirty tasks filtered by a search (the
+/// oracle's repeated pages are `ctrl+f`; here PageDown, see the next test).
+#[test]
+fn live_center_pages_visible_rows_without_wrapping() {
+    pages_visible_rows(5, false, "pagedown", false);
+    pages_visible_rows(30, false, "pagedown", false);
+}
+
+/// The same flow of the oracle's second round while the center is offline
+/// (`connection_notice = "Reconnecting\u{2026}"`).
+#[test]
+fn live_center_pages_visible_rows_while_reconnecting() {
+    pending(
+        Owner::Rtwk,
+        "page keys do not reach the list while the search line has the focus, and a cursor the app moves does not scroll the list: `SelectionList` keeps its `ListController` private (G35 in rtwk-gaps.md, selection_list.rs:351, :503). The fixture seeds the reconnecting notice (`paging30_offline`); the oracle's flow fails at its first PageDown (the highlight moves to task 10, the list stays on 00..09)",
+    );
+    paging_flow("paging30_offline", 30, true, "pagedown", false);
+}
+
+/// What the oracle's flow asks beyond the list rtwk gives: the repeated pages
+/// are `ctrl+f` (the list keymap's `page_down` default beside PageDown), and
+/// Down from the last task wraps to the first.
+#[test]
+fn live_center_page_keys_and_wrap_follow_the_list_keymap() {
+    pending(
+        Owner::Rtwk,
+        "rtwk's SelectionList binds only its own keys (selection_list.rs:951): the SelectionController has no page or move call, so `ctrl+f` / `ctrl+b` cannot reach its paging, and its Down clamps at the last row (`by`, selection_list.rs:506) where the oracle's wraps; page keys also do not reach it while the search line has the focus (gap rows in rtwk-gaps.md)",
+    );
+    pages_visible_rows(5, false, "ctrl+f", true);
+    pages_visible_rows(30, true, "ctrl+f", true);
+}
+
+/// `live_center_metadata_clips_at_grapheme_boundaries` (agent_center_tests.rs:449).
+#[test]
+fn live_center_metadata_clips_at_grapheme_boundaries() {
+    let mut h = open("clip", 40, 18);
+    let input = format!("{}日本語 e\u{301} 👩\u{200d}💻", "界".repeat(100_000));
+    for (key, label) in [("r", "Rename › "), ("/", "Search › ")] {
+        h.press(key);
+        h.t.paste(&input);
+        h.settle();
+        let rendered = h.t.screen();
+        let prompt = rendered.lines().find(|line| line.contains(label)).unwrap();
+        assert!(prompt.contains("e\u{301}"), "{rendered}");
+        assert!(prompt.trim_end().ends_with("👩\u{200d}💻"), "{rendered}");
+        h.t.assert_cursor(36, 3);
+        if key == "r" {
+            // The oracle snapshots the 40-column render, then asks for the
+            // cursor of a 24-column area.
+            assert_app(&h, "command_center__live_center_narrow_rename");
+            h.t.resize(24, 18);
+            h.settle();
+            let (x, _) = h.t.cursor();
+            assert!(x < 24, "cursor at {x}");
+            h.t.resize(40, 18);
+            h.settle();
+        }
+        h.press("esc");
+    }
+}
+
+/// `live_center_navigation_and_complete_hints` (agent_center_tests.rs:588).
+/// Navigation: screen level through the rtwk list (scope change, orchestrator).
+#[test]
+fn live_center_navigation_and_complete_hints() {
+    let mut h = open("navigation", 40, 12);
+    h.press("tab");
+    assert!(h.t.screen().contains("› ! Needs input"), "{}", h.t.screen());
+    h.press("shift+tab");
+    h.press("shift+tab");
+    assert!(
+        h.t.screen().contains("› ○ Unloaded task"),
+        "{}",
+        h.t.screen()
+    );
+    assert_app(&h, "command_center__live_center_status_filter");
+    h.press("tab");
+    h.press("?");
+    for (name, width, height) in [
+        ("live_center_help_three_columns", 100, 24),
+        ("live_center_help_two_columns", 60, 24),
+        ("live_center_help_one_column", 40, 32),
+        ("live_center_navigation_and_complete_hints", 40, 24),
+    ] {
+        h.t.resize(width, height);
+        h.settle();
+        assert_app(&h, &format!("command_center__{name}"));
+    }
+    h.press("esc");
+    assert!(h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    h.press("esc");
+    assert!(
+        !h.t.screen().contains("Agent command center"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// `live_center_fixed_shortcuts_yield_to_configured_actions` (agent_center_tests.rs:649).
+#[test]
+fn live_center_fixed_shortcuts_yield_to_configured_actions() {
+    pending(
+        Owner::Keymap,
+        "the configured keymap (`agents.*` overriding the fixed shortcuts) does not exist in tui-rtwk",
+    );
+}
+
+/// `live_center_hints_follow_configured_bindings` (agent_center_tests.rs:738).
+#[test]
+fn live_center_hints_follow_configured_bindings() {
+    pending(
+        Owner::Keymap,
+        "the footer hints and help are the oracle's default keys; a configured keymap does not exist in tui-rtwk",
+    );
+}
+
+/// `live_center_search_row_appears_only_while_editing` (agent_center_tests.rs:779).
+/// Editing: screen level through the rtwk TextField (scope change, orchestrator).
+#[test]
+fn live_center_search_row_appears_only_while_editing() {
+    let mut h = open("search", 88, 16);
+    // The column headings carry one style.
+    let row = 3;
+    let screen = h.t.lines()[row].clone();
+    let at = |label: &str| screen[..screen.find(label).unwrap()].chars().count();
+    let styles =
+        ["Tasks", "Status", "Updated"].map(|label| rtwk_test::style_of(&h.t.cell(at(label), row)));
+    assert!(styles.iter().all(|style| *style == styles[0]), "{styles:?}");
+    let idle = oracle_snap::screen(&h.t);
+    for key in ["/", "f3"] {
+        h.press(key);
+        h.t.paste("find");
+        h.settle();
+        assert_app(&h, "command_center__live_center_search_active");
+        h.press("esc");
+        assert_eq!(oracle_snap::screen(&h.t), idle, "after {key} and esc");
+    }
 }

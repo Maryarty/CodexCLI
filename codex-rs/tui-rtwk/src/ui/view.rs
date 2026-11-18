@@ -53,6 +53,8 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     // navigator, under the providers (ADR-002); whichever home it is.
     let child: AnyWidget = if app.ui.debug {
         DebugMenu.into()
+    } else if app.ui.start_agents {
+        screens::agents::standalone(screens::chat::home(app))
     } else {
         screens::chat::home(app)
     };

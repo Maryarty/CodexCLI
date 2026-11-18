@@ -14,7 +14,7 @@ code and say so.
 
 ## How to file
 
-- One rtwk tm task per row (rows G1..G34), the "Repro" of the row attached,
+- One rtwk tm task per row (rows G1..G36), the "Repro" of the row attached,
   the "Needed by" and the workaround path in the task's description. A row
   with status "by design" or "not a gap" is not filed as a bug; file it only
   if the person wants a docs or ergonomics task.
@@ -29,8 +29,8 @@ code and say so.
   behaviour; the workaround is the intended use), **not a gap / conditional**,
   **fixed in rtwk `<commit>`** (in the pin).
 
-Tally: 34 rows (the 14 numbered in architecture.md, G17..G28 new, G29..G34
-from the issue files); 20 confirmed open, 4 by design, 2 not a gap or
+Tally: 36 rows (the 14 numbered in architecture.md, G17..G28 new, G29..G34
+from the issue files, G35 and G36 from agents-live); 22 confirmed open, 4 by design, 2 not a gap or
 conditional, 6 fixed in rtwk (all in the pin).
 
 ## rtwk's answers (2026-11-18)
@@ -104,6 +104,8 @@ transcript (S10, S16); W4 = inline mode.
 | G32 | A `Select` notified inside a flush wakes the frame loop again (+13 ms first frame after idle) (§4; architecture.md "rtwk-state `Select`") | ADR-003 reserve (family 4) | none | `frame_phase_after_idle` in the old `app-state-proto` | | fixed in rtwk `71ffcb7e` (a flush no longer wakes the loop for work it consumes itself) |
 | G33 | `ViewCx::memo`: cache lookup grows with the square of the memo calls (81 calls 9.5 µs, 1,031 calls 648 µs) (`rtwk-viewcx-memo.md` §1) | long lists, W2 transcript | none (the port memoises rows) | `src/scale.rs` of the old `app-state-proto` | | fixed in rtwk `40352a88` (merge of `viewcx-memo-scaling`); `ViewCx::memo_keyed` added in `3bc4bfdf` (after the pin: repin to use it) |
 | G34 | `ViewCx::memo`: an outer hit released the inner entries, so the next outer miss rebuilt every inner subtree (§2) | same | none | same | | fixed in rtwk `40352a88` (`tests/viewcx_memo.rs`, "an outer hit keeping its inner entries"); the issue files in `~/.cache/codexcli/rtwk-issues/` are closed by it |
+| G35 | `SelectionList` keeps its `ListController` private (`rtwk-controls/src/selection_list.rs:351` `ListCore.list`, built at `:386`; only `move_to` scrolls, `:503`). The app cannot scroll the list to a cursor it moved itself through `SelectionController::set_cursor`, cannot put a heading row above the first task in view, cannot wrap in `move_selection`, and cannot add keys (j/k, ctrl-n/ctrl-p). Wanted: `SelectionList::list_controller(ListController)` (or `scroll_to_cursor`), a `wrap(bool)` and a key table | agents (command center: oracle `move_selection`, `ensure_selected_visible`, the first group heading, `j`/`k`/ctrl-n/ctrl-p of the agents key table) | `src/screens/agents/{mod,view}.rs` (UI porter, `agents-live-ui`) takes the arrow, page and home/end keys the widget owns and steps the highlight by core's `Select` for `j`/`k`/ctrl-n/ctrl-p/ctrl-j/ctrl-k (it only steps one row; page keys `ctrl-f`/`ctrl-b`, wrap-around and page keys while the search line has the focus are not reachable: tests `live_center_page_keys_and_wrap_follow_the_list_keymap` and `live_center_pages_visible_rows_while_reconnecting` are pending on it, `parity/agents-live.md`, UI section) | `SelectionList::new(..).controller(c)`, then `c.set_cursor(Some(far_key))` in a 5-row tester: the row stays out of view (no handle for `ensure_index_visible`) | | open |
+| G36 | `TabBar` cannot draw the oracle's filled tab bar (the center's filter row, `agent_center/render.rs` with `tabs`): (a) its tabs touch (`starts[i+1]` is the next tab's start, `rtwk-controls/src/tabs.rs:915-935`), the oracle's are cut by one unfilled cell, so the selected tab's fill ends before the blank that separates it; (b) the edge marks `‹`/`›` are painted over the first and last cell of the row (`tabs.rs:960`) where the oracle keeps two cells for them outside the tabs (`left` and `right` in `layout::strip`); (c) it scrolls by a column `offset` moved by the wheel and the marks, the oracle shows the whole tabs of a window chosen by `occupied(start, end) <= width` around the active one and clips the rest; (d) the row has the theme's text style, the oracle's active tab is `selection` + bold on a plain row. Wanted: a `TabBar::gap(1)`, `TabBar::marks_outside(true)` and a whole-tab window mode (or a `TabStrip` render object taking a `Strip`-like layout) | agents (command center filters row, snapshots `agents_overview*`, `live_center_*`, 5 tabs at 40..160 cells) | `src/screens/agents/layout.rs` `strip` (the oracle's window as a pure function, unit-tested at 44 and 76 cells) and `view.rs` `header` (spans in one `Text::rich_line`, `GestureDetector` per tab for the mouse): the keys are the center's own (Tab/Shift+Tab cycle the filter in core), so the bar needs no focus | read from the source, not run: a `TabBar::new(controller, ["All 1", "Needs you 0", "Working 0", "Ready 1", "Inactive 0"])` paints each tab as its label with a blank on either side, one right after the other (`tabs.rs:915-935`), and at a width under their sum the marks overwrite the row's end cells (`tabs.rs:960`); the oracle's snapshot `agents_overview_attention` row 1 is `  All 1   Needs you 0   Working 0   Ready 1   Inactive 0` with each tab ` label ` apart by one cell | | open |
 
 ## Repros
 

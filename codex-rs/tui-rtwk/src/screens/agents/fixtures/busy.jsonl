@@ -1,0 +1,5 @@
+# `overview_worktree_creation_busy_state`: no tasks, a worktree is being created.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "agents", "ev": {"current": "00000000-0000-0000-0000-000000000101"}}
+{"step": "screen", "dir": "agents", "ev": {"listed": {"threads": []}}}
+{"step": "screen", "dir": "agents", "ev": {"notice": "creating_worktree"}}
