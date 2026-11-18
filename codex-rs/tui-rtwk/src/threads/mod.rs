@@ -217,7 +217,38 @@ impl<'a> ThreadFx<'a> {
 /// The one projection from protocol notifications to thread events (R4).
 /// Everything the skeleton does not show maps to `None`.
 pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
-    todo!("red: the parity tests come first")
+    match notification {
+        ServerNotification::TurnStarted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::TurnStarted {
+                turn: TurnId::new(&n.turn.id),
+            },
+        )),
+        ServerNotification::TurnCompleted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::TurnEnded {
+                turn: TurnId::new(&n.turn.id),
+                end: match n.turn.status {
+                    TurnStatus::Interrupted => TurnEnd::Interrupted,
+                    TurnStatus::Failed => TurnEnd::Failed,
+                    TurnStatus::Completed | TurnStatus::InProgress => TurnEnd::Completed,
+                },
+            },
+        )),
+        ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
+        ServerNotification::ItemCompleted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
+        ServerNotification::AgentMessageDelta(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::AgentDelta {
+                key: ItemKey {
+                    turn: TurnId::new(&n.turn_id),
+                    item: ItemId::new(&n.item_id),
+                },
+                delta: n.delta.clone(),
+            },
+        )),
+        _ => None,
+    }
 }
 
 fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId, ThreadEv)> {
@@ -253,7 +284,46 @@ fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId,
 /// Applies one event to one thread's model. Events are tolerant of order
 /// (R9): a delta may come before its item, a started turn twice.
 pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    todo!("red: the parity tests come first")
+    match ev {
+        ThreadEv::Submit { ticket, text } => {
+            if model.is_running() || model.outgoing.values().any(is_start_turn) {
+                return;
+            }
+            model.last_error = None;
+            model
+                .outgoing
+                .insert(ticket, ThreadCtx::StartTurn { text: text.clone() });
+            fx.start_turn(ticket, text);
+        }
+        ThreadEv::Reply { ticket, reply } => {
+            // A reply whose ticket is not ours any more is stale.
+            let Some(ThreadCtx::StartTurn { .. }) = model.outgoing.remove(&ticket) else {
+                return;
+            };
+            match reply {
+                Reply::TurnStarted { turn, .. } => start_turn(model, turn),
+                Reply::Failed(message) => {
+                    model.turn = TurnState::Idle;
+                    model.last_error = Some(message);
+                }
+                Reply::ThreadStarted { .. } => {}
+            }
+        }
+        ThreadEv::TurnStarted { turn } => start_turn(model, turn),
+        ThreadEv::ItemUpsert { key, item } => model.transcript.upsert(key, item),
+        ThreadEv::AgentDelta { key, delta } => model.transcript.append_agent(key, &delta),
+        ThreadEv::TurnEnded { turn, end } => {
+            let ends_running =
+                matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
+            model.last_ended = Some(turn);
+            if ends_running {
+                model.turn = TurnState::Idle;
+                if end == TurnEnd::Failed {
+                    model.last_error = Some("the turn failed".to_string());
+                }
+            }
+        }
+    }
 }
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {

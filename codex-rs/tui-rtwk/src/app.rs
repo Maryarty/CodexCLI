@@ -222,8 +222,17 @@ impl CodexApp {
     /// The ingress router: drops what an older connection sent (R1), applies
     /// the rest, hands the effects to the shell.
     pub fn ingest(&mut self, ingress: Ingress, cx: &mut AppCx<'_, '_, CodexApp>) {
-    todo!("red: the parity tests come first")
-}
+        if ingress.epoch != self.epoch() {
+            cx.unchanged();
+            return;
+        }
+        let mut fx = AppFx::default();
+        apply_app(self, ingress.ev, &mut fx);
+        if let Some(active) = self.session.active.clone() {
+            self.thread_ui.ensure(&active);
+        }
+        shell::run_effects(self, fx);
+    }
 
     /// Puts an event into the ingress stream under the current epoch.
     pub fn send(&self, ev: AppEv) {
@@ -240,7 +249,40 @@ impl CodexApp {
 /// Applies one event to the app-scoped model, thread events to their thread
 /// model (`threads::apply`), and returns effects as data (R3, R10).
 pub fn apply_app(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
-    todo!("red: the parity tests come first")
+    match ev {
+        AppEv::Connected => {
+            let ticket = app.fresh_ticket();
+            app.outgoing.insert(ticket, AppCtx::StartThread);
+            fx.commands.push(Command::StartThread { ticket });
+        }
+        AppEv::StartFailed(message) | AppEv::Disconnected(message) => {
+            set_status(app, Session::Failed(message));
+        }
+        AppEv::Backend(BackendEv::Notification(notification)) => {
+            if let Some((thread, ev)) = threads::project(&notification) {
+                apply_thread(app, &thread, ev, fx);
+            }
+        }
+        AppEv::Backend(BackendEv::Request(request)) => {
+            if let Some(pending) = pending_request(app.epoch(), &request) {
+                let queue = Rc::make_mut(&mut app.requests);
+                if !queue.contains(&pending.key) {
+                    queue.entries.push(pending);
+                }
+            }
+        }
+        AppEv::Backend(BackendEv::Lagged(skipped)) => {
+            if let Some(id) = app.session.active.clone() {
+                let message = format!("the backend dropped {skipped} events");
+                if let Some(thread) = app.threads.get_mut(&id) {
+                    Rc::make_mut(thread).last_error = Some(message);
+                }
+            }
+        }
+        AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
+        AppEv::Intent(intent) => apply_intent(app, intent, fx),
+        AppEv::Screen(ev) => screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx),
+    }
 }
 
 fn set_status(app: &mut CodexApp, status: Session) {

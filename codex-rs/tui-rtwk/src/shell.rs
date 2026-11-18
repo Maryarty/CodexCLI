@@ -80,17 +80,43 @@ impl Link {
 /// epoch and runs the backend on the tokio runtime. Called once, from the
 /// root's `on_start`.
 pub fn start(app: &mut CodexApp, cx: &mut AppCx<'_, '_, CodexApp>) {
-    todo!("red: the parity tests come first")
+    let Some(backend) = app.link.backend.take() else {
+        return;
+    };
+    let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel::<Ingress>();
+    cx.subscribe(
+        futures::stream::poll_fn(move |task| ingress_rx.poll_recv(task)),
+        |app: &mut CodexApp, ingress, cx| app.ingest(ingress, cx),
+        |_, _| {},
+    );
+    let epoch = app.session.epoch.next();
+    Rc::make_mut(&mut app.session).epoch = epoch;
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    app.link.ingress = Some(ingress_tx.clone());
+    app.link.commands = Some(command_tx);
+    let task: BackendTask = match backend {
+        Backend::None => return,
+        Backend::Connector(connector) => connector.run(ingress_tx, command_rx, epoch),
+        Backend::Fake(server) => Box::pin(fake::run(server, ingress_tx, command_rx, epoch)),
+    };
+    cx.spawn_tokio(task, |_, (), _| {});
 }
 
 /// Runs the effects of one `apply_app` call.
 pub fn run_effects(app: &CodexApp, fx: AppFx) {
-    todo!("red: the parity tests come first")
+    let Some(commands) = &app.link.commands else {
+        return;
+    };
+    for command in fx.commands {
+        let _ = commands.send(command);
+    }
 }
 
 /// Puts an event into the ingress under `ingress.epoch`.
 pub fn send(app: &CodexApp, ingress: Ingress) {
-    todo!("red: the parity tests come first")
+    if let Some(sender) = &app.link.ingress {
+        let _ = sender.send(ingress);
+    }
 }
 
 /// Awaits the result of a dialog and delivers `msg` to the widget when it
