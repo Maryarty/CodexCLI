@@ -2,6 +2,8 @@
 //! `codex-rs/tui/src/app/agents_overview_tests.rs` (the snapshots under
 //! `snapshots/codex_tui__app__agents_overview__tests__*.snap`).
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 #[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
@@ -202,6 +204,10 @@ fn overview_worktree_creation_busy_state() {
 /// colours are off, and an unread dot is the primary blue.
 #[test]
 fn overview_thread_colors_match_footer_and_respect_color_suppression() {
+    pending(
+        Owner::CoreSeed,
+        "the thread colour is not ported: the oracle's `thread_color` (FNV-1a over the thread id, indexed into the accents of the active syntect theme, `tui/src/thread_color.rs`, applied when `tui.status_line_use_colors`) needs the theme palette in tui-rtwk and the setting in core's settings model; the row data (`RowData`) has no colour and the debug seed has no unread/selected pair of the snapshot (ids 42 and 43)",
+    );
     let h = open("columns", 100, 30);
     let screen = h.t.screen();
     assert!(screen.contains("\u{25cf} Failed task"), "{screen}");
