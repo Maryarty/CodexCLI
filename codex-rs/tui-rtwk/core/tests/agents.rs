@@ -11,8 +11,8 @@ use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Command, Ctx, DetailLine, Ev, Group, Grouping, Intent as AgentsIntent, Model, Notice, Page,
-    Reply, Sel, apply_answer, update,
+    CenterRow, Command, Ctx, DetailLine, Ev, Group, Grouping, Intent as AgentsIntent, Model,
+    Notice, Page, Reply, Sel, apply_answer, update,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
@@ -84,12 +84,17 @@ fn model(sandbox: &Sandbox) -> &Model {
     &sandbox.app().screens.agents
 }
 
+/// The task ids in display order (the `Task` entries of the center; `rows` is
+/// the unfiltered, unsorted list and is not what the view shows).
 fn ids(sandbox: &Sandbox) -> Vec<String> {
-    model(sandbox)
-        .center()
-        .rows
+    let center = model(sandbox).center();
+    center
+        .entries
         .iter()
-        .map(|row| row.id().to_owned())
+        .filter_map(|entry| match entry {
+            CenterRow::Task(index) => Some(center.rows[*index].id().to_owned()),
+            _ => None,
+        })
         .collect()
 }
 
@@ -518,4 +523,88 @@ fn overview_directory_group_keys_normalize_aliases() {
     todo!(
         "agents-live: directory_group_key(path, worktrees_enabled) is absent; canonicalization is a shell fact (IO)"
     )
+}
+
+/// `live_center_status_order_tracks_updates_while_filtered_and_pinned`
+/// (agent_center_tests.rs:232): inside a status group the order follows the
+/// update time, also for the rows a search or a tab hides; pins rank first.
+#[test]
+fn live_center_status_order_tracks_updates_while_filtered_and_pinned() {
+    let [alpha, bravo, charlie] = [1, 2, 3].map(id);
+    let mut threads = vec![
+        thread(&alpha, None, "Alpha", working()),
+        thread(&bravo, None, "Bravo", working()),
+        thread(&charlie, None, "Charlie", working()),
+    ];
+    let mut sandbox = sandbox();
+    current(&mut sandbox, &bravo);
+    list(&mut sandbox, threads.clone());
+    intent(&mut sandbox, AgentsIntent::BeginSearch);
+    intent(&mut sandbox, AgentsIntent::Type("Bravo".into()));
+    assert_eq!(model(&sandbox).search, "Bravo");
+    // A hidden row picks up its timestamp change when the filter clears.
+    threads[2].updated_at += 100;
+    list(&mut sandbox, threads.clone());
+    assert_ids(&sandbox, &[&bravo]);
+    intent(&mut sandbox, AgentsIntent::CancelEditing);
+    assert_ids(&sandbox, &[&charlie, &alpha, &bravo]);
+    // The `Needs you` tab is empty; the working task updates while it shows.
+    intent(&mut sandbox, AgentsIntent::CycleFilter { back: false });
+    assert!(ids(&sandbox).is_empty());
+    threads[1].updated_at += 200;
+    list(&mut sandbox, threads.clone());
+    intent(&mut sandbox, AgentsIntent::CycleFilter { back: false });
+    assert_ids(&sandbox, &[&bravo, &charlie, &alpha]);
+    intent(&mut sandbox, AgentsIntent::CycleFilter { back: true });
+    intent(&mut sandbox, AgentsIntent::CycleFilter { back: true });
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(Some(vec![
+        alpha.clone(),
+        charlie.clone(),
+    ])))));
+    assert_ids(&sandbox, &[&alpha, &charlie, &bravo]);
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(
+        Some(Vec::new()),
+    ))));
+    assert_ids(&sandbox, &[&bravo, &charlie, &alpha]);
+}
+
+/// `failed_background_worker_only_needs_attention_for_a_pending_request`
+/// (agent_center_tests.rs:121): a failed review worker is `Finished` with no
+/// details; once its child waits for approval, the worker needs the user and
+/// its details say so.
+#[test]
+fn failed_background_worker_only_needs_attention_for_a_pending_request() {
+    let worker = id(1);
+    let child = id(2);
+    let mut review = thread(
+        &worker,
+        None,
+        "Background review",
+        json!({"type": "systemError"}),
+    );
+    review.source = serde_json::from_value(json!({"subAgent": "review"})).expect("a source");
+    let mut sandbox = sandbox();
+    current(&mut sandbox, &worker);
+    list(&mut sandbox, vec![review.clone()]);
+    let center = model(&sandbox).center();
+    assert_eq!(center.rows[0].group, Group::Finished);
+    assert!(center.rows[0].details.lines.is_empty());
+    let waiting = json!({"type": "active", "activeFlags": ["waitingOnApproval"]});
+    list(
+        &mut sandbox,
+        vec![
+            review,
+            thread(&child, Some(&worker), "Check dependencies", waiting),
+        ],
+    );
+    let center = model(&sandbox).center();
+    assert_eq!(center.rows[0].group, Group::NeedsYou);
+    assert!(
+        center.rows[0]
+            .details
+            .lines
+            .contains(&DetailLine::WaitingApproval),
+        "{:?}",
+        center.rows[0].details.lines
+    );
 }
