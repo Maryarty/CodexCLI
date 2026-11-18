@@ -64,7 +64,7 @@ All from `codex-rs/tui-rtwk` (its own workspace), through `~/.cache/rtwk/acargo`
 - Name anything that was red when you arrived, separately from your results.
 
 ## Layers (process.md §A4.4)
-- Core (`codex-tui-rtwk-core`, no rtwk): models, `apply`, tickets, protocol
+- Core (`codex-tui-core`, no rtwk): models, `apply`, tickets, protocol
   mapping, command parsing. UI: view files only (widgets, `strings.rs`, debug
   entries) that never name the protocol, `shell`, tokio or std IO; UI-only
   state lives in `UiApp.ui`, never in the core model. `shell` runs effects and

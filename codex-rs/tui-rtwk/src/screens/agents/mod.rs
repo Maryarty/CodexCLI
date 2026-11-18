@@ -2,7 +2,7 @@
 //! `PageRoute` over the model (`ScreenStates.agents`): the header, the filter
 //! strip, a rule, the grouped task list beside the details of the highlighted
 //! task, and the key hints. Its model, events and intents are core's
-//! `codex_tui_rtwk_core::screens::agents`.
+//! `codex_tui_core::screens::agents`.
 //! Oracle: `tui/src/app/agent_center/` (`render.rs`, `rows.rs`, `hints.rs`) and
 //! `app/agents_overview_view.rs` (`status`, `render_details`).
 
@@ -20,11 +20,11 @@ use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::style::Attrs;
 
-use codex_tui_rtwk_core::ids::ThreadId;
-use codex_tui_rtwk_core::screens::agents::{
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::screens::agents::{
     Attention, Filter, Intent as AgentsIntent, Model, Task, Wait,
 };
-use codex_tui_rtwk_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;

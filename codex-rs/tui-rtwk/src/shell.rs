@@ -18,11 +18,11 @@ use rtwk_tokio::TokioApp;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
-use codex_tui_rtwk_core::app::AppEv;
-use codex_tui_rtwk_core::app::AppFx;
-use codex_tui_rtwk_core::app::Command;
-use codex_tui_rtwk_core::app::Ingress;
-use codex_tui_rtwk_core::ids::ConnEpoch;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::AppFx;
+use codex_tui_core::app::Command;
+use codex_tui_core::app::Ingress;
+use codex_tui_core::ids::ConnEpoch;
 
 use crate::app::UiApp;
 

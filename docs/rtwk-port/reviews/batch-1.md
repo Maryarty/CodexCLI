@@ -146,7 +146,7 @@ Slice: screens-dialogs (`11ddcc383`; commits `3bf4fb078`, `3958fbe02`, `c4f85ef2
 - **Missing rule:** `tests/rules.rs:276-284`,
   `r14_widget_state_fields_hold_no_model_types`, lists only
   `ThreadModel…Pending<`. Screen model types (`Menu`, `Card`, `Prompt`) pass.
-  Fix: flag any type exported by `codex_tui_rtwk_core::screens::*` (or any
+  Fix: flag any type exported by `codex_tui_core::screens::*` (or any
   `Option<core type>`) in a `State` field, and show the rule biting on
   `MenuDialogState`.
 

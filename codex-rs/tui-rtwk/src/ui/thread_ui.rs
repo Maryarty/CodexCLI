@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
 
-use codex_tui_rtwk_core::ids::ThreadId;
+use codex_tui_core::ids::ThreadId;
 
 /// The controllers of one thread.
 #[derive(Clone, Default, PartialEq)]

@@ -5,9 +5,9 @@
 
 mod common;
 
+use codex_tui_core::app::Command;
+use codex_tui_core::fixtures::script::build;
 use codex_tui_rtwk::screens;
-use codex_tui_rtwk_core::app::Command;
-use codex_tui_rtwk_core::fixtures::script::build;
 use common::{slot, start_debug};
 
 #[test]

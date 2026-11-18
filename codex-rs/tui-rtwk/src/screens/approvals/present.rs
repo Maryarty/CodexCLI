@@ -3,7 +3,7 @@
 //! user-input options form, as plain rows. A pure function of the prompt and
 //! the strings; the widget in `dialog.rs` only draws it.
 
-use codex_tui_rtwk_core::screens::approvals::{Decision, Prompt, Rule};
+use codex_tui_core::screens::approvals::{Decision, Prompt, Rule};
 
 use super::strings::Strings;
 

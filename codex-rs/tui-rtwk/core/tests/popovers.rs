@@ -5,8 +5,8 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
-use codex_tui_rtwk_core::screens::composer::{Trigger, TriggerKind, trigger};
-use codex_tui_rtwk_core::screens::popovers::*;
+use codex_tui_core::screens::composer::{Trigger, TriggerKind, trigger};
+use codex_tui_core::screens::popovers::*;
 use pretty_assertions::assert_eq;
 
 fn t(kind: TriggerKind, start: usize, query: &str) -> Option<Trigger> {
@@ -137,7 +137,7 @@ fn history_search_is_case_insensitive_and_reports_no_match() {
 
 fn search_run(intents: Vec<Intent>) -> Model {
     let mut m = model();
-    let mut fx = codex_tui_rtwk_core::app::AppFx::default();
+    let mut fx = codex_tui_core::app::AppFx::default();
     for intent in intents {
         apply_intent(&mut m, intent, &mut fx);
     }

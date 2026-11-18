@@ -5,18 +5,18 @@
 
 use std::rc::Rc;
 
-use codex_tui_rtwk_core::app::{
+use codex_tui_core::app::{
     AppEv, AppFx, BackendEv, CodexApp, Command, Intent, PendingRequest, Session, apply_app,
 };
-use codex_tui_rtwk_core::fixtures::builders::{
+use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
     turn_error, turn_failed, turn_started, user_item,
 };
-use codex_tui_rtwk_core::ids::{
+use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
 };
-use codex_tui_rtwk_core::rpc::Reply;
-use codex_tui_rtwk_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
+use codex_tui_core::rpc::Reply;
+use codex_tui_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
 
 const T: &str = "thread-1";
 
@@ -79,7 +79,7 @@ fn ready() -> CodexApp {
     app
 }
 
-fn thread(app: &CodexApp) -> Rc<codex_tui_rtwk_core::threads::ThreadModel> {
+fn thread(app: &CodexApp) -> Rc<codex_tui_core::threads::ThreadModel> {
     app.active_thread()
 }
 

@@ -15,12 +15,12 @@ use rtwk::layout::SizedBox;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::app::{Session, SessionSlice};
-use codex_tui_rtwk_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
-use codex_tui_rtwk_core::ids::{ThreadId, Ticket};
-use codex_tui_rtwk_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_rtwk_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_rtwk_core::threads::{Failure, Item, ThreadModel};
+use codex_tui_core::app::{Session, SessionSlice};
+use codex_tui_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::screens::popovers::{Direction, SearchStatus};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::threads::{Failure, Item, ThreadModel};
 
 use crate::l10n::strings as l10n;
 use crate::screens::chat::keys::{self, Action};
@@ -263,7 +263,7 @@ impl State for ChatState {
                 // (`search_key`); outside one it opens nothing.
                 Action::SearchNext => {}
                 Action::ToggleSide => {
-                    let notice = codex_tui_rtwk_core::commands::Notice::NotAvailable(
+                    let notice = codex_tui_core::commands::Notice::NotAvailable(
                         SlashCommand::Side,
                     );
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
@@ -409,7 +409,7 @@ impl State for ChatState {
             let notice = match notice {
                 chat::ChatNotice::Command(notice) => notice.clone(),
                 chat::ChatNotice::NotAvailable(command) => {
-                    codex_tui_rtwk_core::commands::Notice::NotAvailable(*command)
+                    codex_tui_core::commands::Notice::NotAvailable(*command)
                 }
             };
             // `add_info_message` is plain text, `add_error_message` is red.

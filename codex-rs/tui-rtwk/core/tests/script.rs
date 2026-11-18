@@ -3,12 +3,12 @@
 //! `ingest`, the live app's path.
 
 use codex_app_server_protocol::ServerNotification;
-use codex_tui_rtwk_core::app::{AppEv, BackendEv, CodexApp, Intent, Session};
-use codex_tui_rtwk_core::fixtures::builders::turn_started;
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::fixtures::script::{Input, ScriptError, build, parse};
-use codex_tui_rtwk_core::ids::ThreadId;
-use codex_tui_rtwk_core::threads::{Item, TurnState};
+use codex_tui_core::app::{AppEv, BackendEv, CodexApp, Intent, Session};
+use codex_tui_core::fixtures::builders::turn_started;
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::fixtures::script::{Input, ScriptError, build, parse};
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::threads::{Item, TurnState};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;

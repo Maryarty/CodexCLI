@@ -9,7 +9,7 @@
 use rtwk::focus::KeyPress;
 use rtwk::prelude::{KeyCode, Mods};
 
-use codex_tui_rtwk_core::commands::Target;
+use codex_tui_core::commands::Target;
 
 /// What a key of the chat does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

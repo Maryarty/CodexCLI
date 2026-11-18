@@ -11,7 +11,7 @@ use rtwk::overlay::Dialog;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
-use codex_tui_rtwk_core::screens::dialogs::{Attachments, Feedback, FeedbackCategory};
+use codex_tui_core::screens::dialogs::{Attachments, Feedback, FeedbackCategory};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;

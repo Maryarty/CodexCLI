@@ -2,13 +2,13 @@
 //! slash commands typed into its composer (`commands`), and the helpers they
 //! share. Snapshots in `tests/snapshots/chat/`.
 
+use codex_tui_core::commands::Target;
+use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_rtwk::screens::chat::open;
 use codex_tui_rtwk::screens::{
     agents, approvals, backtrack, import, pager, pets, resume, settings, usage, voice,
 };
 use codex_tui_rtwk::shell::fake::FAKE_THREAD;
-use codex_tui_rtwk_core::commands::Target;
-use codex_tui_rtwk_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use rtwk_test::{Finder, find};
 
 use crate::common::{Harness, slot};

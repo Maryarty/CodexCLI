@@ -6,15 +6,15 @@
 
 use rtwk::editing::Suggestion;
 
-use codex_tui_rtwk_core::commands::{CommandPopup, CommandPopupFlags, SlashCommandItem};
-use codex_tui_rtwk_core::screens::ScreenStates;
-use codex_tui_rtwk_core::screens::composer::{TriggerKind, trigger};
-use codex_tui_rtwk_core::screens::popovers::{Candidate, CandidateKind, Sigil};
+use codex_tui_core::commands::{CommandPopup, CommandPopupFlags, SlashCommandItem};
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::composer::{TriggerKind, trigger};
+use codex_tui_core::screens::popovers::{Candidate, CandidateKind, Sigil};
 
 use super::strings::Strings;
 
 /// The most rows a popup shows at once (`MAX_POPUP_ROWS`).
-pub const ROWS: usize = codex_tui_rtwk_core::commands::MAX_POPUP_ROWS;
+pub const ROWS: usize = codex_tui_core::commands::MAX_POPUP_ROWS;
 
 /// The suggestions for `before`, the composer's text up to the caret.
 pub fn suggestions(states: &ScreenStates, strings: &Strings, before: &str) -> Vec<Suggestion> {

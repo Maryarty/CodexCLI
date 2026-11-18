@@ -8,7 +8,7 @@ use std::cell::Cell;
 use rtwk::Cx;
 use rtwk::navigation::{Navigator, PageRoute};
 
-use codex_tui_rtwk_core::commands::Target;
+use codex_tui_core::commands::Target;
 
 use crate::screens::{
     agents, approvals, backtrack, dialogs, import, pager, pets, resume, select, settings, status,

@@ -6,10 +6,10 @@
 //! (`bottom_pane/status_line_setup.rs` tests) and the keymap picker
 //! (`keymap_setup.rs`: `picker_content_snapshot`).
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::settings::{
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::settings::{
     Edit, Intent as SettingsIntent, Open, Section, SettingId, USE_THEME_COLORS, Value,
 };
 use pretty_assertions::assert_eq;
@@ -25,14 +25,14 @@ fn send(sandbox: &mut Sandbox, intent: SettingsIntent) {
     ))));
 }
 
-fn panel(sandbox: &Sandbox) -> codex_tui_rtwk_core::screens::settings::ConfigPanel {
+fn panel(sandbox: &Sandbox) -> codex_tui_core::screens::settings::ConfigPanel {
     match &sandbox.app().screens.settings.open {
         Some(Open::Config(panel)) => panel.clone(),
         other => panic!("config panel expected, got {other:?}"),
     }
 }
 
-fn setup(sandbox: &Sandbox) -> codex_tui_rtwk_core::screens::settings::StatusLineSetup {
+fn setup(sandbox: &Sandbox) -> codex_tui_core::screens::settings::StatusLineSetup {
     match &sandbox.app().screens.settings.open {
         Some(Open::StatusLine(setup)) => setup.clone(),
         other => panic!("status line setup expected, got {other:?}"),

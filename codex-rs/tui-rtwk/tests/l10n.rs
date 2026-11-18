@@ -106,8 +106,8 @@ fn a_string_without_a_russian_entry_stays_english() {
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
-        codex_tui_rtwk_core::app::AppEv::Backend(
-            codex_tui_rtwk_core::fixtures::builders::tool_input_request(
+        codex_tui_core::app::AppEv::Backend(
+            codex_tui_core::fixtures::builders::tool_input_request(
                 codex_tui_rtwk::shell::fake::FAKE_THREAD,
                 "turn-1",
                 7,

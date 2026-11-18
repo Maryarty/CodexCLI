@@ -7,16 +7,16 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use codex_tui_rtwk_core::app::AppEv;
-use codex_tui_rtwk_core::app::BackendEv;
-use codex_tui_rtwk_core::app::Command;
-use codex_tui_rtwk_core::app::Ingress;
-use codex_tui_rtwk_core::fixtures::builders::turn_started;
-use codex_tui_rtwk_core::fixtures::builders::user_item;
-use codex_tui_rtwk_core::ids::ConnEpoch;
-use codex_tui_rtwk_core::ids::ThreadId;
-use codex_tui_rtwk_core::ids::TurnId;
-use codex_tui_rtwk_core::rpc::Reply;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::BackendEv;
+use codex_tui_core::app::Command;
+use codex_tui_core::app::Ingress;
+use codex_tui_core::fixtures::builders::turn_started;
+use codex_tui_core::fixtures::builders::user_item;
+use codex_tui_core::ids::ConnEpoch;
+use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::TurnId;
+use codex_tui_core::rpc::Reply;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::shell::IngressTx;

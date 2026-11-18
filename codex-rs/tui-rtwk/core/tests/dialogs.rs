@@ -5,10 +5,10 @@
 //! overlay's two pages (`shortcut_overlay_tests.rs`) and the feedback flow
 //! (`feedback_view.rs`: `feedback_selection_params`, `feedback_consent_params`).
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::dialogs::{
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::dialogs::{
     Feedback, FeedbackCategory, Intent as DialogIntent, NoteRequest, Open, PageIntent,
     ShortcutView, Warning,
 };
@@ -47,7 +47,7 @@ fn entries() -> Vec<Warning> {
     ]
 }
 
-fn open_warnings(sandbox: &Sandbox) -> codex_tui_rtwk_core::screens::dialogs::Warnings {
+fn open_warnings(sandbox: &Sandbox) -> codex_tui_core::screens::dialogs::Warnings {
     match &sandbox.app().screens.dialogs.open {
         Some(Open::Warnings(warnings)) => warnings.clone(),
         other => panic!("warnings expected, got {other:?}"),

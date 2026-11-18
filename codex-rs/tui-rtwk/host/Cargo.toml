@@ -23,7 +23,7 @@ codex-core = { path = "../../core" }
 codex-feedback = { path = "../../feedback" }
 codex-protocol = { path = "../../protocol" }
 codex-tui-rtwk = { path = ".." }
-codex-tui-rtwk-core = { path = "../core" }
+codex-tui-core = { path = "../core" }
 rtwk = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }

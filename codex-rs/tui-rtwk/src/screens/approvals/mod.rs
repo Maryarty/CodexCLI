@@ -1,7 +1,7 @@
 //! `approvals`: the view half of the slot of S13 (approvals and requests), the `mock-dialogs` task's to fill. It
 //! holds the empty form the skeleton registers: a screen widget, its opener
 //! and the debug-menu entries. Its model part, events, intents and RPCs are
-//! core's `codex_tui_rtwk_core::screens::approvals`. Nothing outside these two
+//! core's `codex_tui_core::screens::approvals`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
 mod dialog;
@@ -12,7 +12,7 @@ use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::approvals::{ID, NAME};
+use codex_tui_core::screens::approvals::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
@@ -77,7 +77,7 @@ fn head_dialog(seeded: &Seeded) -> AnyWidget {
 
 /// The dialog the request presenter shows for the request `key`: the prompt
 /// the model holds for it, else the skeleton's dismiss dialog.
-pub fn request_dialog(key: codex_tui_rtwk_core::ids::RequestKey) -> AnyWidget {
+pub fn request_dialog(key: codex_tui_core::ids::RequestKey) -> AnyWidget {
     dialog::RequestDialog { key }.into()
 }
 

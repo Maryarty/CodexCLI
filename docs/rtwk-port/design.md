@@ -68,7 +68,7 @@ views, the shell and the composition root; the host is the binary's backend.
 ```mermaid
 flowchart TB
   subgraph ws["codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)"]
-    subgraph core["codex-tui-rtwk-core (no rtwk, no direct runtime or IO dependency)"]
+    subgraph core["codex-tui-core (no rtwk, no direct runtime or IO dependency)"]
       capp["app.rs: CodexApp (root model), AppEv, apply_app, ingest"]
       cthreads["threads.rs: ThreadModel, apply, project (protocol to events), Failure"]
       cscreens["screens/dir.rs, one per slice: model, events, intents, RPCs, wire"]

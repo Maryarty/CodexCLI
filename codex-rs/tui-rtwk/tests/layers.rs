@@ -1,5 +1,5 @@
 //! The layers of the port (architecture.md "Layers"): the core crate
-//! `codex-tui-rtwk-core` holds the model, `apply`, tickets and the protocol
+//! `codex-tui-core` holds the model, `apply`, tickets and the protocol
 //! mapping and has no rtwk; the screen directories of the UI crate hold view
 //! files only; `shell` runs effects and names no widget. The compiler holds
 //! the first (core's dependencies); these tests hold the rest, and the first
@@ -43,7 +43,7 @@ const CORE_DEPS: &[&str] = &[
 #[test]
 fn core_manifest_has_no_ui_or_runtime_dependency() {
     let manifest = read("core/Cargo.toml");
-    assert!(manifest.contains("name = \"codex-tui-rtwk-core\""));
+    assert!(manifest.contains("name = \"codex-tui-core\""));
     let mut found = Vec::new();
     let mut in_deps = false;
     for (index, line) in manifest.lines().enumerate() {
@@ -64,7 +64,7 @@ fn core_manifest_has_no_ui_or_runtime_dependency() {
     // Core is a member of the workspace and the UI crate depends on it.
     let root = read("Cargo.toml");
     assert!(root.contains("members = [\"host\", \"core\"]"));
-    assert!(root.contains("codex-tui-rtwk-core = { path = \"core\" }"));
+    assert!(root.contains("codex-tui-core = { path = \"core\" }"));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn views_never_name_protocol_shell_tokio_or_io() {
         &sources(),
         &[
             "codex_app_server_protocol",
-            "codex_tui_rtwk_core::wire",
+            "codex_tui_core::wire",
             "crate::shell",
             "shell::",
             "tokio",

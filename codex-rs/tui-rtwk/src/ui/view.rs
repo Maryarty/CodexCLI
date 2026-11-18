@@ -11,10 +11,10 @@ use rtwk::app::ViewCx;
 use rtwk::navigation::Navigator;
 use rtwk::provider::{MultiProvider, Provider};
 
-use codex_tui_rtwk_core::app::AppEv;
-use codex_tui_rtwk_core::app::Intent;
-use codex_tui_rtwk_core::ids::RequestKey;
-use codex_tui_rtwk_core::screens::ScreenIntent;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::Intent;
+use codex_tui_core::ids::RequestKey;
+use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::UiApp;
 use crate::screens;

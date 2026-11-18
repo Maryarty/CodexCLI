@@ -3,10 +3,10 @@
 //! State tests of S14: a menu is opened by a script's `screen` step, a pick is
 //! a model fact and closes the menu (`list_selection_view.rs`: `dismiss_on_select`).
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::select::{Access, Intent as SelectIntent, Menu, Picked};
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::select::{Access, Intent as SelectIntent, Menu, Picked};
 use pretty_assertions::assert_eq;
 
 const MODELS: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"models","rows":[{"name":"gpt-5.1-codex","description":"d1","current":true},{"name":"gpt-5.1-codex-mini","description":"d2"}]}}"#;

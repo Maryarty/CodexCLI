@@ -6,11 +6,11 @@
 //! `exec_options`, `permissions_options`, `patch_options`,
 //! `elicitation_options`, and `ApprovalRequest::default_available_decisions`).
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::ids::{RequestKey, ServerRequestId, ThreadId};
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::approvals::{Decision, Intent as ApprovalIntent, Prompt};
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::ids::{RequestKey, ServerRequestId, ThreadId};
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::approvals::{Decision, Intent as ApprovalIntent, Prompt};
 use pretty_assertions::assert_eq;
 
 fn play(request: &str) -> Sandbox {
