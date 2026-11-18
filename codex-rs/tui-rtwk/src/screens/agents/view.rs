@@ -46,7 +46,7 @@ use super::tabs::Tabs;
 use super::usage;
 use crate::theme::ThreadPalette;
 /// What the screen's own state decides the view shows (the model holds none
-/// of it): the status tab, the help, the editing line and the confirmation.
+/// of it): the status tab, the help, and the editing line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ui {
     pub filter: usize,
@@ -54,7 +54,6 @@ pub struct Ui {
     pub searching: bool,
     /// A task's name is being edited.
     pub renaming: bool,
-    pub confirming: bool,
 }
 
 /// The number of status tabs.
@@ -257,9 +256,6 @@ pub struct Controls {
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
-    pub confirm_selection: SelectionController<usize>,
-    pub confirm_focus: FocusNode,
-    pub confirm_pick: Handler<usize>,
 }
 
 /// The part of the controls the list takes.
@@ -995,7 +991,7 @@ pub fn body(
     // The list gives the focus to the editing line while one is open.
     let rows = list(look, strings, agents, center, controls, &taps.rows);
     let pane: AnyWidget = pane
-        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing || ui.confirming)))
+        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing)))
         .into();
     let details = details(look, strings, num, center, agents);
     let rule = VerticalDivider::new()
@@ -1076,12 +1072,10 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
 
 /// The name a confirmation asks about: the task's name or its preview, the
 /// first non-empty line (oracle: `confirm_agents_overview_action`).
-fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String {
-    let row = center
-        .rows
-        .iter()
-        .find(|row| row.id() == confirm.thread.as_str());
+pub fn confirm_name(strings: &Strings, model: &Model, confirm: &Confirm) -> String {
+    let row = model.row(&confirm.thread);
     let name = row
+        .as_ref()
         .map(|row| row.name.as_deref().unwrap_or(&row.preview))
         .unwrap_or_default();
     name.trim()
@@ -1103,6 +1097,17 @@ fn panel(look: &Look, rows: Vec<AnyWidget>) -> AnyWidget {
     BoxWidget::new().style(look.plain.clone()).child(stacked(rows)).into()
 }
 
+/// What the confirmation asks: the removal, the task's name and whether the
+/// archive is the cloud's. They are the question's own text, taken when it
+/// is asked: the dialog is a route of the `Navigator`, above the providers
+/// of a seeded debug screen, so it does not read the model by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ask {
+    pub confirm: Confirm,
+    pub name: String,
+    pub cloud: bool,
+}
+
 /// The archive and delete confirmation: a centered panel over the screen
 /// (oracle: `CenteredView` with `SelectionViewParams::confirmation()`): the
 /// title and the description wrapped, the two rows, a hint.
@@ -1110,38 +1115,37 @@ pub fn confirm_dialog(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    model: &Model,
-    center: &Center,
-    confirm: &Confirm,
-    controls: &Controls,
+    ask: &Ask,
+    selection: &SelectionController<usize>,
+    pick: Handler<usize>,
 ) -> AnyWidget {
-    let name = confirm_name(strings, center, confirm);
-    let (title, description, label) = match confirm.action {
-        Action::Archive if model.cloud => (
-            strings.archive_title(&name, num),
+    let name = &ask.name;
+    let (title, description, label) = match ask.confirm.action {
+        Action::Archive if ask.cloud => (
+            strings.archive_title(name, num),
             strings.archive_description_cloud,
             strings.archive_label_cloud,
         ),
         Action::Archive => (
-            strings.archive_title(&name, num),
+            strings.archive_title(name, num),
             strings.archive_description,
             strings.archive_label,
         ),
         Action::Delete => (
-            strings.delete_title(&name, num),
+            strings.delete_title(name, num),
             strings.delete_description,
             strings.delete_label,
         ),
     };
     let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
-    let (selection, accent, plain) = (
-        controls.confirm_selection.clone(),
+    let (watch, accent, plain) = (
+        selection.clone(),
         look.accent.clone().attrs(Attrs::BOLD),
         look.plain.clone(),
     );
     let choices = SelectionList::new(2, |index| index, move |index: usize| -> AnyWidget {
         let (selection, labels, accent, plain) =
-            (selection.clone(), labels.clone(), accent.clone(), plain.clone());
+            (watch.clone(), labels.clone(), accent.clone(), plain.clone());
         ListenableBuilder::new(selection.listenable(), move |_, _| {
             let selected = selection.cursor() == Some(index);
             let marker = if selected { "\u{203a} " } else { "  " };
@@ -1150,9 +1154,8 @@ pub fn confirm_dialog(
         })
         .into()
     })
-    .controller(controls.confirm_selection.clone())
-    .on_submitted(controls.confirm_pick.clone())
-    .focus_node(controls.confirm_focus.clone())
+    .controller(selection.clone())
+    .on_submitted(pick)
     .autofocus(true)
     .item_extent(1)
     .bar(false)

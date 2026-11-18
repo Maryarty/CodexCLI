@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::binding::AppBinding;
 use rtwk::controls::SelectionController;
@@ -15,8 +16,9 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyPress};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Stack, StackFit};
+use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded};
 use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
@@ -33,6 +35,7 @@ use crate::screens::EntryOpen;
 use crate::ui::seeded::Seeded;
 use crate::ui::view::Hs;
 
+mod dialogs;
 mod help;
 mod path;
 mod soft;
@@ -339,13 +342,7 @@ pub struct ScreenState {
     /// The screen's own focus: the keys have it while the help replaces the list.
     root_focus: FocusNode,
     edit_focus: FocusNode,
-    /// The confirmation's two rows and the focus they take while it shows.
-    confirm_selection: SelectionController<usize>,
-    confirm_focus: FocusNode,
-    /// The removal waiting for the user's answer (the view's own state; the
-    /// model learns of it only when it is answered yes).
-    confirm: Option<view::Confirm>,
-    /// The failure dialog shows (it takes the focus).
+    /// The failure dialog was opened for the model's failure.
     failing: bool,
     /// The shortcut help replaces the list.
     help: bool,
@@ -375,7 +372,7 @@ pub struct ScreenState {
 
 /// The center's model, the one part of the app's screens this screen reads: it
 /// is rebuilt when this model changes, not when another screen's does.
-fn watched<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
+pub(super) fn watched<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
     select::<ScreenStates, Shared<Model>, _>(cx, |states| states.agents.clone())
 }
 
@@ -405,8 +402,8 @@ pub enum Msg {
     Open,
     /// The mode changed (help, editing): the keys go to what shows now.
     Refocus,
-    /// Enter on a row of the confirmation.
-    ConfirmPick(usize),
+    /// The confirmation dialog was answered yes: the removal.
+    Confirmed(view::Confirm),
 }
 
 impl StatefulWidget for Screen {
@@ -419,9 +416,6 @@ impl StatefulWidget for Screen {
             list_focus: FocusNode::new(),
             root_focus: FocusNode::new(),
             edit_focus: FocusNode::new(),
-            confirm_selection: SelectionController::new(),
-            confirm_focus: FocusNode::new(),
-            confirm: None,
             failing: false,
             help: false,
             filter: 0,
@@ -556,7 +550,6 @@ impl ScreenState {
             help: self.help,
             searching: self.editing == Editing::Search,
             renaming: matches!(self.editing, Editing::Rename(_)),
-            confirming: self.confirm.is_some(),
         }
     }
 
@@ -579,21 +572,15 @@ impl ScreenState {
 
     /// The answer to the confirmation: a yes asks the model to remove the
     /// task (the cursor leaves it at once).
-    fn answer(&mut self, model: &Model, yes: bool, cx: &mut Cx<'_, Self>) {
-        let Some(confirm) = self.confirm.take() else {
-            return;
-        };
-        self.refocus_after_frame(cx);
-        if yes {
-            self.after_removal(model, &confirm.thread);
-            Self::send(
-                cx,
-                match confirm.action {
-                    Action::Archive => AgentsIntent::Archive(confirm.thread),
-                    Action::Delete => AgentsIntent::Delete(confirm.thread),
-                },
-            );
-        }
+    fn removal(&mut self, model: &Model, confirm: view::Confirm, cx: &mut Cx<'_, Self>) {
+        self.after_removal(model, &confirm.thread);
+        Self::send(
+            cx,
+            match confirm.action {
+                Action::Archive => AgentsIntent::Archive(confirm.thread),
+                Action::Delete => AgentsIntent::Delete(confirm.thread),
+            },
+        );
     }
 
     /// The editing line changes mode; its text is reset for the new one.
@@ -705,7 +692,6 @@ impl State for ScreenState {
             listening.cancel();
         }
         self.selection.dispose();
-        self.confirm_selection.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -735,7 +721,21 @@ impl State for ScreenState {
         self.sync(model, cx);
         if model.failure.is_some() != self.failing {
             self.failing = model.failure.is_some();
-            self.refocus_after_frame(cx);
+            if self.failing {
+                // The refusal's view replaces the screen's content (the
+                // build draws none while it shows) at the top left.
+                drop(show_dialog::<(), _>(
+                    cx,
+                    |_| dialogs::FailureDialog.into(),
+                    DialogOptions {
+                        alignment: Alignment::TOP_LEFT,
+                        barrier_dismissible: false,
+                        barrier_alpha: Some(0),
+                        fade_in: Duration::ZERO,
+                        ..DialogOptions::default()
+                    },
+                ));
+            }
         }
     }
 
@@ -750,38 +750,6 @@ impl State for ScreenState {
         match msg {
             Msg::Key(key) => {
                 let editing = self.editing_now();
-                if model.failure.is_some() {
-                    // The refusal's dialog has one row, `Back to agents`
-                    // (oracle: a selection view with `dismiss_on_select`).
-                    if matches!(key.code, KeyCode::Escape | KeyCode::Enter)
-                        || key.as_text().is_some_and(|text| text == "1")
-                    {
-                        Self::send(cx, AgentsIntent::DismissFailure);
-                    }
-                    return Rebuild::No;
-                }
-                if let Some(confirm) = self.confirm.clone() {
-                    // The confirmation takes every key (oracle: the view on
-                    // top of the bottom pane): Esc and the digits answer, the
-                    // arrows and Enter are the list's.
-                    match (
-                        key.code,
-                        key.as_text().filter(|_| !key.mods.contains(Mods::CTRL)),
-                    ) {
-                        (KeyCode::Escape, _) => self.answer(model, false, cx),
-                        (_, Some(digit @ ("1" | "2"))) => {
-                            let index = usize::from(digit == "2");
-                            // A delete waits for Enter: the digit only moves the cursor.
-                            if index == 1 && confirm.action == Action::Delete {
-                                self.confirm_selection.set_cursor(Some(1));
-                            } else {
-                                self.answer(model, index == 1, cx);
-                            }
-                        }
-                        _ => {}
-                    }
-                    return Rebuild::Yes;
-                }
                 // `on_ctrl_c` takes the key while a line is open (it cancels
                 // it) or a removal runs; otherwise it is the app's: quit.
                 if key.mods.contains(Mods::CTRL)
@@ -874,10 +842,32 @@ impl State for ScreenState {
                     }
                     Act::Confirm(thread, action) => {
                         if !model.held() && model.row(&thread).is_some() {
-                            self.confirm = Some(view::Confirm { thread, action });
-                            self.confirm_selection.set_cursor(Some(0));
-                            self.refocus_after_frame(cx);
-                            return Rebuild::Yes;
+                            let confirm = view::Confirm { thread, action };
+                            let ask = view::Ask {
+                                name: view::confirm_name(strings::of(cx), model, &confirm),
+                                cloud: model.cloud,
+                                confirm: confirm.clone(),
+                            };
+                            let answer = {
+                                let confirm = confirm.clone();
+                                cx.map(move |_: bool| Msg::Confirmed(confirm.clone()))
+                            };
+                            drop(show_dialog::<(), _>(
+                                cx,
+                                move |_| {
+                                    dialogs::ConfirmDialog {
+                                        ask: ask.clone(),
+                                        answer: answer.clone(),
+                                    }
+                                    .into()
+                                },
+                                DialogOptions {
+                                    barrier_alpha: Some(0),
+                                    fade_in: Duration::ZERO,
+                                    ..DialogOptions::default()
+                                },
+                            ));
+                            return Rebuild::No;
                         }
                     }
                     Act::Right(sel) => {
@@ -888,10 +878,8 @@ impl State for ScreenState {
                 }
             }
             Msg::Refocus => {
-                if model.failure.is_some() || self.help {
+                if self.help {
                     self.root_focus.request_focus();
-                } else if self.confirm.is_some() {
-                    self.confirm_focus.request_focus();
                 } else if self.editing_now() {
                     self.edit_focus.request_focus();
                 } else if center.entries.is_empty() {
@@ -930,8 +918,8 @@ impl State for ScreenState {
                     return Rebuild::Yes;
                 }
             }
-            Msg::ConfirmPick(index) => {
-                self.answer(model, index == 1, cx);
+            Msg::Confirmed(confirm) => {
+                self.removal(model, confirm, cx);
                 return Rebuild::Yes;
             }
             Msg::Search(text) => {
@@ -969,7 +957,6 @@ impl State for ScreenState {
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
         let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
-        let confirm = self.confirm.clone();
         // The row handlers are kept while the rows are the same ones: a
         // handler made anew is never equal to the last, and the list would
         // not compare equal (a cursor that moves leaves it as it is).
@@ -1009,15 +996,12 @@ impl State for ScreenState {
             open: rtwk::map_static!(cx, view::RowKey => Msg, |_| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
-            confirm_selection: self.confirm_selection.clone(),
-            confirm_focus: self.confirm_focus.clone(),
-            confirm_pick: cx.map(Msg::ConfirmPick),
         };
         let can_return = w.can_return;
         let body = LayoutBuilder::new(move |_, constraints| {
             let model = &*agents;
-            if let Some(failure) = &model.failure {
-                return view::failure_dialog(&look, strings, failure);
+            if model.failure.is_some() {
+                return AnyWidget::default();
             }
             // The header takes three rows from six, the footer one from two.
             let mut column = Column::new()
@@ -1035,14 +1019,7 @@ impl State for ScreenState {
             if constraints.max_height >= 2 {
                 column = column.child(view::footer_row(&look, strings, model, &ui, can_return));
             }
-            let Some(confirm) = &confirm else {
-                return column.into();
-            };
-            Stack::new()
-                .fit(StackFit::Expand)
-                .child(column)
-                .child(view::confirm_dialog(&look, strings, &num, model, &center, confirm, &controls))
-                .into()
+            column.into()
         });
         Focus::new(body)
             .focus_node(self.root_focus.clone())

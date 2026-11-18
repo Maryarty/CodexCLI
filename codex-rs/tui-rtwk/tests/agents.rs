@@ -145,9 +145,18 @@ fn agents_overview_tab_strip_draws_oracle_filled_tabs_on_tabbar() {
         ["All 2", "Needs you 1", "Working 0", "Ready 0", "Inactive 1"],
     ));
     let screen = t.screen();
-    let row = screen.lines().next().unwrap_or_default().trim_end().to_owned();
+    let row = screen
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_owned();
     // The oracle's row ends with the `tab/⇧tab filter` hint, the strip is the rest.
-    let strip = expected[1].split("tab/").next().unwrap_or_default().trim_end();
+    let strip = expected[1]
+        .split("tab/")
+        .next()
+        .unwrap_or_default()
+        .trim_end();
     assert_eq!(row, strip, "the oracle's tab row");
 }
 
@@ -452,6 +461,45 @@ fn archive_confirmation_number_keys_act_immediately() {
     let screen = h.t.screen();
     assert!(!screen.contains("Archive \u{201c}"), "{screen}");
     assert!(screen.contains("Archiving"), "{screen}");
+}
+
+/// The confirmation is a dialog of rtwk's overlay: Esc closes only it (the
+/// screen stays), and the keys are the list's again at once (the dialog gives
+/// the focus back), where the screen once refocused by hand.
+#[test]
+fn confirmation_dialog_closes_on_escape_and_gives_the_list_its_keys_back() {
+    let (_, height) = oracle("agents_overview");
+    let mut h = open("overview", 96, height);
+    h.press("a");
+    h.settle();
+    assert!(
+        h.t.screen().contains("Archive \u{201c}"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.settle();
+    assert!(
+        !h.t.screen()
+            .contains("\u{203a} \u{25cf} Repair authentication"),
+        "a key under the dialog moved the list\n{}",
+        h.t.screen()
+    );
+    h.press("escape");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Archive \u{201c}"), "{screen}");
+    assert!(
+        screen.contains("Agent command center"),
+        "Esc left the screen\n{screen}"
+    );
+    h.press("down");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("\u{203a} \u{25cf} Repair authentication"),
+        "{screen}"
+    );
 }
 
 /// The delete confirmation (delete_task_confirmation) of
