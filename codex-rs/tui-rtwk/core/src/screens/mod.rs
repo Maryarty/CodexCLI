@@ -34,6 +34,18 @@ pub struct DirInfo {
     pub kind: Kind,
 }
 
+/// Why a script's `screen` step could not make an event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SeedError {
+    /// No screen directory of that name.
+    UnknownDir,
+    /// The directory has no seedable event (its `seed` is the slice's to
+    /// write, in its own file).
+    NoSeeds,
+    /// The JSON is not one of the directory's seed events; serde's message.
+    Bad(String),
+}
+
 /// The list of the screen directories, in screen-map order, handed to
 /// `callback` as `dir => Variant;` entries. The UI crate calls it with its
 /// own macro.
@@ -190,6 +202,16 @@ macro_rules! core_dirs {
         pub fn apply_intent(states: &mut ScreenStates, intent: ScreenIntent, fx: &mut AppFx) {
             match intent {
                 $(ScreenIntent::$variant(intent) => $dir::apply_intent(&mut states.$dir, intent, fx),)*
+            }
+        }
+
+        /// The event a script's `screen` step makes: `value` is read by the
+        /// directory's own `seed`, so a slice seeds its events without editing
+        /// the shared loader.
+        pub fn seed_ev(dir: &str, value: serde_json::Value) -> Result<ScreenEv, SeedError> {
+            match dir {
+                $($dir::NAME => $dir::seed(value).map(ScreenEv::$variant),)*
+                _ => Err(SeedError::UnknownDir),
             }
         }
 

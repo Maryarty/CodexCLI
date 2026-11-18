@@ -106,3 +106,39 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     let _ = result;
     match *command {}
 }
+
+/// The seed form of this screen's events (`{"listed":{"rows":[..]}}`).
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SeedEv {
+    /// The backend listed the saved threads: the fields of the app-server
+    /// tests' `create_fake_rollout`.
+    Listed { rows: Vec<RolloutSeed> },
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct RolloutSeed {
+    id: String,
+    preview: String,
+    model_provider: String,
+    /// RFC 3339, the rollout's start.
+    timestamp: String,
+}
+
+/// A script's `screen` step for this directory.
+pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    Ok(match seed {
+        SeedEv::Listed { rows } => Ev::Listed(
+            rows.into_iter()
+                .map(|row| Row {
+                    id: ThreadId::new(row.id),
+                    preview: row.preview,
+                    model_provider: row.model_provider,
+                    started: row.timestamp,
+                })
+                .collect(),
+        ),
+    })
+}

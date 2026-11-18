@@ -114,7 +114,9 @@ on `codex-tui`.
 members: `core/` (package `codex-tui-rtwk-core`: ids, RPC tickets, the app and
 thread models with `apply`, the protocol mapping, each screen's model, events,
 intents and RPCs, the fixture scripts; it depends on `codex-app-server-protocol`
-and serde only, no rtwk, no async runtime, no IO), the UI package
+and serde only: no rtwk and no direct runtime or IO dependency; the protocol
+crate itself pulls tokio and others in transitively, so core's sources name
+none of them and the lints ban the IO calls), the UI package
 `codex-tui-rtwk` (the rtwk app: widgets, the shell that runs effects, the
 composition root) and `host/` (the binary's backend, `codex-rtwk`). The
 compiler holds the first rule, that core cannot name a widget; the other
@@ -621,7 +623,7 @@ codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-t
                             [workspace.package]/[workspace.lints]; passes the manifest script
   Cargo.lock                seeded from codex-rs/Cargo.lock
   clippy.toml               R1/R11/R12/R14 disallowed lists (UI crate; core/clippy.toml: the same without rtwk paths)
-  core/                     codex-tui-rtwk-core: no rtwk, no tokio, no IO
+  core/                     codex-tui-rtwk-core: no rtwk, no direct runtime or IO dependency
     src/app.rs              CodexApp (model), AppEv, Command, apply_app, ingest (epoch drop)
     src/threads.rs          ThreadModel, Transcript, apply, ThreadFx, project (protocol -> ThreadEv), Failure
     src/ids.rs, rpc.rs      ThreadId, Ticket, RequestKey, ConnEpoch; Reply, Answer, RpcError
@@ -629,7 +631,7 @@ codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-t
     src/screens/<dir>.rs    22 files, one per screen dir: Model, Ev, Intent, ThreadPart, Command, Reply, Ctx, apply, wire, decode
     src/fixtures/           builders (protocol payloads), script (JSONL event scripts: seed/notify/request/key/resize)
     tests/model.rs          apply on the plain model; tests/script.rs: the fixture loader
-  src/app.rs                UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug } }, ingest, send
+  src/app.rs                UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug }, link: shell::Link }, ingest, send
   src/run.rs                composition root: run_app_with, passes the shell's dialog watcher into the view
   src/shell.rs, shell/      the only effect runner and spawner (client, tickets, epoch stamping, fake backend); names no widget
   src/theme.rs              style tokens from the rtwk ThemeData at the root (no literal colours)
@@ -653,8 +655,8 @@ lockfile untouched.
 
 ## Layers (tm `skeleton-layers`)
 
-Four layers, one direction of knowledge. `core` (no rtwk, no tokio, no IO)
-holds the models, `apply`, the protocol mapping and every screen's model,
+Four layers, one direction of knowledge. `core` (no rtwk, no direct runtime or IO
+dependency) holds the models, `apply`, the protocol mapping and every screen's model,
 events, intents and RPCs; failures are typed values and the words are the UI's
 string tables'. The views (`src/screens/<dir>/`, `src/ui/`, `src/l10n/`,
 `src/theme.rs`) are widgets that read the model through providers and send
@@ -662,12 +664,14 @@ intents; they name no protocol, no shell, no tokio, no IO and never call
 `apply`. The `shell` is the only effect runner and spawner and names no
 widget. `run.rs` and `host/` are the composition: they name all of them and
 hand the shell's pieces to the view as values (`CloseWatcher`). The UI model
-is `UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug } }`:
-what only a widget keeps is in `ui`, never in `core`.
+is `UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug }, link: shell::Link }`:
+what only a widget keeps is in `ui`, never in `core`; `link` is the app's end
+of the effect runner, the one field that names the shell, which is why `app.rs`
+is the model root and not a view.
 
 | the layer | may name | may not name | enforced by |
 |---|---|---|---|
-| core | protocol crate, serde, std (no IO, no clock, no threads) | rtwk, tokio, futures, UI types, IO | the compiler (`core/Cargo.toml` has no rtwk or runtime crate); `core/clippy.toml` (R1/R11/R12 without rtwk paths); `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
+| core | protocol crate, serde, std (no IO, no clock, no threads) | rtwk, tokio, futures, UI types, IO | the compiler (no rtwk in `core/Cargo.toml`) and an allowlist of its direct dependencies (the protocol crate pulls tokio in transitively, so it is the sources that name none); `core/clippy.toml` (R1/R11/R12 without rtwk paths, plus `disallowed_types` for `File`, `TcpStream`, `Command`, `Stdout` and the protocol's generators); `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
 | view | core, rtwk widgets, its own strings | protocol, `core::wire`, shell, tokio, IO, `apply` | `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `every_screen_dir_has_a_core_half_and_a_view_half`; R14 and ADR-010 in `rules.rs` |
 | shell | core, the protocol, tokio, rtwk's `Cx` and `DialogResult` for spawning | widgets, views, theme | `shell_names_no_widget`; R1 in `rules.rs` (`r1_spawn_paths_are_the_shells`) |
 | run, host | everything | - | the composition root; `r1_the_host_neither_spawns_nor_allows` |
@@ -678,13 +682,17 @@ A screen directory is two halves of one name: `core/src/screens/<dir>.rs`
 is registered once, and a slice edits only its own two halves.
 
 **Fixtures.** A screen's mock state is a JSONL event script in its view
-directory (`fixtures/*.jsonl`): `seed` (a ready session, a resume list),
+directory (`fixtures/*.jsonl`): `seed` (a ready session), `screen` (an
+event of one screen directory, read by that directory's own `seed` in
+`core/src/screens/<dir>.rs`, so a slice never edits the loader),
 `notify` and `request` (the protocol's own JSON, taken from the oracle's tests),
 `key` and `resize` (inputs for a tester). Core's `fixtures::script` plays it
 through `CodexApp::ingest`, the live path, so a script cannot build a state the
-app cannot reach. A `DebugEntry` carries its script; the debug menu plays it
-and shows the real screen under the seeded model (`ui/seeded.rs`, provider
-shadowing). Worked examples: the chat's streamed answer, an exec approval
+app cannot reach. A `DebugEntry` carries its script; the debug menu opens a
+`SeededScope` (`ui/seeded.rs`) that plays it into a core `Sandbox`, provides
+that model and its own handlers, and shows the real screen. What the user does
+on it is applied to the sandbox, which drops the effects: nothing reaches the
+live app. Worked examples: the chat's streamed answer, an exec approval
 request, a resume list from fake rollouts. Details and the oracle map:
 [parity/skeleton-layers.md](parity/skeleton-layers.md).
 
@@ -705,6 +713,7 @@ request, a resume list from fake rollouts. Details and the oracle map:
 | G13 `show_dialog` without a Navigator falls back to the `overlay::App` overlay above the app's providers (nav-proto gap 1) | dialogs; workaround: presenter under the Navigator |
 | G14 a provider projection lags the model until the view reruns; no same-flush read (nav-proto gap 2) | presenters; workaround: never decide from a same-flush read |
 | G15 changing the provider list silently drops an unkeyed Navigator's stack (nav-proto gap 3) | root; workaround: fixed list + `GlobalKey` |
+| G16 `show_dialog` has no on-closed message: the caller awaits the `DialogResult` future, so a spawned watcher is needed, and spawning is the shell's (R1); hence `shell::dialog_closed` and the injected `CloseWatcher` | request presenter, every dialog whose result the model needs; workaround: `shell::dialog_closed` |
 | rtwk-state: reactive_graph cross-thread panic, `batch` loss (the issue file) | rtwk quality; family 3, not used by the port |
 | rtwk-state: `Select` notified inside a frame wakes the loop again (app-state-aopt.md §5) | ADR-003 reserve (family 4) |
 

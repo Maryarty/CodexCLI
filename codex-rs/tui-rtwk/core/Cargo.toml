@@ -13,8 +13,10 @@ doctest = false
 workspace = true
 
 # The core of `codex-tui-rtwk`: models, `apply`, tickets, the protocol mapping.
-# It depends on no rtwk crate and no async runtime; `tests/layers.rs` holds
-# that, and the compiler refuses any widget here.
+# It has no direct dependency but the protocol, serde and test helpers
+# (`tests/layers.rs` keeps the list); the protocol crate pulls a runtime in
+# transitively, so the sources name none and the lints ban the IO calls. The
+# compiler refuses any widget here.
 [dependencies]
 codex-app-server-protocol = { path = "../../app-server-protocol" }
 serde = { version = "1", features = ["derive"] }

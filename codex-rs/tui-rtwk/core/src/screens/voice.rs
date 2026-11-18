@@ -88,3 +88,11 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     let _ = result;
     match *command {}
 }
+
+/// A script's `screen` step for this directory: the event `value` stands for
+/// (`fixtures::script`). None is seedable yet; the slice gives its events a
+/// serde form here and reads it, so the shared loader never changes.
+pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
+    let _ = value;
+    Err(crate::screens::SeedError::NoSeeds)
+}

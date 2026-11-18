@@ -21,9 +21,8 @@ use codex_tui_rtwk_core::screens::Kind;
 
 use crate::screens::{self, DebugOpen, EntryOpen};
 use crate::theme;
-use crate::ui::seeded::Seeded;
+use crate::ui::seeded::SeededScope;
 use crate::ui::view::Hs;
-use codex_tui_rtwk_core::fixtures::script;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DebugMenu;
@@ -120,28 +119,20 @@ impl State for DebugMenuState {
                                 DialogOptions::default(),
                             ));
                         }
-                        RowOpen::Entry(open, text) => {
-                            // A script that does not play opens nothing; a
-                            // test plays every registered script.
-                            let Ok(played) = script::build(text) else {
-                                return Rebuild::No;
-                            };
-                            let seeded = Rc::new(Seeded::new(played.app));
-                            match open {
-                                EntryOpen::Route(build) => {
-                                    drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(
-                                        move |_| seeded.scope(build(&seeded)),
-                                    )));
-                                }
-                                EntryOpen::Dialog(build) => {
-                                    drop(show_dialog::<(), _>(
-                                        cx,
-                                        move |_| seeded.scope(build(&seeded)),
-                                        DialogOptions::default(),
-                                    ));
-                                }
+                        RowOpen::Entry(open, script) => match open {
+                            EntryOpen::Route(build) => {
+                                drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(
+                                    move |_| SeededScope { script, build }.into(),
+                                )));
                             }
-                        }
+                            EntryOpen::Dialog(build) => {
+                                drop(show_dialog::<(), _>(
+                                    cx,
+                                    move |_| SeededScope { script, build }.into(),
+                                    DialogOptions::default(),
+                                ));
+                            }
+                        },
                     }
                 }
             }

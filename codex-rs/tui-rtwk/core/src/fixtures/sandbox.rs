@@ -5,7 +5,9 @@
 
 use crate::app::AppEv;
 use crate::app::CodexApp;
+use crate::app::Ingress;
 use crate::fixtures::script::ScriptError;
+use crate::fixtures::script::build;
 
 pub struct Sandbox {
     app: CodexApp,
@@ -15,8 +17,9 @@ impl Sandbox {
     /// The model a script makes; its `key` and `resize` inputs are dropped
     /// (a tester plays those, through `script::build`).
     pub fn play(text: &str) -> Result<Sandbox, ScriptError> {
-        let _ = text;
-        todo!("play")
+        Ok(Sandbox {
+            app: build(text)?.app,
+        })
     }
 
     pub fn app(&self) -> &CodexApp {
@@ -25,7 +28,7 @@ impl Sandbox {
 
     /// Applies `ev` under the model's epoch; the effects are dropped.
     pub fn send(&mut self, ev: AppEv) {
-        let _ = ev;
-        todo!("send")
+        let epoch = self.app.epoch();
+        drop(self.app.ingest(Ingress { epoch, ev }));
     }
 }

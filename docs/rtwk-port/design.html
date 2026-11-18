@@ -54,10 +54,10 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
     b1[&quot;sessions, model calls, tools, sandbox, config files, auth&quot;]
   end</pre></div>
 <h2>3. Crate and module layout</h2>
-<p>Two crates in one workspace and the arrows that are allowed (§3b says which rule holds each one): the core has no rtwk and no IO; the UI crate holds the views, the shell and the composition root; the host is the binary's backend.</p>
+<p>Two crates in one workspace and the arrows that are allowed (§3b says which rule holds each one): the core has no rtwk and no direct runtime or IO dependency (the protocol crate pulls tokio in transitively); the UI crate holds the views, the shell and the composition root; the host is the binary's backend.</p>
 <div class="diagram"><pre class="mermaid">flowchart TB
   subgraph ws[&quot;codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)&quot;]
-    subgraph core[&quot;codex-tui-rtwk-core (no rtwk, no tokio, no IO)&quot;]
+    subgraph core[&quot;codex-tui-rtwk-core (no rtwk, no direct runtime or IO dependency)&quot;]
       capp[&quot;app.rs: CodexApp (root model), AppEv, apply_app, ingest&quot;]
       cthreads[&quot;threads.rs: ThreadModel, apply, project (protocol to events), Failure&quot;]
       cscreens[&quot;screens/dir.rs, one per slice: model, events, intents, RPCs, wire&quot;]
@@ -66,7 +66,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
       cids[&quot;ids.rs, rpc.rs, wire.rs: ids, tickets, protocol requests and replies&quot;]
     end
     subgraph ui[&quot;codex-tui-rtwk (the rtwk app)&quot;]
-      uapp[&quot;app.rs: UiApp with core: CodexApp and ui: UiState&quot;]
+      uapp[&quot;app.rs: UiApp with core: CodexApp, ui: UiState and link: shell Link&quot;]
       root[&quot;ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers&quot;]
       subgraph screens[&quot;screens/dir/ (view files only, one directory per slice)&quot;]
         s1[&quot;chat, cells, composer, popovers, transcript, select&quot;]
@@ -108,7 +108,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   reuse --&gt; keymap
   ws --&gt; deps</pre></div>
 <h3>3b. Layers: what may name what</h3>
-<p>| layer | may name | may not name | held by | |---|---|---|---| | core | the protocol crate, serde, std without IO, clock or threads | rtwk, tokio, futures, UI types, IO | the compiler (<code>core/Cargo.toml</code>); <code>core/clippy.toml</code>; <code>layers.rs</code>: <code>core_manifest_has_no_ui_or_runtime_dependency</code>, <code>core_sources_name_no_ui_runtime_or_io</code>, <code>core_sources_hold_no_user_visible_prose</code>, <code>the_ui_model_is_the_core_model_plus_ui_state</code> | | view (<code>screens/dir/</code>, <code>ui/</code>, <code>l10n/</code>, <code>theme</code>) | core, rtwk widgets, its own strings | the protocol, <code>core::wire</code>, shell, tokio, IO, <code>apply</code> | <code>layers.rs</code>: <code>views_never_name_protocol_shell_tokio_or_io</code>, <code>views_never_apply_the_model</code>, <code>screen_dirs_hold_view_files_only</code>, <code>every_screen_dir_has_a_core_half_and_a_view_half</code>; <code>rules.rs</code>: R14, ADR-010 | | shell | core, the protocol, tokio, rtwk <code>Cx</code> and <code>DialogResult</code> (to spawn) | widgets, views, theme | <code>layers.rs</code>: <code>shell_names_no_widget</code>; <code>rules.rs</code>: <code>r1_spawn_paths_are_the_shells</code>, <code>r11_r12_no_clock_and_no_file_system_outside_the_shell</code> | | run, host | everything (the composition) | - | <code>rules.rs</code>: <code>r1_the_host_neither_spawns_nor_allows</code> |</p>
+<p>| layer | may name | may not name | held by | |---|---|---|---| | core | the protocol crate, serde, std without IO, clock or threads | rtwk, tokio, futures, UI types, IO | the compiler (no rtwk in <code>core/Cargo.toml</code>) and an allowlist of direct dependencies; <code>core/clippy.toml</code> (calls and types); <code>layers.rs</code>: <code>core_manifest_has_no_ui_or_runtime_dependency</code>, <code>core_sources_name_no_ui_runtime_or_io</code>, <code>core_sources_hold_no_user_visible_prose</code>, <code>the_ui_model_is_the_core_model_plus_ui_state</code> | | view (<code>screens/dir/</code>, <code>ui/</code>, <code>l10n/</code>, <code>theme</code>) | core, rtwk widgets, its own strings | the protocol, <code>core::wire</code>, shell, tokio, IO, <code>apply</code> | <code>layers.rs</code>: <code>views_never_name_protocol_shell_tokio_or_io</code>, <code>views_never_apply_the_model</code>, <code>screen_dirs_hold_view_files_only</code>, <code>every_screen_dir_has_a_core_half_and_a_view_half</code>; <code>rules.rs</code>: R14, ADR-010 | | shell | core, the protocol, tokio, rtwk <code>Cx</code> and <code>DialogResult</code> (to spawn) | widgets, views, theme | <code>layers.rs</code>: <code>shell_names_no_widget</code>; <code>rules.rs</code>: <code>r1_spawn_paths_are_the_shells</code>, <code>r11_r12_no_clock_and_no_file_system_outside_the_shell</code> | | run, host | everything (the composition) | - | <code>rules.rs</code>: <code>r1_the_host_neither_spawns_nor_allows</code> |</p>
 <h2>4. Runtime: an event from the backend reaches the screen</h2>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
   participant AS as app-server
@@ -171,6 +171,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   class UiApp {
     core: CodexApp
     ui: UiState
+    link: shell Link
   }
   class UiState {
     nav_key: GlobalKey
@@ -208,6 +209,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
   ThreadModel --&gt; Approval
   UiApp --&gt; CodexApp : core
   UiApp --&gt; UiState : ui
+  UiApp ..&gt; Link : link, the app&#x27;s end of the shell
   UiState --&gt; ThreadUi : keyed by ThreadId
   CodexApp --&gt; Session
   Session --&gt; Remote</pre></div>

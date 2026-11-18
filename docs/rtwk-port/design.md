@@ -62,13 +62,13 @@ flowchart TB
 ## 3. Crate and module layout
 
 Two crates in one workspace and the arrows that are allowed (§3b says which
-rule holds each one): the core has no rtwk and no IO; the UI crate holds the
+rule holds each one): the core has no rtwk and no direct runtime or IO dependency (the protocol crate pulls tokio in transitively); the UI crate holds the
 views, the shell and the composition root; the host is the binary's backend.
 
 ```mermaid
 flowchart TB
   subgraph ws["codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)"]
-    subgraph core["codex-tui-rtwk-core (no rtwk, no tokio, no IO)"]
+    subgraph core["codex-tui-rtwk-core (no rtwk, no direct runtime or IO dependency)"]
       capp["app.rs: CodexApp (root model), AppEv, apply_app, ingest"]
       cthreads["threads.rs: ThreadModel, apply, project (protocol to events), Failure"]
       cscreens["screens/dir.rs, one per slice: model, events, intents, RPCs, wire"]
@@ -77,7 +77,7 @@ flowchart TB
       cids["ids.rs, rpc.rs, wire.rs: ids, tickets, protocol requests and replies"]
     end
     subgraph ui["codex-tui-rtwk (the rtwk app)"]
-      uapp["app.rs: UiApp with core: CodexApp and ui: UiState"]
+      uapp["app.rs: UiApp with core: CodexApp, ui: UiState and link: shell Link"]
       root["ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers"]
       subgraph screens["screens/dir/ (view files only, one directory per slice)"]
         s1["chat, cells, composer, popovers, transcript, select"]
@@ -124,7 +124,7 @@ flowchart TB
 
 | layer | may name | may not name | held by |
 |---|---|---|---|
-| core | the protocol crate, serde, std without IO, clock or threads | rtwk, tokio, futures, UI types, IO | the compiler (`core/Cargo.toml`); `core/clippy.toml`; `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
+| core | the protocol crate, serde, std without IO, clock or threads | rtwk, tokio, futures, UI types, IO | the compiler (no rtwk in `core/Cargo.toml`) and an allowlist of direct dependencies; `core/clippy.toml` (calls and types); `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
 | view (`screens/dir/`, `ui/`, `l10n/`, `theme`) | core, rtwk widgets, its own strings | the protocol, `core::wire`, shell, tokio, IO, `apply` | `layers.rs`: `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `every_screen_dir_has_a_core_half_and_a_view_half`; `rules.rs`: R14, ADR-010 |
 | shell | core, the protocol, tokio, rtwk `Cx` and `DialogResult` (to spawn) | widgets, views, theme | `layers.rs`: `shell_names_no_widget`; `rules.rs`: `r1_spawn_paths_are_the_shells`, `r11_r12_no_clock_and_no_file_system_outside_the_shell` |
 | run, host | everything (the composition) | - | `rules.rs`: `r1_the_host_neither_spawns_nor_allows` |
@@ -201,6 +201,7 @@ classDiagram
   class UiApp {
     core: CodexApp
     ui: UiState
+    link: shell Link
   }
   class UiState {
     nav_key: GlobalKey
@@ -238,6 +239,7 @@ classDiagram
   ThreadModel --> Approval
   UiApp --> CodexApp : core
   UiApp --> UiState : ui
+  UiApp ..> Link : link, the app's end of the shell
   UiState --> ThreadUi : keyed by ThreadId
   CodexApp --> Session
   Session --> Remote

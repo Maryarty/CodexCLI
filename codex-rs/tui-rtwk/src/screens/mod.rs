@@ -38,10 +38,10 @@ pub struct DebugEntry {
 #[derive(Clone, Copy)]
 pub enum EntryOpen {
     /// Pushed as a route over the menu.
-    Route(fn(&Seeded) -> AnyWidget),
+    Route(fn(&Seeded<'_>) -> AnyWidget),
     /// Shown with `show_dialog` over the menu; the builder returns the whole
     /// dialog.
-    Dialog(fn(&Seeded) -> AnyWidget),
+    Dialog(fn(&Seeded<'_>) -> AnyWidget),
 }
 
 /// A registered directory.
