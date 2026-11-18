@@ -10,6 +10,7 @@ use codex_tui_rtwk_core::screens::Kind;
 use rtwk::AnyWidget;
 
 use crate::l10n::Lang;
+use crate::ui::seeded::Seeded;
 
 /// How the debug menu opens an entry.
 #[derive(Clone, Copy)]
@@ -29,7 +30,18 @@ pub struct DebugEntry {
     /// model state the entry shows; `include_str!` of a file under the
     /// directory's `fixtures/`.
     pub script: &'static str,
-    pub open: DebugOpen,
+    pub open: EntryOpen,
+}
+
+/// How an entry shows its seeded model: the builder makes the screen, the
+/// menu provides the model above it (`Seeded::scope`).
+#[derive(Clone, Copy)]
+pub enum EntryOpen {
+    /// Pushed as a route over the menu.
+    Route(fn(&Seeded) -> AnyWidget),
+    /// Shown with `show_dialog` over the menu; the builder returns the whole
+    /// dialog.
+    Dialog(fn(&Seeded) -> AnyWidget),
 }
 
 /// A registered directory.

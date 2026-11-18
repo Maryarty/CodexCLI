@@ -12,13 +12,21 @@ use codex_tui_rtwk_core::screens::resume::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
+use crate::ui::seeded::Seeded;
 
+mod list;
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: a screen per state worth
+/// opening, on the model a fixture script makes.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![DebugEntry {
+        name: "fake_rollouts",
+        description: "a resume list from three fake rollouts",
+        script: include_str!("fixtures/fake_rollouts.jsonl"),
+        open: EntryOpen::Route(|_: &Seeded| list::List.into()),
+    }]
 }
 
 /// The route of this screen, pushed by the widget that opens it

@@ -85,7 +85,10 @@ fn prompt_streams_the_answer_as_plain_text() {
 
 #[test]
 fn debug_menu_lists_the_directories() {
-    let mut h = start_debug();
+    // 22 directories and the entries of the worked examples: more rows than
+    // the oracle's 24 lines, which this menu (not an oracle screen) need not
+    // fit.
+    let mut h = start_sized(true, 80, 30);
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     for (name, id, _) in DIRS {
@@ -98,8 +101,7 @@ fn debug_menu_lists_the_directories() {
 #[test]
 fn debug_menu_opens_a_slot() {
     let mut h = start_debug();
-    h.press("down");
-    h.press("enter");
+    h.open_debug_row("cells", None);
     assert!(
         h.t.screen().contains("cells (S11): empty slot"),
         "{}",
@@ -112,8 +114,7 @@ fn debug_menu_opens_a_slot() {
 #[test]
 fn the_navigator_stack_survives_a_view_run() {
     let mut h = start_debug();
-    h.press("down");
-    h.press("enter");
+    h.open_debug_row("cells", None);
     assert!(h.t.screen().contains("cells (S11): empty slot"));
     let epoch = h.fake.epoch().expect("attached");
     let fake = h.fake.clone();
@@ -203,12 +204,12 @@ fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
 fn debug_menu_scrolls_to_the_cursor() {
     let mut h = start_sized(true, 80, 12);
     assert!(h.t.screen().contains("chat"));
-    for _ in 0..16 {
+    let pets = crate::common::debug_row("pets", None);
+    for _ in 0..pets {
         h.press("down");
     }
     let screen = h.t.screen();
-    // Row 16 (the cursor after 16 downs) is `pets`; the first rows scrolled
-    // off a 12-line screen.
+    // The cursor is on `pets`; the first rows scrolled off a 12-line screen.
     assert!(screen.contains("pets"), "{screen}");
     assert!(!screen.contains(" chat "), "scrolled off: {screen}");
     h.press("enter");

@@ -31,10 +31,10 @@ fn blank_and_comment_lines_are_skipped() {
 #[test]
 fn a_parse_error_names_its_line() {
     let text = format!("{SESSION}\n# comment\n{{\"step\":\"seed\",\"seed\":\"nonsense\"}}\n");
-    let err = parse(&text).err().expect("fails");
+    let err = parse(&text).expect_err("fails");
     assert_eq!(err.line, 3);
     assert!(!err.message.is_empty());
-    let err = parse("not json").err().expect("fails");
+    let err = parse("not json").expect_err("fails");
     assert_eq!(err.line, 1);
 }
 
@@ -140,8 +140,8 @@ fn a_script_error_in_play_names_the_line() {
     // No session seed: the notification is for a thread the model does not
     // have, which `ingest` accepts (R9); a second session seed after a
     // failure of the first is the error: the model is already connected.
-    let err: ScriptError = build(&format!("{SESSION}\n{SESSION}\n"))
-        .err()
-        .expect("a second session seed fails");
+    let Err(err): Result<_, ScriptError> = build(&format!("{SESSION}\n{SESSION}\n")) else {
+        panic!("a second session seed fails");
+    };
     assert_eq!(err.line, 2);
 }

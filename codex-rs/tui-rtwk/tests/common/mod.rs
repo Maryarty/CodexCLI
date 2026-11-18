@@ -9,12 +9,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk_core::fixtures::script::Input;
 use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::run::{app_view, localized, root};
 use codex_tui_rtwk::screens;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
+use codex_tui_rtwk_core::fixtures::script::Input;
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.

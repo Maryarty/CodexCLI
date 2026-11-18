@@ -14,13 +14,23 @@ use codex_tui_rtwk_core::screens::approvals::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
+use crate::ui::seeded::Seeded;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: a screen per state worth
+/// opening, on the model a fixture script makes.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![DebugEntry {
+        name: "exec_approval",
+        description: "an exec approval request waiting for the user",
+        script: include_str!("fixtures/exec_approval.jsonl"),
+        open: EntryOpen::Dialog(|seeded: &Seeded| match seeded.core.requests.head() {
+            Some(request) => request_dialog(request.key.clone()),
+            None => AnyWidget::default(),
+        }),
+    }]
 }
 
 /// The dialog the request presenter shows for the request `key`.

@@ -34,8 +34,8 @@ use crate::screens::resume;
 #[serde(tag = "step", rename_all = "snake_case")]
 pub enum Step {
     Seed(Seed),
-    Notify { message: ServerNotification },
-    Request { message: ServerRequest },
+    Notify { message: Box<ServerNotification> },
+    Request { message: Box<ServerRequest> },
     Key { keys: String },
     Resize { width: u16, height: u16 },
 }
@@ -156,11 +156,11 @@ impl Script {
                     ingest(app, ev);
                 }
                 Step::Notify { message } => {
-                    let ev = BackendEv::Notification(Box::new(message.clone()));
+                    let ev = BackendEv::Notification(message.clone());
                     ingest(app, AppEv::Backend(ev));
                 }
                 Step::Request { message } => {
-                    let ev = BackendEv::Request(Box::new(message.clone()));
+                    let ev = BackendEv::Request(message.clone());
                     ingest(app, AppEv::Backend(ev));
                 }
                 Step::Key { keys } => inputs.push(Input::Key(keys.clone())),

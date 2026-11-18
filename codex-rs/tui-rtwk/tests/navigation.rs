@@ -55,8 +55,7 @@ fn a_nested_route_pops_to_the_menu_and_then_to_the_chat() {
     let mut h = start();
     chat_with_history(&mut h);
     h.press("f12");
-    h.press("down");
-    h.press("enter");
+    h.open_debug_row("cells", None);
     assert!(
         h.t.screen().contains("cells (S11): empty slot"),
         "{}",
@@ -73,10 +72,7 @@ fn a_nested_route_pops_to_the_menu_and_then_to_the_chat() {
 #[test]
 fn a_dialog_closes_on_escape() {
     let mut h = start_debug();
-    for _ in 0..5 {
-        h.press("down");
-    }
-    h.press("enter");
+    h.open_debug_row("select", None);
     // The dialog fades in.
     h.t.pump_for(crate::common::ms(800));
     assert!(

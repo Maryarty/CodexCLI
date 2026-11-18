@@ -40,6 +40,8 @@ fn the_chat_entry_shows_the_streamed_answer() {
 fn the_approvals_entry_shows_the_request() {
     let mut h = start_debug();
     h.open_debug_row("approvals", Some("exec_approval"));
+    // The dialog fades in.
+    h.t.pump_for(common::ms(800));
     let screen = h.t.screen();
     // The skeleton's dialog says which request waits (`needs_answer`); it is
     // the seeded queue's, so the dialog stays open instead of closing itself
@@ -67,9 +69,12 @@ fn key_and_resize_steps_drive_the_tester() {
     .expect("plays");
     let mut h = start_debug();
     h.play_inputs(&script.inputs);
-    // `down`, `enter` opened the second row of the menu, as in the skeleton's
-    // `debug_menu_opens_a_slot`; the row is whichever follows the first.
-    assert!(h.t.screen().contains("(S"), "{}", h.t.screen());
+    // `down`, `enter` opened the second row of the menu: the chat's entry.
+    assert!(
+        h.t.screen().contains("The transport kept this."),
+        "{}",
+        h.t.screen()
+    );
     // The screen is the resized terminal's: 20 rows of at most 60 columns.
     let screen = h.t.screen();
     assert_eq!(screen.lines().count(), 20, "{screen}");

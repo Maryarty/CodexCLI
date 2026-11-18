@@ -14,13 +14,25 @@ use codex_tui_rtwk_core::screens::chat::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
+use crate::screens::EntryOpen;
+use crate::ui::seeded::Seeded;
 
 pub mod strings;
 
-/// What the debug menu lists for this directory: nothing yet. A slice adds
-/// one entry per state worth opening (a screen on made-up data).
+/// What the debug menu lists for this directory: a screen per state worth
+/// opening, on the model a fixture script makes.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    Vec::new()
+    vec![DebugEntry {
+        name: "streamed_answer",
+        description: "a chat transcript with a streamed answer",
+        script: include_str!("fixtures/streamed_answer.jsonl"),
+        open: EntryOpen::Route(|seeded: &Seeded| {
+            home::Chat {
+                ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
+            }
+            .into()
+        }),
+    }]
 }
 
 /// The `Navigator`'s home: the chat of the active thread.

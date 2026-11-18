@@ -19,9 +19,11 @@ use crate::l10n::lang;
 use crate::l10n::strings as l10n;
 use codex_tui_rtwk_core::screens::Kind;
 
-use crate::screens::{self, DebugOpen};
+use crate::screens::{self, DebugOpen, EntryOpen};
 use crate::theme;
+use crate::ui::seeded::Seeded;
 use crate::ui::view::Hs;
+use codex_tui_rtwk_core::fixtures::script;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DebugMenu;
@@ -29,8 +31,16 @@ pub struct DebugMenu;
 /// One line of the menu: a directory, or one of its entries.
 struct Row {
     label: String,
-    open: Option<DebugOpen>,
+    open: Option<RowOpen>,
     heading: bool,
+}
+
+/// What a row opens: a directory's empty form, or an entry over the model
+/// its script makes.
+#[derive(Clone, Copy)]
+enum RowOpen {
+    Plain(DebugOpen),
+    Entry(EntryOpen, &'static str),
 }
 
 fn rows(lang: Lang) -> Vec<Row> {
@@ -50,13 +60,13 @@ fn rows(lang: Lang) -> Vec<Row> {
                 kind,
                 (dir.title)(lang)
             ),
-            open: Some((dir.open_empty)()),
+            open: Some(RowOpen::Plain((dir.open_empty)())),
             heading: true,
         });
         for entry in (dir.debug_entries)() {
             rows.push(Row {
                 label: format!("    {} - {}", entry.name, entry.description),
-                open: Some(entry.open),
+                open: Some(RowOpen::Entry(entry.open, entry.script)),
                 heading: false,
             });
         }
@@ -96,19 +106,41 @@ impl State for DebugMenuState {
                 }) = rows(lang).into_iter().nth(index)
                 {
                     match open {
-                        DebugOpen::Route(build) => {
+                        RowOpen::Plain(DebugOpen::Route(build)) => {
                             // The route's result is not awaited: a debug page.
                             drop(
                                 Navigator::of(cx)
                                     .push::<()>(PageRoute::<()>::new(move |_| build(lang))),
                             );
                         }
-                        DebugOpen::Dialog(build) => {
+                        RowOpen::Plain(DebugOpen::Dialog(build)) => {
                             drop(show_dialog::<(), _>(
                                 cx,
                                 move |_| Dialog::new(build(lang)).into(),
                                 DialogOptions::default(),
                             ));
+                        }
+                        RowOpen::Entry(open, text) => {
+                            // A script that does not play opens nothing; a
+                            // test plays every registered script.
+                            let Ok(played) = script::build(text) else {
+                                return Rebuild::No;
+                            };
+                            let seeded = Rc::new(Seeded::new(played.app));
+                            match open {
+                                EntryOpen::Route(build) => {
+                                    drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(
+                                        move |_| seeded.scope(build(&seeded)),
+                                    )));
+                                }
+                                EntryOpen::Dialog(build) => {
+                                    drop(show_dialog::<(), _>(
+                                        cx,
+                                        move |_| seeded.scope(build(&seeded)),
+                                        DialogOptions::default(),
+                                    ));
+                                }
+                            }
                         }
                     }
                 }

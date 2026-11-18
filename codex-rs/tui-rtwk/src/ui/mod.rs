@@ -4,5 +4,6 @@
 
 pub mod debug_menu;
 pub mod presenter;
+pub mod seeded;
 pub mod thread_ui;
 pub mod view;
