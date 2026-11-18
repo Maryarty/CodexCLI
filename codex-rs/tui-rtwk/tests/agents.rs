@@ -302,6 +302,29 @@ fn delete_task_confirmation_and_failure_snapshots() {
     assert!(screen.contains("Deleting"), "{screen}");
 }
 
+/// The failure dialogs of the lifecycle tests (`archive_task_failure`,
+/// `delete_task_failure`; agents_overview_actions_tests.rs:845, :1007): the
+/// server refuses the removal, the dialog names the verb, the error and, when
+/// the request was attempted, the note about stopped work, with one row
+/// `Back to agents`.
+#[test]
+fn lifecycle_failure_dialogs() {
+    pending(
+        Owner::CoreSeed,
+        "core keeps a failed removal as `Notice::Error` text in the footer (refresh.rs:211, `let _ = action`) and has no failure to show as a dialog (action, error, attempted); the dialog's rows are the oracle's `LifecycleHeader` + one `Back to agents` row",
+    );
+    for (key, snapshot) in [("a", "actions__archive_task_failure"), ("backspace", "actions__delete_task_failure")] {
+        let mut h = open("confirm", 80, 24);
+        h.press(key);
+        h.press("2");
+        if key == "backspace" {
+            h.press("enter");
+        }
+        h.settle();
+        assert_app(&h, snapshot);
+    }
+}
+
 /// `modal_consumes_input_and_finishes_after_input_closes` (agents_overview_action_progress_tests.rs:17),
 /// snapshots archive_progress and delete_progress: while the removal runs the
 /// footer says so, the removed task is gone, `End` still browses and
@@ -350,12 +373,23 @@ fn modal_consumes_input_and_finishes_after_input_closes() {
     }
 }
 
-/// `live_center_columns` (agent_center_tests.rs:294).
+/// `live_center_columns` (agent_center_tests.rs:294): the columns at 160
+/// cells (snapshot live_center_columns) and the narrow status text at 50. The
+/// oracle's third part, the selected row's status glyph styles
+/// (`live_center_selected_status_styles`), dumps ratatui `Style` values, which
+/// have no counterpart in rtwk cells; see the parity pack.
 #[test]
 fn live_center_columns() {
-    todo!(
-        "agents-live: needs the live-center fixture (columns) through a debug row; not registered (mod.rs:36)"
-    )
+    let h = open("columns", 50, 24);
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25cf} Error: Failed task"), "{screen}");
+    let mut h = open("columns", 160, 22);
+    h.settle();
+    pending(
+        Owner::CoreSeed,
+        "the `voice` badge of a task whose child has the voice session (`activate_voice_for_thread`) needs a flag on core's RowData and a seed step for it; every other row of live_center_columns is the oracle's",
+    );
+    assert_app(&h, "command_center__live_center_columns");
 }
 
 /// `live_center_pages_visible_rows_without_wrapping` (agent_center_tests.rs:387).

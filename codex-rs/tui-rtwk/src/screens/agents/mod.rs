@@ -94,6 +94,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
         },
         DebugEntry {
+            name: "columns",
+            description: "six tasks of every status and age, pins, an unread one",
+            script: include_str!("fixtures/columns.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen { can_return: true, open: false }.into()),
+        },
+        DebugEntry {
             name: "empty_narrow",
             description: "no tasks at 48 cells, with nowhere to go back to",
             script: include_str!("fixtures/empty_narrow.jsonl"),
