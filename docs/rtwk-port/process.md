@@ -350,7 +350,9 @@ In the slice's area, committed with it; the reviewer and the person read it.
 kind: K<nn> from parity/delta-kinds.md, or NEW
 cause: rtwk-rich renderer | gap G<n> | layout | other: …
 oracle / ours: two fenced blocks, only the differing rows ± 2
-proposal: accept | fixed here | follow-up task <alias>
+rtwk route tried: widgets / API with file:line, why it cannot give the oracle's result
+gap: the docs/rtwk-port/rtwk-gaps.md row (the person hands gaps to rtwk)
+proposal: fixed here | blocked on gap G<n> (closest exact workaround named)
 ## Scenarios (pty)
 | scenario | checkpoints | result |       or: n/a until scenario-harness
 ## Rules
@@ -358,6 +360,17 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 ## rtwk needs
 ```
 
+- **No delta is accepted by default** (the person, 2026-11-18, rejecting
+  N01/N02, D1/D2, N1, N2, N5, N7, N8: "you did not figure out how rtwk is
+  built"). The oracle's look and behaviour are the spec. A porter never
+  proposes "accept": the nearest ready widget (`Dialog`, `Autocomplete`, …)
+  that looks different is not a reason, rtwk's primitives (`Stack`,
+  `Positioned`, `ColoredBox`, `RichText` spans, a custom render object) are
+  composed until the rows and styles equal the oracle's. Only what rtwk truly
+  cannot do is a delta, and then only with the route tried and a
+  `rtwk-gaps.md` row; the orchestrator researches such a delta before it
+  reaches the person. rtwk gaps are handed to rtwk by the person, never filed
+  into rtwk's tm by the fleet.
 - **Delta kinds** (`docs/rtwk-port/parity/delta-kinds.md`, the orchestrator's
   file): one entry per kind of difference (markdown table borders, wrap
   points, highlight palette, braille → rtwk-data chart, …) with the person's
@@ -517,7 +530,9 @@ Stop and ask (the work that depends on the answer waits; the rest goes on):
    architecture does not have.
 2. A bug found in a class the proof counts "impossible".
 3. A slice cannot finish without an rtwk change (rtwk is another repository
-   with its own orchestrator): wait, list as delta, or ask rtwk.
+   with its own orchestrator): after research shows no exact route, a
+   `rtwk-gaps.md` row for the person to hand over; the slice waits or uses
+   the closest exact workaround.
 4. Dropping an oracle behaviour outright (more than a visual delta), or
    anything outside phase 1.
 5. A NEW delta kind that blocks a slice (otherwise: batched at wave end).

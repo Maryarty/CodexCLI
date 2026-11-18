@@ -16,9 +16,14 @@ read only the subsection this file points to.
   one in behaviour. Architecture and decisions: `docs/rtwk-port/architecture.md`
   (read the sections your task names, by heading).
 - rtwk API: `docs/rtwk-port/refs/` first (generated; grep it), rtwk source in
-  ranges only for what the references do not answer. rtwk is read-only here;
-  a gap goes into your handover as "rtwk needs: …" and into the parity pack as
-  a delta, not a workaround.
+  ranges only for what the references do not answer. rtwk is read-only here.
+- The oracle's look and behaviour are the spec; no visual delta is accepted
+  (the person, 2026-11-18). Never propose "accept" and never settle for the
+  nearest ready widget that looks different (`Dialog`, `Autocomplete`):
+  compose rtwk primitives until rows and styles equal the oracle's. Only what
+  rtwk truly cannot do goes into the handover as "rtwk needs: …" with the
+  route you tried (widgets, file:line) and a `docs/rtwk-port/rtwk-gaps.md`
+  row; stop and report it rather than writing it off as a delta.
 - The oracle's files, snapshots and tests for a screen: its rows in
   `docs/rtwk-port/refs/codex-registry.csv`. The oracle binary for pty
   scenarios: `~/.cache/codexcli/oracle-bin/` (never build codex-tui yourself).
