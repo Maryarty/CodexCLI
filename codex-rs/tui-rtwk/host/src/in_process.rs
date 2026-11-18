@@ -175,7 +175,8 @@ async fn run(
         worktrees: local,
     };
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(args.config.codex_home.to_path_buf()));
-    let started = match InProcessAppServerClient::start(args).await {
+    // Boxed: the start future is large, and the pump should not carry it inline.
+    let started = match Box::pin(InProcessAppServerClient::start(args)).await {
         Ok(client) => client,
         Err(error) => {
             emit(&ingress, epoch, AppEv::StartFailed(error.to_string()));

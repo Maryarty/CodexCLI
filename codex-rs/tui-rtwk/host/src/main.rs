@@ -1,3 +1,8 @@
+// The in-process app-server client's start future nests the whole server's
+// async call tree, so its layout needs more than the default query depth (the
+// oracle's `codex-tui` and `codex-app-server-client` raise it to the same value).
+#![recursion_limit = "256"]
+
 mod in_process;
 mod workspace;
 
