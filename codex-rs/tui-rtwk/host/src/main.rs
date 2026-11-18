@@ -9,6 +9,9 @@ use codex_tui_rtwk::app::CodexApp;
 use codex_tui_rtwk::shell::Backend;
 use codex_tui_rtwk::ui::run::run;
 
+/// How long `main` waits for the backend future to hand the client back.
+const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse(std::env::args().skip(1))?;
     arg0_dispatch_or_else(move |arg0_paths| run_main(cli, arg0_paths))
@@ -28,7 +31,11 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     }));
     let app = CodexApp::new(backend).with_debug_screens(cli.debug_screens);
     let result = run(app);
-    // The app is gone: its command channel closed, the client shuts down.
-    let _ = done_rx.await;
+    // Quitting aborted the backend future (rtwk unmounts the app and aborts
+    // its task), so nothing after its loop runs: the client came back
+    // through `done_rx`, and the shutdown happens here.
+    if let Ok(Ok(client)) = tokio::time::timeout(SHUTDOWN_WAIT, done_rx).await {
+        let _ = client.shutdown().await;
+    }
     result.map_err(|error| anyhow::anyhow!("the terminal app failed: {error}"))
 }

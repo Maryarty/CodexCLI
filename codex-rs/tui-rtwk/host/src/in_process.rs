@@ -48,6 +48,47 @@ use futures::stream::FuturesUnordered;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
 
+/// Hands its value to `main` when dropped, however the future that holds it
+/// ends. Quitting unmounts the app, and rtwk aborts the backend task: its
+/// future is dropped at an `.await`, so no code after the loop can run.
+/// `main` therefore owns the shutdown: it takes the client back through
+/// this guard and awaits `client.shutdown()` itself.
+pub struct HandBack<T> {
+    value: Option<T>,
+    to: Option<oneshot::Sender<T>>,
+}
+
+impl<T> HandBack<T> {
+    pub fn new(value: T, to: oneshot::Sender<T>) -> Self {
+        Self {
+            value: Some(value),
+            to: Some(to),
+        }
+    }
+}
+
+impl<T> std::ops::Deref for HandBack<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.value.as_ref().expect("held until dropped")
+    }
+}
+
+impl<T> std::ops::DerefMut for HandBack<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.value.as_mut().expect("held until dropped")
+    }
+}
+
+impl<T> Drop for HandBack<T> {
+    fn drop(&mut self) {
+        if let (Some(value), Some(to)) = (self.value.take(), self.to.take()) {
+            let _ = to.send(value);
+        }
+    }
+}
+
 /// What the in-process client is started with, for `config`.
 pub async fn start_args(
     config: Config,
@@ -106,8 +147,9 @@ pub async fn start_args(
 /// The in-process app-server, started when the app attaches it.
 pub struct InProcess {
     pub args: InProcessClientStartArgs,
-    /// Resolved when the client has shut down, so `main` can wait for it.
-    pub done: Option<oneshot::Sender<()>>,
+    /// Receives the client when the backend future ends or is aborted, so
+    /// that `main` shuts it down (see `HandBack`).
+    pub done: Option<oneshot::Sender<InProcessAppServerClient>>,
 }
 
 impl Connector for InProcess {
@@ -130,13 +172,16 @@ async fn run(
     epoch: ConnEpoch,
 ) {
     let InProcess { args, done } = spec;
-    let mut client = match InProcessAppServerClient::start(args).await {
+    let started = match InProcessAppServerClient::start(args).await {
         Ok(client) => client,
         Err(error) => {
             emit(&ingress, epoch, AppEv::StartFailed(error.to_string()));
-            finish(done);
             return;
         }
+    };
+    let mut client = match done {
+        Some(done) => Held::Back(HandBack::new(started, done)),
+        None => Held::Own(started),
     };
     emit(&ingress, epoch, AppEv::Connected);
     let handle = client.request_handle();
@@ -172,13 +217,60 @@ async fn run(
             }
         }
     }
-    let _ = client.shutdown().await;
-    finish(done);
+    // Leaving the loop drops `client`: the guard hands it to `main`.
 }
 
-fn finish(done: Option<oneshot::Sender<()>>) {
-    if let Some(done) = done {
-        let _ = done.send(());
+/// The client, handed back on drop where `main` waits for it.
+enum Held {
+    Back(HandBack<InProcessAppServerClient>),
+    Own(InProcessAppServerClient),
+}
+
+impl std::ops::Deref for Held {
+    type Target = InProcessAppServerClient;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Held::Back(held) => held,
+            Held::Own(client) => client,
+        }
+    }
+}
+
+impl std::ops::DerefMut for Held {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Held::Back(held) => held,
+            Held::Own(client) => client,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dropped_guard_hands_its_value_back() {
+        let (tx, mut rx) = oneshot::channel();
+        drop(HandBack::new(7_u8, tx));
+        assert_eq!(rx.try_recv().ok(), Some(7));
+    }
+
+    /// The case that matters: the future is dropped at an `.await`, as
+    /// rtwk's abort does on quit.
+    #[tokio::test]
+    async fn an_aborted_future_hands_its_value_back() {
+        let (tx, rx) = oneshot::channel();
+        let (parked_tx, parked_rx) = oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _held = HandBack::new(7_u8, tx);
+            let _ = parked_tx.send(());
+            std::future::pending::<()>().await;
+        });
+        parked_rx.await.expect("the future started");
+        task.abort();
+        assert_eq!(rx.await.ok(), Some(7));
     }
 }
 
