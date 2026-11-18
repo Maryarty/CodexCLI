@@ -999,7 +999,9 @@ impl State for ScreenState {
                 return view::failure_dialog(&look, strings, failure);
             }
             // The header takes three rows from six, the footer one from two.
-            let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+            let mut column = Column::new()
+                .overflow_intended(true)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch);
             if constraints.max_height >= 6 {
                 column = column.child(view::header(&look, strings, &num, model, &ui, &center, &taps));
             }

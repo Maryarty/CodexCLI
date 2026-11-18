@@ -52,6 +52,7 @@ impl Group {
     /// The group's title and its first `rows - 1` entries.
     fn grid(&self, rows: usize, ink: &Ink) -> AnyWidget {
         let mut grid = Grid::new()
+            .overflow_intended(true)
             .columns([GridTrack::fixed(self.keys()), GridTrack::content()])
             .column_gap(2)
             .child(GridPlacement::new(Text::line(self.title.clone()).style(ink.title.clone())).span(1, 2));
@@ -67,6 +68,7 @@ impl Group {
 /// Groups stacked with a blank row between, cut to `keep` rows.
 fn stacked(groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
     let mut column = Column::new()
+        .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start);
     let mut left = keep;
@@ -109,12 +111,14 @@ pub fn help(
     let cut = rows + 2 > fits;
     let keep = if cut { fits.saturating_sub(3) } else { rows };
     let mut row = Row::new()
+        .overflow_intended(true)
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(GAP);
     for column in &columns {
         row = row.child(stacked(column, keep, ink));
     }
     let mut page = Column::new()
+        .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(Text::line(title.to_owned()).style(ink.title.clone()))

@@ -147,6 +147,7 @@ fn short(child: impl Into<AnyWidget>) -> AnyWidget {
 
 fn top(child: impl Into<AnyWidget>) -> AnyWidget {
     Column::new()
+        .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(child)
@@ -155,6 +156,7 @@ fn top(child: impl Into<AnyWidget>) -> AnyWidget {
 
 fn stacked(rows: Vec<AnyWidget>) -> AnyWidget {
     let mut column = Column::new()
+        .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
     for row in rows {
@@ -618,7 +620,9 @@ pub fn list(
                 false
             },
         );
-        let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let mut column = Column::new()
+            .overflow_intended(true)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch);
         let tall = constraints.max_height >= 3;
         if tall {
             let mut labels = Row::new()
@@ -893,7 +897,9 @@ pub fn body(
     taps: &Taps,
 ) -> AnyWidget {
     let editing = ui.editing();
-    let mut pane = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let mut pane = Column::new()
+        .overflow_intended(true)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
     if editing {
         pane = pane.child(editor(look, strings, ui, controls));
     }
@@ -917,6 +923,7 @@ pub fn body(
             return pane.clone();
         }
         Row::new()
+            .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(Expanded::new(1, pane.clone()))
             .child(rule.clone())

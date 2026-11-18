@@ -8,7 +8,7 @@
 #[path = "oracle_snap/mod.rs"]
 mod oracle_snap;
 
-use crate::common::{Harness, start_sized};
+use crate::common::{Harness, start_clipping, start_sized};
 
 /// The kit's key-label normalization of our rows (platform labels: `delete`
 /// shipped for the `backspace` of the oracle's `cfg(test)` snapshots, the
@@ -715,5 +715,35 @@ fn live_center_search_row_appears_only_while_editing() {
         assert_app(&h, "command_center__live_center_search_active");
         h.press("esc");
         assert_eq!(oracle_snap::screen(&h.t), idle, "after {key} and esc");
+    }
+}
+
+/// vs1-review D4: the screen draws at any width, with the list, the search
+/// line, the help and the confirmation (the old view subtracted past zero
+/// below nine cells).
+#[test]
+fn the_center_draws_at_widths_one_to_ten() {
+    for width in 1..=10u16 {
+        for height in [3u16, 6, 24] {
+            let mut h = start_clipping(true, width, height);
+            h.open_debug_row("agents", Some("overview"));
+            h.settle();
+            h.press("/");
+            h.settle();
+            h.press("escape");
+            h.settle();
+            h.press("?");
+            h.settle();
+            h.press("escape");
+            h.settle();
+            let mut h = start_clipping(true, width, height);
+            h.open_debug_row("agents", Some("confirm"));
+            h.press("a");
+            h.settle();
+            assert!(
+                h.t.screen().lines().count() <= usize::from(height),
+                "{width}x{height}"
+            );
+        }
     }
 }
