@@ -1,0 +1,2 @@
+{"id":"S10","title":"idle after a finished turn, 30 s (no status indicator)","kind":"idle","size":[120,40],"hold":1.0,"timeout":30,"stream_timeout":60,"settle":3.0,"window":30,
+ "prompt":"go","mock":{"deltas":100,"pace":0.005,"words":6,"begin":"BEGIN-S10","sentinel":"END-S10"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"}}

@@ -1,0 +1,2 @@
+{"id":"S9","title":"startup to first frame with the composer","kind":"startup","size":[120,40],"hold":1.0,"timeout":30,
+ "mock":{"deltas":10,"pace":0.01,"sentinel":"END-S9"},"ready":{"oracle":"›","rtwk":"Ask Codex to do anything"}}
