@@ -17,15 +17,15 @@ use crate::screens;
 /// How the presenter awaits its dialog's result: given by the root (the
 /// shell's `dialog_closed`), because spawning is the shell's (R1).
 pub type CloseWatcher =
-    fn(&mut Cx<'_, PresenterState>, rtwk::overlay::DialogResult<()>, PresenterMsg);
+    fn(&mut Cx<'_, RequestHostState>, rtwk::overlay::DialogResult<()>, PresenterMsg);
 
 /// Shows the dialog of the queue's head; its child is what it wraps.
-pub struct Presenter {
+pub struct RequestHost {
     pub watch: CloseWatcher,
     pub child: AnyWidget,
 }
 
-pub struct PresenterState {
+pub struct RequestHostState {
     watch: CloseWatcher,
     shown: Option<RequestKey>,
     /// The last request shown: a snapshot that still holds it (the view
@@ -38,11 +38,11 @@ pub enum PresenterMsg {
     Closed(RequestKey),
 }
 
-impl StatefulWidget for Presenter {
-    type State = PresenterState;
+impl StatefulWidget for RequestHost {
+    type State = RequestHostState;
 
-    fn create_state(&self) -> PresenterState {
-        PresenterState {
+    fn create_state(&self) -> RequestHostState {
+        RequestHostState {
             watch: self.watch,
             shown: None,
             last: None,
@@ -50,9 +50,9 @@ impl StatefulWidget for Presenter {
     }
 }
 
-impl_widget!(stateful Presenter);
+impl_widget!(stateful RequestHost);
 
-impl PresenterState {
+impl RequestHostState {
     fn sync(&mut self, head: Option<RequestKey>, cx: &mut Cx<'_, Self>) {
         let (None, Some(key)) = (&self.shown, head) else {
             return;
@@ -76,18 +76,18 @@ impl PresenterState {
     }
 }
 
-impl State for PresenterState {
-    type Widget = Presenter;
+impl State for RequestHostState {
+    type Widget = RequestHost;
     type Msg = PresenterMsg;
 
-    fn did_change_dependencies(&mut self, _: &Presenter, cx: &mut Cx<'_, Self>) {
+    fn did_change_dependencies(&mut self, _: &RequestHost, cx: &mut Cx<'_, Self>) {
         let head = select::<RequestQueue, Option<RequestKey>, _>(cx, |queue| {
             queue.head().map(|request| request.key.clone())
         });
         self.sync(head, cx);
     }
 
-    fn update(&mut self, msg: PresenterMsg, _: &Presenter, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: PresenterMsg, _: &RequestHost, cx: &mut Cx<'_, Self>) -> Rebuild {
         let PresenterMsg::Closed(key) = msg;
         if self.shown.as_ref() == Some(&key) {
             self.shown = None;
@@ -100,7 +100,57 @@ impl State for PresenterState {
         Rebuild::No
     }
 
-    fn build(&self, w: &Presenter, _: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, w: &RequestHost, _: &mut Cx<'_, Self>) -> AnyWidget {
         w.child.clone()
+    }
+}
+
+/// (red stub, replaced in the next commit) The presenter's model.
+pub type Place = std::rc::Rc<std::cell::Cell<Option<rtwk::app::ViewRoot<crate::app::UiApp>>>>;
+
+pub struct Presenter {
+    place: Place,
+}
+
+impl Default for Presenter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Presenter {
+    pub fn new() -> Self {
+        Self {
+            place: Place::default(),
+        }
+    }
+
+    pub fn place(&self) -> Place {
+        self.place.clone()
+    }
+
+    pub fn shown(&self) -> Option<&RequestKey> {
+        todo!()
+    }
+
+    pub fn next(
+        &mut self,
+        _head: Option<RequestKey>,
+        _queued: impl Fn(&RequestKey) -> bool,
+    ) -> Option<RequestKey> {
+        todo!()
+    }
+
+    pub fn closed(
+        &mut self,
+        _key: &RequestKey,
+        _answer: Option<()>,
+        _queued: impl Fn(&RequestKey) -> bool,
+    ) {
+        todo!()
+    }
+
+    pub fn event(&mut self) {
+        todo!()
     }
 }

@@ -37,6 +37,8 @@ mod pager;
 mod pets;
 #[path = "popovers.rs"]
 mod popovers;
+#[path = "presenter.rs"]
+mod presenter;
 #[path = "resume.rs"]
 mod resume;
 #[path = "select.rs"]

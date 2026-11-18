@@ -20,7 +20,7 @@ use crate::app::UiApp;
 use crate::screens;
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::presenter::CloseWatcher;
-use crate::ui::presenter::Presenter;
+use crate::ui::presenter::RequestHost;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
@@ -52,7 +52,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>, watch: CloseWatcher) ->
     };
     // The presenter wraps the home, so it is mounted once whichever home it
     // is, and shows a request's dialog under the providers (ADR-002).
-    let home: AnyWidget = Presenter {
+    let home: AnyWidget = RequestHost {
         watch,
         child: if app.ui.debug {
             DebugMenu.into()
