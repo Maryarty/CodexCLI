@@ -10,6 +10,7 @@
 
 pub mod fake;
 pub mod rpc;
+pub mod search;
 pub mod workspace;
 
 use std::future::Future;

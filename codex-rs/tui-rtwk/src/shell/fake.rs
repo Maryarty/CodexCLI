@@ -24,6 +24,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::shell::IngressTx;
 use crate::shell::rpc::Ids;
 use crate::shell::rpc::answer;
+use crate::shell::search::Latest;
 use crate::shell::workspace::Boxed;
 use crate::shell::workspace::Checkout;
 use crate::shell::workspace::Facts;
@@ -279,6 +280,7 @@ pub(crate) async fn run(
         emit(backend_ev(facts));
     }
     let ids = Ids::default();
+    let mut latest = Latest::default();
     while let Some(command) = commands.recv().await {
         let scripted = {
             let Ok(mut guard) = shared.lock() else {
@@ -348,7 +350,8 @@ pub(crate) async fn run(
                 let ingress = ingress.clone();
                 let ids = ids.clone();
                 let log = shared.clone();
-                tokio::spawn(async move {
+                let held = other.clone();
+                let work: Boxed<Option<()>> = Box::pin(async move {
                     let send = move |request: ClientRequest| {
                         let json = serde_json::to_value(&request).unwrap_or_default();
                         if let Ok(mut guard) = log.lock() {
@@ -378,7 +381,9 @@ pub(crate) async fn run(
                             }
                         }
                     }
+                    Some(())
                 });
+                tokio::spawn(latest.wrap(&held, work));
             }
         }
     }

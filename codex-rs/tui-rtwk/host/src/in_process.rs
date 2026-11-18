@@ -35,6 +35,7 @@ use codex_tui_rtwk::shell::IngressTx;
 use codex_tui_rtwk::shell::emit;
 use codex_tui_rtwk::shell::rpc::Ids;
 use codex_tui_rtwk::shell::rpc::answer;
+use codex_tui_rtwk::shell::search::Latest;
 use codex_tui_rtwk::shell::workspace::Boxed;
 use codex_tui_rtwk::shell::workspace::Facts;
 use codex_tui_rtwk::shell::workspace::Workspace;
@@ -191,6 +192,9 @@ async fn run(
     };
     let ids = Ids::default();
     let mut inflight: FuturesUnordered<Boxed<Option<AppEv>>> = FuturesUnordered::new();
+    // The history search's debounce: the oracle waits 180 ms and a newer
+    // search drops the pending one.
+    let mut latest = Latest::default();
     while let Some(client) = held.get() {
         tokio::select! {
             event = client.next_event() => match event {
@@ -211,14 +215,17 @@ async fn run(
             command = commands.recv() => match command {
                 None => break,
                 Some(Command::RejectRequest { key, .. }) => reject(client, &key).await,
-                Some(command) => inflight.push(work(
-                    command,
-                    handle.clone(),
-                    ids.clone(),
-                    facts,
-                    workspace.clone(),
-                    model.clone(),
-                )),
+                Some(command) => {
+                    let job = work(
+                        command.clone(),
+                        handle.clone(),
+                        ids.clone(),
+                        facts,
+                        workspace.clone(),
+                        model.clone(),
+                    );
+                    inflight.push(latest.wrap(&command, job));
+                }
             },
             Some(done) = inflight.next(), if !inflight.is_empty() => {
                 if let Some(ev) = done {

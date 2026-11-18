@@ -17,8 +17,9 @@ use codex_tui_core::screens::agents::{DirKeys, Ev, Intent as AgentsIntent, Notic
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use codex_tui_rtwk::shell::fake::FakeWorkspace;
 use codex_tui_rtwk::shell::rpc::{Ids, USAGE_TIMED_OUT, USAGE_TIMEOUT, answer, answer_with};
+use codex_tui_rtwk::shell::search::{Latest, SEARCH_DEBOUNCE};
 use codex_tui_rtwk::shell::workspace::{
-    Checkout, Facts, Workspace, backend_ev, directories, worktree,
+    Boxed, Checkout, Facts, Workspace, backend_ev, directories, worktree,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -413,6 +414,104 @@ fn the_fake_workspace_is_a_workspace() {
     takes(&FakeWorkspace::default());
 }
 
+// The history search's debounce (oracle: `search_agents_overview`, the
+// 180 ms `sleep` before the first page, the task dropped by the next search).
+
+/// The commands the center sends when the search line gets `text`, one
+/// keystroke at a time.
+fn typed(app: &mut CodexApp, text: &str) -> Vec<Command> {
+    let mut sent = Vec::new();
+    let mut line = String::new();
+    for ch in text.chars() {
+        line.push(ch);
+        let fx = run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+                AgentsIntent::SetSearch(line.clone()),
+            ))),
+        );
+        sent.extend(screen_commands(fx));
+    }
+    sent
+}
+
+fn searches(app: &mut CodexApp, text: &str) -> Vec<Command> {
+    run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+            AgentsIntent::BeginSearch,
+        ))),
+    );
+    typed(app, text)
+        .into_iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: codex_tui_core::screens::ScreenCommand::Agents(
+                        codex_tui_core::screens::agents::Command::Search { .. }
+                    ),
+                    ..
+                }
+            )
+        })
+        .collect()
+}
+
+fn job(label: &'static str) -> Boxed<Option<&'static str>> {
+    Box::pin(async move { Some(label) })
+}
+
+#[test]
+fn the_search_waits_before_it_asks_the_server() {
+    assert_eq!(SEARCH_DEBOUNCE, Duration::from_millis(180));
+    let mut app = CodexApp::new();
+    open(&mut app);
+    let command = searches(&mut app, "a").remove(0);
+    let mut latest = Latest::new(Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    let answered = runtime().block_on(latest.wrap(&command, job("a")));
+    assert_eq!(answered, Some("a"));
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "answered after {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_newer_search_drops_the_pending_one() {
+    let mut app = CodexApp::new();
+    open(&mut app);
+    let both = searches(&mut app, "ab");
+    assert_eq!(both.len(), 2, "one search per keystroke: {both:?}");
+    let mut latest = Latest::new(Duration::from_millis(100));
+    let first = latest.wrap(&both[0], job("a"));
+    let second = latest.wrap(&both[1], job("ab"));
+    let (first, second) = runtime().block_on(async { tokio::join!(first, second) });
+    assert_eq!(first, None, "the older search never asks");
+    assert_eq!(second, Some("ab"));
+}
+
+#[test]
+fn other_commands_neither_wait_nor_drop_a_search() {
+    let mut app = CodexApp::new();
+    let list = open(&mut app);
+    let search = searches(&mut app, "a").remove(0);
+    let mut latest = Latest::new(Duration::from_secs(5));
+    let pending = latest.wrap(&search, job("search"));
+    let at_once = latest.wrap(&list, job("list"));
+    runtime().block_on(async {
+        let listed = tokio::time::timeout(Duration::from_secs(1), at_once).await;
+        assert_eq!(listed.ok(), Some(Some("list")), "a list is not held back");
+        let searched = tokio::time::timeout(Duration::from_millis(100), pending).await;
+        assert!(
+            searched.is_err(),
+            "the search is still waiting, not dropped"
+        );
+    });
+}
+
 // The app on the scripted backend: the center opened at start
 // (`codex-rtwk agents`), the backend answering as the app-server does.
 
@@ -535,6 +634,34 @@ fn the_shell_reads_the_directory_keys_of_the_listed_tasks() {
         1,
         "one group heading:\n{screen}"
     );
+}
+
+/// Typing into the search line asks the server once, after the pause: the
+/// keystrokes of one word are one search (oracle: 180 ms and the pending
+/// search dropped), while the model's text is the typed text at once.
+#[test]
+fn typing_a_word_asks_the_server_once() {
+    let mut h = live::start(server);
+    h.wait_for("the tasks", |s| s.contains("Interactive task"));
+    let fake = h.fake.clone();
+    let scans = move || {
+        fake.requests()
+            .iter()
+            .filter(|request| {
+                request["method"] == "thread/list" && request["params"]["limit"] == json!(100)
+            })
+            .count()
+    };
+    let before = scans();
+    h.t.press("/");
+    h.t.press("e");
+    h.t.press("x");
+    h.wait_for("the typed text", |s| s.contains("Search \u{203a} ex"));
+    assert_eq!(scans(), before, "nothing is asked before the pause");
+    h.wait_for("the search", |_| scans() > before);
+    std::thread::sleep(Duration::from_millis(300));
+    // One request per source, for the one search that was left.
+    assert_eq!(scans() - before, 2, "{:?}", h.fake.requests());
 }
 
 /// `w`: a worktree is made of the highlighted task's directory, a task is
