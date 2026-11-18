@@ -8,7 +8,7 @@ use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::screens::chat::strings;
 use codex_tui_rtwk_core::commands::SlashCommand;
 
-use crate::chat::{assert_chat_back, chat_with_history};
+use crate::chat::{assert_transcript_kept, chat_with_history};
 use crate::common::{Harness, ms, start};
 
 fn oracle(path: &str) -> String {
@@ -102,7 +102,7 @@ fn unrecognized_slash_command_shows_the_oracles_message_and_keeps_the_draft() {
         screen.contains("/does-not-exist"),
         "the draft is kept:\n{screen}"
     );
-    assert_chat_back(&h, None);
+    assert_transcript_kept(&h, None);
 }
 
 #[test]

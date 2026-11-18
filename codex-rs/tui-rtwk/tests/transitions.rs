@@ -4,10 +4,14 @@
 //! chords are the oracle's (`slash_command.rs`, `keymap.rs:1908-1953`), the
 //! screen each opens is the trigger table of `parity/chat-nav.md`.
 
+use codex_tui_rtwk::screens::chat::open;
+
 use crate::chat::{assert_chat_back, chat_with_history, shows};
 use crate::common::{Harness, ms, start};
+use codex_tui_rtwk_core::commands::Target;
 
 fn chat() -> Harness {
+    open::reset_last_opened();
     let mut h = start();
     chat_with_history(&mut h);
     h
@@ -25,11 +29,12 @@ macro_rules! command_opens {
         #[test]
         fn $test() {
             let mut h = chat();
+            let before = h.t.screen();
             run_command(&mut h, $line);
-            assert!(shows(&h, $dir), "{} did not open {}:\n{}", $line, $dir, h.t.screen());
+            assert!(shows($dir), "{} did not open {}:\n{}", $line, $dir, h.t.screen());
             h.press("escape");
             h.t.pump_for(ms(400));
-            assert_chat_back(&h, None);
+            assert_chat_back(&h, None, &before);
         }
     )*};
 }
@@ -68,14 +73,15 @@ command_opens! {
 #[test]
 fn a_command_picked_in_the_popup_opens_its_screen() {
     let mut h = chat();
+    let before = h.t.screen();
     h.t.type_text("/stat");
     h.t.pump_for(ms(100));
     h.press("enter");
     h.t.pump_for(ms(800));
-    assert!(shows(&h, "status"), "{}", h.t.screen());
+    assert!(shows("status"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert_chat_back(&h, None);
+    assert_chat_back(&h, None, &before);
 }
 
 macro_rules! chord_opens {
@@ -85,12 +91,13 @@ macro_rules! chord_opens {
             let mut h = chat();
             h.t.type_text("a draft");
             h.t.pump_for(ms(100));
+            let before = h.t.screen();
             h.press($keys);
             h.t.pump_for(ms(800));
-            assert!(shows(&h, $dir), "{} did not open {}:\n{}", $keys, $dir, h.t.screen());
+            assert!(shows($dir), "{} did not open {}:\n{}", $keys, $dir, h.t.screen());
             h.press("escape");
             h.t.pump_for(ms(400));
-            assert_chat_back(&h, Some("a draft"));
+            assert_chat_back(&h, Some("a draft"), &before);
         }
     )*};
 }
@@ -105,13 +112,14 @@ chord_opens! {
 #[test]
 fn esc_esc_starts_backtrack_and_esc_leaves_it() {
     let mut h = chat();
+    let before = h.t.screen();
     h.press("escape");
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert!(shows(&h, "backtrack"), "{}", h.t.screen());
+    assert!(shows("backtrack"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert_chat_back(&h, None);
+    assert_chat_back(&h, None, &before);
 }
 
 /// Escape with text in the composer does not start backtrack.
@@ -122,19 +130,25 @@ fn esc_with_a_draft_does_not_start_backtrack() {
     h.press("escape");
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert!(!shows(&h, "backtrack"), "{}", h.t.screen());
+    assert_ne!(
+        open::last_opened(),
+        Some(Target::Backtrack),
+        "{}",
+        h.t.screen()
+    );
     assert!(h.t.screen().contains("a draft"), "{}", h.t.screen());
 }
 
 #[test]
 fn f8_toggles_voice_which_opens_the_voice_strip() {
     let mut h = chat();
+    let before = h.t.screen();
     h.press("f8");
     h.t.pump_for(ms(400));
-    assert!(shows(&h, "voice"), "{}", h.t.screen());
+    assert!(shows("voice"), "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(ms(400));
-    assert_chat_back(&h, None);
+    assert_chat_back(&h, None, &before);
 }
 
 #[test]

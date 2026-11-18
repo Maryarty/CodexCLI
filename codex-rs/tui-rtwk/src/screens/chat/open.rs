@@ -3,6 +3,8 @@
 //! subtree on its own page. Each screen's opener is its directory's; the
 //! chat only picks which (the trigger table of `parity/chat-nav.md`).
 
+use std::cell::Cell;
+
 use rtwk::Cx;
 use rtwk::navigation::{Navigator, PageRoute};
 
@@ -13,9 +15,28 @@ use crate::screens::{
     usage, voice,
 };
 
+thread_local! {
+    /// The target the chat opened last on this thread: the identity a test
+    /// checks, whatever the target's screen looks like (stub or real).
+    static LAST: Cell<Option<Target>> = const { Cell::new(None) };
+}
+
+/// The target the chat opened last on this thread, if any (for tests).
+#[doc(hidden)]
+pub fn last_opened() -> Option<Target> {
+    LAST.with(Cell::get)
+}
+
+/// Forgets the last opened target (for tests).
+#[doc(hidden)]
+pub fn reset_last_opened() {
+    LAST.with(|last| last.set(None));
+}
+
 /// Opens `target` over the chat of `cx`. The chat stays below, with its
 /// transcript and its composer's text; Esc returns to it.
 pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
+    LAST.with(|last| last.set(Some(target)));
     match target {
         Target::Resume => push(cx, resume::route()),
         Target::Agents => push(cx, agents::route()),

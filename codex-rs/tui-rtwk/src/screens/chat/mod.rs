@@ -6,7 +6,7 @@
 
 mod home;
 mod keys;
-mod open;
+pub mod open;
 mod popup;
 
 use rtwk::navigation::PageRoute;

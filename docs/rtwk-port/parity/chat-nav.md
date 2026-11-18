@@ -316,8 +316,9 @@ times in a row (no flake).
 
 Every screen-opening command and key opens its screen from the chat and Esc
 returns with the transcript and the composer's text intact
-(`tests/transitions.rs`, one test per row; the check is the target's slot text
-or title, then `assert_chat_back`).
+(`tests/transitions.rs`, one test per row; the check is the target the chat
+opened (`chat::open::last_opened`, holds for stub and real screens), then Esc
+and `assert_chat_back`: the screen equals the one before).
 
 | trigger | target dir (id) | opener | test |
 |---|---|---|---|
@@ -430,8 +431,8 @@ Esc on an empty composer primes backtrack; the oracle shows a footer hint
 
 ### N9 — `/model` and the others open stub screens
 kind: K01 (slot screens of other slices render a stub until they land). The
-transitions are tested against the slots' text or title, so the tests keep
-passing when the slices land (the slot text goes, the title stays).
+transitions are tested against the recorded target, so the tests hold when the
+slices land.
 
 ## Scenarios (pty)
 
@@ -492,8 +493,7 @@ The other tests were red in the first commit (the UI ones failed on the
   test `command_popup_app` runs there only in the oracle's sense: on Linux the
   oracle's own snapshot test is cfg-gated too, ours is not (the row text is
   read from the snapshot, so it passes either way).
-- The "target is shown" check of `transitions` reads the slot text or the title
-  of the target; a slice that renames its title must keep `strings::title`.
+- The "target is shown" check reads the target the chat recorded in `open`, not the screen: a dialog whose model is not seeded draws nothing, and a real screen has no stub text. A target that fails to draw is that slice's test.
 - Intents from the chat (`Intent::Session`) end in a notice until session-core
   gives each command its effect: every `SessionIntent` is typed, none is a
   silent no-op (`a_command_that_needs_the_session_is_a_typed_intent_never_a_silent_noop`).
