@@ -19,12 +19,28 @@ pub const KIND: Kind = Kind::Route;
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    /// The picker's rows, newest first as the backend listed them.
+    pub rows: Vec<Row>,
+}
+
+/// One saved thread in the picker's list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub id: ThreadId,
+    pub preview: String,
+    pub model_provider: String,
+    /// RFC 3339, when the thread started.
+    pub started: String,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    /// The backend listed the saved threads.
+    Listed(Vec<Row>),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +48,9 @@ pub enum Intent {}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = (model, fx);
-    match ev {}
+    match ev {
+        Ev::Listed(_rows) => todo!("resume::apply Listed"),
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {

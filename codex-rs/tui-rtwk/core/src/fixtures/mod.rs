@@ -3,7 +3,8 @@
 //! handed to a widget.
 //!
 //! - `builders`: protocol payloads as the app-server sends them.
-//! - `script` (JSONL event scripts): `Seed`, `Notify`, `Request`, `Key`,
-//!   `Resize`, applied through `apply_app`.
+//! - `script`: JSONL event scripts (`seed`, `notify`, `request`, `key`,
+//!   `resize`), applied through `CodexApp::ingest`.
 
 pub mod builders;
+pub mod script;

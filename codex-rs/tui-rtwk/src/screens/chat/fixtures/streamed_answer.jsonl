@@ -1,0 +1,13 @@
+# A chat transcript with a streamed answer.
+# Ported from codex-tui `live_app_server_turn_completion_repairs_dropped_message_deltas`
+# (chatwidget/tests/app_server.rs): the transport kept the first delta and
+# dropped the rest; the completed item carries the whole text. The oracle
+# repairs from the summary items of `turn/completed`; the skeleton's
+# projection (`threads::project`) maps `item/completed`, so the repair is that.
+# The user message is the skeleton's addition: the oracle starts at the turn.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"userMessage","id":"user-1","clientId":null,"content":[{"type":"text","text":"hello","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"The transport kept this.\n"}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"msg-1","text":"The transport kept this.\nAnd dropped this.","phase":null,"memoryCitation":null,"delivery":null,"questions":null,"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","contentTokenCount":null,"completedAtMs":0}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

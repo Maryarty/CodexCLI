@@ -25,6 +25,10 @@ pub enum DebugOpen {
 pub struct DebugEntry {
     pub name: &'static str,
     pub description: &'static str,
+    /// The JSONL event script (core's `fixtures::script`) that makes the
+    /// model state the entry shows; `include_str!` of a file under the
+    /// directory's `fixtures/`.
+    pub script: &'static str,
     pub open: DebugOpen,
 }
 

@@ -131,3 +131,7 @@ path = "tests/rules.rs"
 [[test]]
 name = "theme"
 path = "tests/theme.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
