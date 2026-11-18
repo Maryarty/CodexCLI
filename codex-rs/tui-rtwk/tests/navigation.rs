@@ -72,11 +72,11 @@ fn a_nested_route_pops_to_the_menu_and_then_to_the_chat() {
 #[test]
 fn a_dialog_closes_on_escape() {
     let mut h = start_debug();
-    h.open_debug_row("select", None);
+    h.open_debug_row("select", Some("model_picker"));
     // The dialog fades in.
     h.t.pump_for(crate::common::ms(800));
     assert!(
-        h.t.screen().contains("select (S14): empty slot"),
+        h.t.screen().contains("Select Model and Effort"),
         "{}",
         h.t.screen()
     );
@@ -84,7 +84,7 @@ fn a_dialog_closes_on_escape() {
     // The dialog fades out before its route is gone.
     h.t.pump_for(crate::common::ms(600));
     let screen = h.t.screen();
-    assert!(!screen.contains("empty slot"), "{screen}");
+    assert!(!screen.contains("Select Model and Effort"), "{screen}");
     assert!(screen.contains(MENU_TITLE), "{screen}");
 }
 

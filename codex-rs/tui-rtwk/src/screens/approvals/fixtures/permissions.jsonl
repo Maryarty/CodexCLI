@@ -1,0 +1,5 @@
+# A permissions request.
+# Oracle data: bottom_pane/approval_overlay.rs:1269 make_permissions_request
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/permissions/requestApproval","id":1,"params":{"itemId":"test","environmentId":null,"cwd":"/tmp","reason":"need workspace access","permissions":{"network":{"enabled":true},"fileSystem":{"read":["/tmp/readme.txt"],"write":["/tmp/out.txt"]}},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/permissions/requestApproval","id":1,"params":{"itemId":"test","environmentId":null,"cwd":"/tmp","reason":"need workspace access","permissions":{"network":{"enabled":true},"fileSystem":{"read":["/tmp/readme.txt"],"write":["/tmp/out.txt"]}},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}}
