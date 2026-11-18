@@ -149,9 +149,14 @@ impl Workspace for Local {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // the tests build a repository on disk
 mod tests {
     use super::*;
+
+    /// A file with `text` (`std::fs::write` is the shell's: R12).
+    fn put(path: impl AsRef<std::path::Path>, text: impl AsRef<str>) -> std::io::Result<()> {
+        use std::io::Write as _;
+        std::fs::File::create(path)?.write_all(text.as_ref().as_bytes())
+    }
 
     #[test]
     fn a_plain_directory_is_its_own_project_and_directory() {
@@ -177,17 +182,17 @@ mod tests {
         let primary = root.join("repo");
         let git = primary.join(".git");
         std::fs::create_dir_all(git.join("worktrees").join("feature")).expect("git dir");
-        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").expect("head");
+        put(git.join("HEAD"), "ref: refs/heads/main\n").expect("head");
         let linked = root.join("feature");
         std::fs::create_dir_all(&linked).expect("linked");
         let admin = git.join("worktrees").join("feature");
-        std::fs::write(admin.join("commondir"), "../..\n").expect("commondir");
-        std::fs::write(
+        put(admin.join("commondir"), "../..\n").expect("commondir");
+        put(
             admin.join("gitdir"),
             format!("{}\n", linked.join(".git").display()),
         )
         .expect("gitdir");
-        std::fs::write(
+        put(
             linked.join(".git"),
             format!("gitdir: {}\n", admin.display()),
         )

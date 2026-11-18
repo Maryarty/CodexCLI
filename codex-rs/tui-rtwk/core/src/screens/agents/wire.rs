@@ -281,7 +281,7 @@ fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String>
             "reconnect_failed" => Ok(Some(Notice::ReconnectFailed)),
             "creating_worktree" => Ok(Some(Notice::CreatingWorktree)),
             "load_failed" => Ok(Some(Notice::LoadFailed)),
-            other => Err(format!("notice {other}")),
+            other => Err(["notice ", other].concat()),
         },
         serde_json::Value::Object(object) => {
             let (key, value) = object
@@ -295,9 +295,9 @@ fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String>
                 "removing" => match text.as_str() {
                     "archive" => Ok(Some(Notice::Removing(Action::Archive))),
                     "delete" => Ok(Some(Notice::Removing(Action::Delete))),
-                    other => Err(format!("removing {other}")),
+                    other => Err(["removing ", other].concat()),
                 },
-                other => Err(format!("notice {other}")),
+                other => Err(["notice ", other].concat()),
             }
         }
         _ => Err("a notice is null, a name or an object".to_owned()),

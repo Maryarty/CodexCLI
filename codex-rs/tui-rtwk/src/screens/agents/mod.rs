@@ -197,7 +197,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         },
         DebugEntry {
             name: "paging30_offline",
-            description: "thirty tasks of two projects while the connection is lost",
+            description: "thirty tasks while the connection is lost",
             script: include_str!("fixtures/paging30_offline.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| {
                 Screen {
