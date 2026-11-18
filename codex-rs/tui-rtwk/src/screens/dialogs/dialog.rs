@@ -8,9 +8,9 @@ use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::ScreenStates;
-use codex_tui_rtwk_core::screens::dialogs::{Intent, Open, PageIntent};
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::dialogs::{Intent, Open, PageIntent};
 
 use super::{feedback, shortcuts, strings, warnings};
 use crate::ui::view::Hs;

@@ -3,8 +3,8 @@
 //! State tests of S19: the card a script's `screen` step shows holds the raw
 //! values; the blended total is the oracle's (`TokenUsage::blended_total`).
 
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::status::{Approval, Profile};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::status::{Approval, Profile};
 use pretty_assertions::assert_eq;
 
 const CARD: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning_effort":"high","reasoning_summary":"detailed","directory":"/w","profile":"workspace","approval":"on_request","tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"context":null,"limits":[]}}"#;

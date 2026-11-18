@@ -76,7 +76,7 @@ workspace = true
 [dependencies]
 anyhow = "1"
 codex-app-server-protocol = { path = "../app-server-protocol" }
-codex-tui-rtwk-core = { path = "core" }
+codex-tui-core = { path = "core" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-tokio = { workspace = true }

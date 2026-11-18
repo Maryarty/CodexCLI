@@ -112,7 +112,7 @@ dev-deps) and on rtwk crates by path pinned to `RTWK_REF`. It does not depend
 on `codex-tui`.
 
 **Layout inside the crate (skeleton-layers).** The workspace has three
-members: `core/` (package `codex-tui-rtwk-core`: ids, RPC tickets, the app and
+members: `core/` (package `codex-tui-core`: ids, RPC tickets, the app and
 thread models with `apply`, the protocol mapping, each screen's model, events,
 intents and RPCs, the fixture scripts; it depends on `codex-app-server-protocol`
 and serde only: no rtwk and no direct runtime or IO dependency; the protocol
@@ -653,7 +653,7 @@ codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-t
                             [workspace.package]/[workspace.lints]; passes the manifest script
   Cargo.lock                seeded from codex-rs/Cargo.lock
   clippy.toml               R1/R11/R12/R14 disallowed lists (UI crate; core/clippy.toml: the same without rtwk paths)
-  core/                     codex-tui-rtwk-core: no rtwk, no direct runtime or IO dependency
+  core/                     codex-tui-core: no rtwk, no direct runtime or IO dependency
     src/app.rs              CodexApp (model), AppEv, Command, apply_app, ingest (epoch drop)
     src/threads.rs          ThreadModel, Transcript, apply, ThreadFx, project (protocol -> ThreadEv), Failure
     src/ids.rs, rpc.rs      ThreadId, Ticket, RequestKey, ConnEpoch; Reply, Answer, RpcError

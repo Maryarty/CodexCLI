@@ -1,14 +1,14 @@
 //! `startup`: the view half of the slot of S05 (startup prompts), the `mock-pre` task's to fill. It
 //! holds the empty form the skeleton registers: a screen widget, its opener
 //! and the debug-menu entries. Its model part, events, intents and RPCs are
-//! core's `codex_tui_rtwk_core::screens::startup`. Nothing outside these two
+//! core's `codex_tui_core::screens::startup`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::startup::{ID, NAME};
+use codex_tui_core::screens::startup::{ID, NAME};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;

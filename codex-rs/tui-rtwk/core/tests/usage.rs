@@ -4,12 +4,10 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::usage::{
-    Failure, Intent as UsageIntent, Overview, Panel, Report,
-};
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::usage::{Failure, Intent as UsageIntent, Overview, Panel, Report};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;

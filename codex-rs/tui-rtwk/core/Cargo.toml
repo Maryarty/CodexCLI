@@ -1,11 +1,11 @@
 [package]
-name = "codex-tui-rtwk-core"
+name = "codex-tui-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "codex_tui_rtwk_core"
+name = "codex_tui_core"
 path = "src/lib.rs"
 doctest = false
 

@@ -3,10 +3,10 @@
 //! State tests of S24 (the `/pets` picker): `pets/picker.rs` tests and the
 //! selection events of `build_pet_picker_params`.
 
-use codex_tui_rtwk_core::app::{AppEv, Intent};
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::pets::{Choice, DISABLED, Intent as PetsIntent, Picker, Preview};
+use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::pets::{Choice, DISABLED, Intent as PetsIntent, Picker, Preview};
 use pretty_assertions::assert_eq;
 
 const PLAIN: &str = include_str!("../../src/screens/pets/fixtures/picker.jsonl");
@@ -107,8 +107,8 @@ fn opening_and_moving_request_the_preview_of_the_row() {
 
 #[test]
 fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
-    use codex_tui_rtwk_core::screens::ScreenEv;
-    use codex_tui_rtwk_core::screens::pets::Ev;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::pets::Ev;
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
     send(&mut sandbox, PetsIntent::Move(1));
     sandbox.send(AppEv::Screen(ScreenEv::Pets(Ev::PreviewReady(

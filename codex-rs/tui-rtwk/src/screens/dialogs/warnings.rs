@@ -9,7 +9,7 @@ use rtwk::scroll::SingleChildScrollView;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
-use codex_tui_rtwk_core::screens::dialogs::{PageIntent, Warnings};
+use codex_tui_core::screens::dialogs::{PageIntent, Warnings};
 
 use super::dialog::{Msg, SmallDialogState, ctrl_o, f2};
 use super::strings::Strings;

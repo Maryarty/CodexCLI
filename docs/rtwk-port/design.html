@@ -57,7 +57,7 @@ code { background: #eee; padding: 1px 4px; border-radius: 4px; font-size: 90%; }
 <p>Two crates in one workspace and the arrows that are allowed (§3b says which rule holds each one): the core has no rtwk and no direct runtime or IO dependency (the protocol crate pulls tokio in transitively); the UI crate holds the views, the shell and the composition root; the host is the binary's backend.</p>
 <div class="diagram"><pre class="mermaid">flowchart TB
   subgraph ws[&quot;codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)&quot;]
-    subgraph core[&quot;codex-tui-rtwk-core (no rtwk, no direct runtime or IO dependency)&quot;]
+    subgraph core[&quot;codex-tui-core (no rtwk, no direct runtime or IO dependency)&quot;]
       capp[&quot;app.rs: CodexApp (root model), AppEv, apply_app, ingest&quot;]
       cthreads[&quot;threads.rs: ThreadModel, apply, project (protocol to events), Failure&quot;]
       cscreens[&quot;screens/dir.rs, one per slice: model, events, intents, RPCs, wire&quot;]

@@ -3,10 +3,10 @@
 //! registered once; `view_dirs!` makes the modules `screens/<dir>/` and the
 //! registry the debug menu reads. A directory holds view files only: widgets,
 //! `strings.rs`, debug entries. Its model, events, intents and RPCs are
-//! `codex_tui_rtwk_core::screens::<dir>`. A slice edits only its own two
+//! `codex_tui_core::screens::<dir>`. A slice edits only its own two
 //! directories.
 
-use codex_tui_rtwk_core::screens::Kind;
+use codex_tui_core::screens::Kind;
 use rtwk::AnyWidget;
 
 use crate::l10n::Lang;
@@ -63,9 +63,9 @@ macro_rules! view_dirs {
         /// Every directory, in screen-map order.
         pub fn dirs() -> Vec<Dir> {
             vec![$(Dir {
-                name: codex_tui_rtwk_core::screens::$dir::NAME,
-                id: codex_tui_rtwk_core::screens::$dir::ID,
-                kind: codex_tui_rtwk_core::screens::$dir::KIND,
+                name: codex_tui_core::screens::$dir::NAME,
+                id: codex_tui_core::screens::$dir::ID,
+                kind: codex_tui_core::screens::$dir::KIND,
                 title: $dir::strings::title,
                 debug_entries: $dir::debug_entries,
                 open_empty: $dir::open_empty,
@@ -74,4 +74,4 @@ macro_rules! view_dirs {
     };
 }
 
-codex_tui_rtwk_core::screen_list!(view_dirs);
+codex_tui_core::screen_list!(view_dirs);

@@ -2,7 +2,7 @@
 //! and the static pager (`/diff`). It is one `PageRoute` over two kinds of
 //! content: a static page when the model has one open, else the active
 //! thread's transcript. Its model, events and intents are core's
-//! `codex_tui_rtwk_core::screens::pager`. Oracle: `tui/src/pager_overlay.rs`
+//! `codex_tui_core::screens::pager`. Oracle: `tui/src/pager_overlay.rs`
 //! (`PagerView`, `StaticOverlay`) and `pager_overlay/transcript.rs`.
 
 use std::rc::Rc;
@@ -18,9 +18,9 @@ use rtwk::style::Span;
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::ScreenStates;
-use codex_tui_rtwk_core::screens::pager::HistoryState;
-use codex_tui_rtwk_core::threads::{Item, ThreadModel};
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::pager::HistoryState;
+use codex_tui_core::threads::{Item, ThreadModel};
 
 use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;

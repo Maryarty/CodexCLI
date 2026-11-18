@@ -8,7 +8,7 @@ use rtwk::provider::watch;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::ScreenStates;
+use codex_tui_core::screens::ScreenStates;
 
 use crate::screens::resume::strings;
 use crate::theme;

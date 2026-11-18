@@ -8,7 +8,7 @@ use codex_tui_rtwk::screens::chat::open;
 
 use crate::chat::{assert_chat_back, chat_with_history, shows};
 use crate::common::{Harness, ms, start};
-use codex_tui_rtwk_core::commands::Target;
+use codex_tui_core::commands::Target;
 
 fn chat() -> Harness {
     open::reset_last_opened();

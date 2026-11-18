@@ -3662,8 +3662,8 @@ dependencies = [
  "codex-core",
  "codex-feedback",
  "codex-protocol",
+ "codex-tui-core",
  "codex-tui-rtwk",
- "codex-tui-rtwk-core",
  "futures",
  "rtwk",
  "rtwk-tokio",
@@ -3891,12 +3891,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-tui-core"
+version = "0.0.0"
+dependencies = [
+ "codex-app-server-protocol",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codex-tui-rtwk"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
- "codex-tui-rtwk-core",
+ "codex-tui-core",
  "futures",
  "pretty_assertions",
  "rtwk",
@@ -3905,16 +3915,6 @@ dependencies = [
  "rtwk-tokio",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "codex-tui-rtwk-core"
-version = "0.0.0"
-dependencies = [
- "codex-app-server-protocol",
- "pretty_assertions",
- "serde",
- "serde_json",
 ]
 
 [[package]]

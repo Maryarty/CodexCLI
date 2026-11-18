@@ -5,8 +5,8 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::screens::pager::{HistoryState, StaticPage};
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::screens::pager::{HistoryState, StaticPage};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;

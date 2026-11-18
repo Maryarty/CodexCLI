@@ -7,7 +7,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
-use codex_tui_rtwk_core::commands::*;
+use codex_tui_core::commands::*;
 use pretty_assertions::assert_eq;
 
 // ---------------------------------------------------------------- oracle source
@@ -1167,7 +1167,7 @@ fn every_screen_opening_command_names_its_target() {
         Target::Backtrack,
     ] {
         assert!(
-            codex_tui_rtwk_core::screens::dirs()
+            codex_tui_core::screens::dirs()
                 .iter()
                 .any(|d| d.name == target.dir()),
             "{target:?}"

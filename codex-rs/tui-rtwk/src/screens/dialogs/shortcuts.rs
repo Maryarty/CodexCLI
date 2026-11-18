@@ -9,7 +9,7 @@ use rtwk::style::Span;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
-use codex_tui_rtwk_core::screens::dialogs::ShortcutView;
+use codex_tui_core::screens::dialogs::ShortcutView;
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::{Group, Strings};

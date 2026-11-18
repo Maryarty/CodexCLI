@@ -3,7 +3,7 @@
 //! the period control, the report's body and the key hints. The overview is
 //! the oracle's summary: the profile block, the five numbers, the activity
 //! heat map and the insights, centred in the body. Its model, events and
-//! intents are core's `codex_tui_rtwk_core::screens::usage`.
+//! intents are core's `codex_tui_core::screens::usage`.
 //! Oracle: `tui/src/analytics/` (`render.rs`, `summary.rs`, `chrome.rs`,
 //! `hints.rs`, `data.rs`, `chart.rs`).
 
@@ -17,10 +17,10 @@ use rtwk::{AnyWidget, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget
 use rtwk::{Cx, l10n::NumSyms};
 use rtwk_core::style::Attrs;
 
-use codex_tui_rtwk_core::screens::usage::{
+use codex_tui_core::screens::usage::{
     Failure, Intent as UsageIntent, Model, Overview, Panel, Report,
 };
-use codex_tui_rtwk_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;

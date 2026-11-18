@@ -9,8 +9,8 @@ use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::app::RequestQueue;
-use codex_tui_rtwk_core::ids::RequestKey;
+use codex_tui_core::app::RequestQueue;
+use codex_tui_core::ids::RequestKey;
 
 use crate::screens;
 

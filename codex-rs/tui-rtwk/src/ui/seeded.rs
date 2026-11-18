@@ -1,5 +1,5 @@
 //! A seeded screen for the debug menu: the core model a fixture script made
-//! (`codex_tui_rtwk_core::fixtures`), provided to one screen under the same
+//! (`codex_tui_core::fixtures`), provided to one screen under the same
 //! provider types the live view provides, so the screen under test is the
 //! real widget reading a real model, never data handed to it.
 //!
@@ -13,12 +13,12 @@ use rtwk::provider::{MultiProvider, Provider};
 use rtwk::{Cx, Rebuild, State, StatefulWidget, impl_widget};
 use std::rc::Rc;
 
-use codex_tui_rtwk_core::app::AppEv;
-use codex_tui_rtwk_core::app::CodexApp;
-use codex_tui_rtwk_core::app::Intent;
-use codex_tui_rtwk_core::fixtures::sandbox::Sandbox;
-use codex_tui_rtwk_core::ids::RequestKey;
-use codex_tui_rtwk_core::screens::ScreenIntent;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::CodexApp;
+use codex_tui_core::app::Intent;
+use codex_tui_core::fixtures::sandbox::Sandbox;
+use codex_tui_core::ids::RequestKey;
+use codex_tui_core::screens::ScreenIntent;
 
 use crate::ui::thread_ui::ThreadUiMap;
 use crate::ui::view::Hs;

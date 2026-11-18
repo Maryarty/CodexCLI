@@ -2,7 +2,7 @@
 //! `PageRoute` over the model's rows (`ScreenStates.resume`): the header, the
 //! filter/status/sort toolbar, the search line, the list of saved threads with
 //! their meta lines and the footer with progress and key hints. Its model,
-//! events and intents are core's `codex_tui_rtwk_core::screens::resume`.
+//! events and intents are core's `codex_tui_core::screens::resume`.
 //! Oracle: `tui/src/resume_picker.rs` and `resume_picker/layout.rs`; the pure
 //! geometry and packing are in `layout.rs`.
 
@@ -19,8 +19,8 @@ use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::style::Attrs;
 
-use codex_tui_rtwk_core::screens::resume::{Intent as ResumeIntent, Load, Model, Row};
-use codex_tui_rtwk_core::screens::{ScreenIntent, ScreenStates};
+use codex_tui_core::screens::resume::{Intent as ResumeIntent, Load, Model, Row};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;

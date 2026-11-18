@@ -13,7 +13,7 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
-use codex_tui_rtwk_core::commands::{Notice, SlashCommand, UsageKey};
+use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;

@@ -1,13 +1,13 @@
 //! `UiApp`, the model of the rtwk app: the core model plus the state only the
-//! UI has. `core` is `codex_tui_rtwk_core::app::CodexApp`, plain data with one
+//! UI has. `core` is `codex_tui_core::app::CodexApp`, plain data with one
 //! writer (`apply_app`) and no rtwk; `ui` holds what the widgets keep across
 //! view runs and `apply` never sees (R2, R14): the `Navigator`'s key, the
 //! per-thread controllers, the language, the debug flag. The shell's `Link`
 //! is the third part: the app's end of the effect runner.
 
-use codex_tui_rtwk_core::app::AppEv;
-use codex_tui_rtwk_core::app::CodexApp;
-use codex_tui_rtwk_core::app::Ingress;
+use codex_tui_core::app::AppEv;
+use codex_tui_core::app::CodexApp;
+use codex_tui_core::app::Ingress;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
 

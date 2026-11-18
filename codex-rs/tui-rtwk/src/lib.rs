@@ -1,5 +1,5 @@
 //! `codex-tui-rtwk`: the Codex terminal UI on rtwk, the UI crate. Its model is
-//! `UiApp { core, ui }` (`app`): the core model of `codex-tui-rtwk-core` (models,
+//! `UiApp { core, ui }` (`app`): the core model of `codex-tui-core` (models,
 //! `apply`, protocol mapping; no rtwk) plus UI-only state. The shell that runs
 //! effects and owns the backend (`shell`), the widgets outside the screens
 //! (`ui`), the screen directories (`screens`, view files only) and the

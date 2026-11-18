@@ -408,7 +408,7 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
   commit (`Cargo.toml` + `Cargo.lock`) named in the handover; the orchestrator
   resolves lockfile conflicts at landing.
 - **Layers** (architecture.md "Layers", task `skeleton-layers`): the core
-  crate `codex-tui-rtwk-core` has no rtwk dependency — models, `apply`,
+  crate `codex-tui-core` has no rtwk dependency — models, `apply`,
   tickets, protocol mapping, command parsing; the UI crate's model is
   `UiApp { core, ui }`, UI-only state (navigator key, controllers, language,
   debug) in `ui`; screen dirs hold view files only (widgets, `strings.rs`,

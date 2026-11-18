@@ -13,9 +13,9 @@ use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_rtwk_core::screens::ScreenIntent;
-use codex_tui_rtwk_core::screens::ScreenStates;
-use codex_tui_rtwk_core::screens::select::{Access, Intent, Menu};
+use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::select::{Access, Intent, Menu};
 
 use super::strings::{self, Strings};
 use crate::theme;

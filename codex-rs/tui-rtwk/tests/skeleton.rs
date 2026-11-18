@@ -3,14 +3,14 @@
 //! chat screen here is a placeholder, so its goldens are rtwk's own
 //! rendering (the parity pack records it as a delta against codex-tui).
 
-use codex_tui_rtwk::screens;
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
-use codex_tui_rtwk_core::app::{AppEv, Command};
-use codex_tui_rtwk_core::fixtures::builders::{
+use codex_tui_core::app::{AppEv, Command};
+use codex_tui_core::fixtures::builders::{
     agent_completed, agent_delta, server_request_resolved, tool_input_request, turn_completed,
 };
-use codex_tui_rtwk_core::ids::{ConnEpoch, ThreadId};
-use codex_tui_rtwk_core::screens::Kind;
+use codex_tui_core::ids::{ConnEpoch, ThreadId};
+use codex_tui_core::screens::Kind;
+use codex_tui_rtwk::screens;
+use codex_tui_rtwk::shell::fake::FAKE_THREAD;
 
 use crate::common::{
     assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,
