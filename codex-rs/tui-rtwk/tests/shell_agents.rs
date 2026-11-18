@@ -456,7 +456,13 @@ fn typed(app: &mut CodexApp, text: &str) -> Vec<Command> {
         let fx = run(
             app,
             AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
-                AgentsIntent::SetSearch(line.clone()),
+                AgentsIntent::SetSearch {
+                    text: line.clone(),
+                    lens: codex_tui_core::screens::agents::Lens {
+                        searching: true,
+                        ..Default::default()
+                    },
+                },
             ))),
         );
         sent.extend(screen_commands(fx));
@@ -465,12 +471,6 @@ fn typed(app: &mut CodexApp, text: &str) -> Vec<Command> {
 }
 
 fn searches(app: &mut CodexApp, text: &str) -> Vec<Command> {
-    run(
-        app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
-            AgentsIntent::BeginSearch,
-        ))),
-    );
     typed(app, text)
         .into_iter()
         .filter(|command| {

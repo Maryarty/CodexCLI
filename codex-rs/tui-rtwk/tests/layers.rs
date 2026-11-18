@@ -299,3 +299,59 @@ fn the_ui_model_is_the_core_model_plus_ui_state() {
         assert!(!core.contains(needle), "core/src/app.rs holds `{needle}`");
     }
 }
+
+/// UI-only state belongs to the view (widget state, controllers) or `UiApp.ui`
+/// (process.md §2, A4.4), never to a screen's model in core. A denylist of the
+/// names such state goes by; the query a search runs and the persisted
+/// grouping are domain and are not on it.
+#[test]
+fn core_screen_models_hold_no_ui_state_fields() {
+    const DENIED: &[&str] = &[
+        "help",
+        "cursor",
+        "selected",
+        "scroll",
+        "focus",
+        "confirm",
+        "searching",
+        "draft",
+    ];
+    let mut found = Vec::new();
+    for (name, text) in sources_of("core/src/screens") {
+        let mut in_model = false;
+        for (index, line) in text.lines().enumerate() {
+            let line = line.trim();
+            if line.starts_with("pub struct Model {") && !line.ends_with("{}") {
+                in_model = true;
+            } else if in_model && line == "}" {
+                in_model = false;
+            } else if in_model
+                && !line.starts_with("//")
+                && let Some(field) = line.strip_prefix("pub ").and_then(|l| l.split(':').next())
+                && DENIED.contains(&field)
+            {
+                found.push(format!("{name}:{}: {field}", index + 1));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "UI-only state in a core model: {found:#?}"
+    );
+}
+
+/// The view reads what core projects (`RowData`, `Usage` methods), never the
+/// protocol type behind it (VS1 review L2): a field access through a core
+/// re-export passes the `codex_app_server_protocol` scan.
+#[test]
+fn views_read_projections_not_core_held_protocol_values() {
+    let found = scan(
+        &sources_of("src/screens"),
+        &["row.thread", ".estimate", "RowData { thread"],
+        |_| false,
+    );
+    assert!(
+        found.is_empty(),
+        "a view reads a protocol value: {found:#?}"
+    );
+}

@@ -53,6 +53,7 @@ pub use carried::preview_markdown;
 pub use center::Center;
 pub use center::CenterRow;
 pub use center::GroupLabel;
+pub use center::Lens;
 pub use center::RowData;
 pub use center::display_directory;
 pub use details::DetailLine;
@@ -171,19 +172,6 @@ pub struct Failure {
     pub attempted: bool,
 }
 
-/// A confirmation waiting for the user (oracle: `confirm_agents_overview_action`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Confirm {
-    pub thread: String,
-    pub action: Action,
-}
-
-/// The rename editor (oracle: `rename_target` and the view's `input`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Rename {
-    pub target: String,
-}
-
 /// What the latest reasoning summary of a task said (oracle:
 /// `AgentsOverviewActivity`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -200,8 +188,34 @@ pub struct Activity {
 pub struct Usage {
     /// Input and output tokens.
     pub tokens: Option<(i64, i64)>,
+    /// Core's cache of the answer; views read the figures through the
+    /// methods below (a layers rule bans `.estimate` in view sources).
     pub estimate: Option<ThreadUsage>,
     pub fetched_at: Option<i64>,
+}
+
+impl Usage {
+    /// The estimate's credits, in micros; `None` before it was fetched.
+    pub fn credits_micros(&self) -> Option<i64> {
+        self.estimate
+            .as_ref()
+            .map(|estimate| estimate.estimated_usage_credits_micros)
+    }
+
+    /// The estimate in dollars, in micros.
+    pub fn usd_micros(&self) -> Option<i64> {
+        self.estimate.as_ref()?.estimated_usage_usd_micros
+    }
+
+    /// The native cost in dollars, in micros (a plan billed in dollars).
+    pub fn native_usd_micros(&self) -> Option<i64> {
+        self.estimate.as_ref()?.native_usage_usd_micros
+    }
+
+    /// Whether an estimate is known.
+    pub fn has_estimate(&self) -> bool {
+        self.estimate.is_some()
+    }
 }
 
 /// The keys the shell reads from the file system for one `cwd` (oracle:
@@ -325,7 +339,6 @@ pub struct Model {
     pub search_matches: Vec<Thread>,
     pub search_seq: u64,
     pub notice: Option<Notice>,
-    pub confirm: Option<Confirm>,
     /// A refused removal, until the user goes back (it holds the screen).
     pub failure: Option<Failure>,
     /// The thread that owns the voice session (oracle: `voice_owner_thread_id`).
@@ -333,12 +346,8 @@ pub struct Model {
     /// Tasks go without their own colour (`tui.status_line_use_colors` is
     /// off); the default, colours on, is `false` here.
     pub thread_colors_off: bool,
-    pub filter: usize,
     pub grouping: Grouping,
     pub search: String,
-    pub searching: bool,
-    pub rename: Option<Rename>,
-    pub help: bool,
 }
 
 impl Eq for Model {}
@@ -413,32 +422,29 @@ pub enum Intent {
     /// The screen opened: list the threads.
     Open,
     Refresh,
-    /// Tab (`back`: shift-tab).
-    CycleFilter {
-        back: bool,
-    },
-    SetFilter(usize),
     CycleGrouping,
     SetGrouping(Grouping),
-    ToggleHelp,
-    CloseHelp,
-    BeginSearch,
-    /// The search line's text changed.
-    SetSearch(String),
-    /// Esc / ctrl-c while editing: leave search or rename.
-    CancelEditing,
-    BeginRename(String),
+    /// The search line's text changed (the view owns whether it is open).
+    SetSearch {
+        text: String,
+        /// What the view shows: it decides which rows count as visible.
+        lens: Lens,
+    },
+    /// The search line closed: the query and what it found are dropped.
+    ClearSearch,
     /// Enter on the list's cursor row: open the task or the "Show more" row.
     Accept(Sel),
-    /// Right: as `Accept`, but not while a line is edited.
-    Right(Sel),
-    /// Enter in the rename line, with its text.
-    Commit(String),
+    /// Enter on the "Show more" row while a search is open: more matches.
+    MoreMatches(Lens),
+    /// The rename line was accepted: the task is named `name`.
+    Rename {
+        thread: String,
+        name: String,
+    },
     Stop(String),
+    /// Archive / delete the task (the view asked the user first).
     Archive(String),
     Delete(String),
-    /// The confirmation's answer.
-    Confirmed(bool),
     /// `Back to agents` on the failure dialog.
     DismissFailure,
     Hide(String),

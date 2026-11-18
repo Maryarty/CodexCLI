@@ -25,13 +25,42 @@ use rtwk::style::{Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign};
 use rtwk_core::style::Attrs;
 
-use codex_tui_core::screens::ScreenStates;
+use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::{
-    Action, Center, CenterRow, Confirm, DetailLine, Failure, Group, GroupLabel, Grouping, Model,
+    Action, Center, CenterRow, DetailLine, Failure, Group, GroupLabel, Grouping, Model,
     RowData, Sel, display_directory,
 };
 
 use super::layout;
+
+/// What the screen's own state decides the view shows (the model holds none
+/// of it): the status tab, the help, the editing line and the confirmation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ui {
+    pub filter: usize,
+    pub help: bool,
+    pub searching: bool,
+    /// A task's name is being edited.
+    pub renaming: bool,
+    pub confirming: bool,
+}
+
+/// The number of status tabs.
+pub const FILTERS: usize = 5;
+
+impl Ui {
+    pub fn editing(&self) -> bool {
+        self.searching || self.renaming
+    }
+}
+
+/// A removal waiting for the user's answer (oracle:
+/// `confirm_agents_overview_action`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Confirm {
+    pub thread: String,
+    pub action: Action,
+}
 use crate::theme::ThreadPalette;
 use super::strings::Strings;
 use super::usage;
@@ -221,11 +250,13 @@ fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
 
 /// The three header rows (oracle: `render`): title and grouping, the tab
 /// strip with the filter hint, the rule.
+#[allow(clippy::too_many_arguments)]
 pub fn header(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
     model: &Model,
+    ui: &Ui,
     center: &Center,
     width: usize,
     taps: &Taps,
@@ -248,7 +279,7 @@ pub fn header(
         .zip(center.tab_counts)
         .map(|(label, count)| strings.filter_count(label, count, num))
         .collect();
-    let editing = model.searching || model.rename.is_some();
+    let editing = ui.editing();
     let hint_text = format!("{} {}", strings.filter_keys, strings.filter_label);
     let hint_width = layout::columns(&hint_text);
     let show_hint = inner >= 80 && !editing;
@@ -257,7 +288,7 @@ pub fn header(
     } else {
         inner
     };
-    let strip = layout::strip(&labels, model.filter, tabs_width);
+    let strip = layout::strip(&labels, ui.filter, tabs_width);
     let mut tabs = Row::new();
     let mut used = 0;
     if strip.left {
@@ -269,7 +300,7 @@ pub fn header(
     for (offset, shown) in strip.widths.iter().enumerate() {
         let index = strip.start + offset;
         let text = layout::ellipsize(&format!(" {} ", labels[index]), *shown);
-        let style = if index == model.filter {
+        let style = if index == ui.filter {
             &look.tab
         } else {
             &look.dim
@@ -495,7 +526,7 @@ fn entry(
                     .child(cell(
                         9,
                         Text::rich_line(vec![span(
-                            age(strings, model.now, row.thread.updated_at),
+                            age(strings, model.now, row.updated_at),
                             &age_style,
                         )])
                         .text_align(TextAlign::Right),
@@ -517,14 +548,14 @@ fn entry(
 pub fn list(
     look: &Look,
     strings: &Strings,
-    screens: &Rc<ScreenStates>,
+    agents: &Shared<Model>,
     center: &Rc<Center>,
     width: usize,
     height: usize,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    let model = &screens.agents;
+    let model = &**agents;
     let inner = width.saturating_sub(1);
     if center.entries.is_empty() {
         let text = empty_text(strings, model, model.threads.is_empty());
@@ -540,9 +571,9 @@ pub fn list(
             .collect(),
     );
     let builder = {
-        let (look, screens, center, taps, keys) = (
+        let (look, agents, center, taps, keys) = (
             look.clone(),
-            screens.clone(),
+            agents.clone(),
             center.clone(),
             taps.clone(),
             keys.clone(),
@@ -551,13 +582,13 @@ pub fn list(
         let selection = controls.selection.clone();
         move |index: usize| -> AnyWidget {
             let paint = {
-                let (look, screens, center, taps) =
-                    (look.clone(), screens.clone(), center.clone(), taps.clone());
+                let (look, agents, center, taps) =
+                    (look.clone(), agents.clone(), center.clone(), taps.clone());
                 move |selected: bool| {
                     entry(
                         &look,
                         &strings,
-                        &screens.agents,
+                        &agents,
                         &center,
                         index,
                         width,
@@ -706,10 +737,7 @@ pub fn details(
         clip_pair(strings.model, row.model(), look, width),
         clip_pair(
             strings.reasoning,
-            row.thread
-                .reasoning_effort
-                .as_ref()
-                .map_or(strings.unknown, |e| e.as_str()),
+            row.reasoning_effort.as_deref().unwrap_or(strings.unknown),
             look,
             width,
         ),
@@ -718,7 +746,7 @@ pub fn details(
     ];
     let mut head: Vec<Line> = lines.split_off(0);
     head.extend(wrapped(
-        &row.thread.cwd.display().to_string(),
+        &row.cwd,
         &look.plain,
         width,
     ));
@@ -729,12 +757,7 @@ pub fn details(
             span(line.value.clone(), &look.plain),
         ]);
     }
-    if let Some(branch) = row
-        .thread
-        .git_info
-        .as_ref()
-        .and_then(|git| git.branch.as_ref())
-    {
+    if let Some(branch) = &row.branch {
         head.push(Vec::new());
         head.push(vec![span(strings.branch, &look.dim)]);
         head.extend(wrapped(branch, &look.plain, width));
@@ -746,7 +769,7 @@ pub fn details(
         row.details
             .latest_prompt
             .as_deref()
-            .unwrap_or(&row.thread.preview),
+            .unwrap_or(&row.preview),
     );
     let prompt_text = if prompt_text.is_empty() {
         strings.no_prompt.to_owned()
@@ -837,7 +860,7 @@ fn clip_pair(label: &str, value: &str, look: &Look, width: usize) -> Line {
 }
 
 /// The footer line: the hints, or the notice that replaces them.
-pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -> Line {
+pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return: bool) -> Line {
     use codex_tui_core::screens::agents::{Action, Notice};
     let notice = match &model.notice {
         Some(Notice::Reconnecting) => Some(strings.reconnecting.to_owned()),
@@ -853,18 +876,18 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
             (failed && !model.paging.loading).then(|| strings.load_failed.to_owned())
         }
     };
-    if let Some(text) = notice.filter(|_| !model.help) {
+    if let Some(text) = notice.filter(|_| !ui.help) {
         return vec![span(text, &look.dim)];
     }
-    let editing = model.searching || model.rename.is_some();
+    let editing = ui.editing();
     let mut items: Vec<(&str, &str)> = Vec::new();
-    if !model.help && !editing {
+    if !ui.help && !editing {
         items.push((strings.key_help, strings.help));
     }
-    if model.help || editing || can_return {
+    if ui.help || editing || can_return {
         items.push((strings.key_back, strings.back));
     }
-    if model.help {
+    if ui.help {
         return hint_line(look, &items);
     }
     if !editing {
@@ -872,7 +895,7 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, can_return: bool) -
     }
     items.push((
         strings.key_open,
-        if model.rename.is_some() {
+        if ui.renaming {
             strings.rename
         } else {
             strings.open
@@ -902,11 +925,11 @@ fn hint_line(look: &Look, items: &[(&str, &str)]) -> Line {
 pub fn editor(
     look: &Look,
     strings: &Strings,
-    model: &Model,
+    ui: &Ui,
     width: usize,
     controls: &Controls,
 ) -> AnyWidget {
-    let label = if model.rename.is_some() {
+    let label = if ui.renaming {
         strings.rename_label
     } else {
         strings.search_label
@@ -920,7 +943,7 @@ pub fn editor(
         .focus_node(controls.edit_focus.clone())
         .autofocus(true)
         .on_submitted(controls.submit.clone());
-    if model.rename.is_none() {
+    if !ui.renaming {
         field = field.on_changed(controls.search.clone());
     }
     BoxWidget::new()
@@ -948,34 +971,35 @@ pub fn body(
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
-    screens: &Rc<ScreenStates>,
+    agents: &Shared<Model>,
+    ui: &Ui,
     center: &Rc<Center>,
     areas: &layout::Areas,
     controls: &Controls,
     taps: &Taps,
 ) -> AnyWidget {
-    let model = &screens.agents;
-    let editing = model.searching || model.rename.is_some();
+    let model = &**agents;
+    let editing = ui.editing();
     let search_rows = usize::from(editing && areas.body_height > 0);
     let list_height = areas.body_height - search_rows;
     let mut pane = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start);
     if search_rows > 0 {
-        pane = pane.child(editor(look, strings, model, areas.list_width, controls));
+        pane = pane.child(editor(look, strings, ui, areas.list_width, controls));
     }
     // The list gives the focus to the editing line while one is open.
     let rows = list(
         look,
         strings,
-        screens,
+        agents,
         center,
         areas.list_width,
         list_height,
         controls,
         &taps.rows,
     );
-    pane = pane.child(ExcludeFocus::new(rows).excluding(editing || model.confirm.is_some()));
+    pane = pane.child(ExcludeFocus::new(rows).excluding(editing || ui.confirming));
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(pad(areas.list_x))
@@ -1023,6 +1047,7 @@ pub fn footer_row(
     look: &Look,
     strings: &Strings,
     model: &Model,
+    ui: &Ui,
     can_return: bool,
     width: usize,
 ) -> AnyWidget {
@@ -1031,7 +1056,7 @@ pub fn footer_row(
         .child(pad(2))
         .child(cell(
             inner as i32,
-            one(footer(look, strings, model, can_return)),
+            one(footer(look, strings, model, ui, can_return)),
         ))
         .into()
 }
@@ -1126,7 +1151,7 @@ fn confirm_name(strings: &Strings, center: &Center, confirm: &Confirm) -> String
         .iter()
         .find(|row| row.id() == confirm.thread.as_str());
     let name = row
-        .map(|row| row.thread.name.as_deref().unwrap_or(&row.thread.preview))
+        .map(|row| row.name.as_deref().unwrap_or(&row.preview))
         .unwrap_or_default();
     name.trim()
         .lines()

@@ -33,18 +33,18 @@ pub fn lines(strings: &Strings, num: &NumSyms, usage: &Usage, ent26: bool) -> Ve
             value: tokens,
         });
     }
-    if let Some(estimate) = &usage.estimate {
+    if usage.has_estimate() {
         let mut values = Vec::new();
-        if !ent26 && estimate.estimated_usage_credits_micros >= 0 {
+        if !ent26 && usage.credits_micros().is_some_and(|micros| micros >= 0) {
             values.push(strings.credits(
-                &format_credit_micros(estimate.estimated_usage_credits_micros),
+                &format_credit_micros(usage.credits_micros().unwrap_or_default()),
                 num,
             ));
         }
         let cost = if ent26 {
-            estimate.native_usage_usd_micros
+            usage.native_usd_micros()
         } else {
-            estimate.estimated_usage_usd_micros
+            usage.usd_micros()
         };
         if let Some(cost) = cost.and_then(format_estimated_usd_micros) {
             values.push(cost);

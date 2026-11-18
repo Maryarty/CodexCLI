@@ -21,7 +21,7 @@ tests drive widgets and `App`; ours drive `update` / `apply_answer` /
 | agent_center_tests::live_center_sorts_arrivals_and_status_transitions_by_update_time | same | yes (incl. the parent that waits on a descendant, was red) | | |
 | agent_center_tests::live_center_status_order_tracks_updates_while_filtered_and_pinned | same | yes | | |
 | agent_center_tests::live_center_rename_retains_target_when_status_leaves_filter | same | yes | | |
-| agent_center_tests::backspace_edits_search_and_rename_without_deleting_tasks | same | yes (core part: `SetSearch`/`Commit`; the text edit is the widget's) | | |
+| agent_center_tests::backspace_edits_search_and_rename_without_deleting_tasks | same | yes (core part: `SetSearch`/`Rename`; the text edit is the widget's) | | |
 | agent_center_tests::live_center_show_more_navigation_search_and_loading | same | yes (core part: show more, search, loading; keys are UI) | | |
 | agent_center_tests::live_center_columns, _pages_visible_rows_without_wrapping, _metadata_clips_at_grapheme_boundaries, _navigation_and_complete_hints, _fixed_shortcuts_yield_to_configured_actions, _hints_follow_configured_bindings, _search_row_appears_only_while_editing | | no | rendering and keys: UI side (`agents-live-ui`) | |
 | agent_center_tests::escape_returns_to_a_chat_that_is_still_starting, overview_clears_voice_badge_after_async_close | | no | App-level (chat session start, voice): chat/session slices, not the center's core (owner: chat-nav follow-up) | |
@@ -29,7 +29,7 @@ tests drive widgets and `App`; ours drive `update` / `apply_answer` /
 | agents_overview_tests::overview_model_grouping_shows_details_and_preserves_selection | same | yes | | |
 | agents_overview_tests::agents_overview_details_show_available_attention_without_expanding_rows | same | yes (core part: details data) | render: UI | |
 | agents_overview_tests::server_version_overview_notice_updates_and_clears | same | yes | | |
-| agents_overview_tests::overview_right_opens_current_or_highlighted_task | same | yes (was red: `Intent::Right` distinct from `Accept`) | | |
+| agents_overview_tests::overview_right_opens_current_or_highlighted_task | same | yes (the view sends `Accept` for Right unless a line is open) | | |
 | agents_overview_tests::overview_right_preserves_editors_and_offline_state | same | yes (was red) | | |
 | agents_overview_tests::overview_grouping_persists_across_config_reloads | same | yes (core part) | | |
 | agents_overview_tests::command_center_refresh_failure_is_inline_and_clears_on_success | same | yes | | |
@@ -85,10 +85,23 @@ code together (the red state was the predecessor's `0d4a8ca43`, `e5f072add`,
 
 ### Handover to the UI side
 
-- Intents: `Intent::Right` (open, unless editing), `Fork` (oracle key
-  `fork`), `NewWorktree` (`w`), `NeedUsage` (view asks for the selected
-  task's usage; the core answers with `Out`), `Select(Sel)`, `SetSearch`,
-  `Commit(text)`.
+- Intents (agents-core-rest, VS1 review L1/L2): the core model holds no UI-only
+  state. The help, the confirmation, the status tab, the search line being
+  open and the rename draft are the view's `ScreenState`; core's `Lens`
+  (tab, search open, rename target) is handed to `center_at` /
+  `selection_after_removal`, and to `SetSearch` / `MoreMatches`, which need the
+  visible count. `Archive`/`Delete` run the removal the view confirmed;
+  `Rename { thread, name }`, `ClearSearch`, `MoreMatches(Lens)`; `Right`,
+  `Confirmed`, `BeginSearch`, `BeginRename`, `CancelEditing`, `ToggleHelp`,
+  `CycleFilter`, `SetFilter`, `Commit` are gone. `Model::held()` is the gate
+  the view asks before it opens a confirmation. The rule
+  `core_screen_models_hold_no_ui_state_fields` (tests/layers.rs) holds it.
+  `RowData` projects `name`, `preview`, `cwd`, `updated_at`,
+  `reasoning_effort`, `branch`; `Usage` exposes `credits_micros`,
+  `usd_micros`, `native_usd_micros`, `has_estimate`; views never read `.thread`
+  or `.estimate`. Still in the list: `Fork` (oracle key `fork`), `NewWorktree`
+  (`w`), `NeedUsage` (view asks for the selected task's usage; the core answers
+  with `Out`), `SetSearch { text, lens }`.
 - `Notice::CreatingWorktree` (busy line), `Notice::LoadFailed`.
 - `Details.usage: Usage` (`tokens`, `estimate`, `fetched_at`,
   `token_counts()`); the cost formatters `thread_cost_micros`,

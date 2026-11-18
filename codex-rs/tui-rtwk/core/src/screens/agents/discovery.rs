@@ -6,11 +6,14 @@
 //! (`refill_count`, `apply_agents_overview_thread_refresh`),
 //! `agents_overview_view.rs` (`load_search_matches`).
 
+use std::collections::HashSet;
+
 use codex_app_server_protocol::Thread;
 
 use super::Command;
 use super::Ctx;
 use super::History;
+use super::Lens;
 use super::Model;
 use super::Notice;
 use super::PAGE_SIZE;
@@ -22,15 +25,21 @@ use super::refresh::out;
 
 /// The rows a page may add: not removed, not already shown or buffered.
 fn fresh(model: &Model, rows: Vec<Thread>) -> Vec<Thread> {
+    let known: HashSet<&str> = model
+        .threads
+        .iter()
+        .chain(&model.paging.buffer)
+        .map(|held| held.id.as_str())
+        .collect();
     let mut kept: Vec<Thread> = Vec::new();
     for thread in rows {
-        let known = model.threads.iter().any(|held| held.id == thread.id)
-            || model.paging.buffer.iter().any(|held| held.id == thread.id)
-            || kept.iter().any(|held| held.id == thread.id);
-        if !known && !model.removed.contains(&thread.id) {
+        if !known.contains(thread.id.as_str()) && !model.removed.contains(&thread.id) {
             kept.push(thread);
         }
     }
+    // A page that repeats an id keeps its first row only.
+    let mut seen = HashSet::new();
+    kept.retain(|thread| seen.insert(thread.id.clone()));
     kept
 }
 
@@ -149,7 +158,7 @@ fn fail(model: &mut Model) {
 
 /// The search text changed: a new history search starts, keeping how many
 /// matches were wanted (oracle: `restart_history_search`).
-pub(super) fn restart_history(model: &mut Model) -> Vec<Out> {
+pub(super) fn restart_history(model: &mut Model, lens: &Lens) -> Vec<Out> {
     let offline = matches!(
         model.notice,
         Some(Notice::Reconnecting | Notice::ReconnectFailed)
@@ -164,18 +173,18 @@ pub(super) fn restart_history(model: &mut Model) -> Vec<Out> {
             .map_or(PAGE_SIZE as usize, |held| held.target),
         ..History::default()
     });
-    load_matches(model, PAGE_SIZE as usize)
+    load_matches(model, PAGE_SIZE as usize, lens)
 }
 
 /// Asks for more matches: `additional` more than are visible (0: only up to
 /// the target) (oracle: `load_search_matches`).
-pub(super) fn load_matches(model: &mut Model, additional: usize) -> Vec<Out> {
+pub(super) fn load_matches(model: &mut Model, additional: usize, lens: &Lens) -> Vec<Out> {
     if model.history.is_none() {
         return Vec::new();
     }
     let visible = {
         let rows = model.rows();
-        model.visible_indices(&rows).len()
+        model.visible_indices(&rows, lens).len()
     };
     let Some(history) = model.history.as_mut() else {
         return Vec::new();
