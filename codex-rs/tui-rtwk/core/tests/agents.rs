@@ -76,6 +76,7 @@ fn list(sandbox: &mut Sandbox, threads: Vec<Thread>) {
         unread: Vec::new(),
         next_cursor: None,
         append: false,
+        pins: None,
     }))));
 }
 
@@ -423,6 +424,7 @@ fn command_center_refresh_failure_is_inline_and_clears_on_success() {
             unread: Vec::new(),
             next_cursor: None,
             append: false,
+            pins: None,
         })),
     );
     assert!(!m.paging.failed);
@@ -1148,6 +1150,7 @@ fn live_center_show_more_navigation_search_and_loading() {
         unread: Vec::new(),
         next_cursor: Some("cursor-2".into()),
         append: false,
+        pins: None,
     }))));
     assert!(model(&sandbox).paging.has_more);
     intent(&mut sandbox, AgentsIntent::Select(Sel::ShowMore));
@@ -1235,6 +1238,7 @@ fn live_center_show_more_navigation_search_and_loading() {
             unread: Vec::new(),
             next_cursor: Some("scan-2".into()),
             append: false,
+            pins: None,
         })),
     );
     assert_eq!(
@@ -1255,6 +1259,7 @@ fn live_center_show_more_navigation_search_and_loading() {
             unread: Vec::new(),
             next_cursor: Some("scan-3".into()),
             append: false,
+            pins: None,
         })),
     );
     assert!(done.is_empty());
@@ -1416,6 +1421,7 @@ fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
             unread: Vec::new(),
             next_cursor: None,
             append: false,
+            pins: None,
         })),
     );
     assert!(ids_of(&m).is_empty());
@@ -1554,6 +1560,7 @@ fn overview_cloud_discovery_uses_only_interactive_pages() {
             unread: Vec::new(),
             next_cursor: Some("next".into()),
             append: false,
+            pins: None,
         })),
     );
     assert!(m.paging.has_more);
@@ -1572,6 +1579,7 @@ fn overview_cloud_discovery_uses_only_interactive_pages() {
             unread: Vec::new(),
             next_cursor: None,
             append: true,
+            pins: None,
         })),
     );
     assert!(!m.paging.has_more);
@@ -1638,6 +1646,7 @@ fn overview_show_more_refills_archived_rows() {
             unread: Vec::new(),
             next_cursor: next.map(str::to_owned),
             append: false,
+            pins: None,
         }))
     };
     let mut m = Model::default();

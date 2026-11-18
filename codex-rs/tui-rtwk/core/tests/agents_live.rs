@@ -15,12 +15,13 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, apply_app};
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{
-    Command as AgentsCommand, DirKeys, Ev, Notice, Page, Reply, fanout,
+    Command as AgentsCommand, DirKeys, Ev, Notice, Page, Pins, Reply, fanout,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 const TIMESTAMP: i64 = 1_700_000_000;
+const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 
 fn thread(id: &str, recency: i64, cwd: &str) -> Thread {
     serde_json::from_value(json!({
@@ -81,7 +82,9 @@ fn list(cursor: Option<&str>) -> AgentsCommand {
 fn the_list_asks_both_sources() {
     let fanout = fanout(&list(None), false).expect("a list fans out");
     let requests = fanout.requests(next_id());
-    assert_eq!(requests.len(), 2);
+    // Two pages of the list, then the pins of both sources: the first page
+    // of the list reads them with it (`refresh` -> `list_pinned_threads`).
+    assert_eq!(requests.len(), 4);
     let first = request_json(&requests[0]);
     let second = request_json(&requests[1]);
     assert_eq!(first["method"], "thread/list");
@@ -95,6 +98,16 @@ fn the_list_asks_both_sources() {
         assert_eq!(request["params"]["sortKey"], "recency_at");
         assert_eq!(request["params"]["archived"], false);
     }
+    for (request, kinds) in [
+        (&requests[2], json!([])),
+        (&requests[3], json!(["exec", "appServer"])),
+    ] {
+        let request = request_json(request);
+        assert_eq!(request["params"]["sourceKinds"], kinds);
+        assert_eq!(request["params"]["sectionId"], PINNED_SECTION);
+        assert_eq!(request["params"]["sortKey"], "section_position");
+        assert_eq!(request["params"]["limit"], 100);
+    }
 }
 
 /// Cloud does not support the Exec / AppServer filter: it asks one source.
@@ -102,11 +115,87 @@ fn the_list_asks_both_sources() {
 fn cloud_asks_the_interactive_source_only() {
     let fanout = fanout(&list(None), true).expect("a list fans out");
     let requests = fanout.requests(next_id());
-    assert_eq!(requests.len(), 1);
+    // One page of the list; the pins ask both sources as the oracle does.
+    assert_eq!(requests.len(), 3);
     assert_eq!(
         request_json(&requests[0])["params"]["sourceKinds"],
         json!([])
     );
+}
+
+/// A later page of the list does not read the pins again.
+#[test]
+fn only_the_first_page_reads_the_pins() {
+    let fanout = fanout(&list(Some("next")), false).expect("a list fans out");
+    assert_eq!(fanout.requests(next_id()).len(), 2);
+    let search = AgentsCommand::Search {
+        cursor: None,
+        first: true,
+    };
+    let fanout = fanout_of(&search);
+    assert_eq!(fanout.requests(next_id()).len(), 2);
+}
+
+fn fanout_of(command: &AgentsCommand) -> codex_tui_core::screens::agents::Fanout {
+    fanout(command, false).expect("a page")
+}
+
+fn pin_result(
+    fanout: &codex_tui_core::screens::agents::Fanout,
+    pinned: [Result<Value, String>; 2],
+) -> Option<Pins> {
+    let [first, second] = pinned;
+    let results = vec![page_json(&[]), page_json(&[]), first, second];
+    match fanout.reply(results).expect("a reply") {
+        Reply::Listed(page) => page.pins,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn page_json(rows: &[(&str, i64)]) -> Result<Value, String> {
+    page(rows, None)
+}
+
+/// The pins keep the server's rank (source after source), and a pinned task
+/// that the recent page does not hold is a row of the center.
+#[test]
+fn the_pins_are_read_in_rank_order() {
+    let fanout = fanout_of(&list(None));
+    let pins = pin_result(
+        &fanout,
+        [page_json(&[("p2", 5), ("p1", 9)]), page_json(&[("p3", 1)])],
+    )
+    .expect("pins");
+    assert_eq!(
+        pins.ids,
+        Some(vec!["p2".to_owned(), "p1".to_owned(), "p3".to_owned()])
+    );
+    assert_eq!(pins.threads.len(), 3);
+}
+
+/// `Err(Server)` with a code of -32602..=-32600: the server has no pins
+/// (oracle: `list_pinned_threads` returns `Ok(None)`); any other failure
+/// leaves the pins as they were.
+#[test]
+fn a_server_without_pins_and_a_failed_read() {
+    let fanout = fanout_of(&list(None));
+    let refused = pin_result(
+        &fanout,
+        [
+            Err("thread/list failed: invalid params (code -32602)".to_owned()),
+            page_json(&[]),
+        ],
+    )
+    .expect("an answer");
+    assert_eq!(refused.ids, None);
+    let failed = pin_result(
+        &fanout,
+        [
+            Err("thread/list failed: boom (code -32000)".to_owned()),
+            page_json(&[]),
+        ],
+    );
+    assert_eq!(failed, None);
 }
 
 /// Commands that are not pages are not fanned out.
@@ -259,6 +348,7 @@ fn listed(rows: Vec<Thread>) -> Ev {
         unread: Vec::new(),
         next_cursor: None,
         append: false,
+        pins: None,
     })
 }
 

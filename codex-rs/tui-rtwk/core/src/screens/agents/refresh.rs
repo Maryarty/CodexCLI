@@ -74,6 +74,20 @@ fn merge_page(model: &mut Model, page: Page) {
     for id in page.unread {
         model.unread.insert(id);
     }
+    if let Some(pins) = page.pins {
+        // A pinned task need not be among the recent ones: it is a row too.
+        for thread in pins.threads {
+            if thread.ephemeral || model.removed.contains(&thread.id) {
+                continue;
+            }
+            let thread = normalize(thread);
+            match model.threads.iter_mut().find(|held| held.id == thread.id) {
+                Some(held) => *held = thread,
+                None => model.threads.push(thread),
+            }
+        }
+        model.pinned = pins.ids;
+    }
     let arrived: Vec<String> = model.threads.iter().map(|held| held.id.clone()).collect();
     model
         .search_matches

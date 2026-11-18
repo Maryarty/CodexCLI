@@ -72,6 +72,11 @@ fn kinds(request: &ClientRequest) -> Value {
     serde_json::to_value(request).unwrap()["params"]["sourceKinds"].clone()
 }
 
+/// A read of the pinned section (the first page of the list also makes it).
+fn is_pin_read(request: &ClientRequest) -> bool {
+    !serde_json::to_value(request).unwrap()["params"]["sectionId"].is_null()
+}
+
 fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
     let mut fx = AppFx::default();
     apply_app(app, ev, &mut fx);
@@ -131,16 +136,24 @@ fn a_list_page_merges_both_sources_into_the_center() {
     let asked = std::sync::Mutex::new(Vec::new());
     let reply = runtime().block_on(answer(command, LOCAL, Ids::default(), None, |request| {
         asked.lock().unwrap().push(kinds(&request));
-        let rows = if kinds(&request) == json!([]) {
+        let rows = if is_pin_read(&request) {
+            page(&[])
+        } else if kinds(&request) == json!([]) {
             page(&[("a1", 100, "/p"), ("a2", 60, "/p")])
         } else {
             page(&[("b1", 80, "/p")])
         };
         async move { Ok(rows) }
     }));
+    // The two sources of the list, then the pins of both.
     assert_eq!(
         *asked.lock().unwrap(),
-        [json!([]), json!(["exec", "appServer"])]
+        [
+            json!([]),
+            json!(["exec", "appServer"]),
+            json!([]),
+            json!(["exec", "appServer"])
+        ]
     );
     feed(&mut app, reply.expect("an RPC"));
     let ids: Vec<&str> = agents(&app)
@@ -162,9 +175,18 @@ fn cloud_lists_the_interactive_source_only() {
     };
     let reply = runtime().block_on(answer(command, facts, Ids::default(), None, |request| {
         asked.lock().unwrap().push(kinds(&request));
-        async move { Ok(page(&[("a1", 100, "/p")])) }
+        let rows = if is_pin_read(&request) {
+            page(&[])
+        } else {
+            page(&[("a1", 100, "/p")])
+        };
+        async move { Ok(rows) }
     }));
-    assert_eq!(*asked.lock().unwrap(), [json!([])]);
+    // The list asks one source; the pins ask both, as the oracle's do.
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [json!([]), json!([]), json!(["exec", "appServer"])]
+    );
     feed(&mut app, reply.unwrap());
     assert_eq!(agents(&app).threads.len(), 1);
 }
@@ -599,6 +621,7 @@ mod live {
 
 fn server(request: &Value) -> Option<Result<Value, String>> {
     match request["method"].as_str()? {
+        "thread/list" if !request["params"]["sectionId"].is_null() => Some(Ok(page(&[]))),
         "thread/list" => Some(Ok(if request["params"]["sourceKinds"] == json!([]) {
             page(&[("Interactive task", 100, "/w/one")])
         } else {
@@ -703,6 +726,37 @@ fn ctrl_c_closes_a_line_first_then_quits() {
     assert!(h.t.is_running(), "the first Ctrl+C only closed the line");
     h.t.press("ctrl+c");
     assert!(!h.t.is_running(), "the second one quits");
+}
+
+/// An empty filter keeps the keys: Tab moves to a filter without tasks and
+/// Shift+Tab comes back (pty scenario `agents`, checkpoint `filter-all`).
+#[test]
+fn shift_tab_leaves_a_filter_without_tasks() {
+    let mut h = live::start(server);
+    h.wait_for("the tasks", |s| s.contains("Interactive task"));
+    h.t.press("tab");
+    h.wait_for("an empty filter", |s| s.contains("No matching tasks"));
+    h.t.press("shift+tab");
+    h.wait_for("the tasks again", |s| s.contains("Interactive task"));
+}
+
+/// A server that lists pins (even none) offers `p Pin/unpin` in the help, and
+/// a pinned task outside the recent page is a row (oracle: `refresh` reads
+/// `list_pinned_threads`; pty scenario `agents`, checkpoint `help`).
+#[test]
+fn the_pins_of_the_server_reach_the_center_and_its_help() {
+    let mut h = live::start(|request| {
+        if request["method"] == "thread/list"
+            && !request["params"]["sectionId"].is_null()
+            && request["params"]["sourceKinds"] == json!([])
+        {
+            return Some(Ok(page(&[("Pinned old task", 1, "/w/one")])));
+        }
+        server(request)
+    });
+    h.wait_for("the pinned task", |s| s.contains("Pinned old task"));
+    h.t.press("?");
+    h.wait_for("the help", |s| s.contains("Pin/unpin"));
 }
 
 /// `w`: a worktree is made of the highlighted task's directory, a task is

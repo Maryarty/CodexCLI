@@ -95,6 +95,7 @@ fn a_click_on_the_selected_row_opens_it() {
                 unread: Vec::new(),
                 next_cursor: None,
                 append: false,
+                pins: None,
             }))),
         ),
     );

@@ -149,7 +149,7 @@ fn list_params(cursor: Option<String>) -> ThreadListParams {
 }
 
 /// `codex_state::PINNED_THREAD_SECTION_ID`, which core does not link.
-const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
+pub(super) const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 
 pub(super) fn decode_reply(
     command: &Command,
@@ -171,6 +171,7 @@ pub(super) fn decode_reply(
                 unread,
                 next_cursor: page.next_cursor,
                 append: false,
+                pins: None,
             }))
         }
         Command::Resume { .. } => {
@@ -239,6 +240,7 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
                 unread: seed.unread,
                 next_cursor: seed.next_cursor,
                 append: false,
+                pins: None,
             }))
         }
         "home" => serde_json::from_value(body).map(Ev::Home).map_err(text),

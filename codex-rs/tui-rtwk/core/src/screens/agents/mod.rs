@@ -386,6 +386,18 @@ pub struct Page {
     pub next_cursor: Option<String>,
     /// The page continues the list instead of replacing it.
     pub append: bool,
+    /// The pinned tasks, read with the first page of the list.
+    pub pins: Option<Pins>,
+}
+
+/// The pinned tasks as the server lists them (oracle: `list_pinned_threads`,
+/// whose `Ok(None)` is a server without pins).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pins {
+    /// Their ids in rank order; `None`: the server has no pins.
+    pub ids: Option<Vec<String>>,
+    /// The tasks themselves: a pinned task need not be among the recent ones.
+    pub threads: Vec<Thread>,
 }
 
 /// What the user asks for; a variant of the root `ScreenIntent`.

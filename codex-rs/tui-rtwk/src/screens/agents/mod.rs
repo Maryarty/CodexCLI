@@ -317,6 +317,9 @@ pub struct ScreenState {
     /// The failure dialog shows (it takes the focus).
     failing: bool,
     helping: bool,
+    /// Whether the list shows tasks: an empty list is a line of text, which
+    /// holds no focus, so the keys go to the screen's root.
+    listed: bool,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     listening: Option<Listening>,
     editing: Editing,
@@ -374,6 +377,7 @@ impl StatefulWidget for Screen {
             confirming: false,
             failing: false,
             helping: false,
+            listed: true,
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
             listening: None,
             editing: Editing::No,
@@ -526,6 +530,10 @@ impl State for ScreenState {
             self.failing = model.failure.is_some();
             self.refocus_after_frame(cx);
         }
+        if center.entries.is_empty() == self.listed {
+            self.listed = !self.listed;
+            self.refocus_after_frame(cx);
+        }
         if model.help != self.helping {
             self.helping = model.help;
             self.refocus_after_frame(cx);
@@ -661,6 +669,8 @@ impl State for ScreenState {
                     self.root_focus.request_focus();
                 } else if model.searching || model.rename.is_some() {
                     self.edit_focus.request_focus();
+                } else if center.entries.is_empty() {
+                    self.root_focus.request_focus();
                 } else {
                     self.list_focus.request_focus();
                 }
