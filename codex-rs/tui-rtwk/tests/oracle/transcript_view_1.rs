@@ -632,158 +632,460 @@ fn owned_details_keep_the_composer_cursor_and_screen() {
 // ORACLE app/owned_transcript_tests.rs:709 owned_transcript_keeps_text_out_of_the_pet_columns kind=ui owner=chat-live
 #[test]
 fn owned_transcript_keeps_text_out_of_the_pet_columns() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no ambient pet column: the kitty pet image support and its reserved columns are not built; the screen draws the long row, the blank columns right of the history wrap width are not checked (no kit call for the pet)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/long_row.jsonl"))
+        .open();
+    s.assert_contains(&"x".repeat(60));
 }
 
 // ORACLE app/owned_transcript_tests.rs:851 cancelling_owned_backtrack_returns_arrow_keys_to_the_composer kind=ui owner=chat-live
 #[test]
 fn cancelling_owned_backtrack_returns_arrow_keys_to_the_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no owned transcript overlay with a backtrack preview: Esc primes it, an ordinary key cancels the preview and the arrow keys reach the composer; the typed-key variant of the oracle loop is not ported (the paste variant is)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .open();
+    s.keys("ctrl+t esc");
+    s.paste("abc");
+    s.keys("left");
+    s.paste("X");
+    s.keys("right");
+    s.paste("Y");
+    s.assert_contains("abXcY");
 }
 
 // ORACLE app/owned_transcript_tests.rs:918 owned_search_and_selection_consume_input_before_composer_and_backtrack kind=ui owner=chat-live
 #[test]
 fn owned_search_and_selection_consume_input_before_composer_and_backtrack() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no Find (F3) on the owned transcript: the query footer 'Find: needle' and Enter accepting it are not built; the selection (ctrl+space, copy) and the Esc chain back to following, and the repeat-Enter and modified-Enter checks, have no kit call",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
+        .open();
+    s.type_text("composer draft");
+    s.keys("ctrl+t f3");
+    s.paste("needle");
+    s.assert_contains("Find: needle");
+    s.keys("enter");
+    s.assert_contains("composer draft");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1024 keyboard_select_mode_preserves_the_draft_and_absorbs_enter_repeat kind=ui owner=chat-live
 #[test]
 fn keyboard_select_mode_preserves_the_draft_and_absorbs_enter_repeat() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no keyboard select mode (ctrl+x then [) on the owned transcript, and no keymap override (find_transcript on v, pager find on Enter) through the kit (.keymap is pending); the select-mode status and the Enter repeat guard are not drawn",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.type_text("composer draft");
+    s.keys("ctrl+x [");
+    s.keys("v");
+    s.paste("ignored");
+    s.keys("esc");
+    s.keys("enter");
+    s.assert_contains("composer draft");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1156 inline_transcript_search_draws_and_escape_precedes_backtrack kind=ui owner=chat-live
 #[test]
 fn inline_transcript_search_draws_and_escape_precedes_backtrack() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no inline transcript overlay (ctrl+t) with the '/' search line on the chat screen: the 'enter accept' hint drawn after the query, Enter accepting it, and Esc ordering against backtrack priming are not built",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
+        .open();
+    s.keys("ctrl+t /");
+    s.paste("needle");
+    s.assert_contains("enter accept");
+    s.keys("enter");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1208 find_owns_editor_chords_without_changing_the_composer_draft kind=ui owner=chat-live
 #[test]
 fn find_owns_editor_chords_without_changing_the_composer_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no Find (F4) on the owned transcript with its query TextArea: editor chords on the query line (ctrl+x h, ctrl+f, delete), the 'h · Move Line Start' editor completion HUD and the query caret are not built; only the owned half of the oracle's loop is ported (the inline overlay half is not)",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .keymap(&[
+            ("global.find_transcript", "f4"),
+            ("global.open_external_editor", "ctrl+g e"),
+            ("editor.move_line_start", "ctrl+x h"),
+            ("pager.find", "f4"),
+        ])
+        .script(include_str!("fixtures/transcript_view_1/alpha.jsonl"))
+        .open();
+    s.type_text("draft remains intact");
+    s.keys("f4");
+    s.keys("ctrl+space shift+right");
+    s.paste("alpha beta");
+    s.assert_contains("enter accept");
+    s.keys("ctrl+g x");
+    s.keys("ctrl+x h ctrl+f delete");
+    s.assert_has_row("Find: apha betax");
+    s.assert_contains("draft remains intact");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1317 offline_find_closes_before_the_next_ctrl_c_quits kind=ui owner=chat-live
 #[test]
 fn offline_find_closes_before_the_next_ctrl_c_quits() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no offline state (reconnect pause) on the owned transcript with a Find query: the 'Find: needle' query row, the hidden '⌃c quit' hint, and ctrl+c closing Find before quitting are not built; the quit exit is not visible",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/needle.jsonl"))
+        .open();
+    s.type_text("offline draft");
+    s.keys("ctrl+t /");
+    s.paste("needle");
+    s.assert_has_row("Find: needle");
+    s.assert_absent("⌃c quit");
+    s.keys("ctrl+c");
+    s.assert_contains("offline draft");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1461 slash_picker_overlays_history_without_moving_the_transcript_or_composer kind=snap owner=chat-live snap=slash_picker_overlays_history
 #[test]
 fn slash_picker_overlays_history_without_moving_the_transcript_or_composer() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no slash picker over the owned transcript at 80x14 / 32x14 / 80x7 / 80x5: the menu drawn over the history rows, its filter on '/mo', Down and Esc, and the status line and footer hint seeds (set_status_line, set_footer_hint_override) are not built; the port is the 80x14 frame only",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 14)
+        .script(include_str!("fixtures/transcript_view_1/menu_rows.jsonl"))
+        .open();
+    s.wheel_up(40, 6, 3);
+    s.type_text("/m");
+    s.assert_snap("slash_picker_overlays_history");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1576 double_escape_browses_prompts_without_reverting_and_explains_editing kind=snap owner=chat-live snap=prompt_navigation
 #[test]
 fn double_escape_browses_prompts_without_reverting_and_explains_editing() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no Esc-Esc prompt browsing on the owned transcript at 80x16, no keymap override (open_transcript on ctrl+x h, editor move_left unbound, move_line_start on left h; .keymap is pending in the kit) and no editing explanation row; the prompt_navigation frame is the target",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 16)
+        .script(include_str!("fixtures/transcript_view_1/three.jsonl"))
+        .open();
+    s.keys("esc esc");
+    s.keys("ctrl+x h");
+    s.keys("ctrl+x h");
+    s.keys("left left right");
+    s.assert_snap("prompt_navigation");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1647 find_refreshes_live_details_before_searching_the_first_query kind=snap owner=chat-live snap=compact_overlay_finds_hidden_live_text
 #[test]
 fn find_refreshes_live_details_before_searching_the_first_query() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no live command in the chat (an in-progress command 'printf visible' whose output holds 'printf needle'): no seed in the fixture set, no collapse_turn_details setting, and no activity focus (F4, ctrl+x c) on the owned transcript; the compact overlay (ctrl+t) finding the hidden live text is the target of the snapshot compact_overlay_finds_hidden_live_text",
+    );
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.assert_absent("needle");
+    s.keys("f4");
+    s.keys("ctrl+x c");
+    s.keys("f3");
+    s.paste("needle");
+    s.assert_contains("enter accept");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1750 fullscreen_composer_mouse_copy_and_input_ownership kind=snap owner=chat-live snap=fullscreen_composer_right_click_copy
 #[test]
 fn fullscreen_composer_mouse_copy_and_input_ownership() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no right-click copy on the owned composer: the kit has no right-button call (Down/Up Right), so the copy gestures, the 'Copied 5 chars to host clipboard' row and the whole right_click_copy frame are not ported; the drag selection of the draft and its reverse video are ported",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.type_text("hello world");
+    let (x, y) = at(&s, "hello world");
+    s.drag(x, y, x + 5, y);
+    s.assert_style(x as usize, y as usize, "reversed");
+    s.assert_style(x as usize + 4, y as usize, "reversed");
+    s.assert_style(x as usize + 5, y as usize, "!reversed");
+    s.assert_contains("hello world");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1928 inline_confirmation_preserves_compact_viewport_without_replaying_history kind=ui owner=chat-live
 #[test]
 fn inline_confirmation_preserves_compact_viewport_without_replaying_history() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no replace-goal confirmation over the inline chat (show_replace_thread_goal_confirmation with the draft 'A replacement goal'): the confirmation, its Esc, the compact viewport height and the no-history-tail check are not built; only the draft row is ported",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.type_text("preserved draft");
+    s.assert_contains("preserved draft");
 }
 
 // ORACLE app/owned_transcript_tests.rs:1961 fullscreen_composer_scrolls_without_moving_caret_or_transcript kind=snap owner=chat-live snap=fullscreen_prompt_wheel
 #[test]
 fn fullscreen_composer_scrolls_without_moving_caret_or_transcript() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no fullscreen composer over a 40-row history at 60x24 that follows the caret: the external-editor edit (apply_external_edit to 'Edited') and the same-length caret restore have no kit call, and the multi-frame snapshot fullscreen_prompt_wheel is not compared; the wheel over the composer, the Left/Right caret and the paste at the caret are ported",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .script(include_str!("fixtures/transcript_view_1/history40.jsonl"))
+        .open();
+    let draft = (1..=35)
+        .map(|n| format!("Prompt {n:02} 界"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.paste(&draft);
+    let (x, y) = at(&s, "Prompt 35");
+    s.wheel_up(x, y, 3);
+    s.assert_absent("Prompt 35");
+    s.assert_contains("History 40");
+    s.keys("left");
+    s.assert_contains("Prompt 35");
+    s.keys("right");
+    s.paste(" pasted here");
+    s.assert_contains("pasted here");
 }
 
 // ORACLE app/owned_transcript_tests.rs:2055 composer_thumbnails_follow_draft_deletion_and_resize kind=snap owner=chat-live snap=composer_thumbnail_strip
 #[test]
 fn composer_thumbnails_follow_draft_deletion_and_resize() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no image attachment seed (attach_image of a portrait and a banner, Home/End/Delete over the draft) and no kitty image placements in the kit: the thumbnail strip at 20x24 and 60x24, the '+1' count and the '[Image #1][Image #2]' text fallback at insufficient height or without terminal support are not built; the 6-row strip snapshot composer_thumbnail_strip needs the placement row, so it is not compared yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(20, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.assert_contains("+1");
 }
 
 // ORACLE app/owned_transcript_tests.rs:2158 fullscreen_composer_remote_images_leave_an_editable_prompt_row kind=snap owner=chat-live snap=fullscreen_prompt_remote_images
 #[test]
 fn fullscreen_composer_remote_images_leave_an_editable_prompt_row() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no remote image seed (set_remote_image_urls of twelve urls) at 60x12: the '[Image #N]' rows in the composer and the Home/Up/Delete/Down editing across them are not built; the multi-frame snapshot fullscreen_prompt_remote_images is not compared",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.type_text("Edit this prompt");
+    s.assert_contains("Edit this prompt");
+    s.keys("home up");
+    s.assert_contains("[Image #12]");
+    s.keys("up");
+    s.assert_contains("[Image #11]");
+    s.keys("delete");
+    s.assert_contains("[Image #11]");
+    s.keys("down");
+    s.assert_contains("Edit this prompt");
 }
 
 // ORACLE app/owned_transcript_tests.rs:2212 footer_selection_defers_warning_clicks_and_preserves_the_draft kind=snap owner=chat-live snap=fullscreen_footer_selection
 #[test]
 fn footer_selection_defers_warning_clicks_and_preserves_the_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no warning history cell seed (a warning with a long URL and eight padding lines inserted into the history) and no selection on the warning badge; the owned test terminal size is taken as 80x24 (unchecked); the snapshot fullscreen_footer_selection and the warning viewer opened by a stationary click are not built",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.type_text("draft stays here");
+    s.assert_contains("draft stays here");
 }
 
 // ---- oracle: transcript_view/activity_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/activity_tests.rs:23 visible_updates_and_empty_tail_cells_do_not_report_activity kind=ui owner=chat-live
 #[test]
 fn visible_updates_and_empty_tail_cells_do_not_report_activity() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no unseen-activity footer on the chat screen: the scrolled-up transcript, the new visible output that raises it and the footer that disappears at the bottom are not built; the view test scrolls a 3-row viewport, which the kit does not size per area",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
+        .open();
+    s.wheel_up(40, 10, 3);
+    s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+    s.assert_contains("new output");
 }
 
 // ORACLE transcript_view/activity_tests.rs:40 unchanged_live_revisions_do_not_report_activity_but_hidden_text_does kind=ui owner=chat-live
 #[test]
 fn unchanged_live_revisions_do_not_report_activity_but_hidden_text_does() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the unseen_activity flag after sync_live_tail revisions 1, 2, 3, not a drawn cell; the footer it drives is not asserted by this test",
+    );
 }
 
 // ORACLE transcript_view/activity_tests.rs:65 escape_closes_selection_and_search_before_returning_to_latest kind=ui owner=chat-live
 #[test]
 fn escape_closes_selection_and_search_before_returning_to_latest() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no transcript selection (begin_selection with three clicks), no Find (begin_search) and no footer on the chat screen: the Esc chain (selection, then search, then return to latest) is not drivable by the kit's keys here; the footer absence after the last Esc is the visible part",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
+        .open();
+    s.wheel_up(40, 10, 1);
+    s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+    s.keys("esc esc esc");
+    s.assert_absent("new output ");
 }
 
 // ---- oracle: transcript_view/bookmark_tests.rs (3 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/bookmark_tests.rs:8 cancel_restores_both_positions_after_resize_and_pagination kind=ui owner=chat-live
 #[test]
 fn cancel_restores_both_positions_after_resize_and_pagination() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no browsing bookmark through the kit: jump_to_entry to the first prompt, a detailed toggle, a resize to 12x4, an older page inserted and restore_bookmark have no key path to the 30x3 view; the visible part is that the restored rows equal the rows before",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 3)
+        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .open();
+    s.keys("esc esc left left");
+    let before = s.shot();
+    s.keys("ctrl+t");
+    s.resize(12, 4);
+    s.keys("esc");
+    s.resize(30, 3);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE transcript_view/bookmark_tests.rs:38 following_origin_returns_to_new_output_in_original_presentation kind=ui owner=chat-live
 #[test]
 fn following_origin_returns_to_new_output_in_original_presentation() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no detailed origin with a follow-state restore on the chat screen: the bookmark taken while detailed and the restore that returns to following in the original (compact) presentation have no key path; the visible part is the 'new output' row after the restore",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 2)
+        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .open();
+    s.keys("ctrl+t");
+    s.keys("esc");
+    s.feed(include_str!("fixtures/transcript_view_1/new_output.jsonl"));
+    s.keys("esc");
+    s.assert_contains("new output");
 }
 
 // ORACLE transcript_view/bookmark_tests.rs:57 cancel_restores_a_group_replaced_during_browsing kind=ui owner=chat-live
 #[test]
 fn cancel_restores_a_group_replaced_during_browsing() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no browsing of a group that a turn replaces during the browse: the replacement of the group's rows (replacement group / replacement output) through the kit's feed and the cancel that restores the earlier rows are not built; the visible part is that the restored rows equal the rows before",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 2)
+        .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
+        .open();
+    s.keys("esc esc left");
+    let before = s.shot();
+    s.feed(include_str!("fixtures/transcript_view_1/follow_up.jsonl"));
+    s.keys("esc");
+    s.assert_same_rows(&before);
 }
 
 // ---- oracle: transcript_view/composer_gap_tests.rs (4 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE transcript_view/composer_gap_tests.rs:14 pending_copy_feedback_survives_expiry_and_selection_replacement kind=snap owner=chat-live snap=pending_copy_feedback_survives_expiry_and_selection_replacement
 #[test]
 fn pending_copy_feedback_survives_expiry_and_selection_replacement() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no copy feedback in the composer gap through the kit: a copy result (Pending, Busy, setup failed) needs the clipboard seam, and the gap row frames 'Pending after ten seconds' and 'Setup failed' are not drawn by the kit yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.drag(0, 0, 5, 0);
+    s.assert_contains("selected text");
 }
 
 // ORACLE transcript_view/composer_gap_tests.rs:85 copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery kind=snap owner=chat-live snap=copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery
 #[test]
 fn copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no copy feedback row through the kit for Pending, Busy, Confirmed, Unconfirmed and Err results at 80, 32 and 18 columns: the clipboard results are not seedable; the rows are the snapshot of the gap text, right-aligned with a blank last column",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.assert_contains("select this transcript");
 }
 
 // ORACLE transcript_view/composer_gap_tests.rs:118 feedback_releases_navigation_targets_and_expiry_restores_them kind=ui owner=chat-live
 #[test]
 fn feedback_releases_navigation_targets_and_expiry_restores_them() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no 'Back to bottom' gap row through the kit: scrolling up five lines of a 3-row view, a copy feedback that hides it until it expires, and jump_to_latest are not drivable here; the visible part is the 'Back to bottom' text",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(60, 24)
+        .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
+        .open();
+    s.wheel_up(40, 10, 2);
+    s.assert_contains("Back to bottom");
 }
 
 // ORACLE transcript_view/composer_gap_tests.rs:149 tip_links_follow_alignment_and_release_stale_targets kind=ui owner=chat-live
 #[test]
 fn tip_links_follow_alignment_and_release_stale_targets() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no tip line with a hyperlink (Tip: plus the link text 文档 to https://example.com/docs) in the composer gap, and no ctrl-click (the kit's click has no modifiers): the link cell, the link target and the stale-target release after a feedback expiry are not built",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(30, 4)
+        .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
+        .open();
+    s.assert_link("文档", "https://example.com/docs");
 }
