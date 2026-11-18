@@ -5,7 +5,7 @@
 use codex_tui_rtwk::Cli;
 
 fn parse(args: &[&str]) -> anyhow::Result<Cli> {
-    Cli::parse(args.iter().map(|arg| arg.to_string()))
+    Cli::parse(args.iter().map(ToString::to_string))
 }
 
 #[test]
