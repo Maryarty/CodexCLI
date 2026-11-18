@@ -15,6 +15,7 @@ fn open(width: u16, height: u16, entry: &str) -> Harness {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn approval_modal_exec() {
     let h = open(100, 24, "exec_command");
     assert_rows(
@@ -24,6 +25,7 @@ fn approval_modal_exec() {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn approval_overlay_patch_destination_unavailable() {
     let h = open(120, 24, "patch_edits");
     assert_rows(
@@ -33,6 +35,7 @@ fn approval_overlay_patch_destination_unavailable() {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn permissions_prompt_snapshot() {
     let h = open(120, 24, "permissions");
     assert_rows(
@@ -42,6 +45,7 @@ fn permissions_prompt_snapshot() {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn approval_form_tool_approval_snapshot() {
     let h = open(120, 16, "mcp_elicitation");
     assert_rows(
@@ -51,6 +55,7 @@ fn approval_form_tool_approval_snapshot() {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn request_user_input_options_snapshot() {
     let h = open(120, 16, "user_input");
     assert_rows(

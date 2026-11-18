@@ -38,7 +38,20 @@ pub struct Strings {
     pub value_unavailable: &'static str,
     /// A row of a search result: its group, then its description.
     pub search_description: Msg<2>,
+    /// The marker of the row with the cursor, and the blank under it.
+    pub cursor_marker: &'static str,
+    pub indent: &'static str,
+    pub more_above: &'static str,
+    pub more_below: &'static str,
+    pub no_matches: &'static str,
+    pub ellipsis: &'static str,
+    /// `Search \u{203a} <typed text>`: the part before the text.
+    pub config_search_line: &'static str,
     pub config_hint_open: &'static str,
+    pub config_hint_test: &'static str,
+    pub config_hint_plain: &'static str,
+    pub config_search_hint_test: &'static str,
+    pub config_search_hint_plain: &'static str,
     pub config_hint_toggle: &'static str,
     pub config_search_hint_open: &'static str,
     pub config_search_hint_toggle: &'static str,
@@ -56,10 +69,19 @@ pub struct Strings {
     pub use_theme_colors: &'static str,
     pub use_theme_colors_description: &'static str,
     pub status_hint: &'static str,
+    pub check_on: &'static str,
+    pub check_off: &'static str,
+    pub section_break: &'static str,
     // keymap_setup/picker.rs
     pub keymap_search_placeholder: &'static str,
     pub keymap_hint: &'static str,
     pub keymap_empty: &'static str,
+    pub keymap_title: &'static str,
+    pub keymap_actions_one: &'static str,
+    pub keymap_actions_many: Msg<1>,
+    /// The marker before an unbound action, and before a bound one.
+    pub keymap_unbound: &'static str,
+    pub keymap_bound: &'static str,
     /// bottom_pane/list_selection_view.rs: the marker of the current row.
     pub current_marker: &'static str,
 }
@@ -86,6 +108,17 @@ pub const EN: Strings = Strings {
     value_test: "Send in 5s",
     value_unavailable: "Unavailable",
     search_description: msg!("{0} \u{b7} {1}"),
+    cursor_marker: "\u{203a} ",
+    indent: "  ",
+    more_above: "\u{2191}",
+    more_below: "\u{2193}",
+    no_matches: "no matches",
+    ellipsis: "\u{2026}",
+    config_search_line: "Search \u{203a} ",
+    config_hint_test: "left/right group \u{b7} / search \u{b7} enter test \u{b7} esc clear search/close",
+    config_hint_plain: "left/right group \u{b7} / search \u{b7} esc clear search/close",
+    config_search_hint_test: "enter test \u{b7} esc clear search",
+    config_search_hint_plain: "esc clear search",
     config_hint_open: "left/right group \u{b7} / search \u{b7} enter open \u{b7} esc clear search/close",
     config_hint_toggle: "left/right group \u{b7} / search \u{b7} enter toggle \u{b7} esc clear search/close",
     config_search_hint_open: "enter open \u{b7} esc clear search",
@@ -104,10 +137,18 @@ pub const EN: Strings = Strings {
     status_search_placeholder: "Type to search",
     use_theme_colors: "Use theme colors",
     use_theme_colors_description: "Apply colors from the active /theme",
+    check_on: "[x] ",
+    check_off: "[ ] ",
+    section_break: "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
     status_hint: "space toggle \u{b7} \u{2190}/\u{2192} reorder \u{b7} enter save \u{b7} esc cancel",
     keymap_search_placeholder: "Type to search shortcuts",
     keymap_hint: "left/right group \u{b7} enter edit shortcut \u{b7} * custom \u{b7} - unbound \u{b7} esc close",
     keymap_empty: "No shortcuts in this group",
+    keymap_title: "Keymap",
+    keymap_actions_one: "1 action.",
+    keymap_actions_many: msg!("{0} actions."),
+    keymap_unbound: "-",
+    keymap_bound: " ",
     current_marker: " (current)",
 };
 
@@ -128,6 +169,15 @@ impl Strings {
     /// "Automatic ›".
     pub fn choice<'a>(&'a self, label: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.value_choice, [Arg::Text(label)], &self.num)
+    }
+
+    /// "12 actions.".
+    pub fn actions_many(&self, count: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.keymap_actions_many,
+            [Arg::Int(count as u64)],
+            &self.num,
+        )
     }
 
     /// "Notifications · Notify only while ...".

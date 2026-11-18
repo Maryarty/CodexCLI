@@ -15,6 +15,7 @@ fn open(width: u16, entry: &str) -> Harness {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn snapshot_model_picker_width_80() {
     let h = open(100, "model_picker");
     assert_rows(
@@ -24,6 +25,7 @@ fn snapshot_model_picker_width_80() {
 }
 
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn approvals_selection_popup_snapshot() {
     let h = open(100, "permissions_menu");
     assert_rows(

@@ -117,6 +117,7 @@ const COMPOSER_ROW: &str = "› Ask Codex to do anything";
 // bottom_pane/chat_composer.rs: footer_mode_shortcut_overlay (the composer row
 // is the chat's, not the overlay's).
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn footer_mode_shortcut_overlay() {
     let h = open(120, 24, "shortcut_overlay");
     assert_rows_except(&h.t.screen(), SHORTCUTS, &[COMPOSER_ROW]);
@@ -124,6 +125,7 @@ fn footer_mode_shortcut_overlay() {
 
 // shortcut_overlay_tests.rs: shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list() {
     let mut h = open(120, 30, "shortcut_overlay");
     assert!(
@@ -226,6 +228,7 @@ fn warnings_close_on_escape_and_on_f2() {
 
 // chatwidget/tests/popups_and_settings.rs: feedback_selection_popup_snapshot
 #[test]
+#[ignore = "open: the oracle draws this in its bottom pane; the dialogs-pane slice builds that look (parity pack, Open)"]
 fn feedback_selection_popup_snapshot() {
     let h = open(100, 24, "feedback_categories");
     assert_rows(

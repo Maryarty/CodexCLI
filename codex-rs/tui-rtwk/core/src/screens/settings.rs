@@ -262,6 +262,13 @@ pub struct ActionItem {
     pub search: String,
 }
 
+impl ActionItem {
+    /// No shortcut is bound to the action.
+    pub fn is_unbound(&self) -> bool {
+        self.binding == "unbound"
+    }
+}
+
 /// A tab of the keymap picker.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct KeymapTab {
@@ -278,13 +285,32 @@ pub struct KeymapTab {
 pub struct KeymapPicker {
     pub tabs: Vec<KeymapTab>,
     pub tab: usize,
+    /// The highlighted row, an index into `visible()`.
     pub cursor: usize,
+    pub query: String,
 }
 
 impl KeymapPicker {
     /// The actions of the tab shown.
     pub fn items(&self) -> &[ActionItem] {
         &self.tabs[self.tab].items
+    }
+
+    /// The rows shown, as indices into `items()`: those whose search text
+    /// holds every word typed (the oracle ranks by fuzzy match; here a
+    /// plain match in the catalogue's order).
+    pub fn visible(&self) -> Vec<usize> {
+        let query = self.query.trim().to_lowercase();
+        let words: Vec<&str> = query.split_whitespace().collect();
+        self.items()
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                let hay = item.search.to_lowercase();
+                words.iter().all(|word| hay.contains(word))
+            })
+            .map(|(index, _)| index)
+            .collect()
     }
 }
 
@@ -401,7 +427,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             setup.cursor = wrap(setup.cursor, delta, setup.visible().len());
         }
         (Open::Keymap(picker), Intent::Move(delta)) => {
-            picker.cursor = wrap(picker.cursor, delta, picker.items().len());
+            picker.cursor = wrap(picker.cursor, delta, picker.visible().len());
         }
         (Open::Config(panel), Intent::Search(query)) => {
             panel.query = query;
@@ -410,6 +436,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         (Open::StatusLine(setup), Intent::Search(query)) => {
             setup.query = query;
             setup.cursor = 0;
+        }
+        (Open::Keymap(picker), Intent::Search(query)) => {
+            picker.query = query;
+            picker.cursor = 0;
         }
         (Open::Config(panel), Intent::Activate) => {
             let Some(row) = panel
@@ -456,7 +486,8 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.open = None;
         }
         (Open::Keymap(picker), Intent::Activate) => {
-            if let Some(item) = picker.items().get(picker.cursor) {
+            let at = picker.visible().get(picker.cursor).copied();
+            if let Some(item) = at.and_then(|index| picker.items().get(index)) {
                 model.edits.push(Edit::KeymapPicked(item.name.clone()));
             }
         }
@@ -501,7 +532,14 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.edits.push(Edit::StatusLineCancelled);
             model.open = None;
         }
-        (Open::Keymap(_), Intent::Close) => model.open = None,
+        (Open::Keymap(picker), Intent::Close) => {
+            if picker.query.is_empty() {
+                model.open = None;
+            } else {
+                picker.query.clear();
+                picker.cursor = 0;
+            }
+        }
         _ => {}
     }
 }
@@ -669,6 +707,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 tabs,
                 tab: 0,
                 cursor: 0,
+                query: String::new(),
             })
         }
     }))

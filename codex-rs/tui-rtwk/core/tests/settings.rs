@@ -367,6 +367,34 @@ fn the_keymap_picker_switches_tabs_and_picks_an_action() {
 }
 
 #[test]
+fn typing_filters_the_keymap_picker_and_esc_clears_it() {
+    let mut sandbox = Sandbox::play(KEYMAP).expect("plays");
+    send(&mut sandbox, SettingsIntent::Search("transcript".into()));
+    let picker = match &sandbox.app().screens.settings.open {
+        Some(Open::Keymap(picker)) => picker.clone(),
+        other => panic!("keymap picker expected, got {other:?}"),
+    };
+    let names: Vec<&str> = picker
+        .visible()
+        .into_iter()
+        .map(|index| picker.items()[index].name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["Open Transcript", "Find Transcript", "Focus Activity"]
+    );
+    send(&mut sandbox, SettingsIntent::Activate);
+    assert_eq!(
+        sandbox.app().screens.settings.edits,
+        vec![Edit::KeymapPicked("Open Transcript".into())]
+    );
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(sandbox.app().screens.settings.open.is_some());
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(sandbox.app().screens.settings.open.is_none());
+}
+
+#[test]
 fn bad_seeds_are_refused() {
     assert!(Sandbox::play(r#"{"step":"screen","dir":"settings","ev":{"kind":"nope"}}"#).is_err());
 }
