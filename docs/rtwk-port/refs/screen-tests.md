@@ -24,6 +24,8 @@ You port the oracle's tests (`codex-rs/tui`, tag in `docs/rtwk-port/ORACLE_REF`)
 ## Keys, mouse, time
 `s.keys("down ctrl+c shift+tab alt+b A")`, `type_text`, `paste`, `key_repeat("k")` (a held key), `click(x,y)`, `double_click`, `click_text("label")`, `wheel_down(x,y,n)`, `drag(x,y,x2,y2)` (or `mouse_down/mouse_drag/mouse_up`), `resize(w,h)`, `wait(ms)`, `wait_for("text")`. x is the column, y the row, from 0.
 
+**Settled, not slept.** A kit screen runs on a runtime of its own that only the test thread drives (`tests/common::start_driven`): the fake backend, the ingress stream and the runtime's timers (paused, moved with the fake clock) make progress when `open`, `feed`, a key, a paste, a click, `resize`, `wait` or `wait_for` run them, and each of those returns only when the app and the backend are quiet (`Harness::quiesce`: a round changes neither the screen nor what the backend was asked). `open` returns with the session started and the script's events applied. So a test asserts at once after the call: never add a sleep, a `wait` or a `wait_for("ready")` to make a result show up; a result that is not there after the call is not coming (a gap, not a race). The oracle profile gives identical per-test results run after run, also on a loaded machine.
+
 ## Compare (expected values come only from the oracle)
 | The oracle has | You write |
 |---|---|

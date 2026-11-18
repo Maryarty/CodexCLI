@@ -33,7 +33,7 @@ pub use verdict::{Owner, missing, na, pending, todo};
 
 use rtwk_core::input::{Mods, MouseKind};
 
-use crate::common::{Harness, ms};
+use crate::common::Harness;
 
 fn to_u16(n: usize) -> u16 {
     u16::try_from(n).unwrap_or(u16::MAX)
@@ -85,14 +85,14 @@ impl Screen {
     /// Types text as a keyboard does (each char a key press).
     pub fn type_text(&mut self, text: &str) -> &mut Screen {
         self.h.t.type_text(text);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
     /// Pastes text as a terminal with bracketed paste does.
     pub fn paste(&mut self, text: &str) -> &mut Screen {
         self.h.t.paste(text);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
@@ -100,14 +100,14 @@ impl Screen {
 
     pub fn click(&mut self, x: u16, y: u16) -> &mut Screen {
         self.h.t.click(x, y);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
     pub fn double_click(&mut self, x: u16, y: u16) -> &mut Screen {
         self.h.t.click(x, y);
         self.h.t.click(x, y);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
@@ -152,7 +152,7 @@ impl Screen {
 
     fn mouse_at(&mut self, kind: MouseKind, x: u16, y: u16) -> &mut Screen {
         self.h.t.mouse(kind, x, y, 0, Mods::NONE);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
@@ -162,7 +162,7 @@ impl Screen {
     pub fn key_repeat(&mut self, key: &str) -> &mut Screen {
         let bytes = repeat_bytes(key);
         self.h.t.input(bytes.as_bytes());
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
@@ -170,7 +170,7 @@ impl Screen {
         for _ in 0..notches {
             self.h.t.mouse(kind, x, y, 0, Mods::NONE);
         }
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
@@ -189,13 +189,13 @@ impl Screen {
 
     pub fn resize(&mut self, width: u16, height: u16) -> &mut Screen {
         self.h.t.resize(width, height);
-        self.h.t.pump_for(ms(100));
+        self.h.advance(100);
         self
     }
 
     /// Lets `millis` pass (frames run on the fake clock).
     pub fn wait(&mut self, millis: u64) -> &mut Screen {
-        self.h.t.pump_for(ms(millis));
+        self.h.advance(millis);
         self
     }
 
