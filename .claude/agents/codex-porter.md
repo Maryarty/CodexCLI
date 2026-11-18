@@ -23,9 +23,10 @@ names your tm task. tm signs you by itself: pass no actor on tm calls.
 2. Read `docs/rtwk-port/process.md` Part 1 §2–§4 once (the concept map,
    the eight steps of translating a screen, the worked example) and work by
    its steps; read `docs/rtwk-port/architecture.md` only at the sections your
-   task names. Find rtwk API in the generated references (`docs/rtwk-port/refs/`,
-   one `grep` first) before opening rtwk source; open rtwk source in ranges,
-   only for what the references do not answer.
+   task names. Read `.claude/skills/rtwk/SKILL.md` once at the start, then the
+   one `.claude/skills/rtwk/references/` file that matches the widget (`grep`
+   `references/widgets.md` or `guides/widgets-by-need.md` first); open rtwk
+   source in ranges, only for what they do not answer.
 3. A finished slice shows the manner (the brief names it): copy it, renamed
    for yours, its parity pack included.
 4. A fix round: the review's findings are the task's last review round

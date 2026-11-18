@@ -72,8 +72,9 @@ not load tm skills.
 - Quiet output: nextest `--status-level fail --final-status-level fail
   --hide-progress-bar`, cargo `-q`, long output through `grep | head`.
 - Read files in ranges, once; never print a whole snapshot, CSV or log.
-  rtwk API: the generated references in `docs/rtwk-port/refs/` before rtwk
-  source.
+  rtwk API: read `.claude/skills/rtwk/SKILL.md` once at the start, then the one
+  `.claude/skills/rtwk/references/` file that matches the widget; rtwk source
+  only for what they do not answer.
 - Cargo through `~/.cache/rtwk/acargo`; no call longer than ~4 min
   (`~/.cache/rtwk/bgrun.sh`).
 - Around 100 turns or ~250k of context with work left: `task_checkpoint`
