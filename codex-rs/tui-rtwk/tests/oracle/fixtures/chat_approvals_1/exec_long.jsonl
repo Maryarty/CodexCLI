@@ -1,0 +1,4 @@
+# A 200-character command with no reason (exec_approval_decision_truncates_multiline_and_long_commands, the long half).
+# Oracle data: chatwidget/tests/approval_requests.rs:488: command bash -lc 'echo aaaa...' (200 a), reason None, approval id call-long
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-long","approvalId":"call-long","environmentId":null,"command":"bash -lc 'echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'","cwd":"/tmp","reason":null,"proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-long","startedAtMs":0}}}

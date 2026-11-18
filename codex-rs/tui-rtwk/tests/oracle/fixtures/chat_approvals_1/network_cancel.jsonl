@@ -1,0 +1,4 @@
+# A network access approval over SOCKS5 that is canceled (network_exec_approval_history_describes_canceled_host_request).
+# Oracle data: chatwidget/tests/approval_requests.rs:294: host example.com, socks5Tcp, command network-access socks5-tcp://example.com:1080, decisions Accept and Cancel
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"item-1","approvalId":"approval-1","environmentId":null,"command":"network-access socks5-tcp://example.com:1080","cwd":null,"reason":null,"networkApprovalContext":{"host":"example.com","protocol":"socks5Tcp"},"availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

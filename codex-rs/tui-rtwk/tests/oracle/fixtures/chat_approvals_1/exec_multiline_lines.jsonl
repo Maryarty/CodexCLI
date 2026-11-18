@@ -1,0 +1,4 @@
+# A multi-line command with a reason and no proposed prefix (exec_approval_decision_truncates_multiline_and_long_commands).
+# Oracle data: chatwidget/tests/approval_requests.rs:433: command bash -lc 'echo line1\necho line2', reason set, approval id call-multi
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-multi","approvalId":"call-multi","environmentId":null,"command":"bash -lc 'echo line1\necho line2'","cwd":"/tmp","reason":"this is a test reason such as one that would be produced by the model","proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-multi","startedAtMs":0}}}
