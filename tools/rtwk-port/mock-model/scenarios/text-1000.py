@@ -8,4 +8,6 @@ SCENARIO = Scenario(
     description="6000 one-word text deltas at 1000 events/s (nominal; sleep(0.001) gives about 600-900/s)",
     turns=[Turn("Stream 1000 events per second.", [text_response("t1000", deltas, pace=0.001)])],
     sentinel="END-text-1000",
+    helpers='same as text-100, 6000 deltas',
+    suite='perf stream, no suite twin',
 )

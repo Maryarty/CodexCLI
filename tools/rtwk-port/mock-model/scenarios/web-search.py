@@ -18,4 +18,6 @@ SCENARIO = Scenario(
     description="web_search_call in progress, completed with a query, then a streamed answer",
     turns=[Turn("Search the web for rtwk.", [Resp(events, 0.15)])],
     sentinel="END-web-search",
+    helpers='ev_web_search_call_added_partial, ev_web_search_call_done (responses.rs:975,986)',
+    suite='scenarios_web_search.rs:481',
 )

@@ -28,7 +28,17 @@ def write_home(sc: scenarios.Scenario, mock_url: str, root: Path) -> tuple[Path,
     workdir.mkdir(parents=True, exist_ok=True)
     real_work = os.path.realpath(workdir)  # trust key: macOS /var is /private/var
     for rel, content in sc.seed_files.items():
-        (workdir / rel).write_text(content)
+        target = workdir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content)
+    mcp_server = str(Path(__file__).resolve().parent / "mcp_server.py")
+
+    def fill(text: str) -> str:
+        return text.replace("{python}", sys.executable).replace("{mcp_server}", mcp_server)
+
     (codex_home / "config.toml").write_text(
         f"""model = "gpt-6-sol"
 model_provider = "mock_provider"
@@ -36,6 +46,7 @@ approval_policy = "{sc.approval_policy}"
 sandbox_mode = "{sc.sandbox_mode}"
 suppress_unstable_features_warning = true
 check_for_update_on_startup = false
+{fill(sc.config_top)}
 
 [analytics]
 enabled = false
@@ -54,6 +65,8 @@ stream_max_retries = {sc.stream_max_retries}
 
 [projects."{real_work}"]
 trust_level = "trusted"
+
+{fill(sc.config_tables)}
 """
     )
     (codex_home / "auth.json").write_text(

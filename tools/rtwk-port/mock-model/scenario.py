@@ -7,7 +7,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import harness
 
@@ -17,13 +17,29 @@ SCENARIO_DIR = Path(__file__).resolve().parent / "scenarios"
 
 @dataclass(frozen=True)
 class Resp:
-    """One SSE response: the events and the pause after each event, in seconds."""
+    """One SSE response: the events and the pause after each event, in seconds.
+
+    The rest is for shapes the plain queue cannot say:
+    - `status`, `headers`, `raw`: an HTTP answer other than 200 + SSE (a 429 with a
+      JSON body), or SSE with extra headers (the rate-limit headers);
+    - `pick`: serve this response to the first request for which `pick(request_json, body_text)`
+      is true, instead of in queue order (core's `mount_sse_once_match`; for a spawned
+      agent, whose request races the parent's)."""
 
     events: list[Json]
     pace: float = 0.0
+    status: int = 200
+    headers: tuple[tuple[str, str], ...] = ()
+    raw: str | None = None
+    pick: Callable[[Json, str], bool] | None = None
+    child: bool = False  # a spawned agent's answer: the router serves it by marker, not as a step
 
     def body(self) -> str:
-        return harness.sse(self.events)
+        return self.raw if self.raw is not None else harness.sse(self.events)
+
+    @property
+    def matched(self) -> bool:
+        return self.pick is not None
 
 
 @dataclass(frozen=True)
@@ -34,6 +50,7 @@ class Turn:
     prompt: str
     responses: list[Resp]
     outcome: str = "completed"  # "completed" or "failed" (a fatal error ends the turn)
+    esc_after: float | None = None  # pty runs press Esc this many seconds after Enter (an interrupted turn)
 
 
 @dataclass(frozen=True)
@@ -46,8 +63,18 @@ class Scenario:
     sandbox_mode: str = "read-only"
     stream_max_retries: int = 0
     approvals: int = 0  # approval prompts a TUI run shows (try.sh tells the person)
-    seed_files: dict[str, str] = field(default_factory=dict)  # files of the workdir
+    seed_files: dict[str, str | bytes] = field(default_factory=dict)  # files of the workdir
     notes: str = ""
+    # config.toml additions: top-level keys (before the first table) and tables. `{python}`
+    # and `{mcp_server}` are replaced by this tool's interpreter and mcp_server.py.
+    config_top: str = ""
+    config_tables: str = ""
+    allow_unsupported: bool = False  # the expected tool output is an 'unsupported ...' error
+    pty_only: bool = False  # needs keys or slash commands: `codex exec` cannot run it
+    router: bool = False  # served by router.py (the user's message picks the response)
+    # What it mirrors, for the coverage table: Rust helpers and core suite tests.
+    helpers: str = ""
+    suite: str = ""
 
     @property
     def responses(self) -> list[Resp]:

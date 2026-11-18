@@ -3,7 +3,8 @@
     python3 -I serve.py <scenario> [--url-file FILE] [--list] [--prompts]
 
 Prints `MOCK_URL=http://127.0.0.1:PORT` and serves until stopped, one queued
-response per model request, in the scenario's order. Requests are logged to
+response per model request, in the scenario's order (the scenario `router` instead
+picks each response from the user's message, see router.py). Requests are logged to
 stderr (method, path, kind). A model request beyond the queue gets HTTP 500.
 """
 
@@ -32,16 +33,32 @@ def main() -> int:
     if args.list or not args.scenario:
         for name in scenarios.names():
             sc = scenarios.load(name)
-            print(f"{name:16} {len(sc.turns)} turn(s), {len(sc.responses):3} response(s)  {sc.description}")
+            print(f"{name:20} {len(sc.turns):2} turn(s), {len(sc.responses):3} response(s)  {sc.description}")
         return 0
     sc = scenarios.load(args.scenario)
     if args.prompts:
+        if sc.router:
+            import router
+
+            print("any order, any number of times; the first word that is a keyword picks the response:")
+            for name, words, what in router.ROUTES:
+                print(f"  {', '.join(words):28} {what}")
+            for word, what in router.SPECIAL.items():
+                print(f"  {word:28} {what}")
+            print("  anything else                a short answer listing the keywords")
+            return 0
         for i, turn in enumerate(sc.turns, 1):
-            print(f"{i}. {turn.prompt}")
+            note = "   (press Esc after a few seconds)" if turn.esc_after else ""
+            print(f"{i}. {turn.prompt}{note}")
         return 0
     with ScenarioServer() as server:
         server.loop = args.loop
-        server.load(sc)
+        if sc.router:
+            from router import Router
+
+            server.use_router(Router())
+        else:
+            server.load(sc)
         print(f"MOCK_URL={server.url}", flush=True)
         if args.url_file:
             Path(args.url_file).write_text(server.url)

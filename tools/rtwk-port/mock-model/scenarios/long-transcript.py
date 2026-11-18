@@ -22,4 +22,6 @@ SCENARIO = Scenario(
     sentinel="END-long-transcript",
     approval_policy="never",
     sandbox_mode="read-only",
+    helpers='ev_assistant_message, ev_exec_command_call x40',
+    suite='unified_exec.rs:1822 unified_exec_emits_one_begin_and_one_end_event (many commands); no suite twin for 40 rounds',
 )

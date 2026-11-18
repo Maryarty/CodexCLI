@@ -41,4 +41,6 @@ SCENARIO = Scenario(
     description="markdown answer (heading, lists, code block, table, quote) streamed 16 chars per delta at 200/s",
     turns=[Turn("Show me some markdown.", [text_response("md", chunks(TEXT, 16), pace=0.005)])],
     sentinel="END-markdown",
+    helpers='ev_output_text_delta, ev_assistant_message',
+    suite='items.rs (agent message items); markdown content has no suite twin',
 )

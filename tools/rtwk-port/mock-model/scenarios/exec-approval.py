@@ -25,4 +25,6 @@ SCENARIO = Scenario(
     sandbox_mode="read-only",
     approvals=1,
     notes="Approve or deny: the second response is served either way.",
+    helpers='ev_exec_command_call_with_args (responses.rs:1103) + approvals.rs:361 exec_command_event',
+    suite='approvals.rs (exec_command_event with require_escalated)',
 )
