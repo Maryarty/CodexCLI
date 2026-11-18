@@ -17,4 +17,6 @@ SCENARIO = Scenario(
     turns=[Turn("Answer after one failure.", [FAIL, text_response("er2", ["Second try worked. ", "END-error-retry"], pace=0.02)])],
     sentinel="END-error-retry",
     stream_max_retries=2,
+    helpers='ev_failed / sse_failed (responses.rs:1120)',
+    suite='codex-api/src/sse/responses.rs:1151 (retryable server_error), client.rs retry tests',
 )

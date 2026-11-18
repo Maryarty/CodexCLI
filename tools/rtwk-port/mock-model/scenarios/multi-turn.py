@@ -19,4 +19,6 @@ SCENARIO = Scenario(
         Turn("Thanks, summarize.", [text_response("mt3", chunks("Summary: a greeting and a function. END-multi-turn", 8), pace=0.01)]),
     ],
     sentinel="END-multi-turn",
+    helpers='ev_assistant_message',
+    suite='no suite twin (several turns of one thread)',
 )

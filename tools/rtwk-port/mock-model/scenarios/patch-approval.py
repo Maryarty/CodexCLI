@@ -35,4 +35,6 @@ SCENARIO = Scenario(
     approvals=1,
     seed_files={"notes.txt": NOTES},
     notes="notes.txt is seeded in the workdir so the Update hunk has a file to change.",
+    helpers='ev_apply_patch_custom_tool_call (responses.rs:1091)',
+    suite='approvals.rs:310 build_add_file_patch, apply_patch_cli.rs',
 )

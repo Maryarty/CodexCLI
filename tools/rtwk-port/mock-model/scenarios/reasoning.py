@@ -24,4 +24,6 @@ SCENARIO = Scenario(
     description="reasoning summary deltas, the reasoning item, then a streamed answer",
     turns=[Turn("Think about it, then answer.", [Resp(events, 0.02)])],
     sentinel="END-reasoning",
+    helpers='ev_reasoning_item_added, ev_reasoning_summary_text_delta, ev_reasoning_item (responses.rs:911,943,959)',
+    suite='compact.rs:1897 (a reasoning item), items.rs:1172 (summary deltas)',
 )

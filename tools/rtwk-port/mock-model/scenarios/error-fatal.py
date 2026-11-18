@@ -18,4 +18,6 @@ SCENARIO = Scenario(
     ],
     sentinel="END-error-fatal",
     notes="The first turn ends in an error line; check.py expects the turn to fail.",
+    helpers='sse_failed with code insufficient_quota (responses.rs:1120)',
+    suite='quota_exceeded.rs',
 )

@@ -6,6 +6,8 @@
 #   RTWK_BIN / ORACLE_BIN   binary override (else bins.py looks for a built one)
 #   KEEP=1                  keep the temp dir
 #   ./try.sh --list         list the scenarios
+#   ./try.sh router rtwk    one session; the word you type picks the response type
+#                           (exec, patch, plan, image, web, mcp, reasoning, ..., all)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY=(python3 -I)
@@ -35,7 +37,7 @@ URL="$(cat "$URLFILE")"
 { read -r CODEX_HOME_DIR; read -r WORKDIR; } < <("${PY[@]}" "$HERE/home.py" "$SCENARIO" "$URL" "$ROOT")
 
 echo "mock: $URL   scenario: $SCENARIO   binary: $BIN" >&2
-echo "type, in order:" >&2
+if [[ "$SCENARIO" == router ]]; then echo "type:" >&2; else echo "type, in order:" >&2; fi
 "${PY[@]}" "$HERE/serve.py" "$SCENARIO" --prompts >&2
 echo "(Ctrl+C to quit; mock requests are logged in $ROOT/serve.err)" >&2
 cd "$WORKDIR"
