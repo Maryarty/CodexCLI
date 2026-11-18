@@ -86,3 +86,38 @@ pub fn format_estimated_usd_micros(micros: i64) -> Option<String> {
     let cents = micros.saturating_add(5_000) / 10_000;
     Some(format!("~${}.{:02}", cents / 100, cents % 100))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screens::agents::strings::EN;
+
+    /// `incomplete_billing_groups_do_not_display_partial_token_totals`
+    /// (oracle: `agents_overview_usage_tests.rs:302`).
+    #[test]
+    fn incomplete_billing_groups_do_not_display_partial_token_totals() {
+        let estimate = serde_json::from_value(serde_json::json!({
+            "threadId": "thread", "estimatedUsageCreditsMicros": 0, "estimatedUsageUsdMicros": null,
+            "groups": [
+                {"estimatedUsageCreditsMicros": 0, "inputTokens": 100, "outputTokens": 10},
+                {"estimatedUsageCreditsMicros": 0, "inputTokens": null, "outputTokens": 20}
+            ]
+        }))
+        .unwrap();
+        let usage = Usage { estimate: Some(estimate), ..Usage::default() };
+        let text: Vec<String> = lines(&EN, &NumSyms::ENGLISH, &usage, false)
+            .into_iter()
+            .map(|line| format!("{}{}", line.label, line.value))
+            .collect();
+        assert_eq!(text, vec!["Tokens: 30 out", "Est. usage: 0 credits"]);
+    }
+
+    #[test]
+    fn credits_and_dollars_read_as_the_oracle_writes_them() {
+        assert_eq!(format_credit_micros(1_500_000_000), "1.5K");
+        assert_eq!(format_credit_micros(12_000_000), "12");
+        assert_eq!(format_estimated_usd_micros(50), Some("~$0.000050".into()));
+        assert_eq!(format_estimated_usd_micros(1_234_500), Some("~$1.23".into()));
+        assert_eq!(format_estimated_usd_micros(-1), None);
+    }
+}
