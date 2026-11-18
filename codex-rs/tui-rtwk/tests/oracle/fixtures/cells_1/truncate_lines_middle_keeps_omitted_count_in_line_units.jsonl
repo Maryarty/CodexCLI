@@ -1,0 +1,4 @@
+# oracle exec_cell/render.rs:1005: the omitted hint counts hidden lines, not wrapped rows.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "commandExecution", "id": "call-id", "command": "bash -lc seq 12", "cwd": "/workspace", "processId": null, "source": "agent", "status": "completed", "commandActions": [], "aggregatedOutput": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12", "exitCode": 0, "durationMs": null}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

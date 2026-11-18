@@ -1,0 +1,4 @@
+# oracle exec_cell/render.rs:1227.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "commandExecution", "id": "call-id", "command": "bash -lc echo http://example.com/long-url-with-dashes-wider-than-terminal-window/blah-blah-blah-text/more-gibberish-text", "cwd": "/workspace", "processId": null, "source": "userShell", "status": "completed", "commandActions": [], "aggregatedOutput": null, "exitCode": 0, "durationMs": null}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

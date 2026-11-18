@@ -4,252 +4,689 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit;
+use crate::kit::{self, Owner, Screen};
+
+const EXEC_CELL: &str = "no exec cell in S11: the cells slot is an empty form and the transcript draws a command as plain text (no branch, gutter, wrap or stderr preview of the ran cell)";
+const USER_CELL: &str = "no user-message cell in S11: the transcript draws the message as plain text (no gutter, wrap, [Image #n] labels or trimmed trailing blanks of the user cell)";
+const AGENT_CELL: &str = "no agent-markdown cell in S11: the transcript draws the agent message as plain text (no bullet prefix, markdown wrap or list indent of the agent cell)";
+const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript does not split the summary header from its body, drop the HTML-comment parts or show the transcript-only variant (Ctrl+T)";
+const PLAN_CELL: &str = "no plan-update cell in S11: turn/plan/updated is not projected into a history cell (no note, checkbox steps or wrap of the plan cell)";
+const NOTICE_CELL: &str = "no deprecation-notice cell in S11: deprecationNotice is not projected into a transcript cell with a warning mark and details";
+const WARNING_CELL: &str = "no warning cell in S11: the warning notifications are not projected into transcript cells, and the startup/MCP warning cells do not exist";
 
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:2205 multiline_command_without_wrap_uses_branch_then_eight_spaces kind=snap owner=chat-live snap=multiline_command_without_wrap_uses_branch_then_eight_spaces
 #[test]
 fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, EXEC_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/multiline_command_without_wrap_uses_branch_then_eight_spaces.jsonl"
+        ))
+        .open();
+    s.assert_snap_region(
+        "multiline_command_without_wrap_uses_branch_then_eight_spaces",
+        0,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2228 multiline_command_both_lines_wrap_with_correct_prefixes kind=snap owner=chat-live snap=multiline_command_both_lines_wrap_with_correct_prefixes
 #[test]
 fn multiline_command_both_lines_wrap_with_correct_prefixes() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, EXEC_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(28, 24)
+        .script(include_str!(
+            "fixtures/cells_5/multiline_command_both_lines_wrap_with_correct_prefixes.jsonl"
+        ))
+        .open();
+    s.assert_snap_region(
+        "multiline_command_both_lines_wrap_with_correct_prefixes",
+        0,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2252 stderr_tail_more_than_five_lines_snapshot kind=snap owner=chat-live snap=stderr_tail_more_than_five_lines_snapshot
 #[test]
 fn stderr_tail_more_than_five_lines_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, EXEC_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/stderr_tail_more_than_five_lines_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_snap_region("stderr_tail_more_than_five_lines_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:2294 ran_cell_multiline_with_stderr_snapshot kind=snap owner=chat-live snap=ran_cell_multiline_with_stderr_snapshot
 #[test]
 fn ran_cell_multiline_with_stderr_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, EXEC_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(28, 24)
+        .script(include_str!(
+            "fixtures/cells_5/ran_cell_multiline_with_stderr_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_snap_region("ran_cell_multiline_with_stderr_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:2339 user_history_cell_wraps_and_prefixes_each_line_snapshot kind=snap owner=chat-live snap=user_history_cell_wraps_and_prefixes_each_line_snapshot
 #[test]
 fn user_history_cell_wraps_and_prefixes_each_line_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(12, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_wraps_and_prefixes_each_line_snapshot.jsonl"
+        ))
+        .open();
+    // The oracle's raw_lines assertion (`["_count_rows"]`) is the transcript's raw mode: not reachable here.
+    s.assert_snap_region(
+        "user_history_cell_wraps_and_prefixes_each_line_snapshot",
+        0,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2359 user_history_cell_wraps_long_urls_inside_the_message_gutter kind=snap owner=chat-live snap=user_history_cell_wraps_long_urls_inside_the_message_gutter
 #[test]
 fn user_history_cell_wraps_long_urls_inside_the_message_gutter() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(64, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_wraps_long_urls_inside_the_message_gutter.jsonl"
+        ))
+        .open();
+    // The first wrapped fragment of the URL keeps the complete destination (OSC 8).
+    s.assert_link(
+        "https://example.test/forwarded/threads/10930?page=1",
+        "https://example.test/forwarded/threads/10930?page=1&search=&filter=all&queue=customer_support_unprocessed&sort=latest_desc&forwardedScope=all",
+    );
+    s.assert_snap_region(
+        "user_history_cell_wraps_long_urls_inside_the_message_gutter",
+        0,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2415 user_history_cell_renders_remote_image_urls kind=snap owner=chat-live snap=user_history_cell_renders_remote_image_urls
 #[test]
 fn user_history_cell_renders_remote_image_urls() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_renders_remote_image_urls.jsonl"
+        ))
+        .open();
+    s.assert_contains("[Image #1]");
+    s.assert_contains("describe these");
+    s.assert_snap_region("user_history_cell_renders_remote_image_urls", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:2432 user_image_labels_follow_the_painted_prompt_surface kind=snap owner=chat-live snap=user_image_labels_follow_the_painted_prompt_surface
 #[test]
 fn user_image_labels_follow_the_painted_prompt_surface() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no user-message cell in S11, and no seed for the terminal default colours (the oracle paints the cell on three fg/bg palettes); the kit cannot set them",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(32, 5)
+        .script(include_str!(
+            "fixtures/cells_5/user_image_labels_follow_the_painted_prompt_surface.jsonl"
+        ))
+        .open();
+    // First palette only (fg (30, 30, 30), bg (255, 255, 255)); the other two need the palette seed.
+    // The snapshot labels each buffer on the line above `Buffer {`; the kit frames it that way.
+    s.assert_snap_section(
+        "user_image_labels_follow_the_painted_prompt_surface",
+        "(255, 255, 255)",
+    );
 }
 
 // ORACLE history_cell/tests.rs:2472 user_history_cell_summarizes_inline_data_urls kind=snap owner=chat-live snap=portable_image_raw_output
 #[test]
 fn user_history_cell_summarizes_inline_data_urls() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_summarizes_inline_data_urls.jsonl"
+        ))
+        .open();
+    s.assert_contains("[Image #1]");
+    s.assert_contains("describe inline image");
+    // The oracle's second half snapshots raw_lines() of the cell with a `[Image #1]` placeholder
+    // (portable_image_raw_output): the transcript's raw mode, not reachable by a key here yet.
 }
 
 // ORACLE history_cell/tests.rs:2498 user_history_cell_numbers_multiple_remote_images kind=snap owner=chat-live snap=user_history_cell_numbers_multiple_remote_images
 #[test]
 fn user_history_cell_numbers_multiple_remote_images() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_numbers_multiple_remote_images.jsonl"
+        ))
+        .open();
+    s.assert_contains("[Image #1]");
+    s.assert_contains("[Image #2]");
+    s.assert_snap_region("user_history_cell_numbers_multiple_remote_images", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:2518 user_history_cell_height_matches_rendered_lines_with_remote_images kind=ui owner=chat-live
 #[test]
 fn user_history_cell_height_matches_rendered_lines_with_remote_images() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts desired_height() equals the length of display_lines() and transcript_lines() equals display_lines(): returned values and method equalities, never drawn as such (the rows the cell draws are checked by the snapshot tests)",
+    );
 }
 
 // ORACLE history_cell/tests.rs:2541 user_history_cell_trims_trailing_blank_message_lines kind=ui owner=chat-live
 #[test]
 fn user_history_cell_trims_trailing_blank_message_lines() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no user-message cell in S11. The body's visible half (the text) already shows in the plain transcript (probe: stale); the oracle's claim, exactly one trailing blank row after the text, is not expressible with the kit yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_trims_trailing_blank_message_lines.jsonl"
+        ))
+        .open();
+    s.assert_contains("line one");
+    // Missed: the oracle counts the trailing blank rows of the cell (exactly 1); the kit has no
+    // "count the blank rows after this text" call.
 }
 
 // ORACLE history_cell/tests.rs:2561 user_history_cell_trims_trailing_blank_message_lines_with_text_elements kind=ui owner=chat-live
 #[test]
 fn user_history_cell_trims_trailing_blank_message_lines_with_text_elements() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no user-message cell in S11. The body's visible half (the text) already shows in the plain transcript (probe: stale); the oracle's claim, exactly one trailing blank row after the text, is not expressible with the kit yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/user_history_cell_trims_trailing_blank_message_lines_with_text_elements.jsonl"
+        ))
+        .open();
+    s.assert_contains("tokenized");
+    // Missed: the trailing blank-row count (exactly 1), as in the test above.
 }
 
 // ORACLE history_cell/tests.rs:2585 render_uses_wrapping_for_long_url_like_line kind=ui owner=chat-live
 #[test]
 fn render_uses_wrapping_for_long_url_like_line() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(52, 24)
+        .script(include_str!(
+            "fixtures/cells_5/render_uses_wrapping_for_long_url_like_line.jsonl"
+        ))
+        .open();
+    s.assert_contains("https://example.test/api/v1/projects/alpha-team");
+    // Missed: the oracle rebuilds the wrapped rows into the whole URL and counts more than three
+    // visible rows; the kit has no call that joins wrapped rows.
 }
 
 // ORACLE history_cell/tests.rs:2647 plan_update_with_note_and_wrapping_snapshot kind=snap owner=chat-live snap=plan_update_with_note_and_wrapping_snapshot
 #[test]
 fn plan_update_with_note_and_wrapping_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, PLAN_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(32, 24)
+        .script(include_str!(
+            "fixtures/cells_5/plan_update_with_note_and_wrapping_snapshot.jsonl"
+        ))
+        .open();
+    // The snapshot joins a `Compact` rendering and a `Full` one under bare labels; the kit frames
+    // only dashed headers, `N columns:`, `width=` and labels above `Buffer {`. Kit gap: a bare-label frame.
+    s.assert_snap_section("plan_update_with_note_and_wrapping_snapshot", "Full");
 }
 
 // ORACLE history_cell/tests.rs:2684 plan_update_without_note_snapshot kind=snap owner=chat-live snap=plan_update_without_note_snapshot
 #[test]
 fn plan_update_without_note_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, PLAN_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(40, 24)
+        .script(include_str!(
+            "fixtures/cells_5/plan_update_without_note_snapshot.jsonl"
+        ))
+        .open();
+    s.assert_snap_region("plan_update_without_note_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:2706 plan_update_does_not_split_url_like_tokens_in_note_or_step kind=ui owner=chat-live
 #[test]
 fn plan_update_does_not_split_url_like_tokens_in_note_or_step() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, PLAN_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(30, 24)
+        .script(include_str!(
+            "fixtures/cells_5/plan_update_does_not_split_url_like_tokens_in_note_or_step.jsonl"
+        ))
+        .open();
+    s.assert_contains(
+        "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890",
+    );
+    s.assert_contains("example.test/api/v1/projects/beta-team/releases/2026-02-17/builds/0987654321/artifacts/reports/performance");
+    // Missed: the oracle counts each URL on exactly one row; the kit has no per-row count.
 }
 
 // ORACLE history_cell/tests.rs:2741 reasoning_summary_block kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block.jsonl"
+        ))
+        .open();
+    s.assert_absent("Detailed reasoning goes here.");
+    s.keys("ctrl+t");
+    s.assert_contains("• Detailed reasoning goes here.");
 }
 
 // ORACLE history_cell/tests.rs:2755 reasoning_summary_height_matches_wrapped_rendering_for_url_like_content kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_height_matches_wrapped_rendering_for_url_like_content() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(24, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_height_matches_wrapped_rendering_for_url_like_content.jsonl"
+        ))
+        .open();
+    // The first row keeps the summary bullet; the wrapped height (desired_height) is a value, not drawn.
+    s.assert_contains("•");
+    s.assert_contains("example.test/api/v1/");
 }
 
 // ORACLE history_cell/tests.rs:2799 reasoning_summary_block_returns_reasoning_cell_when_feature_disabled kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_returns_reasoning_cell_when_feature_disabled() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no feature-flag seed: the oracle test runs with the reasoning-summary feature off and the kit cannot set features; the reasoning cell itself is not in S11 yet",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_returns_reasoning_cell_when_feature_disabled.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• Detailed reasoning goes here.");
 }
 
 // ORACLE history_cell/tests.rs:2810 reasoning_summary_block_respects_config_overrides kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_respects_config_overrides() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no config seed (the oracle sets the model to gpt-3.5-turbo; the kit cannot set config) and no reasoning-summary cell in S11. The body checks absence only, which passes without the cell (probe: stale, vacuous)",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block.jsonl"
+        ))
+        .open();
+    s.assert_absent("Detailed reasoning goes here.");
 }
 
 // ORACLE history_cell/tests.rs:2823 reasoning_summary_block_falls_back_when_header_is_missing kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_falls_back_when_header_is_missing() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_falls_back_when_header_is_missing.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• **High level reasoning without closing");
 }
 
 // ORACLE history_cell/tests.rs:2834 reasoning_summary_block_falls_back_when_summary_is_missing kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_falls_back_when_summary_is_missing() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_falls_back_when_summary_is_missing_a.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• High level reasoning without closing");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_falls_back_when_summary_is_missing_b.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• High level reasoning without closing");
 }
 
 // ORACLE history_cell/tests.rs:2853 reasoning_summary_block_keeps_title_only_summary_in_expanded_transcript kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_keeps_title_only_summary_in_expanded_transcript() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_keeps_title_only_summary_in_expanded_transcript.jsonl"
+        ))
+        .open();
+    s.assert_absent("Confirming backend JSONL source");
+    s.keys("ctrl+t");
+    s.assert_contains("• Confirming backend JSONL source");
 }
 
 // ORACLE history_cell/tests.rs:2870 reasoning_summary_block_splits_header_and_summary_when_present kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_splits_header_and_summary_when_present() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_splits_header_and_summary_when_present.jsonl"
+        ))
+        .open();
+    s.assert_absent("We should fix the bug next.");
+    s.keys("ctrl+t");
+    s.assert_contains("• We should fix the bug next.");
+    s.assert_absent("High level plan");
 }
 
 // ORACLE history_cell/tests.rs:2884 reasoning_summary_block_hides_empty_html_comment_parts kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_hides_empty_html_comment_parts() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no reasoning-summary cell in S11. The body checks absence only, which passes on any screen without the text (probe: stale, vacuous); the oracle's claim that the block draws nothing in both views needs a positive control from the cell",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_hides_empty_html_comment_parts.jsonl"
+        ))
+        .open();
+    s.assert_absent("Checking the first thing");
+    s.assert_absent("Checking the second thing");
+    s.keys("ctrl+t");
+    s.assert_absent("Checking the first thing");
+    s.assert_absent("<!--");
 }
 
 // ORACLE history_cell/tests.rs:2901 reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part_a.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• Important conclusion");
+    s.assert_absent("<!--");
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_preserves_bold_content_after_empty_html_comment_part_b.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• Result: keep this");
 }
 
 // ORACLE history_cell/tests.rs:2930 reasoning_summary_block_strips_header_after_leading_empty_part kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_strips_header_after_leading_empty_part() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_strips_header_after_leading_empty_part.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• Tests passed");
+    s.assert_absent("Checking tests");
 }
 
 // ORACLE history_cell/tests.rs:2947 reasoning_summary_block_drops_empty_part_after_real_content kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_drops_empty_part_after_real_content() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_drops_empty_part_after_real_content.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• done");
+    s.assert_absent("Checking tests");
 }
 
 // ORACLE history_cell/tests.rs:2964 reasoning_summary_block_preserves_literal_html_comment kind=ui owner=chat-live
 #[test]
 fn reasoning_summary_block_preserves_literal_html_comment() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, REASONING_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/reasoning_summary_block_preserves_literal_html_comment.jsonl"
+        ))
+        .open();
+    s.keys("ctrl+t");
+    s.assert_contains("• Use <!-- --> in JSX.");
 }
 
 // ORACLE history_cell/tests.rs:2978 deprecation_notice_renders_summary_with_details kind=ui owner=chat-live
 #[test]
 fn deprecation_notice_renders_summary_with_details() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NOTICE_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/deprecation_notice_renders_summary_with_details.jsonl"
+        ))
+        .open();
+    s.assert_absent("Feature flag `foo`");
+    s.keys("ctrl+t");
+    s.assert_has_row("⚠ Feature flag `foo`");
+    s.assert_has_row("Use flag `bar` instead.");
 }
 
 // ORACLE history_cell/tests.rs:2997 legacy_zsh_migration_notice_snapshot kind=snap owner=chat-live snap=legacy_zsh_migration_notice_snapshot
 #[test]
 fn legacy_zsh_migration_notice_snapshot() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, NOTICE_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/legacy_zsh_migration_notice_snapshot.jsonl"
+        ))
+        .open();
+    // The oracle's cell is built from the feature registry's legacy usage (core); the kit feeds its
+    // summary and details as a deprecation notice. The transcript view (Ctrl+T) shows its rows at the top.
+    s.keys("ctrl+t");
+    s.assert_snap_region("legacy_zsh_migration_notice_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:3009 agent_markdown_cell_renders_source_at_different_widths kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_renders_source_at_different_widths() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, AGENT_CELL);
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/agent_markdown_cell_renders_source_at_different_widths.jsonl"
+        ))
+        .open();
+    s.assert_contains("• A long agent message that should wrap");
+    s.resize(32, 24);
+    s.assert_in_order(&["A long agent message", "changes."]);
+    // Missed: the oracle asserts the 32-column rendering has more rows than the 80-column one.
 }
 
 // ORACLE history_cell/tests.rs:3029 agent_markdown_cell_does_not_split_words_after_inline_markdown kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_does_not_split_words_after_inline_markdown() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, AGENT_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(190, 24)
+        .script(include_str!(
+            "fixtures/cells_5/agent_markdown_cell_does_not_split_words_after_inline_markdown.jsonl"
+        ))
+        .open();
+    s.assert_in_order(&["inline code,", "strikethrough,"]);
+    // Missed: the oracle pins the row ends (`inline code,`) and the row start (`  strikethrough,`);
+    // the kit's row-position calls need the cell's first row, which the chat layout does not fix yet.
 }
 
 // ORACLE history_cell/tests.rs:3045 streamed_agent_list_paragraph_preserves_item_indent_when_wrapped kind=snap owner=chat-live snap=streamed_agent_list_paragraph_preserves_item_indent_when_wrapped
 #[test]
 fn streamed_agent_list_paragraph_preserves_item_indent_when_wrapped() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, AGENT_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(64, 24)
+        .script(include_str!(
+            "fixtures/cells_5/streamed_agent_list_paragraph_preserves_item_indent_when_wrapped.jsonl"
+        ))
+        .open();
+    s.assert_snap_region(
+        "streamed_agent_list_paragraph_preserves_item_indent_when_wrapped",
+        0,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:3069 agent_markdown_cell_narrow_width_shows_prefix_only kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_narrow_width_shows_prefix_only() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, AGENT_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(2, 24)
+        .script(include_str!(
+            "fixtures/cells_5/agent_markdown_cell_narrow_width_shows_prefix_only.jsonl"
+        ))
+        .open();
+    s.assert_has_row("•");
+    s.assert_absent("narrow width coverage");
 }
 
 // ORACLE history_cell/tests.rs:3078 wrapped_and_prefixed_cells_handle_tiny_widths kind=ui owner=chat-live
 #[test]
 fn wrapped_and_prefixed_cells_handle_tiny_widths() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, USER_CELL);
+    for width in 1..=4u16 {
+        let blank = Screen::build(Owner::ChatLive)
+            .size(width, 24)
+            .live()
+            .open()
+            .shot();
+        let s = Screen::build(Owner::ChatLive)
+            .size(width, 24)
+            .script(include_str!(
+                "fixtures/cells_5/wrapped_and_prefixed_cells_handle_tiny_widths.jsonl"
+            ))
+            .open();
+        // The oracle asserts each of the four cells draws a non-empty row: the screen differs from the empty chat.
+        s.assert_rows_differ(&blank);
+    }
 }
 
 // ORACLE history_cell/tests.rs:3120 render_clears_area_when_cell_content_shrinks kind=ui owner=chat-live
 #[test]
 fn render_clears_area_when_cell_content_shrinks() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no in-place shrink seed: the transcript appends cells and never redraws a taller cell with a shorter one over the same area, so the stale-row clear has no screen to show",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 6)
+        .script(include_str!(
+            "fixtures/cells_5/render_clears_area_when_cell_content_shrinks.jsonl"
+        ))
+        .open();
+    s.feed(include_str!(
+        "fixtures/cells_5/render_clears_area_when_cell_content_shrinks_fresh.jsonl"
+    ));
+    s.assert_absent("STALE ROW");
+    s.assert_contains("fresh");
+    // Premise to confirm with the chat-live owner: the oracle shrinks one cell in place over a taller one.
 }
 
 // ORACLE history_cell/tests.rs:3157 agent_markdown_cell_survives_insert_history_rewrap kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_survives_insert_history_rewrap() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no agent-markdown cell in S11. The body checks only that the source sentences appear, which the plain transcript already shows (probe: stale). The oracle's claim, that the rows are unchanged by a rewrap at the same width, needs the cell's exact rows (kit: assert_has_row) and is not written yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/cells_5/agent_markdown_cell_survives_insert_history_rewrap.jsonl"
+        ))
+        .open();
+    s.assert_contains("Canary rollout remained at limited traffic longer than planned because p95");
+    s.assert_contains("latency briefly regressed during cold-cache periods.");
+    s.assert_contains("analytics lagged temporarily.");
 }
 
 // ---- oracle: history_cell/warnings_tests.rs (2 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE history_cell/warnings_tests.rs:7 usage_warnings_render_in_both_transcripts_including_composites kind=ui owner=chat-live
 #[test]
 fn usage_warnings_render_in_both_transcripts_including_composites() {
-    kit::todo();
+    kit::pending(Owner::ChatLive, WARNING_CELL);
+    let s = Screen::build(Owner::ChatLive)
+        .size(28, 24)
+        .script(include_str!(
+            "fixtures/cells_5/usage_warnings_render_in_both_transcripts_including_composites.jsonl"
+        ))
+        .open();
+    s.assert_in_order(&["Earlier output", "Only 8%", "remains.", "details."]);
+    s.assert_absent("Hidden diagnostic");
+    // Missed: the oracle compares the rich and raw transcripts of the same cell; the raw mode's key is not in the kit yet.
 }
 
 // ORACLE history_cell/warnings_tests.rs:47 warning_count_deduplicates_messages_mcp_summaries_and_composites kind=ui owner=chat-live
 #[test]
 fn warning_count_deduplicates_messages_mcp_summaries_and_composites() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no warning cell in S11 and no MCP startup-warning projection: the oracle's MCP alpha summary cell and the warning count are not drawn yet",
+    );
+    let s = Screen::build(Owner::ChatLive)
+        .size(40, 24)
+        .script(include_str!(
+            "fixtures/cells_5/warning_count_deduplicates_messages_mcp_summaries_and_composites.jsonl"
+        ))
+        .open();
+    s.assert_contains("Repeated warning");
+    s.assert_contains("Another warning");
+    // Missed: the warning count (3) and the MCP source `MCP · alpha` with its details are not on the screen.
 }

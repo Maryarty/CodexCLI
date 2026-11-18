@@ -1,0 +1,4 @@
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"\\[\ni\\hbar \\frac{\\partial}{\\partial t}\\Psi(\\mathbf r,t)\n=\n\\hat H\\Psi(\\mathbf r,t)\n=\n\\left[-\\frac{\\hbar^2}{2m}\\nabla^2+V(\\mathbf r,t)\\right]\\Psi(\\mathbf r,t).\n\\]\n"}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}

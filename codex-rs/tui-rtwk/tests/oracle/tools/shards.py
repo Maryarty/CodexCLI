@@ -297,8 +297,7 @@ def render(shards, core_only, out, out_tests, files, snaps, nsnaps, check):
               '(`codex-rs/tui` at `docs/rtwk-port/ORACLE_REF`); rerun the script, do not edit by hand. '
               'The recipe a porter follows: `docs/rtwk-port/refs/screen-tests.md`. The kit: '
               '`codex-rs/tui-rtwk/tests/kit/`. The suite: `tests/oracle.rs`, run with '
-              '`acargo nextest run --profile oracle` and summed by '
-              '`python3 -I tests/oracle/tools/summary.py`.')
+              '`python3 -I tests/oracle/tools/summary.py --run <shard>` (nextest, own junit, a line per shard).')
     md.append('')
     md.append('**Totals.** %d shards, %d screen-level oracle tests to port (asserting %d snapshots of the '
               'oracle\'s %d), %d state tests of the same files left to the owning slices, %d files with '

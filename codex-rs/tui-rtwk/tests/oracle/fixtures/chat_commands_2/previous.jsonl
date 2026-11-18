@@ -1,0 +1,4 @@
+# A turn "previous" completed with "Previous response" as the last reply.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "previous", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "previous", "rootTurnId": null, "items": [{"type": "agentMessage", "moderation": null, "id": "previous-message", "text": "Previous response", "phase": "final_answer", "memoryCitation": null, "delivery": null, "questions": null}], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": 0}}}}

@@ -1,0 +1,3 @@
+# History for the accept and highlight tests (history_search.rs accepts_matching_entry).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"history":["git status","cargo test"]}}

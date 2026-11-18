@@ -1,0 +1,4 @@
+# The long plugin name and the three files of long_mentions_leave_room_for_distinguishing_parent_paths (render_tests.rs).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"plugin","name":"Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name Long off-screen plugin name ","description":"Tools and workflows","insert":"plugin-0"}]}}
+{"step":"screen","dir":"popovers","ev":{"files":["src/界.rs","tests/界.rs","deep/a_very_long_filename_that_exceeds_the_column.rs"]}}

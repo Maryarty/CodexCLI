@@ -1,0 +1,4 @@
+# A write_stdin approval: input sent to a running terminal (app_server_write_stdin_approval_renders_terminal_input).
+# Oracle data: chatwidget/tests/approval_requests.rs:98: kind WriteStdin, command write_stdin --session-id 42 'confirm\n', approval id approval-1
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"writeStdin","itemId":"item-1","approvalId":"approval-1","environmentId":null,"command":"write_stdin --session-id 42 'confirm\n'","cwd":"/tmp","reason":null,"proposedExecpolicyAmendment":null,"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

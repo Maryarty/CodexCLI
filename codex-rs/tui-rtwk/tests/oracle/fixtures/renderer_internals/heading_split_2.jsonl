@@ -1,0 +1,1 @@
+{"step": "notify", "message": {"method": "item/agentMessage/delta", "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1", "delta": "\n## Adding Bird subcommand"}}}

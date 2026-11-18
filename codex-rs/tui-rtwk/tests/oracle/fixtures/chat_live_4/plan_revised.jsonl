@@ -1,0 +1,2 @@
+# A newer plan completed after a steer (plan_mode.rs:1020 plan_implementation_popup_shows_after_new_plan_follows_steer).
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"plan","id":"plan-2","text":"- Revised plan\n"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

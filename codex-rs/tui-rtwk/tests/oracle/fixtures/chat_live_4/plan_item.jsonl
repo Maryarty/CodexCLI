@@ -1,0 +1,6 @@
+# A proposed plan streamed and completed in a running turn (plan_mode.rs:905-1020 family);
+# the turn is not completed here: turn_done.jsonl completes it.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"plan-1","delta":"- Step 1\n- Step 2\n"}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"plan","id":"plan-1","text":"- Step 1\n- Step 2\n"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

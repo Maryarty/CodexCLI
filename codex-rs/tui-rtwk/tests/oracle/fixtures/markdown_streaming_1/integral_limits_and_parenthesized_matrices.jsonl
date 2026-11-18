@@ -1,0 +1,4 @@
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"$$\\int_{0}^{\\infty} e^{-x}\\,dx = 1$$\n\n$$A=\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}$$\n\n$$v=\\begin{pmatrix}10&20&30\\end{pmatrix}$$\n\n$$\\begin{pmatrix}\\frac{1}{2}&0\\\\*100&x\\end{pmatrix}v$$\n\n$$\\begin{pmatrix}a&b\\\\ *x&y\\\\ [2pt]&z\\end{pmatrix}$$\n"}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}

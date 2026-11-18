@@ -1,0 +1,4 @@
+# An exec approval with no reason and a proposed prefix (approval_modal_exec_no_reason).
+# Oracle data: chatwidget/tests/exec_flow.rs:1443 approval_modal_exec_without_reason_snapshot: command bash -lc 'echo hello world', reason None, execpolicy amendment echo hello world
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-approve-cmd-noreason","approvalId":"call-approve-cmd-noreason","environmentId":null,"command":"bash -lc 'echo hello world'","cwd":"/tmp","reason":null,"proposedExecpolicyAmendment":["echo","hello","world"],"threadId":"thread-1","turnId":"turn-approve-cmd-noreason","startedAtMs":0}}}

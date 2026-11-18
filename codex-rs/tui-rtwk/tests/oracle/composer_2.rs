@@ -4,305 +4,725 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
-use crate::kit;
+use crate::kit::{self, Owner, Screen};
+
+/// The composer's prompt row (`›`): the last one, since a popup sits above the composer.
+fn prompt(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|r| r.starts_with('›'))
+        .unwrap_or(usize::MAX)
+}
+
+/// The live chat once its session is ready: the status row shows `ready` (the session
+/// starts after the first frame; Enter and Tab before that are not the oracle's state).
+fn ready(width: u16, height: u16) -> Screen {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(width, height)
+        .live()
+        .open();
+    s.wait_for("ready");
+    s
+}
+
+/// The composer with an empty draft: the placeholder of the oracle's composer.
+const PLACEHOLDER: &str = "› Ask Codex to do anything";
+
+/// `key` pressed `n` times, as one key string.
+fn times(key: &str, n: usize) -> String {
+    vec![key; n].join(" ")
+}
 
 // ---- oracle: bottom_pane/chat_composer.rs (50 screen-level tests here; 22 state tests left to chat-live)
 // ORACLE bottom_pane/chat_composer.rs:7806 task_mention_popup_and_selected_composer_snapshots kind=snap owner=chat-live snap=task_mention_popup snap=task_mention_selected_composer
 #[test]
 fn task_mention_popup_and_selected_composer_snapshots() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no task-mention search on the chat composer: on_task_search_result has no seed, and the '@' popup has no Mentions tabs (All Results, Filesystem Only, Plugins) or Task rows",
+    );
+    let mut s = ready(100, 9);
+    s.type_text("@migr");
+    s.assert_snap("task_mention_popup");
+
+    let mut s = ready(100, 9);
+    s.type_text("@migr").keys("enter");
+    s.assert_snap("task_mention_selected_composer");
+    // the oracle's cell check: the selected mention's first cell is cyan
+    s.assert_style(2, 1, "fg=Cyan");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7855 task_mention_titles_are_normalized_and_bounded_before_insertion kind=ui owner=chat-live
 #[test]
 fn task_mention_titles_are_normalized_and_bounded_before_insertion() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no task-mention search result on the chat composer (on_task_search_result has no seed): the '@' popup lists no task, so Enter inserts no mention",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("@task").keys("enter");
+    // the visible half: the inserted mention is one line, `@` then the normalized title;
+    // the binding and the element range the oracle asserts are not rows
+    let p = prompt(&s);
+    s.assert_row_starts_with(p, "› @task aaaa");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7930 reopening_identical_unified_mention_restarts_file_search kind=ui owner=chat-live
 #[test]
 fn reopening_identical_unified_mention_restarts_file_search() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no file-search state on the chat composer: the '@' popup lists the popovers candidates only, so a query 'foo' opens no popup and the file search restart is not drawn",
+    );
+    let mut s = ready(100, 24);
+    // the draft `@foo @foo` with the cursor at `@f` (offset 2 of 9)
+    s.type_text("@foo @foo").keys(&times("left", 7));
+    s.keys("esc");
+    s.assert_row(prompt(&s), "› @foo @foo");
+    // the cursor at the end reopens the identical mention
+    s.keys("end");
+    s.assert_row(prompt(&s), "› @foo @foo");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:7979 mention_popup_type_prefixes_snapshot kind=snap owner=chat-live snap=mention_popup_type_prefixes
 #[test]
 fn mention_popup_type_prefixes_snapshot() {
-    kit::todo();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(72, 8)
+        .script(include_str!("fixtures/composer_2/mention_types.jsonl"))
+        .open();
+    s.type_text("$goog");
+    s.assert_snap("mention_popup_type_prefixes");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8082 shortcut_overlay_persists_while_task_running kind=ui owner=chat-live
 #[test]
 fn shortcut_overlay_persists_while_task_running() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no chat shortcut overlay: the port draws no '?' shortcut panel on the chat composer (\"Keyboard shortcuts\" exists only in the dialogs strings), so '?' types a literal character",
+    );
+    let mut s = ready(100, 24);
+    s.keys("?");
+    s.assert_contains("Keyboard shortcuts");
+    // the turn starts while the overlay is up: the overlay stays
+    s.feed(include_str!("fixtures/composer_2/running.jsonl"));
+    s.assert_contains("Keyboard shortcuts");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8516 bound_at_mentions_do_not_block_arrow_navigation kind=ui owner=chat-live
 #[test]
 fn bound_at_mentions_do_not_block_arrow_navigation() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no bound mention on the chat composer: a mention is bound only by choosing a plugin from the '@' popup, and the kit seeds no binding (set_text_content_with_mention_bindings), so `@figma` is plain text and Right moves one column",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("go @figma now").keys("home right right");
+    let p = prompt(&s);
+    s.assert_cursor(4, p); // `go` is 2 cells after the prompt
+    s.keys("right");
+    s.assert_cursor(5, p); // `go ` (3)
+    s.keys("right");
+    s.assert_cursor(11, p); // `go @figma` (9): the bound mention is one step
+    s.keys("left");
+    s.assert_cursor(5, p);
+    s.keys("left");
+    s.assert_cursor(4, p);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8561 restored_bound_at_mentions_do_not_open_mention_popup kind=ui owner=chat-live
 #[test]
 fn restored_bound_at_mentions_do_not_open_mention_popup() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no restored draft with mention bindings on the chat composer (set_text_content_with_mention_bindings has no seed): the restored `@sample` is typed here, and its '@' opens the popup",
+    );
+    for text in ["@sample", "Please ask @sample."] {
+        let mut s = ready(100, 24);
+        s.type_text(text).keys("enter");
+        s.assert_row(prompt(&s), PLACEHOLDER);
+        s.assert_contains(text);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8618 enter_submits_when_file_popup_has_no_selection kind=ui owner=chat-live
 #[test]
 fn enter_submits_when_file_popup_has_no_selection() {
-    kit::todo();
+    let input = "npx -y @kaeawc/auto-mobile@latest";
+    let mut s = ready(100, 24);
+    s.type_text(input).keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_contains(input);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8650 enter_submits_when_unified_mention_popup_has_no_selection kind=ui owner=chat-live
 #[test]
 fn enter_submits_when_unified_mention_popup_has_no_selection() {
-    kit::todo();
+    let input = "npx -y @kaeawc/auto-mobile@latest";
+    let mut s = ready(100, 24);
+    s.type_text(input).keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_contains(input);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8686 ascii_prefix_survives_non_ascii_followup kind=ui owner=chat-live
 #[test]
 fn ascii_prefix_survives_non_ascii_followup() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("1あ").keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_contains("1あ");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8717 non_ascii_char_inserts_immediately_without_burst_state kind=ui owner=chat-live
 #[test]
 fn non_ascii_char_inserts_immediately_without_burst_state() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("あ");
+    // the drawn half: the character is in the draft at once (the burst state is internal)
+    s.assert_row(prompt(&s), "› あ");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8741 non_ascii_burst_buffers_enter_and_flushes_multiline kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_buffers_enter_and_flushes_multiline() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no paste burst on the chat composer: Enter in a fast non-ASCII burst submits the draft, it does not insert a newline into the burst (the port has no burst state to buffer it)",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("你好").keys("enter");
+    s.type_text("hi");
+    // the flushed draft is two rows: `你好`, then `hi` on the next line
+    let p = prompt(&s);
+    s.assert_row(p, "› 你好");
+    s.assert_row(p + 1, "  hi");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8775 non_ascii_burst_preserves_ideographic_space_and_ascii kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_preserves_ideographic_space_and_ascii() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no paste burst on the chat composer: Enter in the burst submits the draft instead of a newline (no burst state in the port)",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("你\u{3000}好").keys("enter");
+    s.type_text("hi");
+    let p = prompt(&s);
+    s.assert_row(p, "› 你\u{3000}好");
+    s.assert_row(p + 1, "  hi");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8812 non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no paste burst on the chat composer: each Enter of the payload submits, so the ten-line payload is not one draft",
+    );
+    let lines = [
+        "天地玄黄 宇宙洪荒",
+        "日月盈昃 辰宿列张",
+        "寒来暑往 秋收冬藏",
+        "",
+        "你好世界 编码测试",
+        "汉字处理 UTF-8",
+        "终端显示 正确无误",
+        "",
+        "风吹竹林 月照大江",
+        "白云千载 青山依旧",
+        "程序员 与 Unicode 同行",
+    ];
+    let mut s = ready(100, 24);
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            s.keys("enter");
+        }
+        s.type_text(line);
+    }
+    // the first and the last line of the flushed payload
+    s.assert_in_order(&["天地玄黄 宇宙洪荒", "程序员 与 Unicode 同行"]);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8862 ascii_burst_treats_enter_as_newline_even_when_parent_owned kind=ui owner=chat-live
 #[test]
 fn ascii_burst_treats_enter_as_newline_even_when_parent_owned() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no paste burst and no parent-owned thread seed (set_parent_owned_thread) on the chat composer: Enter submits `hi`",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("hi").keys("enter");
+    s.type_text("there");
+    let p = prompt(&s);
+    s.assert_row(p, "› hi");
+    s.assert_row(p + 1, "  there");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8956 slash_context_enter_ignores_paste_burst_enter_suppression kind=ui owner=chat-live
 #[test]
 fn slash_context_enter_ignores_paste_burst_enter_suppression() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the InputResult::Command(SlashCommand::Diff) that Enter returns on `/diff`; the result is not drawn and the test draws nothing else",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8987 non_char_key_flushes_active_burst_before_input kind=ui owner=chat-live
 #[test]
 fn non_char_key_flushes_active_burst_before_input() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("hi");
+    s.keys("left");
+    // the flushed draft `hi` with the cursor after `h` (x = prompt width 2 + 1)
+    let p = prompt(&s);
+    s.assert_row(p, "› hi");
+    s.assert_cursor(3, p);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9023 disable_paste_burst_flushes_pending_first_char_and_inserts_immediately kind=ui owner=chat-live
 #[test]
 fn disable_paste_burst_flushes_pending_first_char_and_inserts_immediately() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no paste burst to disable on the chat composer: set_disable_paste_burst has no kit seed, and the port types the first char at once",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("a");
+    s.assert_row(prompt(&s), "› a");
+    s.type_text("b");
+    s.assert_row(prompt(&s), "› ab");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9056 handle_paste_small_inserts_text kind=ui owner=chat-live
 #[test]
 fn handle_paste_small_inserts_text() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.paste("_count_r\x1b[13;2:3uows\tindent\n\0two\u{7f}");
+    s.assert_in_order(&["_count_rows", "indent", "two"]);
+    s.keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_contains("_count_rows");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9087 empty_enter_returns_none kind=ui owner=chat-live
 #[test]
 fn empty_enter_returns_none() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9116 handle_paste_large_uses_placeholder_and_replaces_on_submit kind=ui owner=chat-live
 #[test]
 fn handle_paste_large_uses_placeholder_and_replaces_on_submit() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no large-paste placeholder on the chat composer: a paste over 1000 chars is inserted in full, not as `[Pasted Content N chars]`",
+    );
+    let mut s = ready(100, 24);
+    s.paste(&"x".repeat(1010));
+    let p = prompt(&s);
+    s.assert_row(p, "› [Pasted Content 1010 chars]");
+    s.keys("enter");
+    s.assert_absent("[Pasted Content");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9150 submit_at_character_limit_succeeds kind=ui owner=chat-live
 #[test]
 fn submit_at_character_limit_succeeds() {
-    kit::todo();
+    // MAX_USER_INPUT_TEXT_CHARS = 1 << 20 (protocol/src/user_input.rs:11)
+    let mut s = ready(100, 24);
+    s.paste(&"x".repeat(1 << 20));
+    s.keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9178 oversized_submit_reports_error_and_restores_draft kind=ui owner=chat-live
 #[test]
 fn oversized_submit_reports_error_and_restores_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no input-size limit on the chat composer: a message over 1 << 20 chars is sent, and the 'Message exceeds the maximum length' error cell is not built",
+    );
+    let mut s = ready(100, 24);
+    s.paste(&"x".repeat((1 << 20) + 1));
+    s.keys("enter");
+    let p = prompt(&s);
+    s.assert_row_starts_with(p, "› xxxx");
+    s.assert_contains(
+        "Message exceeds the maximum length of 1048576 characters (1048577 provided).",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9220 oversized_queued_submission_reports_error_and_restores_draft kind=ui owner=chat-live
 #[test]
 fn oversized_queued_submission_reports_error_and_restores_draft() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no steer toggle (set_steer_enabled(false) has no seed) and no input-size limit on the chat composer: the queued over-size submission is not refused with the error cell",
+    );
+    let mut s = ready(100, 24);
+    s.paste(&"x".repeat((1 << 20) + 1));
+    s.keys("enter");
+    let p = prompt(&s);
+    s.assert_row_starts_with(p, "› xxxx");
+    s.assert_contains(
+        "Message exceeds the maximum length of 1048576 characters (1048577 provided).",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9264 edit_clears_pending_paste kind=ui owner=chat-live
 #[test]
 fn edit_clears_pending_paste() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no large-paste placeholder on the chat composer: the paste is inserted in full, so the Backspace that removes a placeholder has nothing to clear",
+    );
+    let mut s = ready(100, 24);
+    s.paste(&"y".repeat(1001));
+    let p = prompt(&s);
+    s.assert_row(p, "› [Pasted Content 1001 chars]");
+    s.keys("backspace");
+    s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9289 ui_snapshots kind=snap owner=chat-live snap=backspace_after_pastes snap=empty snap=large snap=multiple_pastes snap=short snap=small
 #[test]
 fn ui_snapshots() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no large-paste placeholder on the chat composer, and the chat screen is not the composer alone at 100x10: the oracle's rows are the composer's region only",
+    );
+    let s = ready(100, 10);
+    s.assert_snap("empty");
+
+    let mut s = ready(100, 10);
+    s.paste("short");
+    s.assert_snap("small");
+
+    let mut s = ready(100, 10);
+    s.paste(&"z".repeat(1005));
+    s.assert_snap("large");
+
+    let mut s = ready(100, 10);
+    s.paste(&"x".repeat(1003));
+    s.paste(&"y".repeat(1007));
+    s.paste(" another short paste");
+    s.assert_snap("multiple_pastes");
+
+    let mut s = ready(100, 10);
+    s.paste(&"a".repeat(1002));
+    s.paste(&"b".repeat(1004));
+    s.paste(&"c".repeat(1006));
+    s.keys("backspace");
+    s.assert_snap("backspace_after_pastes");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9352 image_placeholder_snapshots kind=snap owner=chat-live snap=image_placeholder_multiple snap=image_placeholder_single
 #[test]
 fn image_placeholder_snapshots() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no image attachment on the chat composer: the kit has no seed for attach_image (a local PNG) and the port draws no `[Image #N]` placeholder",
+    );
+    // attach_image(/tmp/image1.png), kill (ctrl+u), restore (ctrl+y): no kit call yet
+    let s = ready(100, 9);
+    s.assert_snap("image_placeholder_single");
+
+    // attach_image(/tmp/image1.png) and attach_image(/tmp/image2.png): no kit call yet
+    let s = ready(100, 9);
+    s.assert_snap("image_placeholder_multiple");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9376 remote_image_rows_snapshots kind=snap owner=chat-live snap=remote_image_rows snap=remote_image_rows_after_delete_first
 #[test]
 fn remote_image_rows_snapshots() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no remote image URLs on the chat composer (set_remote_image_urls has no seed): the remote image rows above the draft are not drawn",
+    );
+    let mut s = ready(100, 9);
+    s.type_text("describe these");
+    s.assert_snap("remote_image_rows");
+
+    let mut s = ready(100, 9);
+    s.type_text("describe these");
+    s.keys("home up up delete");
+    s.assert_snap("remote_image_rows_after_delete_first");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9412 slash_popup_model_clipping_snapshot kind=snap owner=chat-live snap=slash_popup_mo_clipped
 #[test]
 fn slash_popup_model_clipping_snapshot() {
-    kit::todo();
+    let mut s = ready(60, 3);
+    s.type_text("/mo");
+    // the draft and its cursor stay visible above the clipped picker
+    s.assert_cursor(5, 1);
+    s.assert_snap("slash_popup_mo_clipped");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9479 service_tier_slash_command_dispatches_from_catalog_name kind=ui owner=chat-live
 #[test]
 fn service_tier_slash_command_dispatches_from_catalog_name() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the InputResult::ServiceTierCommand that Enter returns for `/fast` from the catalog; the result is not drawn",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9550 slash_init_dispatches_command_and_does_not_submit_literal_text kind=ui owner=chat-live
 #[test]
 fn slash_init_dispatches_command_and_does_not_submit_literal_text() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("/init").keys("enter");
+    // the command is dispatched and the draft cleared: no literal `/init` is submitted
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_absent("/init");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9602 kill_buffer_preserves_image_after_submit kind=ui owner=chat-live
 #[test]
 fn kill_buffer_preserves_image_after_submit() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no image attachment on the chat composer (attach_image has no kit seed): the killed draft's `[Image #1]` and the second image's placeholder are not drawn",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("restore me ");
+    // attach_image(/tmp/killed-image.png): no kit call yet
+    s.keys("ctrl+u");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.type_text("hello").keys("enter");
+    // attach_image(/tmp/other-image.png), paste " ", ctrl+y, enter: no kit call yet
+    s.assert_contains("[Image #1] restore me [Image #2]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9655 kill_buffer_persists_after_slash_command_dispatch kind=ui owner=chat-live
 #[test]
 fn kill_buffer_persists_after_slash_command_dispatch() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("restore me").keys("home ctrl+k");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.type_text("/diff").keys("enter");
+    s.keys("ctrl+y");
+    s.assert_row(prompt(&s), "› restore me");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9693 slash_command_disabled_while_task_running_keeps_text kind=ui owner=chat-live
 #[test]
 fn slash_command_disabled_while_task_running_keeps_text() {
-    kit::todo();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/running.jsonl"))
+        .open();
+    s.type_text("/compact").keys("enter");
+    s.assert_row(prompt(&s), "› /compact");
+    s.assert_contains("disabled while a task is in progress");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9737 enter_queues_when_queue_submissions_is_enabled kind=ui owner=chat-live
 #[test]
 fn enter_queues_when_queue_submissions_is_enabled() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the InputResult::Queued { text, action, .. } that Enter returns with the queue flag on; the result is not drawn",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9772 tab_queues_slash_led_prompts_while_task_running_without_validation kind=ui owner=chat-live
 #[test]
 fn tab_queues_slash_led_prompts_while_task_running_without_validation() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no draft-without-popup seed: a pasted slash-led draft opens the command popup in the port, so Tab completes instead of queueing; the queue row and the empty composer are not reachable through the kit yet",
+    );
+    for input in [
+        "/compact",
+        "/review check regressions",
+        "/fast",
+        "/does-not-exist",
+    ] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(100, 24)
+            .script(include_str!("fixtures/composer_2/running.jsonl"))
+            .open();
+        s.paste(input).keys("tab");
+        // the draft is queued, not validated: the composer is empty and no error is drawn
+        s.assert_row(prompt(&s), PLACEHOLDER);
+        s.assert_absent("disabled while a task is in progress");
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9820 remapped_submit_does_not_fall_back_to_enter kind=ui owner=chat-live
 #[test]
 fn remapped_submit_does_not_fall_back_to_enter() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no keymap seed: the port reads no composer.submit binding (keymap(..) is missing), so the remapped submit (ctrl+j) cannot be set",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .keymap(&[("composer.submit", "ctrl+j")])
+        .open();
+    s.type_text("explain the change").keys("enter");
+    // Enter inserts a newline: the draft keeps its text and the cursor is on the next row
+    s.assert_row(prompt(&s), "› explain the change");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9856 remapped_queue_does_not_fall_back_to_tab kind=ui owner=chat-live
 #[test]
 fn remapped_queue_does_not_fall_back_to_tab() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no keymap seed: the port reads no composer.queue binding (keymap(..) is missing), so the remapped queue key (ctrl+q) cannot be set",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/running.jsonl"))
+        .keymap(&[("composer.queue", "ctrl+q")])
+        .open();
+    s.type_text("queue me").keys("tab");
+    s.assert_row(prompt(&s), "› queue me");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9889 remapped_history_search_does_not_fall_back_to_ctrl_r kind=ui owner=chat-live
 #[test]
 fn remapped_history_search_does_not_fall_back_to_ctrl_r() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no keymap seed: the port reads no composer.history_search_previous binding (keymap(..) is missing), so the remapped F2 search cannot be set",
+    );
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .live()
+        .keymap(&[("composer.history_search_previous", "f2")])
+        .open();
+    s.keys("ctrl+r");
+    s.assert_absent("reverse-i-search:");
+    s.keys("f2");
+    s.assert_contains("reverse-i-search:");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9917 tab_queues_leading_space_slash_as_plain_text_while_task_running kind=ui owner=chat-live
 #[test]
 fn tab_queues_leading_space_slash_as_plain_text_while_task_running() {
-    kit::todo();
+    kit::na(
+        Owner::ChatLive,
+        "asserts the InputResult::Queued { text, action } that Tab returns for a leading-space `/does-not-exist`; the result is not drawn",
+    );
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9950 tab_queues_bang_shell_prompts_while_task_running_without_execution kind=ui owner=chat-live
 #[test]
 fn tab_queues_bang_shell_prompts_while_task_running_without_execution() {
-    kit::todo();
+    for input in ["!echo hi", "!", " !echo hi"] {
+        let mut s = Screen::build(Owner::ChatLive)
+            .size(100, 24)
+            .script(include_str!("fixtures/composer_2/running.jsonl"))
+            .open();
+        s.paste(input).keys("tab");
+        // queued, not run: the composer is empty
+        s.assert_row(prompt(&s), PLACEHOLDER);
+    }
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10001 slash_tab_completion_moves_cursor_to_end kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_moves_cursor_to_end() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("/c").keys("tab");
+    let p = prompt(&s);
+    s.assert_row(p, "› /compact");
+    // the cursor is at the end of `/compact ` (2 + 9 cells)
+    s.assert_cursor(11, p);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10029 slash_tab_completion_wins_over_queueing_while_task_running kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_wins_over_queueing_while_task_running() {
-    kit::todo();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!("fixtures/composer_2/running.jsonl"))
+        .open();
+    s.type_text("/mo").keys("tab");
+    let p = prompt(&s);
+    s.assert_row(p, "› /model");
+    // the cursor is at the end of `/model ` (2 + 7 cells)
+    s.assert_cursor(9, p);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10059 slash_key_completes_selected_slash_command_as_text kind=ui owner=chat-live
 #[test]
 fn slash_key_completes_selected_slash_command_as_text() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("/m");
+    s.type_text("/");
+    let p = prompt(&s);
+    s.assert_row(p, "› /model");
+    s.assert_cursor(9, p);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10088 slash_tab_then_enter_dispatches_builtin_command kind=ui owner=chat-live
 #[test]
 fn slash_tab_then_enter_dispatches_builtin_command() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("/di").keys("tab");
+    s.assert_row(prompt(&s), "› /diff");
+    s.keys("enter");
+    // the command is dispatched, not the literal text: the draft is empty again
+    s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10203 tab_submits_when_no_task_running kind=ui owner=chat-live
 #[test]
 fn tab_submits_when_no_task_running() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("hi").keys("tab");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_contains("hi");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10231 tab_does_not_submit_for_bang_shell_command kind=ui owner=chat-live
 #[test]
 fn tab_does_not_submit_for_bang_shell_command() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("!ls").keys("tab");
+    // Tab neither submits nor clears a `!` command: the draft stays
+    s.assert_row(prompt(&s), "› !ls");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10260 bang_prefixed_slash_text_submits_literal_shell_command kind=ui owner=chat-live
 #[test]
 fn bang_prefixed_slash_text_submits_literal_shell_command() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("!/diff").keys("enter");
+    s.assert_contains("!/diff");
+    s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10287 slash_mention_dispatches_command_and_inserts_at kind=ui owner=chat-live
 #[test]
 fn slash_mention_dispatches_command_and_inserts_at() {
-    kit::todo();
+    let mut s = ready(100, 24);
+    s.type_text("/mention").keys("enter");
+    s.assert_row(prompt(&s), PLACEHOLDER);
+    s.type_text("@");
+    s.assert_row(prompt(&s), "› @");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10337 slash_plan_args_preserve_text_elements kind=ui owner=chat-live
 #[test]
 fn slash_plan_args_preserve_text_elements() {
-    kit::todo();
+    kit::pending(
+        Owner::ChatLive,
+        "no image attachment on the chat composer (attach_image has no kit seed): the `/plan` args placeholder `[Image #1]` is not drawn",
+    );
+    let mut s = ready(100, 24);
+    s.type_text("/plan ");
+    // attach_image(/tmp/plan.png): no kit call yet
+    s.assert_row(prompt(&s), "› /plan [Image #1]");
 }

@@ -13,7 +13,8 @@ use rtwk_test::Tester;
 /// The oracle snapshot called `name`, as a path relative to `codex-rs/tui/src`:
 /// `name` is the snapshot's whole file stem
 /// (`codex_tui__chatwidget__tests__approval_modal_exec`) or its test name, the
-/// tail after `__tests__` (`approval_modal_exec`). Panics when no file or
+/// tail after the last `__` the file name has before it (`approval_modal_exec`,
+/// `transcript_overlay_paginated_history_states`). Panics when no file or
 /// several files have it.
 pub fn find(name: &str) -> String {
     fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
@@ -37,7 +38,7 @@ pub fn find(name: &str) -> String {
         out
     });
     let stem = name.strip_suffix(".snap").unwrap_or(name);
-    let tail = format!("__tests__{stem}");
+    let tail = format!("__{stem}");
     let found: Vec<&PathBuf> = all
         .iter()
         .filter(|p| {
@@ -79,12 +80,81 @@ fn body(rel: &str) -> Vec<String> {
     lines.map(str::to_string).collect()
 }
 
-/// A `Debug`-quoted row (`"text   "`) as the text it holds.
+/// A `Debug`-quoted row (`"text   "`) as the text it holds. The oracle also
+/// writes rows as `"text" Hidden by multi-width symbols: [(3, " ")]` and
+/// `"text", // hidden by multi-width symbols: [(3, " ")]`: the note is cut.
 fn unquote(row: &str) -> String {
-    match row.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
-        Some(inner) => inner.replace("\\\"", "\"").replace("\\\\", "\\"),
-        None => row.to_string(),
+    parse_row(row).0
+}
+
+/// A row and the columns the oracle's note says wide glyphs hid.
+pub fn parse_row(row: &str) -> (String, Vec<usize>) {
+    let raw = (row.to_string(), Vec::new());
+    let Some(inner) = row.strip_prefix('"') else {
+        return raw;
+    };
+    let mut text = String::new();
+    let mut chars = inner.char_indices();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' => {
+                let rest = inner[at + 1..].trim_start_matches(',').trim();
+                let note = rest
+                    .trim_start_matches("//")
+                    .trim()
+                    .to_ascii_lowercase()
+                    .starts_with("hidden by multi-width symbols");
+                if !rest.is_empty() && !note {
+                    return raw;
+                }
+                return (
+                    text,
+                    if note {
+                        hidden_columns(rest)
+                    } else {
+                        Vec::new()
+                    },
+                );
+            }
+            '\\' => match chars.next() {
+                Some((_, 'n')) => text.push('\n'),
+                Some((_, 't')) => text.push('\t'),
+                Some((_, 'u')) => {
+                    let mut hex = String::new();
+                    for (_, h) in chars.by_ref() {
+                        if h == '}' {
+                            break;
+                        }
+                        if h != '{' {
+                            hex.push(h);
+                        }
+                    }
+                    match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                        Some(ch) => text.push(ch),
+                        None => return raw,
+                    }
+                }
+                Some((_, other)) => text.push(other),
+                None => return raw,
+            },
+            c => text.push(c),
+        }
     }
+    raw
+}
+
+/// The columns of `[(14, " "), (16, " ")]` in a hidden-by-multi-width note.
+fn hidden_columns(note: &str) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut rest = note;
+    while let Some(at) = rest.find('(') {
+        rest = &rest[at + 1..];
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(n) = digits.parse() {
+            out.push(n);
+        }
+    }
+    out
 }
 
 fn trimmed(rows: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -101,21 +171,259 @@ pub fn rows(rel: &str) -> Vec<String> {
     trimmed(body(rel).iter().map(|r| unquote(r)))
 }
 
-/// The rows of the section `name` of a snapshot made of `--- name ---`
-/// sections (`transcript_overlay_paginated_history_states`).
+/// The rows of the frame `name` of a snapshot of several (see `frames`).
 pub fn section(rel: &str, name: &str) -> Vec<String> {
-    let marker = format!("--- {name} ---");
+    frame(rel, name).rows
+}
+
+/// One stretch of a style listing of a `Buffer` dump: from cell (x, y) on,
+/// every cell has this style (ratatui writes a run where the style changes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StyleRun {
+    pub x: usize,
+    pub y: usize,
+    pub fg: String,
+    pub bg: String,
+    pub underline: String,
+    pub modifier: String,
+}
+
+/// One screen of an oracle snapshot: the whole file, or one of the several
+/// the test joined into it.
+#[derive(Clone, Debug, Default)]
+pub struct Frame {
+    /// The frame's header: `loading` of `--- loading ---` (or of
+    /// `---- loading ----`), `124 columns` of `124 columns:`, `width=36,
+    /// cursor=0`, the label before a `Buffer {` dump. Empty for a snapshot of
+    /// one frame. The same header again is `name#2`, `name#3`.
+    pub name: String,
+    /// The rows, trailing blank rows cut, trailing blanks of each cut.
+    pub rows: Vec<String>,
+    /// Per row: the columns the oracle's note says wide glyphs hid.
+    pub hidden: Vec<Vec<usize>>,
+    /// The `Cursor: Some((x, y))` line: `Some(Some(..))` shown, `Some(None)`
+    /// hidden, `None` the snapshot says nothing of the cursor.
+    pub cursor: Option<Option<(usize, usize)>>,
+    /// The style listing of a `Buffer` dump.
+    pub styles: Option<Vec<StyleRun>>,
+    /// The dump's `area` (width, height): the cells its rows and styles cover.
+    pub area: Option<(usize, usize)>,
+}
+
+fn header(line: &str, next: Option<&String>) -> Option<(String, Option<String>)> {
+    for bars in ["---- ", "--- "] {
+        let tail = bars.trim_end();
+        if let Some(name) = line
+            .strip_prefix(bars)
+            .and_then(|r| r.strip_suffix(&format!(" {tail}")))
+            && !name.is_empty()
+        {
+            return Some((name.to_string(), None));
+        }
+    }
+    if let Some((n, rest)) = line.split_once(" columns:")
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+    {
+        let rest = rest.trim();
+        return Some((
+            format!("{n} columns"),
+            (!rest.is_empty()).then(|| rest.to_string()),
+        ));
+    }
+    if line.starts_with("width=") {
+        return Some((line.trim_end_matches(':').to_string(), None));
+    }
+    if next.is_some_and(|n| n.trim_end() == "Buffer {")
+        && !line.starts_with(' ')
+        && line != "Buffer {"
+    {
+        return Some((line.to_string(), None));
+    }
+    None
+}
+
+/// The frames of the snapshot `rel`, in order. A snapshot the test made of
+/// several screens marks each with a header line (`--- x ---`,
+/// `---- x ----`, `N columns:`, `width=N..`, a label above a `Buffer {`
+/// dump); one without is a single frame with an empty name.
+pub fn frames(rel: &str) -> Vec<Frame> {
     let body = body(rel);
-    let start = body
-        .iter()
-        .position(|line| *line == marker)
-        .unwrap_or_else(|| panic!("{rel}: no section {name}"));
-    trimmed(
-        body[start + 1..]
-            .iter()
-            .take_while(|line| !(line.starts_with("--- ") && line.ends_with(" ---")))
-            .cloned(),
-    )
+    let mut chunks: Vec<(String, Vec<String>)> = Vec::new();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (i, line) in body.iter().enumerate() {
+        if let Some((name, inline)) = header(line, body.get(i + 1)) {
+            let n = seen.entry(name.clone()).or_insert(0);
+            *n += 1;
+            let name = if *n > 1 { format!("{name}#{n}") } else { name };
+            chunks.push((name, inline.into_iter().collect()));
+        } else if let Some((_, lines)) = chunks.last_mut() {
+            lines.push(line.clone());
+        } else {
+            chunks.push((String::new(), vec![line.clone()]));
+        }
+    }
+    if chunks.is_empty() {
+        chunks.push((String::new(), Vec::new()));
+    }
+    chunks
+        .into_iter()
+        .map(|(name, lines)| parse_frame(name, &lines))
+        .collect()
+}
+
+/// The frame of the snapshot called `name` (`frames`); the only frame of a
+/// snapshot of one when `name` is empty.
+pub fn frame(rel: &str, name: &str) -> Frame {
+    let all = frames(rel);
+    if name.is_empty() {
+        assert!(
+            all.len() == 1,
+            "{rel} has several frames: {:?}; name one",
+            all.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+        return all.into_iter().next().unwrap_or_default();
+    }
+    let names: Vec<String> = all.iter().map(|f| f.name.clone()).collect();
+    all.into_iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("{rel}: no frame `{name}`; its frames: {names:?}"))
+}
+
+fn parse_frame(name: String, lines: &[String]) -> Frame {
+    let mut frame = Frame {
+        name,
+        ..Frame::default()
+    };
+    if let Some(at) = lines.iter().position(|l| l.trim_end() == "Buffer {") {
+        parse_buffer(&mut frame, &lines[at + 1..]);
+        return frame;
+    }
+    let mut lines: Vec<&String> = lines.iter().collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    if let Some(last) = lines.last()
+        && let Some(cursor) = parse_cursor(last)
+    {
+        frame.cursor = Some(cursor);
+        lines.pop();
+    }
+    let mut rows = Vec::new();
+    let mut hidden = Vec::new();
+    for line in lines {
+        let (text, cols) = parse_row(line);
+        rows.push(text);
+        hidden.push(cols);
+    }
+    while rows.last().is_some_and(|r| r.trim_end().is_empty()) {
+        rows.pop();
+        hidden.pop();
+    }
+    frame.rows = rows.into_iter().map(|r| r.trim_end().to_string()).collect();
+    frame.hidden = hidden;
+    frame
+}
+
+/// `Cursor: Some((31, 4))` or `Cursor: None`.
+fn parse_cursor(line: &str) -> Option<Option<(usize, usize)>> {
+    let rest = line.trim().strip_prefix("Cursor: ")?;
+    if rest == "None" {
+        return Some(None);
+    }
+    let nums = rest.strip_prefix("Some((")?.strip_suffix("))")?;
+    let (x, y) = nums.split_once(", ")?;
+    Some(Some((x.parse().ok()?, y.parse().ok()?)))
+}
+
+/// The lines after `Buffer {`: `area`, `content` (quoted rows) and `styles`.
+fn parse_buffer(frame: &mut Frame, lines: &[String]) {
+    #[derive(PartialEq)]
+    enum In {
+        Top,
+        Content,
+        Styles,
+        Done,
+    }
+    let mut state = In::Top;
+    let mut rows = Vec::new();
+    let mut hidden = Vec::new();
+    let mut styles = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        match state {
+            In::Top => {
+                if let Some(area) = t.strip_prefix("area: Rect {") {
+                    let num = |key: &str| {
+                        area.split(key)
+                            .nth(1)
+                            .and_then(|r| r.trim_start_matches(' ').split([',', ' ']).next())
+                            .and_then(|n| n.parse::<usize>().ok())
+                    };
+                    if let (Some(w), Some(h)) = (num("width:"), num("height:")) {
+                        frame.area = Some((w, h));
+                    }
+                } else if t == "content: [" {
+                    state = In::Content;
+                } else if t == "styles: [" {
+                    state = In::Styles;
+                }
+            }
+            In::Content => {
+                if t == "]," {
+                    state = In::Top;
+                } else {
+                    let (text, cols) = parse_row(t);
+                    rows.push(text);
+                    hidden.push(cols);
+                }
+            }
+            In::Styles => {
+                if t == "]" {
+                    state = In::Done;
+                } else if let Some(run) = parse_run(t) {
+                    styles.push(run);
+                }
+            }
+            In::Done => {
+                if let Some(cursor) = parse_cursor(t) {
+                    frame.cursor = Some(cursor);
+                }
+            }
+        }
+    }
+    while rows
+        .last()
+        .is_some_and(|r: &String| r.trim_end().is_empty())
+    {
+        rows.pop();
+        hidden.pop();
+    }
+    frame.rows = rows.into_iter().map(|r| r.trim_end().to_string()).collect();
+    frame.hidden = hidden;
+    frame.styles = Some(styles);
+}
+
+fn parse_run(line: &str) -> Option<StyleRun> {
+    // `x: 2, y: 0, fg: Rgb(1, 2, 3), bg: Reset, underline: Reset, modifier: BOLD | DIM,`
+    let line = line.trim().trim_end_matches(',');
+    let field = |key: &str, next: Option<&str>| -> Option<String> {
+        let at = line.find(key)? + key.len();
+        let rest = &line[at..];
+        let end = match next {
+            Some(n) => rest.find(n)?,
+            None => rest.len(),
+        };
+        Some(rest[..end].trim().trim_end_matches(',').to_string())
+    };
+    Some(StyleRun {
+        x: field("x: ", Some(", y: "))?.parse().ok()?,
+        y: field("y: ", Some(", fg: "))?.parse().ok()?,
+        fg: field("fg: ", Some(", bg: "))?,
+        bg: field("bg: ", Some(", underline: "))?,
+        underline: field("underline: ", Some(", modifier: "))?,
+        modifier: field("modifier: ", None)?,
+    })
 }
 
 /// The screen's rows, trailing blanks trimmed.

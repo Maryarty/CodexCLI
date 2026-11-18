@@ -1,0 +1,7 @@
+# oracle history_cell/tests.rs:290 source_backed_cells_render_raw_source_without_prefix_or_style (user, assistant, reasoning, plan)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"userMessage","id":"user-1","clientId":null,"content":[{"type":"text","text":"hello\n\nworld\n","text_elements":[]}]},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"agentMessage","moderation":null,"id":"msg-1","text":"- item\n\n| A | B |\n| - | - |\n| x | y |\n","phase":null,"memoryCitation":null,"delivery":null,"questions":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"reasoning","id":"reason-1","summary":["thinking"],"content":["first thought\n\nsecond thought"]},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"plan","id":"plan-1","text":"1. Inspect\n\n```sh\ncargo test\n```"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs:1456 web_search_history_cell_short_query_does_not_wrap
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/completed", "params": {"item": {"type": "webSearch", "id": "call-1", "query": "short query", "action": {"type": "search", "query": "short query", "queries": null}}, "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}}}

@@ -1,0 +1,4 @@
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"msg-1","delta":"$\\alpha$:codex-file-citation{path=/tmp/$x$/report.md}$\\beta$\n\nPréface &amp;:codex-file-citation{path=\"first&amp;.txt\"}&#x1F642;:codex-file-citation{path=\"second.txt\"}&lt;fin&gt;\n\n\\[:codex-file-citation{path=\"first.txt\"}\\]\\*:codex-file-citation{path=\"second.txt\"}\\!\n"}}}
+{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}

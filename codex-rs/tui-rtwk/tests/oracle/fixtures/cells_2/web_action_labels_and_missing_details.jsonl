@@ -1,0 +1,9 @@
+# Oracle data of codex-tui history_cell/search_tests.rs:5 (rust-v0.170.0), as wire steps; the oracle's test data, not the view's.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-1","query":"","action":{"type":"openPage","url":"https://example.com/docs"}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-2","query":"","action":{"type":"openPage","url":null}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-3","query":"","action":{"type":"findInPage","url":"https://example.com/docs","pattern":"needle"}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-4","query":"","action":{"type":"findInPage","url":null,"pattern":"needle"}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-5","query":"","action":{"type":"findInPage","url":"https://example.com/docs","pattern":""}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"webSearch","id":"call-6","query":"","action":{"type":"findInPage","url":null,"pattern":null}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
