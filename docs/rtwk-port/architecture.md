@@ -48,7 +48,7 @@ reference. The backend is reused as it is (`codex-app-server-client`,
 |---|---|---|
 | ADR-001 | crate and pins | `codex-rs/tui-rtwk` (crate `codex-tui-rtwk`), its own Cargo workspace passing codex-rs manifest policy; codex-rs `[patch]` copied, lockfile seeded from codex-rs; rtwk by path at `RTWK_REF` with a pin check; codex-rs workspace, lockfile and Bazel untouched |
 | ADR-002 | app structure | a Flutter-style rtwk app in the manner of `rtwk-weather`: model + events + `view(&App, &mut ViewCx)` + `cx.on`; screens via `Navigator` + `PageRoute`, dialogs via `show_dialog`, live data through `rtwk::provider` projections of the model — as in twk; rtwk widgets |
-| ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`; entities+notify as reserve; chosen on per-approach trade-offs |
+| ADR-003 | app state | plain model owned by the rtwk app: one writer, `apply(&mut ThreadModel, ThreadEv, &mut ThreadFx)` per thread and `apply_app(&mut CodexApp, AppEv, &mut AppFx)` for app-scoped state, tickets on replies, derived values via `ViewCx::memo`; per-thread UI controllers in `ThreadUi`, kept in the UI model (`UiApp.ui`), never in the core model; entities+notify as reserve; chosen on per-approach trade-offs |
 | ADR-004 | screens and content | 24 screen-map rows (§1) as pushed routes, dialogs and popovers of rtwk widgets; rtwk-rich Markdown/Diff/Code; rtwk-data charts, rtwk-rich Image |
 | ADR-005 | screen modes | owned full screen first (the oracle's default), inline last |
 | ADR-006 | input | rtwk `Focus` / `Shortcuts` / `KeyBindings`; Codex's keymap config read into them; input never frozen by an RPC |
@@ -110,6 +110,16 @@ It depends on codex crates by path (`../app-server-client`,
 dev-deps) and on rtwk crates by path pinned to `RTWK_REF`. It does not depend
 on `codex-tui`.
 
+**Layout inside the crate (skeleton-layers).** The workspace has three
+members: `core/` (package `codex-tui-rtwk-core`: ids, RPC tickets, the app and
+thread models with `apply`, the protocol mapping, each screen's model, events,
+intents and RPCs, the fixture scripts; it depends on `codex-app-server-protocol`
+and serde only, no rtwk, no async runtime, no IO), the UI package
+`codex-tui-rtwk` (the rtwk app: widgets, the shell that runs effects, the
+composition root) and `host/` (the binary's backend, `codex-rtwk`). The
+compiler holds the first rule, that core cannot name a widget; the other
+boundaries are `tests/layers.rs`, see "Layers" below.
+
 **Why.** The codex-rs workspace, its Cargo.lock, Bazel (`crate_universe`,
 the PR gate) and `rust-ci-full` stay as upstream has them, so merges from
 `upstream` never conflict with the port and no CI breaks on a path that
@@ -155,7 +165,7 @@ methods that also start work.
 ```
 codex-rtwk main ─ arg0_dispatch_or_else → multi-thread tokio runtime → app-server client
  └ run_app_with on the block_on thread, runtime entered (rtwk-tokio)
-    └ overlay::App → AppView(CodexApp, view)
+    └ overlay::App → AppView(UiApp { core: CodexApp, ui: UiState }, view)
        └ Theme · Localizations · providers (config projection, keymap)
           └ MultiProvider: projections of the model (Rc slices) + app Handlers
              └ Navigator (home: chat) — PageRoutes pushed: pager · resume · usage · agents · import · onboarding/*
@@ -276,8 +286,10 @@ text in its state or a shared `TextEditingController`
 (rtwk-editing/src/text_area.rs:174-327), `SelectionList<K>` in a
 `SelectionController<K>`. Per-thread UI controllers (`TextEditingController`,
 scroll and selection controllers) live in a `ThreadUi` map keyed by
-`ThreadId`: a field of `CodexApp` (rtwk triage keeps its controllers in the
-app struct too, app.rs:58-63), written only by UI modules on the R14
+`ThreadId`: a field of the UI model (`UiApp.ui`, `UiState.thread_ui`; rtwk
+triage keeps its controllers in the app struct too, app.rs:58-63), beside the
+core model `UiApp.core` (`CodexApp`) and never inside it: core has no rtwk, so
+a controller cannot be there. They are written only by UI modules on the R14
 allowlist, and outside `ThreadModel`, which is what `apply` sees. On a
 switch the subtree is keyed by ThreadId and reuses that thread's controllers,
 so A→B→A keeps the draft and kill buffer (SC2b). Text the model needs
@@ -574,7 +586,7 @@ as literals in widgets, in the form rtwk-l10n has for its own widget strings
   when the locale changes;
 - the locale is negotiated once at start (`Cli::lang`: `--locale`, else
   `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` through rtwk-l10n's `Locale`;
-  English as the fallback) and stored in `CodexApp.lang`; it reaches the tree
+  English as the fallback) and stored in `UiApp.ui.lang` (a UI fact, not in the core model); it reaches the tree
   as `TwkLocalizations` at the root (`ui::run::localized`), so rtwk's
   built-in widget strings follow the same locale;
 - numbers and dates go through rtwk-l10n's formatters where the oracle formats
@@ -601,25 +613,35 @@ hold the oracle's strings byte for byte, so the port loses nothing and gains
 the structure. Following rtwk-l10n's form means no new mechanism: the same
 table shape, the same plural rules, the same `TwkLocalizations` carrier.
 
-## Skeleton (tm `port-skeleton`)
+## Skeleton (tm `port-skeleton`, layered by `skeleton-layers`)
 
 ```
-codex-rs/tui-rtwk/          own workspace, package codex-tui-rtwk, binary codex-rtwk
+codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-tui-rtwk, binary codex-rtwk
   Cargo.toml                codex crates by path, rtwk by path; codex-rs [patch] copied;
                             [workspace.package]/[workspace.lints]; passes the manifest script
   Cargo.lock                seeded from codex-rs/Cargo.lock
-  clippy.toml               R1/R11/R12/R14 disallowed lists
-  src/main.rs               arg0_dispatch_or_else → runtime → client → run_app_with (runtime entered)
-  src/app.rs                CodexApp (model), ingress events, apply_app
-  src/threads/              ThreadModel, apply, ThreadFx (empty transcript upsert)
-  src/shell.rs              the only spawner: client via TokioApp::spawn_tokio/subscribe, epoch stamping
+  clippy.toml               R1/R11/R12/R14 disallowed lists (UI crate; core/clippy.toml: the same without rtwk paths)
+  core/                     codex-tui-rtwk-core: no rtwk, no tokio, no IO
+    src/app.rs              CodexApp (model), AppEv, Command, apply_app, ingest (epoch drop)
+    src/threads.rs          ThreadModel, Transcript, apply, ThreadFx, project (protocol -> ThreadEv), Failure
+    src/ids.rs, rpc.rs      ThreadId, Ticket, RequestKey, ConnEpoch; Reply, Answer, RpcError
+    src/wire.rs             protocol requests and replies the host sends (client_request, reply, dismissal)
+    src/screens/<dir>.rs    22 files, one per screen dir: Model, Ev, Intent, ThreadPart, Command, Reply, Ctx, apply, wire, decode
+    src/fixtures/           builders (protocol payloads), script (JSONL event scripts: seed/notify/request/key/resize)
+    tests/model.rs          apply on the plain model; tests/script.rs: the fixture loader
+  src/app.rs                UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug } }, ingest, send
+  src/run.rs                composition root: run_app_with, passes the shell's dialog watcher into the view
+  src/shell.rs, shell/      the only effect runner and spawner (client, tickets, epoch stamping, fake backend); names no widget
   src/theme.rs              style tokens from the rtwk ThemeData at the root (no literal colours)
   src/l10n/                 ADR-010: Lang, Tables<T>, the shared strings.rs (EN + a RU proof); each screen dir has its own strings.rs
   src/ui/view.rs            root: Theme, MultiProvider (model projections, handlers), Navigator (home: chat), request presenter
-  src/ui/thread_ui.rs       ThreadUi controllers (R14 allowlist)
-  src/ui/chat.rs            empty chat screen: transcript ListView, TextArea, footer
+  src/ui/{presenter,thread_ui,debug_menu,seeded}.rs   request presenter; ThreadUi controllers (R14 allowlist); debug menu; a seeded model for an entry
+  src/screens/<dir>/        22 view dirs: widgets, strings.rs, debug entries, fixtures/*.jsonl; no model, no protocol
+  host/                     the binary's backend (in-process app-server) and main
   tests/screens.rs          Tester over the app on a fake backend
   tests/pin.rs              rtwk HEAD == RTWK_REF; [patch] equals codex-rs's
+  tests/layers.rs, rules.rs layer and R-rule scans (one test per rule)
+  tests/fixtures.rs         debug entries over fixture scripts
 ```
 
 Done when: `codex-rtwk` starts against the in-process app-server, shows the
@@ -628,6 +650,43 @@ streamed answer as plain text, quits; `tests/screens.rs` and `tests/pin.rs`
 green; clippy with the R-rule lists clean;
 `verify_cargo_workspace_manifests.py` passes; the codex-rs workspace and
 lockfile untouched.
+
+## Layers (tm `skeleton-layers`)
+
+Four layers, one direction of knowledge. `core` (no rtwk, no tokio, no IO)
+holds the models, `apply`, the protocol mapping and every screen's model,
+events, intents and RPCs; failures are typed values and the words are the UI's
+string tables'. The views (`src/screens/<dir>/`, `src/ui/`, `src/l10n/`,
+`src/theme.rs`) are widgets that read the model through providers and send
+intents; they name no protocol, no shell, no tokio, no IO and never call
+`apply`. The `shell` is the only effect runner and spawner and names no
+widget. `run.rs` and `host/` are the composition: they name all of them and
+hand the shell's pieces to the view as values (`CloseWatcher`). The UI model
+is `UiApp { core: CodexApp, ui: UiState { nav_key, thread_ui, lang, debug } }`:
+what only a widget keeps is in `ui`, never in `core`.
+
+| the layer | may name | may not name | enforced by |
+|---|---|---|---|
+| core | protocol crate, serde, std (no IO, no clock, no threads) | rtwk, tokio, futures, UI types, IO | the compiler (`core/Cargo.toml` has no rtwk or runtime crate); `core/clippy.toml` (R1/R11/R12 without rtwk paths); `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
+| view | core, rtwk widgets, its own strings | protocol, `core::wire`, shell, tokio, IO, `apply` | `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `every_screen_dir_has_a_core_half_and_a_view_half`; R14 and ADR-010 in `rules.rs` |
+| shell | core, the protocol, tokio, rtwk's `Cx` and `DialogResult` for spawning | widgets, views, theme | `shell_names_no_widget`; R1 in `rules.rs` (`r1_spawn_paths_are_the_shells`) |
+| run, host | everything | - | the composition root; `r1_the_host_neither_spawns_nor_allows` |
+
+A screen directory is two halves of one name: `core/src/screens/<dir>.rs`
+(model, events, intents, RPCs, protocol wiring) and `src/screens/<dir>/`
+(view files only). One macro list (`screen_list!`) makes both, so a directory
+is registered once, and a slice edits only its own two halves.
+
+**Fixtures.** A screen's mock state is a JSONL event script in its view
+directory (`fixtures/*.jsonl`): `seed` (a ready session, a resume list),
+`notify` and `request` (the protocol's own JSON, taken from the oracle's tests),
+`key` and `resize` (inputs for a tester). Core's `fixtures::script` plays it
+through `CodexApp::ingest`, the live path, so a script cannot build a state the
+app cannot reach. A `DebugEntry` carries its script; the debug menu plays it
+and shows the real screen under the seeded model (`ui/seeded.rs`, provider
+shadowing). Worked examples: the chat's streamed answer, an exec approval
+request, a resume list from fake rollouts. Details and the oracle map:
+[parity/skeleton-layers.md](parity/skeleton-layers.md).
 
 ## rtwk gaps (work in the rtwk repository, its own tm)
 

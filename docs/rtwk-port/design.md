@@ -7,7 +7,7 @@ Rendered: [design.html](design.html). App state follows ADR-003, accepted by the
 state as values, rules R1–R14 (§6b). Corrected after the independent review
 [reviews/arch-review.md](reviews/arch-review.md): navigation and dialogs as in
 twk — `Navigator` + `PageRoute`, `show_dialog`, live data through
-`rtwk::provider` projections of the model (§2, §3, §7, §8), `ThreadUi` for per-thread widget state (§6), the shell
+`rtwk::provider` projections of the model (§2, §3, §7, §8), `ThreadUi` for per-thread widget state, held in the UI model, not the core one (§6), the shell
 spawns through rtwk-tokio (§4, §5), split pending maps (§6), counts in §6b.
 
 ## 1. System context
@@ -44,7 +44,7 @@ flowchart TB
   subgraph R["rtwk owns (never re-implemented in the app)"]
     r1["frame loop, frame pacing, terminal I/O, input decoding"]
     r2["widget tree, rebuild, layout, paint, damage diff"]
-    r3["widget state: scroll, focus, text editing, selection, animation (per-thread controllers held by the app in ThreadUi)"]
+    r3["widget state: scroll, focus, text editing, selection, animation (per-thread controllers held in the UI model, UiState.thread_ui)"]
     r4["coalescing work from other threads, list virtualization"]
     r5["navigation (Navigator, PageRoute), dialogs (show_dialog), providers, popovers, rich content: Markdown, Diff, Code, charts, images"]
   end
@@ -61,29 +61,38 @@ flowchart TB
 
 ## 3. Crate and module layout
 
+Two crates in one workspace and the arrows that are allowed (§3b says which
+rule holds each one): the core has no rtwk and no IO; the UI crate holds the
+views, the shell and the composition root; the host is the binary's backend.
+
 ```mermaid
 flowchart TB
-  subgraph crate["codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)"]
-    main["main.rs: arg0 dispatch, tokio runtime, start client, run_app_with (runtime entered)"]
-    app["app.rs: CodexApp (root state), ingress events, apply_app"]
-    subgraph session["shell + threads/"]
-      client["shell.rs: the only spawner; client via rtwk-tokio spawn_tokio / subscribe; epoch stamping"]
-      threads["threads/: per-thread models and apply (no replay)"]
-      stream["streaming: deltas, commit rules (carried-over chunking)"]
-      appr["approvals: server requests keyed by connection epoch"]
+  subgraph ws["codex-rs/tui-rtwk (own Cargo workspace, binary codex-rtwk)"]
+    subgraph core["codex-tui-rtwk-core (no rtwk, no tokio, no IO)"]
+      capp["app.rs: CodexApp (root model), AppEv, apply_app, ingest"]
+      cthreads["threads.rs: ThreadModel, apply, project (protocol to events), Failure"]
+      cscreens["screens/dir.rs, one per slice: model, events, intents, RPCs, wire"]
+      ccmd["commands: 69 slash commands, parsing, queue rules"]
+      cfix["fixtures/: builders, JSONL event scripts"]
+      cids["ids.rs, rpc.rs, wire.rs: ids, tickets, protocol requests and replies"]
     end
-    commands["commands/: 69 slash commands, parsing, queue rules"]
-    keymap["keymap/: tui.keymap config to rtwk Shortcuts, vim mode"]
-    theme["theme.rs"]
-    root["ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers"]
-    subgraph screens["screens/ (one directory per slice)"]
-      s1["chat, cells, composer, popovers, transcript, select"]
-      s2["approvals, settings, pager, backtrack, resume, status, usage"]
-      s3["agents, sidebar, dialogs, pets, voice"]
-      s4["update prompt S01, onboarding S02-S04, startup prompts S05, import S06"]
+    subgraph ui["codex-tui-rtwk (the rtwk app)"]
+      uapp["app.rs: UiApp with core: CodexApp and ui: UiState"]
+      root["ui/view.rs: Theme, MultiProvider of model projections and handlers, Navigator (home: chat), request presenter; ui/thread_ui.rs: ThreadUi controllers"]
+      subgraph screens["screens/dir/ (view files only, one directory per slice)"]
+        s1["chat, cells, composer, popovers, transcript, select"]
+        s2["approvals, settings, pager, backtrack, resume, status, usage"]
+        s3["agents, sidebar, dialogs, pets, voice"]
+        s4["update prompt S01, onboarding S02-S04, startup prompts S05, import S06"]
+      end
+      keymap["keymap/: tui.keymap config to rtwk Shortcuts, vim mode"]
+      theme["theme.rs, l10n/"]
+      shell["shell: the only effect runner and spawner; client via rtwk-tokio spawn_tokio / subscribe; epoch stamping; names no widget"]
+      run["run.rs: composition root, run_app_with (runtime entered)"]
     end
+    host["host/: main.rs (arg0 dispatch, tokio runtime), in-process app-server"]
     inline["inline/: inline screen mode S27 (last)"]
-    tests["tests/: screens per slice, session, scenarios, perf/"]
+    tests["tests/: screens per slice, layers.rs, rules.rs, fixtures, scenarios, perf/"]
   end
   subgraph reuse["carried over from codex-tui (copied, non-UI; REUSE minus renderers, with dependency closure)"]
     c1["app_server_session, app_command (protocol seam)"]
@@ -94,14 +103,31 @@ flowchart TB
     d1["codex-app-server-client / -protocol, codex-core config, arg0"]
     d2["rtwk, rtwk-rich, rtwk-data, rtwk-tokio, rtwk-test, rtwk-term"]
   end
-  reuse --> session
-  reuse --> keymap
-  main --> app --> root --> screens
-  app --> session
-  screens --> commands
+  uapp --> capp
+  root --> capp
+  screens --> cscreens
+  screens --> capp
+  shell --> capp
+  shell --> cids
+  run --> root
+  run --> shell
+  host --> run
+  host --> cids
+  root --> screens
   screens --> keymap
-  crate --> deps
+  reuse --> core
+  reuse --> keymap
+  ws --> deps
 ```
+
+### 3b. Layers: what may name what
+
+| layer | may name | may not name | held by |
+|---|---|---|---|
+| core | the protocol crate, serde, std without IO, clock or threads | rtwk, tokio, futures, UI types, IO | the compiler (`core/Cargo.toml`); `core/clippy.toml`; `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
+| view (`screens/dir/`, `ui/`, `l10n/`, `theme`) | core, rtwk widgets, its own strings | the protocol, `core::wire`, shell, tokio, IO, `apply` | `layers.rs`: `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `every_screen_dir_has_a_core_half_and_a_view_half`; `rules.rs`: R14, ADR-010 |
+| shell | core, the protocol, tokio, rtwk `Cx` and `DialogResult` (to spawn) | widgets, views, theme | `layers.rs`: `shell_names_no_widget`; `rules.rs`: `r1_spawn_paths_are_the_shells`, `r11_r12_no_clock_and_no_file_system_outside_the_shell` |
+| run, host | everything (the composition) | - | `rules.rs`: `r1_the_host_neither_spawns_nor_allows` |
 
 ## 4. Runtime: an event from the backend reaches the screen
 
@@ -139,7 +165,7 @@ sequenceDiagram
   participant AS as app-server
   U->>R: Enter in the composer of thread X
   R->>H: action
-  H->>IN: Intent Submit for thread X, text from ThreadUi (R10)
+  H->>IN: Intent Submit for thread X, text from the composer controller of ThreadUi (R10)
   IN->>M: in arrival order, after events already received
   M->>M: TurnState Idle to Running (R5), outgoing ticket 7 for (X, Ticket) (R3, R13)
   M-->>SH: Effects: Rpc start turn, ticket 7
@@ -172,8 +198,18 @@ classDiagram
     server_requests: ConnEpoch, ThreadId, ServerRequestId to Approval (R3, R13)
     tokens: Versioned Usage
   }
+  class UiApp {
+    core: CodexApp
+    ui: UiState
+  }
+  class UiState {
+    nav_key: GlobalKey
+    thread_ui: ThreadUiMap
+    lang: Lang
+    debug: bool
+  }
   class ThreadUi {
-    field of CodexApp, written by R14-allowlisted UI modules, not seen by apply
+    in UiState, written by R14-allowlisted UI modules, never in the core model, not seen by apply
     composer: TextEditingController
     scroll, selection controllers
   }
@@ -200,7 +236,9 @@ classDiagram
   CodexApp --> ThreadModel
   ThreadModel --> TurnState
   ThreadModel --> Approval
-  CodexApp ..> ThreadUi : view keyed by ThreadId
+  UiApp --> CodexApp : core
+  UiApp --> UiState : ui
+  UiState --> ThreadUi : keyed by ThreadId
   CodexApp --> Session
   Session --> Remote
 ```
@@ -210,7 +248,7 @@ running, total tokens, sidebar filter results, agents-center counts, footer
 hints, what the status line shows, `can_submit` and other predicates (R8).
 Not allowed: app data in rtwk widget-local state (`Obs`, `use_state`,
 hand-written `State`, controllers) outside UI-only modules — R14; IO in
-`apply` or views — R12; the clock read in views — R11. `ThreadUi` holds
+`apply` or views — R12; the clock read in views — R11. `ThreadUi`, kept in the UI model (`UiApp.ui`) and never in `CodexApp`, holds
 per-thread controllers (composer text, scroll, selection) so A→B→A keeps
 them; the model never mirrors the draft — the text enters `apply` as an
 intent on submit. App-scoped events (account, rate limits, app-level MCP
@@ -245,7 +283,7 @@ flowchart LR
   end
   subgraph rules["rule"]
     r1["R1 tickets on replies, spawn only in shell, epoch captured per subscription"]
-    r2["R2 per-thread data in ThreadModel, controllers in ThreadUi"]
+    r2["R2 per-thread data in ThreadModel, controllers in ThreadUi (UI model)"]
     r3["R3 thread-scoped apply and effects, connection-scoped server requests"]
     r4["R4 transcript upsert by TurnId, ItemId"]
     r4s["R4 resume snapshot replaces its turns"]
@@ -388,8 +426,8 @@ flowchart LR
 ## Open points on this design
 
 1. App state (§4–§6b) per accepted ADR-003 and the arch-review fixes; the
-   exact module split of `ThreadModel`, `ThreadUi` and the shell is settled
-   in the skeleton.
+   module split is settled in `skeleton-layers` (§3, §3b): `ThreadModel` in the
+   core crate, `ThreadUi` in the UI model, the shell in the UI crate.
 2. Which reusable codex-tui modules are copied in W1 vs with their screen
    (§3 "carried over") — from reuse-map.csv per slice.
 3. Sidebar and side panes as part of the chat screen (§8) or a split layout
