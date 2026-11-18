@@ -4,10 +4,11 @@
     python3 -I tools/rtwk-port/skill/generate.py            # write
     python3 -I tools/rtwk-port/skill/generate.py --check    # exit 1 when stale
 
-Reads: the pin's crates/rtwk/SKILL.md, docs/guide, crates/*/src (API index),
+Reads: the pin's crates/rtwk/SKILL.md (copied to references/guides/getting-started.md), docs/guide,
+crates/*/src (API index),
 crates/rtwk-gallery (catalog, imports) and tools/rtwk-port/skill/gallery-codes.jsonl
 (the gallery's Code-tab Rust and options, from refresh-codes.sh);
-authored inputs: tools/rtwk-port/skill/{skill-section.md, widgets-by-need.src.md,
+authored inputs: tools/rtwk-port/skill/{skill.src.md (the whole SKILL.md), widgets-by-need.src.md,
 recipes.src.md, snippets/*.rs}. Python standard library only.
 """
 import argparse
@@ -484,15 +485,74 @@ def gen_api(index, pid, report):
     return files
 
 
+STD_NAMES = {"Rc", "Arc", "Vec", "String", "Option", "Some", "None", "Ok", "Err", "Result", "Box", "Cell",
+             "RefCell", "Duration", "ExitCode", "Default", "Clone", "PartialEq", "Eq", "Fn", "FnOnce", "Self"}
+
+
+def check_names(index, pin, text, not_rtwk):
+    """The rtwk names skill.src.md writes that the pin lacks: CamelCase names (and `Type::member`) in
+    inline code, in the `+` lines of diff fences and in table cells after the first. Rust fences come
+    from snippets, which compile-snippets.sh compiles; a `-` line or a table's first cell is the
+    Flutter or ratatui side; `<!-- not rtwk: ... -->` lists the other names written on purpose."""
+    spans = []
+    fence = None
+    for ln in text.split("\n"):
+        if ln.startswith("```"):
+            fence = None if fence is not None else ln[3:].strip()
+            continue
+        if fence is not None:
+            if fence == "diff" and ln.startswith("+"):
+                spans.append(ln[1:])
+            continue
+        if ln.startswith("|"):
+            cells = ln.strip("|").split("|")
+            ln = "|".join(cells[1:])
+        spans.extend(re.findall(r"`([^`]+)`", ln))
+    unknown = []
+    file_text = {}
+    def has_member(items, member):
+        for it in items:
+            if member in it.variants or any(mm[0] == member for mm in it.methods):
+                return True
+            if any(mm[1] == member for mm in index.methods.get((it.crate, it.name), [])):
+                return True
+            t = file_text.setdefault(it.path, read(os.path.join(pin, it.path)))
+            if re.search(r"\b%s\b" % re.escape(member), t):
+                return True
+        return False
+    seen = set()
+    for sp in spans:
+        if "/" in sp or sp.startswith("#"):  # a path or a heading, not code
+            continue
+        for mm in re.finditer(r"(?<![\w:])([A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*|[A-Z]{2,}[a-z]\w*)(?:::([A-Za-z_]\w*))?", sp):
+            name, member = mm.group(1), mm.group(2)
+            if name in STD_NAMES or name in not_rtwk or (name, member) in seen:
+                continue
+            seen.add((name, member))
+            items = index.items.get(name, [])
+            if not items:
+                unknown.append("unknown name %s (in `%s`)" % (name, sp.strip()))
+            elif member and not has_member(items, member):
+                unknown.append("unknown member %s::%s (in `%s`)" % (name, member, sp.strip()))
+    return unknown
+
+
 def expand_directives(text, base, index, report, snippets_dir):
     def snip(m):
-        name = m.group(1)
+        name, part = m.group(1), m.group(2)
         p = os.path.join(snippets_dir, name + ".rs")
         if not os.path.exists(p):
             report.append("missing snippet %s" % name)
             return "(missing snippet %s)" % name
-        return "```rust\n%s\n```" % read(p).rstrip("\n")
-    text = re.sub(r"\{\{snippet ([\w-]+)\}\}", snip, text)
+        code = read(p)
+        if part:  # the lines after `// skill: <part>` up to the next `// skill:` marker
+            parts = re.split(r"^// skill: (\w+)\n", code, flags=re.M)
+            code = dict(zip(parts[1::2], parts[2::2])).get(part)
+            if code is None:
+                report.append("missing part %s of snippet %s" % (part, name))
+                return "(missing part %s of snippet %s)" % (part, name)
+        return "```rust\n%s\n```" % code.rstrip("\n")
+    text = re.sub(r"\{\{snippet ([\w-]+)(?:#(\w+))?\}\}", snip, text)
 
     def ref(m):
         name = m.group(1)
@@ -522,12 +582,21 @@ def build(pin, ref_file=None):
         p = os.path.join(HERE, src_name)
         if os.path.exists(p):
             files[dest] = header(pid, " Source: tools/rtwk-port/skill/%s." % src_name) + expand_directives(read(p), HERE, index, report, snippets_dir)
-    # SKILL.md: rtwk's, verbatim, a pin comment after the frontmatter, then the CodexCLI section
+    # SKILL.md: authored whole in skill.src.md (twk's skill's shape); rtwk's own guide goes to
+    # references/guides/getting-started.md, verbatim but for its frontmatter
     skill = read(os.path.join(pin, "crates/rtwk/SKILL.md"))
     m = re.match(r"(---\n.*?\n---\n)(.*)", skill, re.S)
-    front, rest = m.group(1), m.group(2)
+    files["references/guides/getting-started.md"] = (
+        header(pid, " Copied from crates/rtwk/SKILL.md, rtwk's own guide for agents.") + m.group(2).lstrip("\n"))
     problems = []
-    section = read(os.path.join(HERE, "skill-section.md"))
+    src = read(os.path.join(HERE, "skill.src.md"))
+    m = re.match(r"(---\n.*?\n---\n)(.*)", src, re.S)
+    front, body = m.group(1), m.group(2)
+    not_rtwk = set()
+    def take_not_rtwk(mm):
+        not_rtwk.update(mm.group(1).split())
+        return ""
+    body = re.sub(r"<!-- not rtwk: (.*?) -->\n", take_not_rtwk, body, flags=re.S)
     n_pages = sum(len(g["pages"]) for g in groups)
     n_heads = 0  # page headings, outside code fences (a Code tab may hold Markdown with "## ")
     for k, t in files.items():
@@ -540,10 +609,13 @@ def build(pin, ref_file=None):
                     n_heads += 1
     if n_heads != n_pages:
         problems.append("widgets/*.md has %d page headings for %d catalog pages" % (n_heads, n_pages))
-    section = section.replace("{{pages}}", str(n_pages)).replace("{{groups}}", ", ".join(g["slug"] for g in groups))
-    section = section.replace("{{n_groups}}", str(len(groups)))
-    files["SKILL.md"] = (front + "<!-- rtwk %s: crates/rtwk/SKILL.md verbatim up to the line \"CodexCLI\"; the CodexCLI section is tools/rtwk-port/skill/skill-section.md. Written by %s; do not edit. -->\n" % (pid, GEN)
-                         + rest.rstrip("\n") + "\n\n" + section.rstrip("\n") + "\n")
+    body = body.replace("{{pages}}", str(n_pages)).replace("{{groups}}", ", ".join(g["slug"] for g in groups))
+    body = body.replace("{{n_groups}}", str(len(groups)))
+    problems.extend("skill.src.md: %s" % u for u in check_names(index, pin, body, not_rtwk))
+    body = expand_directives(body, HERE, index, report, snippets_dir)
+    problems.extend("skill.src.md: %s" % ln for ln in re.findall(r"\(missing [^)]*\)", body))
+    files["SKILL.md"] = (front + "<!-- rtwk %s. Written by %s from tools/rtwk-port/skill/skill.src.md and snippets/; do not edit. -->\n" % (pid, GEN)
+                         + body.rstrip("\n") + "\n")
     # freshness inputs
     if head["pin"] != pid:
         problems.append("gallery-codes.jsonl is from pin %s, the pin is %s: run refresh-codes.sh" % (head["pin"], pid))
