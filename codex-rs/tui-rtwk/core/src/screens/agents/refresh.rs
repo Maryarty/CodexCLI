@@ -264,9 +264,16 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             return vec![out(Command::Interrupt { thread, turn }, Ctx::Interrupt)];
         }
         (Ctx::Stop { .. } | Ctx::Interrupt, Ok(_)) => {}
-        (Ctx::Pin { .. }, Err(error)) => {
+        (Ctx::Pin { pinned, .. }, Err(error)) => {
             model.pin_pending = false;
-            model.notice = Some(Notice::Error(error_text(error)));
+            // Oracle: `complete_agents_overview_pin`, then the list is read
+            // again whatever the answer was.
+            model.notice = Some(Notice::Error(format!(
+                "Failed to {} task: {}",
+                if pinned { "pin" } else { "unpin" },
+                error_text(error)
+            )));
+            return vec![list(model, None, false)];
         }
         (
             Ctx::Rename { .. } | Ctx::Resume { .. } | Ctx::Stop { .. } | Ctx::Interrupt,
@@ -284,6 +291,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                     pins.push(thread);
                 }
             }
+            return vec![list(model, None, false)];
         }
         (Ctx::Resume { thread }, Ok(_)) => {
             model.hidden.remove(&thread);

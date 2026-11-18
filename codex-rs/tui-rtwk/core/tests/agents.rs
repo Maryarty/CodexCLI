@@ -1512,6 +1512,41 @@ fn pin_reply_sets_state_and_new_pins_go_last() {
     assert_eq!(m.pinned, Some(vec![a, x]));
 }
 
+/// Oracle `complete_agents_overview_pin`: whatever the answer, the list is read
+/// again; a refusal says `Failed to pin task: ` / `Failed to unpin task: `.
+#[test]
+fn pin_answers_refresh_the_list_and_a_refusal_has_the_oracles_prefix() {
+    let mut sandbox = sandbox();
+    let target = id(1);
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Pinned(
+        Some(Vec::new()),
+    ))));
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let outs = up_t(&mut m, AgentsIntent::TogglePin);
+    let after = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+    assert_eq!(
+        after
+            .iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
+        vec![Command::List { cursor: None }]
+    );
+    for (pinned, word) in [(true, "pin"), (false, "unpin")] {
+        let ctx = Ctx::Pin {
+            thread: target.clone(),
+            pinned,
+        };
+        let after = apply_answer(&mut m, ctx, Err(RpcError::Remote("denied".into())));
+        assert_eq!(
+            m.notice,
+            Some(Notice::Error(format!("Failed to {word} task: denied")))
+        );
+        assert_eq!(after.len(), 1);
+        assert!(!m.pin_pending);
+    }
+}
+
 /// The core half of `lifecycle_shortcuts_target_filtered_task_in_any_state`
 /// (agents_overview_actions_tests.rs:223): the archive, delete and hide intents
 /// target the highlighted task whatever its status. The filter (search `Target`)
