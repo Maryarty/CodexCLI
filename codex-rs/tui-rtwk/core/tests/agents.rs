@@ -907,3 +907,34 @@ fn live_center_show_more_navigation_search_and_loading() {
         "agents-live: SearchAgentsOverview (history search, oracle agent_center_tests.rs:886-930) has no Command in the core"
     )
 }
+
+/// `hiding_rename_target_does_not_transfer_draft_to_neighbor`
+/// (agents_overview_actions_tests.rs:679): hiding the task being renamed drops
+/// the draft; the neighbour gets no rename, and Enter sends no rename.
+#[test]
+fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
+    let [target, neighbor] = [1, 2].map(id);
+    let mut sandbox = sandbox();
+    list(
+        &mut sandbox,
+        vec![
+            thread(&target, None, "Rename target", idle()),
+            thread(&neighbor, None, "Neighbor", idle()),
+        ],
+    );
+    intent(
+        &mut sandbox,
+        AgentsIntent::Select(Sel::Task(target.clone())),
+    );
+    intent(&mut sandbox, AgentsIntent::BeginRename);
+    intent(&mut sandbox, AgentsIntent::Type("Unsubmitted title".into()));
+    intent(&mut sandbox, AgentsIntent::Hide);
+    assert_eq!(model(&sandbox).rename, None);
+    let mut m = model(&sandbox).clone();
+    let outs = update(&mut m, AgentsIntent::Accept);
+    assert!(
+        outs.iter()
+            .all(|out| !matches!(out.command, Command::Rename { .. })),
+        "{outs:?}"
+    );
+}
