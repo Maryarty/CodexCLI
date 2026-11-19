@@ -5,12 +5,12 @@
 //! Oracle: `bottom_pane/status_line_style.rs` (`status_line_from_segments`,
 //! `StatusLineAccent::for_item`, `fallback_color`).
 
-use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk::layout::{Expanded, Row, SizedBox};
-use rtwk_core::unicode::{TextMode, string_width};
 use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
+use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::style::Attrs;
+use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::theme::Tokens;
 
@@ -127,7 +127,11 @@ pub struct Notice<'a> {
 impl Notice<'_> {
     /// The three spellings of `warning_labels`: full, compact, count.
     fn labels(&self, count: usize) -> [Vec<(String, Style)>; 3] {
-        let word = if count == 1 { self.singular } else { self.plural };
+        let word = if count == 1 {
+            self.singular
+        } else {
+            self.plural
+        };
         let sep = || (SEPARATOR.to_string(), self.secondary.clone());
         let key = || (self.key.to_string(), self.key_style.clone());
         let badge = || (self.badge.to_string(), self.secondary.clone());
@@ -139,7 +143,12 @@ impl Notice<'_> {
                 key(),
                 (self.view.to_string(), self.secondary.clone()),
             ],
-            vec![badge(), (count.to_string(), self.accent.clone()), sep(), key()],
+            vec![
+                badge(),
+                (count.to_string(), self.accent.clone()),
+                sep(),
+                key(),
+            ],
             vec![badge(), (count.to_string(), self.accent.clone())],
         ]
     }

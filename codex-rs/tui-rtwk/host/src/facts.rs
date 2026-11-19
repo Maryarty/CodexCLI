@@ -80,21 +80,25 @@ mod tests {
             directory_display(Path::new("/home/ann/dev/app"), Some(home)),
             "~/dev/app"
         );
-        assert_eq!(directory_display(Path::new("/tmp/project"), Some(home)), "/tmp/project");
-        assert_eq!(directory_display(Path::new("/tmp/project"), None), "/tmp/project");
+        assert_eq!(
+            directory_display(Path::new("/tmp/project"), Some(home)),
+            "/tmp/project"
+        );
+        assert_eq!(
+            directory_display(Path::new("/tmp/project"), None),
+            "/tmp/project"
+        );
     }
 
     #[test]
     fn project_root_is_the_git_roots_name() {
+        // This checkout is a git work tree: the name is its root directory's.
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = codex_git_utils::get_git_repo_root(here).expect("a git checkout");
+        let want = root.file_name().map(|n| n.to_string_lossy().to_string());
+        assert_eq!(project_root_name(here, None), want);
+        // Outside a repository there is none.
         let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path().join("rtwk");
-        std::fs::create_dir_all(root.join("src/deep")).expect("dirs");
-        std::fs::create_dir_all(root.join(".git")).expect("git");
-        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").expect("head");
-        assert_eq!(
-            project_root_name(&root.join("src/deep"), None).as_deref(),
-            Some("rtwk")
-        );
         assert_eq!(project_root_name(dir.path(), None), None);
     }
 }

@@ -190,8 +190,8 @@ pub enum Intent {
     PickCategory(usize),
     /// The consent step was answered: include logs or not.
     Consent(bool),
-    /// F2 or `/warnings`: the viewer over the retained warnings; nothing
-    /// retained opens nothing.
+    /// F2 or `/warnings`: the viewer over the retained warnings (none: its
+    /// empty page).
     OpenWarnings,
 }
 
@@ -208,9 +208,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
         Intent::Close => close(model),
         Intent::OpenWarnings => {
-            if !model.retained.is_empty() {
-                model.open = Some(Open::Warnings(Warnings::new(model.retained.clone())));
-            }
+            model.open = Some(Open::Warnings(Warnings::new(model.retained.clone())));
         }
         Intent::ToggleKeyboard => {
             if let Some(Open::Shortcuts(view)) = &mut model.open {

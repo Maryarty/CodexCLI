@@ -89,13 +89,19 @@ fn approval_mode_display_follows_the_policy_and_the_reviewer() {
             r#"{{"approval_policy":"{policy}","auto_review":{auto},"items":["approval-mode"]}}"#
         ))
     };
-    assert_eq!(case("on-request", true), pairs(&[("approval-mode", "Approve for me")]));
+    assert_eq!(
+        case("on-request", true),
+        pairs(&[("approval-mode", "Approve for me")])
+    );
     assert_eq!(
         case("on-request", false),
         pairs(&[("approval-mode", "Ask for approval")])
     );
     assert_eq!(case("never", false), pairs(&[("approval-mode", "never")]));
-    assert_eq!(case("untrusted", true), pairs(&[("approval-mode", "untrusted")]));
+    assert_eq!(
+        case("untrusted", true),
+        pairs(&[("approval-mode", "untrusted")])
+    );
 }
 
 // The person's screenshot: the order the config gives, project and branch
@@ -171,10 +177,13 @@ fn retained_warnings_are_counted_and_f2_opens_the_viewer_over_them() {
 }
 
 #[test]
-fn nothing_retained_opens_nothing() {
+fn nothing_retained_opens_the_empty_viewer() {
     let mut sandbox = Sandbox::play("# nothing retained").expect("plays");
     send(&mut sandbox, DialogIntent::OpenWarnings);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
+    let Some(Open::Warnings(view)) = &sandbox.app().screens.dialogs.open else {
+        panic!("not open");
+    };
+    assert!(view.entries.is_empty());
 }
 
 // A page shown and left is dismissed and no longer counts, a kept one stays;

@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! Screen tests of the session's status line and footer data (`status-data`).
 //! Oracle: `chatwidget/status_surfaces.rs` (the items), `bottom_pane/
 //! chat_composer/warning_notice.rs` and `warning_notice_tests.rs` (the
@@ -20,6 +22,7 @@ fn feed(h: &mut Harness, jsonl: &str) {
         h.fake.inject(epoch, AppEv::Screen(ev));
     }
     h.advance(300);
+    h.quiesce();
 }
 
 fn session(width: u16, jsonl: &str) -> Harness {
@@ -29,7 +32,10 @@ fn session(width: u16, jsonl: &str) -> Harness {
 }
 
 fn rows(h: &Harness) -> Vec<String> {
-    h.t.lines().iter().map(|r| r.trim_end().to_string()).collect()
+    h.t.lines()
+        .iter()
+        .map(|r| r.trim_end().to_string())
+        .collect()
 }
 
 fn status(model: &str, items: &str, colors: bool) -> String {
@@ -90,7 +96,9 @@ fn without_a_configured_list_the_default_items_show() {
     let line = r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.4","effort":"xhigh","cwd":"/tmp/project"}}}"#;
     let h = session(80, line);
     assert!(
-        rows(&h).iter().any(|r| r == "  gpt-5.4 xhigh · /tmp/project"),
+        rows(&h)
+            .iter()
+            .any(|r| r == "  gpt-5.4 xhigh · /tmp/project"),
         "{}",
         h.t.screen()
     );
@@ -105,12 +113,29 @@ fn colours_off_make_the_line_plain() {
             .iter()
             .position(|r| r.starts_with("  GPT-6.2-Sol"))
             .expect("status row");
-        (h.t.cell(2, y).fg, h.t.cell(2 + "GPT-6.2-Sol high".len() + 1, y).fg)
+        (
+            h.t.cell(2, y).fg,
+            h.t.cell(2 + "GPT-6.2-Sol high".len() + 1, y).fg,
+        )
     };
-    let on = session(80, &status("GPT-6.2-Sol", r#"["model-with-reasoning","git-branch"]"#, true));
+    let on = session(
+        80,
+        &status(
+            "GPT-6.2-Sol",
+            r#"["model-with-reasoning","git-branch"]"#,
+            true,
+        ),
+    );
     let (model, separator) = fg(&on);
     assert_ne!(model, separator, "{}", on.t.screen());
-    let off = session(80, &status("GPT-6.2-Sol", r#"["model-with-reasoning","git-branch"]"#, false));
+    let off = session(
+        80,
+        &status(
+            "GPT-6.2-Sol",
+            r#"["model-with-reasoning","git-branch"]"#,
+            false,
+        ),
+    );
     let (model, separator) = fg(&off);
     assert_eq!(model, separator, "{}", off.t.screen());
 }
@@ -118,7 +143,10 @@ fn colours_off_make_the_line_plain() {
 // Nothing read yet: no status row, the footer alone.
 #[test]
 fn no_facts_no_status_row() {
-    let h = session(80, r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["model-name"]}}}"#);
+    let h = session(
+        80,
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"items":["model-name"]}}}"#,
+    );
     assert_eq!(status_row(&h), "", "{}", h.t.screen());
 }
 
@@ -129,16 +157,26 @@ fn warning_notice_is_at_the_footer_right() {
     let h = session(80, &retained(3));
     let rows = rows(&h);
     let last = rows.last().expect("rows");
-    assert!(last.starts_with("  ← for agents · ? for shortcuts"), "{last}");
+    assert!(
+        last.starts_with("  ← for agents · ? for shortcuts"),
+        "{last}"
+    );
     assert!(last.ends_with("⚠ 3 warnings · f2 to view"), "{last}");
-    assert_eq!(last.chars().count(), 79, "one clear cell at the edge:\n{last}");
+    assert_eq!(
+        last.chars().count(),
+        79,
+        "one clear cell at the edge:\n{last}"
+    );
     // The count is the warning accent, the key bold, the rest secondary.
     let y = rows.len() - 1;
     let at = |col: usize| h.t.cell(col, y);
     assert_eq!(at(54).text, "⚠");
     assert_ne!(at(56).fg, at(54).fg, "the count has the warning colour");
     assert_eq!(at(54).fg, at(67).fg, "the separator is secondary");
-    assert!(at(69).attrs.0 & rtwk_core::style::Attrs::BOLD.0 != 0, "f2 is bold");
+    assert!(
+        at(69).attrs.0 & rtwk_core::style::Attrs::BOLD.0 != 0,
+        "f2 is bold"
+    );
 }
 
 // `plural`, and the compact form when the full one does not fit the budget
@@ -146,7 +184,12 @@ fn warning_notice_is_at_the_footer_right() {
 #[test]
 fn warning_notice_pluralizes_and_compacts() {
     let h = session(80, &retained(1));
-    assert!(rows(&h).last().expect("rows").ends_with("⚠ 1 warning · f2 to view"));
+    assert!(
+        rows(&h)
+            .last()
+            .expect("rows")
+            .ends_with("⚠ 1 warning · f2 to view")
+    );
     let h = session(48, &retained(3));
     let last = rows(&h).last().cloned().expect("rows");
     assert!(last.ends_with("⚠ 3 · f2"), "{last}");
@@ -175,12 +218,11 @@ fn f2_opens_the_retained_warnings_and_dismissal_updates_the_count() {
     assert!(screen.contains("⚠ 2 warnings · f2 to view"), "{screen}");
 }
 
-// F2 with nothing retained opens nothing.
+// F2 with nothing retained shows the viewer's empty page.
 #[test]
-fn f2_without_warnings_opens_nothing() {
+fn f2_without_warnings_shows_the_empty_viewer() {
     let mut h = session(80, "");
-    let before = h.t.screen();
     h.press("f2");
     h.t.pump_for(crate::common::ms(500));
-    assert_eq!(h.t.screen(), before);
+    assert!(h.t.screen().contains("No warnings"), "{}", h.t.screen());
 }

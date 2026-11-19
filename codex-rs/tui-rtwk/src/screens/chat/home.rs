@@ -152,12 +152,9 @@ fn prompt(text: &'static str) -> AnyWidget {
 /// A line the user sent from the composer: a command opens its screen, asks
 /// the session or says why not (the decision is core's `dispatch`); anything
 /// else is a message for the model.
-/// F2 and `/warnings`: the viewer over the retained warnings (nothing
-/// retained opens nothing).
+/// F2 and `/warnings`: the viewer over the retained warnings (with none it
+/// shows its empty page, `No warnings`).
 fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
-    if read::<ScreenStates, _>(cx).dialogs.retained.is_empty() {
-        return;
-    }
     cx.emit(&hs.screen, ScreenIntent::from(dialogs::Intent::OpenWarnings));
     open(cx, Target::Dialogs);
 }
