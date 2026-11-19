@@ -69,6 +69,8 @@ pub enum ChatMsg {
     Search(SearchKey),
     /// `?`: the shortcut overlay (the footer's hint).
     Shortcuts,
+    /// The composer's text changed (the field's own notification).
+    Changed(Rc<str>),
 }
 
 /// What a key does while reverse history search is open.
@@ -253,6 +255,17 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
+            ChatMsg::Changed(text) => {
+                // `?` typed into an empty composer is the shortcut (the
+                // oracle's `footer_shortcuts_default`), decided where the
+                // field reports the edit: the character does not stay, and
+                // with text before it the key typed as any other.
+                if &*text == "?" {
+                    w.ui.composer.clear();
+                    let action = l10n::of(cx).pages.action_shortcuts;
+                    drop(page_keys::not_yet(cx, action));
+                }
+            }
             ChatMsg::Shortcuts => {
                 let action = l10n::of(cx).pages.action_shortcuts;
                 drop(page_keys::not_yet(cx, action));
@@ -394,6 +407,7 @@ impl State for ChatState {
                     .min_lines(1)
                     .max_lines(6)
                     .autofocus(true)
+                    .on_changed(cx.map(ChatMsg::Changed))
                     .on_submitted(cx.map(ChatMsg::Submit));
                 let data = states.clone();
                 let table = chat_strings;

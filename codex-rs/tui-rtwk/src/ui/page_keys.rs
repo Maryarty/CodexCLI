@@ -88,7 +88,7 @@ fn key_names(display: &str) -> Vec<String> {
             let part = part.trim().replace(" + ", "+");
             // `⌃c`: the control sign and the character.
             if let Some(rest) = part.strip_prefix('\u{2303}') {
-                return format!("ctrl+{rest}");
+                return ["ctrl+", rest].concat();
             }
             match part.as_str() {
                 "\u{2191}" => "up".to_owned(),

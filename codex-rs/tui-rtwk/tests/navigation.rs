@@ -464,3 +464,28 @@ fn resume_footer_keys_are_bound() {
     h.t.pump_for(crate::common::ms(600));
     assert_session_back(&h);
 }
+
+/// `?` on an empty composer opens the shortcuts (not built yet: the popup);
+/// with text in it the key passes through and types the character. Decided at
+/// the field by `EditingKeys`, as the oracle's footer shortcut is.
+#[test]
+fn question_mark_is_the_shortcut_on_an_empty_composer_only() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.t.type_text("?");
+    h.t.pump_for(crate::common::ms(600));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Not implemented yet: shortcut overlay"),
+        "{screen}"
+    );
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(600));
+    assert!(!h.t.screen().contains("Not implemented yet"));
+
+    h.t.type_text("a?");
+    h.t.pump_for(crate::common::ms(300));
+    let screen = h.t.screen();
+    assert!(!screen.contains("Not implemented yet"), "{screen}");
+    assert!(screen.contains("a?"), "{screen}");
+}

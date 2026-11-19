@@ -175,6 +175,10 @@ fn g41_probe_key_hints_bar_has_no_priority() {
     t.pump_widget(bar);
     let row = t.screen();
     let oracle = "⌃o dense   ⌃t preview   \u{2191}/\u{2193} browse";
-    assert_ne!(row.trim_end(), oracle, "the bar would fit as the oracle does");
+    assert_ne!(
+        row.trim_end(),
+        oracle,
+        "the bar would fit as the oracle does"
+    );
     assert!(row.contains("⌃e"), "{row}");
 }

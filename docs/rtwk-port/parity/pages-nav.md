@@ -18,8 +18,14 @@ Task `pages-nav`: lay the app's navigation out as architecture §1 "Amendment
 `←/→`, `⌃c`, `ctrl + t`, `1–6`) and maps them to the keys the bar names, with
 a label map back, so the bar shows them as the oracle writes them.
 
-rtwk finding: `KeyHintsBar` fed by bindings drops a plain character key while
-a text field has the focus, so `?` is shown with `from_pairs`; the `?`
-binding itself is then swallowed by the composer (the oracle fires it on an
-empty composer only): the binding exists, the popup for it is unreachable by
-keyboard until the composer hands an empty-composer `?` up.
+`?` on the session page (the person: not an rtwk gap, decided at the field):
+`rtwk::editing::EditingKeys` was tried first (`TakeKey` = `Fn(&controller, &key,
+KeyCx) -> bool`): a taken key is consumed by the field (the page's `?` binding
+never sees it) and the closure has no `Emit`/`Cx`, so it cannot open the popup
+itself. The decision is made where the field reports the edit instead: the
+composer's `on_changed` (`ChatMsg::Changed`): the text is exactly `?` (typed
+into an empty composer) -> the character is cleared and the shortcuts popup
+opens; `a?` types the character. Test:
+`navigation::question_mark_is_the_shortcut_on_an_empty_composer_only`.
+(If `EditingKeys` should be the door: a `TakeKey` variant that can emit a
+`Handler`, or a taken key that bubbles to the ancestors' bindings.)
