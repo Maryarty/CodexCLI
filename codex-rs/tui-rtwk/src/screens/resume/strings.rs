@@ -80,11 +80,24 @@ pub struct Strings {
     pub expand_wide: &'static str,
     pub expand_compact: &'static str,
     pub browse: &'static str,
+    /// Oracle: `render_list`, `SESSION_META_*_ICON`: the row's marker (the
+    /// selected one and the others), the unread dot and the icons before a
+    /// cwd and a branch.
+    pub marker_selected: &'static str,
+    pub marker_other: &'static str,
+    pub unread_dot: &'static str,
+    pub cwd_icon: &'static str,
+    pub branch_icon: &'static str,
 }
 
 /// English: the oracle's text.
 pub const EN: Strings = Strings {
     blank: " ",
+    marker_selected: "› ",
+    marker_other: "  ",
+    unread_dot: "● ",
+    cwd_icon: "⌁ ",
+    branch_icon: "\u{e0a0} ",
     title: "resume and fork picker",
     header: "Resume a previous session",
     search_hint: "Type to search",

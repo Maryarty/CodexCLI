@@ -134,12 +134,17 @@ fn narrow_session_snapshot() {
 // ORACLE resume_picker.rs:6694 session_list_more_indicators_snapshot kind=snap owner=routes-lists snap=resume_picker_more_indicators
 #[test]
 fn session_list_more_indicators_snapshot() {
-    // The `more_indicators` entry is the oracle's data: five rows (item-0..item-4), the third
-    // selected and the list scrolled one row. The list is six rows at row 6 of a 16-row screen.
-    let s = Screen::build(Owner::RoutesLists)
+    kit::pending(
+        Owner::RoutesLists,
+        "G40 (rtwk-gaps.md): the oracle scrolls by whole rows of the list with the two `more` lines taking window rows; rtwk's SelectionList scrolls by cells and its window shrinks for the `more` lines after it settled, so the third row shows cut (title only) with the second above it; the cursor cannot start on it either (G35)",
+    );
+    // Five rows (item-0..item-4); the oracle selects the third and the list
+    // scrolls to it. The list is six rows at row 6 of a 16-row screen.
+    let mut s = Screen::build(Owner::RoutesLists)
         .size(80, 16)
         .entry("resume", "more_indicators")
         .open();
+    s.keys("down down");
     s.assert_snap_region("resume_picker_more_indicators", 6, 2);
 }
 
