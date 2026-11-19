@@ -26,7 +26,7 @@ pub struct Ink {
 
 const GAP: i32 = 4;
 
-fn cells(seg: &Measure, text: &str) -> usize {
+fn cells(seg: Measure, text: &str) -> usize {
     seg.width(text)
 }
 
@@ -37,20 +37,20 @@ impl Group {
 
     /// The widest of its title and its rows (the key column and two blanks
     /// before the action).
-    fn width(&self, seg: &Measure) -> usize {
+    fn width(&self, seg: Measure) -> usize {
         let key = self.entries.iter().map(|(key, _)| cells(seg, key)).max().unwrap_or(0);
         let rows = self.entries.iter().map(|(_, action)| key + 2 + cells(seg, action));
         rows.chain([cells(seg, &self.title)]).max().unwrap_or(0)
     }
 
     /// The widest key (the keys of the rows cut off count too).
-    fn keys(&self, seg: &Measure) -> i32 {
+    fn keys(&self, seg: Measure) -> i32 {
         let widest = self.entries.iter().map(|(key, _)| cells(seg, key)).max();
         i32::try_from(widest.unwrap_or(0)).unwrap_or(0)
     }
 
     /// The group's title and its first `rows - 1` entries.
-    fn grid(&self, seg: &Measure, rows: usize, ink: &Ink) -> AnyWidget {
+    fn grid(&self, seg: Measure, rows: usize, ink: &Ink) -> AnyWidget {
         let mut grid = Grid::new()
             .overflow_intended(true)
             .columns([GridTrack::fixed(self.keys(seg)), GridTrack::content()])
@@ -66,7 +66,7 @@ impl Group {
 }
 
 /// Groups stacked with a blank row between, cut to `keep` rows.
-fn stacked(seg: &Measure, groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
+fn stacked(seg: Measure, groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
     let mut column = Column::new()
         .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
@@ -93,7 +93,7 @@ fn stacked(seg: &Measure, groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidge
 /// The help under its `title`, in `width` cells and `fits` rows: the columns
 /// the width holds, and the resize note (`resize`) when the rows do not fit.
 pub fn help(
-    seg: &Measure,
+    seg: Measure,
     title: &str,
     groups: &[Group; 3],
     (width, fits): (usize, usize),

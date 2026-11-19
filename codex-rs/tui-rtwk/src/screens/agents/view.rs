@@ -409,7 +409,7 @@ pub fn header(
 /// A heading of the list (oracle: `render_center_rows`, the `Group` arm);
 /// `width` is the room the row has.
 fn heading(
-    seg: &Measure,
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -468,7 +468,7 @@ fn metadata(cells: Row, status: (&str, &Style), age: (String, &Style)) -> Row {
 /// One entry of the list as a one-row widget `width` cells wide.
 #[allow(clippy::too_many_arguments)]
 fn entry(
-    seg: &Measure,
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -682,7 +682,7 @@ fn rows_in(
                 let (look, agents, center, taps) =
                     (look.clone(), agents.clone(), center.clone(), taps.clone());
                 Rc::new(move |index, selected| {
-                    entry(&seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                    entry(seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
                 })
             },
             selection: controls.selection.clone(),
@@ -736,7 +736,7 @@ fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWi
 }
 
 /// The rows a text of the details takes at the pane's width.
-fn flow(seg: &Measure, text: &str, style: &Style) -> Vec<Line> {
+fn flow(seg: Measure, text: &str, style: &Style) -> Vec<Line> {
     soft::rows(seg, text, DETAILS_WIDTH)
         .into_iter()
         .map(|row| vec![span(row, style)])
@@ -765,14 +765,14 @@ pub fn details(
             return AnyWidget::default();
         };
         let height = usize::try_from(constraints.max_height).unwrap_or(0);
-        let lines = detail_lines(&segmenter_of(cx), &look, &strings, &num, row, &agents, height);
+        let lines = detail_lines(segmenter_of(cx), &look, &strings, &num, row, &agents, height);
         top(stacked(lines.into_iter().map(one).collect()))
     })
     .into()
 }
 
 fn detail_lines(
-    seg: &Measure,
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
@@ -1075,7 +1075,7 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
     inset(LayoutBuilder::new(move |cx, constraints| {
         let room = |cells: i32| usize::try_from(cells).unwrap_or(0);
         let size = (room(constraints.max_width), room(constraints.max_height));
-        help::help(&segmenter_of(cx), title, &groups, size, resize, &ink)
+        help::help(segmenter_of(cx), title, &groups, size, resize, &ink)
     }))
 }
 

@@ -30,7 +30,7 @@ pub struct Strip {
     pub widths: Vec<usize>,
 }
 
-pub fn strip(seg: &TextSegmenter, labels: &[String], active: usize, width: usize) -> Strip {
+pub fn strip(seg: TextSegmenter, labels: &[String], active: usize, width: usize) -> Strip {
     let count = labels.len();
     let none = Strip { start: 0, end: 0, left: false, right: false, widths: Vec::new() };
     if count == 0 || width == 0 {
@@ -84,12 +84,12 @@ fn mark(text: &'static str, style: &Style) -> AnyWidget {
 impl Tabs {
     pub fn widget(self) -> AnyWidget {
         LayoutBuilder::new(move |cx, constraints| {
-            self.row(&segmenter_of(cx), usize::try_from(constraints.max_width).unwrap_or(0))
+            self.row(segmenter_of(cx), usize::try_from(constraints.max_width).unwrap_or(0))
         })
         .into()
     }
 
-    fn row(&self, seg: &TextSegmenter, width: usize) -> AnyWidget {
+    fn row(&self, seg: TextSegmenter, width: usize) -> AnyWidget {
         let shown = strip(seg, &self.labels, self.active, width);
         let (selected, idle) = &self.styles;
         let blank = |cells: i32| -> AnyWidget { SizedBox::fixed(cells, 1).into() };
@@ -127,9 +127,9 @@ mod tests {
             .iter()
             .map(ToString::to_string)
             .collect();
-        let narrow = strip(&TextSegmenter::default(), &labels, 0, 44);
+        let narrow = strip(TextSegmenter::default(), &labels, 0, 44);
         assert_eq!((narrow.start, narrow.end, narrow.right), (0, 3, true));
-        let wide = strip(&TextSegmenter::default(), &labels, 0, 76);
+        let wide = strip(TextSegmenter::default(), &labels, 0, 76);
         assert_eq!((wide.end, wide.right), (5, false));
     }
 }
