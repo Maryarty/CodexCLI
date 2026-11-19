@@ -347,10 +347,34 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
 | Oracle | Port |
 |---|---|
 | `codex agents` starts or reuses the local daemon (`start_with_features_classified`) and connects over its UDS | `host/src/in_process.rs` `connect_first`; default for `agents`; verified by hand in a pty against the real daemon (real tasks shown) |
-| `--no-daemon` embeds the app server | `Mode::resolve` in `host/src/target.rs`; the agents scenario runs `agents --no-daemon` on our side (a fresh CODEX_HOME has no installed daemon package) |
+| `--no-daemon` embeds the app server | `Mode::resolve` in `host/src/target.rs`; see daemon-fallback below |
 | `--remote ADDR` (`ws://`, `wss://` with `--remote-auth-token-env`, `unix://`) and its refusals (`--no-daemon` with `--remote`, token over plain ws to non-loopback) | `host/src/target.rs` `resolve_remote_addr`, tests ported there; `Cli.remote*` in `src/lib.rs`, `tests/cli.rs` |
 | reconnect policy 0, 1, 2, 4, then 8 s, budget 120 s; "Reconnecting - agent list is stale", "Reconnect failed - agent list is stale; relaunch to retry" | `src/shell/reconnect.rs`; tests `tests/shell_connection.rs` on tokio paused time (shown biting: delays mutated, red); core `core/tests/agents_reconnect.rs` (`reconnecting_drops_the_stale_reads_and_says_so`, `a_new_connection_ends_the_notice_and_reads_the_list`, `a_failed_reconnect_asks_for_nothing`) |
 | older-server notice `Service v{server} {<|!=} Codex CLI v{client}` (+ ` / daemon` locally), lowest footer priority | `src/shell/version.rs`, `Model.server_version`, tests `tests/shell_connection.rs` (stable/prerelease/other lines/words) |
 | `refreshing_one_backends_pins_preserves_cross_backend_rank`, `overview_keeps_rows_and_routes_actions_to_the_owner`, `shared_overview_*` | NOT DONE. The oracle's only second backend is the feature-gated Cloud one (`BackendId`, `BackendRegistry`); the port has no cloud connector and core has no owner per row, per-backend pins/cursors or owner-routed commands. A core refactor plus a connector is needed; left for a decision |
 
 Notes: the epoch of the connection is kept across a reconnect and in-flight work is dropped; after `Reconnected` core reads the list again.
+
+## daemon-fallback (a fresh CODEX_HOME without the daemon package)
+
+The oracle does not fall back to the embedded server here. `codex agents` calls `start_with_features_classified`; with an unpackaged CLI and no installed daemon it fails at once with `this CLI has no complete local package; install a packaged Codex CLI or use the standalone installer` plus the hint `To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).`, `run_main_inner` returns it and the process ends `Error: <text>` (exit 1). Ours did the same call but showed the error nowhere on the command center: it stayed on "Loading tasks...".
+
+| Oracle | Port |
+|---|---|
+| any start error ends the process with `Error: <message>` after the terminal is restored | core `AppFx::ends_app` (set by `AppEv::StartFailed`), `UiApp::ingest` quits; the host hands the message to `main` (`InProcess.failed`) which returns it; tests `a_start_failure_ends_the_app`, `a_connection_that_does_not_start_ends_the_app`; checked by hand in a pty: the oracle's two lines, byte for byte |
+| `-c key=value` over the config; overrides other than `features.*` bool, `suppress_unstable_features_warning`, `tui.fullscreen_transcript` exclude the daemon (`daemon_startup::config_exclusion`) and a notice `Running without the shared background server: command-line configuration overrides (-c, --enable, --disable, or --search) requires embedded mode.` is shown | `Cli.config_overrides`, `host/src/target.rs` `config_exclusion`/`startup_warning` (test `feature_overrides_allow_daemon_without_allowing_arbitrary_config` ported, `overrides_the_daemon_cannot_take_keep_the_command_center_embedded`), applied with `ConfigBuilder::cli_overrides`; the notice is kept among the startup warnings (`/warnings`), the oracle puts it into the chat history as a `StartupWarningsCell` (the chat history is not built from it here) |
+| scenario `agents` | oracle `-c analytics.enabled=false agents --no-daemon`, ours `-c analytics.enabled=false agents` (default mode; `-c` makes the oracle's default mode embedded as well): 6/6 scenarios green |
+
+Not ported: `--enable/--disable/--search` flags (so the exclusion by them is unreachable), the other exclusions (`--oss`, `--profile`, workload identity, executor URL, GCP/gateway wizards, WSL DrvFS), `daemon_recovery` (feature mismatch restart).
+
+## agents-cloud (multi-backend overview), partly done
+
+Oracle (rust-v0.170.0): `Feature::TuiMultiBackend` + `cloud_preview_available` + macOS/Linux + no workload identity/config server -> `cloud_backend::connect(&config)` (`app-server-client/src/cloud_backend`, used as it is) is registered next to the local session (`app/backend_sessions.rs`); the overview merges the sessions' rows.
+
+| Oracle | Port |
+|---|---|
+| `BackendRegistry::observe/owner` (first backend that lists an id owns it; later rows of that id are dropped) | DONE in core: `Model::observe`, `owners`, `owner_of` (`core/src/screens/agents/mod.rs`), `merge_page(owner, ..)`; `Ev::ListedBy(BackendId, Page)` |
+| `pins_by_backend`, ranks over its values; `refreshing_one_backends_pins_preserves_cross_backend_rank` | DONE: `Model::set_pins`, `pins_by_backend`, `pinned` derived; test `core/tests/agents_backends.rs::refreshing_one_backends_pins_preserves_cross_backend_rank` |
+| `overview_keeps_rows_and_routes_actions_to_the_owner` | rows/owners/pins part ported as `overview_keeps_rows_and_owners_per_backend` (a list page is the unit here, not the oracle's refresh result: no `None` reads, so 3 rows not 2). NOT DONE: `ResumeBackendSession` (selecting a remote-owned row switches the displayed session), pin action unsupported when the displayed backend has no pins, `ThreadNameUpdated` of the displayed backend for a foreign id |
+| per-backend discovery/paging (`discovery: HashMap<BackendId,..>`, `initialized`, `active_refresh: (Uuid, BackendId)`, `has_more(backend)`), `shared_overview_*`, cloud archive/discovery tests | NOT DONE |
+| the cloud connector in host/shell, the feature gate, one ingress per backend with its own epoch, commands carrying the owner | NOT DONE |

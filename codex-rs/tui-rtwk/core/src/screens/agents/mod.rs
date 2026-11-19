@@ -43,6 +43,7 @@ use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
 
 use crate::app::AppFx;
+use crate::ids::BackendId;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -338,8 +339,19 @@ pub struct Model {
     /// fetched for the plans that show it).
     pub plan: Option<PlanType>,
     pub backend_auth: bool,
-    /// The pinned threads in rank order; `None`: the server has no pins.
+    /// The pinned threads in rank order across the backends; `None`: no
+    /// backend has pins. Derived from `pins_by_backend`.
     pub pinned: Option<Vec<String>>,
+    /// The backend the chat shows; its rows are the ones the list pages of
+    /// `Ev::Listed` belong to (oracle: `app_server_backend_id`).
+    pub displayed: BackendId,
+    /// The backend that owns each thread: the first that listed it (oracle:
+    /// `BackendRegistry::observe`). A later backend's row of the same id is
+    /// dropped.
+    pub owners: BTreeMap<String, BackendId>,
+    /// Each backend's pins in its own rank order; `None`: it has none
+    /// (oracle: `pins_by_backend`).
+    pub pins_by_backend: BTreeMap<BackendId, Option<Vec<String>>>,
     /// The thread the chat shows (oracle: `is_current`).
     pub current: Option<String>,
     /// The clock, epoch seconds (R11).
@@ -430,9 +442,36 @@ pub enum Ev {
     ThreadColors(bool),
     /// `tui.agents_overview_grouping`: the grouping the center opens with.
     Grouping(Grouping),
+    /// A page of one backend's list (`Listed` is the displayed backend's).
+    ListedBy(BackendId, Page),
 }
 
 impl Eq for Ev {}
+
+impl Model {
+    /// Claims `id` for `owner` unless another backend holds it; whether
+    /// `owner` owns it (oracle: `BackendRegistry::observe`).
+    pub fn observe(&mut self, owner: BackendId, id: &str) -> bool {
+        *self.owners.entry(id.to_owned()).or_insert(owner) == owner
+    }
+
+    /// The backend a task belongs to: its owner, the displayed one when no
+    /// backend has claimed it (oracle: `owner(id).or(displayed)`).
+    pub fn owner_of(&self, id: &str) -> BackendId {
+        self.owners.get(id).copied().unwrap_or(self.displayed)
+    }
+
+    /// Sets one backend's pins and derives the order across the backends
+    /// (oracle: `pins_by_backend`, ranked over its values).
+    pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
+        self.pins_by_backend.insert(owner, pins);
+        self.pinned = self
+            .pins_by_backend
+            .values()
+            .any(Option::is_some)
+            .then(|| self.pins_by_backend.values().flatten().flatten().cloned().collect());
+    }
+}
 
 /// One page of `thread/list`.
 #[derive(Clone, Debug, PartialEq)]

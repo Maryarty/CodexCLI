@@ -40,21 +40,25 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     // are loaded by the backend future, after the terminal has painted the
     // composer (the oracle's `StartupDraft`); a failure arrives as `StartFailed`.
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-    let mode = target::Mode::resolve(
-        &target::Flags {
-            no_daemon: cli.no_daemon,
-            agents: cli.agents,
-            remote: cli.remote.as_deref(),
-            remote_auth_token_env: cli.remote_auth_token_env.as_deref(),
-        },
-        |name| std::env::var(name),
-    )?;
+    let (failed_tx, mut failed_rx) = tokio::sync::oneshot::channel::<String>();
+    let flags = target::Flags {
+        no_daemon: cli.no_daemon,
+        agents: cli.agents,
+        remote: cli.remote.as_deref(),
+        remote_auth_token_env: cli.remote_auth_token_env.as_deref(),
+        config_overrides: &cli.config_overrides,
+    };
+    let mode = target::Mode::resolve(&flags, |name| std::env::var(name))?;
+    let startup_warning = target::startup_warning(&flags);
     let backend = Backend::Connector(Box::new(in_process::InProcess {
         arg0_paths,
         mode,
         done: done_tx,
         model: cli.model.clone(),
         cwd: cli.cwd.clone(),
+        config_overrides: cli.config_overrides.clone(),
+        startup_warning,
+        failed: failed_tx,
     }));
     let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
@@ -68,5 +72,11 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     if let Ok(Ok(client)) = tokio::time::timeout(SHUTDOWN_WAIT, done_rx).await {
         let _ = client.shutdown().await;
     }
-    result.map_err(|error| anyhow::anyhow!("the terminal app failed: {error}"))
+    result.map_err(|error| anyhow::anyhow!("the terminal app failed: {error}"))?;
+    // The server did not start: the process ends with the error, as the
+    // oracle's does (`Error: <message>`), after the terminal is restored.
+    if let Ok(message) = failed_rx.try_recv() {
+        anyhow::bail!(message);
+    }
+    Ok(())
 }

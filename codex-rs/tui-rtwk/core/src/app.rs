@@ -165,12 +165,20 @@ pub enum Command {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
+    /// The app cannot go on: the connection did not start (the oracle ends
+    /// with the error, `run_main_inner` returning it).
+    pub(crate) ends: bool,
 }
 
 impl AppFx {
     /// The commands, taken: what the shell runs.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
+    }
+
+    /// Whether the app ends: its connection did not start.
+    pub fn ends_app(&self) -> bool {
+        self.ends
     }
 
     /// The commands requested, in order.
@@ -292,7 +300,10 @@ fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             app.outgoing.insert(ticket, AppCtx::StartThread);
             fx.commands.push(Command::StartThread { ticket });
         }
-        AppEv::StartFailed(message) => set_status(app, Session::Failed(Failure::Message(message))),
+        AppEv::StartFailed(message) => {
+            fx.ends = true;
+            set_status(app, Session::Failed(Failure::Message(message)));
+        }
         AppEv::Disconnected => set_status(app, Session::Failed(Failure::Stopped)),
         AppEv::Backend(BackendEv::Notification(notification)) => {
             // `serverRequest/resolved`: the server answered or withdrew a

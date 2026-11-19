@@ -30,6 +30,51 @@ pub struct Flags<'a> {
     pub agents: bool,
     pub remote: Option<&'a str>,
     pub remote_auth_token_env: Option<&'a str>,
+    /// `-c key=value`, raw.
+    pub config_overrides: &'a [String],
+}
+
+/// What keeps the command center off the shared daemon, as the oracle words
+/// it (`daemon_startup.rs::config_exclusion`): any `-c` override but the few
+/// the daemon can take along. A malformed override is the config's error
+/// to report, not an exclusion.
+pub fn config_exclusion(raw: &[String]) -> Option<&'static str> {
+    let overrides = codex_utils_cli::CliConfigOverrides {
+        raw_overrides: raw.to_vec(),
+    }
+    .parse_overrides()
+    .ok()?;
+    let allowed = overrides.iter().all(|(key, value)| match key.as_str() {
+        "suppress_unstable_features_warning" | "tui.fullscreen_transcript" => value.is_bool(),
+        "tui" => value.as_table().is_some_and(|tui| {
+            tui.len() == 1
+                && tui
+                    .get("fullscreen_transcript")
+                    .is_some_and(codex_config::TomlValue::is_bool)
+        }),
+        "features" => value.as_table().is_some_and(|features| {
+            !features.is_empty() && features.values().all(codex_config::TomlValue::is_bool)
+        }),
+        _ => {
+            key.strip_prefix("features.")
+                .is_some_and(|name| !name.contains('.'))
+                && value.is_bool()
+        }
+    });
+    (!allowed).then_some(OVERRIDES_EXCLUSION)
+}
+
+const OVERRIDES_EXCLUSION: &str =
+    "command-line configuration overrides (-c, --enable, --disable, or --search)";
+
+/// `startup_orchestration.rs` (`daemon_startup_warning`): the notice that the
+/// launch runs without the shared background server, when it would have used it.
+pub fn startup_warning(flags: &Flags<'_>) -> Option<String> {
+    let uses_daemon = flags.agents && !flags.no_daemon && flags.remote.is_none();
+    let reason = config_exclusion(flags.config_overrides).filter(|_| uses_daemon)?;
+    Some(format!(
+        "Running without the shared background server: {reason} requires embedded mode."
+    ))
 }
 
 impl Mode {
@@ -45,11 +90,16 @@ impl Mode {
             if flags.remote_auth_token_env.is_some() {
                 anyhow::bail!("`--remote-auth-token-env` requires `--remote`.");
             }
-            return Ok(if flags.agents && !flags.no_daemon {
-                Mode::Daemon
-            } else {
-                Mode::Embedded
-            });
+            return Ok(
+                if flags.agents
+                    && !flags.no_daemon
+                    && config_exclusion(flags.config_overrides).is_none()
+                {
+                    Mode::Daemon
+                } else {
+                    Mode::Embedded
+                },
+            );
         };
         let mut endpoint = resolve_remote_addr(remote)?;
         if let Some(name) = flags.remote_auth_token_env {
@@ -175,7 +225,14 @@ mod tests {
             agents: true,
             remote,
             remote_auth_token_env: token,
+            config_overrides: &[],
         }
+    }
+
+    const ANALYTICS_OFF: &[&str] = &["analytics.enabled=false"];
+
+    fn raw(overrides: &[&str]) -> Vec<String> {
+        overrides.iter().map(ToString::to_string).collect()
     }
 
     fn env(_: &str) -> Result<String, std::env::VarError> {
@@ -311,5 +368,74 @@ mod tests {
         let err =
             Mode::resolve(&flags(Some("wss://example.com:443"), Some("T")), empty).unwrap_err();
         assert_eq!(err.to_string(), "environment variable `T` is empty");
+    }
+
+    /// `feature_overrides_allow_daemon_without_allowing_arbitrary_config`.
+    #[test]
+    fn feature_overrides_allow_daemon_without_allowing_arbitrary_config() {
+        for (raw_override, eligible) in [
+            ("features.app_server_websocket_compression=true", true),
+            ("features.app_server_websocket_compression=false", true),
+            ("features.worktrees='true'", false),
+            ("features={worktrees=true,shell_tool=false}", true),
+            ("suppress_unstable_features_warning=true", true),
+            ("suppress_unstable_features_warning='true'", false),
+            ("features.shell_tool=false", true),
+            ("features.worktrees.enabled=true", false),
+            ("tui.fullscreen_transcript=true", true),
+            ("tui.fullscreen_transcript=false", true),
+            ("tui.fullscreen_transcript=\"true\"", false),
+            ("tui={fullscreen_transcript=true}", true),
+            ("tui={fullscreen_transcript='true'}", false),
+            ("tui={fullscreen_transcript=true,animations=false}", false),
+            ("features={}", false),
+            ("model='test'", false),
+            ("analytics.enabled=false", false),
+        ] {
+            assert_eq!(
+                config_exclusion(&raw(&[raw_override])).is_none(),
+                eligible,
+                "{raw_override}"
+            );
+        }
+        assert_eq!(
+            config_exclusion(&raw(ANALYTICS_OFF)),
+            Some("command-line configuration overrides (-c, --enable, --disable, or --search)")
+        );
+    }
+
+    /// The scenario `agents`: the oracle run as `codex -c analytics.enabled=false
+    /// agents` takes the embedded server (its overrides are not the daemon's),
+    /// and says so; ours does the same with the same command line, and a
+    /// plain `agents` still uses the daemon.
+    #[test]
+    fn overrides_the_daemon_cannot_take_keep_the_command_center_embedded() {
+        let overrides = raw(ANALYTICS_OFF);
+        let with_override = Flags {
+            config_overrides: &overrides,
+            ..flags(None, None)
+        };
+        assert_eq!(Mode::resolve(&with_override, env).unwrap(), Mode::Embedded);
+        assert_eq!(
+            startup_warning(&with_override).as_deref(),
+            Some(
+                "Running without the shared background server: command-line configuration overrides (-c, --enable, --disable, or --search) requires embedded mode."
+            )
+        );
+        assert_eq!(startup_warning(&flags(None, None)), None);
+        let explicit = Flags {
+            no_daemon: true,
+            ..with_override
+        };
+        assert_eq!(startup_warning(&explicit), None, "--no-daemon asked for it");
+        let chat = Flags {
+            agents: false,
+            ..with_override
+        };
+        assert_eq!(
+            startup_warning(&chat),
+            None,
+            "the chat never used the daemon"
+        );
     }
 }

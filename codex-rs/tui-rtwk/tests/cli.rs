@@ -154,3 +154,34 @@ fn a_directory_named_like_a_subcommand_is_a_value() {
         Cli::early_answer(["-h".to_owned()])
     );
 }
+
+/// `-c key=value`, `--config key=value`, `--config=key=value`: collected raw,
+/// in order (the oracle's `CliConfigOverrides`); a value is needed.
+#[test]
+fn config_overrides_are_collected_in_order() {
+    let cli = parse(&[
+        "-c",
+        "analytics.enabled=false",
+        "agents",
+        "--config",
+        "model=\"x\"",
+        "--config=tui.animations=false",
+    ])
+    .expect("parsed");
+    assert!(cli.agents);
+    assert_eq!(
+        cli.config_overrides,
+        [
+            "analytics.enabled=false",
+            "model=\"x\"",
+            "tui.animations=false"
+        ]
+    );
+    assert!(parse(&["-c"]).is_err());
+    assert!(parse(&["--config"]).is_err());
+    assert_eq!(
+        Cli::early_answer(["-c", "--help"].map(String::from)),
+        None,
+        "the value of -c is not a word of the command line"
+    );
+}

@@ -56,6 +56,12 @@ impl ConnEpoch {
     }
 }
 
+/// One backend of the command center (oracle: `backend_id::BackendId`): the
+/// local server or the cloud. Rows, pins and discovery are kept per backend;
+/// `BackendId::default()` is the one the first connection is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BackendId(pub u32);
+
 /// The id of one of our own RPCs; its reply carries it back (R1, R3). Not
 /// forgeable: only the app's `TicketMint` makes one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

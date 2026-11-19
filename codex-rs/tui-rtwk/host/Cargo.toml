@@ -25,6 +25,7 @@ codex-feedback = { path = "../../feedback" }
 codex-git-utils = { path = "../../git-utils" }
 codex-protocol = { path = "../../protocol" }
 codex-utils-absolute-path = { path = "../../utils/absolute-path" }
+codex-utils-cli = { path = "../../utils/cli" }
 codex-utils-path = { path = "../../utils/path-utils" }
 codex-worktree = { path = "../../worktree" }
 codex-tui-rtwk = { path = ".." }

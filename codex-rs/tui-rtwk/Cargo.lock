@@ -3630,6 +3630,7 @@ dependencies = [
  "codex-tui-core",
  "codex-tui-rtwk",
  "codex-utils-absolute-path",
+ "codex-utils-cli",
  "codex-utils-path",
  "codex-worktree",
  "dunce",
