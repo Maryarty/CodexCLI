@@ -26,6 +26,7 @@ mod center;
 mod details;
 mod discovery;
 mod notifications;
+mod reads;
 mod refresh;
 mod sources;
 mod update;
@@ -177,8 +178,28 @@ pub struct Failure {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Activity {
     pub latest_prompt: Option<String>,
-    pub reasoning_header: Option<String>,
+    /// The reasoning summary being streamed (oracle: `ReasoningPreview`).
+    pub reasoning: Option<Reasoning>,
     pub last_message: Option<String>,
+}
+
+impl Activity {
+    /// The first `**bold**` run of the streamed summary, once it closed.
+    pub fn reasoning_header(&self) -> Option<&String> {
+        self.reasoning.as_ref()?.header.as_ref()
+    }
+}
+
+/// A reasoning summary being streamed (oracle: `ReasoningPreview`): deltas of
+/// one `(turn, item, summary index)` accumulate in `buffer` until the first
+/// `**bold**` run closes into `header`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reasoning {
+    pub turn: String,
+    pub item: String,
+    pub summary_index: i64,
+    pub buffer: String,
+    pub header: Option<String>,
 }
 
 /// What is known of a task's usage (oracle: `AgentsOverviewUsage`): the
@@ -299,6 +320,11 @@ pub struct Model {
     /// (oracle: `removed_threads`).
     pub removed: BTreeSet<String>,
     pub last_messages: BTreeMap<String, String>,
+    /// The tasks whose `thread/read` or `thread/turns/list` is in flight
+    /// (one chain per task).
+    pub reading: BTreeSet<String>,
+    /// Tasks that changed while their read was in flight: read again after it.
+    pub reread: BTreeSet<String>,
     pub activity: BTreeMap<String, Activity>,
     /// The first pending request of a thread, previewed (oracle:
     /// `agents_overview_request_preview`).
@@ -390,6 +416,8 @@ pub enum Ev {
     Voice(Option<String>),
     /// `tui.status_line_use_colors`: whether tasks get their own colour.
     ThreadColors(bool),
+    /// `tui.agents_overview_grouping`: the grouping the center opens with.
+    Grouping(Grouping),
 }
 
 impl Eq for Ev {}
@@ -523,6 +551,23 @@ pub enum Command {
     Usage {
         thread: String,
     },
+    /// `thread/read` without turns: the task as the server has it now
+    /// (oracle: `start_agents_overview_refresh`).
+    Read {
+        thread: String,
+    },
+    /// The last turn of a task (`thread/turns/list`, one turn): its prompt
+    /// and last answer.
+    Turns {
+        thread: String,
+    },
+    /// The tasks the server holds loaded (`thread/loaded/list`).
+    Loaded,
+    /// Writes the grouping to the config: not an RPC, `app::send_agents`
+    /// hands it to the shell.
+    SaveGrouping {
+        grouping: String,
+    },
 }
 
 /// The decoded replies.
@@ -537,6 +582,18 @@ pub enum Reply {
     /// The task `thread/start` made.
     Started(Box<Thread>),
     Usage(UsageOutcome),
+    /// The task as read, and whether it has unread output.
+    Read {
+        thread: Box<Thread>,
+        unread: bool,
+    },
+    /// The previews of a task's last turn (oracle: `latest_prompt` and
+    /// `last_message` of the refresh).
+    Turns {
+        prompt: Option<String>,
+        last_message: Option<String>,
+    },
+    Loaded(Vec<String>),
 }
 
 impl Eq for Reply {}
@@ -578,6 +635,14 @@ pub enum Ctx {
         thread: String,
         id: u64,
     },
+    Read {
+        thread: String,
+    },
+    Turns {
+        thread: String,
+    },
+    Loaded,
+    SaveGrouping,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {

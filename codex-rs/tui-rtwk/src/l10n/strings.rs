@@ -64,6 +64,7 @@ pub struct Pages {
     pub not_yet: Msg<1>,
     /// The name of the expanded transcript (Ctrl+T, `/diff`).
     pub action_transcript: &'static str,
+    pub action_subagents: &'static str,
     /// The name of the shortcut overlay (`?`).
     pub action_shortcuts: &'static str,
     /// The key of the shortcut overlay, as the footer shows it, and its hint
@@ -118,6 +119,7 @@ pub const EN: Shared = Shared {
     pages: Pages {
         not_yet: msg!("Not implemented yet: {0}"),
         action_transcript: "expanded transcript",
+        action_subagents: "subagent picker",
         action_shortcuts: "shortcut overlay",
         key_agents: "←",
         hint_agents: "for agents",

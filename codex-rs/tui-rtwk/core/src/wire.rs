@@ -53,9 +53,10 @@ pub fn client_request(
         Command::Screen {
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
-        Command::RejectRequest { .. } | Command::Worktree { .. } | Command::Directories { .. } => {
-            None
-        }
+        Command::RejectRequest { .. }
+        | Command::Worktree { .. }
+        | Command::Directories { .. }
+        | Command::SaveGrouping { .. } => None,
     }
 }
 
@@ -92,9 +93,10 @@ pub fn reply(
                 Err(message) => Reply::failed(message),
             },
         )),
-        Command::RejectRequest { .. } | Command::Worktree { .. } | Command::Directories { .. } => {
-            None
-        }
+        Command::RejectRequest { .. }
+        | Command::Worktree { .. }
+        | Command::Directories { .. }
+        | Command::SaveGrouping { .. } => None,
     }
 }
 

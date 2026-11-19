@@ -97,3 +97,51 @@ fn a_plain_command_line_has_no_early_answer() {
 fn the_version_flag_of_a_subcommand_is_not_an_answer() {
     assert_eq!(answer(&["agents", "--version"]), None);
 }
+
+/// Item 7: `-C` / `--cd` and `--no-alt-screen` are the flags of the oracle's
+/// `codex agents` (`tests/cli_help/agents_long.txt`).
+#[test]
+fn the_cd_and_inline_flags_are_read() {
+    for args in [
+        ["agents", "-C", "/tmp/x"].as_slice(),
+        ["agents", "--cd", "/tmp/x"].as_slice(),
+        ["agents", "--cd=/tmp/x"].as_slice(),
+    ] {
+        let cli = parse(args).expect("parsed");
+        assert_eq!(
+            cli.cwd.as_deref(),
+            Some(std::path::Path::new("/tmp/x")),
+            "{args:?}"
+        );
+        assert!(cli.agents);
+    }
+    assert!(parse(&["--no-alt-screen"]).expect("parsed").no_alt_screen);
+    assert!(!parse(&[]).expect("parsed").no_alt_screen);
+    assert!(parse(&["-C"]).is_err());
+}
+
+/// Item 7: `--no-daemon` is what the app is (an embedded server); `--remote`
+/// is refused with the oracle's words (`startup_orchestration.rs:16-19`) until
+/// the app can connect to a server.
+#[test]
+fn the_connection_flags_answer_as_the_oracle_does() {
+    assert!(parse(&["agents", "--no-daemon"]).expect("parsed").no_daemon);
+    let both = parse(&["--no-daemon", "--remote", "ws://h:1"]).unwrap_err();
+    assert_eq!(
+        both.to_string(),
+        "--no-daemon cannot be used with --remote."
+    );
+    let remote = parse(&["agents", "--remote=ws://h:1"]).unwrap_err();
+    assert!(remote.to_string().starts_with("--remote is not supported"));
+    assert!(parse(&["--remote-auth-token-env", "T"]).is_err());
+}
+
+/// Flag values are not words of the command line: `--help` after `-C dir`
+/// still answers, and `-C agents` is a directory named agents.
+#[test]
+fn a_directory_named_like_a_subcommand_is_a_value() {
+    assert_eq!(
+        Cli::early_answer(["-C".to_owned(), "agents".to_owned(), "-h".to_owned()]),
+        Cli::early_answer(["-h".to_owned()])
+    );
+}

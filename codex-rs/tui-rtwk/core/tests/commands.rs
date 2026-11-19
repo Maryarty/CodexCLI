@@ -1136,7 +1136,7 @@ fn every_screen_opening_command_names_its_target() {
         ("/statusline", Target::Settings),
         ("/experimental", Target::Settings),
         ("/agents", Target::Agents),
-        ("/subagents", Target::Agents),
+        ("/subagents", Target::AgentPicker),
         ("/diff", Target::Pager),
         ("/status", Target::Status),
         ("/usage", Target::Usage),
@@ -1166,6 +1166,7 @@ fn every_screen_opening_command_names_its_target() {
         Target::Voice,
         Target::Approvals,
         Target::Backtrack,
+        Target::AgentPicker,
     ] {
         assert!(
             codex_tui_core::screens::dirs()
@@ -1377,6 +1378,7 @@ fn only_the_five_pages_are_routes() {
         Target::Approvals,
         Target::Pets,
         Target::Voice,
+        Target::AgentPicker,
     ] {
         assert_eq!(target.opens(), Opens::Sheet, "{target:?}");
     }

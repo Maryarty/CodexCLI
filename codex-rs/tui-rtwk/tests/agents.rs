@@ -772,3 +772,52 @@ fn the_center_draws_at_widths_one_to_ten() {
         }
     }
 }
+
+/// Item 2 (review point 44): `o` opens the resume picker in the center, empty
+/// or not (oracle: `agents_overview_view.rs:766-769`, `OpenResumePicker`), and
+/// it does not open the highlighted task.
+#[test]
+fn o_opens_the_resume_picker() {
+    for entry in ["overview", "empty_narrow"] {
+        let mut h = open(entry, 80, 24);
+        h.press("o");
+        h.wait_for("the resume picker", |s| {
+            s.contains("Resume a previous session")
+        });
+        assert!(
+            !h.fake
+                .commands()
+                .iter()
+                .any(|command| format!("{command:?}").contains("Resume {")),
+            "{entry}: no task was resumed"
+        );
+    }
+}
+
+/// While a worktree is being created the center holds `o` back too (oracle:
+/// the gate before `agents_keymap.resume`).
+#[test]
+fn o_is_held_back_while_busy() {
+    let mut h = open("busy", 80, 24);
+    h.press("o");
+    h.settle();
+    assert!(!h.t.screen().contains("Resume a previous session"));
+}
+
+/// Item 4: the search key toggles the line (oracle:
+/// `agents_overview_view.rs:731-745`): F3 opens it, F3 again closes it.
+#[test]
+fn f3_toggles_the_search_line() {
+    let mut h = open("overview", 80, 24);
+    assert!(!h.t.screen().contains("Search \u{203a}"));
+    h.press("f3");
+    h.settle();
+    assert!(h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
+    h.press("f3");
+    h.settle();
+    assert!(
+        !h.t.screen().contains("Search \u{203a}"),
+        "{}",
+        h.t.screen()
+    );
+}

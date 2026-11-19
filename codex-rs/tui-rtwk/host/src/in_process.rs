@@ -23,6 +23,7 @@ use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
+use codex_core::config::ConfigOverrides;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
@@ -33,6 +34,7 @@ use codex_tui_core::ids::RequestKey;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::wire;
@@ -49,6 +51,7 @@ use codex_tui_rtwk::shell::workspace::Workspace;
 use codex_tui_rtwk::shell::workspace::account;
 use codex_tui_rtwk::shell::workspace::backend_ev;
 use codex_tui_rtwk::shell::workspace::directories;
+use codex_tui_rtwk::shell::workspace::save_grouping;
 use codex_tui_rtwk::shell::workspace::worktree;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -152,6 +155,8 @@ pub struct InProcess {
     pub done: oneshot::Sender<InProcessAppServerClient>,
     /// `--model`: the model of the thread, over the config's.
     pub model: Option<String>,
+    /// `--cd`: the working root of the agent, over the process's directory.
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl Connector for InProcess {
@@ -177,9 +182,18 @@ async fn run(
         arg0_paths,
         done,
         model,
+        cwd,
     } = spec;
     // Loaded here, after the first frame: config, state DB, environment manager.
-    let config = match ConfigBuilder::default().build().await {
+    let overrides = ConfigOverrides {
+        cwd,
+        ..Default::default()
+    };
+    let config = match ConfigBuilder::default()
+        .harness_overrides(overrides)
+        .build()
+        .await
+    {
         Ok(config) => config,
         Err(error) => {
             emit(
@@ -208,6 +222,8 @@ async fn run(
     };
     // `tui.status_line_use_colors`: whether the tasks get their own colour.
     let thread_colors = args.config.tui_status_line_use_colors;
+    // `tui.agents_overview_grouping`: the grouping the center opens with.
+    let grouping = args.config.tui_agents_overview_grouping;
     // What the status line and the footer show: read here, sent as events.
     let status = crate::facts::status(&args.config).await;
     let warnings = crate::facts::warnings(&args.config);
@@ -228,6 +244,13 @@ async fn run(
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::ThreadColors(thread_colors))),
     );
+    if let Some(grouping) = AgentsGrouping::from_config(grouping.as_str()) {
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Grouping(grouping))),
+        );
+    }
     emit(
         &ingress,
         epoch,
@@ -310,6 +333,9 @@ fn work(
     match command {
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
+        }
+        Command::SaveGrouping { grouping, .. } => {
+            Box::pin(async move { save_grouping(workspace, grouping).await })
         }
         Command::Worktree { cwd, .. } => {
             Box::pin(async move { Some(worktree(workspace, cwd, ids, send).await) })

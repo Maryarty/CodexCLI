@@ -51,6 +51,12 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             Target::Select => drop(select::open(cx)),
             Target::Settings => drop(settings::open(cx)),
             Target::Dialogs => drop(dialogs::open(cx)),
+            // The picker of this session's subagents is not built: the sheet
+            // says so (oracle: `AppEvent::OpenAgentPicker`).
+            Target::AgentPicker => {
+                let action = crate::l10n::strings::of(cx).pages.action_subagents;
+                drop(crate::ui::page_keys::not_yet(cx, action));
+            }
             Target::Approvals => drop(approvals::open(cx)),
             Target::Pets => drop(pets::open(cx)),
             _ => drop(voice::open(cx)),

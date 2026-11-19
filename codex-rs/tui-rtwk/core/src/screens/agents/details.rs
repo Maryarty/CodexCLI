@@ -8,6 +8,7 @@ use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadActiveFlag;
 use codex_app_server_protocol::ThreadStatus;
 
+use super::Activity;
 use super::Model;
 use super::carried::AgentsOverviewGroup;
 use super::carried::preview_text;
@@ -58,7 +59,7 @@ impl Model {
                 AgentsOverviewGroup::Working => self
                     .activity
                     .get(&thread.id)
-                    .is_some_and(|activity| activity.reasoning_header.is_some()),
+                    .is_some_and(|activity| activity.reasoning_header().is_some()),
                 AgentsOverviewGroup::Ready | AgentsOverviewGroup::Finished => false,
             };
             (group, !has_detail)
@@ -105,7 +106,7 @@ impl Model {
         }
         let activity = self.activity.get(&source.id);
         if matches!(source.status, ThreadStatus::Active { .. })
-            && let Some(header) = activity.and_then(|activity| activity.reasoning_header.as_ref())
+            && let Some(header) = activity.and_then(Activity::reasoning_header)
         {
             if !is_child {
                 lines.push(DetailLine::Blank);

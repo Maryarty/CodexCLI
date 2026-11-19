@@ -54,7 +54,6 @@ command_opens! {
     slash_memories_opens_the_settings: "/memories" => "settings";
     slash_keymap_opens_the_settings: "/keymap" => "settings";
     slash_agents_opens_the_agents: "/agents" => "agents";
-    slash_subagents_opens_the_agents: "/subagents" => "agents";
     slash_resume_opens_the_picker: "/resume" => "resume";
     slash_import_opens_the_import: "/import" => "import";
     slash_status_opens_the_status_card: "/status" => "status";
@@ -66,6 +65,22 @@ command_opens! {
     slash_pets_opens_the_pets: "/pets" => "pets";
     slash_pet_alias_opens_the_pets: "/pet" => "pets";
     slash_test_approval_opens_the_approvals: "/test-approval" => "approvals";
+}
+
+/// Item 8: `/subagents` is the picker of this session's subagents (oracle:
+/// `slash_dispatch.rs:412`, `AppEvent::OpenAgentPicker`), not the command
+/// center; the picker is not built, so the sheet says so.
+#[test]
+fn slash_subagents_opens_the_agent_picker_not_the_command_center() {
+    let mut h = chat();
+    run_command(&mut h, "/subagents");
+    assert_eq!(open::last_opened(), Some(Target::AgentPicker));
+    assert!(
+        h.t.screen()
+            .contains("Not implemented yet: subagent picker"),
+        "{}",
+        h.t.screen()
+    );
 }
 
 /// The command typed in the popup and picked with Enter, not typed in full.

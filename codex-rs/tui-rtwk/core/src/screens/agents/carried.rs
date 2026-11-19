@@ -12,7 +12,7 @@ use codex_app_server_protocol::ThreadActiveFlag;
 use codex_app_server_protocol::ThreadStatus;
 use codex_protocol::protocol::SubAgentSource;
 
-const PREVIEW_CHARS: usize = 512;
+pub(super) const PREVIEW_CHARS: usize = 512;
 
 // oracle: agents_overview_view.rs enum AgentsOverviewGroup
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

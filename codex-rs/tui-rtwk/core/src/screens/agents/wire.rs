@@ -8,6 +8,7 @@ use super::Page;
 use super::Reply;
 use super::UsageOutcome;
 use super::carried::is_overview_thread;
+use super::carried::preview_markdown;
 use crate::rpc::RpcError;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
@@ -18,7 +19,14 @@ use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadDeleteParams;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadForkResponse;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadListParams;
+use codex_app_server_protocol::ThreadLoadedListParams;
+use codex_app_server_protocol::ThreadLoadedListResponse;
+use codex_app_server_protocol::ThreadTurnsListParams;
+use codex_app_server_protocol::ThreadTurnsListResponse;
+use codex_app_server_protocol::Turn;
+use codex_app_server_protocol::UserInput;
 use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
@@ -102,6 +110,30 @@ pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 ..list_params(cursor.clone())
             },
         },
+        Command::Read { thread } => ClientRequest::ThreadRead {
+            request_id,
+            params: ThreadReadParams {
+                thread_id: thread.clone(),
+                include_turns: false,
+            },
+        },
+        Command::Turns { thread } => ClientRequest::ThreadTurnsList {
+            request_id,
+            params: ThreadTurnsListParams {
+                thread_id: thread.clone(),
+                cursor: None,
+                limit: Some(1),
+                sort_direction: None,
+                items_view: None,
+            },
+        },
+        Command::Loaded => ClientRequest::ThreadLoadedList {
+            request_id,
+            params: ThreadLoadedListParams {
+                cursor: None,
+                limit: None,
+            },
+        },
         Command::Usage { thread } => ClientRequest::GetAccountTokenUsage {
             request_id,
             params: Some(GetAccountTokenUsageParams {
@@ -111,12 +143,25 @@ pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
         // A worktree is git work, not an RPC: `app::send_agents` hands it to
         // the shell, and never here. Were it asked, the task would start in
         // the directory itself.
+        Command::SaveGrouping { .. } => unreachable_wire(request_id),
         Command::Start { cwd } | Command::NewWorktree { cwd } => ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
                 cwd: cwd.clone(),
                 ..ThreadStartParams::default()
             },
+        },
+    }
+}
+
+/// A config write is no RPC: `app::send_agents` never hands it to the wire.
+/// Were it asked, the answer is a harmless read of nothing.
+fn unreachable_wire(request_id: RequestId) -> ClientRequest {
+    ClientRequest::ThreadLoadedList {
+        request_id,
+        params: ThreadLoadedListParams {
+            cursor: None,
+            limit: None,
         },
     }
 }
@@ -201,6 +246,25 @@ pub(super) fn decode_reply(
             let thread: Thread = serde_json::from_value(thread).map_err(malformed)?;
             Ok(Reply::Started(Box::new(thread)))
         }
+        Command::Read { .. } => {
+            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Read {
+                unread: response
+                    .read_state
+                    .is_some_and(|state| state.first_unread.is_some()),
+                thread: Box::new(response.thread),
+            })
+        }
+        Command::Turns { .. } => {
+            let response: ThreadTurnsListResponse =
+                serde_json::from_value(result).map_err(malformed)?;
+            Ok(turn_previews(response.data.first()))
+        }
+        Command::Loaded => {
+            let response: ThreadLoadedListResponse =
+                serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Loaded(response.data))
+        }
         Command::ActiveTurn { .. } => {
             let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::ActiveTurn(
@@ -213,6 +277,37 @@ pub(super) fn decode_reply(
             ))
         }
         _ => Ok(Reply::Done),
+    }
+}
+
+/// The prompt and the last answer of a turn (oracle: the refresh's `thread/
+/// turns/list` branch): the prompt is the text of the turn's user message.
+fn turn_previews(turn: Option<&Turn>) -> Reply {
+    let Some(turn) = turn else {
+        return Reply::Turns {
+            prompt: None,
+            last_message: None,
+        };
+    };
+    let prompt = turn.item_payloads().find_map(|item| match item {
+        ThreadItemPayload::UserMessage { content, .. } => Some(preview_markdown(
+            &content
+                .iter()
+                .filter_map(|input| match input {
+                    UserInput::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<String>(),
+        )),
+        _ => None,
+    });
+    let last_message = turn.item_payloads().rev().find_map(|item| match item {
+        ThreadItemPayload::AgentMessage { text, .. } => Some(preview_markdown(text)),
+        _ => None,
+    });
+    Reply::Turns {
+        prompt,
+        last_message,
     }
 }
 
@@ -265,6 +360,10 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
         "thread_colors" => serde_json::from_value(body)
             .map(Ev::ThreadColors)
             .map_err(text),
+        "grouping" => serde_json::from_value::<String>(body)
+            .map_err(text)
+            .and_then(|name| super::Grouping::from_config(&name).ok_or(name))
+            .map(Ev::Grouping),
         "notice" => seed_notice(body).map(Ev::Notice),
         "request" => serde_json::from_value::<(String, String)>(body)
             .map(|(thread, preview)| Ev::Request(thread, Some(preview)))
