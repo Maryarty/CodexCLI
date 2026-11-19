@@ -119,9 +119,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     let made = thread(&created, "Created in another client");
     observe(
         &mut m,
-        &ServerNotification::ThreadStarted(ThreadStartedNotification {
-            thread: made,
-        }),
+        &ServerNotification::ThreadStarted(ThreadStartedNotification { thread: made }),
     );
     assert!(row(&m, &created).is_some());
     assert!(row(&m, &archived).is_none());
