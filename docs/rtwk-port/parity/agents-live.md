@@ -31,7 +31,7 @@ tests drive widgets and `App`; ours drive `update` / `apply_answer` /
 | agents_overview_tests::server_version_overview_notice_updates_and_clears | same | yes | | |
 | agents_overview_tests::overview_right_opens_current_or_highlighted_task | same | yes (the view sends `Accept` for Right unless a line is open) | | |
 | agents_overview_tests::overview_right_preserves_editors_and_offline_state | same | yes (was red) | | |
-| agents_overview_tests::overview_grouping_persists_across_config_reloads | same | yes (core part) | | |
+| agents_overview_tests::overview_grouping_persists_across_config_reloads | same | yes | core: `SaveGrouping` intent and `Ev::Grouping` at start (`core/tests/agents_details.rs`, `tests/shell_agents.rs::a_grouping_change_is_saved_to_the_config_but_the_directory_one`, `the_configured_grouping_is_the_one_the_center_opens_with`, `the_shell_saves_the_grouping_and_reports_a_failure`); the host writes `tui.agents_overview_grouping` through `ConfigEditsBuilder` | |
 | agents_overview_tests::command_center_refresh_failure_is_inline_and_clears_on_success | same | yes | | |
 | agents_overview_tests::command_center_action_failures_remain_visible | same | yes | | |
 | agents_overview_tests::command_center_new_actions_use_selection_and_leave_metadata_text_alone | same | yes | | |
@@ -40,7 +40,7 @@ tests drive widgets and `App`; ours drive `update` / `apply_answer` /
 | agents_overview_tests::overview_fork_preserves_an_open_side_conversation, overview_fork_keeps_idle_source_input_queued | `fork_opens_the_copy_of_the_selected_task` (new; core part: `Intent::Fork`, `Command::Fork`, the copy becomes current) | partly | the side conversation and queued input are chat state (owner: chat-nav follow-up) | |
 | agents_overview_tests::overview_worktree_creation_busy_state | `command_center_new_worktree_uses_the_selected_directory` (core part: `w`, `Notice::CreatingWorktree`, `Command::Worktree`) | partly | rendering of the busy notice: UI | |
 | agents_overview_tests::shared_overview_keeps_rows_and_replays_changes_over_stale_reads, shared_overview_seeds_once_and_retains_locally_resumed_history, hidden_system_thread_does_not_refresh_shared_overview, hidden_title_thread_does_not_refresh_shared_overview, refreshing_one_backends_pins_preserves_cross_backend_rank, overview_keeps_rows_and_routes_actions_to_the_owner | | no | need the oracle's shared overview over two sources (interactive + exec/app server); the core has one source plus a buffer, see Gaps (owner: follow-up core task, orchestrator to plan) | |
-| agents_overview_tests::agents_overview_reasoning_uses_existing_events_and_expires_with_attachment | | no | reasoning summaries from live events: not modelled (owner: follow-up core task) | |
+| agents_overview_tests::agents_overview_reasoning_uses_existing_events_and_expires_with_attachment | same | yes (agents-parity-fix) | reasoning deltas accumulate keyed by (turn, item, summary index) in a 512-char buffer, the first `**..**` run is the Latest activity; TurnStarted/TurnCompleted/ItemStarted/PartAdded/non-Active status end it; `core/tests/agents_details.rs::latest_activity_is_the_first_bold_run_across_deltas`. The expiry on detach is not modelled (the center has no attachment) | |
 | agents_overview_tests::root_switch_*, failed_root_switch_*, overview_selection_applies_user_permissions_only_to_unloaded_threads, overview_cold_resume_honors_working_directory_selection, restored_server_permission_profile_survives_cd_without_turn_override, cancelling_resume_picker_*, resuming_active_session_closes_command_center, resume_failure_keeps_command_center_available, resume_picker_round_trip_*, command_center_handles_resume_failure_and_success, command_center_attach_conflict_opens_read_only_and_retries, empty_command_center_can_open_resume_picker | | no | App-level session switching and the resume picker (`App`, config, permissions): chat/session and resume-list slices (owner: `routes-lists`, chat-nav follow-up) | |
 | agents_overview_tests::agents_overview_details_render_markdown, _preview_links_survive_wrapping_and_clipping, _markdown_preview_preserves_layout_and_bounds, filtered_dashboard_actions_use_configured_shortcuts, command_center_cursor_tracks_fixed_footer, older_server_notice_*, overview_thread_colors_* | | no | rendering and keys: UI side | |
 | agents_overview_actions_tests::pin_action_updates_shared_section_state | same | yes | | |
@@ -137,7 +137,7 @@ reason was checked to be the only difference).
 |---|---|---|---|
 | agents_overview_tests::shared_overview_shows_only_root_sessions | same | green | snapshot `agents_overview` |
 | agents_overview_tests::agents_overview_details_show_available_attention_without_expanding_rows | same | green | snapshot `agents_overview_attention` |
-| agents_overview_tests::empty_command_center_can_open_resume_picker | same | green (screen part: snapshot `agents_overview_empty_narrow`; the `o` key opens the picker in core) | |
+| agents_overview_tests::empty_command_center_can_open_resume_picker | same | green (screen part: snapshot `agents_overview_empty_narrow`; `o` opens the resume picker, `tests/agents.rs::o_opens_the_resume_picker`, held back while busy: `o_is_held_back_while_busy`) | |
 | cli daemon_startup::agents_overview_before_folder_consent | `agents_overview_before_folder_consent_empty_center_rows` | green | first 4 rows; the consent dialog is the daemon startup flow |
 | agent_center_tests::live_center_metadata_clips_at_grapheme_boundaries | same | green | |
 | agent_center_tests::live_center_navigation_and_complete_hints | same | green | snapshots status_filter, help 1/2/3 columns, hints |
@@ -328,3 +328,16 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
 - Build writes no state (row/tab taps made in `did_change_dependencies` and after `update`); the filter is a `TabController`.
 - One `ui::session_list` (Agents + Resume) and one `ui::age`; G38 facade export only; N2 not a gap.
 - Left: one shared confirmation picker for `agents/dialogs.rs` and `select/dialog.rs`.
+
+## agents-parity-fix (review `reviews/agents-feature-parity.md`)
+
+| Item | State |
+|---|---|
+| 1 Details Prompt / Last message / title via `thread/read` and `thread/turns/list {limit:1}`, `thread/loaded/list`, re-read after ThreadStarted/Closed/StatusChanged/NameUpdated | done: `core/src/screens/agents/reads.rs`, tests `core/tests/agents_details.rs`. Not ported: `decode_task_links` in the prompt (only Text inputs are joined) |
+| 2 `o` opens the resume picker | done (`Act::Resume`), the resume picker's "unhide on resume" is not done |
+| 3 Latest activity accumulates `**..**` across deltas | done, oracle test ported |
+| 4 F3 closes the search again | done (`f3_toggles_the_search_line`, shown biting) |
+| 5 Grouping persisted and read at start | done, Directory is not saved (as the oracle) |
+| 6 ThreadReverted resets Prompt, Last message, tokens | done |
+| 7 CLI `--cd/-C`, `--no-alt-screen`, `--remote`/`--no-daemon` refusals | done; `--remote` is refused ("codex-rtwk runs its own embedded app server") until daemon support; inline rendering under `--no-alt-screen` is not verified by a test |
+| 8 `/subagents` | opens `Target::AgentPicker`; the picker is not built, the sheet shows "Not implemented yet: subagent picker"; `/agents` is the command center |
