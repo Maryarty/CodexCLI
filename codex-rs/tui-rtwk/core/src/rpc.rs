@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::app::worktree::{BindFailure, Checkout};
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
 use crate::ids::TurnId;
@@ -80,6 +81,14 @@ impl Reply {
         Self(Answer::Screen(reply))
     }
 
+    pub fn worktree_created(result: Result<Checkout, String>) -> Self {
+        Self(Answer::WorktreeCreated(result))
+    }
+
+    pub fn worktree_bound(result: Result<(), BindFailure>) -> Self {
+        Self(Answer::WorktreeBound(result))
+    }
+
     pub fn failed(message: impl Into<String>) -> Self {
         Self(Answer::Failed(RpcError::Remote(message.into())))
     }
@@ -95,6 +104,8 @@ pub enum Answer {
     ThreadStarted { thread: ThreadId },
     TurnStarted { thread: ThreadId, turn: TurnId },
     Screen(ScreenReply),
+    WorktreeCreated(Result<Checkout, String>),
+    WorktreeBound(Result<(), BindFailure>),
     Failed(RpcError),
 }
 
@@ -126,6 +137,10 @@ impl<C> Pending<C> {
         self.entries.is_empty()
     }
 
+    pub(crate) fn get(&self, ticket: Ticket) -> Option<&C> {
+        self.entries.get(&ticket)
+    }
+
     pub fn contains(&self, ticket: Ticket) -> bool {
         self.entries.contains_key(&ticket)
     }
@@ -138,6 +153,10 @@ impl<C> Pending<C> {
     /// superseded and will never answer.
     pub fn retain(&mut self, keep: impl Fn(&C) -> bool) {
         self.entries.retain(|_, ctx| keep(ctx));
+    }
+
+    pub(crate) fn find_mut(&mut self, predicate: impl Fn(&C) -> bool) -> Option<&mut C> {
+        self.entries.values_mut().find(|ctx| predicate(ctx))
     }
 
     pub fn any(&self, f: impl Fn(&C) -> bool) -> bool {

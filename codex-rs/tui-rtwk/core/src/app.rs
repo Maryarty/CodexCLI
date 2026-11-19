@@ -6,6 +6,8 @@
 //! effects as data (`AppFx`); the shell runs them (R1). Nothing here touches
 //! the network, the clock or the file system (R12).
 
+pub mod worktree;
+
 use crate::threads::ThreadAsk;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -63,10 +65,6 @@ pub struct SessionSlice {
     /// a reconnect of one never drops the other's events.
     pub epochs: BTreeMap<BackendId, ConnEpoch>,
     pub active: Option<ThreadId>,
-    /// The backend control above the composer (oracle:
-    /// `visible_new_backend_control`): the displayed backend's name, while
-    /// the conversation is empty and another backend is connected.
-    pub cycle: Option<BackendLabel>,
     /// How many times an empty conversation moved to another backend, and
     /// the thread it left: the composer's draft goes with it.
     pub switches: u32,
@@ -90,6 +88,7 @@ pub struct PendingRequest {
     pub key: RequestKey,
     /// The wire method, e.g. `item/commandExecution/requestApproval`.
     pub method: String,
+    pub preview: Option<String>,
 }
 
 /// The queue of requests the user answers, oldest first.
@@ -105,6 +104,13 @@ impl RequestQueue {
 
     pub fn contains(&self, key: &RequestKey) -> bool {
         self.entries.iter().any(|entry| &entry.key == key)
+    }
+
+    pub fn preview(&self, thread: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.key.thread.as_str() == thread)
+            .find_map(|entry| entry.preview.as_deref())
     }
 }
 
@@ -188,10 +194,17 @@ pub enum Command {
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
-    /// A new worktree in `cwd`'s repository with a task in it: git work the
-    /// shell does; it answers with the agents screen's `Ev::Notice`.
+    /// Creates a checkout in the source repository.
     #[non_exhaustive]
-    Worktree { cwd: Option<String> },
+    CreateWorktree { ticket: Ticket, cwd: Option<String> },
+    /// Binds a started thread to its checkout.
+    #[non_exhaustive]
+    BindWorktree {
+        ticket: Ticket,
+        checkout: worktree::Checkout,
+        thread: ThreadId,
+        cwd: String,
+    },
     /// The directory keys of these `cwd`s (canonical path, repository):
     /// file-system reads the shell does; it answers with the agents
     /// screen's `Ev::Directories`.
@@ -239,28 +252,37 @@ impl AppFx {
 
 /// What an outgoing app-scoped RPC was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AppCtx {
+enum AppCtx {
     /// The first thread of a connection, or one a cycle started on `backend`
     /// (`None`: the first).
     StartThread { switch: Option<BackendId> },
     /// An RPC of an app-scoped screen (the agents command center).
     Screen(ScreenCtx),
+    OpenThread {
+        thread: ThreadId,
+        backend: BackendId,
+        cancelled: bool,
+    },
+    Worktree {
+        backend: BackendId,
+        step: worktree::Step,
+    },
 }
 
 /// The model.
 pub struct CodexApp {
-    pub session: Rc<SessionSlice>,
+    session: Rc<SessionSlice>,
     /// The models of the threads (ADR-003): made only by `ThreadSet::open`.
     threads: ThreadSet,
-    pub requests: Rc<RequestQueue>,
-    pub screens: Rc<ScreenStates>,
-    pub(crate) mint: TicketMint,
-    pub(crate) outgoing: Pending<AppCtx>,
-    pub(crate) queued_submits: Vec<String>,
+    requests: Rc<RequestQueue>,
+    screens: Rc<ScreenStates>,
+    mint: TicketMint,
+    outgoing: Pending<AppCtx>,
+    queued_submits: Vec<String>,
     /// Whether connecting starts the first thread. `codex agents` opens the
     /// overview instead (oracle: `agents_overview`), and a task starts when
     /// the user asks for one.
-    pub start_thread_on_connect: bool,
+    start_thread_on_connect: bool,
 }
 
 impl Default for CodexApp {
@@ -277,7 +299,6 @@ impl CodexApp {
                 epoch: ConnEpoch::default(),
                 epochs: BTreeMap::new(),
                 active: None,
-                cycle: None,
                 switches: 0,
                 switched_from: None,
             }),
@@ -291,6 +312,39 @@ impl CodexApp {
         }
     }
 
+    pub fn with_start_thread_on_connect(mut self, enabled: bool) -> Self {
+        self.start_thread_on_connect = enabled;
+        self
+    }
+
+    pub fn session(&self) -> &Rc<SessionSlice> {
+        &self.session
+    }
+
+    pub fn requests(&self) -> &Rc<RequestQueue> {
+        &self.requests
+    }
+
+    pub fn screens(&self) -> &Rc<ScreenStates> {
+        &self.screens
+    }
+
+    pub fn agents_threads(&self) -> agents::CenterThreads {
+        agents::CenterThreads::new(
+            self.session.active.clone(),
+            self.threads.previews().clone(),
+            self.requests.clone(),
+        )
+    }
+
+    pub fn cycle_label(&self) -> Option<BackendLabel> {
+        self.session
+            .active
+            .as_ref()
+            .and_then(|id| self.thread(id))
+            .and_then(|thread| self.session.cycle_label(thread, &self.screens.agents))
+    }
+
     /// The invariants of the model (ADR-003 R7), checked by the tests after
     /// every event: the shown thread is held, each model sits under its own
     /// id, a ticket is awaited in one place only, a server request is queued
@@ -302,23 +356,40 @@ impl CodexApp {
                 "active {active:?} is not held"
             );
         }
-        assert_eq!(self.threads.blank().id, ThreadId::default());
+        assert_eq!(self.threads.blank().id(), &ThreadId::default());
         let mut seen: Vec<Ticket> = self.outgoing.tickets().collect();
         for (id, model) in self.threads.iter() {
-            assert_eq!(&model.id, id, "a model under another thread's key");
-            if let TurnState::Running(running) = &model.turn {
+            assert_eq!(model.id(), id, "a model under another thread's key");
+            if let TurnState::Running(running) = model.turn() {
                 assert_ne!(
-                    model.last_ended.as_ref(),
+                    model.last_ended(),
                     Some(&running.turn),
                     "{id:?} runs the turn it ended"
                 );
             }
-            seen.extend(model.outgoing.tickets());
+            seen.extend(model.outgoing().tickets());
         }
         let total = seen.len();
         seen.sort();
         seen.dedup();
         assert_eq!(seen.len(), total, "a ticket awaited twice");
+        let opening = self.screens.agents.opening.as_ref();
+        assert_eq!(
+            opening.is_some(),
+            self.outgoing.any(|ctx| matches!(
+                ctx,
+                AppCtx::OpenThread {
+                    cancelled: false,
+                    ..
+                }
+            )),
+            "the opening and its live resume ticket must agree",
+        );
+        if let Some(opening) = opening {
+            assert!(self.outgoing.any(|ctx| matches!(ctx,
+                AppCtx::OpenThread { thread, cancelled: false, .. } if thread == opening
+            )));
+        }
         let keys: Vec<_> = self.requests.entries.iter().map(|e| &e.key).collect();
         for (at, key) in keys.iter().enumerate() {
             assert!(!keys[..at].contains(key), "a request queued twice");
@@ -340,6 +411,17 @@ impl CodexApp {
     /// connection.
     pub fn backend_of(&self, command: &Command) -> crate::ids::BackendId {
         let agents = &self.screens.agents;
+        let ticket = match command {
+            Command::Screen { ticket, .. }
+            | Command::CreateWorktree { ticket, .. }
+            | Command::BindWorktree { ticket, .. } => Some(*ticket),
+            _ => None,
+        };
+        if let Some(AppCtx::Worktree { backend, .. } | AppCtx::OpenThread { backend, .. }) =
+            ticket.and_then(|ticket| self.outgoing.get(ticket))
+        {
+            return *backend;
+        }
         match command {
             Command::Screen {
                 command: ScreenCommand::Agents(command),
@@ -425,7 +507,6 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     // Only events that can bring tasks of other directories into the center.
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, origin, ev, fx);
-    refresh_cycle(app);
     sync_picker(app);
     if lists && agents::wants_dirs(&app.screens.agents) {
         let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
@@ -486,7 +567,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 return;
             }
-            if agents::wants(&app.screens.agents, &notification) {
+            let listed = matches!(&*notification, ServerNotification::ReasoningSummaryTextDelta(delta)
+                if app.screens.agents.threads.iter().any(|thread| thread.id == delta.thread_id));
+            app.threads.previews_mut().observe(&notification, listed);
+            if agents::observes(&notification) {
                 let outs =
                     agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
                 send_agents(app, outs, fx);
@@ -506,21 +590,47 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
             // Events were dropped: what the command center derived from them
             // is stale and its list is read again (oracle: `Lagged`).
+            app.threads.previews_mut().clear();
             let screens = Rc::make_mut(&mut app.screens);
             agents::apply(&mut screens.agents, agents::Ev::Lagged, fx);
             let outs = agents::update(&mut screens.agents, agents::Intent::Open);
             send_agents(app, outs, fx);
-            if let Some(id) = app.session.active.clone()
-                && let Some(thread) = app.threads.get_mut(&id)
-            {
-                thread.last_error = Some(Failure::Lagged(skipped));
+            if let Some(id) = app.session.active.clone() {
+                apply_thread(app, &id, ThreadEv::Failure(Failure::Lagged(skipped)), fx);
             }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
         AppEv::Intent(intent) => apply_intent(app, intent, fx),
         AppEv::Screen(ev) => {
-            if let ScreenEv::Agents(agents::Ev::Started(thread)) = &ev {
-                resume_into_chat(app, thread);
+            match &ev {
+                ScreenEv::Agents(agents::Ev::Current(id)) => {
+                    if let Some(id) = id {
+                        app.threads.open(id, Origin::Resumed);
+                    }
+                    Rc::make_mut(&mut app.session).active = id.clone();
+                }
+                ScreenEv::Agents(agents::Ev::Request(id, preview)) => {
+                    app.threads.previews_mut().seed_request(id, preview.clone());
+                }
+                ScreenEv::Agents(agents::Ev::Reconnecting | agents::Ev::Lagged) => {
+                    app.threads.previews_mut().clear();
+                    if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
+                        app.outgoing.retain(|ctx| !matches!(ctx,
+                            AppCtx::Worktree { backend, .. } | AppCtx::OpenThread { backend, .. } if *backend == origin));
+                        if !app.outgoing.any(|ctx| {
+                            matches!(
+                                ctx,
+                                AppCtx::OpenThread {
+                                    cancelled: false,
+                                    ..
+                                }
+                            )
+                        }) {
+                            Rc::make_mut(&mut app.screens).agents.opening = None;
+                        }
+                    }
+                }
+                _ => {}
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
@@ -556,10 +666,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     }
                     (Some(_), Answer::Failed(error)) => {
                         // The oracle shows the error and stays where it was.
-                        if let Some(active) = app.session.active.clone()
-                            && let Some(model) = app.threads.get_mut(&active)
-                        {
-                            model.last_error = Some(Failure::from(error));
+                        if let Some(active) = app.session.active.clone() {
+                            apply_thread(app, &active, ThreadEv::Failure(Failure::from(error)), fx);
                         }
                     }
                     (Some(_), _) => {}
@@ -567,6 +675,31 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Screen(ctx) => screen_answer(app, ctx, answer, fx),
+            AppCtx::OpenThread {
+                thread,
+                cancelled: false,
+                ..
+            } => {
+                screen_answer(
+                    app,
+                    ScreenCtx::Agents(agents::Ctx::Resume { thread }),
+                    answer,
+                    fx,
+                );
+            }
+            AppCtx::OpenThread {
+                thread,
+                cancelled: true,
+                ..
+            } => {
+                // A successful resume still attached a writer on the server.
+                // Keep it without showing it, so a later open need not resume again.
+                if let Answer::Screen(ScreenReply::Agents(agents::Reply::Resumed(_))) = answer {
+                    app.threads.open(&thread, Origin::Resumed);
+                    fetch_history(app, &thread, fx);
+                }
+            }
+            AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
         }
         return;
     }
@@ -588,8 +721,11 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     // Before the first thread: kept until it exists; the
                     // composer's draft clears (the blank projection's ticket).
                     app.queued_submits.push(text);
-                    let ticket = app.mint.next();
-                    app.threads.blank_mut().last_submit = Some(ticket);
+                    threads::apply(
+                        app.threads.blank_mut(),
+                        ThreadEv::DeferredSubmit,
+                        &mut ThreadFx::new(&ThreadId::default(), fx, &mut app.mint),
+                    );
                 }
             }
         }
@@ -597,7 +733,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             let switching = app
                 .outgoing
                 .any(|ctx| matches!(ctx, AppCtx::StartThread { switch: Some(_) }));
-            if app.session.cycle.is_none() || switching {
+            if app.cycle_label().is_none() || switching {
                 return;
             }
             let Some(backend) = app.screens.agents.next_backend() else {
@@ -619,14 +755,13 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 fx.commands.push(Command::RejectRequest { key });
             }
         }
+        Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
+            if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {
+                set_open_cancelled(app, &id, true);
+            }
+        }
         Intent::Screen(ScreenIntent::Agents(intent)) => {
             let screens = Rc::make_mut(&mut app.screens);
-            if matches!(intent, agents::Intent::Open) {
-                // Opened over a chat: its thread is the one `esc` returns to
-                // and the one the list starts on.
-                screens.agents.current =
-                    app.session.active.as_ref().map(|id| id.as_str().to_owned());
-            }
             let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
         }
@@ -652,14 +787,85 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
     send_agents(app, outs, fx);
 }
 
-/// `OpenThread`: the center opens the task (its loading state, `opening`);
-/// the resume itself is decided where every thread RPC is, `send_agents`.
+/// The sole decision to use a held writer, await an existing resume or
+/// ask for an attachment. The loading state is the center's projection.
 fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
-    let outs = agents::update(
-        &mut Rc::make_mut(&mut app.screens).agents,
-        agents::Intent::Resume(id.as_str().to_owned()),
+    let model = &app.screens.agents;
+    if model.held() || model.failure.is_some() {
+        return;
+    }
+    let held = app
+        .threads
+        .get(id)
+        .is_some_and(|thread| !thread.read_only());
+    if !held
+        && !model
+            .threads
+            .iter()
+            .chain(&model.search_matches)
+            .any(|row| row.id == id.as_str())
+    {
+        return;
+    }
+    if let Some(previous) = model.opening.clone().filter(|previous| previous != id) {
+        set_open_cancelled(app, &previous, true);
+    }
+    let agents = &mut Rc::make_mut(&mut app.screens).agents;
+    if held {
+        agents::attach_loaded(agents, id.as_str());
+        show_held_thread(app, id.clone());
+        return;
+    }
+    agents.opening = Some(id.clone());
+    if !set_open_cancelled(app, id, false) {
+        let ticket = app.mint.next();
+        let backend = app.screens.agents.owner_of(id.as_str());
+        app.outgoing.insert(
+            ticket,
+            AppCtx::OpenThread {
+                thread: id.clone(),
+                backend,
+                cancelled: false,
+            },
+        );
+        fx.commands.push(Command::Screen {
+            ticket,
+            thread: ThreadId::default(),
+            command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Resume {
+                thread: id.to_string(),
+            })),
+        });
+    }
+}
+
+fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
+    let Some(ctx) = app.outgoing.find_mut(|ctx| {
+        matches!(
+            ctx, AppCtx::OpenThread { thread, .. } if thread == id
+        )
+    }) else {
+        return false;
+    };
+    if let AppCtx::OpenThread { cancelled, .. } = ctx {
+        *cancelled = value;
+    }
+    true
+}
+
+fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
+    send_agents(
+        app,
+        vec![agents::Out {
+            command: agents::Command::Thread(ThreadAsk::History {
+                thread: id.to_string(),
+                cursor: None,
+            }),
+            ctx: agents::Ctx::History {
+                thread: id.to_string(),
+            },
+        }],
+        fx,
     );
-    send_agents(app, outs, fx);
 }
 
 /// While the picker is live its rows follow the list the backend filled.
@@ -680,23 +886,9 @@ fn sync_picker(app: &mut CodexApp) {
 /// RPCs are app-scoped: the command carries no thread.
 fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     for out in outs {
-        // A resume of a thread this process already holds (its `ThreadModel`
-        // is in `threads`, written by us) is no request: the thread is shown
-        // again as it is. A thread another process writes is still resumed
-        // once. The one place that decides "switch or resume" (ADR-003).
-        if let agents::Command::Thread(ThreadAsk::Resume { thread }) = &out.command {
-            let id = ThreadId::new(thread);
-            if app.threads.get(&id).is_some_and(|model| !model.read_only) {
-                agents::attach_loaded(&mut Rc::make_mut(&mut app.screens).agents, thread);
-                let session = Rc::make_mut(&mut app.session);
-                session.active = Some(id);
-                session.status = Session::Ready;
-                continue;
-            }
-        }
         match out.command {
             agents::Command::NewWorktree { cwd } => {
-                fx.commands.push(Command::Worktree { cwd });
+                worktree::Step::create(app, cwd, fx);
                 continue;
             }
             agents::Command::SaveGrouping { grouping } => {
@@ -742,16 +934,14 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
             | agents::Reply::Started(thread),
         ),
     ) = (&ctx, &result)
-        && !matches!(&ctx, agents::Ctx::Resume { thread } if app.screens.agents.cancelled.contains(thread))
     {
         resume_into_chat(app, thread);
     }
     if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
         && agents::is_active_writer(error)
-        && !app.screens.agents.cancelled.contains(thread)
     {
         // Another process writes the thread: the chat shows it read-only.
-        let id = ThreadId::new(thread);
+        let id = thread.clone();
         app.threads.open(&id, Origin::ForeignWriter);
         let session = Rc::make_mut(&mut app.session);
         session.active = Some(id);
@@ -772,7 +962,12 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
             fx,
         );
     }
-    let outs = agents::apply_answer(&mut Rc::make_mut(&mut app.screens).agents, ctx, result);
+    let outs = agents::apply_answer(
+        &mut Rc::make_mut(&mut app.screens).agents,
+        app.threads.previews_mut(),
+        ctx,
+        result,
+    );
     send_agents(app, outs, fx);
 }
 
@@ -789,7 +984,7 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             }
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
-        Answer::TurnStarted { .. } | Answer::Screen(_) => {}
+        _ => {}
     }
 }
 
@@ -805,37 +1000,39 @@ fn switch_to(app: &mut CodexApp, backend: BackendId, thread: ThreadId) {
     let agents = &mut Rc::make_mut(&mut app.screens).agents;
     agents.observe(backend, thread.as_str());
     agents.display(backend);
-    agents.current = Some(thread.as_str().to_owned());
     agents::reset_for_backend_switch(agents);
 }
 
-/// Sets `session.cycle`: the control is offered while the conversation is
-/// empty and another backend is connected (oracle:
-/// `can_cycle_conversation_backend` and `visible_new_backend_control`).
-fn refresh_cycle(app: &mut CodexApp) {
-    let agents = &app.screens.agents;
-    let thread = app
-        .session
-        .active
-        .as_ref()
-        .and_then(|id| app.threads.get(id));
-    let empty = thread.is_some_and(|thread| {
-        thread.transcript.is_empty()
+impl SessionSlice {
+    /// The backend control is offered while an attached conversation is empty
+    /// and another backend is connected (oracle: `visible_new_backend_control`).
+    pub fn cycle_label(
+        &self,
+        thread: &ThreadModel,
+        agents: &agents::Model,
+    ) -> Option<BackendLabel> {
+        (self.status == Session::Ready
+            && self.active.as_ref() == Some(thread.id())
+            && thread.transcript().is_empty()
             && !thread.is_running()
-            && thread.queue.is_empty()
-            && thread.last_submit.is_none()
-    });
-    let cycle = (app.session.status == Session::Ready && empty && agents.next_backend().is_some())
-        .then(|| agents.label());
-    if app.session.cycle != cycle {
-        Rc::make_mut(&mut app.session).cycle = cycle;
+            && thread.queue().is_empty()
+            && thread.last_submit().is_none()
+            && agents.next_backend().is_some())
+        .then(|| agents.label())
     }
 }
 
 /// The resumed thread becomes the chat's: its model is made and active.
 fn resume_into_chat(app: &mut CodexApp, thread: &codex_app_server_protocol::Thread) {
-    let id = ThreadId::new(&thread.id);
-    app.threads.open(&id, Origin::Resumed);
+    show_thread(app, ThreadId::new(&thread.id), Origin::Resumed);
+}
+
+fn show_thread(app: &mut CodexApp, id: ThreadId, origin: Origin) {
+    app.threads.open(&id, origin);
+    show_held_thread(app, id);
+}
+
+fn show_held_thread(app: &mut CodexApp, id: ThreadId) {
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
@@ -875,5 +1072,30 @@ fn pending_request(epoch: ConnEpoch, request: &ServerRequest) -> Option<PendingR
             id: ServerRequestId::new(id),
         },
         method,
+        preview: request_preview(request),
     })
+}
+
+/// The first useful text on a pending request (oracle: `request_preview`).
+fn request_preview(request: &ServerRequest) -> Option<String> {
+    use codex_app_server_protocol::McpServerElicitationRequest as Mcp;
+    let text = match request {
+        ServerRequest::CommandExecutionRequestApproval { params, .. } => {
+            params.reason.as_deref().or(params.command.as_deref())
+        }
+        ServerRequest::FileChangeRequestApproval { params, .. } => params.reason.as_deref(),
+        ServerRequest::PermissionsRequestApproval { params, .. } => params.reason.as_deref(),
+        ServerRequest::McpServerElicitationRequest { params, .. } => match &params.request {
+            Mcp::Form { message, .. }
+            | Mcp::OpenAiForm { message, .. }
+            | Mcp::OpenAiElicitationForm { message, .. }
+            | Mcp::Url { message, .. } => Some(message.as_str()),
+            Mcp::UserVerification { .. } => None,
+        },
+        ServerRequest::ToolRequestUserInput { params, .. } => {
+            params.questions.first().map(|q| q.question.as_str())
+        }
+        _ => None,
+    }?;
+    Some(agents::preview_text(text))
 }

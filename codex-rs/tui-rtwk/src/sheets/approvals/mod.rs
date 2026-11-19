@@ -69,7 +69,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 
 /// The dialog of the head of the seeded queue.
 fn head_dialog(seeded: &Seeded) -> AnyWidget {
-    match seeded.core.requests.head() {
+    match seeded.core.requests().head() {
         Some(request) => request_dialog(request.key.clone()),
         None => AnyWidget::default(),
     }

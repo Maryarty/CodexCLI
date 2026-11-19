@@ -17,7 +17,7 @@ use pretty_assertions::assert_eq;
 fn facts(json: &str) -> StatusFacts {
     let line = format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{json}}}}}"#);
     let sandbox = Sandbox::play(&line).expect("plays");
-    sandbox.app().screens.chat.status.clone()
+    sandbox.app().screens().chat.status.clone()
 }
 
 fn items(json: &str) -> Vec<(String, String)> {
@@ -166,10 +166,10 @@ fn send(sandbox: &mut Sandbox, intent: DialogIntent) {
 #[test]
 fn retained_warnings_are_counted_and_f2_opens_the_viewer_over_them() {
     let mut sandbox = Sandbox::play(RETAINED).expect("plays");
-    assert_eq!(sandbox.app().screens.dialogs.retained.len(), 3);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
+    assert_eq!(sandbox.app().screens().dialogs.retained.len(), 3);
+    assert!(sandbox.app().screens().dialogs.open.is_none());
     send(&mut sandbox, DialogIntent::OpenWarnings);
-    let Some(Open::Warnings(view)) = &sandbox.app().screens.dialogs.open else {
+    let Some(Open::Warnings(view)) = &sandbox.app().screens().dialogs.open else {
         panic!("not open");
     };
     assert_eq!(view.entries.len(), 3);
@@ -180,7 +180,7 @@ fn retained_warnings_are_counted_and_f2_opens_the_viewer_over_them() {
 fn nothing_retained_opens_the_empty_viewer() {
     let mut sandbox = Sandbox::play("# nothing retained").expect("plays");
     send(&mut sandbox, DialogIntent::OpenWarnings);
-    let Some(Open::Warnings(view)) = &sandbox.app().screens.dialogs.open else {
+    let Some(Open::Warnings(view)) = &sandbox.app().screens().dialogs.open else {
         panic!("not open");
     };
     assert!(view.entries.is_empty());
@@ -195,7 +195,7 @@ fn dismissed_warnings_leave_the_retained_list() {
     send(&mut sandbox, DialogIntent::Close);
     let left: Vec<_> = sandbox
         .app()
-        .screens
+        .screens()
         .dialogs
         .retained
         .iter()
@@ -207,7 +207,7 @@ fn dismissed_warnings_leave_the_retained_list() {
     send(&mut sandbox, DialogIntent::Close);
     let left: Vec<_> = sandbox
         .app()
-        .screens
+        .screens()
         .dialogs
         .retained
         .iter()

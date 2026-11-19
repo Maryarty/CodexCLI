@@ -13,7 +13,7 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
             .collect()
     };
     // Pinning is offered while the server has pins and a task is selected.
-    let can_pin = model.pinned.is_some() && center.selected_row().is_some();
+    let can_pin = model.pins_available() && center.selected_row().is_some();
     let tasks: Vec<(&str, &str)> = strings
         .help_entries_tasks
         .iter()

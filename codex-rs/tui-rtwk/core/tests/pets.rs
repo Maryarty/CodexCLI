@@ -20,7 +20,7 @@ fn send(sandbox: &mut Sandbox, intent: PetsIntent) {
 fn picker(sandbox: &Sandbox) -> Picker {
     sandbox
         .app()
-        .screens
+        .screens()
         .pets
         .open
         .clone()
@@ -90,19 +90,25 @@ fn a_custom_pet_is_current_through_its_legacy_selector() {
 #[test]
 fn opening_and_moving_request_the_preview_of_the_row() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    assert_eq!(sandbox.app().screens.pets.previews, vec!["codex"]);
+    assert_eq!(sandbox.app().screens().pets.previews, vec!["codex"]);
     assert_eq!(
         picker(&sandbox).preview,
         Some(("codex".to_string(), Preview::Loading))
     );
     // The cursor is the widget's: it tells the model which row it is on.
     send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
-    assert_eq!(sandbox.app().screens.pets.previews, vec!["codex", "dewey"]);
+    assert_eq!(
+        sandbox.app().screens().pets.previews,
+        vec!["codex", "dewey"]
+    );
     send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
-    assert_eq!(sandbox.app().screens.pets.previews, vec!["codex", "dewey"]);
+    assert_eq!(
+        sandbox.app().screens().pets.previews,
+        vec!["codex", "dewey"]
+    );
     send(&mut sandbox, PetsIntent::Highlight("bsod".into()));
     assert_eq!(
-        sandbox.app().screens.pets.previews,
+        sandbox.app().screens().pets.previews,
         vec!["codex", "dewey", "bsod"]
     );
 }
@@ -134,17 +140,17 @@ fn enter_selects_the_pet_and_closes() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
     send(&mut sandbox, PetsIntent::Pick("codex".into()));
     assert_eq!(
-        sandbox.app().screens.pets.chosen,
+        sandbox.app().screens().pets.chosen,
         vec![Choice::Selected("codex".into())]
     );
-    assert!(sandbox.app().screens.pets.open.is_none());
+    assert!(sandbox.app().screens().pets.open.is_none());
 }
 
 #[test]
 fn enter_on_the_disable_row_disables_pets() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
     send(&mut sandbox, PetsIntent::Pick(DISABLED.into()));
-    assert_eq!(sandbox.app().screens.pets.chosen, vec![Choice::Disabled]);
+    assert_eq!(sandbox.app().screens().pets.chosen, vec![Choice::Disabled]);
 }
 
 #[test]
@@ -170,8 +176,8 @@ fn close_drops_the_picker_without_a_choice() {
     // only the Close that follows.
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
     send(&mut sandbox, PetsIntent::Close);
-    assert!(sandbox.app().screens.pets.open.is_none());
-    assert!(sandbox.app().screens.pets.chosen.is_empty());
+    assert!(sandbox.app().screens().pets.open.is_none());
+    assert!(sandbox.app().screens().pets.chosen.is_empty());
 }
 
 #[test]

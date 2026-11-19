@@ -53,7 +53,7 @@ use codex_tui_rtwk::services::agents::workspace::account;
 use codex_tui_rtwk::services::agents::workspace::backend_ev;
 use codex_tui_rtwk::services::agents::workspace::directories;
 use codex_tui_rtwk::services::agents::workspace::save_grouping;
-use codex_tui_rtwk::services::agents::workspace::worktree;
+use codex_tui_rtwk::services::agents::workspace::{bind_worktree, create_worktree};
 use codex_tui_rtwk::services::backend::reconnect;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::backend::rpc::answer;
@@ -484,7 +484,7 @@ fn emit_version(ingress: &IngressTx, epoch: ConnEpoch, client: &AppServerClient,
 /// The work a command of ours asks, as one boxed future (the pump holds many
 /// of them; boxing keeps its type, and its stack, small) and the event the
 /// app is waiting for, if any. Core's `wire` makes the requests and reads the
-/// results; the shell's `answer`, `directories` and `worktree` run them; this
+/// results; the shell's `answer`, `directories` and the worktree effects run them; this
 /// only sends.
 pub(crate) fn work(
     command: Command,
@@ -502,8 +502,19 @@ pub(crate) fn work(
         Command::SaveGrouping { grouping, .. } => {
             Box::pin(async move { save_grouping(workspace, grouping).await })
         }
-        Command::Worktree { cwd, .. } => {
-            Box::pin(async move { Some(worktree(workspace, cwd, ids, send).await) })
+        Command::CreateWorktree { ticket, cwd, .. } => {
+            Box::pin(async move { Some(create_worktree(workspace, ticket, cwd).await) })
+        }
+        Command::BindWorktree {
+            ticket,
+            checkout,
+            thread,
+            cwd,
+            ..
+        } => {
+            Box::pin(
+                async move { Some(bind_worktree(workspace, ticket, checkout, thread, cwd).await) },
+            )
         }
         // `RejectRequest` is handled by the pump, which owns the client.
         command => Box::pin(async move {

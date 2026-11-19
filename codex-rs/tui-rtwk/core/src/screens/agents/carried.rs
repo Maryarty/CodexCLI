@@ -12,7 +12,7 @@ use codex_app_server_protocol::ThreadActiveFlag;
 use codex_app_server_protocol::ThreadStatus;
 use codex_protocol::protocol::SubAgentSource;
 
-pub(super) const PREVIEW_CHARS: usize = 512;
+pub(crate) const PREVIEW_CHARS: usize = 512;
 
 // oracle: agents_overview_view.rs enum AgentsOverviewGroup
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -104,7 +104,7 @@ pub(crate) fn supports_shared_pinning(source: &SessionSource) -> bool {
 }
 
 // oracle: agents_overview_details.rs fn preview_text
-pub(super) fn preview_text(text: &str) -> String {
+pub(crate) fn preview_text(text: &str) -> String {
     text.chars()
         .map(|ch| if ch.is_whitespace() { ' ' } else { ch })
         .filter(|ch| !ch.is_control())

@@ -56,7 +56,8 @@ pub fn client_request(
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
         Command::RejectRequest { .. }
-        | Command::Worktree { .. }
+        | Command::CreateWorktree { .. }
+        | Command::BindWorktree { .. }
         | Command::Directories { .. }
         | Command::SaveGrouping { .. } => None,
     }
@@ -96,7 +97,8 @@ pub fn reply(
             },
         )),
         Command::RejectRequest { .. }
-        | Command::Worktree { .. }
+        | Command::CreateWorktree { .. }
+        | Command::BindWorktree { .. }
         | Command::Directories { .. }
         | Command::SaveGrouping { .. } => None,
     }

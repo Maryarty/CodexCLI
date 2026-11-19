@@ -48,7 +48,7 @@ fn entries() -> Vec<Warning> {
 }
 
 fn open_warnings(sandbox: &Sandbox) -> codex_tui_core::screens::dialogs::Warnings {
-    match &sandbox.app().screens.dialogs.open {
+    match &sandbox.app().screens().dialogs.open {
         Some(Open::Warnings(warnings)) => warnings.clone(),
         other => panic!("warnings expected, got {other:?}"),
     }
@@ -63,12 +63,12 @@ fn warning_pages_copy_only_the_current_diagnostic() {
         assert_eq!(open_warnings(&sandbox).current, index);
         page(&mut sandbox, PageIntent::Copy);
         assert_eq!(
-            sandbox.app().screens.dialogs.copied.last(),
+            sandbox.app().screens().dialogs.copied.last(),
             Some(&want[index].details)
         );
     }
     send(&mut sandbox, DialogIntent::Close);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
+    assert!(sandbox.app().screens().dialogs.open.is_none());
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn warnings_dismiss_the_pages_that_were_shown_on_close() {
     page(&mut sandbox, PageIntent::Previous);
     send(&mut sandbox, DialogIntent::Close);
     let want = entries();
-    let decided = &sandbox.app().screens.dialogs.decided;
+    let decided = &sandbox.app().screens().dialogs.decided;
     assert_eq!(decided.len(), 1);
     assert_eq!(decided[0].dismissed, want);
     assert!(decided[0].kept.is_empty());
@@ -101,7 +101,7 @@ fn a_page_never_shown_is_not_dismissed() {
     let mut sandbox = Sandbox::play(WARNINGS).expect("plays");
     send(&mut sandbox, DialogIntent::Close);
     let want = entries();
-    let decided = &sandbox.app().screens.dialogs.decided;
+    let decided = &sandbox.app().screens().dialogs.decided;
     assert_eq!(decided[0].dismissed, vec![want[0].clone()]);
 }
 
@@ -116,7 +116,7 @@ fn warnings_keep_current_and_next_without_dismissing_unvisited_pages() {
     // The oracle test keeps page 2 of 3 and dismisses page 1 only: here every
     // page reached was shown, so page 3 is dismissed too (delta N03).
     let want = entries();
-    let decided = &sandbox.app().screens.dialogs.decided;
+    let decided = &sandbox.app().screens().dialogs.decided;
     assert_eq!(decided[0].kept, vec![want[1].clone()]);
     assert_eq!(decided[0].dismissed, vec![want[0].clone(), want[2].clone()]);
 }
@@ -127,8 +127,8 @@ fn keep_on_the_last_page_closes_the_viewer() {
     page(&mut sandbox, PageIntent::Next);
     page(&mut sandbox, PageIntent::Next);
     page(&mut sandbox, PageIntent::KeepAndNext);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
-    let decided = &sandbox.app().screens.dialogs.decided;
+    assert!(sandbox.app().screens().dialogs.open.is_none());
+    let decided = &sandbox.app().screens().dialogs.decided;
     assert_eq!(decided[0].kept, vec![entries()[2].clone()]);
 }
 
@@ -138,7 +138,7 @@ fn no_decision_is_recorded_when_nothing_was_shown_or_kept() {
         Sandbox::play(r#"{"step":"screen","dir":"dialogs","ev":{"kind":"warnings","entries":[]}}"#)
             .expect("plays");
     send(&mut sandbox, DialogIntent::Close);
-    assert!(sandbox.app().screens.dialogs.decided.is_empty());
+    assert!(sandbox.app().screens().dialogs.decided.is_empty());
 }
 
 #[test]
@@ -147,21 +147,21 @@ fn the_shortcut_overlay_swaps_between_the_list_and_the_keyboard() {
         Sandbox::play(r#"{"step":"screen","dir":"dialogs","ev":{"kind":"shortcuts"}}"#)
             .expect("plays");
     assert_eq!(
-        sandbox.app().screens.dialogs.open,
+        sandbox.app().screens().dialogs.open,
         Some(Open::Shortcuts(ShortcutView::List))
     );
     send(&mut sandbox, DialogIntent::ToggleKeyboard);
     assert_eq!(
-        sandbox.app().screens.dialogs.open,
+        sandbox.app().screens().dialogs.open,
         Some(Open::Shortcuts(ShortcutView::Keyboard))
     );
     send(&mut sandbox, DialogIntent::ToggleKeyboard);
     assert_eq!(
-        sandbox.app().screens.dialogs.open,
+        sandbox.app().screens().dialogs.open,
         Some(Open::Shortcuts(ShortcutView::List))
     );
     send(&mut sandbox, DialogIntent::Close);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
+    assert!(sandbox.app().screens().dialogs.open.is_none());
 }
 
 #[test]
@@ -171,15 +171,15 @@ fn a_category_leads_to_the_consent_step_and_the_answer_to_the_note() {
             .expect("plays");
     send(&mut sandbox, DialogIntent::PickCategory(2));
     let Some(Open::Feedback(Feedback::Consent { category, .. })) =
-        sandbox.app().screens.dialogs.open.clone()
+        sandbox.app().screens().dialogs.open.clone()
     else {
         panic!("the consent step");
     };
     assert_eq!(category, FeedbackCategory::GoodResult);
     send(&mut sandbox, DialogIntent::Consent(false));
-    assert!(sandbox.app().screens.dialogs.open.is_none());
+    assert!(sandbox.app().screens().dialogs.open.is_none());
     assert_eq!(
-        sandbox.app().screens.dialogs.note,
+        sandbox.app().screens().dialogs.note,
         Some(NoteRequest {
             category: FeedbackCategory::GoodResult,
             include_logs: false
@@ -194,7 +194,7 @@ fn a_category_past_the_rows_changes_nothing() {
             .expect("plays");
     send(&mut sandbox, DialogIntent::PickCategory(9));
     assert_eq!(
-        sandbox.app().screens.dialogs.open,
+        sandbox.app().screens().dialogs.open,
         Some(Open::Feedback(Feedback::Category))
     );
 }
@@ -206,8 +206,8 @@ fn closing_the_consent_step_asks_for_no_note() {
     )
     .expect("plays");
     send(&mut sandbox, DialogIntent::Close);
-    assert!(sandbox.app().screens.dialogs.open.is_none());
-    assert!(sandbox.app().screens.dialogs.note.is_none());
+    assert!(sandbox.app().screens().dialogs.open.is_none());
+    assert!(sandbox.app().screens().dialogs.note.is_none());
 }
 
 #[test]

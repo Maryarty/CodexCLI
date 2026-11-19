@@ -106,14 +106,14 @@ fn connected_starts_the_first_thread() {
     let fx = run(&mut app, AppEv::Connected);
     assert_eq!(fx.commands().len(), 1);
     start_thread_ticket(&fx);
-    assert_eq!(app.session.status, Session::Starting);
+    assert_eq!(app.session().status, Session::Starting);
 }
 
 #[test]
 fn thread_started_reply_makes_the_session_ready() {
     let app = ready();
-    assert_eq!(app.session.status, Session::Ready);
-    assert_eq!(app.session.active, Some(ThreadId::new(T)));
+    assert_eq!(app.session().status, Session::Ready);
+    assert_eq!(app.session().active, Some(ThreadId::new(T)));
 }
 
 #[test]
@@ -142,22 +142,22 @@ fn a_submit_before_ready_waits_and_goes_out_when_the_thread_starts() {
 fn a_second_submit_while_the_turn_starts_is_queued_not_refused() {
     let mut app = ready();
     assert_eq!(start_turns(&submit(&mut app, "one")).len(), 1);
-    let first = thread(&app).last_submit;
+    let first = thread(&app).last_submit();
     let fx = submit(&mut app, "two");
     assert!(fx.commands().is_empty());
-    assert_eq!(thread(&app).queue, vec!["two".to_string()]);
-    assert_ne!(thread(&app).last_submit, first, "the intent was accepted");
+    assert_eq!(thread(&app).queue(), vec!["two".to_string()]);
+    assert_ne!(thread(&app).last_submit(), first, "the intent was accepted");
 }
 
 #[test]
 fn a_submit_while_a_turn_runs_is_queued_and_accepted() {
     let mut app = ready();
-    let first = thread(&app).last_submit;
+    let first = thread(&app).last_submit();
     notification(&mut app, turn_started(T, "turn-1"));
     let fx = submit(&mut app, "two");
     assert!(fx.commands().is_empty());
-    assert_eq!(thread(&app).queue, vec!["two".to_string()]);
-    assert_ne!(thread(&app).last_submit, first);
+    assert_eq!(thread(&app).queue(), vec!["two".to_string()]);
+    assert_ne!(thread(&app).last_submit(), first);
 }
 
 #[test]
@@ -167,14 +167,14 @@ fn queued_messages_go_out_in_order_one_per_turn_end() {
     submit(&mut app, "two");
     submit(&mut app, "three");
     assert_eq!(
-        thread(&app).queue,
+        thread(&app).queue(),
         vec!["two".to_string(), "three".to_string()]
     );
     let fx = notification(&mut app, turn_completed(T, "turn-1"));
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1, "one per turn end");
     assert_eq!(turns[0].1, "two");
-    assert_eq!(thread(&app).queue, vec!["three".to_string()]);
+    assert_eq!(thread(&app).queue(), vec!["three".to_string()]);
     // The turn for "two" is accepted and runs; its end sends "three".
     run(
         &mut app,
@@ -188,7 +188,7 @@ fn queued_messages_go_out_in_order_one_per_turn_end() {
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].1, "three");
-    assert!(thread(&app).queue.is_empty());
+    assert!(thread(&app).queue().is_empty());
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn a_queue_survives_a_second_submit_and_keeps_its_order() {
     submit(&mut app, "three");
     submit(&mut app, "four");
     assert_eq!(
-        thread(&app).queue,
+        thread(&app).queue(),
         ["two", "three", "four"].map(String::from).to_vec()
     );
 }
@@ -212,7 +212,7 @@ fn a_turn_that_fails_to_start_still_sends_the_next_queued_message() {
     submit(&mut app, "two");
     let fx = run(&mut app, AppEv::Reply(ticket, Reply::failed("refused")));
     assert_eq!(
-        thread(&app).last_error,
+        thread(&app).last_error().cloned(),
         Some(Failure::Message("refused".into()))
     );
     let turns = start_turns(&fx);
@@ -240,7 +240,7 @@ fn a_queued_message_goes_out_when_the_turn_end_was_seen_before_its_start_reply()
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1, "the queue must not stall");
     assert_eq!(turns[0].1, "two");
-    assert!(thread(&app).queue.is_empty());
+    assert!(thread(&app).queue().is_empty());
     assert!(!thread(&app).is_running(), "the ended turn is not revived");
 }
 
@@ -262,14 +262,14 @@ fn a_later_submit_does_not_overtake_older_queued_text() {
     // "two" is starting: "three" waits behind it.
     let fx = submit(&mut app, "three");
     assert!(start_turns(&fx).is_empty());
-    assert_eq!(thread(&app).queue, vec!["three".to_string()]);
+    assert_eq!(thread(&app).queue(), vec!["three".to_string()]);
 }
 
 #[test]
 fn a_lagged_gap_is_a_failure_the_view_words() {
     let mut app = ready();
     notification(&mut app, BackendEv::Lagged(3));
-    assert_eq!(thread(&app).last_error, Some(Failure::Lagged(3)));
+    assert_eq!(thread(&app).last_error().cloned(), Some(Failure::Lagged(3)));
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn turn_reply_and_notification_in_either_order_give_one_running_turn() {
             run(&mut app, reply);
         }
         assert!(thread(&app).is_running(), "reply_first={reply_first}");
-        assert!(thread(&app).outgoing.is_empty());
+        assert!(thread(&app).outgoing().is_empty());
     }
 }
 
@@ -320,9 +320,9 @@ fn a_late_turn_started_does_not_revive_an_ended_turn() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
     notification(&mut app, turn_completed(T, "turn-1"));
-    assert_eq!(thread(&app).turn, TurnState::Idle);
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
     notification(&mut app, turn_started(T, "turn-1"));
-    assert_eq!(thread(&app).turn, TurnState::Idle);
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
 #[test]
@@ -330,7 +330,7 @@ fn a_delta_before_its_item_creates_the_entry() {
     let mut app = ready();
     notification(&mut app, agent_delta(T, "turn-1", "msg-1", "Hel"));
     notification(&mut app, agent_delta(T, "turn-1", "msg-1", "lo"));
-    let transcript = thread(&app).transcript.clone();
+    let transcript = thread(&app).transcript().clone();
     assert_eq!(
         transcript.get(0).map(|(_, item)| item.clone()),
         Some(Item::Agent {
@@ -347,7 +347,7 @@ fn the_completed_item_replaces_the_streamed_text_in_place() {
     notification(&mut app, agent_completed(T, "turn-1", "msg-1", "Hello"));
     let model = thread(&app);
     let items: Vec<_> = model
-        .transcript
+        .transcript()
         .iter()
         .map(|(_, item)| item.clone())
         .collect();
@@ -367,7 +367,7 @@ fn replace_turn_takes_the_snapshot_wholesale() {
     let mut app = ready();
     notification(&mut app, agent_delta(T, "turn-1", "msg-1", "stale"));
     notification(&mut app, agent_delta(T, "turn-1", "msg-2", "gone"));
-    let mut transcript = thread(&app).transcript.clone();
+    let mut transcript = thread(&app).transcript().clone();
     transcript.replace_turn(
         &TurnId::new("turn-1"),
         vec![(
@@ -395,8 +395,8 @@ fn a_server_request_is_queued_once_and_rejected_once() {
     let request = || AppEv::Backend(tool_input_request(T, "turn-1", 7));
     run(&mut app, request());
     run(&mut app, request());
-    assert_eq!(app.requests.entries.len(), 1);
-    let PendingRequest { key, method } = app.requests.entries[0].clone();
+    assert_eq!(app.requests().entries.len(), 1);
+    let PendingRequest { key, method, .. } = app.requests().entries[0].clone();
     assert_eq!(method, "item/tool/requestUserInput");
     assert_eq!(
         key,
@@ -412,7 +412,7 @@ fn a_server_request_is_queued_once_and_rejected_once() {
         "{:?}",
         fx.commands()
     );
-    assert!(app.requests.entries.is_empty());
+    assert!(app.requests().entries.is_empty());
     let fx = run(&mut app, AppEv::Intent(Intent::DismissRequest(key)));
     assert!(fx.commands().is_empty());
 }
@@ -437,9 +437,9 @@ fn the_projection_maps_what_the_skeleton_shows() {
 fn a_resolved_server_request_closes_its_dialog_without_a_reject() {
     let mut app = ready();
     run(&mut app, AppEv::Backend(tool_input_request(T, "turn-1", 7)));
-    assert_eq!(app.requests.entries.len(), 1);
+    assert_eq!(app.requests().entries.len(), 1);
     let fx = notification(&mut app, server_request_resolved(T, 7));
-    assert!(app.requests.entries.is_empty());
+    assert!(app.requests().entries.is_empty());
     assert!(fx.commands().is_empty(), "nothing is rejected: it is gone");
 }
 
@@ -448,14 +448,14 @@ fn a_second_request_waits_behind_the_first() {
     let mut app = ready();
     run(&mut app, AppEv::Backend(tool_input_request(T, "turn-1", 7)));
     run(&mut app, AppEv::Backend(tool_input_request(T, "turn-1", 8)));
-    assert_eq!(app.requests.entries.len(), 2);
+    assert_eq!(app.requests().entries.len(), 2);
     assert_eq!(
-        app.requests.head().map(|r| r.key.id.clone()),
+        app.requests().head().map(|r| r.key.id.clone()),
         Some(ServerRequestId::new("7"))
     );
     notification(&mut app, server_request_resolved(T, 7));
     assert_eq!(
-        app.requests.head().map(|r| r.key.id.clone()),
+        app.requests().head().map(|r| r.key.id.clone()),
         Some(ServerRequestId::new("8"))
     );
 }
@@ -469,10 +469,10 @@ fn a_failed_turn_keeps_the_servers_error_message() {
     notification(&mut app, turn_error(T, "turn-1", "no network", false));
     notification(&mut app, turn_failed(T, "turn-1"));
     assert_eq!(
-        thread(&app).last_error,
+        thread(&app).last_error().cloned(),
         Some(Failure::Message("no network".into()))
     );
-    assert_eq!(thread(&app).turn, TurnState::Idle);
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
 #[test]
@@ -480,7 +480,10 @@ fn a_failed_turn_without_a_message_says_so_plainly() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
     notification(&mut app, turn_failed(T, "turn-1"));
-    assert_eq!(thread(&app).last_error, Some(Failure::TurnFailed));
+    assert_eq!(
+        thread(&app).last_error().cloned(),
+        Some(Failure::TurnFailed)
+    );
 }
 
 #[test]
@@ -488,7 +491,7 @@ fn an_error_that_will_be_retried_is_not_shown() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
     notification(&mut app, turn_error(T, "turn-1", "reconnecting", true));
-    assert_eq!(thread(&app).last_error, None);
+    assert_eq!(thread(&app).last_error().cloned(), None);
 }
 
 /// The oracle ends with the error when the server does not start
@@ -501,7 +504,7 @@ fn a_start_failure_ends_the_app() {
     let fx = run(&mut app, AppEv::StartFailed("no daemon package".into()));
     assert!(fx.ends_app());
     assert_eq!(
-        app.session.status,
+        app.session().status,
         Session::Failed(Failure::Message("no daemon package".into()))
     );
     let mut app = self::app();

@@ -400,6 +400,19 @@ fn codex_app_holds_its_threads_privately() {
         app.contains("\n    threads: ThreadSet,"),
         "CodexApp.threads must be a private ThreadSet"
     );
+    for (file, name, source) in [
+        ("app.rs", "CodexApp", app),
+        ("threads.rs", "ThreadModel", read("core/src/threads.rs")),
+    ] {
+        let (_, body) = source
+            .split_once(&format!("pub struct {name} {{"))
+            .expect(name);
+        let (fields, _) = body.split_once("\n}").expect("end of model");
+        assert!(
+            code_lines(fields).all(|(_, field)| !field.trim_start().starts_with("pub")),
+            "{file}: {name} must expose read-only methods instead of public fields",
+        );
+    }
 }
 
 /// A thread RPC is asked for as data (`threads::ThreadAsk`) and made into a
@@ -459,5 +472,44 @@ fn the_shown_thread_is_set_only_in_apply_app() {
     assert!(
         found.is_empty(),
         "the shown thread set outside app.rs: {found:#?}"
+    );
+}
+
+#[test]
+fn agents_read_the_apps_thread_state_and_ask_it_to_open_threads() {
+    let agents = read("core/src/screens/agents/mod.rs");
+    let (_, model) = agents
+        .split_once("pub struct Model {")
+        .expect("agents Model");
+    let (fields, _) = model.split_once("\n}").expect("end of agents Model");
+    for field in [
+        "current",
+        "turning",
+        "requests",
+        "activity",
+        "last_messages",
+        "pinned",
+    ] {
+        assert!(
+            !code_lines(fields).any(|(_, line)| line.contains(&format!("{field}:"))),
+            "agents has a second copy of {field}"
+        );
+    }
+    let mut files = sources_of("core/src/screens");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &[
+            "ThreadAsk::Resume",
+            "ThreadAsk::Unsubscribe",
+            "ThreadSet::",
+            "&mut ThreadSet",
+        ],
+        |_| false,
+    );
+    assert!(
+        found.is_empty(),
+        "thread opened or released outside the app: {found:#?}"
     );
 }

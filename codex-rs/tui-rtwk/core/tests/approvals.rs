@@ -29,7 +29,7 @@ fn exec(extra: &str) -> String {
 }
 
 fn prompt(sandbox: &Sandbox) -> Prompt {
-    let model = &sandbox.app().screens.approvals;
+    let model = &sandbox.app().screens().approvals;
     model
         .prompt(&ThreadId::new("thread-1"), &ServerRequestId::new("1"))
         .expect("a prompt")
@@ -135,7 +135,7 @@ fn an_answer_is_a_model_fact_and_the_prompt_goes() {
             decision: Decision::Accept,
         },
     ))));
-    let model = &sandbox.app().screens.approvals;
+    let model = &sandbox.app().screens().approvals;
     assert!(
         model
             .prompt(&ThreadId::new("thread-1"), &ServerRequestId::new("1"))

@@ -41,12 +41,36 @@ fn reconnecting_drops_the_stale_reads_and_says_so() {
         &mut app,
         Ev::ServerVersion(Some("Service v0.152.1 < Codex CLI v0.153.0".into())),
     );
-    std::rc::Rc::make_mut(&mut app.screens)
-        .agents
-        .reading
-        .insert("t".into());
+    let seeded = build(include_str!(
+        "../../src/pages/agents/fixtures/overview.jsonl"
+    ))
+    .expect("plays");
+    let mut fx = AppFx::default();
+    let listed = seeded.app.screens().agents.threads.clone();
+    run(
+        &mut app,
+        Ev::Listed(codex_tui_core::screens::agents::Page {
+            threads: listed.clone(),
+            unread: Vec::new(),
+            append: false,
+            next_cursor: None,
+            pins: None,
+        }),
+    );
+    let thread = listed.first().expect("a row").clone();
+    let event = codex_app_server_protocol::ServerNotification::ThreadStarted(
+        codex_app_server_protocol::ThreadStartedNotification { thread },
+    );
+    apply_app(
+        &mut app,
+        AppEv::Backend(codex_tui_core::app::BackendEv::Notification(Box::new(
+            event,
+        ))),
+        &mut fx,
+    );
+    assert!(!app.screens().agents.reading.is_empty());
     run(&mut app, Ev::Reconnecting);
-    let model = &app.screens.agents;
+    let model = &app.screens().agents;
     assert_eq!(model.notice, Some(Notice::Reconnecting));
     assert_eq!(model.server_version, None);
     assert!(model.reading.is_empty());
@@ -59,7 +83,7 @@ fn a_new_connection_ends_the_notice_and_reads_the_list() {
     let mut app = app();
     run(&mut app, Ev::Reconnecting);
     let fx = run(&mut app, Ev::Reconnected);
-    assert_eq!(app.screens.agents.notice, None);
+    assert_eq!(app.screens().agents.notice, None);
     assert_eq!(lists(&fx), 1, "one list request");
 }
 
@@ -70,6 +94,6 @@ fn a_failed_reconnect_asks_for_nothing() {
     let mut app = app();
     run(&mut app, Ev::Reconnecting);
     let fx = run(&mut app, Ev::Notice(Some(Notice::ReconnectFailed)));
-    assert_eq!(app.screens.agents.notice, Some(Notice::ReconnectFailed));
+    assert_eq!(app.screens().agents.notice, Some(Notice::ReconnectFailed));
     assert_eq!(lists(&fx), 0);
 }

@@ -557,15 +557,20 @@ before (R1, R3). By rules test (`tests/rules/layers.rs`):
 `core/src/app.rs` alone). By behaviour tests (`core/tests/adr003.rs`): R2
 switch round-trip and "A keeps receiving while B is shown", R4 resume
 mid-turn, R5 end-path matrix, R7 `CodexApp::assert_consistent` after every
-event, R8 lifecycle x intent, R9/R10 interleavings. `Intent::OpenThread(id)`
-is the one door; "held and ours: switch, else resume once" is decided in
-`send_agents` (`core/src/app.rs`). Debt (not yet type or test): the worktree
-flow in `src/services/agents/workspace.rs` still sequences `thread/start` and
-`thread/unsubscribe` itself (through `ThreadAsk`); the command center's model
-still holds `current`, `turning`, `requests`, `activity` by `String` id
-(`core/src/screens/agents/mod.rs`), and `session.cycle` and `agents.pinned`
-are stored derived values (R7); `CodexApp` fields other than `threads` are
-still `pub`.
+event, R8 lifecycle x intent, R9/R10 interleavings. `CodexApp` and `ThreadModel` fields are private. Readers receive immutable
+projections. The command center and resume picker both open sessions through
+`Intent::OpenThread(id)`. The app displays a held writer, waits for an
+in-flight resume, or issues one resume. Esc cancels the navigation while a
+successful late reply can still establish the single held writer. The
+command center derives the current row from the app session, request previews
+from the app queue, and activity from the typed thread catalog in `ThreadSet`.
+Catalog previews also cover threads that have no local writer. Detail reads
+track one phase per thread so reverts and gaps can invalidate an old turns
+reply. Pin rank comes from the backend pin lists, and the backend-cycle
+control comes from the active conversation and connected backends.
+The app sequences worktree creation, thread start, bind and compensation.
+The shell performs filesystem effects and sends RPCs; the view renders a
+typed retained-checkout notice.
 
 Clippy's `disallowed_*` lists are crate-wide: each rule that says "outside
 X" is a crate-wide deny with `#[allow(clippy::disallowed_…)]` on the

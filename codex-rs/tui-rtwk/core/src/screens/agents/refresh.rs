@@ -3,7 +3,9 @@
 //! Oracle: `agents_overview.rs` (refresh apply, open),
 //! `agents_overview_actions.rs` (action results), `agents_overview_loading.rs`.
 
-use crate::threads::ThreadAsk;
+use crate::ids::ThreadId;
+use crate::threads::{ThreadAsk, ThreadPreviews};
+use super::DetailRead;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -189,7 +191,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         }
         Ev::ThreadColors(on) => model.thread_colors_off = !on,
         Ev::Grouping(grouping) => model.grouping = grouping,
-        Ev::Current(current) => model.current = current,
+        Ev::Current(_) | Ev::Request(..) => {}
         Ev::Pinned(pinned) => model.set_pins(model.displayed, pinned),
         Ev::ListFailed => {
             model.paging.loading = false;
@@ -204,17 +206,9 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::ServerVersion(text) => model.server_version = text,
         Ev::Reconnecting => reconnecting(model),
         Ev::Reconnected => model.notice = None,
-        Ev::Started(thread) => opened(model, &thread),
         Ev::Lagged => lagged(model),
         Ev::Voice(owner) => model.voice = owner,
-        Ev::Request(thread, preview) => match preview {
-            Some(preview) => {
-                model.requests.insert(thread, preview);
-            }
-            None => {
-                model.requests.remove(&thread);
-            }
-        },
+
     }
 }
 
@@ -223,8 +217,6 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
 /// footer says so until a new connection is up.
 fn reconnecting(model: &mut Model) {
     super::usage::reset(model);
-    model.activity.clear();
-    model.last_messages.clear();
     model.reading.clear();
     model.reread.clear();
     model.pin_pending = false;
@@ -239,16 +231,17 @@ fn reconnecting(model: &mut Model) {
 /// from the stream is dropped, and what is being read is read again.
 fn lagged(model: &mut Model) {
     super::usage::reset(model);
-    model.activity.clear();
-    model.last_messages.clear();
-    model.stale.extend(model.turning.iter().cloned());
+    for phase in model.reading.values_mut() {
+        if *phase == DetailRead::Turns {
+            *phase = DetailRead::StaleTurns;
+        }
+    }
     model.paging.initialized = false;
 }
 
 /// A task the app started opens in the chat; the busy notice ends.
-fn opened(model: &mut Model, thread: &Thread) {
-    model.hidden.remove(&thread.id);
-    model.current = Some(thread.id.clone());
+pub(crate) fn finish_start(model: &mut Model, thread: &str) {
+    model.hidden.remove(thread);
     model.resumes += 1;
     if matches!(model.notice, Some(Notice::CreatingWorktree)) {
         model.notice = None;
@@ -261,7 +254,7 @@ pub(super) fn list(model: &mut Model, cursor: Option<String>, append: bool) -> O
 }
 
 /// The answer of an RPC of ours.
-pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>) -> Vec<Out> {
+pub fn apply_answer(model: &mut Model, previews: &mut ThreadPreviews, ctx: Ctx, result: Result<Reply, RpcError>) -> Vec<Out> {
     match (ctx, result) {
         (Ctx::List { append: true }, Ok(Reply::Listed(page))) => {
             super::discovery::on_more_page(model, Some(page));
@@ -293,8 +286,8 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         (Ctx::Search { id, limit }, Err(_) | Ok(_)) => {
             return super::discovery::on_search_page(model, id, limit, None);
         }
-        (Ctx::Read { thread }, result) => return super::reads::on_read(model, thread, result),
-        (Ctx::Turns { thread }, result) => return super::reads::on_turns(model, thread, result),
+        (Ctx::Read { thread }, result) => return super::reads::on_read(model, previews, thread, result),
+        (Ctx::Turns { thread }, result) => return super::reads::on_turns(model, previews, thread, result),
         (Ctx::Loaded, result) => return super::reads::on_loaded(model, result),
         (Ctx::Usage { thread, id }, result) => {
             super::usage::finish(model, &thread, id, result.ok());
@@ -305,9 +298,8 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 model.notice = None;
             }
         }
-        (Ctx::Fork, Ok(Reply::Forked(thread))) => {
+        (Ctx::Fork, Ok(Reply::Forked(_))) => {
             // The copy opens in the chat.
-            model.current = Some(thread.id);
             model.resumes += 1;
         }
         (Ctx::Fork, Ok(_)) => {}
@@ -358,28 +350,20 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             )));
             return vec![list(model, None, false)];
         }
-        (Ctx::Resume { thread }, _) if model.cancelled.contains(&thread) => {
-            // The opening was cancelled meanwhile: the page is gone, the
-            // answer is of no interest.
-            if let Some(at) = model.cancelled.iter().position(|task| *task == thread) {
-                model.cancelled.remove(at);
-            }
-        }
         // The thread has another writer (oracle: `is_active_writer_error`):
         // it opens read-only, its history shown, not as a failure.
         (Ctx::Resume { thread }, Err(error)) if is_active_writer(&error) => {
-            let owner = model.owner_of(&thread);
+            let owner = model.owner_of(thread.as_str());
             model.display(owner);
-            model.hidden.remove(&thread);
-            model.current = Some(thread.clone());
+            model.hidden.remove(thread.as_str());
             model.opening = None;
             model.resumes += 1;
             return vec![out(
                 Command::Thread(ThreadAsk::History {
-                    thread: thread.clone(),
+                    thread: thread.to_string(),
                     cursor: None,
                 }),
-                Ctx::History { thread },
+                Ctx::History { thread: thread.to_string() },
             )];
         }
         (Ctx::Resume { .. }, Err(error)) => {
@@ -398,14 +382,12 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.pin_pending = false;
             // Sets the requested state (oracle `complete_agents_overview_pin`):
             // idempotent, and a new pin goes last.
-            let owner = model.owner_of(&thread);
-            if let Some(Some(pins)) = model.pins_by_backend.get(&owner).cloned() {
-                let mut pins = pins;
-                pins.retain(|pin| *pin != thread);
+            let owner = model.owner_of(thread.as_str());
+            if let Some(Some(pins)) = model.pins_by_backend.get_mut(&owner) {
+                pins.retain(|pin| pin.as_str() != thread);
                 if pinned {
-                    pins.push(thread);
+                    pins.push(ThreadId::new(thread));
                 }
-                model.set_pins(owner, Some(pins));
             }
             return vec![list(model, None, false)];
         }
@@ -413,10 +395,10 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             // Opening older history is a local addition: the row stays, even
             // when no list reaches it.
             if let Ok(Reply::Resumed(resumed)) = result {
-                let owner = model.owner_of(&thread);
+                let owner = model.owner_of(thread.as_str());
                 if !resumed.ephemeral
-                    && !model.removed.contains(&thread)
-                    && model.observe(owner, &thread)
+                    && !model.removed.contains(thread.as_str())
+                    && model.observe(owner, thread.as_str())
                 {
                     let mut resumed = *resumed;
                     resumed.turns.clear();
@@ -425,26 +407,24 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             }
             // A task of another backend resumes on its owner, which is the
             // displayed backend from then on (oracle: `ResumeBackendSession`).
-            let owner = model.owner_of(&thread);
+            let owner = model.owner_of(thread.as_str());
             model.display(owner);
-            model.hidden.remove(&thread);
-            model.current = Some(thread);
+            model.hidden.remove(thread.as_str());
             model.opening = None;
             model.resumes += 1;
             // The session's history, the newest page first.
-            let thread = model.current.clone().unwrap_or_default();
             return vec![out(
                 Command::Thread(ThreadAsk::History {
-                    thread: thread.clone(),
+                    thread: thread.to_string(),
                     cursor: None,
                 }),
-                Ctx::History { thread },
+                Ctx::History { thread: thread.to_string() },
             )];
         }
         // The page of history goes to the thread's transcript (the app
         // routes it); the center has nothing to change.
         (Ctx::History { .. }, _) => {}
-        (Ctx::Start, Ok(Reply::Started(thread))) => opened(model, &thread),
+        (Ctx::Start, Ok(Reply::Started(thread))) => finish_start(model, &thread.id),
         (Ctx::Start, Ok(_)) => {}
         (Ctx::Start, Err(error)) => {
             model.notice = Some(Notice::Error(error_text(error)));
@@ -461,7 +441,6 @@ pub fn attach_loaded(model: &mut Model, thread: &str) {
     let owner = model.owner_of(thread);
     model.display(owner);
     model.hidden.remove(thread);
-    model.current = Some(thread.to_owned());
     model.opening = None;
     model.resumes += 1;
 }

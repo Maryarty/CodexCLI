@@ -15,9 +15,10 @@ use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadStatusChangedNotification;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Command, Ctx, DetailLine, Lens, Model, Out, Page, Reply, apply_answer, decode, observe,
+    Command, Ctx, DetailLine, Lens, Model, Out, Page, Reply, apply_answer, decode,
+    observe as observe_screen,
 };
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::threads::{ThreadAsk, ThreadPreviews};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -56,9 +57,10 @@ fn working() -> Value {
     json!({"type": "active", "activeFlags": []})
 }
 
-fn listed(m: &mut Model, rows: Vec<Thread>) -> Vec<Out> {
+fn listed(m: &mut Model, threads: &mut ThreadPreviews, rows: Vec<Thread>) -> Vec<Out> {
     apply_answer(
         m,
+        threads,
         Ctx::List { append: false },
         Ok(Reply::Listed(Page {
             threads: rows,
@@ -79,8 +81,28 @@ fn reads(outs: &[Out]) -> Vec<String> {
         .collect()
 }
 
-fn details_of(m: &Model) -> codex_tui_core::screens::agents::Details {
-    m.center_at(None, &Lens::default()).rows[0].details.clone()
+fn details_of(m: &Model, threads: &ThreadPreviews) -> codex_tui_core::screens::agents::Details {
+    m.center_at(
+        &codex_tui_core::screens::agents::CenterThreads::new(
+            None,
+            threads.clone(),
+            Default::default(),
+        ),
+        None,
+        &Lens::default(),
+    )
+    .rows[0]
+        .details
+        .clone()
+}
+
+fn observe(
+    model: &mut Model,
+    threads: &mut ThreadPreviews,
+    notification: &ServerNotification,
+) -> Vec<Out> {
+    threads.observe(notification, true);
+    observe_screen(model, notification)
 }
 
 fn delta(thread: &str, item: &str, text: &str) -> ServerNotification {
@@ -124,15 +146,16 @@ fn read_reply(thread: Thread, unread: bool) -> Result<Reply, RpcError> {
 #[test]
 fn a_first_page_reads_its_rows_and_asks_the_loaded_list() {
     let mut m = Model::default();
+    let mut threads = ThreadPreviews::default();
     let rows = vec![
         thread(&id(1), None, "", idle()),
         thread(&id(2), None, "B", idle()),
     ];
-    let outs = listed(&mut m, rows.clone());
+    let outs = listed(&mut m, &mut threads, rows.clone());
     assert_eq!(reads(&outs), vec![id(2), id(1)]);
     assert!(outs.iter().any(|out| out.command == Command::Loaded));
     // A refresh asks again, but the loaded list is asked once.
-    let outs = listed(&mut m, rows);
+    let outs = listed(&mut m, &mut threads, rows);
     assert!(!outs.iter().any(|out| out.command == Command::Loaded));
 }
 
@@ -142,11 +165,17 @@ fn a_first_page_reads_its_rows_and_asks_the_loaded_list() {
 #[test]
 fn the_read_fills_preview_prompt_and_last_message() {
     let mut m = Model::default();
-    listed(&mut m, vec![thread(&id(1), None, "", idle())]);
-    assert_eq!(details_of(&m).latest_prompt, None);
+    let mut threads = ThreadPreviews::default();
+    listed(&mut m, &mut threads, vec![thread(&id(1), None, "", idle())]);
+    assert_eq!(details_of(&m, &threads).latest_prompt, None);
     let mut read = thread(&id(1), None, "", idle());
     read.preview = "Read preview".into();
-    let outs = apply_answer(&mut m, Ctx::Read { thread: id(1) }, read_reply(read, true));
+    let outs = apply_answer(
+        &mut m,
+        &mut threads,
+        Ctx::Read { thread: id(1) },
+        read_reply(read, true),
+    );
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0].command,
@@ -154,16 +183,27 @@ fn the_read_fills_preview_prompt_and_last_message() {
     );
     assert!(m.unread.contains(&id(1)));
     assert_eq!(
-        m.center_at(None, &Lens::default()).rows[0].preview,
+        m.center_at(
+            &codex_tui_core::screens::agents::CenterThreads::new(
+                None,
+                threads.clone(),
+                Default::default()
+            ),
+            None,
+            &Lens::default()
+        )
+        .rows[0]
+            .preview,
         "Read preview"
     );
     let outs = apply_answer(
         &mut m,
+        &mut threads,
         Ctx::Turns { thread: id(1) },
         Ok(turn_reply("Fix the bug", "Done.")),
     );
     assert!(outs.is_empty());
-    let details = details_of(&m);
+    let details = details_of(&m, &threads);
     assert_eq!(details.latest_prompt.as_deref(), Some("Fix the bug"));
     assert_eq!(details.last_message.as_deref(), Some("Done."));
 }
@@ -172,8 +212,21 @@ fn the_read_fills_preview_prompt_and_last_message() {
 #[test]
 fn a_failed_read_ends_the_chain() {
     let mut m = Model::default();
-    listed(&mut m, vec![thread(&id(1), None, "A", idle())]);
-    assert!(apply_answer(&mut m, Ctx::Read { thread: id(1) }, Err(RpcError::Mismatch)).is_empty());
+    let mut threads = ThreadPreviews::default();
+    listed(
+        &mut m,
+        &mut threads,
+        vec![thread(&id(1), None, "A", idle())],
+    );
+    assert!(
+        apply_answer(
+            &mut m,
+            &mut threads,
+            Ctx::Read { thread: id(1) },
+            Err(RpcError::Mismatch)
+        )
+        .is_empty()
+    );
     assert!(m.reading.is_empty());
 }
 
@@ -182,28 +235,40 @@ fn a_failed_read_ends_the_chain() {
 #[test]
 fn a_changed_task_is_read_again_after_the_read_in_flight() {
     let mut m = Model::default();
-    listed(&mut m, vec![thread(&id(1), None, "A", idle())]);
+    let mut threads = ThreadPreviews::default();
+    listed(
+        &mut m,
+        &mut threads,
+        vec![thread(&id(1), None, "A", idle())],
+    );
     let status = ServerNotification::ThreadStatusChanged(ThreadStatusChangedNotification {
         thread_id: id(1),
         status: serde_json::from_value::<ThreadStatus>(idle()).expect("a status"),
     });
     // The page's read is in flight: nothing new is sent, the change is kept.
-    assert!(observe(&mut m, &status).is_empty());
-    assert!(m.reread.contains(&id(1)));
+    assert!(observe(&mut m, &mut threads, &status).is_empty());
+    assert!(m.reread.contains(id(1).as_str()));
     apply_answer(
         &mut m,
+        &mut threads,
         Ctx::Read { thread: id(1) },
         read_reply(thread(&id(1), None, "A", idle()), false),
     );
     let outs = apply_answer(
         &mut m,
+        &mut threads,
         Ctx::Turns { thread: id(1) },
         Ok(turn_reply("p", "m")),
     );
     assert_eq!(reads(&outs), vec![id(1)]);
     // With no chain running a change reads at once.
-    apply_answer(&mut m, Ctx::Read { thread: id(1) }, Err(RpcError::Mismatch));
-    assert_eq!(reads(&observe(&mut m, &status)), vec![id(1)]);
+    apply_answer(
+        &mut m,
+        &mut threads,
+        Ctx::Read { thread: id(1) },
+        Err(RpcError::Mismatch),
+    );
+    assert_eq!(reads(&observe(&mut m, &mut threads, &status)), vec![id(1)]);
 }
 
 /// Item 3 (oracle `agents_overview_reasoning_uses_existing_events_and_expires_
@@ -213,28 +278,34 @@ fn a_changed_task_is_read_again_after_the_read_in_flight() {
 #[test]
 fn latest_activity_is_the_first_bold_run_across_deltas() {
     let mut m = Model::default();
+    let mut threads = ThreadPreviews::default();
     listed(
         &mut m,
+        &mut threads,
         vec![thread(&id(1), None, "Check startup", working())],
     );
     for text in ["**Checking", " cold-start regressions**\nFurther reasoning"] {
-        observe(&mut m, &delta(&id(1), "reasoning", text));
+        observe(&mut m, &mut threads, &delta(&id(1), "reasoning", text));
     }
     assert_eq!(
-        details_of(&m).lines,
+        details_of(&m, &threads).lines,
         vec![
             DetailLine::Blank,
             DetailLine::LatestActivity("Checking cold-start regressions".into())
         ]
     );
     for text in [format!("**{}", "界".repeat(10_000)), "**".to_owned()] {
-        observe(&mut m, &delta(&id(1), "oversized", &text));
+        observe(&mut m, &mut threads, &delta(&id(1), "oversized", &text));
     }
-    let details = details_of(&m);
+    let details = details_of(&m, &threads);
     assert_eq!((details.lines, details.last_message), (Vec::new(), None));
-    observe(&mut m, &delta(&id(1), "next", "**Running tests**"));
+    observe(
+        &mut m,
+        &mut threads,
+        &delta(&id(1), "next", "**Running tests**"),
+    );
     assert_eq!(
-        details_of(&m).lines,
+        details_of(&m, &threads).lines,
         vec![
             DetailLine::Blank,
             DetailLine::LatestActivity("Running tests".into())
@@ -247,22 +318,28 @@ fn latest_activity_is_the_first_bold_run_across_deltas() {
 #[test]
 fn a_reverted_thread_resets_prompt_last_message_and_tokens() {
     let mut m = Model::default();
-    listed(&mut m, vec![thread(&id(1), None, "A", idle())]);
+    let mut threads = ThreadPreviews::default();
+    listed(
+        &mut m,
+        &mut threads,
+        vec![thread(&id(1), None, "A", idle())],
+    );
     apply_answer(
         &mut m,
+        &mut threads,
         Ctx::Turns { thread: id(1) },
         Ok(turn_reply("p", "m")),
     );
     m.usage.entry(id(1)).or_default().tokens = Some((1, 2));
-    observe(&mut m, &delta(&id(1), "r", "**x**"));
-    assert!(m.activity.contains_key(&id(1)));
+    observe(&mut m, &mut threads, &delta(&id(1), "r", "**x**"));
+    assert!(threads.get(id(1).as_str()).is_some());
     let outs = observe(
         &mut m,
+        &mut threads,
         &ServerNotification::ThreadReverted(ThreadRevertedNotification { thread_id: id(1) }),
     );
     assert!(outs.is_empty());
-    assert!(!m.activity.contains_key(&id(1)));
-    assert!(!m.last_messages.contains_key(&id(1)));
+    assert!(threads.get(id(1).as_str()).is_none());
     assert_eq!(m.usage[&id(1)].tokens, None);
 }
 

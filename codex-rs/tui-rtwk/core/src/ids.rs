@@ -31,6 +31,12 @@ string_id!(
     /// A conversation thread of the app-server.
     ThreadId
 );
+impl std::borrow::Borrow<str> for ThreadId {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 string_id!(
     /// A turn inside a thread.
     TurnId

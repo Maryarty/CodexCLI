@@ -12,13 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use codex_app_server_protocol::ClientRequest;
+use codex_tui_core::app::worktree::{BindFailure, RetainedReason};
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
-use codex_tui_core::rpc::ServerError;
+use codex_tui_core::rpc::{RpcError, ServerError};
 use codex_tui_core::screens::agents::{DirKeys, Ev, Grouping, Intent as AgentsIntent, Notice};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use codex_tui_rtwk::services::agents::search::{Gate, Latest, SEARCH_DEBOUNCE};
 use codex_tui_rtwk::services::agents::workspace::{
-    Boxed, Checkout, Facts, Workspace, account, backend_ev, directories, save_grouping, worktree,
+    Boxed, Checkout, Facts, Workspace, account, backend_ev, bind_worktree, create_worktree,
+    directories, save_grouping,
 };
 use codex_tui_rtwk::services::backend::fake::FakeWorkspace;
 use codex_tui_rtwk::services::backend::rpc::{
@@ -87,7 +89,7 @@ fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
 }
 
 fn agents(app: &CodexApp) -> &codex_tui_core::screens::agents::Model {
-    &app.screens.agents
+    &app.screens().agents
 }
 
 /// The `Command::Screen` effects of `fx`, which only the core can make.
@@ -345,59 +347,91 @@ fn make_worktree(
     workspace: &Arc<FakeWorkspace>,
     cwd: Option<&str>,
     send: impl Fn(ClientRequest) -> std::future::Ready<Result<Value, ServerError>>,
-) -> AppEv {
-    runtime().block_on(worktree(
-        workspace.clone(),
-        cwd.map(str::to_owned),
-        Ids::default(),
-        send,
-    ))
+) -> CodexApp {
+    let mut app = CodexApp::new();
+    run(&mut app, backend_ev(LOCAL));
+    if let Some(cwd) = cwd {
+        let mut thread: codex_app_server_protocol::Thread =
+            serde_json::from_value(thread_json("selected", 500, cwd)).unwrap();
+        thread.turns.clear();
+        run(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(Ev::Listed(
+                codex_tui_core::screens::agents::Page {
+                    threads: vec![thread],
+                    unread: vec![],
+                    next_cursor: None,
+                    append: false,
+                    pins: None,
+                },
+            ))),
+        );
+    }
+    let mut effects = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+            AgentsIntent::NewWorktree(cwd.map(|_| "selected".to_owned())),
+        ))),
+    );
+    assert_eq!(agents(&app).notice, Some(Notice::CreatingWorktree));
+    let ids = Ids::default();
+    while let Some(command) = effects.into_commands().into_iter().next() {
+        let event = runtime().block_on(async {
+            match command {
+                Command::CreateWorktree { ticket, cwd, .. } => {
+                    create_worktree(workspace.clone(), ticket, cwd).await
+                }
+                Command::BindWorktree {
+                    ticket,
+                    checkout,
+                    thread,
+                    cwd,
+                    ..
+                } => bind_worktree(workspace.clone(), ticket, checkout, thread, cwd).await,
+                command => {
+                    let (ticket, reply) = answer(command, LOCAL, ids.clone(), None, &send)
+                        .await
+                        .unwrap();
+                    AppEv::Reply(ticket, reply)
+                }
+            }
+        });
+        effects = run(&mut app, event);
+    }
+    app
 }
 
 #[test]
 fn a_new_worktree_starts_a_task_in_the_checkout_and_opens_it() {
     let workspace = Arc::new(FakeWorkspace::default());
     workspace.set_create(Ok(checkout()));
-    let mut app = CodexApp::new();
-    run(
-        &mut app,
-        AppEv::Screen(ScreenEv::Agents(Ev::Notice(Some(Notice::CreatingWorktree)))),
-    );
-    let ev = make_worktree(&workspace, Some("/src/repo"), |request| {
+    let app = make_worktree(&workspace, Some("/src/repo"), |request| {
         std::future::ready(started(&request))
     });
-    run(&mut app, ev);
     assert_eq!(workspace.created(), [Some("/src/repo".to_owned())]);
     assert_eq!(
         workspace.bound(),
         [(checkout(), "new-1".to_owned(), "/wt/abc/sub".to_owned())]
     );
     assert_eq!(
-        app.session
+        app.session()
             .active
             .as_ref()
             .map(codex_tui_core::ids::ThreadId::as_str),
         Some("new-1")
     );
     assert_eq!(agents(&app).notice, None);
-    assert_eq!(agents(&app).current.as_deref(), Some("new-1"));
-}
-
-fn notice_of(ev: AppEv) -> Option<Notice> {
-    let mut app = CodexApp::new();
-    run(&mut app, ev);
-    agents(&app).notice.clone()
 }
 
 #[test]
 fn a_worktree_that_cannot_be_made_shows_the_reason() {
     let workspace = Arc::new(FakeWorkspace::default());
     workspace.set_create(Err("The source project is not trusted.".into()));
-    let ev = make_worktree(&workspace, None, |_| {
+    let app = make_worktree(&workspace, None, |_| {
         std::future::ready(Err("never".into()))
     });
     assert_eq!(
-        notice_of(ev),
+        agents(&app).notice.clone(),
         Some(Notice::Error("The source project is not trusted.".into()))
     );
 }
@@ -407,12 +441,15 @@ fn a_worktree_that_cannot_be_made_shows_the_reason() {
 fn a_task_that_fails_to_start_names_the_retained_checkout() {
     let workspace = Arc::new(FakeWorkspace::default());
     workspace.set_create(Ok(checkout()));
-    let ev = make_worktree(&workspace, None, |_| {
+    let app = make_worktree(&workspace, None, |_| {
         std::future::ready(Err("offline".into()))
     });
     assert_eq!(
-        notice_of(ev),
-        Some(Notice::Error("Failed to start session: offline A checkout was retained at /wt/abc; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed.".into()))
+        agents(&app).notice.clone(),
+        Some(Notice::WorktreeRetained {
+            root: checkout().root,
+            reason: RetainedReason::Start(RpcError::Remote("offline".into()))
+        })
     );
     assert!(workspace.bound().is_empty());
 }
@@ -424,19 +461,25 @@ fn a_task_that_cannot_be_bound_names_the_retained_checkout() {
     workspace.set_bind(Err(
         "The server did not apply the worktree directory.".into()
     ));
-    let ev = make_worktree(&workspace, None, |request| {
+    let methods = std::cell::RefCell::new(Vec::new());
+    let app = make_worktree(&workspace, None, |request| {
+        let wire = serde_json::to_value(&request).unwrap();
+        methods
+            .borrow_mut()
+            .push(wire["method"].as_str().unwrap().to_owned());
         std::future::ready(started(&request))
     });
-    let notice = notice_of(ev);
-    let Some(Notice::Error(message)) = notice else {
-        panic!("{notice:?}")
-    };
-    assert!(
-        message.starts_with(
-            "The server did not apply the worktree directory. A checkout was retained at /wt/abc;"
-        ),
-        "{message}"
+    assert_eq!(methods.into_inner(), ["thread/start", "thread/unsubscribe"]);
+    assert_eq!(
+        agents(&app).notice,
+        Some(Notice::WorktreeRetained {
+            root: checkout().root,
+            reason: RetainedReason::Bind(BindFailure::Workspace(
+                "The server did not apply the worktree directory.".into()
+            )),
+        }),
     );
+    assert_eq!(app.session().active, None);
 }
 
 #[test]
@@ -1097,7 +1140,7 @@ fn a_task_that_cannot_be_bound_is_unsubscribed() {
         "The server did not apply the worktree directory.".into()
     ));
     let sent = std::sync::Mutex::new(Vec::new());
-    let ev = make_worktree(&workspace, None, |request| {
+    let app = make_worktree(&workspace, None, |request| {
         let wire = serde_json::to_value(&request).unwrap();
         let answer = match wire["method"].as_str() {
             Some("thread/start") => started(&request),
@@ -1106,7 +1149,13 @@ fn a_task_that_cannot_be_bound_is_unsubscribed() {
         sent.lock().unwrap().push(wire);
         std::future::ready(answer)
     });
-    assert!(matches!(notice_of(ev), Some(Notice::Error(_))));
+    assert!(matches!(
+        agents(&app).notice,
+        Some(Notice::WorktreeRetained {
+            reason: RetainedReason::Bind(_),
+            ..
+        })
+    ));
     let sent = sent.into_inner().unwrap();
     let methods: Vec<&str> = sent.iter().filter_map(|r| r["method"].as_str()).collect();
     assert_eq!(methods, ["thread/start", "thread/unsubscribe"]);
@@ -1298,8 +1347,7 @@ fn esc_on_the_loading_page_returns_to_the_command_center() {
     h.settle();
     let before = h.t.screen();
     h.t.press("enter");
-    h.t.pump_for(Duration::from_millis(40));
-    assert!(h.t.screen().contains("Loading task…"), "{}", h.t.screen());
+    h.wait_for("the loading page", |s| s.contains("Loading task…"));
     h.t.press("esc");
     h.settle();
     let screen = h.t.screen();
@@ -1323,9 +1371,8 @@ fn a_pick_in_the_resume_picker_shows_the_loading_page() {
         s.contains("Resume a previous session") && s.contains("Exec task")
     });
     h.t.press("enter");
-    h.t.pump_for(Duration::from_millis(40));
+    h.wait_for("the loading page", |s| s.contains("Loading task…"));
     let screen = h.t.screen();
-    assert!(screen.contains("Loading task…"), "{screen}");
     assert!(!screen.contains("Resume a previous session"), "{screen}");
 }
 

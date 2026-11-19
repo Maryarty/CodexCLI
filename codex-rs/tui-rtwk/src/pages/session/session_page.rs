@@ -165,7 +165,7 @@ impl State for ChatState {
         // message, not when it was sent: a change of the last accepted
         // ticket in the same thread.
         let now = select::<ThreadModel, (ThreadId, Option<Ticket>), _>(cx, |thread| {
-            (thread.id.clone(), thread.last_submit)
+            (thread.id().clone(), thread.last_submit())
         });
         if let Some((thread, before)) = &self.seen
             && *thread == now.0
@@ -292,8 +292,8 @@ impl State for ChatState {
         let strings = l10n::of(cx);
         let row_tokens = tokens.clone();
         let row_strings = strings;
-        let transcript = ListView::builder(thread.transcript.len(), move |index| {
-            match rows.transcript.get(index) {
+        let transcript = ListView::builder(thread.transcript().len(), move |index| {
+            match rows.transcript().get(index) {
                 Some((_, Item::User { text })) => {
                     Text::new(row_strings.user_line(text).to_string())
                         .style(row_tokens.bold())
@@ -307,7 +307,7 @@ impl State for ChatState {
         })
         .stick_to_bottom(true);
         // The session's failure first, then the thread's last one.
-        let failure = match (&session.status, &thread.last_error) {
+        let failure = match (&session.status, thread.last_error()) {
             (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
             _ => None,
         };
@@ -350,7 +350,7 @@ impl State for ChatState {
                         .into(),
                 )
             }
-            None if thread.read_only => {
+            None if thread.read_only() => {
                 // The external writer view: the composer is replaced by the
                 // notice, the footer by what the page can do.
                 let line = Column::new()
@@ -436,7 +436,7 @@ impl State for ChatState {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
             .child(status);
-        for text in &thread.queue {
+        for text in thread.queue() {
             body = body.child(Text::new(strings.queued(text).to_string()).style(tokens.dim()));
         }
         if let Some(notice) = &states.chat.notice {
@@ -466,7 +466,7 @@ impl State for ChatState {
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
-            .cycle
+            .cycle_label(&thread, &states.agents)
             .filter(|_| search.is_none() && !self.shortcuts);
         self.control.set(control.is_some());
         *self.composer.borrow_mut() = w.ui.composer.clone();

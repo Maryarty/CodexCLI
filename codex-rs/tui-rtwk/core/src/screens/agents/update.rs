@@ -10,7 +10,6 @@ use super::Ctx;
 use super::Intent;
 use super::Model;
 use super::Notice;
-use super::Sel;
 use super::carried::supports_shared_pinning;
 use codex_app_server_protocol::ThreadStatus;
 
@@ -48,23 +47,8 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             outs.extend(super::discovery::restart_history(model, &lens));
         }
         Intent::ClearSearch => clear_search(model),
-        Intent::Accept(at) => accept(model, at, &mut outs),
-        Intent::CancelOpen => {
-            if let Some(thread) = model.opening.take() {
-                model.cancelled.push(thread);
-            }
-        }
-        Intent::Resume(thread) => {
-            if model.threads.iter().any(|known| known.id == thread) {
-                model.opening = Some(thread.clone());
-                outs.push(out(
-                    Command::Thread(ThreadAsk::Resume {
-                        thread: thread.clone(),
-                    }),
-                    Ctx::Resume { thread },
-                ));
-            }
-        }
+        Intent::ShowMore => outs.extend(super::discovery::show_more(model)),
+        Intent::CancelOpen => {}
         Intent::MoreMatches(lens) => outs.extend(super::discovery::load_matches(
             model,
             crate::screens::agents::PAGE_SIZE as usize,
@@ -189,7 +173,7 @@ fn cwd_of(model: &Model, at: Option<String>) -> Option<String> {
 fn blocked(model: &Model, intent: &Intent) -> bool {
     model.held() && matches!(
         intent,
-        Intent::Accept(_)
+        Intent::ShowMore
             | Intent::CycleGrouping
             | Intent::SetGrouping(_)
             | Intent::TogglePin(_)
@@ -224,24 +208,6 @@ fn rename(model: &Model, thread: String, name: String, outs: &mut Vec<Out>) {
         },
         Ctx::Rename { thread },
     ));
-}
-
-fn accept(model: &mut Model, at: Sel, outs: &mut Vec<Out>) {
-    if at == Sel::ShowMore {
-        outs.extend(super::discovery::show_more(model));
-        return;
-    }
-    if let Sel::Task(thread) = at
-        && model.row(&thread).is_some()
-    {
-        model.opening = Some(thread.clone());
-        outs.push(out(
-            Command::Thread(ThreadAsk::Resume {
-                thread: thread.clone(),
-            }),
-            Ctx::Resume { thread },
-        ));
-    }
 }
 
 /// The `cwd`s of the center's tasks whose directory keys the shell has not

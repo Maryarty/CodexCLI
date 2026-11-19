@@ -23,6 +23,9 @@ pub fn footer<'a>(
         Some(Notice::Removing(Action::Archive)) => Some(strings.archiving.to_owned()),
         Some(Notice::Removing(Action::Delete)) => Some(strings.deleting.to_owned()),
         Some(Notice::CreatingWorktree) => Some(strings.creating_worktree.to_owned()),
+        Some(Notice::WorktreeRetained { root, reason }) => {
+            Some(strings.retained_worktree(root, reason))
+        }
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
         Some(Notice::Error(text)) => Some(text.clone()),
         None => {

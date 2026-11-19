@@ -19,6 +19,34 @@ use super::carried::matches_query;
 use super::carried::model_name;
 use super::details::Details;
 
+use std::rc::Rc;
+
+use crate::app::RequestQueue;
+use crate::ids::ThreadId;
+use crate::threads::{ThreadPreview, ThreadPreviews};
+
+/// Read-only thread data supplied by the app when it projects the center.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CenterThreads {
+    active: Option<ThreadId>,
+    previews: ThreadPreviews,
+    requests: Rc<RequestQueue>,
+}
+
+impl CenterThreads {
+    pub fn new(active: Option<ThreadId>, previews: ThreadPreviews, requests: Rc<RequestQueue>) -> Self {
+        Self { active, previews, requests }
+    }
+
+    pub(super) fn preview(&self, id: &str) -> Option<&ThreadPreview> {
+        self.previews.get(id)
+    }
+
+    pub(super) fn request(&self, id: &str) -> Option<&str> {
+        self.requests.preview(id).or_else(|| self.preview(id)?.seeded_request.as_deref())
+    }
+}
+
 /// The status filter of the tab row (oracle: `TASK_FILTERS`): `None` is All.
 pub const FILTER_GROUPS: [Option<AgentsOverviewGroup>; 5] = [
     None,
@@ -161,7 +189,7 @@ impl Model {
 
     /// The roots in status, newest and id order, hidden ones left out
     /// (oracle: `agents_overview_view`).
-    pub(super) fn rows(&self) -> Vec<RowData> {
+    pub(super) fn rows(&self, state: Option<&CenterThreads>) -> Vec<RowData> {
         let mut children: HashMap<String, Vec<&Thread>> = HashMap::new();
         for thread in &self.threads {
             if let Some(parent) = &thread.parent_thread_id {
@@ -203,21 +231,16 @@ impl Model {
                 reasoning_effort: root.reasoning_effort.as_ref().map(|e| e.as_str().to_owned()),
                 group,
                 unread: self.unread.contains(&root.id),
-                current: self.current.as_deref() == Some(root.id.as_str()),
-                pinned: self
-                    .pinned
-                    .as_ref()
-                    .is_some_and(|pins| pins.contains(&root.id)),
+                current: state.and_then(|state| state.active.as_ref()).map(ThreadId::as_str) == Some(root.id.as_str()),
+                pinned: self.pin_rank(&root.id).is_some(),
                 has_voice: voice_session.is_some_and(|session| session == root.session_id),
-                details: self.details(root, &children),
+                details: state.map_or_else(Details::default, |state| self.details(root, &children, state)),
             })
             .collect()
     }
 
     fn pin_rank(&self, id: &str) -> Option<usize> {
-        self.pinned
-            .as_ref()
-            .and_then(|pins| pins.iter().position(|pin| pin == id))
+        self.pinned_ids().position(|pin| pin == id)
     }
 
     /// The rows the filters keep, pinned first, in grouping order (oracle:
@@ -368,19 +391,19 @@ impl Model {
 
     /// The row of task `id`.
     pub fn row(&self, id: &str) -> Option<RowData> {
-        self.rows().into_iter().find(|row| row.id() == id)
+        self.rows(None).into_iter().find(|row| row.id() == id)
     }
 
     /// Everything the view draws, with the highlight at the default row (the
     /// current task's, else the first).
-    pub fn center(&self) -> Center {
-        self.center_at(None, &Lens::default())
+    pub fn center(&self, state: &CenterThreads) -> Center {
+        self.center_at(state, None, &Lens::default())
     }
 
     /// Everything the view draws, the highlight at `cursor` (the list
     /// widget's cursor, the only copy of it) when it is selectable.
-    pub fn center_at(&self, cursor: Option<&Sel>, lens: &Lens) -> Center {
-        let rows = self.rows();
+    pub fn center_at(&self, state: &CenterThreads, cursor: Option<&Sel>, lens: &Lens) -> Center {
+        let rows = self.rows(Some(state));
         let indices = self.selectable(&rows, lens);
         let entries = self.entries(&rows, &indices);
         let mut tab_counts = [0; 5];
@@ -468,7 +491,7 @@ impl Model {
         removed: &[String],
         lens: &Lens,
     ) -> Option<String> {
-        let rows = self.rows();
+        let rows = self.rows(None);
         let visible = self.visible_indices(&rows, lens);
         let from = Sel::Task(from.to_owned());
         let selected = self.selected_index(&rows, &visible, Some(&from))?;

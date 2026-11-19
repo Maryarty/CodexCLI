@@ -310,7 +310,9 @@ pub(crate) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
             })
         }
         "clock" => serde_json::from_value(body).map(Ev::Clock).map_err(text),
-        "current" => serde_json::from_value(body).map(Ev::Current).map_err(text),
+        "current" => serde_json::from_value::<Option<String>>(body)
+            .map(|id| Ev::Current(id.map(crate::ids::ThreadId::new)))
+            .map_err(text),
         "pinned" => serde_json::from_value(body).map(Ev::Pinned).map_err(text),
         "voice" => serde_json::from_value(body).map(Ev::Voice).map_err(text),
         "thread_colors" => serde_json::from_value(body)
@@ -325,7 +327,7 @@ pub(crate) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
         "reconnecting" => Ok(Ev::Reconnecting),
         "reconnected" => Ok(Ev::Reconnected),
         "request" => serde_json::from_value::<(String, String)>(body)
-            .map(|(thread, preview)| Ev::Request(thread, Some(preview)))
+            .map(|(thread, preview)| Ev::Request(crate::ids::ThreadId::new(thread), Some(preview)))
             .map_err(text),
         other => Err(other.to_owned()),
     }
