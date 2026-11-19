@@ -429,26 +429,29 @@ fn window_top(prev: usize, selected: usize, view: usize, len: usize) -> usize {
     top
 }
 
+/// The row `index` is picked: the intent goes to the model and the picker
+/// returns its choice (the session replaces the page, the navigator's home
+/// below).
+fn accept(index: usize, cx: &mut Cx<'_, ScreenState>) {
+    let screens = watch::<ScreenStates, _>(cx);
+    if let Some(row) = screens.resume.rows.get(index) {
+        let hs = read::<Hs, _>(cx);
+        let intent = ScreenIntent::Resume(ResumeIntent::Resume(row.id.clone()));
+        cx.emit(&hs.screen, intent);
+        Navigator::maybe_pop(cx);
+    }
+}
+
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
-            Msg::Accept(index) => {
-                let screens = watch::<ScreenStates, _>(cx);
-                if let Some(row) = screens.resume.rows.get(index) {
-                    let hs = read::<Hs, _>(cx);
-                    let intent = ScreenIntent::Resume(ResumeIntent::Resume(row.id.clone()));
-                    cx.emit(&hs.screen, intent);
-                    // The picker returned its choice: the session replaces the
-                    // page (it is the navigator's home below).
-                    Navigator::maybe_pop(cx);
-                }
-            }
+            Msg::Accept(index) => accept(index, cx),
             Msg::Enter => {
                 if let Some(index) = self.selection.cursor() {
-                    return self.update(Msg::Accept(index), w, cx);
+                    accept(index, cx);
                 }
             }
             Msg::Move(mv) => {

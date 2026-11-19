@@ -61,7 +61,7 @@ impl Options {
         selection.set_cursor(Some(0));
         Self {
             selection,
-            scroll: ScrollController::new(),
+            scroll: ScrollController::default(),
             heights: Rc::new(RefCell::new(Vec::new())),
         }
     }
