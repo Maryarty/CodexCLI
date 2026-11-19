@@ -24,6 +24,7 @@ use codex_tui_core::screens::agents::{
     update, wire,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+use codex_tui_core::threads::ThreadAsk;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -589,9 +590,9 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0].command,
-        Command::Start {
+        Command::Thread(ThreadAsk::Start {
             cwd: Some("/tmp/checkout/subdir".into())
-        }
+        })
     );
     for expected in [Grouping::Directory, Grouping::Status, Grouping::Model] {
         let _ = update(&mut m, AgentsIntent::CycleGrouping);
@@ -621,7 +622,10 @@ fn command_center_new_actions_use_selection_and_leave_metadata_text_alone() {
     let mut empty = model(&empty_sandbox).clone();
     let outs = up_o(&mut empty, AgentsIntent::New);
     assert_eq!(outs.len(), 1);
-    assert_eq!(outs[0].command, Command::Start { cwd: None });
+    assert_eq!(
+        outs[0].command,
+        Command::Thread(ThreadAsk::Start { cwd: None })
+    );
 }
 
 /// The `w` step of `command_center_new_actions_use_selection_and_leave_metadata_text_alone`
@@ -671,7 +675,7 @@ fn fork_opens_the_copy_of_the_selected_task() {
         outs.iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Fork { thread: target }]
+        vec![Command::Thread(ThreadAsk::Fork { thread: target })]
     );
     let copy = thread(&id(9), None, "Task", idle());
     let _ = apply_answer(&mut m, Ctx::Fork, Ok(Reply::Forked(Box::new(copy))));
@@ -1010,12 +1014,15 @@ fn overview_right_opens_current_or_highlighted_task() {
         .into_iter()
         .map(|out| out.command)
         .collect();
-    assert_eq!(on_other, vec![Command::Resume { thread: other }]);
+    assert_eq!(
+        on_other,
+        vec![Command::Thread(ThreadAsk::Resume { thread: other })]
+    );
     assert_eq!(
         on_current,
-        vec![Command::Resume {
+        vec![Command::Thread(ThreadAsk::Resume {
             thread: cur.clone()
-        }],
+        })],
         "agents-live: Accept on the current task emits no resume (core guard `model.current != thread`); oracle agents_overview_view.rs:447 sends SelectAgentsOverviewThread for it"
     );
 }
@@ -1037,7 +1044,7 @@ fn overview_right_preserves_editors_and_offline_state() {
             .iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Resume { thread: task }]
+        vec![Command::Thread(ThreadAsk::Resume { thread: task })]
     );
     // Offline: Right, `n` and the rest do nothing; leaving still works.
     m.notice = Some(Notice::Reconnecting);
@@ -2310,7 +2317,7 @@ fn thread_settings_updated_changes_the_row_and_reads_it_again() {
     assert_eq!(held.model_provider, "other");
     assert!(
         outs.iter()
-            .any(|out| matches!(&out.command, Command::Read { thread } if thread == &target)),
+            .any(|out| matches!(&out.command, Command::Thread(ThreadAsk::Read { thread }) if thread == &target)),
         "the task is read again: {outs:?}"
     );
 }
@@ -2330,9 +2337,9 @@ fn opening_a_task_is_marked_until_the_resume_answers() {
         outs.iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::Resume {
+        vec![Command::Thread(ThreadAsk::Resume {
             thread: target.clone()
-        }]
+        })]
     );
     assert_eq!(m.opening, Some(target.clone()));
     assert_eq!(m.resumes, 0);
@@ -2427,9 +2434,9 @@ fn an_answered_resume_asks_for_the_history() {
         outs.iter()
             .map(|out| out.command.clone())
             .collect::<Vec<_>>(),
-        vec![Command::History {
+        vec![Command::Thread(ThreadAsk::History {
             thread: target,
             cursor: None
-        }]
+        })]
     );
 }

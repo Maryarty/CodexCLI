@@ -6,6 +6,7 @@
 //! effects as data (`AppFx`); the shell runs them (R1). Nothing here touches
 //! the network, the clock or the file system (R12).
 
+use crate::threads::ThreadAsk;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -613,7 +614,7 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
 fn attach_known(app: &mut CodexApp, outs: Vec<agents::Out>) -> Vec<agents::Out> {
     outs.into_iter()
         .filter(|out| {
-            let agents::Command::Resume { thread } = &out.command else {
+            let agents::Command::Thread(ThreadAsk::Resume { thread }) = &out.command else {
                 return true;
             };
             let id = ThreadId::new(thread);

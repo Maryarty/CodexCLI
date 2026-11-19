@@ -3,6 +3,7 @@
 //! Oracle: `agents_overview.rs` (refresh apply, open),
 //! `agents_overview_actions.rs` (action results), `agents_overview_loading.rs`.
 
+use crate::threads::ThreadAsk;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -343,7 +344,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             }
         }
         (Ctx::Stop { thread }, Ok(Reply::ActiveTurn(Some(turn)))) => {
-            return vec![out(Command::Interrupt { thread, turn }, Ctx::Interrupt)];
+            return vec![out(Command::Thread(ThreadAsk::Interrupt { thread, turn }), Ctx::Interrupt)];
         }
         (Ctx::Stop { .. } | Ctx::Interrupt, Ok(_)) => {}
         (Ctx::Pin { pinned, .. }, Err(error)) => {
@@ -374,10 +375,10 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.opening = None;
             model.resumes += 1;
             return vec![out(
-                Command::History {
+                Command::Thread(ThreadAsk::History {
                     thread: thread.clone(),
                     cursor: None,
-                },
+                }),
                 Ctx::History { thread },
             )];
         }
@@ -433,10 +434,10 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             // The session's history, the newest page first.
             let thread = model.current.clone().unwrap_or_default();
             return vec![out(
-                Command::History {
+                Command::Thread(ThreadAsk::History {
                     thread: thread.clone(),
                     cursor: None,
-                },
+                }),
                 Ctx::History { thread },
             )];
         }

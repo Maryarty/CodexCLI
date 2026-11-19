@@ -6,9 +6,20 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
+use codex_app_server_protocol::ThreadReadParams;
+use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadStartParams;
+use codex_app_server_protocol::ThreadTurnsListParams;
+use codex_app_server_protocol::ThreadUnsubscribeParams;
+use codex_app_server_protocol::TurnInterruptParams;
+use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 
@@ -362,6 +373,132 @@ impl ThreadModel {
     }
 }
 
+/// A thread RPC a screen wants (ADR-003): data only. The wire request is made
+/// here and nowhere else (`wire`); `apply_app` mints the ticket and sends it,
+/// and decides before whether the thread is already held (`OpenThread`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadAsk {
+    /// `thread/resume`: the thread into the chat.
+    Resume { thread: String },
+    /// `thread/fork`.
+    Fork { thread: String },
+    /// `thread/start` in `cwd` (a new task).
+    Start { cwd: Option<String> },
+    /// `thread/read` without turns.
+    Read { thread: String },
+    /// `thread/read` with turns: the turn in progress, half of stopping it.
+    ActiveTurn { thread: String },
+    /// The newest turn of a thread (`thread/turns/list`, limit 1).
+    Turns { thread: String },
+    /// One page of a thread's history, newest first.
+    History {
+        thread: String,
+        cursor: Option<String>,
+    },
+    /// `turn/interrupt`.
+    Interrupt { thread: String, turn: String },
+    /// `thread/unsubscribe`: a thread started and not used.
+    Unsubscribe { thread: String },
+}
+
+/// How many turns one page of a thread's history holds.
+pub const HISTORY_PAGE: u32 = 20;
+
+impl ThreadAsk {
+    /// The thread this asks about, none for a start.
+    pub fn thread(&self) -> Option<&str> {
+        match self {
+            ThreadAsk::Resume { thread }
+            | ThreadAsk::Fork { thread }
+            | ThreadAsk::Read { thread }
+            | ThreadAsk::ActiveTurn { thread }
+            | ThreadAsk::Turns { thread }
+            | ThreadAsk::History { thread, .. }
+            | ThreadAsk::Interrupt { thread, .. }
+            | ThreadAsk::Unsubscribe { thread } => Some(thread),
+            ThreadAsk::Start { .. } => None,
+        }
+    }
+
+    /// The wire request (oracle: `agents_overview_actions.rs`).
+    pub(crate) fn wire(&self, request_id: RequestId) -> ClientRequest {
+        match self {
+            ThreadAsk::Resume { thread } => ClientRequest::ThreadResume {
+                request_id,
+                params: ThreadResumeParams {
+                    thread_id: thread.clone(),
+                    // The center keeps the thread's row, not its turns, and the
+                    // chat reads its transcript page by page: the whole history
+                    // over the wire is the cost of opening a long session.
+                    exclude_turns: true,
+                    ..ThreadResumeParams::default()
+                },
+            },
+            ThreadAsk::Fork { thread } => ClientRequest::ThreadFork {
+                request_id,
+                params: ThreadForkParams {
+                    thread_id: thread.clone(),
+                    ..ThreadForkParams::default()
+                },
+            },
+            ThreadAsk::Start { cwd } => ClientRequest::ThreadStart {
+                request_id,
+                params: ThreadStartParams {
+                    cwd: cwd.clone(),
+                    ..ThreadStartParams::default()
+                },
+            },
+            ThreadAsk::Read { thread } => ClientRequest::ThreadRead {
+                request_id,
+                params: ThreadReadParams {
+                    thread_id: thread.clone(),
+                    include_turns: false,
+                },
+            },
+            ThreadAsk::ActiveTurn { thread } => ClientRequest::ThreadRead {
+                request_id,
+                params: ThreadReadParams {
+                    thread_id: thread.clone(),
+                    include_turns: true,
+                },
+            },
+            ThreadAsk::Turns { thread } => ClientRequest::ThreadTurnsList {
+                request_id,
+                params: ThreadTurnsListParams {
+                    thread_id: thread.clone(),
+                    cursor: None,
+                    limit: Some(1),
+                    sort_direction: None,
+                    items_view: None,
+                },
+            },
+            ThreadAsk::History { thread, cursor } => ClientRequest::ThreadTurnsList {
+                request_id,
+                params: ThreadTurnsListParams {
+                    thread_id: thread.clone(),
+                    cursor: cursor.clone(),
+                    limit: Some(HISTORY_PAGE),
+                    sort_direction: Some(SortDirection::Desc),
+                    items_view: Some(TurnItemsView::Full),
+                },
+            },
+            ThreadAsk::Interrupt { thread, turn } => ClientRequest::TurnInterrupt {
+                request_id,
+                params: TurnInterruptParams {
+                    thread_id: thread.clone(),
+                    turn_id: turn.clone(),
+                },
+            },
+            ThreadAsk::Unsubscribe { thread } => ClientRequest::ThreadUnsubscribe {
+                request_id,
+                params: ThreadUnsubscribeParams {
+                    thread_id: thread.clone(),
+                },
+            },
+        }
+    }
+}
+
 /// The effects of one thread's `apply`: thread RPCs, with the thread id
 /// and the ticket stamped (R3). This is the only way a thread RPC is made.
 pub struct ThreadFx<'a> {
@@ -636,5 +773,26 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId) {
     match &model.turn {
         TurnState::Idle => model.turn = TurnState::Running(RunningTurn { turn }),
         TurnState::Running(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opening a task from the center must not pull its whole history over the
+    /// wire (perf-open-session): the resume asks for the thread's state only;
+    /// the transcript is read page by page (`thread/turns/list`) when the chat
+    /// shows it, as the oracle's paginated sessions do.
+    #[test]
+    fn resume_asks_for_no_turns() {
+        let ask = ThreadAsk::Resume {
+            thread: "t1".to_owned(),
+        };
+        let ClientRequest::ThreadResume { params, .. } = ask.wire(RequestId::Integer(1)) else {
+            panic!("resume is thread/resume");
+        };
+        assert_eq!(params.thread_id, "t1");
+        assert!(params.exclude_turns, "thread/resume must exclude the turns");
     }
 }

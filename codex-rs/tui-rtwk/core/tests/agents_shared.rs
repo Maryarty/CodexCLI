@@ -28,6 +28,7 @@ use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
     Command, Ctx, Ev, Model, Out, Page, Reply, apply, apply_answer, observe,
 };
+use codex_tui_core::threads::ThreadAsk;
 use serde_json::json;
 
 fn id(n: u128) -> String {
@@ -79,7 +80,7 @@ fn read_reply(thread: Thread) -> Result<Reply, RpcError> {
 
 fn reads(outs: &[Out], thread: &str) -> usize {
     outs.iter()
-        .filter(|out| matches!(&out.command, Command::Read { thread: t } if t == thread))
+        .filter(|out| matches!(&out.command, Command::Thread(ThreadAsk::Read { thread: t }) if t == thread))
         .count()
 }
 
@@ -208,7 +209,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
         );
         assert!(
             outs.iter()
-                .any(|out| matches!(out.command, Command::Turns { .. })),
+                .any(|out| matches!(out.command, Command::Thread(ThreadAsk::Turns { .. }))),
             "the chain asks the turns"
         );
         if lag {

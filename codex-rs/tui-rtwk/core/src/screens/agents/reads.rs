@@ -4,6 +4,7 @@
 //! Oracle: `agents_overview_threads.rs` (`start_agents_overview_refresh`,
 //! `detail_thread_ids`), `agents_overview.rs` (the merge of a refresh).
 
+use crate::threads::ThreadAsk;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadStatus;
 
@@ -52,9 +53,9 @@ pub(super) fn want(model: &mut Model, ids: impl IntoIterator<Item = String>) -> 
         }
         if model.reading.insert(thread.clone()) {
             outs.push(out(
-                Command::Read {
+                Command::Thread(ThreadAsk::Read {
                     thread: thread.clone(),
-                },
+                }),
                 Ctx::Read { thread },
             ));
         } else {
@@ -114,7 +115,7 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
     }
     model.turning.insert(id.clone());
     vec![out(
-        Command::Turns { thread: id.clone() },
+        Command::Thread(ThreadAsk::Turns { thread: id.clone() }),
         Ctx::Turns { thread: id },
     )]
 }

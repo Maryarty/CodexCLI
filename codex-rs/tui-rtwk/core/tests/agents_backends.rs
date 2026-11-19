@@ -12,6 +12,7 @@ use codex_app_server_protocol::Thread;
 use codex_tui_core::app::AppFx;
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::screens::agents::{Ev, Model, Page, Pins, apply};
+use codex_tui_core::threads::ThreadAsk;
 use serde_json::json;
 
 fn id(n: u128) -> String {
@@ -211,7 +212,10 @@ fn opening_a_foreign_row_resumes_it_on_its_owner() {
     );
     let outs = open_row(&mut model, cloud);
     assert_eq!(outs.len(), 1);
-    assert!(matches!(outs[0].command, Command::Resume { .. }));
+    assert!(matches!(
+        outs[0].command,
+        Command::Thread(ThreadAsk::Resume { .. })
+    ));
     assert_eq!(backend_of(&model, &outs[0].command), cloud);
     // The displayed backend's own rows and the lists go to it.
     assert_eq!(

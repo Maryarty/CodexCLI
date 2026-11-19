@@ -32,6 +32,7 @@ mod sources;
 mod update;
 mod usage;
 
+use crate::threads::ThreadAsk;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -608,17 +609,12 @@ pub fn backend_of(model: &Model, command: &Command) -> BackendId {
         Command::Rename { thread, .. }
         | Command::Archive { thread }
         | Command::Delete { thread }
-        | Command::ActiveTurn { thread }
-        | Command::Interrupt { thread, .. }
         | Command::Pin { thread, .. }
-        | Command::Resume { thread }
-        | Command::Fork { thread }
-        | Command::Usage { thread }
-        | Command::Read { thread }
-        | Command::History { thread, .. }
-        | Command::Turns { thread } => model.owner_of(thread),
+        | Command::Usage { thread } => model.owner_of(thread),
+        Command::Thread(ask) => ask
+            .thread()
+            .map_or(model.displayed, |thread| model.owner_of(thread)),
         Command::List { .. }
-        | Command::Start { .. }
         | Command::NewWorktree { .. }
         | Command::Search { .. }
         | Command::Loaded
@@ -720,30 +716,9 @@ pub enum Command {
     Delete {
         thread: String,
     },
-    /// The turn in progress of a thread (`thread/read` with turns), the first
-    /// half of stopping it.
-    ActiveTurn {
-        thread: String,
-    },
-    Interrupt {
-        thread: String,
-        turn: String,
-    },
     Pin {
         thread: String,
         pinned: bool,
-    },
-    /// Resume a thread into the chat (`thread/resume`).
-    Resume {
-        thread: String,
-    },
-    /// A new task in the same directory (`thread/start`).
-    Start {
-        cwd: Option<String>,
-    },
-    /// Fork a task (`thread/fork`).
-    Fork {
-        thread: String,
     },
     /// A new worktree in `cwd`'s repository with a task in it: git work,
     /// done by the shell (no RPC).
@@ -760,22 +735,6 @@ pub enum Command {
     Usage {
         thread: String,
     },
-    /// `thread/read` without turns: the task as the server has it now
-    /// (oracle: `start_agents_overview_refresh`).
-    Read {
-        thread: String,
-    },
-    /// The last turn of a task (`thread/turns/list`, one turn): its prompt
-    /// and last answer.
-    Turns {
-        thread: String,
-    },
-    /// One page of a task's turns, newest first (`thread/turns/list`): the
-    /// history of the session being opened, read lazily page by page.
-    History {
-        thread: String,
-        cursor: Option<String>,
-    },
     /// The tasks the server holds loaded (`thread/loaded/list`).
     Loaded,
     /// Writes the grouping to the config: not an RPC, `app::send_agents`
@@ -783,6 +742,8 @@ pub enum Command {
     SaveGrouping {
         grouping: String,
     },
+    /// A thread RPC: the app makes it (ADR-003, `threads::ThreadAsk`).
+    Thread(ThreadAsk),
 }
 
 /// The decoded replies.

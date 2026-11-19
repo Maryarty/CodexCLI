@@ -401,3 +401,38 @@ fn codex_app_holds_its_threads_privately() {
         "CodexApp.threads must be a private ThreadSet"
     );
 }
+
+/// A thread RPC is asked for as data (`threads::ThreadAsk`) and made into a
+/// wire request in core/src/threads.rs only; the two thread commands the app
+/// itself mints (`StartThread`, `StartTurn`) are mapped in protocol/mod.rs.
+/// No screen, view or shell file builds `ClientRequest::Thread*`/`Turn*`.
+#[test]
+fn thread_rpcs_only_in_threads() {
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &[
+            "ClientRequest::ThreadResume",
+            "ClientRequest::ThreadFork",
+            "ClientRequest::ThreadStart",
+            "ClientRequest::ThreadRead",
+            "ClientRequest::ThreadTurnsList",
+            "ClientRequest::ThreadUnsubscribe",
+            "ClientRequest::TurnStart",
+            "ClientRequest::TurnInterrupt",
+            "ThreadResumeParams",
+            "ThreadForkParams",
+            "ThreadStartParams",
+            "ThreadUnsubscribeParams",
+            "TurnInterruptParams",
+            "TurnStartParams",
+        ],
+        |name| name == "core/src/threads.rs" || name == "core/src/protocol/mod.rs",
+    );
+    assert!(
+        found.is_empty(),
+        "thread RPC built outside threads.rs: {found:#?}"
+    );
+}

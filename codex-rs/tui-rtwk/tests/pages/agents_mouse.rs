@@ -15,6 +15,7 @@ use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply as AppReply;
 use codex_tui_core::screens::agents::{Command as AgentsCommand, Ev, Page, Reply as AgentsReply};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
+use codex_tui_core::threads::ThreadAsk;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use common::{Harness, start_sized};
 use rtwk_core::input::{Mods, MouseKind};
@@ -139,7 +140,7 @@ fn resumes(h: &Harness) -> Vec<Command> {
             matches!(
                 command,
                 Command::Screen {
-                    command: ScreenCommand::Agents(AgentsCommand::Resume { .. }),
+                    command: ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::Resume { .. })),
                     ..
                 }
             )
