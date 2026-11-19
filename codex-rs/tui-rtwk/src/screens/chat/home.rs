@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use rtwk::editing::{Autocomplete, Suggestion, TextArea};
-use rtwk::focus::{Focus, KeyBindings, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
@@ -57,6 +57,9 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    /// The composer's focus node: the page sees `?` and `←` before the field
+    /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
+    node: FocusNode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -212,6 +215,7 @@ impl StatefulWidget for Chat {
             seen: None,
             esc_primed: false,
             shortcuts: false,
+            node: FocusNode::new(),
         }
     }
 }
@@ -231,6 +235,25 @@ fn status_items() -> Vec<(&'static str, String)> {
 impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
+
+    fn init_state(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
+        // `?` (the shortcut overlay, `footer_shortcuts_default`) and `←`
+        // (the agents page, `handle_agents_navigation`) on an EMPTY composer
+        // belong to the page; with text they go to the field.
+        let send = cx.local_sender();
+        let composer = w.ui.composer.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            if !composer.text().is_empty() || key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT) {
+                return KeyEventResult::Ignored;
+            }
+            match (key.code, key.text()) {
+                (KeyCode::Char, Some("?")) => send(ChatMsg::Shortcuts),
+                (KeyCode::Left, _) => send(ChatMsg::Agents),
+                _ => return KeyEventResult::Ignored,
+            }
+            KeyEventResult::Handled
+        })));
+    }
 
     fn did_change_dependencies(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
         // The composer clears when the model accepted (or queued) the
@@ -275,14 +298,7 @@ impl State for ChatState {
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
             ChatMsg::Changed(text) => {
-                // `?` typed into an empty composer is the shortcut (the
-                // oracle's `footer_shortcuts_default`), decided where the
-                // field reports the edit: the character does not stay, and
-                // with text before it the key typed as any other.
-                if &*text == "?" {
-                    w.ui.composer.clear();
-                    self.shortcuts = !self.shortcuts;
-                } else if self.shortcuts && !text.is_empty() {
+                if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
                 }
@@ -439,6 +455,7 @@ impl State for ChatState {
                     .min_lines(1)
                     .max_lines(6)
                     .autofocus(true)
+                    .focus_node(self.node.clone())
                     .on_changed(cx.map(ChatMsg::Changed))
                     .on_submitted(cx.map(ChatMsg::Submit));
                 let data = states.clone();

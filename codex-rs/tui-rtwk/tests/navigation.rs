@@ -262,7 +262,6 @@ fn assert_session_back(h: &Harness) {
 /// `←` on an empty composer opens the agents page (the footer's hint,
 /// `handle_agents_navigation`); with a draft it moves the cursor instead.
 #[test]
-#[ignore = "pending(G43) (rtwk-gaps.md): a key the focused TextArea consumes without a text change (Left at an empty composer) cannot reach the app: no Cx in an EditingKeys handler, no public Handler call"]
 fn left_on_an_empty_composer_opens_the_agents_page() {
     use codex_tui_rtwk::screens::agents;
     use rtwk_test::find;
@@ -274,6 +273,8 @@ fn left_on_an_empty_composer_opens_the_agents_page() {
     h.press("left");
     h.t.pump_for(crate::common::ms(400));
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    // The left moved the cursor inside the draft: back to its end first.
+    h.press("end");
     h.press("backspace");
     h.press("backspace");
     h.t.pump_for(crate::common::ms(200));
@@ -494,7 +495,7 @@ fn resume_footer_keys_are_bound() {
 
 /// `?` on an empty composer opens the shortcut overlay (as the oracle's
 /// footer shortcut does); with text in it the key passes through and types
-/// the character. Decided at the field by `EditingKeys`.
+/// the character. Decided by the composer's `FocusNode::on_key_event`.
 #[test]
 fn question_mark_is_the_shortcut_on_an_empty_composer_only() {
     let mut h = start();
