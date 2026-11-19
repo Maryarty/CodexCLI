@@ -505,7 +505,6 @@ const R15_NOT_YET: &[&str] = &[
     "src/screens/resume/layout.rs",
     "src/screens/resume/mod.rs",
     "src/screens/select/dialog.rs",
-    "src/screens/status/card.rs",
     "src/screens/status/format.rs",
     "src/screens/usage/mod.rs",
 ];
