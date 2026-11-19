@@ -544,8 +544,14 @@ fn command_center_action_failures_remain_visible() {
             "Failed to stop background task",
         ),
     ] {
+        // Oracle: a failed resume reads `Failed to attach to task: {error}`.
+        let shown = if matches!(ctx, Ctx::Resume { .. }) {
+            format!("Failed to attach to task: {message}")
+        } else {
+            message.to_owned()
+        };
         let _ = apply_answer(&mut m, ctx, Err(RpcError::Remote(message.into())));
-        assert_eq!(m.notice, Some(Notice::Error(message.into())));
+        assert_eq!(m.notice, Some(Notice::Error(shown)));
     }
 }
 
@@ -2418,7 +2424,9 @@ fn an_answered_resume_asks_for_the_history() {
         Ok(Reply::Resumed(Box::new(task))),
     );
     assert_eq!(
-        outs.iter().map(|out| out.command.clone()).collect::<Vec<_>>(),
+        outs.iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
         vec![Command::History {
             thread: target,
             cursor: None

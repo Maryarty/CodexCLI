@@ -32,10 +32,8 @@ impl StatelessWidget for Opening {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
         // Oracle: `agents_overview_loading.rs`, the bold line at the top left
         // of an otherwise empty screen, wrapped to the width.
-        PopScope::new(
-            Text::new(strings::of(cx).resuming).style(Style::new().attrs(Attrs::BOLD)),
-        )
-        .on_pop_invoked_with_result(self.popped.clone())
-        .into()
+        PopScope::new(Text::new(strings::of(cx).resuming).style(Style::new().attrs(Attrs::BOLD)))
+            .on_pop_invoked_with_result(self.popped.clone())
+            .into()
     }
 }

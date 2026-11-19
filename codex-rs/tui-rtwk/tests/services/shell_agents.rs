@@ -1361,7 +1361,11 @@ fn the_opened_session_shows_its_history() {
     h.t.press("enter");
     h.wait_for("the history", |s| s.contains("second answer"));
     let screen = h.t.screen();
-    let at = |needle: &str| screen.find(needle).unwrap_or_else(|| panic!("{needle}: {screen}"));
+    let at = |needle: &str| {
+        screen
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {screen}"))
+    };
     assert!(at("first question") < at("first answer"), "{screen}");
     assert!(at("first answer") < at("second question"), "{screen}");
     assert!(at("second question") < at("second answer"), "{screen}");
@@ -1402,8 +1406,14 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
     let screen = h.t.screen();
     // Oracle: `agents_overview_attach_conflict.snap` (the notice stands
     // where the composer is).
-    assert!(screen.contains("This conversation is open in another app"), "{screen}");
-    assert!(screen.contains("Close it there and press R to continue here."), "{screen}");
+    assert!(
+        screen.contains("This conversation is open in another app"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("Close it there and press R to continue here."),
+        "{screen}"
+    );
     assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
     assert!(!screen.contains("active writer"), "{screen}");
     assert!(!screen.contains("Agent command center"), "{screen}");
@@ -1437,7 +1447,12 @@ fn open_a_back_open_b_back_open_a_resumes_each_thread_once() {
         .requests()
         .iter()
         .filter(|r| r["method"] == "thread/resume")
-        .map(|r| r["params"]["threadId"].as_str().unwrap_or_default().to_owned())
+        .map(|r| {
+            r["params"]["threadId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
         .collect();
     assert_eq!(resumed.len(), 2, "{resumed:?}");
     assert_ne!(resumed[0], resumed[1], "{resumed:?}");
