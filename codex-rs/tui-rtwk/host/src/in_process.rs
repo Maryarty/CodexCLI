@@ -23,6 +23,7 @@ use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
+use codex_core::config::ConfigOverrides;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
@@ -154,6 +155,8 @@ pub struct InProcess {
     pub done: oneshot::Sender<InProcessAppServerClient>,
     /// `--model`: the model of the thread, over the config's.
     pub model: Option<String>,
+    /// `--cd`: the working root of the agent, over the process's directory.
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl Connector for InProcess {
@@ -179,9 +182,18 @@ async fn run(
         arg0_paths,
         done,
         model,
+        cwd,
     } = spec;
     // Loaded here, after the first frame: config, state DB, environment manager.
-    let config = match ConfigBuilder::default().build().await {
+    let overrides = ConfigOverrides {
+        cwd,
+        ..Default::default()
+    };
+    let config = match ConfigBuilder::default()
+        .harness_overrides(overrides)
+        .build()
+        .await
+    {
         Ok(config) => config,
         Err(error) => {
             emit(

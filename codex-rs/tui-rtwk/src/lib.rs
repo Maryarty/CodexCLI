@@ -28,7 +28,20 @@ pub struct Cli {
     pub agents: bool,
     /// The `resume` subcommand: open the resume picker first.
     pub resume: bool,
+    /// `-C` / `--cd`: the directory the agent works in (new tasks start there).
+    pub cwd: Option<std::path::PathBuf>,
+    /// `--no-alt-screen`: run inline, keeping the terminal's scrollback.
+    pub no_alt_screen: bool,
+    /// `--no-daemon`: the embedded app server (the only one this app runs).
+    pub no_daemon: bool,
 }
+
+/// The refusals of the connection flags, as the oracle words them
+/// (`startup_orchestration.rs`), until the app can connect to a server.
+const NO_DAEMON_WITH_REMOTE: &str = "--no-daemon cannot be used with --remote.";
+const REMOTE_UNSUPPORTED: &str =
+    "--remote is not supported yet: codex-rtwk runs its own embedded app server.";
+const AUTH_TOKEN_NEEDS_REMOTE: &str = "--remote-auth-token-env requires --remote.";
 
 impl Cli {
     /// The text `--help`, `-h`, `help`, `--version` or `-V` asks for, if the
@@ -66,7 +79,13 @@ impl Cli {
                 }
                 "agents" => agents = true,
                 // The value of a flag is not a word of the command line.
-                "-m" | "--model" | "--locale" => {
+                "-m"
+                | "--model"
+                | "--locale"
+                | "-C"
+                | "--cd"
+                | "--remote"
+                | "--remote-auth-token-env" => {
                     args.next();
                 }
                 _ => {}
@@ -77,11 +96,30 @@ impl Cli {
 
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
+        let (mut remote, mut token_env) = (false, false);
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
                 "agents" => cli.agents = true,
+                "--no-alt-screen" => cli.no_alt_screen = true,
+                "--no-daemon" => cli.no_daemon = true,
+                "-C" | "--cd" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    cli.cwd = Some(value.into());
+                }
+                "--remote" => {
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--remote needs a value"))?;
+                    remote = true;
+                }
+                "--remote-auth-token-env" => {
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    token_env = true;
+                }
                 "resume" => cli.resume = true,
                 "-m" | "--model" => {
                     let value = args
@@ -96,7 +134,13 @@ impl Cli {
                     cli.locale = Some(parse_locale(&value)?);
                 }
                 other => {
-                    if let Some(value) = other.strip_prefix("--locale=") {
+                    if let Some(value) = other.strip_prefix("--cd=") {
+                        cli.cwd = Some(value.into());
+                    } else if other.starts_with("--remote=") {
+                        remote = true;
+                    } else if other.starts_with("--remote-auth-token-env=") {
+                        token_env = true;
+                    } else if let Some(value) = other.strip_prefix("--locale=") {
                         cli.locale = Some(parse_locale(value)?);
                     } else if let Some(value) = other.strip_prefix("--model=") {
                         cli.model = Some(value.to_string());
@@ -105,6 +149,15 @@ impl Cli {
                     }
                 }
             }
+        }
+        if remote && cli.no_daemon {
+            anyhow::bail!(NO_DAEMON_WITH_REMOTE);
+        }
+        if remote {
+            anyhow::bail!(REMOTE_UNSUPPORTED);
+        }
+        if token_env {
+            anyhow::bail!(AUTH_TOKEN_NEEDS_REMOTE);
         }
         Ok(cli)
     }

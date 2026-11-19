@@ -42,8 +42,14 @@ pub fn localized(root: impl Into<rtwk::AnyWidget>, lang: Lang) -> TwkLocalizatio
 
 /// Opens the terminal and runs `app` until it quits.
 pub fn run(app: UiApp) -> Result<(), AppError> {
+    run_on(app, true)
+}
+
+/// As `run`; without `alternate_screen` the app is drawn inline, keeping the
+/// terminal's scrollback (`--no-alt-screen`).
+pub fn run_on(app: UiApp, alternate_screen: bool) -> Result<(), AppError> {
     let terminal = Terminal::open(TerminalOptions {
-        alternate_screen: true,
+        alternate_screen,
         normal_screen_mouse: false,
         ..TerminalOptions::default()
     })?;

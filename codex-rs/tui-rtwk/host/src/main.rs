@@ -11,7 +11,7 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::run::run;
+use codex_tui_rtwk::run::run_on;
 use codex_tui_rtwk::shell::Backend;
 
 /// How long `main` waits for the backend future to hand the client back.
@@ -43,13 +43,14 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         arg0_paths,
         done: done_tx,
         model: cli.model.clone(),
+        cwd: cli.cwd.clone(),
     }));
     let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
-    let result = run(app);
+    let result = run_on(app, !cli.no_alt_screen);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
     // its task), so nothing after its loop runs: the client came back
     // through `done_rx`, and the shutdown happens here.
