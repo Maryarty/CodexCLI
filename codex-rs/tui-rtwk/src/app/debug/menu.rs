@@ -20,9 +20,10 @@ use crate::l10n::strings as l10n;
 use codex_tui_core::screens::Kind;
 
 use crate::app::debug::seeded::SeededScope;
+use crate::app::debug::{self, DebugOpen, EntryOpen};
 use crate::app::theme;
 use crate::app::view::Hs;
-use crate::screens::{self, DebugOpen, EntryOpen};
+use crate::sheets;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DebugMenu;
@@ -44,7 +45,7 @@ enum RowOpen {
 
 fn rows(lang: Lang) -> Vec<Row> {
     let mut rows = Vec::new();
-    for dir in screens::dirs() {
+    for dir in debug::dirs() {
         let kind = match dir.kind {
             Kind::Home => "home",
             Kind::Route => "route",
@@ -72,7 +73,7 @@ fn rows(lang: Lang) -> Vec<Row> {
                     if dir.id == codex_tui_core::screens::approvals::ID
                         || dir.id == codex_tui_core::screens::pets::ID
                     {
-                        screens::sheet_options()
+                        sheets::sheet_options()
                     } else {
                         DialogOptions::default()
                     },

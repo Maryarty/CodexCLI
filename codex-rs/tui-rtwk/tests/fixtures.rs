@@ -7,13 +7,13 @@ mod common;
 
 use codex_tui_core::app::Command;
 use codex_tui_core::fixtures::script::build;
-use codex_tui_rtwk::screens;
+use codex_tui_rtwk::app::debug;
 use common::{slot, start_debug};
 
 #[test]
 fn every_debug_entry_script_parses_and_applies() {
     let mut count = 0;
-    for dir in screens::dirs() {
+    for dir in debug::dirs() {
         for entry in (dir.debug_entries)() {
             build(entry.script).unwrap_or_else(|err| {
                 panic!(

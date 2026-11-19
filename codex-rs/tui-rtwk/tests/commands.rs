@@ -6,7 +6,7 @@
 
 use codex_tui_core::commands::SlashCommand;
 use codex_tui_rtwk::l10n::Lang;
-use codex_tui_rtwk::screens::chat::strings;
+use codex_tui_rtwk::pages::session::strings;
 
 use crate::chat::{assert_transcript_kept, chat_with_history};
 use crate::common::{Harness, ms, start};
@@ -168,7 +168,7 @@ fn a_command_is_disabled_while_a_task_runs() {
 #[test]
 fn slash_model_before_startup_shows_the_oracles_info_line() {
     use codex_tui_core::commands::Notice;
-    use codex_tui_rtwk::screens::chat::strings::EN;
+    use codex_tui_rtwk::pages::session::strings::EN;
     assert_eq!(
         EN.notice(&Notice::ModelStartup),
         "Model selection is disabled until startup completes."

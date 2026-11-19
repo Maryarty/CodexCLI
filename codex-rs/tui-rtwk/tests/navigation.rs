@@ -153,7 +153,7 @@ fn pets_is_a_sheet_over_the_session_page() {
 /// returns to the chat.
 #[test]
 fn import_is_a_step_of_the_startup_page() {
-    use codex_tui_rtwk::screens::onboarding::{StartupPage, Step};
+    use codex_tui_rtwk::pages::startup::onboarding::{StartupPage, Step};
     use rtwk_test::find;
 
     let mut h = start();
@@ -263,7 +263,7 @@ fn assert_session_back(h: &Harness) {
 /// `handle_agents_navigation`); with a draft it moves the cursor instead.
 #[test]
 fn left_on_an_empty_composer_opens_the_agents_page() {
-    use codex_tui_rtwk::screens::agents;
+    use codex_tui_rtwk::pages::agents;
     use rtwk_test::find;
 
     let mut h = start();
@@ -285,7 +285,7 @@ fn left_on_an_empty_composer_opens_the_agents_page() {
 
 #[test]
 fn session_to_agents_and_back_keeps_the_session() {
-    use codex_tui_rtwk::screens::agents;
+    use codex_tui_rtwk::pages::agents;
     use rtwk_test::find;
 
     let mut h = open_over_the_session("/agents");
@@ -315,7 +315,7 @@ fn agents_to_session_when_a_task_opens() {
     use codex_tui_core::app::AppEv;
     use codex_tui_core::screens::ScreenEv;
     use codex_tui_core::screens::agents::Ev;
-    use codex_tui_rtwk::screens::agents;
+    use codex_tui_rtwk::pages::agents;
     use rtwk_test::find;
 
     let mut h = open_over_the_session("/agents");
@@ -347,7 +347,7 @@ fn agents_to_session_when_a_task_opens() {
 
 #[test]
 fn session_to_resume_and_back() {
-    use codex_tui_rtwk::screens::resume;
+    use codex_tui_rtwk::pages::resume;
     use rtwk_test::find;
 
     let mut h = open_over_the_session("/resume");
@@ -364,7 +364,7 @@ fn session_to_resume_and_back() {
 #[test]
 fn resume_picks_a_row_and_returns_to_the_session() {
     use crate::common::start_sized;
-    use codex_tui_rtwk::screens::resume;
+    use codex_tui_rtwk::pages::resume;
     use rtwk_test::find;
 
     let mut h = start_sized(true, 80, 24);
@@ -378,7 +378,7 @@ fn resume_picks_a_row_and_returns_to_the_session() {
 
 #[test]
 fn session_to_usage_and_back() {
-    use codex_tui_rtwk::screens::usage;
+    use codex_tui_rtwk::pages::usage;
     use rtwk_test::find;
 
     let mut h = open_over_the_session("/usage");
@@ -397,7 +397,7 @@ fn session_to_usage_and_back() {
 #[test]
 fn the_cli_entries_start_at_the_right_page() {
     use codex_tui_rtwk::Cli;
-    use codex_tui_rtwk::screens::{agents, resume};
+    use codex_tui_rtwk::pages::{agents, resume};
     use rtwk_test::find;
 
     let args = |words: &[&str]| Cli::parse(words.iter().map(|w| (*w).to_string())).unwrap();
@@ -435,7 +435,7 @@ fn the_cli_entries_start_at_the_right_page() {
 /// `z`, `?` and `R` (not built yet) open the not-implemented popup.
 #[test]
 fn usage_footer_keys_are_bound() {
-    use codex_tui_rtwk::screens::usage;
+    use codex_tui_rtwk::pages::usage;
     use rtwk_test::find;
 
     let mut h = open_over_the_session("/usage");

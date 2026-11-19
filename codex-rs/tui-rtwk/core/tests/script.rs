@@ -169,7 +169,7 @@ fn a_sandbox_applies_an_intent_and_drops_its_effects() {
 #[test]
 #[ignore = "delta D1: the skeleton's projection ignores the items of turn/completed (session-core)"]
 fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
-    let script = include_str!("../../src/screens/chat/fixtures/streamed_answer.jsonl");
+    let script = include_str!("../../src/pages/session/fixtures/streamed_answer.jsonl");
     let played = build(script).expect("plays");
     assert_eq!(
         items(&played.app),
@@ -187,7 +187,7 @@ fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
 
 #[test]
 fn d1_the_turn_completion_does_not_repair_the_streamed_text_yet() {
-    let script = include_str!("../../src/screens/chat/fixtures/streamed_answer.jsonl");
+    let script = include_str!("../../src/pages/session/fixtures/streamed_answer.jsonl");
     let played = build(script).expect("plays");
     assert_eq!(
         items(&played.app),

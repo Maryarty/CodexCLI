@@ -1,6 +1,6 @@
 //! `onboarding` (S02-S04, onboarding routes): the core half of the screen's directory. The model
 //! part, its events and intents, its RPCs and their protocol wiring live here,
-//! with no rtwk; the view half is `src/screens/onboarding/` in the UI crate. Nothing
+//! with no rtwk; the view half is `src/pages/startup/onboarding/` in the UI crate. Nothing
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 

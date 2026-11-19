@@ -126,7 +126,7 @@ impl Open {
     }
 
     fn open_entry(self, dir: &str, entry: &str) -> Screen {
-        let dirs = codex_tui_rtwk::screens::dirs();
+        let dirs = codex_tui_rtwk::app::debug::dirs();
         let Some(d) = dirs.iter().find(|d| d.name == dir) else {
             missing(self.owner, &format!("no screen directory `{dir}`"));
         };

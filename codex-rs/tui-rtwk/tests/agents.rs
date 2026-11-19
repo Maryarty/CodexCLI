@@ -226,7 +226,7 @@ fn agents_overview_before_folder_consent_empty_center_rows() {
 
 // The oracle's screen tests that need a state the debug rows cannot give yet
 // are `pending` with their reason and owner (body written, the marker first);
-// the debug entries are in `src/screens/agents/mod.rs`.
+// the debug entries are in `src/pages/agents/mod.rs`.
 
 /// `overview_worktree_creation_busy_state` (agents_overview_tests.rs:25): with a
 /// worktree being created (and an older-server notice below it) the center

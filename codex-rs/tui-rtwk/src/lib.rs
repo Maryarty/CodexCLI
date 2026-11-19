@@ -9,7 +9,7 @@
 pub mod app;
 pub mod keymap;
 pub mod l10n;
-pub mod screens;
+pub mod pages;
 pub mod services;
 pub mod sheets;
 pub mod widgets;

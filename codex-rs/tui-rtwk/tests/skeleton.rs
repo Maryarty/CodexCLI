@@ -9,7 +9,7 @@ use codex_tui_core::fixtures::builders::{
 };
 use codex_tui_core::ids::{ConnEpoch, ThreadId};
 use codex_tui_core::screens::Kind;
-use codex_tui_rtwk::screens;
+use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use crate::common::{
@@ -40,7 +40,7 @@ const DIRS: [(&str, &str, Kind); 19] = [
 
 #[test]
 fn screen_map_registers_the_19_directories() {
-    let dirs = screens::dirs();
+    let dirs = debug::dirs();
     let seen: Vec<_> = dirs
         .iter()
         .map(|dir| (dir.name, dir.id, dir.kind))
@@ -95,7 +95,7 @@ fn debug_menu_lists_the_directories() {
         assert!(screen.contains(id), "`{id}` missing:\n{screen}");
     }
     // Every entry of every directory is listed, under its own heading ...
-    for dir in screens::dirs() {
+    for dir in debug::dirs() {
         for entry in (dir.debug_entries)() {
             let row = format!("{} - {}", entry.name, entry.description);
             assert!(screen.contains(&row), "`{row}` missing:\n{screen}");
@@ -103,7 +103,7 @@ fn debug_menu_lists_the_directories() {
     }
     // ... and the golden holds the heading rows only, so a slice that adds an
     // entry does not edit it.
-    let entry_rows: Vec<String> = screens::dirs()
+    let entry_rows: Vec<String> = debug::dirs()
         .iter()
         .flat_map(|dir| (dir.debug_entries)())
         .map(|entry| format!("{} - {}", entry.name, entry.description))

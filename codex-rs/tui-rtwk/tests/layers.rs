@@ -25,6 +25,12 @@ fn is_view(name: &str) -> bool {
         && !matches!(name, "src/app/mod.rs" | "src/app/run.rs" | "src/lib.rs")
 }
 
+fn in_pages_sheets_widgets(name: &str) -> bool {
+    ["src/pages/", "src/sheets/", "src/widgets/"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+
 fn is_shell(name: &str) -> bool {
     name.starts_with("src/services/")
 }
@@ -183,8 +189,9 @@ fn views_never_apply_the_model() {
     assert!(found.is_empty(), "a view calls apply: {found:#?}");
 }
 
-/// A screen directory of the UI crate holds widgets and strings; its model,
-/// events, intents, RPCs and protocol wiring are core's (`core/src/screens/`).
+/// The folders of `pages/`, `sheets/` and `widgets/` hold widgets and strings;
+/// a feature's model, events, intents, RPCs and protocol wiring are core's
+/// (`core/src/screens/`, `core/src/protocol/`).
 #[test]
 fn screen_dirs_hold_view_files_only() {
     let found = scan(
@@ -205,39 +212,35 @@ fn screen_dirs_hold_view_files_only() {
             "pub fn wire(",
             "pub fn decode(",
         ],
-        |name| !name.starts_with("src/screens/"),
+        |name| !in_pages_sheets_widgets(name),
     );
     assert!(found.is_empty(), "model code in a view dir: {found:#?}");
 }
 
-/// The UI crate's screen directories are exactly core's.
+/// The UI crate's top-level folders are Flutter's: `app/` (root, theme,
+/// debug), `pages/` (the `Navigator`'s routes), `sheets/` (dialog and
+/// bottom-sheet bodies), `widgets/` (shared), `services/` (IO, no widget),
+/// `l10n/`, `keymap/`. A core feature module need not mirror a UI folder
+/// (a feature may feed a page, a sheet or a cell).
 #[test]
-fn every_screen_dir_has_a_core_half_and_a_view_half() {
-    let names = |files: Vec<(String, String)>, prefix: &str| {
-        let mut dirs: Vec<String> = files
-            .iter()
-            .filter_map(|(name, _)| name.strip_prefix(prefix))
-            .filter_map(|rest| {
-                let first = rest.split('/').next().unwrap_or_default();
-                first
-                    .strip_suffix(".rs")
-                    .or(Some(first))
-                    .map(str::to_string)
-            })
-            .filter(|dir| dir != "mod")
-            .collect();
-        dirs.sort();
-        dirs.dedup();
-        dirs
-    };
-    let view = names(sources(), "src/screens/");
-    let core = names(sources_of("core/src"), "core/src/screens/");
-    assert_eq!(
-        view.len(),
-        19,
-        "the screen map has 19 directories: {view:?}"
+fn ui_crate_has_only_the_known_folders() {
+    let known = [
+        "app", "keymap", "l10n", "pages", "services", "sheets", "widgets",
+    ];
+    let mut found = Vec::new();
+    for (name, _) in sources() {
+        let Some(rest) = name.strip_prefix("src/") else {
+            continue;
+        };
+        let top = rest.split('/').next().unwrap_or_default();
+        if rest != "lib.rs" && !known.contains(&top) {
+            found.push(name);
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "a file outside the known folders: {found:#?}"
     );
-    assert_eq!(view, core, "view dirs and core files differ");
 }
 
 /// `shell` runs effects and names no widget, screen or view. Dialogs are not
@@ -346,7 +349,7 @@ fn core_screen_models_hold_no_ui_state_fields() {
 #[test]
 fn views_read_projections_not_core_held_protocol_values() {
     let found = scan(
-        &sources_of("src/screens"),
+        &[sources_of("src/pages"), sources_of("src/sheets")].concat(),
         &["row.thread", ".estimate", "RowData { thread"],
         |_| false,
     );

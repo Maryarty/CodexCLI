@@ -47,11 +47,11 @@ fn is_shell(name: &str) -> bool {
     name.starts_with("src/services/")
 }
 
-/// The widget code that was `src/ui/` and `src/screens/`: the screens, the
+/// The widget code: the pages, the
 /// shared widgets, the sheets and the app folder's view files (not `mod.rs`,
 /// the model root, nor `run.rs`, the composition root).
 fn in_ui_or_screens(name: &str) -> bool {
-    name.starts_with("src/screens/")
+    name.starts_with("src/pages/")
         || name.starts_with("src/widgets/")
         || name.starts_with("src/sheets/")
         || (name.starts_with("src/app/") && !matches!(name, "src/app/mod.rs" | "src/app/run.rs"))
@@ -367,7 +367,7 @@ fn r14_the_screen_scan_catches_a_copied_menu() {
 
 #[test]
 fn r14_widget_state_fields_hold_no_model_types() {
-    // `State` structs under src/widgets, src/sheets, src/app and src/screens: no model type in a field.
+    // `State` structs under src/widgets, src/sheets, src/app and src/pages: no model type in a field.
     let model_types = [
         "ThreadModel",
         "Transcript",
@@ -434,11 +434,11 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
             matches!(
                 name,
                 "src/widgets/thread_ui.rs"
-                    | "src/screens/agents/mod.rs"
-                    | "src/screens/agents/dialogs.rs"
-                    | "src/screens/approvals/dialog.rs"
-                    | "src/screens/pets/mod.rs"
-                    | "src/screens/resume/mod.rs"
+                    | "src/pages/agents/mod.rs"
+                    | "src/pages/agents/dialogs.rs"
+                    | "src/sheets/approvals/dialog.rs"
+                    | "src/sheets/pets/mod.rs"
+                    | "src/pages/resume/mod.rs"
                     | "src/widgets/options.rs"
             )
         },
@@ -500,11 +500,11 @@ fn no_literal_colours_anywhere() {
 /// whose own rework task has not landed (it leaves the list when it does).
 const R15_GAPS: &[(&str, &str)] = &[
     (
-        "src/screens/agents/path.rs",
+        "src/pages/agents/path.rs",
         "ours: carried oracle pure fn (center_truncate_path), not a gap",
     ),
     (
-        "src/screens/agents/tabs.rs",
+        "src/pages/agents/tabs.rs",
         "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (
@@ -513,8 +513,8 @@ const R15_GAPS: &[(&str, &str)] = &[
     ),
 ];
 const R15_NOT_YET: &[&str] = &[
-    "src/screens/chat/home.rs",
-    "src/screens/dialogs/feedback.rs",
+    "src/pages/session/home.rs",
+    "src/sheets/dialogs/feedback.rs",
 ];
 const R15_PATTERNS: &[&str] = &[
     ".chars().count()",

@@ -16,8 +16,8 @@ pub enum Start {
 impl Start {
     fn route(self) -> PageRoute<()> {
         match self {
-            Start::Agents => crate::screens::agents::start_route(),
-            Start::Resume => crate::screens::resume::route(),
+            Start::Agents => crate::pages::agents::start_route(),
+            Start::Resume => crate::pages::resume::route(),
         }
     }
 }

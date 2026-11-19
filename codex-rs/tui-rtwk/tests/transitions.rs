@@ -4,7 +4,7 @@
 //! chords are the oracle's (`slash_command.rs`, `keymap.rs:1908-1953`), the
 //! screen each opens is the trigger table of `parity/chat-nav.md`.
 
-use codex_tui_rtwk::screens::chat::open;
+use codex_tui_rtwk::pages::session::open;
 
 use crate::chat::{assert_chat_back, chat_with_history, shows};
 use crate::common::{Harness, ms, start};

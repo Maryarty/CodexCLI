@@ -19,7 +19,7 @@ use codex_tui_core::screens::ScreenIntent;
 use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
 use crate::app::start_page::{Start, StartPage};
-use crate::screens;
+use crate::pages;
 use crate::sheets::presenter::home_node;
 
 /// The app's handlers, provided to the tree.
@@ -59,18 +59,18 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         DebugMenu.into()
     } else if app.ui.start_agents {
         StartPage {
-            chat: screens::chat::home(app),
+            chat: pages::session::home(app),
             start: Start::Agents,
         }
         .into()
     } else if app.ui.start_resume {
         StartPage {
-            chat: screens::chat::home(app),
+            chat: pages::session::home(app),
             start: Start::Resume,
         }
         .into()
     } else {
-        screens::chat::home(app)
+        pages::session::home(app)
     };
     let home = cx.memo((app.ui.presenter.place(), child), home_node);
     MultiProvider::new()

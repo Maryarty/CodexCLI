@@ -4,7 +4,7 @@
 //! (a memo node, see `home_node`), so it is a route of that navigator under
 //! the providers; the decision which request is next is made on the model,
 //! in `closed` and after each ingested event, never from a provider read in
-//! the same flush (G14). The dialog itself is `screens::approvals`'s.
+//! the same flush (G14). The dialog itself is `sheets::approvals`'s.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -17,7 +17,7 @@ use rtwk::app::ViewRoot;
 use codex_tui_core::ids::RequestKey;
 
 use crate::app::UiApp;
-use crate::screens;
+use crate::sheets;
 
 /// Where the home left its handle: a request is shown from it, and the next
 /// one from the handle in the cell then (a replaced home writes its own).
@@ -131,9 +131,9 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let shown = key.clone();
     let dialog = cx.show_dialog_from::<()>(
         place,
-        move |_| screens::approvals::request_dialog(shown.clone()),
+        move |_| sheets::approvals::request_dialog(shown.clone()),
         // A bottom pane without a frame, as the oracle draws a request.
-        screens::sheet_options(),
+        sheets::sheet_options(),
         move |app, answer, cx| {
             let requests = &app.core.requests;
             app.ui

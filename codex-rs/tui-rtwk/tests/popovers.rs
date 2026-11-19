@@ -8,7 +8,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
 use codex_tui_core::commands::Target;
-use codex_tui_rtwk::screens::chat::open;
+use codex_tui_rtwk::pages::session::open;
 
 use crate::common::{Harness, ms, start_debug, start_quittable};
 
