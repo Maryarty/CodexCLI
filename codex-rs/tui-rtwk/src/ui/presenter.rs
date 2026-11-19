@@ -8,13 +8,11 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use rtwk::AnyWidget;
 use rtwk::app::AppCx;
 use rtwk::app::MemoCx;
 use rtwk::app::ViewRoot;
-use rtwk::overlay::DialogOptions;
 
 use codex_tui_core::ids::RequestKey;
 
@@ -134,11 +132,8 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let dialog = cx.show_dialog_from::<()>(
         place,
         move |_| screens::approvals::request_dialog(shown.clone()),
-        DialogOptions {
-            barrier_dismissible: false,
-            fade_in: Duration::ZERO,
-            ..DialogOptions::default()
-        },
+        // A bottom pane without a frame, as the oracle draws a request.
+        screens::approvals::pane_options(),
         move |app, answer, cx| {
             let requests = &app.core.requests;
             app.ui

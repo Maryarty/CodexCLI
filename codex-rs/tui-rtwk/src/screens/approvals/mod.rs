@@ -9,6 +9,7 @@ mod dismiss;
 mod present;
 
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
+use rtwk::layout::Alignment;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
@@ -79,6 +80,19 @@ fn head_dialog(seeded: &Seeded) -> AnyWidget {
 /// the model holds for it, else the skeleton's dismiss dialog.
 pub fn request_dialog(key: codex_tui_core::ids::RequestKey) -> AnyWidget {
     dialog::RequestDialog { key }.into()
+}
+
+/// The options a request pane is shown with, by the presenter and by the
+/// debug menu: no dimming, shown at once, placed at the bottom edge by
+/// `show_dialog` itself; Esc and the options close it, not the barrier.
+pub fn pane_options() -> DialogOptions {
+    DialogOptions {
+        alignment: Alignment::BOTTOM_CENTER,
+        barrier_alpha: Some(0),
+        barrier_dismissible: false,
+        fade_in: std::time::Duration::ZERO,
+        ..DialogOptions::default()
+    }
 }
 
 /// Opens the dialog from the widget that asks (`show_dialog`); the result

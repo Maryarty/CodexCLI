@@ -2,7 +2,7 @@
 //! dialog, the labels padded to one column.
 
 use rtwk::focus::Focus;
-use rtwk::layout::{Column, MainAxisSize};
+use rtwk::layout::{Column, Grid, GridTrack, MainAxisSize, SizedBox};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
@@ -73,9 +73,7 @@ impl State for CardDialogState {
             .child(Text::new(s.usage_link_1).style(tokens.accent()))
             .child(Text::new(s.usage_link_2).style(tokens.accent()))
             .child(Text::new(String::new()));
-        for line in lines(card, s) {
-            column = column.child(Text::new(line));
-        }
+        column = column.child(fields(card, s));
         Focus::new(Dialog::new(column).max_width(Some(84)).title(s.command))
             .can_request_focus(false)
             .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Close))
@@ -83,8 +81,9 @@ impl State for CardDialogState {
     }
 }
 
-/// The labelled rows, the labels padded to the longest (`FieldFormatter`).
-fn lines(card: &Card, s: &Strings) -> Vec<String> {
+/// The labelled rows (`FieldFormatter`): a `Grid` of a label track sized to
+/// its content and a value track, two cells apart.
+fn fields(card: &Card, s: &Strings) -> AnyWidget {
     let mut rows: Vec<(String, String)> = vec![
         (s.model.into(), model_value(card, s)),
         (s.directory.into(), card.directory.clone()),
@@ -142,20 +141,18 @@ fn lines(card: &Card, s: &Strings) -> Vec<String> {
                 .to_string(),
         ));
     }
-    let width = rows
-        .iter()
-        .map(|(label, _)| label.chars().count())
-        .max()
-        .unwrap_or(0);
-    let mut lines = Vec::new();
-    for (index, (label, value)) in rows.iter().enumerate() {
+    let mut grid = Grid::new()
+        .columns([GridTrack::content(), GridTrack::fr(1)])
+        .column_gap(2);
+    for (index, (label, value)) in rows.into_iter().enumerate() {
         if blank_before.contains(&index) {
-            lines.push(String::new());
+            grid = grid
+                .child(SizedBox::fixed(0, 1))
+                .child(SizedBox::fixed(0, 1));
         }
-        let pad = " ".repeat(width + 2 - label.chars().count());
-        lines.push(format!("{label}{pad}{value}"));
+        grid = grid.child(Text::new(label)).child(Text::new(value));
     }
-    lines
+    grid.into()
 }
 
 fn model_value(card: &Card, s: &Strings) -> String {

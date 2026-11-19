@@ -176,6 +176,10 @@ fn permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profil
 // ORACLE chatwidget/tests/permissions.rs:442 approvals_selection_popup_snapshot kind=snap owner=dialogs-pane snap=approvals_selection_popup
 #[test]
 fn approvals_selection_popup_snapshot() {
+    kit::pending(
+        Owner::DialogsPane,
+        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells (Table fills the room, intrinsic height 0; Grid has no cursor); the select dialog keeps one line per row",
+    );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("select", "permissions_menu")

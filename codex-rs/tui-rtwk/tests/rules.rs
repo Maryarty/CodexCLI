@@ -416,13 +416,17 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
         // search/rename line (`TextEditingController`) are view state of the
         // screen's widget, not app data: the model keeps the highlighted task
         // and the search text it filters by; so is the cursor of the
-        // confirmation dialog's two rows (`agents/dialogs.rs`).
+        // confirmation dialog's two rows (`agents/dialogs.rs`); so is the
+        // cursor of the request dialog's option rows (`approvals/dialog.rs`); so are
+        // the cursor and the search line of the pets picker (`pets/mod.rs`).
         |name| {
             matches!(
                 name,
                 "src/ui/thread_ui.rs"
                     | "src/screens/agents/mod.rs"
                     | "src/screens/agents/dialogs.rs"
+                    | "src/screens/approvals/dialog.rs"
+                    | "src/screens/pets/mod.rs"
             )
         },
     );
@@ -496,16 +500,12 @@ const R15_GAPS: &[(&str, &str)] = &[
     ),
 ];
 const R15_NOT_YET: &[&str] = &[
-    "src/screens/approvals/dialog.rs",
     "src/screens/chat/home.rs",
     "src/screens/dialogs/feedback.rs",
-    "src/screens/dialogs/shortcuts.rs",
     "src/screens/pager/mod.rs",
-    "src/screens/pets/mod.rs",
     "src/screens/resume/layout.rs",
     "src/screens/resume/mod.rs",
     "src/screens/select/dialog.rs",
-    "src/screens/status/card.rs",
     "src/screens/status/format.rs",
     "src/screens/usage/mod.rs",
 ];

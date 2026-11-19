@@ -56,7 +56,7 @@ fn picker_lists_app_bundled_and_custom_pets() {
             "stacky"
         ]
     );
-    assert_eq!(picker.cursor, 2);
+    assert_eq!(picker.initial(), 2);
     assert_eq!(picker.pets[2].name, "Chefito");
 }
 
@@ -64,7 +64,7 @@ fn picker_lists_app_bundled_and_custom_pets() {
 fn picker_preselects_codex_without_marking_it_current_when_no_pet_is_configured() {
     let sandbox = Sandbox::play(PLAIN).expect("plays");
     let picker = picker(&sandbox);
-    assert_eq!(picker.cursor, 2);
+    assert_eq!(picker.initial(), 2);
     assert_eq!(picker.pets[2].name, "Codex");
     assert!(!picker.is_current(&picker.pets[2]));
 }
@@ -73,7 +73,7 @@ fn picker_preselects_codex_without_marking_it_current_when_no_pet_is_configured(
 fn picker_marks_disabled_pet_as_current() {
     let sandbox = Sandbox::play(DISABLED_FIXTURE).expect("plays");
     let picker = picker(&sandbox);
-    assert_eq!(picker.cursor, 0);
+    assert_eq!(picker.initial(), 0);
     assert_eq!(picker.pets[0].selector, DISABLED);
     assert_eq!(picker.pets[0].description, None);
     assert!(picker.is_current(&picker.pets[0]));
@@ -84,7 +84,7 @@ fn a_custom_pet_is_current_through_its_legacy_selector() {
     let script = CUSTOM.replace("\"current\":\"custom:chefito\"", "\"current\":\"chefito\"");
     let sandbox = Sandbox::play(&script).expect("plays");
     let picker = picker(&sandbox);
-    assert_eq!(picker.cursor, 2);
+    assert_eq!(picker.initial(), 2);
     assert!(picker.is_current(&picker.pets[2]));
 }
 
@@ -96,9 +96,12 @@ fn opening_and_moving_request_the_preview_of_the_row() {
         picker(&sandbox).preview,
         Some(("codex".to_string(), Preview::Loading))
     );
-    send(&mut sandbox, PetsIntent::Move(1));
+    // The cursor is the widget's: it tells the model which row it is on.
+    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
     assert_eq!(sandbox.app().screens.pets.previews, vec!["codex", "dewey"]);
-    send(&mut sandbox, PetsIntent::Move(-2));
+    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
+    assert_eq!(sandbox.app().screens.pets.previews, vec!["codex", "dewey"]);
+    send(&mut sandbox, PetsIntent::Highlight("bsod".into()));
     assert_eq!(
         sandbox.app().screens.pets.previews,
         vec!["codex", "dewey", "bsod"]
@@ -110,7 +113,7 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
     use codex_tui_core::screens::ScreenEv;
     use codex_tui_core::screens::pets::Ev;
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Move(1));
+    send(&mut sandbox, PetsIntent::Highlight("dewey".into()));
     sandbox.send(AppEv::Screen(ScreenEv::Pets(Ev::PreviewReady(
         "codex".into(),
     ))));
@@ -130,7 +133,7 @@ fn the_preview_becomes_ready_only_for_the_row_it_was_asked_for() {
 #[test]
 fn enter_selects_the_pet_and_closes() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Pick);
+    send(&mut sandbox, PetsIntent::Pick("codex".into()));
     assert_eq!(
         sandbox.app().screens.pets.chosen,
         vec![Choice::Selected("codex".into())]
@@ -141,29 +144,32 @@ fn enter_selects_the_pet_and_closes() {
 #[test]
 fn enter_on_the_disable_row_disables_pets() {
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Move(-2));
-    send(&mut sandbox, PetsIntent::Pick);
+    send(&mut sandbox, PetsIntent::Pick(DISABLED.into()));
     assert_eq!(sandbox.app().screens.pets.chosen, vec![Choice::Disabled]);
 }
 
 #[test]
 fn typing_filters_the_pets_and_the_disable_row_answers_to_its_words() {
-    let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Search("dew".into()));
+    let sandbox = Sandbox::play(PLAIN).expect("plays");
+    // The search text is the widget's; the model filters by it on request.
     let picker_now = picker(&sandbox);
-    assert_eq!(picker_now.visible().len(), 1);
-    assert_eq!(picker_now.pets[picker_now.visible()[0]].selector, "dewey");
-    send(&mut sandbox, PetsIntent::Search("hidden".into()));
-    let picker_now = picker(&sandbox);
-    assert_eq!(picker_now.pets[picker_now.visible()[0]].selector, DISABLED);
+    assert_eq!(picker_now.visible("dew").len(), 1);
+    assert_eq!(
+        picker_now.pets[picker_now.visible("dew")[0]].selector,
+        "dewey"
+    );
+    assert_eq!(
+        picker_now.pets[picker_now.visible("hidden")[0]].selector,
+        DISABLED
+    );
+    assert_eq!(picker_now.visible("").len(), picker_now.pets.len());
 }
 
 #[test]
-fn esc_clears_the_search_then_closes() {
+fn close_drops_the_picker_without_a_choice() {
+    // Esc clears a typed search first: that is the widget's, the model sees
+    // only the Close that follows.
     let mut sandbox = Sandbox::play(PLAIN).expect("plays");
-    send(&mut sandbox, PetsIntent::Search("dew".into()));
-    send(&mut sandbox, PetsIntent::Close);
-    assert_eq!(picker(&sandbox).query, "");
     send(&mut sandbox, PetsIntent::Close);
     assert!(sandbox.app().screens.pets.open.is_none());
     assert!(sandbox.app().screens.pets.chosen.is_empty());

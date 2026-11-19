@@ -49,8 +49,6 @@ pub struct Picker {
     pub pets: Vec<Pet>,
     /// The pet in the config, if any.
     pub current: Option<String>,
-    pub cursor: usize,
-    pub query: String,
     /// The pet whose preview is shown, and its state.
     pub preview: Option<(String, Preview)>,
 }
@@ -69,25 +67,28 @@ impl Picker {
                 legacy_selector: None,
             },
         );
-        let preferred = current.unwrap_or(DEFAULT);
-        let cursor = pets
-            .iter()
-            .position(|pet| pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred))
-            .unwrap_or(0);
         Self {
             pets,
             current: current.map(str::to_owned),
-            cursor,
-            query: String::new(),
             preview: None,
         }
+    }
+
+    /// The row the picker opens on, as an index into `pets`: the configured
+    /// pet (or the default one when none is), else the first row.
+    pub fn initial(&self) -> usize {
+        let preferred = self.current.as_deref().unwrap_or(DEFAULT);
+        self.pets
+            .iter()
+            .position(|pet| pet.selector == preferred || pet.legacy_selector.as_deref() == Some(preferred))
+            .unwrap_or(0)
     }
 
     /// The rows shown, as indices into `pets`: those whose search value
     /// (the selector; the disable row answers to its own words) has the
     /// query in it.
-    pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.trim().to_lowercase();
+    pub fn visible(&self, query: &str) -> Vec<usize> {
+        let query = query.trim().to_lowercase();
         self.pets
             .iter()
             .enumerate()
@@ -110,22 +111,14 @@ impl Picker {
         })
     }
 
-    /// The row under the cursor.
-    pub fn highlighted(&self) -> Option<&Pet> {
-        self.visible()
-            .get(self.cursor)
-            .and_then(|index| self.pets.get(*index))
-    }
-
-    /// Asks for the preview of the row under the cursor
-    /// (`on_selection_changed`): its selector, if it changed.
-    fn highlight(&mut self) -> Option<String> {
-        let selector = self.highlighted()?.selector.clone();
-        if self.preview.as_ref().map(|(shown, _)| shown) == Some(&selector) {
+    /// Asks for the preview of the highlighted row (`on_selection_changed`):
+    /// its selector, if it changed.
+    fn highlight(&mut self, selector: &str) -> Option<String> {
+        if self.preview.as_ref().map(|(shown, _)| shown.as_str()) == Some(selector) {
             return None;
         }
-        self.preview = Some((selector.clone(), Preview::Loading));
-        Some(selector)
+        self.preview = Some((selector.to_owned(), Preview::Loading));
+        Some(selector.to_owned())
     }
 }
 
@@ -159,12 +152,11 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Up / Down; wraps.
-    Move(i32),
-    Search(String),
-    /// Enter.
-    Pick,
-    /// Esc: clears the search, then closes.
+    /// The cursor or the search moved onto the row with this selector.
+    Highlight(String),
+    /// Enter on the row with this selector.
+    Pick(String),
+    /// Esc with no search typed.
     Close,
 }
 
@@ -173,7 +165,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(mut picker) => {
             picker.preview = None;
-            if let Some(selector) = picker.highlight() {
+            let initial = picker.pets.get(picker.initial()).map(|pet| pet.selector.clone());
+            if let Some(selector) = initial.and_then(|selector| picker.highlight(&selector)) {
                 model.previews.push(selector);
             }
             model.open = Some(picker);
@@ -195,44 +188,22 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         return;
     };
     match intent {
-        Intent::Move(delta) => {
-            let len = picker.visible().len();
-            if len > 0 {
-                picker.cursor = (picker.cursor as i64 + i64::from(delta)).rem_euclid(len as i64) as usize;
-                if let Some(selector) = picker.highlight() {
-                    model.previews.push(selector);
-                }
-            }
-        }
-        Intent::Search(query) => {
-            picker.query = query;
-            picker.cursor = 0;
-            if let Some(selector) = picker.highlight() {
+        // The highlighted row changed (cursor or search): the preview of it.
+        Intent::Highlight(selector) => {
+            if let Some(selector) = picker.highlight(&selector) {
                 model.previews.push(selector);
             }
         }
-        Intent::Pick => {
-            if let Some(pet) = picker.highlighted() {
-                let choice = if pet.selector == DISABLED {
-                    Choice::Disabled
-                } else {
-                    Choice::Selected(pet.selector.clone())
-                };
-                model.chosen.push(choice);
-                model.open = None;
-            }
-        }
-        Intent::Close => {
-            if picker.query.is_empty() {
-                model.open = None;
+        Intent::Pick(selector) => {
+            let choice = if selector == DISABLED {
+                Choice::Disabled
             } else {
-                picker.query.clear();
-                picker.cursor = 0;
-                if let Some(selector) = picker.highlight() {
-                    model.previews.push(selector);
-                }
-            }
+                Choice::Selected(selector)
+            };
+            model.chosen.push(choice);
+            model.open = None;
         }
+        Intent::Close => model.open = None,
     }
 }
 

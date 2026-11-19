@@ -6,13 +6,17 @@
 
 use std::rc::Rc;
 
-use rtwk::controls::SelectionList;
+use rtwk::data::{Table, TableCell, TableColumn, TableController, TableSelection};
 use rtwk::focus::Focus;
-use rtwk::layout::{Column, MainAxisSize, SizedBox};
+use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, GridTrack, MainAxisSize, Padding, SizedBox,
+};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
-use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::style::{Attrs, Style};
+use rtwk::text::{Text, TextWrap};
+use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
@@ -32,6 +36,7 @@ pub struct RequestDialog {
 }
 
 pub struct RequestDialogState {
+    table: TableController,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,7 +49,9 @@ impl StatefulWidget for RequestDialog {
     type State = RequestDialogState;
 
     fn create_state(&self) -> RequestDialogState {
-        RequestDialogState {}
+        RequestDialogState {
+            table: TableController::new().with_selected_key(Key::value(0usize)),
+        }
     }
 }
 
@@ -103,37 +110,33 @@ impl State for RequestDialogState {
         let Some(prompt) = prompt_of(&w.key, cx) else {
             return DismissDialog { key: w.key.clone() }.into();
         };
-        let prompt = &prompt;
         let tokens = theme::Tokens::of(cx);
         let s = strings::of(cx);
-        let body = present::body(prompt, s);
-        let rows = Rc::new(rows(&body));
-        let count = rows.len();
-        let list = SelectionList::new(
-            count,
-            |index| index,
-            move |index| match rows.get(index) {
-                Some(row) => Text::new(row.clone()).into(),
-                None => AnyWidget::default(),
-            },
-        )
-        .on_submitted(cx.map(Msg::Answer))
-        .autofocus(true);
-        let mut column = Column::new().main_axis_size(MainAxisSize::Min);
-        for line in &body.header {
-            column = column.child(Text::new(line.clone()));
-        }
-        let height = i32::try_from(count).unwrap_or(i32::MAX);
-        column = column
-            .child(Text::new(String::new()))
-            .child(SizedBox::new(None, Some(height), Some(list.into())))
-            .child(Text::new(String::new()))
-            .child(Text::new(body.hint.clone()).style(tokens.dim()));
-        let mut dialog = Dialog::new(column).max_width(Some(84));
+        let body = present::body(&prompt, s);
+        // The oracle's bottom pane: a blank row, the question in bold, the
+        // header, the options (the cursor row in the accent colour, marked
+        // `›`), a blank row and the hint, all two cells in.
+        let mut pane = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Text::new(String::new()));
         if let Some(title) = &body.title {
-            dialog = dialog.title(title.clone());
+            pane = pane
+                .child(inset(Text::new(title.clone()).style(tokens.bold())))
+                .child(Text::new(String::new()));
         }
-        let mut focus = Focus::new(dialog)
+        for line in &body.header {
+            pane = pane.child(inset(Text::new(line.clone()).wrap(TextWrap::Word)));
+        }
+        let count = i32::try_from(body.options.len()).unwrap_or(i32::MAX);
+        let options = self.options(&body, &tokens, cx);
+        // An approval's rows start at the edge; a form's are inset like its text.
+        let options = if body.form { inset(options) } else { options };
+        pane = pane
+            .child(SizedBox::new(None, Some(count), Some(options)))
+            .child(Text::new(String::new()))
+            .child(inset(Text::new(body.hint.clone()).style(tokens.dim())));
+        let mut focus = Focus::new(Dialog::bare(BoxWidget::new().style(Style::new()).child(pane)))
             .can_request_focus(false)
             .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel));
         for (index, option) in body.options.iter().enumerate() {
@@ -148,30 +151,70 @@ impl State for RequestDialogState {
     }
 }
 
-/// The option rows: `1. label (key)` for an approval, `1. label  description`
-/// with the label column padded for a form.
-fn rows(body: &Body) -> Vec<String> {
-    let width = body
-        .options
-        .iter()
-        .map(|option| option.label.chars().count())
-        .max()
-        .unwrap_or(0);
-    body.options
-        .iter()
-        .enumerate()
-        .map(|(index, option)| {
-            let number = index + 1;
-            if body.form {
-                let pad = " ".repeat(width - option.label.chars().count());
-                let description = option.description.as_deref().unwrap_or_default();
-                format!("{number}. {}{pad}  {description}", option.label)
-            } else {
-                match &option.key_label {
-                    Some(key) => format!("{number}. {} ({key})", option.label),
-                    None => format!("{number}. {}", option.label),
-                }
-            }
+/// One option row: its number and label (and the shortcut shown after it),
+/// and the description column of a form.
+#[derive(Clone)]
+struct Row {
+    index: usize,
+    text: String,
+    description: Option<String>,
+}
+
+impl RequestDialogState {
+    /// The options as a `Table` of a label column and a description column
+    /// (rtwk sizes the columns and the gap); the cursor row is the table's.
+    fn options(
+        &self,
+        body: &Body,
+        tokens: &theme::Tokens,
+        cx: &mut Cx<'_, Self>,
+    ) -> AnyWidget {
+        let rows: Vec<Row> = body
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| Row {
+                index,
+                text: match (&option.key_label, body.form) {
+                    (Some(key), false) => format!("{}. {} ({key})", index + 1, option.label),
+                    _ => format!("{}. {}", index + 1, option.label),
+                },
+                description: option.description.clone(),
+            })
+            .collect();
+        let (accent, watch) = (tokens.accent().attrs(Attrs::BOLD), self.table.clone());
+        // The cursor mark is a column of its own, two cells wide.
+        let mark = TableColumn::new("", move |row: &Row| {
+            let (watch, accent, index) = (watch.clone(), accent.clone(), row.index);
+            TableCell::widget(ListenableBuilder::new(Rc::new(watch.clone()), move |_, _| {
+                let on = watch.selected_key() == Some(Key::value(index));
+                Text::new(if on { "\u{203a} " } else { "  " }).style(accent.clone()).into()
+            }))
         })
-        .collect()
+        .width(GridTrack::fixed(2));
+        let label = TableColumn::new("", |row: &Row| TableCell::new(row.text.clone()))
+            .width(GridTrack::content());
+        let description = TableColumn::new("", |row: &Row| {
+            TableCell::widget(Padding::new(
+                EdgeInsets::only(2, 0, 0, 0),
+                Text::new(row.description.clone().unwrap_or_default()),
+            ))
+        })
+        .width(GridTrack::fr(1));
+        Table::new(rows, [mark, label, description])
+            .row_key(|row| Key::value(row.index))
+            .controller(self.table.clone())
+            .selection(TableSelection::Row)
+            .show_header(false)
+            .column_gap(0)
+            .cursor_style(tokens.accent().attrs(Attrs::BOLD))
+            .selected_style(Style::new())
+            .autofocus(true)
+            .on_activated(cx.map(|row: Row| Msg::Answer(row.index)))
+            .into()
+    }
+}
+
+fn inset(child: impl Into<AnyWidget>) -> AnyWidget {
+    Padding::new(EdgeInsets::symmetric(2, 0), child).into()
 }
