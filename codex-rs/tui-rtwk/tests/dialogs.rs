@@ -123,6 +123,48 @@ fn footer_mode_shortcut_overlay() {
     assert_rows_except(&h.t.screen(), SHORTCUTS, &[COMPOSER_ROW]);
 }
 
+// The session page: `?` on an empty composer expands the oracle's overlay
+// above the composer (footer_mode_shortcut_overlay, 100 wide), the footer
+// reads `? / esc close`; `?` and Esc close it.
+fn session_overlay() -> Harness {
+    let mut h = start_sized(false, 100, 24);
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.t.type_text("?");
+    h.t.pump_for(ms(600));
+    h
+}
+
+#[test]
+fn session_question_mark_opens_the_footer_mode_shortcut_overlay() {
+    let h = session_overlay();
+    let screen = h.t.screen();
+    assert_rows_except(&screen, SHORTCUTS, &[COMPOSER_ROW]);
+    assert!(!screen.contains("Not implemented yet"), "{screen}");
+    // The oracle's rows are indented by two cells and sit above the composer.
+    let at = |text: &str| screen.lines().position(|l| l.starts_with(text));
+    let title = at("  Keyboard shortcuts").expect("title");
+    let compose = at("  Compose       ").expect("groups");
+    let custom = at("  /keymap customize").expect("customize");
+    let prompt = at("› ").expect("composer");
+    assert_eq!(compose, title + 2, "{screen}");
+    assert_eq!(custom, compose + 10, "{screen}");
+    assert!(prompt > custom, "{screen}");
+    assert!(!screen.contains("? for shortcuts"), "{screen}");
+}
+
+#[test]
+fn session_shortcut_overlay_closes_on_question_mark_and_on_escape() {
+    for key in ["?", "escape"] {
+        let mut h = session_overlay();
+        h.press(key);
+        h.t.pump_for(ms(600));
+        let screen = h.t.screen();
+        assert!(!screen.contains("Keyboard shortcuts"), "{key}:\n{screen}");
+        assert!(screen.contains("? for shortcuts"), "{key}:\n{screen}");
+        assert!(!screen.contains("› ?"), "{key}:\n{screen}");
+    }
+}
+
 // shortcut_overlay_tests.rs: shortcut_overlay_draws_base_keyboard_and_falls_back_to_the_list
 #[test]
 #[ignore = "not in oracle 0.170.0: bottom_pane/shortcut_overlay/keyboard.rs, snapshot shortcut_keyboard_base; open: the oracle draws this in its bottom pane"]

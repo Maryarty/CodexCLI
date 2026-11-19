@@ -465,9 +465,9 @@ fn resume_footer_keys_are_bound() {
     assert_session_back(&h);
 }
 
-/// `?` on an empty composer opens the shortcuts (not built yet: the popup);
-/// with text in it the key passes through and types the character. Decided at
-/// the field by `EditingKeys`, as the oracle's footer shortcut is.
+/// `?` on an empty composer opens the shortcut overlay (as the oracle's
+/// footer shortcut does); with text in it the key passes through and types
+/// the character. Decided at the field by `EditingKeys`.
 #[test]
 fn question_mark_is_the_shortcut_on_an_empty_composer_only() {
     let mut h = start();
@@ -475,17 +475,15 @@ fn question_mark_is_the_shortcut_on_an_empty_composer_only() {
     h.t.type_text("?");
     h.t.pump_for(crate::common::ms(600));
     let screen = h.t.screen();
-    assert!(
-        screen.contains("Not implemented yet: shortcut overlay"),
-        "{screen}"
-    );
-    h.press("enter");
+    assert!(screen.contains("Keyboard shortcuts"), "{screen}");
+    assert!(!screen.contains("Not implemented yet"), "{screen}");
+    h.press("escape");
     h.t.pump_for(crate::common::ms(600));
-    assert!(!h.t.screen().contains("Not implemented yet"));
+    assert!(!h.t.screen().contains("Keyboard shortcuts"));
 
     h.t.type_text("a?");
     h.t.pump_for(crate::common::ms(300));
     let screen = h.t.screen();
-    assert!(!screen.contains("Not implemented yet"), "{screen}");
+    assert!(!screen.contains("Keyboard shortcuts"), "{screen}");
     assert!(screen.contains("a?"), "{screen}");
 }
