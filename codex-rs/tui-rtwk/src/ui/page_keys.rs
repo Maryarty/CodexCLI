@@ -4,30 +4,79 @@
 //! whose action is not built yet opens (`not_yet`), never a silent no-op.
 
 use rtwk::controls::KeyHintsBar;
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::{Focus, KeyCombo, KeyPress};
 use rtwk::layout::{Column, MainAxisSize};
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog_handler, show_dialog};
+use rtwk::prelude::KeyCode;
+use rtwk::style::Glyphs;
 use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
 use crate::l10n::strings as l10n;
 
-/// The bottom menu of a page: `keys` (key, hint), the same list the page
-/// binds with `KeyBindings`. A bar fed by the bindings alone leaves out a
-/// plain character while a text field has the focus (it would type), as the
-/// oracle's `? for shortcuts` is such a key; the pairs are shown as given.
-/// The key in `key` style, its hint in `hint`, entries apart by two blanks.
+/// The bottom menu of a page: `keys` (key as the oracle writes it, hint), the
+/// same list the page binds with `KeyBindings`. The key text is the oracle's
+/// (`esc`, `enter`, `↑/↓`, `←/→`, `pgup/pgdn`, `ctrl + t`, a character): each is
+/// turned into the keys rtwk's bar names (a family such as `↑/↓` into its two
+/// keys, shown as one entry) and shown as written. A bar fed by the bindings
+/// alone leaves out a plain character while a text field has the focus (it
+/// would type), as the oracle's `? for shortcuts` is such a key; the pairs are
+/// shown as given. The key in `key` style, its hint in `hint`, entries apart
+/// by two blanks.
 pub fn footer<K, H>(keys: impl IntoIterator<Item = (K, H)>, key: Style, hint: Style) -> KeyHintsBar
 where
-    K: Into<rtwk::text::Str>,
+    K: AsRef<str>,
     H: Into<rtwk::text::Str>,
 {
-    KeyHintsBar::from_pairs(keys)
+    let mut pairs: Vec<(String, rtwk::text::Str)> = Vec::new();
+    for (display, hint_text) in keys {
+        let hint_text: rtwk::text::Str = hint_text.into();
+        for name in key_names(display.as_ref()) {
+            pairs.push((name, hint_text.clone()));
+        }
+    }
+    KeyHintsBar::from_pairs(pairs)
+        .key_label(oracle_label)
         .join_keys(false)
         .separator("  ")
         .key_style(key)
         .hint_style(hint)
+}
+
+/// The key names rtwk reads for a key as the oracle writes it.
+fn key_names(display: &str) -> Vec<String> {
+    if display == "/" {
+        return vec!["/".to_owned()];
+    }
+    display
+        .split('/')
+        .map(|part| {
+            let part = part.trim().replace(" + ", "+");
+            match part.as_str() {
+                "\u{2191}" => "up".to_owned(),
+                "\u{2193}" => "down".to_owned(),
+                "\u{2190}" => "left".to_owned(),
+                "\u{2192}" => "right".to_owned(),
+                "esc" => "escape".to_owned(),
+                "pgup" => "pageup".to_owned(),
+                "pgdn" => "pagedown".to_owned(),
+                _ => part,
+            }
+        })
+        .collect()
+}
+
+/// A key as the oracle writes it: the arrows as the pair `↑/↓`, `←/→`, Page
+/// Up and Down as `pgup/pgdn` (the pair's second key has the same name, so the
+/// bar lists the entry once), modifiers as `ctrl + t`.
+fn oracle_label(combo: &KeyCombo) -> String {
+    match combo.code {
+        KeyCode::Up | KeyCode::Down => "\u{2191}/\u{2193}".to_owned(),
+        KeyCode::Left | KeyCode::Right => "\u{2190}/\u{2192}".to_owned(),
+        KeyCode::PageUp | KeyCode::PageDown => "pgup/pgdn".to_owned(),
+        _ => KeyHintsBar::signs(combo, &Glyphs::UNICODE).replace('+', " + "),
+    }
 }
 
 /// Shows the popup "Not implemented yet: <action>" centred over the page;

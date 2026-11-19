@@ -883,9 +883,22 @@ fn detail_lines(
     lines
 }
 
-/// The footer line: the hints, or the notice that replaces them.
-pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return: bool) -> Line {
-        let notice = match &model.notice {
+/// What the footer shows: the notice that replaces the hints, or the hints
+/// (key, label).
+pub enum Footer<'a> {
+    Notice(Line),
+    Hints(Vec<(&'a str, &'a str)>),
+}
+
+/// The footer: the hints, or the notice that replaces them.
+pub fn footer<'a>(
+    look: &Look,
+    strings: &'a Strings,
+    model: &Model,
+    ui: &Ui,
+    can_return: bool,
+) -> Footer<'a> {
+    let notice = match &model.notice {
         Some(Notice::Reconnecting) => Some(strings.reconnecting.to_owned()),
         Some(Notice::ReconnectFailed) => Some(strings.reconnect_failed.to_owned()),
         Some(Notice::Removing(Action::Archive)) => Some(strings.archiving.to_owned()),
@@ -900,7 +913,7 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return
         }
     };
     if let Some(text) = notice.filter(|_| !ui.help) {
-        return vec![span(text, &look.dim)];
+        return Footer::Notice(vec![span(text, &look.dim)]);
     }
     let editing = ui.editing();
     let mut items: Vec<(&str, &str)> = Vec::new();
@@ -911,7 +924,7 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return
         items.push((strings.key_back, strings.back));
     }
     if ui.help {
-        return hint_line(look, &items);
+        return Footer::Hints(items);
     }
     if !editing {
         items.push((strings.key_move, strings.move_));
@@ -927,19 +940,7 @@ pub fn footer(look: &Look, strings: &Strings, model: &Model, ui: &Ui, can_return
     if !editing {
         items.push((strings.key_new, strings.new));
     }
-    hint_line(look, &items)
-}
-
-fn hint_line(look: &Look, items: &[(&str, &str)]) -> Line {
-    let mut line = Line::new();
-    for (key, label) in items {
-        if !line.is_empty() {
-            line.push(span("  ", &look.dim));
-        }
-        line.push(span(*key, &look.plain));
-        line.push(span(format!(" {label}"), &look.muted));
-    }
-    line
+    Footer::Hints(items)
 }
 
 /// The search or rename row above the list: the label and a `TextField`
@@ -1025,7 +1026,16 @@ pub fn footer_row(
     ui: &Ui,
     can_return: bool,
 ) -> AnyWidget {
-    inset(one(footer(look, strings, model, ui, can_return)))
+    match footer(look, strings, model, ui, can_return) {
+        Footer::Notice(line) => inset(one(line)),
+        // The hints are the page's key list on the shared bottom menu
+        // (`ui::page_keys::footer`); each key is one `KeyBindings` binds.
+        Footer::Hints(items) => inset(crate::ui::page_keys::footer(
+            items.into_iter().map(|(key, label)| (key, label.to_owned())),
+            look.plain.clone(),
+            look.muted.clone(),
+        )),
+    }
 }
 
 /// The shortcut help in place of the list and the details (oracle:
