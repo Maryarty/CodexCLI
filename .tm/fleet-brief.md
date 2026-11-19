@@ -24,6 +24,12 @@ read only the subsection this file points to.
   shadow of their state, no carried oracle helper that duplicates them. If
   your brief or a research note names such a mechanism, use rtwk instead and
   say so in the handover. Process.md §5.
+- THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
+  you would write it in Flutter — which widget, controller (TextEditingController,
+  ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
+  Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk is
+  Flutter's model on cells). Never translate the oracle's ratatui code line by line.
+  Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 - How to build a view (the person, 2026-11-18): rtwk's standard means, looked
   up in the reference (rtwk skill + references) and, when needed, the gallery
   (rtwk-gallery pages and their Code snippets). Never copy a landed screen's

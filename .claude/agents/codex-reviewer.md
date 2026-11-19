@@ -14,6 +14,14 @@ onto rtwk (`/Users/admin/Documents/dev_projects/rtwk`) as
 and where to write. tm signs you by itself: pass no actor on tm calls. Do
 not load tm skills.
 
+
+THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
+you would write it in Flutter — which widget, controller (TextEditingController,
+ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
+Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk is
+Flutter's model on cells). Never translate the oracle's ratatui code line by line.
+Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
+
 ## A review
 - Read the task (`get_task`: description = the brief, deliverables) and the
   commits it names (`git log`, `git show --stat`, then the diff per path in

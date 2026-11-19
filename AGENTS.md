@@ -7,6 +7,13 @@ to one onto rtwk (`/Users/admin/Documents/dev_projects/rtwk`) as
 `docs/rtwk-port/research/`; rtwk API references: `docs/rtwk-port/refs/`.
 
 ## What we build
+THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
+you would write it in Flutter — which widget, controller (TextEditingController,
+ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
+Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk is
+Flutter's model on cells). Never translate the oracle's ratatui code line by line.
+Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
+
 Screen first: the screens of the screen map (architecture.md §1) built as a
 native rtwk app in the manner of `/Users/admin/Documents/dev_projects/rtwk-weather`.
 codex-tui's reusable code (reuse-map.md REUSE/ADAPT rows: protocol and

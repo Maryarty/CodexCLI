@@ -16,6 +16,13 @@ read-only for you; a change rtwk needs goes into the handover. Your prompt
 names your tm task. tm signs you by itself: pass no actor on tm calls.
 
 ## Start
+THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
+you would write it in Flutter — which widget, controller (TextEditingController,
+ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
+Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk is
+Flutter's model on cells). Never translate the oracle's ratatui code line by line.
+Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
+
 1. `memory_task_start` then `task_start` on your task; read the returned
    brief (`.tm/fleet-brief.md`) whole once, and the notes. The task's
    description is your brief (goal, oracle rows, sections, area, the rtwk
