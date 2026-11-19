@@ -17,6 +17,7 @@ use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
     Command, Ctx, DetailLine, Lens, Model, Out, Page, Reply, apply_answer, decode, observe,
 };
+use codex_tui_core::threads::ThreadAsk;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -72,7 +73,7 @@ fn listed(m: &mut Model, rows: Vec<Thread>) -> Vec<Out> {
 fn reads(outs: &[Out]) -> Vec<String> {
     outs.iter()
         .filter_map(|out| match &out.command {
-            Command::Read { thread } => Some(thread.clone()),
+            Command::Thread(ThreadAsk::Read { thread }) => Some(thread.clone()),
             _ => None,
         })
         .collect()
@@ -103,7 +104,11 @@ fn turn_reply(user: &str, agent: &str) -> Reply {
             {"type": "agentMessage", "id": "b", "text": agent, "phase": null},
         ]
     }], "nextCursor": null});
-    decode(&Command::Turns { thread: "t".into() }, result).expect("a reply")
+    decode(
+        &Command::Thread(ThreadAsk::Turns { thread: "t".into() }),
+        result,
+    )
+    .expect("a reply")
 }
 
 fn read_reply(thread: Thread, unread: bool) -> Result<Reply, RpcError> {
@@ -143,7 +148,10 @@ fn the_read_fills_preview_prompt_and_last_message() {
     read.preview = "Read preview".into();
     let outs = apply_answer(&mut m, Ctx::Read { thread: id(1) }, read_reply(read, true));
     assert_eq!(outs.len(), 1);
-    assert_eq!(outs[0].command, Command::Turns { thread: id(1) });
+    assert_eq!(
+        outs[0].command,
+        Command::Thread(ThreadAsk::Turns { thread: id(1) })
+    );
     assert!(m.unread.contains(&id(1)));
     assert_eq!(
         m.center_at(None, &Lens::default()).rows[0].preview,
@@ -262,7 +270,7 @@ fn a_reverted_thread_resets_prompt_last_message_and_tokens() {
 #[test]
 fn a_turnless_thread_has_no_previews() {
     let reply = decode(
-        &Command::Turns { thread: "t".into() },
+        &Command::Thread(ThreadAsk::Turns { thread: "t".into() }),
         json!({"data": [], "nextCursor": null}),
     )
     .expect("a reply");

@@ -359,3 +359,105 @@ fn views_read_projections_not_core_held_protocol_values() {
         "a view reads a protocol value: {found:#?}"
     );
 }
+
+// ADR-003: one `ThreadModel` per thread, made in one place.
+
+/// `ThreadModel` is made only by `ThreadSet::open` (core/src/threads.rs): its
+/// constructor is private and a private field closes the struct literal. This
+/// holds both: no file outside threads.rs names `ThreadModel::new`/`blank` or
+/// a `ThreadModel {` literal, and the type still carries its seal.
+#[test]
+fn thread_model_is_made_only_in_threads_rs() {
+    let threads = read("core/src/threads.rs");
+    assert!(
+        threads.contains("    fn new(id: ThreadId) -> Self {"),
+        "ThreadModel::new must stay private"
+    );
+    assert!(
+        threads.contains("    seal: Seal,"),
+        "ThreadModel must keep its private seal field"
+    );
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &["ThreadModel::new", "ThreadModel::blank", "ThreadModel {"],
+        |name| name == "core/src/threads.rs",
+    );
+    assert!(
+        found.is_empty(),
+        "ThreadModel made outside threads.rs: {found:#?}"
+    );
+}
+
+/// The thread map is private to `CodexApp`: a screen or the UI model cannot
+/// insert a model into it.
+#[test]
+fn codex_app_holds_its_threads_privately() {
+    let app = read("core/src/app.rs");
+    assert!(
+        app.contains("\n    threads: ThreadSet,"),
+        "CodexApp.threads must be a private ThreadSet"
+    );
+}
+
+/// A thread RPC is asked for as data (`threads::ThreadAsk`) and made into a
+/// wire request in core/src/threads.rs only; the two thread commands the app
+/// itself mints (`StartThread`, `StartTurn`) are mapped in protocol/mod.rs.
+/// No screen, view or shell file builds `ClientRequest::Thread*`/`Turn*`.
+#[test]
+fn thread_rpcs_only_in_threads() {
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &[
+            "ClientRequest::ThreadResume",
+            "ClientRequest::ThreadFork",
+            "ClientRequest::ThreadStart",
+            "ClientRequest::ThreadRead",
+            "ClientRequest::ThreadTurnsList",
+            "ClientRequest::ThreadUnsubscribe",
+            "ClientRequest::TurnStart",
+            "ClientRequest::TurnInterrupt",
+            "ThreadResumeParams",
+            "ThreadForkParams",
+            "ThreadStartParams",
+            "ThreadUnsubscribeParams",
+            "TurnInterruptParams",
+            "TurnStartParams",
+        ],
+        |name| name == "core/src/threads.rs" || name == "core/src/protocol/mod.rs",
+    );
+    assert!(
+        found.is_empty(),
+        "thread RPC built outside threads.rs: {found:#?}"
+    );
+}
+
+/// Which thread the chat shows is decided in `apply_app` (core/src/app.rs)
+/// alone: no screen, view or shell file assigns `session.active` or makes the
+/// session slice mutable, so "switch or resume once" has one place.
+#[test]
+fn the_shown_thread_is_set_only_in_apply_app() {
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &[
+            "active = Some(",
+            ".active.replace(",
+            ".active.take(",
+            "make_mut(&mut app.session)",
+            "make_mut(&mut self.session)",
+        ],
+        |name| name == "core/src/app.rs",
+    );
+    assert!(
+        found.is_empty(),
+        "the shown thread set outside app.rs: {found:#?}"
+    );
+}

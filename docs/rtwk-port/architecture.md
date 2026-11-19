@@ -121,7 +121,7 @@ none of them and the lints ban the IO calls), the UI package
 `codex-tui-rtwk` (the rtwk app: widgets, the shell that runs effects, the
 composition root) and `host/` (the binary's backend, `codex-rtwk`). The
 compiler holds the first rule, that core cannot name a widget; the other
-boundaries are `tests/layers.rs`, see "Layers" below.
+boundaries are `tests/rules/layers.rs`, see "Layers" below.
 
 **Why.** The codex-rs workspace, its Cargo.lock, Bazel (`crate_universe`,
 the PR gate) and `rust-ci-full` stay as upstream has them, so merges from
@@ -542,6 +542,31 @@ cross-thread state are values (R10).
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
 | R14 | app data never enters rtwk local state outside an allowlist of UI-only modules (incl. `ThreadUi`); screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`, controller constructors; a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
 
+**ADR-003 thread ownership: how it is enforced (2026-11-19, adr003-enforce).**
+By type (the compiler refuses a violation): `ThreadModel` has a private
+constructor and a private `seal` field, so it is made only by
+`ThreadSet::open(id, Origin)` in `core/src/threads.rs`; `CodexApp.threads` is a
+private `ThreadSet`, so a screen or the UI model cannot insert, replace or
+drop a model; a thread RPC is the data `threads::ThreadAsk`, whose wire form
+(`ThreadAsk::wire`) exists in `threads.rs` only; `Ticket` and `Reply` are as
+before (R1, R3). By rules test (`tests/rules/layers.rs`):
+`thread_model_is_made_only_in_threads_rs`, `codex_app_holds_its_threads_privately`,
+`thread_rpcs_only_in_threads` (no `ClientRequest::Thread*`/`Turn*` outside
+`threads.rs` and `protocol/mod.rs`'s two app-minted commands),
+`the_shown_thread_is_set_only_in_apply_app` (`session.active` is written in
+`core/src/app.rs` alone). By behaviour tests (`core/tests/adr003.rs`): R2
+switch round-trip and "A keeps receiving while B is shown", R4 resume
+mid-turn, R5 end-path matrix, R7 `CodexApp::assert_consistent` after every
+event, R8 lifecycle x intent, R9/R10 interleavings. `Intent::OpenThread(id)`
+is the one door; "held and ours: switch, else resume once" is decided in
+`send_agents` (`core/src/app.rs`). Debt (not yet type or test): the worktree
+flow in `src/services/agents/workspace.rs` still sequences `thread/start` and
+`thread/unsubscribe` itself (through `ThreadAsk`); the command center's model
+still holds `current`, `turning`, `requests`, `activity` by `String` id
+(`core/src/screens/agents/mod.rs`), and `session.cycle` and `agents.pinned`
+are stored derived values (R7); `CodexApp` fields other than `threads` are
+still `pub`.
+
 Clippy's `disallowed_*` lists are crate-wide: each rule that says "outside
 X" is a crate-wide deny with `#[allow(clippy::disallowed_…)]` on the
 allowlisted modules, plus a CI grep that rejects such allows anywhere else.
@@ -714,7 +739,7 @@ codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-t
   host/                     the binary's backend (in-process app-server) and main
   tests/screens.rs          Tester over the app on a fake backend
   tests/pin.rs              rtwk HEAD == RTWK_REF; [patch] equals codex-rs's
-  tests/layers.rs, rules.rs layer and R-rule scans (one test per rule)
+  tests/rules/layers.rs, rules.rs layer and R-rule scans (one test per rule)
   tests/fixtures.rs         debug entries over fixture scripts
 ```
 
@@ -743,7 +768,7 @@ is the model root and not a view.
 | the layer | may name | may not name | enforced by |
 |---|---|---|---|
 | core | protocol crate, serde, std (no IO, no clock, no threads) | rtwk, tokio, futures, UI types, IO | the compiler (no rtwk in `core/Cargo.toml`) and an allowlist of its direct dependencies (the protocol crate pulls tokio in transitively, so it is the sources that name none); `core/clippy.toml` (R1/R11/R12 without rtwk paths, plus `disallowed_types` for `File`, `TcpStream`, `Command`, `Stdout` and the protocol's generators); `layers.rs`: `core_manifest_has_no_ui_or_runtime_dependency`, `core_sources_name_no_ui_runtime_or_io`, `core_sources_hold_no_user_visible_prose`, `the_ui_model_is_the_core_model_plus_ui_state` |
-| view | core, rtwk widgets, its own strings | protocol, `core::wire`, shell, tokio, IO, `apply` | `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `every_screen_dir_has_a_core_half_and_a_view_half`; R14 and ADR-010 in `rules.rs` |
+| view | core, rtwk widgets, its own strings | protocol, `core::wire`, shell, tokio, IO, `apply` | `views_never_name_protocol_shell_tokio_or_io`, `views_never_apply_the_model`, `screen_dirs_hold_view_files_only`, `ui_crate_has_only_the_known_folders`; R14 and ADR-010 in `rules.rs` |
 | shell | core, the protocol, tokio, rtwk's `Cx` and `DialogResult` for spawning | widgets, views, theme | `shell_names_no_widget`; R1 in `rules.rs` (`r1_spawn_paths_are_the_shells`) |
 | run, host | everything | - | the composition root; `r1_the_host_neither_spawns_nor_allows` |
 

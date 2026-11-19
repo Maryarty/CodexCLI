@@ -10,6 +10,7 @@ use crate::screens::agents::Reply;
 use crate::screens::agents::UsageOutcome;
 use crate::screens::agents::carried::is_overview_thread;
 use crate::screens::agents::carried::preview_markdown;
+use crate::threads::ThreadAsk;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GetAccountParams;
@@ -17,35 +18,25 @@ use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
 use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadDeleteParams;
-use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadForkResponse;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadLoadedListResponse;
-use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
-use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadSectionMoveParams;
 use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
-use codex_app_server_protocol::ThreadStartParams;
-use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::TurnInterruptParams;
-use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
 
-/// How many turns one page of a session's history holds.
-pub const HISTORY_PAGE: u32 = 20;
 use codex_app_server_protocol::UserInput;
 use serde::Deserialize;
 
@@ -76,20 +67,6 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 thread_id: thread.clone(),
             },
         },
-        Command::ActiveTurn { thread } => ClientRequest::ThreadRead {
-            request_id,
-            params: ThreadReadParams {
-                thread_id: thread.clone(),
-                include_turns: true,
-            },
-        },
-        Command::Interrupt { thread, turn } => ClientRequest::TurnInterrupt {
-            request_id,
-            params: TurnInterruptParams {
-                thread_id: thread.clone(),
-                turn_id: turn.clone(),
-            },
-        },
         Command::Pin { thread, pinned } => ClientRequest::ThreadSectionMove {
             request_id,
             params: ThreadSectionMoveParams {
@@ -98,56 +75,11 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 before_thread_id: None,
             },
         },
-        Command::Resume { thread } => ClientRequest::ThreadResume {
-            request_id,
-            params: ThreadResumeParams {
-                thread_id: thread.clone(),
-                // The center keeps the thread's row, not its turns, and the
-                // chat reads its transcript page by page: the whole history
-                // over the wire is the cost of opening a long session.
-                exclude_turns: true,
-                ..ThreadResumeParams::default()
-            },
-        },
-        Command::Fork { thread } => ClientRequest::ThreadFork {
-            request_id,
-            params: ThreadForkParams {
-                thread_id: thread.clone(),
-                ..ThreadForkParams::default()
-            },
-        },
         Command::Search { cursor, .. } => ClientRequest::ThreadList {
             request_id,
             params: ThreadListParams {
                 limit: Some(SEARCH_PAGE_SIZE),
                 ..list_params(cursor.clone())
-            },
-        },
-        Command::Read { thread } => ClientRequest::ThreadRead {
-            request_id,
-            params: ThreadReadParams {
-                thread_id: thread.clone(),
-                include_turns: false,
-            },
-        },
-        Command::Turns { thread } => ClientRequest::ThreadTurnsList {
-            request_id,
-            params: ThreadTurnsListParams {
-                thread_id: thread.clone(),
-                cursor: None,
-                limit: Some(1),
-                sort_direction: None,
-                items_view: None,
-            },
-        },
-        Command::History { thread, cursor } => ClientRequest::ThreadTurnsList {
-            request_id,
-            params: ThreadTurnsListParams {
-                thread_id: thread.clone(),
-                cursor: cursor.clone(),
-                limit: Some(HISTORY_PAGE),
-                sort_direction: Some(SortDirection::Desc),
-                items_view: Some(TurnItemsView::Full),
             },
         },
         Command::Loaded => ClientRequest::ThreadLoadedList {
@@ -163,17 +95,10 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 thread_id: Some(thread.clone()),
             }),
         },
-        // A worktree is git work, not an RPC: `app::send_agents` hands it to
-        // the shell, and never here. Were it asked, the task would start in
-        // the directory itself.
-        Command::SaveGrouping { .. } => unreachable_wire(request_id),
-        Command::Start { cwd } | Command::NewWorktree { cwd } => ClientRequest::ThreadStart {
-            request_id,
-            params: ThreadStartParams {
-                cwd: cwd.clone(),
-                ..ThreadStartParams::default()
-            },
-        },
+        // A worktree is git work and a config write is none: `app::send_agents`
+        // hands them to the shell, never here.
+        Command::SaveGrouping { .. } | Command::NewWorktree { .. } => unreachable_wire(request_id),
+        Command::Thread(ask) => ask.wire(request_id),
     }
 }
 
@@ -242,12 +167,12 @@ pub(crate) fn decode_reply(
                 pins: None,
             }))
         }
-        Command::Resume { .. } => {
+        Command::Thread(ThreadAsk::Resume { .. }) => {
             let response: ThreadResumeResponse =
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Resumed(Box::new(response.thread)))
         }
-        Command::Fork { .. } => {
+        Command::Thread(ThreadAsk::Fork { .. }) => {
             let response: ThreadForkResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Forked(Box::new(response.thread)))
         }
@@ -259,7 +184,7 @@ pub(crate) fn decode_reply(
                 None => UsageOutcome::Disabled,
             }))
         }
-        Command::Start { .. } => {
+        Command::Thread(ThreadAsk::Start { .. }) => {
             // Only the task is read: the rest of the response is the
             // server's settings, which the center does not use.
             let thread = result
@@ -269,7 +194,7 @@ pub(crate) fn decode_reply(
             let thread: Thread = serde_json::from_value(thread).map_err(malformed)?;
             Ok(Reply::Started(Box::new(thread)))
         }
-        Command::Read { .. } => {
+        Command::Thread(ThreadAsk::Read { .. }) => {
             let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Read {
                 unread: response
@@ -278,12 +203,12 @@ pub(crate) fn decode_reply(
                 thread: Box::new(response.thread),
             })
         }
-        Command::Turns { .. } => {
+        Command::Thread(ThreadAsk::Turns { .. }) => {
             let response: ThreadTurnsListResponse =
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(turn_previews(response.data.first()))
         }
-        Command::History { .. } => {
+        Command::Thread(ThreadAsk::History { .. }) => {
             let response: ThreadTurnsListResponse =
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::History {
@@ -296,7 +221,7 @@ pub(crate) fn decode_reply(
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Loaded(response.data))
         }
-        Command::ActiveTurn { .. } => {
+        Command::Thread(ThreadAsk::ActiveTurn { .. }) => {
             let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::ActiveTurn(
                 response
@@ -504,27 +429,4 @@ pub fn account_ev(result: serde_json::Value) -> Result<Ev, RpcError> {
             backend_auth: false,
         },
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Opening a task from the center must not pull its whole history over the
-    /// wire (perf-open-session): the resume asks for the thread's state only;
-    /// the transcript is read page by page (`thread/turns/list`) when the chat
-    /// shows it, as the oracle's paginated sessions do.
-    #[test]
-    fn resume_asks_for_no_turns() {
-        let command = Command::Resume {
-            thread: "t1".to_owned(),
-        };
-        let ClientRequest::ThreadResume { params, .. } =
-            wire_request(&command, RequestId::Integer(1))
-        else {
-            panic!("resume is thread/resume");
-        };
-        assert_eq!(params.thread_id, "t1");
-        assert!(params.exclude_turns, "thread/resume must exclude the turns");
-    }
 }

@@ -2,12 +2,24 @@
 //! only here. A thread RPC is requested through `ThreadFx`, which stamps the
 //! thread id.
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
+use codex_app_server_protocol::ThreadReadParams;
+use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadStartParams;
+use codex_app_server_protocol::ThreadTurnsListParams;
+use codex_app_server_protocol::ThreadUnsubscribeParams;
+use codex_app_server_protocol::TurnInterruptParams;
+use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 
@@ -239,11 +251,109 @@ pub struct ThreadModel {
     pub history_next: Option<String>,
     /// Another process writes this thread: it is shown, not edited.
     pub read_only: bool,
+    /// Keeps the struct literal inside this module: a `ThreadModel` is made
+    /// only by `ThreadSet::open` (ADR-003).
+    seal: Seal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Seal;
+
+/// How a thread's model comes to be held (ADR-003: one model per thread).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// A thread this process just started: a fresh model.
+    Started,
+    /// A thread this process resumed or forked: its model, kept if held.
+    Resumed,
+    /// A thread another process writes (`is_active_writer`): shown read-only.
+    ForeignWriter,
+}
+
+/// The models of the threads one process holds, the only place a
+/// `ThreadModel` is created (ADR-003). A thread has one model; `open` is the
+/// one door.
+#[derive(Clone, Debug)]
+pub struct ThreadSet {
+    held: BTreeMap<ThreadId, Rc<ThreadModel>>,
+    /// The projection of "no thread yet": the provider list stays fixed.
+    blank: Rc<ThreadModel>,
+}
+
+impl Default for ThreadSet {
+    fn default() -> Self {
+        Self {
+            held: BTreeMap::new(),
+            blank: Rc::new(ThreadModel::new(ThreadId::default())),
+        }
+    }
+}
+
+impl ThreadSet {
+    /// The model of `id`, made when it is not held (`Started` always makes a
+    /// fresh one; `ForeignWriter` marks it read-only).
+    pub fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
+        if origin == Origin::Started {
+            self.held
+                .insert(id.clone(), Rc::new(ThreadModel::new(id.clone())));
+        }
+        let model = Rc::make_mut(
+            self.held
+                .entry(id.clone())
+                .or_insert_with(|| Rc::new(ThreadModel::new(id.clone()))),
+        );
+        if origin == Origin::ForeignWriter {
+            model.read_only = true;
+        }
+        model
+    }
+
+    pub fn get(&self, id: &ThreadId) -> Option<&Rc<ThreadModel>> {
+        self.held.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &ThreadId) -> Option<&mut ThreadModel> {
+        self.held.get_mut(id).map(Rc::make_mut)
+    }
+
+    pub fn contains(&self, id: &ThreadId) -> bool {
+        self.held.contains_key(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ThreadId, &Rc<ThreadModel>)> {
+        self.held.iter()
+    }
+
+    /// The thread whose model holds this ticket.
+    pub fn owner_of(&self, ticket: Ticket) -> Option<ThreadId> {
+        self.held
+            .iter()
+            .find(|(_, model)| model.outgoing.contains(ticket))
+            .map(|(id, _)| id.clone())
+    }
+
+    /// The projection of "no thread yet".
+    pub fn blank(&self) -> &Rc<ThreadModel> {
+        &self.blank
+    }
+
+    pub fn blank_mut(&mut self) -> &mut ThreadModel {
+        Rc::make_mut(&mut self.blank)
+    }
 }
 
 impl ThreadModel {
-    pub fn new(id: ThreadId) -> Self {
+    fn new(id: ThreadId) -> Self {
         Self {
+            seal: Seal,
             id,
             transcript: Transcript::default(),
             turn: TurnState::Idle,
@@ -258,13 +368,134 @@ impl ThreadModel {
         }
     }
 
-    /// The projection of "no thread yet".
-    pub fn blank() -> Self {
-        Self::new(ThreadId::default())
-    }
-
     pub fn is_running(&self) -> bool {
         matches!(self.turn, TurnState::Running(_))
+    }
+}
+
+/// A thread RPC a screen wants (ADR-003): data only. The wire request is made
+/// here and nowhere else (`wire`); `apply_app` mints the ticket and sends it,
+/// and decides before whether the thread is already held (`OpenThread`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadAsk {
+    /// `thread/resume`: the thread into the chat.
+    Resume { thread: String },
+    /// `thread/fork`.
+    Fork { thread: String },
+    /// `thread/start` in `cwd` (a new task).
+    Start { cwd: Option<String> },
+    /// `thread/read` without turns.
+    Read { thread: String },
+    /// `thread/read` with turns: the turn in progress, half of stopping it.
+    ActiveTurn { thread: String },
+    /// The newest turn of a thread (`thread/turns/list`, limit 1).
+    Turns { thread: String },
+    /// One page of a thread's history, newest first.
+    History {
+        thread: String,
+        cursor: Option<String>,
+    },
+    /// `turn/interrupt`.
+    Interrupt { thread: String, turn: String },
+    /// `thread/unsubscribe`: a thread started and not used.
+    Unsubscribe { thread: String },
+}
+
+/// How many turns one page of a thread's history holds.
+pub const HISTORY_PAGE: u32 = 20;
+
+impl ThreadAsk {
+    /// The thread this asks about, none for a start.
+    pub fn thread(&self) -> Option<&str> {
+        match self {
+            ThreadAsk::Resume { thread }
+            | ThreadAsk::Fork { thread }
+            | ThreadAsk::Read { thread }
+            | ThreadAsk::ActiveTurn { thread }
+            | ThreadAsk::Turns { thread }
+            | ThreadAsk::History { thread, .. }
+            | ThreadAsk::Interrupt { thread, .. }
+            | ThreadAsk::Unsubscribe { thread } => Some(thread),
+            ThreadAsk::Start { .. } => None,
+        }
+    }
+
+    /// The wire request (oracle: `agents_overview_actions.rs`).
+    pub(crate) fn wire(&self, request_id: RequestId) -> ClientRequest {
+        match self {
+            ThreadAsk::Resume { thread } => ClientRequest::ThreadResume {
+                request_id,
+                params: ThreadResumeParams {
+                    thread_id: thread.clone(),
+                    // The center keeps the thread's row, not its turns, and the
+                    // chat reads its transcript page by page: the whole history
+                    // over the wire is the cost of opening a long session.
+                    exclude_turns: true,
+                    ..ThreadResumeParams::default()
+                },
+            },
+            ThreadAsk::Fork { thread } => ClientRequest::ThreadFork {
+                request_id,
+                params: ThreadForkParams {
+                    thread_id: thread.clone(),
+                    ..ThreadForkParams::default()
+                },
+            },
+            ThreadAsk::Start { cwd } => ClientRequest::ThreadStart {
+                request_id,
+                params: ThreadStartParams {
+                    cwd: cwd.clone(),
+                    ..ThreadStartParams::default()
+                },
+            },
+            ThreadAsk::Read { thread } => ClientRequest::ThreadRead {
+                request_id,
+                params: ThreadReadParams {
+                    thread_id: thread.clone(),
+                    include_turns: false,
+                },
+            },
+            ThreadAsk::ActiveTurn { thread } => ClientRequest::ThreadRead {
+                request_id,
+                params: ThreadReadParams {
+                    thread_id: thread.clone(),
+                    include_turns: true,
+                },
+            },
+            ThreadAsk::Turns { thread } => ClientRequest::ThreadTurnsList {
+                request_id,
+                params: ThreadTurnsListParams {
+                    thread_id: thread.clone(),
+                    cursor: None,
+                    limit: Some(1),
+                    sort_direction: None,
+                    items_view: None,
+                },
+            },
+            ThreadAsk::History { thread, cursor } => ClientRequest::ThreadTurnsList {
+                request_id,
+                params: ThreadTurnsListParams {
+                    thread_id: thread.clone(),
+                    cursor: cursor.clone(),
+                    limit: Some(HISTORY_PAGE),
+                    sort_direction: Some(SortDirection::Desc),
+                    items_view: Some(TurnItemsView::Full),
+                },
+            },
+            ThreadAsk::Interrupt { thread, turn } => ClientRequest::TurnInterrupt {
+                request_id,
+                params: TurnInterruptParams {
+                    thread_id: thread.clone(),
+                    turn_id: turn.clone(),
+                },
+            },
+            ThreadAsk::Unsubscribe { thread } => ClientRequest::ThreadUnsubscribe {
+                request_id,
+                params: ThreadUnsubscribeParams {
+                    thread_id: thread.clone(),
+                },
+            },
+        }
     }
 }
 
@@ -542,5 +773,26 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId) {
     match &model.turn {
         TurnState::Idle => model.turn = TurnState::Running(RunningTurn { turn }),
         TurnState::Running(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opening a task from the center must not pull its whole history over the
+    /// wire (perf-open-session): the resume asks for the thread's state only;
+    /// the transcript is read page by page (`thread/turns/list`) when the chat
+    /// shows it, as the oracle's paginated sessions do.
+    #[test]
+    fn resume_asks_for_no_turns() {
+        let ask = ThreadAsk::Resume {
+            thread: "t1".to_owned(),
+        };
+        let ClientRequest::ThreadResume { params, .. } = ask.wire(RequestId::Integer(1)) else {
+            panic!("resume is thread/resume");
+        };
+        assert_eq!(params.thread_id, "t1");
+        assert!(params.exclude_turns, "thread/resume must exclude the turns");
     }
 }

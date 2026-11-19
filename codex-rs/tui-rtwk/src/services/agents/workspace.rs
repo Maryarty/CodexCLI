@@ -5,12 +5,12 @@
 //! Oracle: `agents_overview_view.rs` (`directory_group_key`,
 //! `AgentsOverviewProjectGroup`), `agents_overview_new.rs`.
 
+use codex_tui_core::threads::ThreadAsk;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::ServerError;
@@ -128,9 +128,9 @@ where
             checkout.root
         ))
     };
-    let start = AgentsCommand::Start {
+    let start = AgentsCommand::Thread(ThreadAsk::Start {
         cwd: Some(checkout.cwd.clone()),
-    };
+    });
     let wire = agents_wire(&start, &ThreadId::default(), ids.next());
     let started = match send(wire).await {
         Ok(result) => match decode(&start, result) {
@@ -144,12 +144,10 @@ where
     // (`thread_unsubscribe`) before the error shows; a failure of that is
     // the server's own, not shown.
     let unsubscribe = || async {
-        let wire = ClientRequest::ThreadUnsubscribe {
-            request_id: ids.next(),
-            params: ThreadUnsubscribeParams {
-                thread_id: started.id.clone(),
-            },
-        };
+        let ask = AgentsCommand::Thread(ThreadAsk::Unsubscribe {
+            thread: started.id.clone(),
+        });
+        let wire = agents_wire(&ask, &ThreadId::default(), ids.next());
         let _ = send(wire).await;
     };
     let bound = {

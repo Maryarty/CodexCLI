@@ -3,6 +3,7 @@
 //! Oracle: `agents_overview_view.rs` (`handle_key_event` arms),
 //! `agents_overview_actions.rs` (archive, delete, hide, rename, pin).
 
+use crate::threads::ThreadAsk;
 use super::Action;
 use super::Command;
 use super::Ctx;
@@ -57,9 +58,9 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             if model.threads.iter().any(|known| known.id == thread) {
                 model.opening = Some(thread.clone());
                 outs.push(out(
-                    Command::Resume {
+                    Command::Thread(ThreadAsk::Resume {
                         thread: thread.clone(),
-                    },
+                    }),
                     Ctx::Resume { thread },
                 ));
             }
@@ -75,9 +76,9 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
                 && matches!(row.thread.status, ThreadStatus::Active { .. })
             {
                 outs.push(out(
-                    Command::ActiveTurn {
+                    Command::Thread(ThreadAsk::ActiveTurn {
                         thread: thread.clone(),
-                    },
+                    }),
                     Ctx::Stop { thread },
                 ));
             }
@@ -113,7 +114,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         Intent::New(at) => {
             let cwd = cwd_of(model, at);
-            outs.push(out(Command::Start { cwd }, Ctx::Start));
+            outs.push(out(Command::Thread(ThreadAsk::Start { cwd }), Ctx::Start));
         }
         Intent::NewWorktree(at) => {
             if model.worktrees {
@@ -125,7 +126,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::Fork(thread) => {
             if model.row(&thread).is_some() {
                 outs.push(out(
-                    Command::Fork { thread },
+                    Command::Thread(ThreadAsk::Fork { thread }),
                     Ctx::Fork,
                 ));
             }
@@ -235,9 +236,9 @@ fn accept(model: &mut Model, at: Sel, outs: &mut Vec<Out>) {
     {
         model.opening = Some(thread.clone());
         outs.push(out(
-            Command::Resume {
+            Command::Thread(ThreadAsk::Resume {
                 thread: thread.clone(),
-            },
+            }),
             Ctx::Resume { thread },
         ));
     }

@@ -78,7 +78,7 @@ command center bypassed ADR-003 and hit "thread already has an active writer").
   thread or keeps its own copy of thread state.
 - Layers (core pure, IO only in services/host, views without protocol) and
   rtwk-first (no hand layout, R15) are rules tests in `tests/rules` and
-  `tests/app/layers.rs`; a new decision comes with its test.
+  `tests/rules/layers.rs`; a new decision comes with its test.
 - Where a rule cannot be a type or a test yet, the brief says so and a debt
   task carries it (process.md A4.1 "ADR departures").
 
