@@ -68,7 +68,9 @@ fn rows(lang: Lang) -> Vec<Row> {
                 open: Some(RowOpen::Entry(
                     entry.open,
                     entry.script,
-                    if dir.id == codex_tui_core::screens::approvals::ID {
+                    if dir.id == codex_tui_core::screens::approvals::ID
+                        || dir.id == codex_tui_core::screens::pets::ID
+                    {
                         screens::approvals::pane_options()
                     } else {
                         DialogOptions::default()

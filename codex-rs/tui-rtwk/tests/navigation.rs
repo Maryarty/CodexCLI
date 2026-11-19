@@ -141,7 +141,10 @@ fn pets_is_a_sheet_over_the_session_page() {
     h.press("enter");
     h.t.pump_for(crate::common::ms(800));
     let open = h.t.screen();
-    assert!(open.contains("• Hello"), "the sheet covers the session page:\n{open}");
+    assert!(
+        open.contains("• Hello"),
+        "the sheet covers the session page:\n{open}"
+    );
     assert!(open.contains("empty slot"), "the sheet is not up:\n{open}");
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));

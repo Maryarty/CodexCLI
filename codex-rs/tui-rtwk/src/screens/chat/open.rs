@@ -49,8 +49,8 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Settings => drop(settings::open(cx)),
         Target::Dialogs => drop(dialogs::open(cx)),
         Target::Approvals => drop(approvals::open(cx)),
-        Target::Pets => push(cx, PageRoute::new(|_| pets::part())),
-        Target::Voice => push(cx, PageRoute::new(|_| voice::part())),
+        Target::Pets => drop(pets::open(cx)),
+        Target::Voice => drop(voice::open(cx)),
         Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
     }
     // Recorded once the directory's opener has run: the identity a test

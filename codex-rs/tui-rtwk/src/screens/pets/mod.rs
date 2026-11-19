@@ -14,6 +14,7 @@ use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::navigation::Navigator;
+use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::ScrollNotification;
 use rtwk::style::Style;
@@ -67,22 +68,33 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Route(|_| Screen.into()),
+            open: EntryOpen::Dialog(|_| Screen.into()),
         })
         .collect()
 }
 
-/// The part as a widget, placed by the chat screen's subtree.
-pub fn part() -> AnyWidget {
-    Screen.into()
+/// Opens the picker as a modal sheet over the session page: no frame, no
+/// dimming, at the bottom edge, as the oracle draws it in place of the
+/// composer (architecture §1, amendment 2026-11-19b).
+pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    show_dialog(
+        cx,
+        move |_| Screen.into(),
+        // Esc is the picker's own key when a picker is up (it clears a
+        // search first); the barrier closes the unseeded stub.
+        DialogOptions {
+            barrier_dismissible: true,
+            ..crate::screens::approvals::pane_options()
+        },
+    )
 }
 
-/// Opens the page with no seeded model (debug menu): nothing to pick from.
+/// Opens the sheet with no seeded model (debug menu): nothing to pick from.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen.into())
+    DebugOpen::Dialog(|_| Screen.into())
 }
 
-/// The picker page.
+/// The picker sheet.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen;
 
@@ -214,7 +226,7 @@ impl State for ScreenState {
             // No picker seeded (the debug menu's `pets` row): the skeleton's
             // empty-slot line, as before the slot was filled.
             let shared = crate::l10n::strings::of(cx);
-            return Text::new(shared.empty_slot(NAME, ID).to_string()).into();
+            return Dialog::bare(Text::new(shared.empty_slot(NAME, ID).to_string())).into();
         };
         let picker = Rc::new(picker);
         let (cursor, below) = (self.cursor.clone(), self.below.clone());
@@ -326,7 +338,7 @@ impl State for ScreenState {
             .child(body)
             .child(more)
             .child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
-        Focus::new(column)
+        Focus::new(Dialog::bare(column))
             .can_request_focus(false)
             .bind(KeyPress::ESC, cx.send(Msg::Close))
             .bind(KeyPress::UP, cx.send(Msg::Move(-1)))

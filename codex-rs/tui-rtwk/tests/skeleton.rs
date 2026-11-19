@@ -230,6 +230,8 @@ fn debug_menu_scrolls_to_the_cursor() {
     assert!(screen.contains("pets"), "{screen}");
     assert!(!screen.contains(" chat "), "scrolled off: {screen}");
     h.press("enter");
+    // The sheet fades in.
+    h.t.pump_for(crate::common::ms(400));
     assert!(
         h.t.screen().contains("pets (S24): empty slot"),
         "{}",
