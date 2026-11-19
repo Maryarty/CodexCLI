@@ -4,6 +4,7 @@
 
 pub mod age;
 pub mod debug_menu;
+pub mod dots;
 pub mod page_keys;
 pub mod presenter;
 pub mod seeded;

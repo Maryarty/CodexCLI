@@ -9,6 +9,7 @@
 use std::rc::Rc;
 
 use rtwk::controls::SelectionController;
+use rtwk::scroll::ListController;
 use rtwk::focus::{Focus, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{
@@ -112,14 +113,18 @@ pub struct Screen;
 #[derive(Debug)]
 pub struct ScreenState {
     selection: SelectionController<usize>,
+    list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
 }
 
-use crate::ui::session_list::{Scrolled, SessionList};
+use crate::ui::session_list::{Move, Scrolled, SessionList, target};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Accept(usize),
+    Enter,
+    /// A key of the list moved the cursor.
+    Move(Move),
     /// A key of the footer whose action is not built yet: the action's name.
     NotYet(&'static str),
     Close,
@@ -131,6 +136,7 @@ impl StatefulWidget for Screen {
     fn create_state(&self) -> ScreenState {
         ScreenState {
             selection: SelectionController::with(false, [0], Some(0)),
+            list: ListController::new(),
             scroll: Rc::new(ValueNotifier::new(Scrolled::default())),
         }
     }
@@ -156,8 +162,8 @@ fn screen(
     num: rtwk::l10n::NumSyms,
     screens: Rc<ScreenStates>,
     selection: SelectionController<usize>,
+    list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    accept: rtwk::Handler<usize>,
 ) -> AnyWidget {
     let look = cx_look.clone();
     LayoutBuilder::new(move |_, constraints| {
@@ -192,7 +198,7 @@ fn screen(
                 Some(
                     Padding::new(
                         EdgeInsets::only(i32::from(layout::LIST_INSET), 0, 0, 0),
-                        list_of(&look, strings, num, screens.clone(), selection.clone(), scroll.clone(), accept.clone()),
+                        list_of(&look, strings, num, screens.clone(), selection.clone(), list.clone(), scroll.clone()),
                     )
                     .into(),
                 ),
@@ -255,8 +261,8 @@ fn list_of(
     num: rtwk::l10n::NumSyms,
     screens: Rc<ScreenStates>,
     selection: SelectionController<usize>,
+    list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    accept: rtwk::Handler<usize>,
 ) -> AnyWidget {
     let look = look.clone();
     LayoutBuilder::new(move |_, constraints| {
@@ -280,30 +286,35 @@ fn list_of(
                 })
             },
             selection: selection.clone(),
+            list: list.clone(),
             scroll: scroll.clone(),
-            submit: accept.clone(),
             focus: None,
             extent: None,
-            idle: Style::new(),
         }
         .build();
-        let more = |text: &'static str, down: bool| -> AnyWidget {
-            let style = look.accent.clone();
+        let shown = |text: &'static str| -> AnyWidget {
+            Text::line(text).style(look.accent.clone()).into()
+        };
+        let none = || -> AnyWidget { SizedBox::new(Some(0), Some(0), None).into() };
+        // `↑ more` once the list is scrolled; `↓ more` while rows follow the
+        // cursor (the oracle's own rule, so the window and the line agree).
+        let up = {
+            let above = shown(strings.more_above);
             ValueListenableBuilder::new(scroll.clone(), move |_, at: &Scrolled, _| {
-                let show = if down { at.below() } else { at.above() };
-                if show {
-                    Text::line(text).style(style.clone()).into()
-                } else {
-                    SizedBox::new(Some(0), Some(0), None).into()
-                }
+                if at.above() { above.clone() } else { none() }
             })
-            .into()
+        };
+        let down = {
+            let (below, len, selection) = (shown(strings.more_below), model.rows.len(), selection.clone());
+            ListenableBuilder::new(selection.clone().listenable(), move |_, _| {
+                if selection.cursor().is_some_and(|at| at + 1 < len) { below.clone() } else { none() }
+            })
         };
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(more(strings.more_above, false))
+            .child(up)
             .child(Expanded::new(1, rows))
-            .child(more(strings.more_below, true))
+            .child(down)
             .into()
     })
     .into()
@@ -369,11 +380,60 @@ fn fit_cwd(width: i32) -> i32 {
     ((width - 2 - 12 - 4) / 2).clamp(30, 72)
 }
 
+/// The lines of a row of the list: title and meta (oracle `render_list`), and
+/// one blank row apart from the next.
+const ROW_LINES: usize = 2;
+
+impl ScreenState {
+    /// The cursor moves and the list shows it by whole rows (G42): the first
+    /// row of the window is the oracle's `ensure_selected_visible` over the
+    /// rows the window really has, the two `more` lines taking one each
+    /// (`up` once the list is scrolled, `down` while rows follow the cursor).
+    fn move_cursor(&self, len: usize, mv: Move) {
+        let list = &self.list;
+        let (pixels, viewport) = if list.has_clients() {
+            let position = list.position();
+            (position.pixels(), position.viewport_dimension())
+        } else {
+            (0, 1)
+        };
+        let from = self.selection.cursor();
+        let above = usize::from(pixels > 0);
+        let below = usize::from(from.is_some_and(|at| at + 1 < len));
+        let view = usize::try_from(viewport).unwrap_or(1) + above + below;
+        let page = (view / (ROW_LINES + 1)).max(1);
+        let Some(to) = target(len, from, &|_| true, mv, page) else {
+            return;
+        };
+        self.selection.set_cursor(Some(to));
+        self.selection.select(to);
+        let prev = usize::try_from(pixels).unwrap_or(0) / (ROW_LINES + 1);
+        list.jump_to_index(window_top(prev.min(len - 1), to, view, len));
+    }
+}
+
+/// The first row of the window once the cursor is on `selected`
+/// (resume_picker.rs `ensure_selected_visible`, `available_content_rows`): the
+/// rows between the top and the cursor, blanks included, fit in what the
+/// window has left after its `more` lines.
+fn window_top(prev: usize, selected: usize, view: usize, len: usize) -> usize {
+    let between = |end: usize, top: usize| (end - top + 1) * ROW_LINES + (end - top);
+    let room = |top: usize| {
+        view.saturating_sub(usize::from(top > 0) + usize::from(selected + 1 < len))
+            .max(1)
+    };
+    let mut top = prev.min(selected);
+    while top < selected && between(selected, top) > room(top) {
+        top += 1;
+    }
+    top
+}
+
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Accept(index) => {
                 let screens = watch::<ScreenStates, _>(cx);
@@ -385,6 +445,15 @@ impl State for ScreenState {
                     // page (it is the navigator's home below).
                     Navigator::maybe_pop(cx);
                 }
+            }
+            Msg::Enter => {
+                if let Some(index) = self.selection.cursor() {
+                    return self.update(Msg::Accept(index), w, cx);
+                }
+            }
+            Msg::Move(mv) => {
+                let rows = watch::<ScreenStates, _>(cx).resume.rows.len();
+                self.move_cursor(rows, mv);
             }
             Msg::NotYet(action) => {
                 drop(crate::ui::page_keys::not_yet(cx, action));
@@ -412,13 +481,19 @@ impl State for ScreenState {
         // one-cell mark: the glyph for this screen.
         let mut data = (*Theme::of(cx)).clone();
         data.glyphs.ellipsis = "...".into();
-        let accept = cx.map(Msg::Accept);
-        let body = screen(&look, strings, num, screens, self.selection.clone(), self.scroll.clone(), accept);
+        let body = screen(&look, strings, num, screens, self.selection.clone(), self.list.clone(), self.scroll.clone());
         // The footer's keys not built yet (the sort/filter focus and option,
         // the dense view, the transcript preview, the expand) say so.
         let keys = KeyBindings::new(
             [
                 ("escape", cx.send(Msg::Close)),
+                ("enter", cx.send(Msg::Enter)),
+                ("down", cx.send(Msg::Move(Move::Step(true)))),
+                ("up", cx.send(Msg::Move(Move::Step(false)))),
+                ("pagedown", cx.send(Msg::Move(Move::Page(true)))),
+                ("pageup", cx.send(Msg::Move(Move::Page(false)))),
+                ("home", cx.send(Msg::Move(Move::Edge(false)))),
+                ("end", cx.send(Msg::Move(Move::Edge(true)))),
                 ("tab", cx.send(Msg::NotYet(strings.focus_wide))),
                 ("left", cx.send(Msg::NotYet(strings.option_wide))),
                 ("right", cx.send(Msg::NotYet(strings.option_wide))),

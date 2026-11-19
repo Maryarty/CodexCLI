@@ -10,6 +10,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::controls::{SelectionController, TabController};
+use rtwk::scroll::ListController;
+
+use crate::ui::session_list::{Move, page_rows, target};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
@@ -305,6 +308,7 @@ enum Mode {
 /// the editing line's text, the list's focus and where it is scrolled in.
 pub struct ScreenState {
     selection: SelectionController<view::RowKey>,
+    list: ListController,
     edit: TextEditingController,
     list_focus: FocusNode,
     /// The empty list's line, and the help: each a focus stop that holds the
@@ -365,8 +369,6 @@ pub enum Msg {
     Search(String),
     /// Enter in the editing line.
     Submit(String),
-    /// Enter on the list's cursor.
-    Open,
     /// The confirmation dialog was answered yes: the removal.
     Confirmed(view::Confirm),
 }
@@ -377,6 +379,7 @@ impl StatefulWidget for Screen {
     fn create_state(&self) -> ScreenState {
         ScreenState {
             selection: SelectionController::new(),
+            list: ListController::new(),
             edit: TextEditingController::default(),
             list_focus: FocusNode::new(),
             empty_focus: FocusNode::new(),
@@ -407,7 +410,8 @@ pub enum Act {
     /// `ctrl+c`: it cancels a line, otherwise it quits (the app's).
     Interrupt,
     Escape,
-    Step { forward: bool },
+    Move(Move),
+    Accept,
     Filter { back: bool },
     Help,
     Search,
@@ -439,8 +443,14 @@ const SEARCH_KEYS: &[(&str, Act)] = &[
     ("escape", Act::Escape),
     ("f3", Act::Search),
     ("ctrl+c", Act::Interrupt),
-    ("down", Act::Step { forward: true }),
-    ("up", Act::Step { forward: false }),
+    ("down", Act::Move(Move::Step(true))),
+    ("up", Act::Move(Move::Step(false))),
+    ("pagedown", Act::Move(Move::Page(true))),
+    ("ctrl+f", Act::Move(Move::Page(true))),
+    ("pageup", Act::Move(Move::Page(false))),
+    ("ctrl+b", Act::Move(Move::Page(false))),
+    ("home", Act::Move(Move::Edge(false))),
+    ("end", Act::Move(Move::Edge(true))),
 ];
 const RENAME_KEYS: &[(&str, Act)] = &[
     ("escape", Act::Escape),
@@ -453,12 +463,21 @@ const BROWSE_KEYS: &[(&str, Act)] = &[
     ("shift+tab", Act::Filter { back: true }),
     ("f3", Act::Search),
     ("ctrl+c", Act::Interrupt),
-    ("ctrl+j", Act::Step { forward: true }),
-    ("ctrl+n", Act::Step { forward: true }),
-    ("j", Act::Step { forward: true }),
-    ("ctrl+k", Act::Step { forward: false }),
-    ("ctrl+p", Act::Step { forward: false }),
-    ("k", Act::Step { forward: false }),
+    ("down", Act::Move(Move::Step(true))),
+    ("ctrl+j", Act::Move(Move::Step(true))),
+    ("ctrl+n", Act::Move(Move::Step(true))),
+    ("j", Act::Move(Move::Step(true))),
+    ("up", Act::Move(Move::Step(false))),
+    ("ctrl+k", Act::Move(Move::Step(false))),
+    ("ctrl+p", Act::Move(Move::Step(false))),
+    ("k", Act::Move(Move::Step(false))),
+    ("pagedown", Act::Move(Move::Page(true))),
+    ("ctrl+f", Act::Move(Move::Page(true))),
+    ("pageup", Act::Move(Move::Page(false))),
+    ("ctrl+b", Act::Move(Move::Page(false))),
+    ("home", Act::Move(Move::Edge(false))),
+    ("end", Act::Move(Move::Edge(true))),
+    ("enter", Act::Accept),
     ("backspace", Act::Delete),
     ("right", Act::Right),
     ("?", Act::Help),
@@ -820,11 +839,47 @@ impl ScreenState {
                             Navigator::maybe_pop(cx);
                         }
                     }
-                    Act::Step { forward } => {
-                        if let Some(from) = center.selected_entry()
-                            && let Some(sel) = view::neighbour(&center, from, forward)
+                    Act::Move(mv) => {
+                        let len = center.entries.len();
+                        // A step rests on "Show more" too (not while it reads
+                        // "Searching history…"); a page or an end stops at a
+                        // task (oracle `move_selection` / paging).
+                        let searching = model.history.as_ref().is_some_and(|h| h.loading);
+                        let selectable = |at: usize| {
+                            let key = view::key_of(&center, at);
+                            match mv {
+                                Move::Step(_) => {
+                                    key.selectable() && !(searching && key == view::RowKey::ShowMore)
+                                }
+                                _ => matches!(key, view::RowKey::Task(_)),
+                            }
+                        };
+                        if let Some(to) = target(
+                            len,
+                            center.selected_entry(),
+                            &selectable,
+                            mv,
+                            page_rows(&self.list),
+                        ) && let key = view::key_of(&center, to)
+                            && key.clone().into_sel().is_some()
                         {
-                            self.put_cursor(view::RowKey::from(sel));
+                            self.put_cursor(key);
+                            // Going up, the heading and the gap above a task
+                            // come into view with it (the oracle scrolls to
+                            // the group).
+                            let mut head = to;
+                            if center.selected_entry().is_some_and(|from| to < from) {
+                                while head > 0 && !view::key_of(&center, head - 1).selectable() {
+                                    head -= 1;
+                                }
+                            }
+                            self.list.ensure_index_visible(head);
+                            return Rebuild::Yes;
+                        }
+                    }
+                    Act::Accept => {
+                        if let Some(sel) = at {
+                            self.accept(model, sel, &center, cx);
                             return Rebuild::Yes;
                         }
                     }
@@ -927,12 +982,6 @@ impl ScreenState {
                     return Rebuild::Yes;
                 }
             }
-            Msg::Open => {
-                if let Some(sel) = at {
-                    self.accept(model, sel, &center, cx);
-                    return Rebuild::Yes;
-                }
-            }
             Msg::Confirmed(confirm) => {
                 self.removal(model, confirm, cx);
                 return Rebuild::Yes;
@@ -982,6 +1031,7 @@ impl ScreenState {
         };
         let controls = view::Controls {
             selection: self.selection.clone(),
+            list: self.list.clone(),
             edit: self.edit.clone(),
             focus: self.list_focus.clone(),
             empty_focus: self.empty_focus.clone(),
@@ -993,7 +1043,6 @@ impl ScreenState {
             },
             edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
-            open: rtwk::map_static!(cx, view::RowKey => Msg, |_| Msg::Open),
             search: cx.map(|text: Rc<str>| Msg::Search(text.to_string())),
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
         };

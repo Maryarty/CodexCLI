@@ -18,6 +18,8 @@ use rtwk::text::Text;
 use rtwk::text::segmenter_of;
 use rtwk_core::unicode::TextSegmenter;
 
+use crate::ui::dots::dots_end;
+
 /// The tabs shown at `width` cells: the whole tabs around the active one that
 /// fit beside the marks, and what the marks show.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,8 +102,8 @@ impl Tabs {
         for (offset, cells) in shown.widths.iter().enumerate() {
             let index = shown.start + offset;
             let style = if index == self.active { selected } else { idle };
-            let label = Text::line(format!(" {} ", self.labels[index])).style(style.clone());
-            let tab = SizedBox::new(Some(*cells as i32), Some(1), Some(label.into()));
+            let label = dots_end(format!(" {} ", self.labels[index]), style.clone());
+            let tab = SizedBox::new(Some(*cells as i32), Some(1), Some(label));
             if offset > 0 {
                 row = row.child(blank(1));
             }

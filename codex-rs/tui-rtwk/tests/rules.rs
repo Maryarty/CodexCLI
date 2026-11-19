@@ -418,7 +418,8 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
         // and the search text it filters by; so is the cursor of the
         // confirmation dialog's two rows (`agents/dialogs.rs`); so is the
         // cursor of the request dialog's option rows (`approvals/dialog.rs`); so are
-        // the cursor and the search line of the pets picker (`pets/mod.rs`).
+        // the cursor and the search line of the pets picker (`pets/mod.rs`);
+        // so are the cursor and the scroll of the resume list (`resume/mod.rs`).
         |name| {
             matches!(
                 name,
@@ -427,6 +428,7 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
                     | "src/screens/agents/dialogs.rs"
                     | "src/screens/approvals/dialog.rs"
                     | "src/screens/pets/mod.rs"
+                    | "src/screens/resume/mod.rs"
             )
         },
     );
@@ -488,15 +490,15 @@ fn no_literal_colours_anywhere() {
 const R15_GAPS: &[(&str, &str)] = &[
     (
         "src/screens/agents/path.rs",
-        "G37: no TextOverflow mode cuts a path by its segments (oracle center_truncate_path)",
+        "ours: carried oracle pure fn (center_truncate_path), not a gap",
     ),
     (
         "src/screens/agents/tabs.rs",
-        "G36: TabBar has no gap, no outside marks, no whole-tab window (oracle render_filled_tab_bar)",
+        "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (
         "src/screens/agents/soft.rs",
-        "G38: no widget tells how many rows a Text takes; the facade does not export break_lines",
+        "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),
 ];
 const R15_NOT_YET: &[&str] = &[
@@ -564,7 +566,10 @@ fn r15_the_not_yet_list_names_only_files_that_still_violate() {
 fn r15_the_gap_entries_are_small_and_documented() {
     let sources = sources();
     for (name, why) in R15_GAPS {
-        assert!(why.starts_with('G'), "{name}: a gap entry names its Gxx");
+        assert!(
+            why.starts_with("ours") || why.starts_with("measure"),
+            "{name}: a gap entry says why the file is allowed: ours / measure"
+        );
         let text = sources.iter().find(|(file, _)| file == name);
         assert!(text.is_some(), "{name}: the gap entry's file is gone");
         let code = text.map_or(0, |(_, text)| {

@@ -419,10 +419,12 @@ fn the_empty_list_and_the_list_each_hold_the_keys() {
         "{}",
         h.t.screen()
     );
-    h.press("j");
+    // The highlight kept the last task (the one the filter before showed);
+    // `k` moves it up, `j` would wrap to the first (oracle `move_selection`).
+    h.press("k");
     h.settle();
     assert!(
-        !highlighted_task(&h).contains("Build the dashboard"),
+        highlighted_task(&h).contains("Repair authentication"),
         "the list has the keys again\n{}",
         h.t.screen()
     );

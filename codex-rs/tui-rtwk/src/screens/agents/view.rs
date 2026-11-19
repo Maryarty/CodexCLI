@@ -17,6 +17,7 @@ use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
 use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::scroll::ListController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
@@ -209,7 +210,7 @@ impl RowKey {
         }
     }
 
-    fn selectable(&self) -> bool {
+    pub fn selectable(&self) -> bool {
         matches!(self, Self::Task(_) | Self::ShowMore)
     }
 }
@@ -224,17 +225,6 @@ pub fn key_of(center: &Center, index: usize) -> RowKey {
     }
 }
 
-/// The task or "Show more" row next to entry `from` the way `forward` goes.
-pub fn neighbour(center: &Center, from: usize, forward: bool) -> Option<Sel> {
-    let keys = (0..center.entries.len()).map(|index| key_of(center, index));
-    let found = if forward {
-        keys.skip(from + 1).find(RowKey::selectable)
-    } else {
-        keys.take(from).rev().find(RowKey::selectable)
-    };
-    found.and_then(RowKey::into_sel)
-}
-
 pub use crate::ui::session_list::Scrolled;
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
@@ -242,6 +232,7 @@ pub use crate::ui::session_list::Scrolled;
 #[derive(Clone)]
 pub struct Controls {
     pub selection: SelectionController<RowKey>,
+    pub list: ListController,
     pub edit: TextEditingController,
     pub focus: FocusNode,
     /// The stop of the empty list's line (it holds the keys when no row
@@ -251,7 +242,6 @@ pub struct Controls {
     /// The keys each mode's widget binds.
     pub keys: Keys,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
-    pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
 }
@@ -273,10 +263,10 @@ pub struct Keys {
 #[derive(Clone)]
 struct ListControls {
     selection: SelectionController<RowKey>,
+    list: ListController,
     focus: FocusNode,
     empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    open: Handler<RowKey>,
 }
 
 /// What the screen is told by a click: the handlers the widget made.
@@ -550,8 +540,8 @@ fn entry(
 }
 
 /// The list pane (oracle: `render_center_rows`): the column labels, the
-/// rows in a `SelectionList` (it keeps the cursor and the scroll, and takes
-/// the keys and the mouse), the overflow arrows.
+/// rows in a `ListView` (a `ListController` scrolls it, the `SelectionController`
+/// keeps the cursor; the keys are the screen's), the overflow arrows.
 pub fn list(
     look: &Look,
     strings: &'static Strings,
@@ -568,10 +558,10 @@ pub fn list(
             center: center.clone(),
         },
         selection: controls.selection.clone(),
+        list: controls.list.clone(),
         focus: controls.focus.clone(),
         empty_focus: controls.empty_focus.clone(),
         scroll: controls.scroll.clone(),
-        open: controls.open.clone(),
         taps: taps.clone(),
     }
     .into()
@@ -605,10 +595,10 @@ impl PartialEq for ListInputs {
 pub struct RowsList {
     inputs: ListInputs,
     selection: SelectionController<RowKey>,
+    list: ListController,
     focus: FocusNode,
     empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    open: Handler<RowKey>,
     taps: Rc<Vec<Handler<PointerEvent>>>,
 }
 
@@ -616,10 +606,10 @@ impl PartialEq for RowsList {
     fn eq(&self, other: &Self) -> bool {
         self.inputs == other.inputs
             && self.selection == other.selection
+            && self.list == other.list
             && self.focus == other.focus
             && self.empty_focus == other.empty_focus
             && Rc::ptr_eq(&self.scroll, &other.scroll)
-            && self.open == other.open
             && self.taps == other.taps
     }
 }
@@ -630,10 +620,10 @@ impl StatelessWidget for RowsList {
         let (strings, taps) = (*strings, self.taps.clone());
         let controls = ListControls {
             selection: self.selection.clone(),
+            list: self.list.clone(),
             focus: self.focus.clone(),
             empty_focus: self.empty_focus.clone(),
             scroll: self.scroll.clone(),
-            open: self.open.clone(),
         };
         rows_in(look, strings, agents, center, controls, taps)
     }
@@ -686,11 +676,10 @@ fn rows_in(
                 })
             },
             selection: controls.selection.clone(),
+            list: controls.list.clone(),
             scroll: controls.scroll.clone(),
-            submit: controls.open.clone(),
             focus: Some(controls.focus.clone()),
             extent: Some(1),
-            idle: look.selection.clone(),
         }
         .build();
         let mut column = Column::new()
