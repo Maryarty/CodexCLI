@@ -39,6 +39,9 @@ pub enum Target {
     Approvals,
     /// Backtrack: browsing earlier prompts (S17).
     Backtrack,
+    /// `/subagents`: the picker of this session's subagent threads (oracle:
+    /// `AppEvent::OpenAgentPicker`), a sheet over the chat.
+    AgentPicker,
 }
 
 /// How a target shows up in the app (architecture §1, Amendment 2026-11-19b):
@@ -66,7 +69,8 @@ impl Target {
             | Target::Settings
             | Target::Approvals
             | Target::Pets
-            | Target::Voice => Opens::Sheet,
+            | Target::Voice
+            | Target::AgentPicker => Opens::Sheet,
             Target::Dialogs => Opens::Dialog,
             Target::Pager | Target::Backtrack => Opens::Mode,
         }
@@ -88,6 +92,8 @@ impl Target {
             Target::Voice => "voice",
             Target::Approvals => "approvals",
             Target::Backtrack => "backtrack",
+            // The agents directory owns the entry: the picker is its sheet.
+            Target::AgentPicker => "agents",
         }
     }
 }
@@ -336,7 +342,8 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
             open(Target::Settings, command, "")
         }
-        Agents | MultiAgents => open(Target::Agents, command, ""),
+        Agents => open(Target::Agents, command, ""),
+        MultiAgents => open(Target::AgentPicker, command, ""),
         Resume => open(Target::Resume, command, ""),
         Import => open(Target::Import, command, ""),
         Diff => open(Target::Pager, command, ""),
