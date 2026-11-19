@@ -705,6 +705,101 @@ fn the_live_center_lists_both_sources() {
     );
 }
 
+fn lists(h: &live::Live) -> usize {
+    h.fake
+        .requests()
+        .iter()
+        .filter(|request| request["method"] == "thread/list")
+        .count()
+}
+
+/// Second review, item 44: `o` opens the picker on the live backend: it lists
+/// the sessions again and shows them (oracle: `OpenResumePicker`).
+#[test]
+fn the_picker_of_the_center_lists_the_sessions() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    let before = lists(&h);
+    h.t.press("o");
+    h.wait_for("the picker with the sessions", |s| {
+        s.contains("Resume a previous session")
+            && s.contains("Interactive task")
+            && s.contains("Exec task")
+    });
+    assert!(lists(&h) > before, "the picker lists the sessions again");
+}
+
+/// Second review, item 69 (oracle
+/// `cancelling_resume_picker_preserves_command_center_state`): the picker is
+/// a route over the center; Esc pops back to the center as it was.
+#[test]
+fn cancelling_resume_picker_preserves_command_center_state() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("g");
+    h.settle();
+    let before = h.t.screen();
+    h.t.press("o");
+    h.wait_for("the picker", |s| s.contains("Resume a previous session"));
+    h.t.press("escape");
+    h.settle();
+    assert_eq!(h.t.screen(), before);
+}
+
+/// A pick resumes that task and closes the picker.
+#[test]
+fn a_pick_in_the_picker_resumes_the_task() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("o");
+    h.wait_for("the sessions", |s| {
+        s.contains("Resume a previous session") && s.contains("Exec task")
+    });
+    h.t.press("enter");
+    h.settle();
+    let resumes: Vec<Value> = h
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|request| request["method"] == "thread/resume")
+        .collect();
+    assert_eq!(resumes.len(), 1, "{resumes:?}");
+    assert!(
+        !h.t.screen().contains("Resume a previous session"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// A hidden task (`h`) comes back through the picker, and picking it resumes it.
+#[test]
+fn a_hidden_task_comes_back_through_the_picker() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("h");
+    h.settle();
+    let screen = h.t.screen();
+    let hidden = if screen.contains("Interactive task") {
+        "Exec task"
+    } else {
+        "Interactive task"
+    };
+    assert!(!screen.contains(hidden), "{screen}");
+    h.t.press("o");
+    h.wait_for("the hidden task", |s| {
+        s.contains("Resume a previous session") && s.contains(hidden)
+    });
+    h.t.press("enter");
+    h.settle();
+    assert!(
+        h.fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "thread/resume"),
+        "the pick resumes"
+    );
+}
+
 /// Worktrees on: the shell reads the keys of the listed cwds, and the rows
 /// of two directories of one repository share a group.
 #[test]
