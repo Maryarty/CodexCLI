@@ -120,9 +120,9 @@ fn the_cd_and_inline_flags_are_read() {
     assert!(parse(&["-C"]).is_err());
 }
 
-/// Item 7: `--no-daemon` is what the app is (an embedded server); `--remote`
-/// is refused with the oracle's words (`startup_orchestration.rs:16-19`) until
-/// the app can connect to a server.
+/// `--no-daemon` and `--remote` are the connection flags (agents-daemon); the
+/// two exclude each other with the oracle's words
+/// (`startup_orchestration.rs:16-19`), the values reach the host.
 #[test]
 fn the_connection_flags_answer_as_the_oracle_does() {
     assert!(parse(&["agents", "--no-daemon"]).expect("parsed").no_daemon);
@@ -131,9 +131,18 @@ fn the_connection_flags_answer_as_the_oracle_does() {
         both.to_string(),
         "--no-daemon cannot be used with --remote."
     );
-    let remote = parse(&["agents", "--remote=ws://h:1"]).unwrap_err();
-    assert!(remote.to_string().starts_with("--remote is not supported"));
-    assert!(parse(&["--remote-auth-token-env", "T"]).is_err());
+    let remote = parse(&[
+        "agents",
+        "--remote=ws://h:1",
+        "--remote-auth-token-env",
+        "T",
+    ])
+    .expect("parsed");
+    assert_eq!(remote.remote.as_deref(), Some("ws://h:1"));
+    assert_eq!(remote.remote_auth_token_env.as_deref(), Some("T"));
+    let spaced = parse(&["--remote", "unix://"]).expect("parsed");
+    assert_eq!(spaced.remote.as_deref(), Some("unix://"));
+    assert!(parse(&["--remote"]).is_err());
 }
 
 /// Flag values are not words of the command line: `--help` after `-C dir`
