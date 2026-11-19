@@ -656,6 +656,32 @@ mod live {
             }
         }
 
+        /// Waits for the app to end: the event travels through the fake's
+        /// task and the ingress subscription, which a fixed number of frames
+        /// of the fake clock does not wait for under load.
+        pub fn wait_until_ended(&mut self) {
+            for _ in 0..400 {
+                self.t.pump_for(ms(20));
+                if !self.t.is_running() {
+                    return;
+                }
+                std::thread::sleep(ms(5));
+            }
+            panic!("the app never ended; the screen:\n{}", self.t.screen());
+        }
+
+        /// Waits until the backend has been asked `method`.
+        pub fn wait_for_request(&mut self, method: &str) {
+            for _ in 0..400 {
+                self.t.pump_for(ms(20));
+                if self.fake.requests().iter().any(|r| r["method"] == method) {
+                    return;
+                }
+                std::thread::sleep(ms(5));
+            }
+            panic!("never asked {method}; the screen:\n{}", self.t.screen());
+        }
+
         pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
             for _ in 0..400 {
                 self.t.pump_for(ms(20));
@@ -756,6 +782,7 @@ fn a_pick_in_the_picker_resumes_the_task() {
         s.contains("Resume a previous session") && s.contains("Exec task")
     });
     h.t.press("enter");
+    h.wait_for_request("thread/resume");
     h.settle();
     let resumes: Vec<Value> = h
         .fake
@@ -790,14 +817,7 @@ fn a_hidden_task_comes_back_through_the_picker() {
         s.contains("Resume a previous session") && s.contains(hidden)
     });
     h.t.press("enter");
-    h.settle();
-    assert!(
-        h.fake
-            .requests()
-            .iter()
-            .any(|request| request["method"] == "thread/resume"),
-        "the pick resumes"
-    );
+    h.wait_for_request("thread/resume");
 }
 
 /// Worktrees on: the shell reads the keys of the listed cwds, and the rows
@@ -895,8 +915,7 @@ fn a_connection_that_does_not_start_ends_the_app() {
         epoch,
         codex_tui_core::app::AppEv::StartFailed("no daemon package".into()),
     );
-    h.settle();
-    assert!(!h.t.is_running(), "{}", h.t.screen());
+    h.wait_until_ended();
 }
 
 /// An empty filter keeps the keys: Tab moves to a filter without tasks and
