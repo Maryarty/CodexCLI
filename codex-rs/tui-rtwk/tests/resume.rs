@@ -56,9 +56,9 @@ fn mixed_backend_resume_table_snapshot() {
     );
 }
 
-// `session_list_more_indicators_snapshot` is pending on G42 in the oracle
-// shard (`tests/oracle/resume_2.rs`): the row scroll of rtwk's list cuts the
-// third row, and the oracle's rows cannot be had.
+// `session_list_more_indicators_snapshot` is in the oracle shard
+// (`tests/oracle/resume_2.rs`, G42 not a gap: `ListController::jump_to_index`
+// by the oracle's window rule), at 82 cells for the oracle's 80-cell list.
 
 #[test]
 fn resume_search_error_snapshot() {
@@ -111,4 +111,43 @@ fn down_and_up_move_the_marker() {
     assert!(!second[LIST_AT_22].contains('›'), "{second:?}");
     h.press("up");
     assert!(oracle_snap::screen(&h.t)[LIST_AT_22].starts_with("  › "));
+}
+
+/// ADR-011 (beyond the oracle): a click on a row puts the cursor there, a
+/// click on the row the cursor is on opens it, the wheel scrolls the list.
+#[test]
+fn a_click_selects_the_row_and_a_second_click_opens_it() {
+    let mut h = open("table", WIDE_FOR_80_LIST, 22);
+    let before = oracle_snap::screen(&h.t);
+    assert!(before[LIST_AT_22].starts_with("  › "), "{before:?}");
+    let y = u16::try_from(LIST_AT_22 + 3).unwrap();
+    h.t.click(8, y);
+    h.settle();
+    let after = oracle_snap::screen(&h.t);
+    assert!(after[LIST_AT_22 + 3].starts_with("  › "), "{after:?}");
+    assert!(!after[LIST_AT_22].contains('›'), "{after:?}");
+    h.t.click(8, y);
+    h.settle();
+    h.t.pump_for(crate::common::ms(800));
+    let gone = h.t.screen();
+    assert!(
+        !gone.contains("Resume a previous session"),
+        "a click on the selected row returns its choice:\n{gone}"
+    );
+}
+
+#[test]
+fn the_wheel_scrolls_the_resume_list() {
+    let mut h = open("table", WIDE_FOR_80_LIST, 12);
+    let y = u16::try_from(LIST_AT_22).unwrap();
+    assert!(!h.t.screen().contains("↑ more"), "{}", h.t.screen());
+    h.t.mouse(
+        rtwk_core::input::MouseKind::WheelDown,
+        8,
+        y,
+        0,
+        rtwk_core::input::Mods::NONE,
+    );
+    h.settle();
+    assert!(h.t.screen().contains("↑ more"), "{}", h.t.screen());
 }

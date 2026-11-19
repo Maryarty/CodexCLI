@@ -5,11 +5,11 @@
 
 use std::rc::Rc;
 
-use rtwk::controls::SelectionList;
 use rtwk::focus::Focus;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{Column, MainAxisSize};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
+use rtwk::style::{Attrs, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -19,6 +19,7 @@ use codex_tui_core::screens::select::{Access, Intent, Menu};
 
 use super::strings::{self, Strings};
 use crate::theme;
+use crate::ui::options::{OptionRow, OptionStyles, Options};
 use crate::ui::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,11 +27,14 @@ pub struct MenuDialog;
 
 pub struct MenuDialogState {
     shown: bool,
+    options: Options,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Pick(usize),
+    Move(i64),
+    Enter,
     Close,
 }
 
@@ -45,7 +49,10 @@ impl StatefulWidget for MenuDialog {
     type State = MenuDialogState;
 
     fn create_state(&self) -> MenuDialogState {
-        MenuDialogState { shown: false }
+        MenuDialogState {
+            shown: false,
+            options: Options::new(),
+        }
     }
 }
 
@@ -54,6 +61,10 @@ impl_widget!(stateful eq MenuDialog);
 impl State for MenuDialogState {
     type Widget = MenuDialog;
     type Msg = Msg;
+
+    fn dispose(&mut self) {
+        self.options.dispose();
+    }
 
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
         let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu.is_some());
@@ -66,6 +77,18 @@ impl State for MenuDialogState {
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
         match msg {
+            Msg::Move(delta) => {
+                let len = select::<ScreenStates, usize, _>(cx, |states| {
+                    states.select.menu.as_ref().map_or(0, Menu::len)
+                });
+                self.options.step(delta, len);
+            }
+            Msg::Enter => {
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Select(Intent::Pick(self.options.cursor())),
+                );
+            }
             // The model drops the menu on a pick; the dialog closes with it.
             Msg::Pick(index) => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Pick(index)));
@@ -86,42 +109,27 @@ impl State for MenuDialogState {
         let tokens = theme::Tokens::of(cx);
         let s = strings::of(cx);
         let (title, hint, rows) = parts(menu, s);
-        let rows = Rc::new(rows);
-        let name_width = rows
-            .iter()
-            .map(|row| row.label.chars().count())
-            .max()
-            .unwrap_or(0);
         let count = rows.len();
-        let dim = tokens.dim();
-        let list = SelectionList::new(
-            count,
-            |index| index,
-            move |index| match rows.get(index) {
-                Some(row) => Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(
-                        Some(i32::try_from(name_width + 2).unwrap_or(i32::MAX)),
-                        None,
-                        Some(Text::new(row.label.clone()).into()),
-                    ))
-                    .child(Expanded::new(
-                        1,
-                        Text::new(row.description.clone()).style(dim.clone()),
-                    ))
-                    .into(),
-                None => AnyWidget::default(),
-            },
-        )
-        .on_submitted(cx.map(Msg::Pick))
-        .autofocus(true);
-        let mut column = Column::new().main_axis_size(MainAxisSize::Min).child(
-            SizedBox::new(
-                None,
-                Some(i32::try_from(count * 3).unwrap_or(i32::MAX)),
-                Some(list.into()),
-            ),
+        let rows = Rc::new(
+            rows.into_iter()
+                .map(|row| OptionRow {
+                    label: row.label,
+                    description: Some(row.description),
+                })
+                .collect::<Vec<_>>(),
         );
+        let list = self.options.view(
+            rows,
+            OptionStyles {
+                cursor: tokens.accent().attrs(Attrs::BOLD),
+                label: Style::new(),
+                description: tokens.dim(),
+            },
+            0,
+        );
+        let mut column = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .child(list);
         if let Some(hint) = hint {
             column = column
                 .child(Text::new(String::new()))
@@ -129,7 +137,10 @@ impl State for MenuDialogState {
         }
         let mut focus = Focus::new(Dialog::new(column).max_width(Some(83)).title(title.to_string()))
             .can_request_focus(false)
-            .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Close));
+            .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Close))
+            .bind(rtwk::focus::KeyPress::UP, cx.send(Msg::Move(-1)))
+            .bind(rtwk::focus::KeyPress::DOWN, cx.send(Msg::Move(1)))
+            .bind(rtwk::focus::KeyPress::ENTER, cx.send(Msg::Enter));
         for index in 0..count.min(9) {
             if let Some(digit) = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10) {
                 focus = focus.bind(digit, cx.send(Msg::Pick(index)));

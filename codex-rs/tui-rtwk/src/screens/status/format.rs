@@ -1,6 +1,6 @@
 //! Number and time formatting of the card, carried from the oracle
 //! (`status/helpers.rs`: `format_tokens_compact`; `status/rate_limits.rs`:
-//! `render_limit_progress_bar`, 12-hour reset times).
+//! 12-hour reset times; the limit bar is `card::limit_bar`).
 
 /// `format_tokens_compact` (status/helpers.rs:106): `1_900` is `1.9K`.
 pub fn tokens_compact(value: i64) -> String {
@@ -35,17 +35,6 @@ pub fn tokens_compact(value: i64) -> String {
         }
     }
     format!("{formatted}{suffix}")
-}
-
-/// The 20-cell bar of a limit: filled for the share left.
-pub fn progress_bar(percent_left: i64) -> String {
-    const CELLS: i64 = 20;
-    let filled = ((percent_left.clamp(0, 100) * CELLS) as f64 / 100.0).round() as i64;
-    format!(
-        "[{}{}]",
-        "█".repeat(usize::try_from(filled).unwrap_or(0)),
-        "░".repeat(usize::try_from(CELLS - filled).unwrap_or(0))
-    )
 }
 
 /// An hour of the 24-hour clock on a 12-hour one: `(hour, pm)`.

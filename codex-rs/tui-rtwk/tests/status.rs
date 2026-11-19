@@ -30,38 +30,15 @@ fn esc_closes_the_card() {
     assert!(!h.t.screen().contains("OpenAI Codex"), "{}", h.t.screen());
 }
 
-/// The limit bar on rtwk's own gauge (G40): the oracle draws
-/// `[██████░░░░░░░░░░░░░░]` for 28% left, 20 whole cells of `█` and `░`
-/// between brackets (`render_limit_progress_bar`). The body is the probe of
-/// the gap row; the default profile leaves it out (`--run-ignored all` runs it).
+/// The limit bar (G40): the oracle draws `[██████░░░░░░░░░░░░░░]` for 28% left,
+/// 20 whole cells of `█` and `░` between brackets (`render_limit_progress_bar`);
+/// a `CustomPaint` in the card.
 #[test]
-#[ignore = "pending(G40) (rtwk-gaps.md): no gauge draws whole `█`/`░` cells (Gauge draws eighths and no `░`, LineGauge::segmented draws `▍`); the bar stays `format::progress_bar`, in R15_NOT_YET"]
-fn limit_bar_is_a_rtwk_gauge_of_whole_cells() {
-    use rtwk::data::{Gauge, LineGauge};
-    use rtwk::layout::{Row, SizedBox};
-    use rtwk::widgets::Text;
-    let want = "[██████░░░░░░░░░░░░░░] 28% left";
-    let mut drawn = Vec::new();
-    for (name, gauge) in [
-        ("Gauge", Gauge::new(0.28).into()),
-        ("LineGauge", LineGauge::new(0.28).segmented().into()),
-    ] {
-        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 1));
-        t.pump_widget(
-            Row::new()
-                .child(Text::new("["))
-                .child(SizedBox::new(Some(20), Some(1), Some(gauge)))
-                .child(Text::new("] 28% left")),
-        );
-        let screen = t.screen();
-        drawn.push(format!(
-            "{name}: {}",
-            screen.lines().next().unwrap_or("").trim_end()
-        ));
-    }
-    let want: Vec<String> = ["Gauge", "LineGauge"]
-        .iter()
-        .map(|n| format!("{n}: {want}"))
-        .collect();
-    assert_eq!(drawn, want);
+fn limit_bar_is_a_custom_paint_of_whole_cells() {
+    let h = open("reasoning_details");
+    assert!(
+        h.t.screen().contains("[██████░░░░░░░░░░░░░░] 28% left"),
+        "{}",
+        h.t.screen()
+    );
 }

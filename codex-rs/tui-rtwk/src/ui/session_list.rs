@@ -1,20 +1,24 @@
 //! The list of saved sessions shared by the agents command center and the
-//! resume picker: a `SelectionList` whose rows know whether the cursor is on
-//! them (the item builder holds the controller and the row sits in a
-//! `ListenableBuilder` on it, as a Flutter `ListView.itemBuilder` row reads
-//! `controller.isSelected`), and a `NotificationListener` that tells where the
-//! list is scrolled to. Each page keeps only its row and where it draws the
+//! resume picker, as Flutter writes a list with a cursor of its own: a
+//! `ListView.builder` with a `ListController` (scroll to an index), a
+//! `SelectionController` (the cursor, a `ValueNotifier`), a row in a
+//! `ListenableBuilder` on it (the row reads `controller.isSelected`) and a
+//! `NotificationListener` that tells where the list is scrolled to (G35: not
+//! a gap, the keys are the page's `Shortcuts`/`Actions`, here `Move` and
+//! `target`). Each page keeps its row, its keys and where it draws the
 //! overflow marks.
 
 use std::rc::Rc;
 
+use rtwk::AnyWidget;
+use rtwk::Handler;
 use rtwk::NotificationListener;
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::Pressable;
+use rtwk::controls::SelectionController;
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{ListenableBuilder, ValueNotifier};
-use rtwk::scroll::ScrollNotification;
-use rtwk::style::Style;
-use rtwk::{AnyWidget, Handler};
+use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::scroll::{ListController, ListView, ScrollNotification};
 
 /// Where the list is scrolled to: the pixels above the window and the
 /// extent that can be scrolled.
@@ -36,6 +40,67 @@ impl Scrolled {
     }
 }
 
+/// A move of the cursor (the keys of the oracle's list keymap).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Move {
+    /// The next row the cursor may rest on, round the ends.
+    Step(bool),
+    /// A window of rows further, stopping at the end.
+    Page(bool),
+    /// The first or last row the cursor may rest on.
+    Edge(bool),
+}
+
+/// Where the cursor goes: from the row `from` over `len` rows of which
+/// `selectable` ones take it, `rows` being what a page shows.
+pub fn target(
+    len: usize,
+    from: Option<usize>,
+    selectable: &dyn Fn(usize) -> bool,
+    mv: Move,
+    rows: usize,
+) -> Option<usize> {
+    let ok: Vec<usize> = (0..len).filter(|at| selectable(*at)).collect();
+    let (first, last) = (*ok.first()?, *ok.last()?);
+    let at = |forward: bool, wrap: bool| match (from, forward) {
+        (None, true) => Some(first),
+        (None, false) => Some(last),
+        (Some(from), true) => ok
+            .iter()
+            .copied()
+            .find(|at| *at > from)
+            .or(wrap.then_some(first)),
+        (Some(from), false) => ok
+            .iter()
+            .rev()
+            .copied()
+            .find(|at| *at < from)
+            .or(wrap.then_some(last)),
+    };
+    match mv {
+        Move::Step(forward) => at(forward, true),
+        Move::Edge(end) => Some(if end { last } else { first }),
+        Move::Page(forward) => {
+            let from = from.unwrap_or(if forward { first } else { last });
+            let rows = rows.max(1);
+            let want = if forward {
+                (from + rows).min(len - 1)
+            } else {
+                from.saturating_sub(rows)
+            };
+            let (before, after) = (
+                ok.iter().rev().copied().find(|at| *at <= want),
+                ok.iter().copied().find(|at| *at >= want),
+            );
+            if forward {
+                after.or(before)
+            } else {
+                before.or(after)
+            }
+        }
+    }
+}
+
 /// What a page tells the list.
 pub struct SessionList<K> {
     pub len: usize,
@@ -45,13 +110,15 @@ pub struct SessionList<K> {
     /// The row at an index, told whether the cursor is on it.
     pub row: Rc<dyn Fn(usize, bool) -> AnyWidget>,
     pub selection: SelectionController<K>,
+    pub list: ListController,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
-    pub submit: Handler<K>,
     pub focus: Option<FocusNode>,
     /// The rows a row takes, when every row takes the same.
     pub extent: Option<i32>,
-    /// The style of a row at rest; the list paints no cursor of its own.
-    pub idle: Style,
+    /// A tap on the row at an index (the page's handler: a tap on a row the
+    /// cursor is not on moves it there, a tap on the row it is on opens it;
+    /// the wheel is the `ListView`'s own). Made by the page, not in `build`.
+    pub taps: Option<Rc<Vec<Handler<PointerEvent>>>>,
 }
 
 impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K> {
@@ -62,54 +129,82 @@ impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K>
             selectable,
             row,
             selection,
+            list,
             scroll,
-            submit,
             focus,
             extent,
-            idle,
+            taps,
         } = self;
-        let builder = {
-            let (key, selectable, selection) = (key.clone(), selectable.clone(), selection.clone());
-            move |index: usize| -> AnyWidget {
-                if selectable
-                    .as_ref()
-                    .is_some_and(|selectable| !selectable(index))
-                {
-                    return row(index, false);
-                }
-                let (row, selection, at) = (row.clone(), selection.clone(), key(index));
-                ListenableBuilder::new(selection.listenable(), move |_, _| {
-                    row(index, selection.cursor().as_ref() == Some(&at))
-                })
-                .into()
+        let builder = move |index: usize| -> AnyWidget {
+            if selectable
+                .as_ref()
+                .is_some_and(|selectable| !selectable(index))
+            {
+                return row(index, false);
             }
+            let (row, selection, at) = (row.clone(), selection.clone(), key(index));
+            let tap = taps.as_ref().and_then(|taps| taps.get(index)).cloned();
+            ListenableBuilder::new(selection.listenable(), move |_, _| {
+                let row = row(index, selection.cursor().as_ref() == Some(&at));
+                match &tap {
+                    Some(tap) => GestureDetector::new().on_tap(tap.clone()).child(row).into(),
+                    None => row,
+                }
+            })
+            .into()
         };
-        let mut list = SelectionList::new(len, move |index| key(index), builder)
-            .controller(selection)
-            .on_submitted(submit)
-            .autofocus(true)
-            .bar(false)
-            .idle_style(idle)
-            .selected_style(Style::new())
-            .disabled_style(Style::new())
-            .cursor_style(Style::new());
-        if let Some(selectable) = selectable {
-            list = list.item_enabled_rc(selectable);
-        }
-        if let Some(node) = focus {
-            list = list.focus_node(node);
-        }
+        let mut view = ListView::builder(len, builder).controller(list);
         if let Some(rows) = extent {
-            list = list.item_extent(rows);
+            view = view.item_extent(rows);
         }
-        NotificationListener::<ScrollNotification>::new(list)
-            .on_notification(move |note| {
+        let scrolled =
+            NotificationListener::<ScrollNotification>::new(view).on_notification(move |note| {
                 scroll.set_value(Scrolled {
                     pixels: note.metrics.pixels,
                     max: note.metrics.max_scroll_extent,
                 });
                 false
-            })
+            });
+        let scrolled: AnyWidget = scrolled.into();
+        // The list is a focus stop (a click on a row focuses it) whose keys
+        // are the page's: they bubble to its `KeyBindings`.
+        Pressable::new(move |_, _| scrolled.clone())
+            .focus_node(focus)
+            .autofocus(true)
             .into()
+    }
+}
+
+/// The rows a page of the list shows (one, before the list is laid out).
+pub fn page_rows(list: &ListController) -> usize {
+    if list.has_clients() {
+        usize::try_from(list.position().viewport_dimension()).unwrap_or(1)
+    } else {
+        1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all(_: usize) -> bool {
+        true
+    }
+
+    #[test]
+    fn a_step_goes_round_the_ends() {
+        assert_eq!(target(3, Some(2), &all, Move::Step(true), 1), Some(0));
+        assert_eq!(target(3, Some(0), &all, Move::Step(false), 1), Some(2));
+        assert_eq!(target(3, None, &all, Move::Step(true), 1), Some(0));
+    }
+
+    #[test]
+    fn a_page_stops_at_the_ends_and_skips_rows_without_a_cursor() {
+        let not_one = |at: usize| at != 5;
+        assert_eq!(target(30, Some(0), &not_one, Move::Page(true), 5), Some(6));
+        assert_eq!(target(30, Some(29), &all, Move::Page(true), 5), Some(29));
+        assert_eq!(target(30, Some(3), &all, Move::Page(false), 5), Some(0));
+        assert_eq!(target(30, Some(9), &all, Move::Edge(true), 5), Some(29));
     }
 }

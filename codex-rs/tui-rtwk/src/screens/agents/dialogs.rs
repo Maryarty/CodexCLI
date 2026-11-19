@@ -7,10 +7,9 @@
 //! `SelectionViewParams::confirmation()`) and `run_agents_overview_action`
 //! (the `LifecycleHeader` selection view of a refused removal).
 
-use rtwk::controls::SelectionController;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::overlay::close_dialog;
-use rtwk::prelude::{KeyCode, Mods};
+use rtwk::prelude::KeyCode;
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
@@ -21,6 +20,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::{strings, view};
 use crate::l10n::strings as shared;
+use crate::ui::options::Options;
 use crate::ui::view::Hs;
 
 fn model_of<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
@@ -29,13 +29,9 @@ fn model_of<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
-    Key(KeyPress),
+    Move(i64),
+    Enter,
     Pick(usize),
-}
-
-fn digit(key: KeyPress) -> Option<Msg> {
-    let digit = key.as_text().is_some_and(|text| matches!(text, "1" | "2"));
-    (digit && !key.mods.contains(Mods::CTRL)).then_some(Msg::Key(key))
 }
 
 /// The archive and delete confirmation; a yes goes to the screen through
@@ -47,16 +43,14 @@ pub struct ConfirmDialog {
 }
 
 pub struct ConfirmDialogState {
-    selection: SelectionController<usize>,
+    options: Options,
 }
 
 impl StatefulWidget for ConfirmDialog {
     type State = ConfirmDialogState;
 
     fn create_state(&self) -> ConfirmDialogState {
-        let selection = SelectionController::new();
-        selection.set_cursor(Some(0));
-        ConfirmDialogState { selection }
+        ConfirmDialogState { options: Options::new() }
     }
 }
 
@@ -76,25 +70,15 @@ impl State for ConfirmDialogState {
     type Msg = Msg;
 
     fn dispose(&mut self) {
-        self.selection.dispose();
+        self.options.dispose();
     }
 
     fn update(&mut self, msg: Msg, w: &ConfirmDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
-            Msg::Key(key) => {
-                let Some(digit @ ("1" | "2")) =
-                    key.as_text().filter(|_| !key.mods.contains(Mods::CTRL))
-                else {
-                    return Rebuild::No;
-                };
-                let index = usize::from(digit == "2");
-                // A delete waits for Enter: the digit only moves the cursor.
-                if index == 1 && w.ask.confirm.action == Action::Delete {
-                    self.selection.set_cursor(Some(1));
-                } else {
-                    Self::answer(index == 1, w, cx);
-                }
-            }
+            Msg::Move(delta) => self.options.step(delta, 2),
+            Msg::Enter => Self::answer(self.options.cursor() == 1, w, cx),
+            // A delete waits for Enter: the digit only moves the cursor.
+            Msg::Pick(1) if w.ask.confirm.action == Action::Delete => self.options.set(1),
             Msg::Pick(index) => Self::answer(index == 1, w, cx),
         }
         Rebuild::No
@@ -109,11 +93,18 @@ impl State for ConfirmDialogState {
             strings,
             &num,
             &w.ask,
-            &self.selection,
-            cx.map(Msg::Pick),
+            &self.options,
         );
-        // Only the digits are the dialog's; Esc is left to the `Dialog`.
-        Focus::new(panel).on_key(cx.keys(digit)).into()
+        // The arrows, Enter and the digits are the dialog's; Esc is left to
+        // the `Dialog`.
+        Focus::new(panel)
+            .can_request_focus(false)
+            .bind(KeyPress::UP, cx.send(Msg::Move(-1)))
+            .bind(KeyPress::DOWN, cx.send(Msg::Move(1)))
+            .bind(KeyPress::ENTER, cx.send(Msg::Enter))
+            .bind('1', cx.send(Msg::Pick(0)))
+            .bind('2', cx.send(Msg::Pick(1)))
+            .into()
     }
 }
 

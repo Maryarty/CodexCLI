@@ -30,7 +30,6 @@ use rtwk_core::style::{Attrs, Color};
 #[derive(Clone, Copy)]
 enum Owner {
     Keymap,
-    Rtwk,
     ReuseCarry,
 }
 
@@ -38,7 +37,6 @@ impl Owner {
     fn slice(self) -> &'static str {
         match self {
             Owner::Keymap => "keymap",
-            Owner::Rtwk => "rtwk",
             Owner::ReuseCarry => "reuse-carry",
         }
     }
@@ -124,40 +122,6 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
         &oracle_snap::screen(&h.t),
         &expected,
     );
-}
-
-/// The filter strip on rtwk's own `TabBar` (G36): the oracle's tabs
-/// (`render_filled_tab_bar`) are ` label ` cells one blank apart, so the row
-/// of `agents_overview_attention` reads `   All 2   Needs you 1 ...`; rtwk's
-/// bar packs the tabs with no gap. The body is the probe of the gap row.
-#[test]
-fn agents_overview_tab_strip_draws_oracle_filled_tabs_on_tabbar() {
-    pending(
-        Owner::Rtwk,
-        "G36 (rtwk-gaps.md): TabBar has no gap between tabs, no marks outside them and no whole-tab window (tabs.rs:915-935, :960); the strip is `src/screens/agents/tabs.rs`",
-    );
-    use rtwk::controls::{TabBar, TabController};
-    let (expected, _) = oracle("agents_overview_attention");
-    let tabs = TabController::new(5);
-    let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(96, 1));
-    t.pump_widget(TabBar::new(
-        &tabs,
-        ["All 2", "Needs you 1", "Working 0", "Ready 0", "Inactive 1"],
-    ));
-    let screen = t.screen();
-    let row = screen
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim_end()
-        .to_owned();
-    // The oracle's row ends with the `tab/⇧tab filter` hint, the strip is the rest.
-    let strip = expected[1]
-        .split("tab/")
-        .next()
-        .unwrap_or_default()
-        .trim_end();
-    assert_eq!(row, strip, "the oracle's tab row");
 }
 
 #[test]
@@ -349,10 +313,6 @@ fn older_server_notice_is_visible_in_agents_overview() {
 /// snap older_server_narrow_overview): the whole screen at 12 cells.
 #[test]
 fn older_server_notice_truncates_in_narrow_overview() {
-    pending(
-        Owner::Rtwk,
-        "N1 (rtwk-framework-gaps.md): TextOverflow::Ellipsis drops the blanks before the `…`; the oracle's clipped tab reads ` All … ›`, rtwk's ` All…  ›`",
-    );
     let height = app_oracle("older_server_narrow_overview").len() as u16;
     let h = open("older_server", 12, height);
     assert_app(&h, "older_server_narrow_overview");
@@ -664,10 +624,6 @@ fn live_center_pages_visible_rows_without_wrapping() {
 /// (`connection_notice = "Reconnecting\u{2026}"`).
 #[test]
 fn live_center_pages_visible_rows_while_reconnecting() {
-    pending(
-        Owner::Rtwk,
-        "page keys do not reach the list while the search line has the focus, and a cursor the app moves does not scroll the list: `SelectionList` keeps its `ListController` private (G35 in rtwk-gaps.md, selection_list.rs:351, :503). The fixture seeds the reconnecting notice (`paging30_offline`); the oracle's flow fails at its first PageDown (the highlight moves to task 10, the list stays on 00..09)",
-    );
     paging_flow("paging30_offline", 30, true, "pagedown", false);
 }
 
@@ -676,10 +632,6 @@ fn live_center_pages_visible_rows_while_reconnecting() {
 /// Down from the last task wraps to the first.
 #[test]
 fn live_center_page_keys_and_wrap_follow_the_list_keymap() {
-    pending(
-        Owner::Rtwk,
-        "rtwk's SelectionList binds only its own keys (selection_list.rs:951): the SelectionController has no page or move call, so `ctrl+f` / `ctrl+b` cannot reach its paging, and its Down clamps at the last row (`by`, selection_list.rs:506) where the oracle's wraps; page keys also do not reach it while the search line has the focus (gap rows in rtwk-gaps.md)",
-    );
     pages_visible_rows(5, false, "ctrl+f", true);
     pages_visible_rows(30, true, "ctrl+f", true);
 }

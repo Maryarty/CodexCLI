@@ -16,11 +16,12 @@ use rtwk::StatelessWidget;
 use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::SelectionController;
+use rtwk::scroll::ListController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
-use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
-use rtwk::gestures::{GestureDetector, IgnorePointer, PointerEvent};
+use rtwk::foundation::{ValueListenableBuilder, ValueNotifier};
+use rtwk::gestures::{IgnorePointer, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
     BorderType, BoxWidget, Center as Middle, Column, CrossAxisAlignment, Divider, EdgeInsets,
@@ -37,9 +38,10 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
+use crate::ui::options::{OptionRow, OptionStyles, Options};
 use crate::ui::session_list::SessionList;
 use super::path;
-use super::soft::{self, Measure};
+use crate::ui::measure::{self as soft, Measure};
 use super::strings::Strings;
 use super::tabs::Tabs;
 use super::usage;
@@ -209,7 +211,7 @@ impl RowKey {
         }
     }
 
-    fn selectable(&self) -> bool {
+    pub fn selectable(&self) -> bool {
         matches!(self, Self::Task(_) | Self::ShowMore)
     }
 }
@@ -224,17 +226,6 @@ pub fn key_of(center: &Center, index: usize) -> RowKey {
     }
 }
 
-/// The task or "Show more" row next to entry `from` the way `forward` goes.
-pub fn neighbour(center: &Center, from: usize, forward: bool) -> Option<Sel> {
-    let keys = (0..center.entries.len()).map(|index| key_of(center, index));
-    let found = if forward {
-        keys.skip(from + 1).find(RowKey::selectable)
-    } else {
-        keys.take(from).rev().find(RowKey::selectable)
-    };
-    found.and_then(RowKey::into_sel)
-}
-
 pub use crate::ui::session_list::Scrolled;
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
@@ -242,6 +233,7 @@ pub use crate::ui::session_list::Scrolled;
 #[derive(Clone)]
 pub struct Controls {
     pub selection: SelectionController<RowKey>,
+    pub list: ListController,
     pub edit: TextEditingController,
     pub focus: FocusNode,
     /// The stop of the empty list's line (it holds the keys when no row
@@ -251,7 +243,6 @@ pub struct Controls {
     /// The keys each mode's widget binds.
     pub keys: Keys,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
-    pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
 }
@@ -273,26 +264,16 @@ pub struct Keys {
 #[derive(Clone)]
 struct ListControls {
     selection: SelectionController<RowKey>,
+    list: ListController,
     focus: FocusNode,
     empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    open: Handler<RowKey>,
 }
 
 /// What the screen is told by a click: the handlers the widget made.
 pub struct Taps {
     pub rows: Rc<Vec<Handler<PointerEvent>>>,
     pub tabs: Vec<Handler<PointerEvent>>,
-}
-
-fn tappable(handler: Option<&Handler<PointerEvent>>, child: AnyWidget) -> AnyWidget {
-    match handler {
-        Some(handler) => GestureDetector::new()
-            .on_tap(handler.clone())
-            .child(child)
-            .into(),
-        None => child,
-    }
 }
 
 /// The status word and dot of a row (oracle: `status`).
@@ -476,7 +457,6 @@ fn entry(
     index: usize,
     width: i32,
     selected: bool,
-    tap: Option<&Handler<PointerEvent>>,
 ) -> AnyWidget {
     let fill = if selected { look.selection.clone() } else { look.plain.clone() };
     let marker = if selected { "\u{203a}" } else { " " };
@@ -494,7 +474,7 @@ fn entry(
         )),
         CenterRow::ShowMore => {
             let label = format!("{marker}   {}", show_more(strings, model));
-            tappable(tap, boxed(Row::new().child(Expanded::new(1, Text::line(label).style(fill.clone())))).into())
+            boxed(Row::new().child(Expanded::new(1, Text::line(label).style(fill.clone())))).into()
         }
         CenterRow::Task(at) => {
             let row = &center.rows[*at];
@@ -544,14 +524,14 @@ fn entry(
                 let age = age(strings, model.now, row.updated_at);
                 cells = metadata(cells, (status_text, &fill), (age, age_style));
             }
-            tappable(tap, boxed(cells.child(gap(1))).into())
+            boxed(cells.child(gap(1))).into()
         }
     }
 }
 
 /// The list pane (oracle: `render_center_rows`): the column labels, the
-/// rows in a `SelectionList` (it keeps the cursor and the scroll, and takes
-/// the keys and the mouse), the overflow arrows.
+/// rows in a `ListView` (a `ListController` scrolls it, the `SelectionController`
+/// keeps the cursor; the keys are the screen's), the overflow arrows.
 pub fn list(
     look: &Look,
     strings: &'static Strings,
@@ -568,10 +548,10 @@ pub fn list(
             center: center.clone(),
         },
         selection: controls.selection.clone(),
+        list: controls.list.clone(),
         focus: controls.focus.clone(),
         empty_focus: controls.empty_focus.clone(),
         scroll: controls.scroll.clone(),
-        open: controls.open.clone(),
         taps: taps.clone(),
     }
     .into()
@@ -605,10 +585,10 @@ impl PartialEq for ListInputs {
 pub struct RowsList {
     inputs: ListInputs,
     selection: SelectionController<RowKey>,
+    list: ListController,
     focus: FocusNode,
     empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
-    open: Handler<RowKey>,
     taps: Rc<Vec<Handler<PointerEvent>>>,
 }
 
@@ -616,10 +596,10 @@ impl PartialEq for RowsList {
     fn eq(&self, other: &Self) -> bool {
         self.inputs == other.inputs
             && self.selection == other.selection
+            && self.list == other.list
             && self.focus == other.focus
             && self.empty_focus == other.empty_focus
             && Rc::ptr_eq(&self.scroll, &other.scroll)
-            && self.open == other.open
             && self.taps == other.taps
     }
 }
@@ -630,10 +610,10 @@ impl StatelessWidget for RowsList {
         let (strings, taps) = (*strings, self.taps.clone());
         let controls = ListControls {
             selection: self.selection.clone(),
+            list: self.list.clone(),
             focus: self.focus.clone(),
             empty_focus: self.empty_focus.clone(),
             scroll: self.scroll.clone(),
-            open: self.open.clone(),
         };
         rows_in(look, strings, agents, center, controls, taps)
     }
@@ -679,18 +659,17 @@ fn rows_in(
                 Rc::new(move |index| keys[index].selectable())
             }),
             row: {
-                let (look, agents, center, taps) =
-                    (look.clone(), agents.clone(), center.clone(), taps.clone());
+                let (look, agents, center) = (look.clone(), agents.clone(), center.clone());
                 Rc::new(move |index, selected| {
-                    entry(seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                    entry(seg, &look, &strings, &agents, &center, index, width, selected)
                 })
             },
             selection: controls.selection.clone(),
+            list: controls.list.clone(),
             scroll: controls.scroll.clone(),
-            submit: controls.open.clone(),
             focus: Some(controls.focus.clone()),
             extent: Some(1),
-            idle: look.selection.clone(),
+            taps: Some(taps.clone()),
         }
         .build();
         let mut column = Column::new()
@@ -1125,8 +1104,7 @@ pub fn confirm_dialog(
     strings: &Strings,
     num: &NumSyms,
     ask: &Ask,
-    selection: &SelectionController<usize>,
-    pick: Handler<usize>,
+    options: &Options,
 ) -> AnyWidget {
     let name = &ask.name;
     let (title, description, label) = match ask.confirm.action {
@@ -1146,31 +1124,18 @@ pub fn confirm_dialog(
             strings.delete_label,
         ),
     };
-    let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
-    let (watch, accent, plain) = (
-        selection.clone(),
-        look.accent.clone().attrs(Attrs::BOLD),
-        look.plain.clone(),
+    let choices = options.view(
+        Rc::new(vec![
+            OptionRow { label: format!("1. {}", strings.cancel), description: None },
+            OptionRow { label: format!("2. {label}"), description: None },
+        ]),
+        OptionStyles {
+            cursor: look.accent.clone().attrs(Attrs::BOLD),
+            label: look.plain.clone(),
+            description: look.plain.clone(),
+        },
+        0,
     );
-    let choices = SelectionList::new(2, |index| index, move |index: usize| -> AnyWidget {
-        let (selection, labels, accent, plain) =
-            (watch.clone(), labels.clone(), accent.clone(), plain.clone());
-        ListenableBuilder::new(selection.listenable(), move |_, _| {
-            let selected = selection.cursor() == Some(index);
-            let marker = if selected { "\u{203a} " } else { "  " };
-            let style = if selected { &accent } else { &plain };
-            Text::line(format!("{marker}{}. {}", index + 1, labels[index])).style(style.clone()).into()
-        })
-        .into()
-    })
-    .controller(selection.clone())
-    .on_submitted(pick)
-    .autofocus(true)
-    .item_extent(1)
-    .bar(false)
-    .idle_style(Style::new())
-    .selected_style(Style::new())
-    .disabled_style(Style::new());
     let blank = || gap(1);
     let rows = vec![
         blank(),
@@ -1178,7 +1143,7 @@ pub fn confirm_dialog(
         note(description, &look.dim),
         blank(),
         blank(),
-        SizedBox::new(None, Some(2), Some(choices.into())).into(),
+        choices,
         blank(),
         note(strings.select_hint, &look.dim),
     ];

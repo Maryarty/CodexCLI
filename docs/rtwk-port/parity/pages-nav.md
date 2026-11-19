@@ -18,7 +18,9 @@ Task `pages-nav`: lay the app's navigation out as architecture §1 "Amendment
 `←/→`, `⌃c`, `ctrl + t`, `1–6`) and maps them to the keys the bar names, with
 a label map back, so the bar shows them as the oracle writes them.
 
-`?` on the session page (the person: not an rtwk gap, decided at the field):
+`?` on the session page (not an rtwk gap, G43; 2026-11-19: `FocusNode::set_on_key_event`
+on the composer's node (`TextArea::focus_node`) sees `?` and `←` before the field, as
+in `chat/home.rs` `init_state`; the text below is the earlier route, kept as history):
 `rtwk::editing::EditingKeys` was tried first (`TakeKey` = `Fn(&controller, &key,
 KeyCx) -> bool`): a taken key is consumed by the field (the page's `?` binding
 never sees it) and the closure has no `Emit`/`Cx`, so it cannot open the popup

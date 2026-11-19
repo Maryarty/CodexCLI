@@ -74,11 +74,9 @@ fn esc_clears_the_search_then_leaves() {
 
 /// The oracle scrolls the window to the cursor row (`ScrollState`), also when
 /// the search field has the focus and the arrows are the screen's keys.
-/// rtwk's `SelectionList` scrolls only for the keys it takes itself (G35):
-/// a cursor moved through `SelectionController::set_cursor` goes onto a row
-/// below the window and leaves it unseen.
+/// The list is a `ListView` with a `ListController` (G35 not a gap): the
+/// screen's key moves the cursor and calls `ensure_index_visible`.
 #[test]
-#[ignore = "pending(G35) (rtwk-gaps.md): SelectionList cannot scroll to a cursor moved through its SelectionController (list controller private); the cursor can leave the 8-row window of the pets picker"]
 fn the_cursor_row_stays_in_the_window_when_the_arrows_pass_its_end() {
     let mut h = open("picker");
     // The picker opens on Codex; six downs reach the ninth row, past the window of 8.
@@ -88,4 +86,26 @@ fn the_cursor_row_stays_in_the_window_when_the_arrows_pass_its_end() {
     let screen = h.t.screen();
     let cursor = screen.lines().filter(|l| l.contains('›')).count();
     assert_eq!(cursor, 1, "{screen}");
+}
+
+/// ADR-011 (beyond the oracle): a click on a pet puts the cursor there, a
+/// click on the pet the cursor is on picks it and closes.
+#[test]
+fn a_click_selects_a_pet_and_a_second_click_picks_it() {
+    let mut h = open("picker");
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("Dewey"))
+        .expect("Dewey is listed");
+    let x = u16::try_from(line.find("Dewey").unwrap()).unwrap();
+    let y = u16::try_from(y).unwrap();
+    h.t.click(x, y);
+    h.settle();
+    assert!(h.t.screen().contains("› Dewey"), "{}", h.t.screen());
+    h.t.click(x, y);
+    h.settle();
+    h.t.pump_for(ms(800));
+    assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
 }
