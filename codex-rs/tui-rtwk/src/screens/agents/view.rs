@@ -16,11 +16,11 @@ use rtwk::StatelessWidget;
 use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::SelectionController;
 use rtwk::scroll::ListController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
-use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
+use rtwk::foundation::{ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, IgnorePointer, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
@@ -38,6 +38,7 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
+use crate::ui::options::{OptionRow, OptionStyles, Options};
 use crate::ui::session_list::SessionList;
 use super::path;
 use crate::ui::measure::{self as soft, Measure};
@@ -1114,8 +1115,7 @@ pub fn confirm_dialog(
     strings: &Strings,
     num: &NumSyms,
     ask: &Ask,
-    selection: &SelectionController<usize>,
-    pick: Handler<usize>,
+    options: &Options,
 ) -> AnyWidget {
     let name = &ask.name;
     let (title, description, label) = match ask.confirm.action {
@@ -1135,31 +1135,18 @@ pub fn confirm_dialog(
             strings.delete_label,
         ),
     };
-    let labels = Rc::new([strings.cancel.to_owned(), label.to_owned()]);
-    let (watch, accent, plain) = (
-        selection.clone(),
-        look.accent.clone().attrs(Attrs::BOLD),
-        look.plain.clone(),
+    let choices = options.view(
+        Rc::new(vec![
+            OptionRow { label: format!("1. {}", strings.cancel), description: None },
+            OptionRow { label: format!("2. {label}"), description: None },
+        ]),
+        OptionStyles {
+            cursor: look.accent.clone().attrs(Attrs::BOLD),
+            label: look.plain.clone(),
+            description: look.plain.clone(),
+        },
+        0,
     );
-    let choices = SelectionList::new(2, |index| index, move |index: usize| -> AnyWidget {
-        let (selection, labels, accent, plain) =
-            (watch.clone(), labels.clone(), accent.clone(), plain.clone());
-        ListenableBuilder::new(selection.listenable(), move |_, _| {
-            let selected = selection.cursor() == Some(index);
-            let marker = if selected { "\u{203a} " } else { "  " };
-            let style = if selected { &accent } else { &plain };
-            Text::line(format!("{marker}{}. {}", index + 1, labels[index])).style(style.clone()).into()
-        })
-        .into()
-    })
-    .controller(selection.clone())
-    .on_submitted(pick)
-    .autofocus(true)
-    .item_extent(1)
-    .bar(false)
-    .idle_style(Style::new())
-    .selected_style(Style::new())
-    .disabled_style(Style::new());
     let blank = || gap(1);
     let rows = vec![
         blank(),
@@ -1167,7 +1154,7 @@ pub fn confirm_dialog(
         note(description, &look.dim),
         blank(),
         blank(),
-        SizedBox::new(None, Some(2), Some(choices.into())).into(),
+        choices,
         blank(),
         note(strings.select_hint, &look.dim),
     ];

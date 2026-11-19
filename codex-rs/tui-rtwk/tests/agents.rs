@@ -30,7 +30,6 @@ use rtwk_core::style::{Attrs, Color};
 #[derive(Clone, Copy)]
 enum Owner {
     Keymap,
-    Rtwk,
     ReuseCarry,
 }
 
@@ -38,7 +37,6 @@ impl Owner {
     fn slice(self) -> &'static str {
         match self {
             Owner::Keymap => "keymap",
-            Owner::Rtwk => "rtwk",
             Owner::ReuseCarry => "reuse-carry",
         }
     }

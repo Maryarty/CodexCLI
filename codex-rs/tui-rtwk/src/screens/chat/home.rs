@@ -288,14 +288,11 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Picked(text) => {
-                // A command picked in the popup runs; what `$` and `@` put in
-                // is text and stays in the composer.
-                // What runs is the composer's text as the pick left it: a
-                // pick that raced with typing (the popup was one key behind)
-                // then runs the line as it stands.
+                // `Autocomplete::on_selected`: a command picked in the popup
+                // runs as the pick names it (the command clears the composer
+                // itself); what `$` and `@` put in is text and stays.
                 if text.starts_with('/') {
-                    let line = w.ui.composer.text();
-                    run_line(&line, w, cx, &hs);
+                    run_line(&text, w, cx, &hs);
                 }
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
