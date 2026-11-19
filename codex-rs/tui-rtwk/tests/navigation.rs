@@ -162,7 +162,7 @@ fn pets_is_a_sheet_over_the_session_page() {
 /// returns to the chat.
 #[test]
 fn import_is_a_step_of_the_startup_page() {
-    use codex_tui_rtwk::screens::onboarding::{Step, StartupPage};
+    use codex_tui_rtwk::screens::onboarding::{StartupPage, Step};
     use rtwk_test::find;
 
     let mut h = start();

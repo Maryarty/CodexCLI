@@ -21,15 +21,73 @@ pub fn debug_entries() -> Vec<DebugEntry> {
     Vec::new()
 }
 
-/// The route of this screen, pushed by the widget that opens it
-/// (`Navigator::of(cx).push`).
-pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Screen.into())
+/// The steps of the startup page (architecture §1, amendment 2026-11-19b):
+/// sign-in, trust, model migration, import.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Step {
+    SignIn,
+    Trust,
+    Migration,
+    Import,
+}
+
+impl Step {
+    /// The position of the step in the page's sequence.
+    pub fn index(self) -> usize {
+        match self {
+            Step::SignIn => 0,
+            Step::Trust => 1,
+            Step::Migration => 2,
+            Step::Import => 3,
+        }
+    }
+}
+
+/// The startup page: one page whose body is the step the controller (the
+/// page's state) is on. Pushed as a route by whoever opens it, on the step
+/// it opens at.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StartupPage {
+    pub step: Step,
+}
+
+/// The page's step controller (R14: widget state only).
+#[derive(Debug)]
+pub struct StartupPageState {
+    step: Step,
+}
+
+impl StatefulWidget for StartupPage {
+    type State = StartupPageState;
+
+    fn create_state(&self) -> StartupPageState {
+        StartupPageState { step: self.step }
+    }
+}
+
+impl_widget!(stateful eq StartupPage);
+
+impl State for StartupPageState {
+    type Widget = StartupPage;
+    type Msg = ();
+
+    fn build(&self, _: &StartupPage, _: &mut Cx<'_, Self>) -> AnyWidget {
+        match self.step {
+            Step::Import => crate::screens::import::Screen.into(),
+            Step::SignIn | Step::Trust | Step::Migration => Screen.into(),
+        }
+    }
+}
+
+/// The route of the startup page on `step`, pushed by the widget that opens
+/// it (`Navigator::of(cx).push`).
+pub fn route(step: Step) -> PageRoute<()> {
+    PageRoute::new(move |_| StartupPage { step }.into())
 }
 
 /// Opens the empty form of this slot (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen.into())
+    DebugOpen::Route(|_| StartupPage { step: Step::SignIn }.into())
 }
 
 /// The empty screen widget of this slot.
