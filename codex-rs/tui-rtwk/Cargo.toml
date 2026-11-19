@@ -174,3 +174,8 @@ path = "tests/agents_mouse.rs"
 [[test]]
 name = "shell_agents"
 path = "tests/shell_agents.rs"
+
+# Release builds strip symbols (the person, 2026-11-19): -84 MB, and rtwk's atexit/dladdr scan
+# at terminal open costs ~3.5 ms only in an unstripped binary (perf-size research).
+[profile.release]
+strip = "symbols"
