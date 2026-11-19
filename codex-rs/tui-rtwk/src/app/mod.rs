@@ -84,7 +84,7 @@ impl UiApp {
     pub fn with_start_agents(mut self, on: bool) -> Self {
         self.ui.start_agents = on;
         // The overview opens instead of a first thread (`codex agents`).
-        self.core.start_thread_on_connect = !on;
+        self.core = self.core.with_start_thread_on_connect(!on);
         self
     }
 
@@ -120,14 +120,14 @@ impl UiApp {
 
     /// Makes the controllers of the active thread if it has none.
     pub(crate) fn follow_core(&mut self) {
-        if let Some(active) = self.core.session.active.clone() {
+        if let Some(active) = self.core.session().active.clone() {
             self.ui.thread_ui.ensure(&active);
             // An empty conversation moved to another backend: its draft goes
             // with it (oracle: `NewBackendSession::CarryDraft`).
-            let switches = self.core.session.switches;
+            let switches = self.core.session().switches;
             if switches != self.ui.switches_seen {
                 self.ui.switches_seen = switches;
-                if let Some(from) = self.core.session.switched_from.clone() {
+                if let Some(from) = self.core.session().switched_from.clone() {
                     let draft = self.ui.thread_ui.get(Some(&from)).composer.clone();
                     let text = draft.text().to_string();
                     if !text.is_empty() {

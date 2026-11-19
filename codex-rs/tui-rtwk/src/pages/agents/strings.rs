@@ -6,6 +6,9 @@
 //! for it. Nothing else in this directory holds user-visible text (the rules
 //! test `adr010_no_user_visible_literal_outside_the_string_tables`).
 
+use codex_tui_core::app::worktree::{BindFailure, RetainedReason};
+use codex_tui_core::rpc::RpcError;
+
 use rtwk::l10n::Arg;
 use rtwk::l10n::DependCx;
 use rtwk::l10n::Fmt;
@@ -86,6 +89,10 @@ pub struct Strings {
     pub archiving: &'static str,
     pub deleting: &'static str,
     pub creating_worktree: &'static str,
+    worktree_retained: Msg<2>,
+    worktree_start_error: Msg<1>,
+    worktree_no_thread: &'static str,
+    worktree_bind_interrupted: &'static str,
     pub load_failed: &'static str,
     pub reconnecting: &'static str,
     pub reconnect_failed: &'static str,
@@ -207,6 +214,12 @@ pub const EN: Strings = Strings {
     archiving: "Archiving task\u{2026}  You can still browse.",
     deleting: "Deleting task\u{2026}  You can still browse.",
     creating_worktree: "Creating worktree\u{2026}",
+    worktree_retained: msg!(
+        "{0} A checkout was retained at {1}; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed."
+    ),
+    worktree_start_error: msg!("Failed to start session: {0}"),
+    worktree_no_thread: "no task started",
+    worktree_bind_interrupted: "The worktree could not be bound.",
     load_failed: "Error loading tasks",
     reconnecting: "Reconnecting \u{2014} agent list is stale",
     reconnect_failed: "Reconnect failed \u{2014} agent list is stale; relaunch to retry",
@@ -298,6 +311,32 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    pub(super) fn retained_worktree(&self, root: &str, reason: &RetainedReason) -> String {
+        let start_error = |error| {
+            Fmt::new(
+                self.worktree_start_error,
+                [Arg::Text(error)],
+                &NumSyms::ENGLISH,
+            )
+            .to_string()
+        };
+        let reason = match reason {
+            RetainedReason::Start(RpcError::Remote(error)) => start_error(error),
+            RetainedReason::Start(RpcError::Mismatch) => start_error(self.worktree_no_thread),
+            RetainedReason::Start(error) => start_error(&format!("{error:?}")),
+            RetainedReason::Bind(BindFailure::Workspace(error)) => error.clone(),
+            RetainedReason::Bind(BindFailure::Interrupted) => {
+                self.worktree_bind_interrupted.to_owned()
+            }
+        };
+        Fmt::new(
+            self.worktree_retained,
+            [Arg::Text(&reason), Arg::Text(root)],
+            &NumSyms::ENGLISH,
+        )
+        .to_string()
+    }
+
     pub fn archive_title(&self, name: &str, num: &NumSyms) -> String {
         Fmt::new(self.archive_title, [Arg::Text(name)], num).to_string()
     }

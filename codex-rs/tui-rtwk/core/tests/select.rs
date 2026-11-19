@@ -18,7 +18,7 @@ fn pick(sandbox: &mut Sandbox, intent: SelectIntent) {
 #[test]
 fn a_models_menu_lists_its_rows_with_the_current_one() {
     let sandbox = Sandbox::play(MODELS).expect("plays");
-    let Some(Menu::Models(rows)) = &sandbox.app().screens.select.menu else {
+    let Some(Menu::Models(rows)) = &sandbox.app().screens().select.menu else {
         panic!("a models menu");
     };
     assert_eq!(rows.len(), 2);
@@ -29,7 +29,7 @@ fn a_models_menu_lists_its_rows_with_the_current_one() {
 fn a_pick_is_recorded_and_closes_the_menu() {
     let mut sandbox = Sandbox::play(MODELS).expect("plays");
     pick(&mut sandbox, SelectIntent::Pick(1));
-    let model = &sandbox.app().screens.select;
+    let model = &sandbox.app().screens().select;
     assert_eq!(
         model.picked,
         vec![Picked::Model("gpt-5.1-codex-mini".into())]
@@ -44,7 +44,7 @@ fn permissions_rows_pick_their_access() {
             .expect("plays");
     pick(&mut sandbox, SelectIntent::Pick(1));
     assert_eq!(
-        sandbox.app().screens.select.picked,
+        sandbox.app().screens().select.picked,
         vec![Picked::Access(Access::Full)]
     );
 }
@@ -53,14 +53,14 @@ fn permissions_rows_pick_their_access() {
 fn a_pick_past_the_rows_changes_nothing() {
     let mut sandbox = Sandbox::play(MODELS).expect("plays");
     pick(&mut sandbox, SelectIntent::Pick(9));
-    assert!(sandbox.app().screens.select.menu.is_some());
-    assert!(sandbox.app().screens.select.picked.is_empty());
+    assert!(sandbox.app().screens().select.menu.is_some());
+    assert!(sandbox.app().screens().select.picked.is_empty());
 }
 
 #[test]
 fn close_drops_the_menu_without_a_pick() {
     let mut sandbox = Sandbox::play(MODELS).expect("plays");
     pick(&mut sandbox, SelectIntent::Close);
-    assert!(sandbox.app().screens.select.menu.is_none());
-    assert!(sandbox.app().screens.select.picked.is_empty());
+    assert!(sandbox.app().screens().select.menu.is_none());
+    assert!(sandbox.app().screens().select.picked.is_empty());
 }

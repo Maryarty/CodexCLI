@@ -4,12 +4,14 @@
 //! Oracle: `agents_overview_threads.rs` (`start_agents_overview_refresh`,
 //! `detail_thread_ids`), `agents_overview.rs` (the merge of a refresh).
 
-use crate::threads::ThreadAsk;
+use crate::ids::ThreadId;
+use crate::threads::{ThreadAsk, ThreadPreviews};
+use std::collections::btree_map::Entry;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadStatus;
 
 use super::Command;
-use super::Ctx;
+use super::{Ctx, DetailRead};
 use super::Model;
 use super::Out;
 use super::Reply;
@@ -51,7 +53,9 @@ pub(super) fn want(model: &mut Model, ids: impl IntoIterator<Item = String>) -> 
         if model.removed.contains(&thread) {
             continue;
         }
-        if model.reading.insert(thread.clone()) {
+        let id = ThreadId::new(&thread);
+        if let Entry::Vacant(slot) = model.reading.entry(id.clone()) {
+            slot.insert(DetailRead::Thread);
             outs.push(out(
                 Command::Thread(ThreadAsk::Read {
                     thread: thread.clone(),
@@ -59,7 +63,7 @@ pub(super) fn want(model: &mut Model, ids: impl IntoIterator<Item = String>) -> 
                 Ctx::Read { thread },
             ));
         } else {
-            model.reread.insert(thread);
+            model.reread.insert(id);
         }
     }
     outs
@@ -76,7 +80,7 @@ pub(super) fn on_loaded(model: &mut Model, result: Result<Reply, RpcError>) -> V
 
 /// The answer of `thread/read`: the row is the thread as read, preview
 /// included (oracle: the merge of a refresh), then its last turn is asked.
-pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcError>) -> Vec<Out> {
+pub(super) fn on_read(model: &mut Model, previews: &mut ThreadPreviews, id: String, result: Result<Reply, RpcError>) -> Vec<Out> {
     let Ok(Reply::Read { thread, unread }) = result else {
         return finish(model, &id);
     };
@@ -86,8 +90,7 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
     let mut thread = *thread;
     if thread.ephemeral {
         model.threads.retain(|held| held.id != id);
-        model.last_messages.remove(&id);
-        model.activity.remove(&id);
+        previews.forget(&id);
         model.usage.remove(&id);
         return finish(model, &id);
     }
@@ -113,7 +116,7 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
     } else {
         model.unread.remove(&id);
     }
-    model.turning.insert(id.clone());
+    model.reading.insert(ThreadId::new(&id), DetailRead::Turns);
     vec![out(
         Command::Thread(ThreadAsk::Turns { thread: id.clone() }),
         Ctx::Turns { thread: id },
@@ -121,12 +124,11 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
 }
 
 /// The answer of `thread/turns/list`: the prompt and the last answer.
-pub(super) fn on_turns(model: &mut Model, id: String, result: Result<Reply, RpcError>) -> Vec<Out> {
-    model.turning.remove(&id);
+pub(super) fn on_turns(model: &mut Model, previews: &mut ThreadPreviews, id: String, result: Result<Reply, RpcError>) -> Vec<Out> {
     // Asked before a revert or a lag: the answer is of the old history; the
     // chain starts again.
-    if model.stale.remove(&id) {
-        model.reread.insert(id.clone());
+    if model.reading.get(id.as_str()) == Some(&DetailRead::StaleTurns) {
+        model.reread.insert(ThreadId::new(&id));
         return finish(model, &id);
     }
     if let Ok(Reply::Turns {
@@ -135,10 +137,7 @@ pub(super) fn on_turns(model: &mut Model, id: String, result: Result<Reply, RpcE
     }) = result
         && !model.removed.contains(&id)
     {
-        model.activity.entry(id.clone()).or_default().latest_prompt = prompt;
-        if let Some(message) = last_message {
-            model.last_messages.insert(id.clone(), message);
-        }
+        previews.record_history(&id, prompt, last_message);
     }
     finish(model, &id)
 }
@@ -146,7 +145,6 @@ pub(super) fn on_turns(model: &mut Model, id: String, result: Result<Reply, RpcE
 /// The chain of `id` ended; a change that came meanwhile starts the next.
 fn finish(model: &mut Model, id: &str) -> Vec<Out> {
     model.reading.remove(id);
-    model.turning.remove(id);
     model.overlay.remove(id);
     if model.reread.remove(id) {
         return want(model, [id.to_owned()]);

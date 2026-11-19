@@ -8,7 +8,8 @@ use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadActiveFlag;
 use codex_app_server_protocol::ThreadStatus;
 
-use super::Activity;
+use super::CenterThreads;
+use crate::threads::ThreadPreview;
 use super::Model;
 use super::carried::AgentsOverviewGroup;
 use super::carried::preview_text;
@@ -49,16 +50,15 @@ impl Model {
         &self,
         root: &Thread,
         children: &HashMap<String, Vec<&Thread>>,
+        state: &CenterThreads,
     ) -> Details {
         let mut lines = Vec::new();
         // Urgency comes first; on ties, prefer available current detail over history.
         let priority = |thread: &Thread| {
             let group = AgentsOverviewGroup::for_thread(thread);
             let has_detail = match group {
-                AgentsOverviewGroup::NeedsYou => self.requests.contains_key(&thread.id),
-                AgentsOverviewGroup::Working => self
-                    .activity
-                    .get(&thread.id)
+                AgentsOverviewGroup::NeedsYou => state.request(&thread.id).is_some(),
+                AgentsOverviewGroup::Working => state.preview(&thread.id)
                     .is_some_and(|activity| activity.reasoning_header().is_some()),
                 AgentsOverviewGroup::Ready | AgentsOverviewGroup::Finished => false,
             };
@@ -87,8 +87,8 @@ impl Model {
             if !is_child {
                 lines.extend([DetailLine::Blank, DetailLine::NeedsAttention]);
             }
-            if let Some(request) = self.requests.get(&source.id) {
-                lines.push(DetailLine::Request(request.clone()));
+            if let Some(request) = state.request(&source.id) {
+                lines.push(DetailLine::Request(request.to_owned()));
             }
             lines.push(DetailLine::OpenToReview);
             match &source.status {
@@ -104,9 +104,9 @@ impl Model {
                 ThreadStatus::NotLoaded | ThreadStatus::Idle => {}
             }
         }
-        let activity = self.activity.get(&source.id);
+        let activity = state.preview(&source.id);
         if matches!(source.status, ThreadStatus::Active { .. })
-            && let Some(header) = activity.and_then(Activity::reasoning_header)
+            && let Some(header) = activity.and_then(ThreadPreview::reasoning_header)
         {
             if !is_child {
                 lines.push(DetailLine::Blank);
@@ -115,13 +115,11 @@ impl Model {
         }
         let last_message = activity
             .and_then(|activity| activity.last_message.as_ref())
-            .or_else(|| self.last_messages.get(&source.id))
+            .or_else(|| activity.and_then(|activity| activity.history_message.as_ref()))
             .filter(|message| !message.trim().is_empty())
             .cloned();
         Details {
-            latest_prompt: self
-                .activity
-                .get(&root.id)
+            latest_prompt: state.preview(&root.id)
                 .and_then(|activity| activity.latest_prompt.clone()),
             lines,
             tokens: self.usage.get(&root.id).and_then(|usage| usage.tokens),

@@ -12,8 +12,8 @@ use std::time::Duration;
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::ids::BackendId;
 use codex_tui_core::rpc::ServerError;
-use codex_tui_core::screens::agents::{Ev, Intent as AgentsIntent, Page, Sel};
-use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::agents::{Ev, Page};
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::run::{localized, root};
 use codex_tui_rtwk::l10n::Lang;
@@ -118,9 +118,7 @@ fn a_command_about_a_task_goes_to_the_backend_that_owns_it() {
     for task in ["cloud-1", "local-1"] {
         local_fake.inject(
             epoch,
-            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Accept(
-                Sel::Task(task.to_owned()),
-            )))),
+            AppEv::Intent(Intent::OpenThread(codex_tui_core::ids::ThreadId::new(task))),
         );
     }
     for _ in 0..30 {

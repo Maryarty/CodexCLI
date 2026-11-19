@@ -52,8 +52,10 @@ use crate::threads::ThreadFx;
 
 pub use carried::AgentsOverviewGroup as Group;
 pub use carried::preview_markdown;
+pub(crate) use carried::{PREVIEW_CHARS, preview_text};
 pub use center::Center;
 pub use center::CenterRow;
+pub use center::CenterThreads;
 pub use center::GroupLabel;
 pub use center::Lens;
 pub use center::RowData;
@@ -64,12 +66,12 @@ pub use discovery::refill;
 pub use notifications::notification_thread;
 pub use notifications::observe;
 pub use notifications::observes;
-pub use notifications::wants;
 pub use refresh::Out;
 pub use crate::protocol::agents::account_ev;
 pub use crate::protocol::agents::account_request;
 pub use refresh::apply_answer;
 pub use refresh::attach_loaded;
+pub(crate) use refresh::finish_start;
 pub use refresh::is_active_writer;
 pub use update::wants_dirs;
 pub use sources::Fanout;
@@ -158,6 +160,7 @@ pub enum Notice {
     Removing(Action),
     /// A worktree is being created for `w`.
     CreatingWorktree,
+    WorktreeRetained { root: String, reason: crate::app::worktree::RetainedReason },
     LoadFailed,
     /// A failed action, as a message of the server (oracle:
     /// `add_agents_overview_error`).
@@ -174,35 +177,6 @@ pub struct Failure {
     pub error: String,
     /// The request was sent (the dialog warns that work may have stopped).
     pub attempted: bool,
-}
-
-/// What the latest reasoning summary of a task said (oracle:
-/// `AgentsOverviewActivity`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Activity {
-    pub latest_prompt: Option<String>,
-    /// The reasoning summary being streamed (oracle: `ReasoningPreview`).
-    pub reasoning: Option<Reasoning>,
-    pub last_message: Option<String>,
-}
-
-impl Activity {
-    /// The first `**bold**` run of the streamed summary, once it closed.
-    pub fn reasoning_header(&self) -> Option<&String> {
-        self.reasoning.as_ref()?.header.as_ref()
-    }
-}
-
-/// A reasoning summary being streamed (oracle: `ReasoningPreview`): deltas of
-/// one `(turn, item, summary index)` accumulate in `buffer` until the first
-/// `**bold**` run closes into `header`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Reasoning {
-    pub turn: String,
-    pub item: String,
-    pub summary_index: i64,
-    pub buffer: String,
-    pub header: Option<String>,
 }
 
 /// What is known of a task's usage (oracle: `AgentsOverviewUsage`): the
@@ -310,6 +284,14 @@ impl Paging {
     }
 }
 
+/// Phase of a catalog read. A revert or lag invalidates only a turns reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DetailRead {
+    Thread,
+    Turns,
+    StaleTurns,
+}
+
 /// The app-scoped model of the screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Model {
@@ -322,25 +304,14 @@ pub struct Model {
     /// Removed by a lifecycle action; a later page never brings them back
     /// (oracle: `removed_threads`).
     pub removed: BTreeSet<String>,
-    pub last_messages: BTreeMap<String, String>,
-    /// The tasks whose `thread/read` or `thread/turns/list` is in flight
-    /// (one chain per task).
-    pub reading: BTreeSet<String>,
-    /// Tasks that changed while their read was in flight: read again after it.
-    pub reread: BTreeSet<String>,
-    /// Tasks whose `thread/turns/list` is in flight.
-    pub turning: BTreeSet<String>,
-    /// Tasks whose turns were asked before a revert or a lag: that answer is
-    /// from the old history and is dropped.
-    pub stale: BTreeSet<String>,
+    /// The details read in progress for each task, and reruns requested
+    /// while it is in flight.
+    pub reading: BTreeMap<ThreadId, DetailRead>,
+    pub reread: BTreeSet<ThreadId>,
     /// What notifications set on a task while its read was in flight: they
     /// are newer than the read and are replayed over it (oracle:
     /// `refresh_notifications`).
     pub overlay: BTreeMap<String, Overlay>,
-    pub activity: BTreeMap<String, Activity>,
-    /// The first pending request of a thread, previewed (oracle:
-    /// `agents_overview_request_preview`).
-    pub requests: BTreeMap<String, String>,
     pub usage: BTreeMap<String, Usage>,
     /// The account has no thread usage (oracle: `usage_disabled`).
     pub usage_disabled: bool,
@@ -351,21 +322,16 @@ pub struct Model {
     /// fetched for the plans that show it).
     pub plan: Option<PlanType>,
     pub backend_auth: bool,
-    /// The pinned threads in rank order across the backends; `None`: no
-    /// backend has pins. Derived from `pins_by_backend`.
-    pub pinned: Option<Vec<String>>,
     /// The backend the chat shows; its rows are the ones the list pages of
     /// `Ev::Listed` belong to (oracle: `app_server_backend_id`).
     pub displayed: BackendId,
     /// The backend that owns each thread: the first that listed it (oracle:
     /// `BackendRegistry::observe`). A later backend's row of the same id is
     /// dropped.
-    pub owners: BTreeMap<String, BackendId>,
+    pub owners: BTreeMap<ThreadId, BackendId>,
     /// Each backend's pins in its own rank order; `None`: it has none
     /// (oracle: `pins_by_backend`).
-    pub pins_by_backend: BTreeMap<BackendId, Option<Vec<String>>>,
-    /// The thread the chat shows (oracle: `is_current`).
-    pub current: Option<String>,
+    pub pins_by_backend: BTreeMap<BackendId, Option<Vec<ThreadId>>>,
     /// The clock, epoch seconds (R11).
     pub now: i64,
     /// The home directory (the shell reads it): `~` in displayed paths.
@@ -376,10 +342,7 @@ pub struct Model {
     /// session page shows its loading state until the reply (success or
     /// failure) clears it (open-instant: the page change does not wait for
     /// the backend).
-    pub opening: Option<String>,
-    /// Tasks whose opening was cancelled (Esc on the loading page) while
-    /// their resume was out: that answer, one per cancel, is ignored.
-    pub cancelled: Vec<String>,
+    pub opening: Option<ThreadId>,
     /// The displayed backend's paging; the others' are `parked` (oracle:
     /// `initialized` and `discovery` per backend).
     pub paging: Paging,
@@ -441,7 +404,7 @@ pub enum Ev {
         backend_auth: bool,
     },
     /// The thread the chat shows.
-    Current(Option<String>),
+    Current(Option<ThreadId>),
     Pinned(Option<Vec<String>>),
     /// The list failed to load.
     ListFailed,
@@ -458,10 +421,7 @@ pub enum Ev {
     /// and the list is read again.
     Reconnected,
     /// A request waits on a thread (preview text), or was answered.
-    Request(String, Option<String>),
-    /// The shell started a task by itself (a worktree's) and it opens in the
-    /// chat; the busy notice ends.
-    Started(Box<Thread>),
+    Request(ThreadId, Option<String>),
     /// The thread that owns the voice session, if any.
     Voice(Option<String>),
     /// `tui.status_line_use_colors`: whether tasks get their own colour.
@@ -496,7 +456,7 @@ impl Model {
     /// Claims `id` for `owner` unless another backend holds it; whether
     /// `owner` owns it (oracle: `BackendRegistry::observe`).
     pub fn observe(&mut self, owner: BackendId, id: &str) -> bool {
-        *self.owners.entry(id.to_owned()).or_insert(owner) == owner
+        *self.owners.entry(ThreadId::new(id)).or_insert(owner) == owner
     }
 
     /// The backend a task belongs to: its owner, the displayed one when no
@@ -589,16 +549,21 @@ impl Model {
             .is_none_or(Option::is_some)
     }
 
-    /// Sets one backend's pins and derives the order across the backends
-    /// (oracle: `pins_by_backend`, ranked over its values).
-    pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
-        self.pins_by_backend.insert(owner, pins);
-        self.pinned = self
-            .pins_by_backend
-            .values()
-            .any(Option::is_some)
-            .then(|| self.pins_by_backend.values().flatten().flatten().cloned().collect());
+    /// True when at least one backend advertised pin support.
+    pub fn pins_available(&self) -> bool {
+        self.pins_by_backend.values().any(Option::is_some)
     }
+
+    /// Pinned threads across the backends in rank order.
+    pub fn pinned_ids(&self) -> impl Iterator<Item = &str> {
+        self.pins_by_backend.values().flatten().flatten().map(ThreadId::as_str)
+    }
+
+    /// Sets one backend's pins in rank order.
+    pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
+        self.pins_by_backend.insert(owner, pins.map(|pins| pins.into_iter().map(ThreadId::new).collect()));
+    }
+
 }
 
 /// The backend an RPC of this screen goes to: a task's owner for what is
@@ -660,10 +625,8 @@ pub enum Intent {
     },
     /// The search line closed: the query and what it found are dropped.
     ClearSearch,
-    /// Enter on the list's cursor row: open the task or the "Show more" row.
-    Accept(Sel),
-    /// The resume picker picked this task, hidden or not.
-    Resume(String),
+    /// Enter on the "Show more" row.
+    ShowMore,
     /// Esc on the loading page: the opening is given up and the resume's
     /// late answer is ignored.
     CancelOpen,
@@ -797,7 +760,7 @@ pub enum Ctx {
         pinned: bool,
     },
     Resume {
-        thread: String,
+        thread: ThreadId,
     },
     /// The read of the turn to stop.
     Stop {

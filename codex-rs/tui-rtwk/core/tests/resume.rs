@@ -26,10 +26,10 @@ const LISTED: &str = r#"{"step":"screen","dir":"resume","ev":{"listed":{"rows":[
 fn a_listing_fills_the_rows_and_ends_the_loading() {
     let loading = r#"{"step":"screen","dir":"resume","ev":{"loading":null}}"#;
     let sandbox = play(&[loading]);
-    assert_eq!(sandbox.app().screens.resume.load, Load::Loading);
+    assert_eq!(sandbox.app().screens().resume.load, Load::Loading);
     let one_line = LISTED.replace('\n', "");
     let sandbox = play(&[loading, &one_line]);
-    let model = &sandbox.app().screens.resume;
+    let model = &sandbox.app().screens().resume;
     assert_eq!(model.load, Load::Idle);
     assert_eq!(model.rows.len(), 2);
     assert!(model.rows[0].cloud);
@@ -41,7 +41,7 @@ fn a_thread_name_replaces_the_preview() {
     // Oracle: `Row::display_preview`.
     let one_line = LISTED.replace('\n', "");
     let sandbox = play(&[&one_line]);
-    let rows = &sandbox.app().screens.resume.rows;
+    let rows = &sandbox.app().screens().resume.rows;
     assert_eq!(rows[0].display_preview(), "Fix resume picker timestamps");
     assert_eq!(rows[1].display_preview(), "Pagination");
 }
@@ -51,18 +51,18 @@ fn a_failure_keeps_its_message_and_the_next_listing_clears_it() {
     let failed = r#"{"step":"screen","dir":"resume","ev":{"failed":"Failed to read session metadata from /tmp/missing.jsonl"}}"#;
     let sandbox = play(&[failed]);
     assert_eq!(
-        sandbox.app().screens.resume.load,
+        sandbox.app().screens().resume.load,
         Load::Failed("Failed to read session metadata from /tmp/missing.jsonl".into())
     );
     let listed = r#"{"step":"screen","dir":"resume","ev":{"listed":{"rows":[]}}}"#;
     let sandbox = play(&[failed, listed]);
-    assert_eq!(sandbox.app().screens.resume.load, Load::Idle);
+    assert_eq!(sandbox.app().screens().resume.load, Load::Idle);
 }
 
 #[test]
 fn the_clock_is_a_model_input() {
     let sandbox = play(&[r#"{"step":"screen","dir":"resume","ev":{"clock":1800000000}}"#]);
-    assert_eq!(sandbox.app().screens.resume.clock, 1_800_000_000);
+    assert_eq!(sandbox.app().screens().resume.clock, 1_800_000_000);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn the_resume_intent_names_the_thread() {
         ResumeIntent::Resume(ThreadId::new("b")),
     ))));
     assert_eq!(
-        sandbox.app().screens.resume.resuming,
+        sandbox.app().screens().resume.resuming,
         Some(ThreadId::new("b"))
     );
 }
@@ -84,7 +84,7 @@ fn the_skeleton_fake_rollout_form_still_seeds() {
     let sandbox = play(&[
         r#"{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"x","preview":"Hello","model_provider":"mock_provider","timestamp":"2025-01-02T12:00:00Z"}]}}}"#,
     ]);
-    let row = &sandbox.app().screens.resume.rows[0];
+    let row = &sandbox.app().screens().resume.rows[0];
     assert_eq!(row.model_provider, "mock_provider");
     assert_eq!(row.created, None);
 }

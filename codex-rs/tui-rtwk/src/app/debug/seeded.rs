@@ -17,7 +17,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::Intent;
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::ids::RequestKey;
+use codex_tui_core::ids::{RequestKey, ThreadId};
 use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::view::Hs;
@@ -47,6 +47,7 @@ pub enum SeededMsg {
     Submit(String),
     Dismiss(RequestKey),
     Screen(ScreenIntent),
+    OpenThread(ThreadId),
     Cycle,
     Quit,
 }
@@ -59,7 +60,7 @@ impl StatefulWidget for SeededScope {
         let mut thread_ui = ThreadUiMap::default();
         if let Some(active) = sandbox
             .as_ref()
-            .and_then(|sandbox| sandbox.app().session.active.clone())
+            .and_then(|sandbox| sandbox.app().session().active.clone())
         {
             thread_ui.ensure(&active);
         }
@@ -79,18 +80,19 @@ impl State for SeededScopeState {
         };
         let intent = match msg {
             SeededMsg::Submit(text) => Intent::Submit {
-                thread: sandbox.app().session.active.clone(),
+                thread: sandbox.app().session().active.clone(),
                 text,
             },
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
             SeededMsg::Screen(intent) => Intent::Screen(intent),
+            SeededMsg::OpenThread(id) => Intent::OpenThread(id),
             SeededMsg::Cycle => Intent::CycleBackend,
             // The seeded screen is a page of the debug menu: leaving it is the
             // menu's own back key.
             SeededMsg::Quit => return Rebuild::No,
         };
         sandbox.send(AppEv::Intent(intent));
-        if let Some(active) = sandbox.app().session.active.clone() {
+        if let Some(active) = sandbox.app().session().active.clone() {
             self.thread_ui.ensure(&active);
         }
         Rebuild::Yes
@@ -105,6 +107,7 @@ impl State for SeededScopeState {
             submit: cx.map(SeededMsg::Submit),
             dismiss: cx.map(SeededMsg::Dismiss),
             screen: cx.map(SeededMsg::Screen),
+            open_thread: cx.map(SeededMsg::OpenThread),
             quit: cx.map(|()| SeededMsg::Quit),
             cycle: cx.map(|()| SeededMsg::Cycle),
         };
@@ -113,10 +116,13 @@ impl State for SeededScopeState {
             thread_ui: &self.thread_ui,
         });
         MultiProvider::new()
-            .with(Provider::value_shared(core.session.clone()))
+            .with(Provider::value_shared(core.session().clone()))
             .with(Provider::value_shared(core.active_thread()))
-            .with(Provider::value_shared(core.requests.clone()))
-            .with(Provider::value_shared(core.screens.clone()))
+            .with(Provider::value_shared(core.requests().clone()))
+            .with(Provider::value_shared(core.screens().clone()))
+            .with(
+                Provider::value(core.agents_threads()).update_should_notify(|old, new| old != new),
+            )
             .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
             .child(child)
             .into()

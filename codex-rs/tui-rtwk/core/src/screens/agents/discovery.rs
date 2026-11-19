@@ -183,7 +183,7 @@ pub(super) fn load_matches(model: &mut Model, additional: usize, lens: &Lens) ->
         return Vec::new();
     }
     let visible = {
-        let rows = model.rows();
+        let rows = model.rows(None);
         model.visible_indices(&rows, lens).len()
     };
     let Some(history) = model.history.as_mut() else {

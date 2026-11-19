@@ -14,17 +14,17 @@ use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadStatusChangedNotification;
-use codex_tui_core::app::{AppEv, Intent};
+use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command as AppCommand, Intent, apply_app};
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
-    Action, CenterRow, Command, Ctx, DetailLine, DirKeys, Ev, Failure, Group, GroupLabel, Grouping,
-    Intent as AgentsIntent, Lens, Model, Notice, Out, Page, Reply, Sel, apply_answer, observe,
-    update, wire,
+    Action, CenterRow, CenterThreads, Command, Ctx, DetailLine, DirKeys, Ev, Failure, Group,
+    GroupLabel, Grouping, Intent as AgentsIntent, Lens, Model, Notice, Out, Page, Reply, Sel,
+    apply_answer, observe, update, wire,
 };
-use codex_tui_core::screens::{ScreenEv, ScreenIntent};
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply};
+use codex_tui_core::threads::{ThreadAsk, ThreadPreviews};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -85,8 +85,12 @@ fn move_cursor(sel: Sel) {
 /// The highlight as the view resolves it: the cursor if its row shows, else
 /// the default row.
 fn at(m: &Model) -> Option<Sel> {
+    at_with(m, &CenterThreads::default())
+}
+
+fn at_with(m: &Model, state: &CenterThreads) -> Option<Sel> {
     let cursor = CURSOR.with(|cursor| cursor.borrow().clone());
-    let center = m.center_at(cursor.as_ref(), &Lens::default());
+    let center = m.center_at(state, cursor.as_ref(), &Lens::default());
     if center.show_more_selected {
         Some(Sel::ShowMore)
     } else {
@@ -111,11 +115,6 @@ fn up_t(m: &mut Model, f: fn(String) -> AgentsIntent) -> Vec<Out> {
 
 fn up_o(m: &mut Model, f: fn(Option<String>) -> AgentsIntent) -> Vec<Out> {
     let intent = f(pick(m));
-    update(m, intent)
-}
-
-fn up_s(m: &mut Model, f: fn(Sel) -> AgentsIntent) -> Vec<Out> {
-    let intent = f(at(m).unwrap_or(Sel::Task(String::new())));
     update(m, intent)
 }
 
@@ -146,7 +145,7 @@ fn list(sandbox: &mut Sandbox, threads: Vec<Thread>) {
 
 fn current(sandbox: &mut Sandbox, thread: &str) {
     sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Current(Some(
-        thread.to_owned(),
+        ThreadId::new(thread),
     )))));
 }
 
@@ -155,13 +154,13 @@ fn intent(sandbox: &mut Sandbox, intent: AgentsIntent) {
 }
 
 fn model(sandbox: &Sandbox) -> &Model {
-    &sandbox.app().screens.agents
+    &sandbox.app().screens().agents
 }
 
 /// The task ids in display order (the `Task` entries of the center; `rows` is
 /// the unfiltered, unsorted list and is not what the view shows).
 fn ids(sandbox: &Sandbox) -> Vec<String> {
-    let center = model(sandbox).center();
+    let center = model(sandbox).center(&sandbox.app().agents_threads());
     center
         .entries
         .iter()
@@ -182,7 +181,7 @@ fn searching() -> Lens {
 
 /// The task ids in display order under a view's lens (tab, rename).
 fn ids_in(sandbox: &Sandbox, lens: &Lens) -> Vec<String> {
-    let center = model(sandbox).center_at(None, lens);
+    let center = model(sandbox).center_at(&sandbox.app().agents_threads(), None, lens);
     center
         .entries
         .iter()
@@ -194,7 +193,10 @@ fn ids_in(sandbox: &Sandbox, lens: &Lens) -> Vec<String> {
 }
 
 fn selected(sandbox: &Sandbox) -> String {
-    pick(model(sandbox)).expect("a highlighted task")
+    match at_with(model(sandbox), &sandbox.app().agents_threads()) {
+        Some(Sel::Task(id)) => id,
+        other => panic!("expected a highlighted task, got {other:?}"),
+    }
 }
 
 /// `shared_overview_shows_only_root_sessions` (agents_overview_tests.rs:1588):
@@ -229,7 +231,7 @@ fn shared_overview_shows_only_root_sessions() {
         ],
     );
     assert_eq!(model(&sandbox).grouping, Grouping::Project);
-    let center = model(&sandbox).center();
+    let center = model(&sandbox).center(&sandbox.app().agents_threads());
     assert_eq!(center.tab_counts, [3, 1, 1, 0, 1]);
     let mut got = ids(&sandbox);
     got.sort();
@@ -313,7 +315,7 @@ fn live_center_sorts_arrivals_and_status_transitions_by_update_time() {
     };
     list(&mut sandbox, threads.clone());
     assert_row_ids(&sandbox, &[&delta, &alpha, &bravo, &charlie]);
-    let center = model(&sandbox).center();
+    let center = model(&sandbox).center(&sandbox.app().agents_threads());
     assert_eq!(center.selected_row().unwrap().group, Group::Ready);
     assert!(center.selected_row().unwrap().details.lines.is_empty());
     // A request from a descendant can still bring its idle parent to the top.
@@ -376,7 +378,7 @@ fn external_removals_preserve_adjacent_selection() {
 /// newest, id), not the display order of the grouping.
 fn assert_row_ids(sandbox: &Sandbox, expected: &[&String]) {
     let got: Vec<String> = model(sandbox)
-        .center()
+        .center(&sandbox.app().agents_threads())
         .rows
         .iter()
         .map(|row| row.id().to_owned())
@@ -393,14 +395,14 @@ fn assert_ids(sandbox: &Sandbox, expected: &[&String]) {
 
 fn request(sandbox: &mut Sandbox, thread: &str, preview: Option<&str>) {
     sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Request(
-        thread.to_owned(),
+        ThreadId::new(thread),
         preview.map(str::to_owned),
     ))));
 }
 
 /// The activity block of a root row, without its blank separators.
 fn activity(sandbox: &Sandbox, thread: &str) -> Vec<DetailLine> {
-    let center = model(sandbox).center();
+    let center = model(sandbox).center(&sandbox.app().agents_threads());
     let row = center
         .rows
         .iter()
@@ -446,7 +448,13 @@ fn agents_overview_details_show_available_attention_without_expanding_rows() {
     );
     let question = "Which dependency version should I use?";
     request(&mut sandbox, &child, Some(question));
-    assert_eq!(model(&sandbox).center().rows.len(), 2);
+    assert_eq!(
+        model(&sandbox)
+            .center(&sandbox.app().agents_threads())
+            .rows
+            .len(),
+        2
+    );
     assert_eq!(selected(&sandbox), root);
     // The oracle's snapshot (agents_overview_attention) has no "Needs attention"
     // head here: the root's details come from its child's question (`!is_child`
@@ -492,6 +500,7 @@ fn command_center_refresh_failure_is_inline_and_clears_on_success() {
     let mut m = model(&sandbox).clone();
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: false },
         Err(RpcError::Remote("unavailable".into())),
     );
@@ -500,6 +509,7 @@ fn command_center_refresh_failure_is_inline_and_clears_on_success() {
     assert_eq!(m.search, "Keep searching");
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: false },
         Ok(Reply::Listed(Page {
             threads: Vec::new(),
@@ -527,7 +537,7 @@ fn command_center_action_failures_remain_visible() {
     for (ctx, message) in [
         (
             Ctx::Resume {
-                thread: thread.clone(),
+                thread: ThreadId::new(thread.clone()),
             },
             "is unavailable",
         ),
@@ -551,7 +561,12 @@ fn command_center_action_failures_remain_visible() {
         } else {
             message.to_owned()
         };
-        let _ = apply_answer(&mut m, ctx, Err(RpcError::Remote(message.into())));
+        let _ = apply_answer(
+            &mut m,
+            &mut ThreadPreviews::default(),
+            ctx,
+            Err(RpcError::Remote(message.into())),
+        );
         assert_eq!(m.notice, Some(Notice::Error(shown)));
     }
 }
@@ -678,8 +693,12 @@ fn fork_opens_the_copy_of_the_selected_task() {
         vec![Command::Thread(ThreadAsk::Fork { thread: target })]
     );
     let copy = thread(&id(9), None, "Task", idle());
-    let _ = apply_answer(&mut m, Ctx::Fork, Ok(Reply::Forked(Box::new(copy))));
-    assert_eq!(m.current, Some(id(9)));
+    let _ = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        Ctx::Fork,
+        Ok(Reply::Forked(Box::new(copy))),
+    );
     assert_eq!(m.resumes, 1);
     let mut empty = Sandbox::play(&format!("{SESSION}\n")).expect("plays");
     assert!(up_t(&mut empty_model(&mut empty), AgentsIntent::Fork).is_empty());
@@ -780,7 +799,7 @@ fn worktrees_overview_groups_by_project_or_directory() {
     list(&mut sandbox, threads);
     let headings = |sandbox: &Sandbox| -> Vec<(String, String)> {
         model(sandbox)
-            .center()
+            .center(&sandbox.app().agents_threads())
             .entries
             .iter()
             .filter_map(|entry| match entry {
@@ -857,7 +876,7 @@ fn overview_directory_group_keys_normalize_aliases() {
         list(&mut sandbox, vec![checkout.clone(), alias.clone()]);
         intent(&mut sandbox, AgentsIntent::SetGrouping(Grouping::Directory));
         model(&sandbox)
-            .center()
+            .center(&sandbox.app().agents_threads())
             .entries
             .iter()
             .filter(|entry| matches!(entry, CenterRow::Group { .. }))
@@ -936,7 +955,7 @@ fn failed_background_worker_only_needs_attention_for_a_pending_request() {
     let mut sandbox = sandbox();
     current(&mut sandbox, &worker);
     list(&mut sandbox, vec![review.clone()]);
-    let center = model(&sandbox).center();
+    let center = model(&sandbox).center(&sandbox.app().agents_threads());
     assert_eq!(center.rows[0].group, Group::Finished);
     assert!(center.rows[0].details.lines.is_empty());
     let waiting = json!({"type": "active", "activeFlags": ["waitingOnApproval"]});
@@ -947,7 +966,7 @@ fn failed_background_worker_only_needs_attention_for_a_pending_request() {
             thread(&child, Some(&worker), "Check dependencies", waiting),
         ],
     );
-    let center = model(&sandbox).center();
+    let center = model(&sandbox).center(&sandbox.app().agents_threads());
     assert_eq!(center.rows[0].group, Group::NeedsYou);
     assert!(
         center.rows[0]
@@ -983,78 +1002,95 @@ fn server_version_overview_notice_updates_and_clears() {
     assert_eq!(model(&sandbox).server_version, None);
 }
 
-/// `overview_right_opens_current_or_highlighted_task`
-/// (agents_overview_tests.rs:394). Right opens the highlighted task: the core
-/// has no Right intent yet (Enter is `Accept`, the view's mapping is
-/// agents-live's), so the core's `Accept` stands for it. The highlighted
-/// task other than the current one resumes. The oracle sends the select for
-/// the current task too; the core emits no resume for it, so that half is red
-/// until agents-live says what opening the current task sends.
+fn dispatch(app: &mut CodexApp, ev: AppEv) -> AppFx {
+    let mut fx = AppFx::default();
+    apply_app(app, ev, &mut fx);
+    app.assert_consistent();
+    fx
+}
+
+fn listed_app(tasks: Vec<Thread>) -> CodexApp {
+    let mut app = CodexApp::new();
+    dispatch(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::Listed(Page {
+            threads: tasks,
+            unread: vec![],
+            next_cursor: None,
+            append: false,
+            pins: None,
+        }))),
+    );
+    app
+}
+
+fn accept_task(app: &mut CodexApp, id: &str) -> AppFx {
+    dispatch(app, AppEv::Intent(Intent::OpenThread(ThreadId::new(id))))
+}
+
+fn resumed(app: &mut CodexApp, ticket: Ticket, result: Result<Reply, RpcError>) -> AppFx {
+    use codex_tui_core::rpc::Reply as RpcReply;
+    let reply = match result {
+        Ok(reply) => RpcReply::screen(ScreenReply::Agents(reply)),
+        Err(error) => RpcReply::error(error),
+    };
+    dispatch(app, AppEv::Reply(ticket, reply))
+}
+
+fn resume_ticket(effects: &AppFx, id: &str) -> Ticket {
+    match effects.commands() {
+        [
+            AppCommand::Screen {
+                ticket,
+                command: ScreenCommand::Agents(Command::Thread(ThreadAsk::Resume { thread })),
+                ..
+            },
+        ] if thread == id => *ticket,
+        other => panic!("expected a resume for {id}, got {other:?}"),
+    }
+}
+
+/// Accept opens the highlighted task; a held attachment is reused.
 #[test]
 fn overview_right_opens_current_or_highlighted_task() {
     let [cur, other] = [1, 2].map(id);
-    let mut sandbox = sandbox();
-    list(
-        &mut sandbox,
-        vec![
-            thread(&cur, None, "Current", idle()),
-            thread(&other, None, "Other", idle()),
-        ],
+    let mut app = listed_app(vec![
+        thread(&cur, None, "Current", idle()),
+        thread(&other, None, "Other", idle()),
+    ]);
+    dispatch(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::Current(Some(ThreadId::new(&cur))))),
     );
-    current(&mut sandbox, &cur);
-    move_cursor(Sel::Task(cur.clone()));
-    let mut m = model(&sandbox).clone();
-    let on_current: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
-        .into_iter()
-        .map(|out| out.command)
-        .collect();
-    move_cursor(Sel::Task(other.clone()));
-    let mut m = model(&sandbox).clone();
-    let on_other: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
-        .into_iter()
-        .map(|out| out.command)
-        .collect();
-    assert_eq!(
-        on_other,
-        vec![Command::Thread(ThreadAsk::Resume { thread: other })]
-    );
-    assert_eq!(
-        on_current,
-        vec![Command::Thread(ThreadAsk::Resume {
-            thread: cur.clone()
-        })],
-        "agents-live: Accept on the current task emits no resume (core guard `model.current != thread`); oracle agents_overview_view.rs:447 sends SelectAgentsOverviewThread for it"
-    );
+    let effects = accept_task(&mut app, &cur);
+    assert!(effects.commands().is_empty());
+    assert_eq!(app.screens().agents.resumes, 1);
+    let effects = accept_task(&mut app, &other);
+    resume_ticket(&effects, &other);
 }
 
-/// `overview_right_preserves_editors_and_offline_state`
-/// (agents_overview_tests.rs:435). Right is the view's key; while a rename
-/// edits, Right does nothing (oracle: the row filter on `rename_target`): the
-/// view owns the editor and sends `Accept` for Right only when none is open.
+/// The command center holds Accept and New while offline.
 #[test]
 fn overview_right_preserves_editors_and_offline_state() {
-    let mut sandbox = sandbox();
     let task = id(1);
-    list(&mut sandbox, vec![thread(&task, None, "Task", idle())]);
-    let mut m = model(&sandbox).clone();
-    // Right opens the task like Enter ...
-    let opened = up_s(&mut m.clone(), AgentsIntent::Accept);
-    assert_eq!(
-        opened
-            .iter()
-            .map(|out| out.command.clone())
-            .collect::<Vec<_>>(),
-        vec![Command::Thread(ThreadAsk::Resume { thread: task })]
-    );
-    // Offline: Right, `n` and the rest do nothing; leaving still works.
-    m.notice = Some(Notice::Reconnecting);
-    assert!(up_s(&mut m, AgentsIntent::Accept).is_empty());
-    assert!(up_o(&mut m, AgentsIntent::New).is_empty());
-    assert!(up_s(&mut m, AgentsIntent::Accept).is_empty());
-    m.notice = Some(Notice::ReconnectFailed);
-    assert!(up_s(&mut m, AgentsIntent::Accept).is_empty());
-    m.notice = None;
-    assert_eq!(up_s(&mut m, AgentsIntent::Accept).len(), 1);
+    let mut app = listed_app(vec![thread(&task, None, "Task", idle())]);
+    for notice in [Notice::Reconnecting, Notice::ReconnectFailed] {
+        dispatch(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(Ev::Notice(Some(notice)))),
+        );
+        assert!(accept_task(&mut app, &task).commands().is_empty());
+        let effects = dispatch(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::New(
+                Some(task.clone()),
+            )))),
+        );
+        assert!(effects.commands().is_empty());
+    }
+    dispatch(&mut app, AppEv::Screen(ScreenEv::Agents(Ev::Notice(None))));
+    let effects = accept_task(&mut app, &task);
+    resume_ticket(&effects, &task);
 }
 
 /// `overview_grouping_persists_across_config_reloads`
@@ -1162,7 +1198,7 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
     threads[0].status = serde_json::from_value(json!({"type": "systemError"})).expect("a status");
     list(&mut sandbox, threads.clone());
     let group = model(&sandbox)
-        .center()
+        .center(&sandbox.app().agents_threads())
         .rows
         .iter()
         .find(|row| row.id() == target)
@@ -1207,7 +1243,11 @@ fn live_center_rename_retains_target_when_status_leaves_filter() {
         filter: 3,
         ..Lens::default()
     };
-    let shown = model(&sandbox).center_at(Some(&Sel::Task(target_id)), &tab);
+    let shown = model(&sandbox).center_at(
+        &sandbox.app().agents_threads(),
+        Some(&Sel::Task(target_id)),
+        &tab,
+    );
     assert_eq!(
         shown.selected_row().map(|row| row.id().to_owned()),
         Some(other)
@@ -1279,7 +1319,7 @@ fn live_center_show_more_navigation_search_and_loading() {
     assert!(model(&sandbox).paging.has_more);
     move_cursor(Sel::ShowMore);
     let mut m = model(&sandbox).clone();
-    let first: Vec<Command> = up_s(&mut m, AgentsIntent::Accept)
+    let first: Vec<Command> = update(&mut m, AgentsIntent::ShowMore)
         .into_iter()
         .map(|out| out.command)
         .collect();
@@ -1290,12 +1330,13 @@ fn live_center_show_more_navigation_search_and_loading() {
         }]
     );
     assert!(m.paging.loading);
-    let second = up_s(&mut m, AgentsIntent::Accept);
+    let second = update(&mut m, AgentsIntent::ShowMore);
     assert!(second.is_empty(), "no second page while one loads");
     // The page fails: the center stops loading (the oracle's `loading =
     // false`, `refresh_failed = true`); the cursor stays for a retry.
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: true },
         Err(RpcError::Remote("transient".into())),
     );
@@ -1341,6 +1382,7 @@ fn live_center_show_more_navigation_search_and_loading() {
     // The answer of the old search is dropped.
     let stale = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::Search {
             id: search.id,
             limit: 10,
@@ -1352,6 +1394,7 @@ fn live_center_show_more_navigation_search_and_loading() {
     // The page fails: the search can be retried with "Show more matches".
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::Search {
             id: newer.id,
             limit: 10,
@@ -1367,6 +1410,7 @@ fn live_center_show_more_navigation_search_and_loading() {
     // and keeps the rest of the scan for "Show more matches".
     let again = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         retry[0].ctx.clone(),
         Ok(Reply::Listed(Page {
             threads: vec![thread(&id(5), None, "Nothing here", idle())],
@@ -1388,6 +1432,7 @@ fn live_center_show_more_navigation_search_and_loading() {
     );
     let done = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         again[0].ctx.clone(),
         Ok(Reply::Listed(Page {
             threads: vec![thread(&id(6), None, "Older task 1 of many", idle())],
@@ -1446,12 +1491,17 @@ fn hiding_rename_target_does_not_transfer_draft_to_neighbor() {
 /// Applies `outs` the way the app does: each RPC answered with `Done`.
 fn answer_done(model: &mut Model, outs: Vec<Out>) {
     for out in outs {
-        let _ = apply_answer(model, out.ctx, Ok(Reply::Done));
+        let _ = apply_answer(
+            model,
+            &mut ThreadPreviews::default(),
+            out.ctx,
+            Ok(Reply::Done),
+        );
     }
 }
 
 fn ids_of(model: &Model) -> Vec<String> {
-    let center = model.center();
+    let center = model.center(&CenterThreads::default());
     center
         .entries
         .iter()
@@ -1487,10 +1537,7 @@ fn pin_action_updates_shared_section_state() {
             }
         );
         answer_done(&mut m, outs);
-        assert_eq!(
-            m.pinned.as_ref().is_some_and(|pins| pins.contains(&target)),
-            pinned
-        );
+        assert_eq!(m.pinned_ids().any(|pin| pin == target), pinned);
     }
 }
 
@@ -1513,15 +1560,15 @@ fn pin_reply_sets_state_and_new_pins_go_last() {
     let outs = up_t(&mut m, AgentsIntent::TogglePin);
     assert_eq!(outs.len(), 1);
     // The list with X already pinned arrives before the reply.
-    m.pinned = Some(vec![a.clone(), x.clone()]);
+    m.set_pins(m.displayed, Some(vec![a.clone(), x.clone()]));
     answer_done(&mut m, outs);
-    assert_eq!(m.pinned, Some(vec![a.clone(), x.clone()]));
+    assert_eq!(m.pinned_ids().collect::<Vec<_>>(), [a.as_str(), x.as_str()]);
     // Without that early list: appended, not prepended.
-    m.pinned = Some(vec![a.clone()]);
+    m.set_pins(m.displayed, Some(vec![a.clone()]));
     move_cursor(Sel::Task(x.clone()));
     let outs = up_t(&mut m, AgentsIntent::TogglePin);
     answer_done(&mut m, outs);
-    assert_eq!(m.pinned, Some(vec![a, x]));
+    assert_eq!(m.pinned_ids().collect::<Vec<_>>(), [a.as_str(), x.as_str()]);
 }
 
 /// Oracle `complete_agents_overview_pin`: whatever the answer, the list is read
@@ -1536,7 +1583,12 @@ fn pin_answers_refresh_the_list_and_a_refusal_has_the_oracles_prefix() {
     list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
     let mut m = model(&sandbox).clone();
     let outs = up_t(&mut m, AgentsIntent::TogglePin);
-    let after = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+    let after = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        outs[0].ctx.clone(),
+        Ok(Reply::Done),
+    );
     assert_eq!(
         after
             .iter()
@@ -1549,7 +1601,12 @@ fn pin_answers_refresh_the_list_and_a_refusal_has_the_oracles_prefix() {
             thread: target.clone(),
             pinned,
         };
-        let after = apply_answer(&mut m, ctx, Err(RpcError::Remote("denied".into())));
+        let after = apply_answer(
+            &mut m,
+            &mut ThreadPreviews::default(),
+            ctx,
+            Err(RpcError::Remote("denied".into())),
+        );
         assert_eq!(
             m.notice,
             Some(Notice::Error(format!("Failed to {word} task: denied")))
@@ -1619,6 +1676,7 @@ fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
     observe(&mut m, &closed);
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: false },
         Ok(Reply::Listed(Page {
             threads: vec![task.clone()],
@@ -1633,8 +1691,9 @@ fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() {
     // The explicit resume (the app's `resume_target_session`): its answer.
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::Resume {
-            thread: target.clone(),
+            thread: ThreadId::new(target.clone()),
         },
         Ok(Reply::Resumed(Box::new(task))),
     );
@@ -1660,6 +1719,7 @@ fn rejected_delete_preserves_a_live_attachment() {
     );
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         outs[0].ctx.clone(),
         Err(RpcError::Remote("Could not delete task".into())),
     );
@@ -1756,6 +1816,7 @@ fn overview_cloud_discovery_uses_only_interactive_pages() {
     );
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: false },
         Ok(Reply::Listed(Page {
             threads: vec![first],
@@ -1775,6 +1836,7 @@ fn overview_cloud_discovery_uses_only_interactive_pages() {
     );
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::List { append: true },
         Ok(Reply::Listed(Page {
             threads: vec![second],
@@ -1810,7 +1872,12 @@ fn cloud_archive_preserves_attached_child_and_other_tasks() {
         let mut m = model(&sandbox).clone();
         move_cursor(Sel::Task(parent.clone()));
         let outs = up_t(&mut m, AgentsIntent::Archive);
-        let _ = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+        let _ = apply_answer(
+            &mut m,
+            &mut ThreadPreviews::default(),
+            outs[0].ctx.clone(),
+            Ok(Reply::Done),
+        );
         m.threads
             .iter()
             .map(|held| held.id.clone())
@@ -1853,13 +1920,18 @@ fn overview_show_more_refills_archived_rows() {
     let mut m = Model::default();
     let open = update(&mut m, AgentsIntent::Open);
     assert_eq!(open[0].command, Command::List { cursor: None });
-    let _ = apply_answer(&mut m, open[0].ctx.clone(), page(0, Some("10")));
+    let _ = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        open[0].ctx.clone(),
+        page(0, Some("10")),
+    );
     assert_eq!(m.threads.len(), 10);
     assert!(m.paging.has_more);
     // Show more: the next page fails (transient); nothing is lost and the
     // same cursor is asked again.
     move_cursor(Sel::ShowMore);
-    let more = up_s(&mut m, AgentsIntent::Accept);
+    let more = update(&mut m, AgentsIntent::ShowMore);
     assert_eq!(
         more[0].command,
         Command::List {
@@ -1868,19 +1940,25 @@ fn overview_show_more_refills_archived_rows() {
     );
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         more[0].ctx.clone(),
         Err(RpcError::Remote("transient".into())),
     );
     assert_eq!(m.threads.len(), 10);
     assert!(m.paging.failed && m.paging.has_more);
-    let retry = up_s(&mut m, AgentsIntent::Accept);
+    let retry = update(&mut m, AgentsIntent::ShowMore);
     assert_eq!(
         retry[0].command,
         Command::List {
             cursor: Some("10".into())
         }
     );
-    let _ = apply_answer(&mut m, retry[0].ctx.clone(), page(10, Some("20")));
+    let _ = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        retry[0].ctx.clone(),
+        page(10, Some("20")),
+    );
     assert_eq!(m.threads.len(), 20);
     assert!(!m.paging.failed);
     // A task is archived elsewhere: its vacancy is refilled from the next
@@ -1902,7 +1980,12 @@ fn overview_show_more_refills_archived_rows() {
             cursor: Some("20".into())
         }
     );
-    let _ = apply_answer(&mut m, refill[0].ctx.clone(), page(20, None));
+    let _ = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        refill[0].ctx.clone(),
+        page(20, None),
+    );
     // One row came from the fetched page; the other three wait unshown.
     assert_eq!(m.threads.len(), 20);
     assert_eq!(m.paging.refill, 0);
@@ -1914,14 +1997,19 @@ fn overview_show_more_refills_archived_rows() {
     assert_eq!(m.paging.buffer.len(), 3);
     // Show more shows them from the buffer, without a request, and ends the list.
     move_cursor(Sel::ShowMore);
-    let last = up_s(&mut m, AgentsIntent::Accept);
+    let last = update(&mut m, AgentsIntent::ShowMore);
     assert!(last.is_empty());
     assert_eq!(m.threads.len(), 23);
     assert!(!m.paging.has_more);
     // Reopening sends the first page again; a removed task is not brought
     // back by a refresh, the window's cursor stays where it was.
     let refresh = update(&mut m, AgentsIntent::Refresh);
-    let _ = apply_answer(&mut m, refresh[0].ctx.clone(), page(0, Some("10")));
+    let _ = apply_answer(
+        &mut m,
+        &mut ThreadPreviews::default(),
+        refresh[0].ctx.clone(),
+        page(0, Some("10")),
+    );
     assert_eq!(m.threads.len(), 23);
     assert!(!m.paging.has_more);
 }
@@ -1968,7 +2056,12 @@ fn selected_usage_is_cached() {
             thread: selected.clone(),
             id: m.pending_usage.as_ref().unwrap().1,
         };
-        let _ = apply_answer(m, ctx, Ok(Reply::Usage(outcome)));
+        let _ = apply_answer(
+            m,
+            &mut ThreadPreviews::default(),
+            ctx,
+            Ok(Reply::Usage(outcome)),
+        );
     };
     finish(&mut m, UsageOutcome::Available(full.clone()));
     assert_eq!(m.pending_usage, None);
@@ -1991,6 +2084,7 @@ fn selected_usage_is_cached() {
         m.pending_usage = Some((selected.clone(), 7));
         let _ = apply_answer(
             &mut m,
+            &mut ThreadPreviews::default(),
             Ctx::Usage {
                 thread: selected.clone(),
                 id: 7,
@@ -2016,6 +2110,7 @@ fn selected_usage_is_cached() {
     m.pending_usage = Some((selected.clone(), 8));
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::Usage {
             thread: selected.clone(),
             id: 9,
@@ -2025,6 +2120,7 @@ fn selected_usage_is_cached() {
     assert!(!m.usage_disabled);
     let _ = apply_answer(
         &mut m,
+        &mut ThreadPreviews::default(),
         Ctx::Usage {
             thread: selected.clone(),
             id: 8,
@@ -2100,7 +2196,7 @@ fn a_confirmed_removal_hides_the_task_until_the_request_ends() {
         );
         assert_eq!(m.notice, Some(Notice::Removing(action)));
         let shown = |m: &Model| -> Vec<String> {
-            let center = m.center();
+            let center = m.center(&CenterThreads::default());
             center.rows.iter().map(|row| row.id().to_owned()).collect()
         };
         assert!(!shown(&m).contains(&first), "hidden while it runs");
@@ -2109,6 +2205,7 @@ fn a_confirmed_removal_hides_the_task_until_the_request_ends() {
         let mut failed = m.clone();
         let _ = apply_answer(
             &mut failed,
+            &mut ThreadPreviews::default(),
             outs[0].ctx.clone(),
             Err(RpcError::Remote("refused".into())),
         );
@@ -2129,7 +2226,12 @@ fn a_confirmed_removal_hides_the_task_until_the_request_ends() {
         let _ = update(&mut failed, AgentsIntent::DismissFailure);
         assert_eq!(failed.failure, None);
         // Success removes it for good.
-        let _ = apply_answer(&mut m, outs[0].ctx.clone(), Ok(Reply::Done));
+        let _ = apply_answer(
+            &mut m,
+            &mut ThreadPreviews::default(),
+            outs[0].ctx.clone(),
+            Ok(Reply::Done),
+        );
         assert!(!shown(&m).contains(&first));
         assert!(!m.hidden.contains(&first), "no stale hidden entry");
     }
@@ -2148,7 +2250,7 @@ fn the_row_of_the_voice_session_is_flagged() {
         ],
     );
     sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Voice(Some(id(2))))));
-    let center = model(&sandbox).center();
+    let center = model(&sandbox).center(&sandbox.app().agents_threads());
     let flagged: Vec<(String, bool)> = center
         .rows
         .iter()
@@ -2248,9 +2350,9 @@ fn an_unchanging_reasoning_delta_copies_no_screen_state() {
         )))
     };
     sandbox.send(delta("**Plan**"));
-    let held = sandbox.app().screens.clone();
+    let held = sandbox.app().screens().clone();
     sandbox.send(delta(" more"));
-    assert!(std::rc::Rc::ptr_eq(&held, &sandbox.app().screens));
+    assert!(std::rc::Rc::ptr_eq(&held, sandbox.app().screens()));
 }
 
 /// `ThreadUnarchived` and `ThreadStarted` take a task off the removed list
@@ -2322,121 +2424,110 @@ fn thread_settings_updated_changes_the_row_and_reads_it_again() {
     );
 }
 
-/// open-instant: opening a task marks it as being opened (the session page
-/// shows its loading state) until the resume's answer; a failure clears it
-/// and leaves the error for the center.
+/// Opening marks the task while awaiting the reply. A failure returns to the center.
 #[test]
 fn opening_a_task_is_marked_until_the_resume_answers() {
     let target = id(1);
-    let mut sandbox = sandbox();
-    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
-    let mut m = model(&sandbox).clone();
-    assert_eq!(m.opening, None);
-    let outs = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
-    assert_eq!(
-        outs.iter()
-            .map(|out| out.command.clone())
-            .collect::<Vec<_>>(),
-        vec![Command::Thread(ThreadAsk::Resume {
-            thread: target.clone()
-        })]
-    );
-    assert_eq!(m.opening, Some(target.clone()));
-    assert_eq!(m.resumes, 0);
-    let mut failed = m.clone();
-    let _ = apply_answer(
-        &mut failed,
-        Ctx::Resume {
-            thread: target.clone(),
-        },
+    let task = thread(&target, None, "Task", idle());
+    let mut app = listed_app(vec![task.clone()]);
+    assert_eq!(app.screens().agents.opening, None);
+    let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
+    assert_eq!(app.screens().agents.opening, Some(ThreadId::new(&target)));
+    assert_eq!(app.screens().agents.resumes, 0);
+    resumed(
+        &mut app,
+        ticket,
         Err(RpcError::Remote("no such session".into())),
     );
-    assert_eq!(failed.opening, None);
-    assert_eq!(failed.resumes, 0);
+    let model = &app.screens().agents;
+    assert_eq!(model.opening, None);
+    assert_eq!(model.resumes, 0);
     assert_eq!(
-        failed.notice,
+        model.notice,
         Some(Notice::Error(
             "Failed to attach to task: no such session".into()
         ))
     );
-    let task = thread(&target, None, "Task", idle());
-    let _ = apply_answer(
-        &mut m,
-        Ctx::Resume { thread: target },
-        Ok(Reply::Resumed(Box::new(task))),
-    );
-    assert_eq!(m.opening, None);
-    assert_eq!(m.resumes, 1);
+
+    let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
+    resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
+    assert_eq!(app.screens().agents.opening, None);
+    assert_eq!(app.screens().agents.resumes, 1);
 }
 
-/// open-rest: Esc on the loading page cancels the opening (the model forgets
-/// it) and the resume's late answer, success or failure, is ignored: no page
-/// change, no notice.
+/// A late reply to an opening cancelled with Esc leaves the center in place.
 #[test]
 fn cancelling_the_opening_ignores_the_late_resume_answer() {
     let target = id(1);
-    let mut sandbox = sandbox();
-    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
-    let mut m = model(&sandbox).clone();
-    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
-    assert_eq!(m.opening, Some(target.clone()));
-    let outs = update(&mut m, AgentsIntent::CancelOpen);
-    assert!(outs.is_empty());
-    assert_eq!(m.opening, None);
-    let current = m.current.clone();
-    let mut failed = m.clone();
-    let _ = apply_answer(
-        &mut failed,
-        Ctx::Resume {
-            thread: target.clone(),
-        },
-        Err(RpcError::Remote("no such session".into())),
-    );
-    assert_eq!(failed.notice, None);
     let task = thread(&target, None, "Task", idle());
-    let _ = apply_answer(
-        &mut m,
-        Ctx::Resume {
-            thread: target.clone(),
-        },
+    for reply in [
+        Err(RpcError::Remote("no such session".into())),
         Ok(Reply::Resumed(Box::new(task.clone()))),
-    );
-    assert_eq!(m.resumes, 0);
-    assert_eq!(m.current, current);
-    // The ignored answer is consumed: opening the task again works.
-    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
-    let _ = apply_answer(
-        &mut m,
-        Ctx::Resume { thread: target },
-        Ok(Reply::Resumed(Box::new(task))),
-    );
-    assert_eq!(m.resumes, 1);
+    ] {
+        let mut app = listed_app(vec![task.clone()]);
+        let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
+        assert_eq!(app.screens().agents.opening, Some(ThreadId::new(&target)));
+        let effects = dispatch(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+                AgentsIntent::CancelOpen,
+            ))),
+        );
+        assert!(effects.commands().is_empty());
+        assert_eq!(app.screens().agents.opening, None);
+        let current = app.session().active.clone();
+        resumed(&mut app, ticket, reply);
+        assert_eq!(app.screens().agents.notice, None);
+        assert_eq!(app.screens().agents.resumes, 0);
+        assert_eq!(app.session().active, current);
+
+        let effects = accept_task(&mut app, &target);
+        if let [
+            AppCommand::Screen {
+                ticket,
+                command: ScreenCommand::Agents(Command::Thread(ThreadAsk::Resume { .. })),
+                ..
+            },
+        ] = effects.commands()
+        {
+            resumed(
+                &mut app,
+                *ticket,
+                Ok(Reply::Resumed(Box::new(task.clone()))),
+            );
+        }
+        assert_eq!(app.screens().agents.resumes, 1);
+    }
 }
 
-/// open-rest: an answered resume asks for the task's history, the newest page
-/// first.
+/// Reopening while the cancelled attachment is still in flight reuses its ticket.
+#[test]
+fn reopening_before_the_cancelled_resume_answers_reuses_the_request() {
+    let id = id(1);
+    let task = thread(&id, None, "Task", idle());
+    let mut app = listed_app(vec![task.clone()]);
+    let pending = accept_task(&mut app, &id);
+    let ticket = resume_ticket(&pending, &id);
+    let ev = AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+        AgentsIntent::CancelOpen,
+    )));
+    dispatch(&mut app, ev);
+    assert!(accept_task(&mut app, &id).commands().is_empty());
+    assert_eq!(app.screens().agents.opening, Some(ThreadId::new(&id)));
+    resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
+    assert_eq!(app.session().active, Some(ThreadId::new(&id)));
+    assert_eq!(app.screens().agents.resumes, 1);
+}
+
+/// A resume asks for history, the newest page first.
 #[test]
 fn an_answered_resume_asks_for_the_history() {
     let target = id(1);
-    let mut sandbox = sandbox();
-    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
-    let mut m = model(&sandbox).clone();
-    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
     let task = thread(&target, None, "Task", idle());
-    let outs = apply_answer(
-        &mut m,
-        Ctx::Resume {
-            thread: target.clone(),
-        },
-        Ok(Reply::Resumed(Box::new(task))),
-    );
-    assert_eq!(
-        outs.iter()
-            .map(|out| out.command.clone())
-            .collect::<Vec<_>>(),
-        vec![Command::Thread(ThreadAsk::History {
-            thread: target,
-            cursor: None
-        })]
-    );
+    let mut app = listed_app(vec![task.clone()]);
+    let ticket = resume_ticket(&accept_task(&mut app, &target), &target);
+    let effects = resumed(&mut app, ticket, Ok(Reply::Resumed(Box::new(task))));
+    assert!(matches!(effects.commands(), [AppCommand::Screen {
+        command: ScreenCommand::Agents(Command::Thread(ThreadAsk::History { thread, cursor: None })), ..
+    }] if thread == &target));
 }

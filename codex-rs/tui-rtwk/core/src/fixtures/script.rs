@@ -130,7 +130,7 @@ impl Script {
             };
             match step {
                 Step::Seed(Seed::Session { thread }) => {
-                    if app.session.status != Session::Starting {
+                    if app.session().status != Session::Starting {
                         return Err(fail("the session is already seeded"));
                     }
                     let fx = ingest(app, AppEv::Connected);

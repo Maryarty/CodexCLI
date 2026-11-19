@@ -95,7 +95,7 @@ fn answer_resume(app: &mut CodexApp, ticket: codex_tui_core::ids::Ticket, id: &s
 }
 
 fn transcript_len(app: &CodexApp, id: &str) -> usize {
-    app.thread(&ThreadId::new(id)).unwrap().transcript.len()
+    app.thread(&ThreadId::new(id)).unwrap().transcript().len()
 }
 
 /// R2: opening B resumes it once; A -> B -> A -> B asks the backend for no
@@ -104,16 +104,16 @@ fn transcript_len(app: &CodexApp, id: &str) -> usize {
 #[test]
 fn open_thread_resumes_once_then_switches_without_a_request() {
     let mut app = app_with_a_and_b();
-    assert_eq!(app.session.active, Some(ThreadId::new(A)));
+    assert_eq!(app.session().active, Some(ThreadId::new(A)));
     let fx = open(&mut app, B);
     let ticket = resume_ticket(&fx, B).expect("B is resumed");
     answer_resume(&mut app, ticket, B);
-    assert_eq!(app.session.active, Some(ThreadId::new(B)));
+    assert_eq!(app.session().active, Some(ThreadId::new(B)));
     for next in [A, B, A, B] {
         let fx = open(&mut app, next);
         assert!(fx.commands().is_empty(), "{next}: {:?}", fx.commands());
-        assert_eq!(app.session.active, Some(ThreadId::new(next)));
-        assert_eq!(app.session.status, Session::Ready);
+        assert_eq!(app.session().active, Some(ThreadId::new(next)));
+        assert_eq!(app.session().status, Session::Ready);
     }
 }
 
@@ -128,15 +128,18 @@ fn a_thread_keeps_receiving_events_while_another_is_shown() {
     note(&mut app, user_item(A, "a-turn", "a-user", "hello"));
     note(&mut app, agent_delta(A, "a-turn", "a-reply", "wor"));
     note(&mut app, agent_delta(A, "a-turn", "a-reply", "king"));
-    assert_eq!(app.session.active, Some(ThreadId::new(B)));
-    assert!(app.active_thread().transcript.is_empty(), "B is untouched");
+    assert_eq!(app.session().active, Some(ThreadId::new(B)));
+    assert!(
+        app.active_thread().transcript().is_empty(),
+        "B is untouched"
+    );
     assert!(!app.active_thread().is_running());
     assert_eq!(transcript_len(&app, A), 2);
     note(&mut app, turn_completed(A, "a-turn"));
     open(&mut app, A);
     let shown = app.active_thread();
     assert!(!shown.is_running());
-    assert_eq!(shown.transcript.len(), 2);
+    assert_eq!(shown.transcript().len(), 2);
 }
 
 /// R4: a thread resumed while its turn runs: the running turn's live events
@@ -166,13 +169,13 @@ fn every_turn_end_path_leaves_the_thread_idle() {
         note(&mut app, agent_delta(A, "t", "i", "x"));
         assert!(app.active_thread().is_running(), "{name}");
         note(&mut app, end(A, "t"));
-        assert_eq!(app.active_thread().turn, TurnState::Idle, "{name}");
+        assert_eq!(app.active_thread().turn(), &TurnState::Idle, "{name}");
         assert_eq!(transcript_len(&app, A), 1, "{name}");
         // A late start of the ended turn must not revive it.
         note(&mut app, turn_started(A, "t"));
         assert_eq!(
-            app.active_thread().turn,
-            TurnState::Idle,
+            app.active_thread().turn(),
+            &TurnState::Idle,
             "{name} late start"
         );
     }
@@ -250,7 +253,7 @@ fn any_interleaving_of_two_threads_events_gives_each_its_own_transcript() {
         let texts = |id: &str| -> Vec<String> {
             app.thread(&ThreadId::new(id))
                 .unwrap()
-                .transcript
+                .transcript()
                 .iter()
                 .map(|(_, item)| match item {
                     Item::Agent { text, .. } => text.clone(),

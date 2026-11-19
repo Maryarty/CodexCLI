@@ -12,7 +12,7 @@ const CARD: &str = r#"{"step":"screen","dir":"status","ev":{"kind":"card","versi
 #[test]
 fn the_card_keeps_the_values_it_was_shown_with() {
     let sandbox = Sandbox::play(CARD).expect("plays");
-    let card = sandbox.app().screens.status.card.clone().expect("a card");
+    let card = sandbox.app().screens().status.card.clone().expect("a card");
     assert_eq!(card.model, "gpt-5.1-codex-max");
     assert_eq!(card.profile, Profile::Workspace);
     assert_eq!(card.approval, Approval::OnRequest);
@@ -21,7 +21,7 @@ fn the_card_keeps_the_values_it_was_shown_with() {
 #[test]
 fn the_blended_total_leaves_out_cached_input() {
     let sandbox = Sandbox::play(CARD).expect("plays");
-    let card = sandbox.app().screens.status.card.clone().expect("a card");
+    let card = sandbox.app().screens().status.card.clone().expect("a card");
     assert_eq!(card.tokens.blended_total(), 1_900);
 }
 

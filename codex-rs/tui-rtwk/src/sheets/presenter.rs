@@ -119,7 +119,7 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let Some(place) = app.ui.presenter.place.get() else {
         return;
     };
-    let requests = &app.core.requests;
+    let requests = app.core.requests();
     let head = requests.head().map(|request| request.key.clone());
     let Some(key) = app
         .ui
@@ -135,7 +135,7 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         // A bottom pane without a frame, as the oracle draws a request.
         sheets::sheet_options(),
         move |app, answer, cx| {
-            let requests = &app.core.requests;
+            let requests = app.core.requests();
             app.ui
                 .presenter
                 .closed(&key, answer, |queued| requests.contains(queued));

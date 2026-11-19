@@ -20,12 +20,12 @@ use rtwk::gestures::PointerEvent;
 use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded, Offstage, Stack, StackFit};
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked, Route};
 use rtwk::overlay::{DialogOptions, show_dialog};
-use rtwk::provider::{read, select};
+use rtwk::provider::{read, select, watch};
 use rtwk::style::Theme;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::agents::Intent as AgentsIntent;
-use codex_tui_core::screens::agents::{Action, Center, CenterRow, Lens, Model, Sel};
+use codex_tui_core::screens::agents::{Action, Center, CenterRow, CenterThreads, Lens, Model, Sel};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use crate::app::debug::DebugEntry;

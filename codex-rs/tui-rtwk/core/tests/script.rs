@@ -15,7 +15,7 @@ const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
 
 fn items(app: &CodexApp) -> Vec<Item> {
     app.active_thread()
-        .transcript
+        .transcript()
         .iter()
         .map(|(_, item)| item.clone())
         .collect()
@@ -72,8 +72,8 @@ fn a_notify_step_equals_the_protocols_own_json() {
     let line = format!(r#"{{"step":"notify","message":{json}}}"#);
     let played = build(&format!("{SESSION}\n{line}\n")).expect("plays");
     assert!(matches!(
-        played.app.active_thread().turn,
-        TurnState::Running(_)
+        played.app.active_thread().turn(),
+        &TurnState::Running(_)
     ));
     let parsed: ServerNotification = serde_json::from_str(&json).expect("round trip");
     assert_eq!(
@@ -85,9 +85,9 @@ fn a_notify_step_equals_the_protocols_own_json() {
 #[test]
 fn a_session_seed_makes_a_ready_thread_through_apply() {
     let played = build(SESSION).expect("plays");
-    assert_eq!(played.app.session.status, Session::Ready);
+    assert_eq!(played.app.session().status, Session::Ready);
     assert_eq!(
-        played.app.session.active,
+        played.app.session().active,
         Some(ThreadId::new("thread-1")),
         "the thread of the seed is active"
     );
@@ -98,7 +98,7 @@ fn a_session_seed_makes_a_ready_thread_through_apply() {
 fn a_request_step_queues_a_request() {
     let line = r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","threadId":"thread-1","turnId":"turn-1","itemId":"item-1","startedAtMs":0,"approvalId":"approval-1","environmentId":null,"command":"/bin/zsh -lc 'echo hi'","cwd":"/tmp"}}}"#;
     let played = build(&format!("{SESSION}\n{line}\n")).expect("plays");
-    let head = played.app.requests.head().expect("one request");
+    let head = played.app.requests().head().expect("one request");
     assert_eq!(head.method, "item/commandExecution/requestApproval");
     assert_eq!(head.key.thread, ThreadId::new("thread-1"));
 }
@@ -107,7 +107,7 @@ fn a_request_step_queues_a_request() {
 fn a_screen_step_goes_to_the_dirs_own_seed() {
     let line = r#"{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"a","preview":"Hello","model_provider":"mock_provider","timestamp":"2025-01-02T12:00:00Z"},{"id":"b","preview":"World","model_provider":"mock_provider","timestamp":"2025-01-01T13:00:00Z"}]}}}"#;
     let played = build(line).expect("plays");
-    let rows = &played.app.screens.resume.rows;
+    let rows = &played.app.screens().resume.rows;
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].id, ThreadId::new("a"));
     assert_eq!(rows[1].preview, "World");
@@ -155,7 +155,7 @@ fn a_sandbox_applies_an_intent_and_drops_its_effects() {
     }));
     // The model took the submit (a ticket was minted for it); the RPC it
     // asked for went nowhere: the sandbox has no backend.
-    assert!(sandbox.app().active_thread().last_submit.is_some());
+    assert!(sandbox.app().active_thread().last_submit().is_some());
 }
 
 /// Ported from `live_app_server_turn_completion_repairs_dropped_message_deltas`

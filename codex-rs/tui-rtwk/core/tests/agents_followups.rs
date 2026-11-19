@@ -14,7 +14,7 @@ use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
-use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, apply_app};
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev, account_ev, account_request};
@@ -88,17 +88,17 @@ fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
 #[test]
 fn thread_colours_are_on_until_the_setting_turns_them_off() {
     let mut app = CodexApp::new();
-    assert!(app.screens.agents.thread_colors());
+    assert!(app.screens().agents.thread_colors());
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Agents(Ev::ThreadColors(false))),
     );
-    assert!(!app.screens.agents.thread_colors());
+    assert!(!app.screens().agents.thread_colors());
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Agents(Ev::ThreadColors(true))),
     );
-    assert!(app.screens.agents.thread_colors());
+    assert!(app.screens().agents.thread_colors());
 }
 
 /// A script seeds the switch.
@@ -157,17 +157,45 @@ fn the_account_reply_gives_the_plan_and_the_backend_auth() {
 /// (`has_codex_backend_auth` for ChatGPT-like auth modes only).
 #[test]
 fn an_account_update_changes_the_plan_and_drops_the_usage() {
-    let mut app = CodexApp::new();
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::agents::{self, UsageOutcome};
+    use codex_tui_core::screens::{ScreenIntent, ScreenReply};
+
+    let mut app = build(include_str!(
+        "../../src/pages/agents/fixtures/overview.jsonl"
+    ))
+    .expect("plays")
+    .app;
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Agents(Ev::Account {
-            plan: None,
-            backend_auth: false,
+            plan: Some(serde_json::from_value(json!("business")).unwrap()),
+            backend_auth: true,
         })),
     );
-    std::rc::Rc::make_mut(&mut app.screens)
-        .agents
-        .usage_disabled = true;
+    let thread = app.screens().agents.center(&app.agents_threads()).rows[0]
+        .id()
+        .to_owned();
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+            agents::Intent::NeedUsage(Some(thread)),
+        ))),
+    );
+    let [Command::Screen { ticket, .. }] = fx.commands() else {
+        panic!("expected a usage read");
+    };
+    run(
+        &mut app,
+        AppEv::Reply(
+            *ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Usage(
+                UsageOutcome::Disabled,
+            ))),
+        ),
+    );
+    assert!(app.screens().agents.usage_disabled);
     let update = |mode, plan: Option<&str>| {
         AppEv::Backend(BackendEv::Notification(Box::new(
             ServerNotification::AccountUpdated(AccountUpdatedNotification {
@@ -177,7 +205,7 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
         )))
     };
     run(&mut app, update(Some(AuthMode::Chatgpt), Some("pro")));
-    let agents = &app.screens.agents;
+    let agents = &app.screens().agents;
     assert!(agents.backend_auth);
     assert_eq!(
         agents.plan,
@@ -185,8 +213,8 @@ fn an_account_update_changes_the_plan_and_drops_the_usage() {
     );
     assert!(!agents.usage_disabled, "usage is asked again");
     run(&mut app, update(Some(AuthMode::ApiKey), None));
-    assert!(!app.screens.agents.backend_auth);
-    assert_eq!(app.screens.agents.plan, None);
+    assert!(!app.screens().agents.backend_auth);
+    assert_eq!(app.screens().agents.plan, None);
 }
 
 /// A reply that is a failure is an error, never an account.
@@ -209,19 +237,19 @@ fn another_screens_events_leave_the_centers_model_shared() {
     use codex_tui_core::screens::agents::Model;
     use codex_tui_core::screens::{Shared, usage};
     let mut app = CodexApp::new();
-    let before = app.screens.clone();
+    let before = app.screens().clone();
     run(
         &mut app,
         AppEv::Screen(ScreenEv::Usage(usage::Ev::AsOf(String::new()))),
     );
     assert!(
-        !std::rc::Rc::ptr_eq(&before, &app.screens),
+        !std::rc::Rc::ptr_eq(&before, app.screens()),
         "the event changed the screens"
     );
     let same: fn(&Shared<Model>, &Shared<Model>) -> bool = Shared::ptr_eq;
-    assert!(same(&before.agents, &app.screens.agents));
+    assert!(same(&before.agents, &app.screens().agents));
     // A notification no screen takes changes nothing at all.
-    let before = app.screens.clone();
+    let before = app.screens().clone();
     run(
         &mut app,
         AppEv::Backend(BackendEv::Notification(Box::new(
@@ -233,5 +261,5 @@ fn another_screens_events_leave_the_centers_model_shared() {
             ),
         ))),
     );
-    assert!(same(&before.agents, &app.screens.agents));
+    assert!(same(&before.agents, &app.screens().agents));
 }

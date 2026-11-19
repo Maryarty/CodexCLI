@@ -13,7 +13,7 @@ use rtwk::provider::{MultiProvider, Provider};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
-use codex_tui_core::ids::RequestKey;
+use codex_tui_core::ids::{RequestKey, ThreadId};
 use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::UiApp;
@@ -31,6 +31,7 @@ pub struct Hs {
     pub dismiss: Handler<RequestKey>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
+    pub open_thread: Handler<ThreadId>,
     pub quit: Handler<()>,
     /// Move the empty conversation to the next connected backend.
     pub cycle: Handler<()>,
@@ -40,7 +41,7 @@ pub struct Hs {
 pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let hs = Hs {
         submit: cx.on_with(|app: &mut UiApp, text: String, _cx| {
-            let thread = app.core.session.active.clone();
+            let thread = app.core.session().active.clone();
             app.send(AppEv::Intent(Intent::Submit { thread, text }));
         }),
         dismiss: cx.on_with(|app: &mut UiApp, key: RequestKey, _cx| {
@@ -48,6 +49,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         }),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
+        }),
+        open_thread: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
+            app.send(AppEv::Intent(Intent::OpenThread(id)));
         }),
         quit: cx.on(|_, cx| cx.quit()),
         cycle: cx.on(|app: &mut UiApp, _cx| app.send(AppEv::Intent(Intent::CycleBackend))),
@@ -74,10 +78,13 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     };
     let home = cx.memo((app.ui.presenter.place(), child), home_node);
     MultiProvider::new()
-        .with(Provider::value_shared(app.core.session.clone()))
+        .with(Provider::value_shared(app.core.session().clone()))
         .with(Provider::value_shared(app.core.active_thread()))
-        .with(Provider::value_shared(app.core.requests.clone()))
-        .with(Provider::value_shared(app.core.screens.clone()))
+        .with(Provider::value_shared(app.core.requests().clone()))
+        .with(Provider::value_shared(app.core.screens().clone()))
+        .with(
+            Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
+        )
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
         .into()

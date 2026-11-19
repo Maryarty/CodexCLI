@@ -26,14 +26,14 @@ fn send(sandbox: &mut Sandbox, intent: SettingsIntent) {
 }
 
 fn panel(sandbox: &Sandbox) -> codex_tui_core::screens::settings::ConfigPanel {
-    match &sandbox.app().screens.settings.open {
+    match &sandbox.app().screens().settings.open {
         Some(Open::Config(panel)) => panel.clone(),
         other => panic!("config panel expected, got {other:?}"),
     }
 }
 
 fn setup(sandbox: &Sandbox) -> codex_tui_core::screens::settings::StatusLineSetup {
-    match &sandbox.app().screens.settings.open {
+    match &sandbox.app().screens().settings.open {
         Some(Open::StatusLine(setup)) => setup.clone(),
         other => panic!("status line setup expected, got {other:?}"),
     }
@@ -87,11 +87,11 @@ fn search_finds_settings_across_groups_and_preserves_the_selected_group() {
     );
     send(&mut sandbox, SettingsIntent::Activate);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::Editor(SettingId::Effects)]
     );
     assert!(
-        sandbox.app().screens.settings.open.is_some(),
+        sandbox.app().screens().settings.open.is_some(),
         "the panel is not complete"
     );
 }
@@ -103,7 +103,7 @@ fn search_matches_displayed_values() {
     send(&mut sandbox, SettingsIntent::Search("Dracula".into()));
     send(&mut sandbox, SettingsIntent::Activate);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::Editor(SettingId::Theme)]
     );
 }
@@ -117,7 +117,7 @@ fn enter_flips_a_toggle_row_and_asks_the_app_to_persist_it() {
     assert_eq!(panel.rows[2].id, SettingId::Tips);
     assert_eq!(panel.rows[2].value, Value::Toggle(true));
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::Toggled(SettingId::Tips, true)]
     );
 }
@@ -129,7 +129,7 @@ fn enter_on_the_test_row_sends_the_test_notification() {
     send(&mut sandbox, SettingsIntent::Move(2));
     send(&mut sandbox, SettingsIntent::Activate);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::TestNotification]
     );
 }
@@ -138,7 +138,7 @@ fn enter_on_the_test_row_sends_the_test_notification() {
 fn esc_closes_the_panel_when_no_search_is_typed() {
     let mut sandbox = Sandbox::play(CONFIG).expect("plays");
     send(&mut sandbox, SettingsIntent::Close);
-    assert!(sandbox.app().screens.settings.open.is_none());
+    assert!(sandbox.app().screens().settings.open.is_none());
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn model_theme_files_preview_select_and_restore() {
         let mut sandbox = Sandbox::play(&script).expect("plays");
         let themes = ["ada", "babbage", "curie", "cushman", "dali", "davinci"];
         let index = themes.iter().position(|theme| *theme == name).unwrap();
-        let picker = match &sandbox.app().screens.settings.open {
+        let picker = match &sandbox.app().screens().settings.open {
             Some(Open::Theme(picker)) => picker.clone(),
             other => panic!("theme picker expected, got {other:?}"),
         };
@@ -159,21 +159,21 @@ fn model_theme_files_preview_select_and_restore() {
         send(&mut sandbox, SettingsIntent::Move(1));
         let other = themes[(index + 1) % themes.len()];
         assert_eq!(
-            sandbox.app().screens.settings.syntax_theme.as_deref(),
+            sandbox.app().screens().settings.syntax_theme.as_deref(),
             Some(other)
         );
         send(&mut sandbox, SettingsIntent::Move(-1));
         assert_eq!(
-            sandbox.app().screens.settings.syntax_theme.as_deref(),
+            sandbox.app().screens().settings.syntax_theme.as_deref(),
             Some(name)
         );
         // Enter selects it.
         send(&mut sandbox, SettingsIntent::Activate);
         assert_eq!(
-            sandbox.app().screens.settings.edits,
+            sandbox.app().screens().settings.edits,
             vec![Edit::ThemeSelected(name.to_string())]
         );
-        assert!(sandbox.app().screens.settings.open.is_none());
+        assert!(sandbox.app().screens().settings.open.is_none());
     }
 }
 
@@ -182,16 +182,16 @@ fn cancelling_the_theme_picker_restores_the_theme_in_force() {
     let mut sandbox = Sandbox::play(THEME).expect("plays");
     send(&mut sandbox, SettingsIntent::Move(2));
     assert_eq!(
-        sandbox.app().screens.settings.syntax_theme.as_deref(),
+        sandbox.app().screens().settings.syntax_theme.as_deref(),
         Some("curie")
     );
     send(&mut sandbox, SettingsIntent::Close);
     assert_eq!(
-        sandbox.app().screens.settings.syntax_theme.as_deref(),
+        sandbox.app().screens().settings.syntax_theme.as_deref(),
         Some("ada")
     );
-    assert!(sandbox.app().screens.settings.edits.is_empty());
-    assert!(sandbox.app().screens.settings.open.is_none());
+    assert!(sandbox.app().screens().settings.edits.is_empty());
+    assert!(sandbox.app().screens().settings.open.is_none());
 }
 
 fn ids(sandbox: &Sandbox) -> Vec<(String, bool)> {
@@ -288,13 +288,13 @@ fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
         let mut sandbox = Sandbox::play(&script).expect("plays");
         send(&mut sandbox, SettingsIntent::Activate);
         assert_eq!(
-            sandbox.app().screens.settings.edits,
+            sandbox.app().screens().settings.edits,
             vec![Edit::StatusLineSaved {
                 items: vec!["model".into(), "current-dir".into(), "git-branch".into()],
                 use_theme_colors,
             }]
         );
-        assert!(sandbox.app().screens.settings.open.is_none());
+        assert!(sandbox.app().screens().settings.open.is_none());
     }
 }
 
@@ -303,10 +303,10 @@ fn escape_cancels_the_status_line_setup() {
     let mut sandbox = Sandbox::play(STATUS_LINE).expect("plays");
     send(&mut sandbox, SettingsIntent::Close);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::StatusLineCancelled]
     );
-    assert!(sandbox.app().screens.settings.open.is_none());
+    assert!(sandbox.app().screens().settings.open.is_none());
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn typing_filters_the_status_line_items_and_blocks_reordering() {
 
 /// The text of the oracle's `keymap_picker_first_actions` snapshot.
 fn keymap_dump(sandbox: &Sandbox) -> String {
-    let picker = match &sandbox.app().screens.settings.open {
+    let picker = match &sandbox.app().screens().settings.open {
         Some(Open::Keymap(picker)) => picker.clone(),
         other => panic!("keymap picker expected, got {other:?}"),
     };
@@ -356,11 +356,11 @@ fn the_keymap_picker_switches_tabs_and_picks_an_action() {
     send(&mut sandbox, SettingsIntent::Move(1));
     send(&mut sandbox, SettingsIntent::Activate);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::KeymapPicked("Open Transcript".into())]
     );
     send(&mut sandbox, SettingsIntent::Tab(1));
-    match &sandbox.app().screens.settings.open {
+    match &sandbox.app().screens().settings.open {
         Some(Open::Keymap(picker)) => assert_eq!(picker.tab, 1),
         other => panic!("keymap picker expected, got {other:?}"),
     }
@@ -370,7 +370,7 @@ fn the_keymap_picker_switches_tabs_and_picks_an_action() {
 fn typing_filters_the_keymap_picker_and_esc_clears_it() {
     let mut sandbox = Sandbox::play(KEYMAP).expect("plays");
     send(&mut sandbox, SettingsIntent::Search("transcript".into()));
-    let picker = match &sandbox.app().screens.settings.open {
+    let picker = match &sandbox.app().screens().settings.open {
         Some(Open::Keymap(picker)) => picker.clone(),
         other => panic!("keymap picker expected, got {other:?}"),
     };
@@ -385,13 +385,13 @@ fn typing_filters_the_keymap_picker_and_esc_clears_it() {
     );
     send(&mut sandbox, SettingsIntent::Activate);
     assert_eq!(
-        sandbox.app().screens.settings.edits,
+        sandbox.app().screens().settings.edits,
         vec![Edit::KeymapPicked("Open Transcript".into())]
     );
     send(&mut sandbox, SettingsIntent::Close);
-    assert!(sandbox.app().screens.settings.open.is_some());
+    assert!(sandbox.app().screens().settings.open.is_some());
     send(&mut sandbox, SettingsIntent::Close);
-    assert!(sandbox.app().screens.settings.open.is_none());
+    assert!(sandbox.app().screens().settings.open.is_none());
 }
 
 #[test]

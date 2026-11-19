@@ -35,7 +35,7 @@ use crate::services::agents::workspace::account;
 use crate::services::agents::workspace::backend_ev;
 use crate::services::agents::workspace::directories;
 use crate::services::agents::workspace::save_grouping;
-use crate::services::agents::workspace::worktree;
+use crate::services::agents::workspace::{bind_worktree, create_worktree};
 use crate::services::backend::rpc::Ids;
 use crate::services::backend::rpc::answer;
 use crate::services::shell::IngressTx;
@@ -444,7 +444,29 @@ async fn run_as(
                     }
                 });
             }
-            other @ (Command::Worktree { .. } | Command::Screen { .. }) => {
+            Command::CreateWorktree { ticket, cwd, .. } => {
+                let workspace = server.workspace.clone();
+                let ingress = ingress.clone();
+                tokio::spawn(async move {
+                    let ev = create_worktree(workspace, ticket, cwd).await;
+                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
+                });
+            }
+            Command::BindWorktree {
+                ticket,
+                checkout,
+                thread,
+                cwd,
+                ..
+            } => {
+                let workspace = server.workspace.clone();
+                let ingress = ingress.clone();
+                tokio::spawn(async move {
+                    let ev = bind_worktree(workspace, ticket, checkout, thread, cwd).await;
+                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
+                });
+            }
+            other @ Command::Screen { .. } => {
                 let (responder, facts) = shared
                     .lock()
                     .map(|guard| (guard.responder.clone(), guard.facts))
@@ -454,29 +476,15 @@ async fn run_as(
                     cloud: false,
                     worktrees: false,
                 });
-                let workspace = server.workspace.clone();
                 let ingress = ingress.clone();
                 let ids = ids.clone();
                 let log = shared.clone();
                 let held = other.clone();
                 let work: Boxed<Option<()>> = Box::pin(async move {
                     let send = request_sender(log, responder);
-                    match other {
-                        Command::Worktree { cwd, .. } => {
-                            let ev = worktree(workspace, cwd, ids, send).await;
-                            let _ = ingress.send(Ingress::of(backend, epoch, ev));
-                        }
-                        command => {
-                            if let Some((ticket, reply)) =
-                                answer(command, facts, ids, None, send).await
-                            {
-                                let _ = ingress.send(Ingress::of(
-                                    backend,
-                                    epoch,
-                                    AppEv::Reply(ticket, reply),
-                                ));
-                            }
-                        }
+                    if let Some((ticket, reply)) = answer(other, facts, ids, None, send).await {
+                        let _ =
+                            ingress.send(Ingress::of(backend, epoch, AppEv::Reply(ticket, reply)));
                     }
                     Some(())
                 });

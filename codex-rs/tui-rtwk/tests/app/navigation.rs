@@ -306,9 +306,7 @@ fn session_to_agents_and_back_keeps_the_session() {
     assert_session_back(&h);
 }
 
-/// Enter on a task of the command center resumes it; the answer (here the
-/// shell's `Started`, which bumps the same counter) ends the page and the
-/// session shows.
+/// Enter on a held task closes the command center and shows the session.
 #[test]
 fn agents_to_session_when_a_task_opens() {
     use codex_app_server_protocol::Thread;
@@ -322,24 +320,33 @@ fn agents_to_session_when_a_task_opens() {
     let page = find::by_type::<agents::Screen>();
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     let thread: Thread = serde_json::from_value(serde_json::json!({
-        "id": "t-2", "environments": null, "extra": null, "sessionId": "t-2",
+        "id": FAKE_THREAD, "environments": null, "extra": null, "sessionId": FAKE_THREAD,
         "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
-        "preview": "t-2", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "preview": FAKE_THREAD, "ephemeral": false, "section": null, "sectionEnteredAt": null,
         "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
         "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
         "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000, "status": {"type": "idle"},
         "path": null, "cwd": "/tmp", "cliVersion": "0.0.0", "originator": null,
         "source": "cli", "canAcceptDirectInput": true, "threadSource": null,
-        "agentNickname": null, "agentRole": null, "gitInfo": null, "name": "t-2",
+        "agentNickname": null, "agentRole": null, "gitInfo": null, "name": FAKE_THREAD,
         "daybreakEnabled": null, "turns": []
     }))
     .unwrap();
     let epoch = h.fake.epoch().expect("connected");
     h.fake.inject(
         epoch,
-        AppEv::Screen(ScreenEv::Agents(Ev::Started(Box::new(thread)))),
+        AppEv::Screen(ScreenEv::Agents(Ev::Listed(
+            codex_tui_core::screens::agents::Page {
+                threads: vec![thread],
+                unread: vec![],
+                next_cursor: None,
+                append: false,
+                pins: None,
+            },
+        ))),
     );
-    h.settle();
+    h.wait_for("the listed task", |screen| screen.contains(FAKE_THREAD));
+    h.press("enter");
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     assert!(h.t.screen().contains("ready"), "{}", h.t.screen());

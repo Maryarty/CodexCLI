@@ -2,6 +2,10 @@
 //! only here. A thread RPC is requested through `ThreadFx`, which stamps the
 //! thread id.
 
+mod previews;
+
+pub use previews::{ThreadPreview, ThreadPreviews};
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -165,6 +169,10 @@ pub enum ThreadCtx {
 /// An event of one thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {
+    /// A startup draft was accepted while an attached thread is pending.
+    DeferredSubmit,
+    /// An app-scoped error for this thread.
+    Failure(Failure),
     /// The user sent `text`; `apply` refuses it while a turn runs or starts.
     Submit {
         text: String,
@@ -230,27 +238,27 @@ impl From<RpcError> for Failure {
 /// One thread's model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThreadModel {
-    pub id: ThreadId,
-    pub transcript: Transcript,
-    pub turn: TurnState,
+    id: ThreadId,
+    transcript: Transcript,
+    turn: TurnState,
     /// Our RPCs of this thread, keyed `(ThreadId, Ticket)` by being in the
     /// thread's model (R3).
-    pub outgoing: Pending<ThreadCtx>,
+    outgoing: Pending<ThreadCtx>,
     /// The ticket of the last submit `apply` accepted: the composer clears
     /// when it changes, never before.
-    pub last_submit: Option<Ticket>,
+    last_submit: Option<Ticket>,
     /// Messages sent while a turn runs: one goes out per turn end, in order.
-    pub queue: Vec<String>,
+    queue: Vec<String>,
     /// The per-thread parts of the screen slots.
-    pub slots: ThreadSlots,
-    pub last_error: Option<Failure>,
+    slots: ThreadSlots,
+    last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
-    pub last_ended: Option<TurnId>,
+    last_ended: Option<TurnId>,
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
-    pub history_next: Option<String>,
+    history_next: Option<String>,
     /// Another process writes this thread: it is shown, not edited.
-    pub read_only: bool,
+    read_only: bool,
     /// Keeps the struct literal inside this module: a `ThreadModel` is made
     /// only by `ThreadSet::open` (ADR-003).
     seal: Seal,
@@ -276,6 +284,7 @@ pub enum Origin {
 #[derive(Clone, Debug)]
 pub struct ThreadSet {
     held: BTreeMap<ThreadId, Rc<ThreadModel>>,
+    previews: ThreadPreviews,
     /// The projection of "no thread yet": the provider list stays fixed.
     blank: Rc<ThreadModel>,
 }
@@ -284,15 +293,24 @@ impl Default for ThreadSet {
     fn default() -> Self {
         Self {
             held: BTreeMap::new(),
+            previews: ThreadPreviews::default(),
             blank: Rc::new(ThreadModel::new(ThreadId::default())),
         }
     }
 }
 
 impl ThreadSet {
+    pub(crate) fn previews(&self) -> &ThreadPreviews {
+        &self.previews
+    }
+
+    pub(crate) fn previews_mut(&mut self) -> &mut ThreadPreviews {
+        &mut self.previews
+    }
+
     /// The model of `id`, made when it is not held (`Started` always makes a
     /// fresh one; `ForeignWriter` marks it read-only).
-    pub fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
+    pub(crate) fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
         if origin == Origin::Started {
             self.held
                 .insert(id.clone(), Rc::new(ThreadModel::new(id.clone())));
@@ -302,9 +320,7 @@ impl ThreadSet {
                 .entry(id.clone())
                 .or_insert_with(|| Rc::new(ThreadModel::new(id.clone()))),
         );
-        if origin == Origin::ForeignWriter {
-            model.read_only = true;
-        }
+        model.read_only = origin == Origin::ForeignWriter;
         model
     }
 
@@ -312,7 +328,7 @@ impl ThreadSet {
         self.held.get(id)
     }
 
-    pub fn get_mut(&mut self, id: &ThreadId) -> Option<&mut ThreadModel> {
+    pub(crate) fn get_mut(&mut self, id: &ThreadId) -> Option<&mut ThreadModel> {
         self.held.get_mut(id).map(Rc::make_mut)
     }
 
@@ -366,6 +382,42 @@ impl ThreadModel {
             history_next: None,
             read_only: false,
         }
+    }
+
+    pub fn id(&self) -> &ThreadId {
+        &self.id
+    }
+
+    pub fn transcript(&self) -> &Transcript {
+        &self.transcript
+    }
+
+    pub fn turn(&self) -> &TurnState {
+        &self.turn
+    }
+
+    pub fn outgoing(&self) -> &Pending<ThreadCtx> {
+        &self.outgoing
+    }
+
+    pub fn last_submit(&self) -> Option<Ticket> {
+        self.last_submit
+    }
+
+    pub fn queue(&self) -> &[String] {
+        &self.queue
+    }
+
+    pub fn last_error(&self) -> Option<&Failure> {
+        self.last_error.as_ref()
+    }
+
+    pub fn last_ended(&self) -> Option<&TurnId> {
+        self.last_ended.as_ref()
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn is_running(&self) -> bool {
@@ -509,7 +561,7 @@ pub struct ThreadFx<'a> {
 }
 
 impl<'a> ThreadFx<'a> {
-    pub fn new(thread: &'a ThreadId, out: &'a mut AppFx, mint: &'a mut TicketMint) -> Self {
+    pub(crate) fn new(thread: &'a ThreadId, out: &'a mut AppFx, mint: &'a mut TicketMint) -> Self {
         Self {
             thread,
             out,
@@ -682,6 +734,8 @@ pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 
 fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     match ev {
+        ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
+        ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::HistoryPage { items, next } => {
             model.transcript.prepend_page(items);
             model.history_next = next;

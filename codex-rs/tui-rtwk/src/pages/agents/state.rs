@@ -105,15 +105,19 @@ impl ScreenState {
         let searching = self.mode == Mode::Search;
         match sel {
             Sel::ShowMore if searching => Self::send(cx, AgentsIntent::MoreMatches(self.lens())),
-            Sel::ShowMore => Self::send(cx, AgentsIntent::Accept(Sel::ShowMore)),
+            Sel::ShowMore => Self::send(cx, AgentsIntent::ShowMore),
             Sel::Task(_) if matches!(self.mode, Mode::Rename(_)) => {}
-            Sel::Task(id) => {
-                Self::send(cx, AgentsIntent::Accept(Sel::Task(id)));
-                if searching && !model.held() {
+            Sel::Task(id)
+                if !model.held() && model.failure.is_none() && model.row(&id).is_some() =>
+            {
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.open_thread, codex_tui_core::ids::ThreadId::new(id));
+                if searching {
                     self.set_mode(Mode::Browse, center);
                     Self::send(cx, AgentsIntent::ClearSearch);
                 }
             }
+            Sel::Task(_) => {}
         }
     }
 
@@ -174,7 +178,11 @@ impl ScreenState {
     /// The cursor, the keys' focus and the usage request follow the rows the
     /// model and the tab show.
     fn sync(&mut self, model: &Model, cx: &mut Cx<'_, Self>) -> Center {
-        let center = model.center_at(self.cursor().as_ref(), &self.lens());
+        let center = model.center_at(
+            &read::<CenterThreads, _>(cx),
+            self.cursor().as_ref(),
+            &self.lens(),
+        );
         if let Some(entry) = center.selected_entry() {
             self.put_cursor(view::key_of(&center, entry));
         } else if center.entries.is_empty() && self.selection.cursor().is_some() {
@@ -213,6 +221,7 @@ impl State for ScreenState {
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         let agents = watched(cx);
+        watch::<CenterThreads, _>(cx);
         let model = &*agents;
         // A task is being opened from here: its page is pushed at once, in
         // its loading state, and goes when the reply comes (a failure shows
@@ -239,7 +248,7 @@ impl State for ScreenState {
         // row left the list moves to the default row.
         if model.search != self.search_seen {
             self.search_seen = model.search.clone();
-            let center = model.center_at(None, &self.lens());
+            let center = model.center_at(&read::<CenterThreads, _>(cx), None, &self.lens());
             if let Some(index) = center
                 .entries
                 .iter()
@@ -289,7 +298,11 @@ impl ScreenState {
     /// would not compare equal), made here, not in `build`.
     fn retap(&mut self, cx: &mut Cx<'_, Self>) {
         let agents = read::<ScreenStates, _>(cx).agents.clone();
-        let center = agents.center_at(self.cursor().as_ref(), &self.lens());
+        let center = agents.center_at(
+            &read::<CenterThreads, _>(cx),
+            self.cursor().as_ref(),
+            &self.lens(),
+        );
         let keys: Vec<view::RowKey> = (0..center.entries.len())
             .map(|index| view::key_of(&center, index))
             .collect();
@@ -316,7 +329,7 @@ impl ScreenState {
         // moves at once, the model only at the flush.
         let selected = self.selection.cursor();
         let at = selected.clone().and_then(view::RowKey::into_sel);
-        let center = model.center_at(at.as_ref(), &self.lens());
+        let center = model.center_at(&read::<CenterThreads, _>(cx), at.as_ref(), &self.lens());
         match msg {
             Msg::Act(act) => {
                 let editing = self.editing_now();
@@ -555,7 +568,11 @@ impl ScreenState {
         let num = shared::of(cx).num;
         let agents = watched(cx);
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
-        let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
+        let center = Rc::new(agents.center_at(
+            &watch::<CenterThreads, _>(cx),
+            self.cursor().as_ref(),
+            &self.lens(),
+        ));
         let ui = self.ui();
         let taps = view::Taps {
             rows: self

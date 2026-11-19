@@ -490,32 +490,9 @@ fn directory_keys_from_the_shell_reach_the_model() {
             keys("/repo/.git", "/repo", "/real/one"),
         )]),
     );
-    let model = &app.screens.agents;
+    let model = &app.screens().agents;
     assert_eq!(model.dirs["/w/one"].heading, "/repo");
     assert!(model.worktrees);
-}
-
-/// A task the shell started (a worktree's) opens in the chat and ends the
-/// busy notice (oracle: `start_agents_overview_session`).
-#[test]
-fn a_started_task_opens_in_the_chat_and_ends_the_notice() {
-    let mut app = CodexApp::new();
-    run(&mut app, Ev::Notice(Some(Notice::CreatingWorktree)));
-    run(
-        &mut app,
-        Ev::Started(Box::new(thread("new-1", 10, "/wt/checkout"))),
-    );
-    assert_eq!(
-        app.session
-            .active
-            .as_ref()
-            .map(codex_tui_core::ids::ThreadId::as_str),
-        Some("new-1")
-    );
-    let model = &app.screens.agents;
-    assert_eq!(model.current.as_deref(), Some("new-1"));
-    assert_eq!(model.notice, None);
-    assert_eq!(model.resumes, 1);
 }
 
 /// A failure the shell reports shows in the center, replacing the busy notice.
@@ -530,7 +507,7 @@ fn a_failed_worktree_replaces_the_busy_notice_with_the_error() {
         ))),
     );
     assert_eq!(
-        app.screens.agents.notice,
+        app.screens().agents.notice,
         Some(Notice::Error("The source project is not trusted.".into()))
     );
 }
@@ -541,8 +518,7 @@ fn a_failed_worktree_replaces_the_busy_notice_with_the_error() {
 #[test]
 fn an_agents_start_does_not_start_a_thread() {
     use codex_tui_core::app::Session;
-    let mut app = CodexApp::new();
-    app.start_thread_on_connect = false;
+    let mut app = CodexApp::new().with_start_thread_on_connect(false);
     let mut fx = AppFx::default();
     apply_app(&mut app, AppEv::Connected, &mut fx);
     assert!(
@@ -551,8 +527,8 @@ fn an_agents_start_does_not_start_a_thread() {
             .any(|command| matches!(command, Command::StartThread { .. })),
         "no thread is started"
     );
-    assert_eq!(app.session.status, Session::Ready);
-    assert_eq!(app.session.active, None);
+    assert_eq!(app.session().status, Session::Ready);
+    assert_eq!(app.session().active, None);
 
     let mut chat = CodexApp::new();
     let mut fx = AppFx::default();

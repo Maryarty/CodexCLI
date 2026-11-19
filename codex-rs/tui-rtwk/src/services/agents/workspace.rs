@@ -5,25 +5,22 @@
 //! Oracle: `agents_overview_view.rs` (`directory_group_key`,
 //! `AgentsOverviewProjectGroup`), `agents_overview_new.rs`.
 
-use codex_tui_core::threads::ThreadAsk;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_tui_core::app::AppEv;
-use codex_tui_core::ids::ThreadId;
+use codex_tui_core::app::worktree::BindFailure;
+use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::rpc::Reply;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::agents::Command as AgentsCommand;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Notice;
-use codex_tui_core::screens::agents::Reply;
 use codex_tui_core::screens::agents::account_ev;
 use codex_tui_core::screens::agents::account_request;
-use codex_tui_core::screens::agents::decode;
-use codex_tui_core::screens::agents::wire as agents_wire;
 
 use crate::services::backend::rpc::Ids;
 
@@ -44,13 +41,7 @@ pub fn backend_ev(facts: Facts) -> AppEv {
     }))
 }
 
-/// A checkout made for a new task: its root, and the directory the task
-/// starts in (oracle: `ManagedWorktree::{root, cwd}`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Checkout {
-    pub root: String,
-    pub cwd: String,
-}
+pub use codex_tui_core::app::worktree::Checkout;
 
 /// A boxed future, as the trait needs it.
 pub type Boxed<T> = Pin<Box<dyn Future<Output = T> + Send>>;
@@ -98,76 +89,31 @@ pub async fn save_grouping(workspace: Arc<dyn Workspace>, grouping: String) -> O
     )))))
 }
 
-/// A new task in a new worktree of `cwd`'s repository, as the oracle does
-/// it: create the checkout, start the task there (`send` is the client),
-/// bind it. The event is `Ev::Started` or the error as the center's notice;
-/// a checkout left behind by a later failure is named in the message.
-pub async fn worktree<F, Fut>(
+/// Creates the checkout requested by the app.
+pub async fn create_worktree(
     workspace: Arc<dyn Workspace>,
+    ticket: Ticket,
     cwd: Option<String>,
-    ids: Ids,
-    send: F,
-) -> AppEv
-where
-    F: Fn(ClientRequest) -> Fut,
-    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
-{
-    let notice = |message: String| {
-        AppEv::Screen(ScreenEv::Agents(AgentsEv::Notice(Some(Notice::Error(
-            message,
-        )))))
-    };
-    let checkout = match workspace.create_worktree(cwd).await {
-        Ok(checkout) => checkout,
-        Err(error) => return notice(error),
-    };
-    // Oracle: `agents_overview_retained_worktree_error`.
-    let retained = |reason: String| {
-        notice(format!(
-            "{reason} A checkout was retained at {}; remove it with `git worktree remove <checkout-path>` from the source repository if it is no longer needed.",
-            checkout.root
-        ))
-    };
-    let start = AgentsCommand::Thread(ThreadAsk::Start {
-        cwd: Some(checkout.cwd.clone()),
-    });
-    let wire = agents_wire(&start, &ThreadId::default(), ids.next());
-    let started = match send(wire).await {
-        Ok(result) => match decode(&start, result) {
-            Ok(Reply::Started(thread)) => *thread,
-            Ok(_) => return retained("Failed to start session: no task started".to_owned()),
-            Err(error) => return retained(format!("Failed to start session: {error:?}")),
-        },
-        Err(error) => return retained(format!("Failed to start session: {error}")),
-    };
-    // Oracle: a task that cannot be bound to its checkout is unsubscribed
-    // (`thread_unsubscribe`) before the error shows; a failure of that is
-    // the server's own, not shown.
-    let unsubscribe = || async {
-        let ask = AgentsCommand::Thread(ThreadAsk::Unsubscribe {
-            thread: started.id.clone(),
-        });
-        let wire = agents_wire(&ask, &ThreadId::default(), ids.next());
-        let _ = send(wire).await;
-    };
-    let bound = {
-        let workspace = workspace.clone();
-        let checkout = checkout.clone();
-        let thread = started.id.clone();
-        let cwd = started.cwd.display().to_string();
-        blocking(move || workspace.bind_worktree(&checkout, &thread, &cwd)).await
-    };
-    match bound {
-        Some(Ok(())) => AppEv::Screen(ScreenEv::Agents(AgentsEv::Started(Box::new(started)))),
-        Some(Err(error)) => {
-            unsubscribe().await;
-            retained(error)
-        }
-        None => {
-            unsubscribe().await;
-            retained("The worktree could not be bound.".to_owned())
-        }
-    }
+) -> AppEv {
+    AppEv::Reply(
+        ticket,
+        Reply::worktree_created(workspace.create_worktree(cwd).await),
+    )
+}
+
+/// Binds the app's thread to its checkout.
+pub async fn bind_worktree(
+    workspace: Arc<dyn Workspace>,
+    ticket: Ticket,
+    checkout: Checkout,
+    thread: ThreadId,
+    cwd: String,
+) -> AppEv {
+    let result = blocking(move || workspace.bind_worktree(&checkout, thread.as_str(), &cwd))
+        .await
+        .ok_or(BindFailure::Interrupted)
+        .and_then(|result| result.map_err(BindFailure::Workspace));
+    AppEv::Reply(ticket, Reply::worktree_bound(result))
 }
 
 /// The account the server is signed in to (oracle: `read_account` at

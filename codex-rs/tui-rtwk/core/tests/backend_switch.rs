@@ -75,9 +75,9 @@ fn name_updated(thread: &str, name: &str) -> AppEv {
 fn the_backend_control_shows_on_an_empty_conversation_with_two_backends() {
     let mut app = CodexApp::new();
     app.attach();
-    assert_eq!(app.session.cycle, None, "nothing connected yet");
+    assert_eq!(app.cycle_label(), None, "nothing connected yet");
     let app = two_backends();
-    assert_eq!(app.session.cycle, Some(BackendLabel::Local));
+    assert_eq!(app.cycle_label(), Some(BackendLabel::Local));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn a_single_backend_offers_no_control_and_the_intent_does_nothing() {
         &mut app,
         AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-1"))),
     );
-    assert_eq!(app.session.cycle, None);
+    assert_eq!(app.cycle_label(), None);
     let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
     assert!(fx.commands().is_empty());
 }
@@ -110,18 +110,18 @@ fn cycling_starts_a_conversation_on_the_next_backend() {
         "routed to the cloud"
     );
     // Not displayed before the cloud answers.
-    assert_eq!(app.screens.agents.displayed, LOCAL);
+    assert_eq!(app.screens().agents.displayed, LOCAL);
     run(
         &mut app,
         AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("cloud-1"))),
     );
-    assert_eq!(app.screens.agents.displayed, CLOUD);
-    assert_eq!(app.session.active, Some(ThreadId::new("cloud-1")));
-    assert_eq!(app.session.status, Session::Ready);
-    assert_eq!(app.session.switched_from, Some(ThreadId::new("local-1")));
-    assert_eq!(app.session.switches, 1);
-    assert_eq!(app.screens.agents.owner_of("cloud-1"), CLOUD);
-    assert_eq!(app.session.cycle, Some(BackendLabel::Cloud));
+    assert_eq!(app.screens().agents.displayed, CLOUD);
+    assert_eq!(app.session().active, Some(ThreadId::new("cloud-1")));
+    assert_eq!(app.session().status, Session::Ready);
+    assert_eq!(app.session().switched_from, Some(ThreadId::new("local-1")));
+    assert_eq!(app.session().switches, 1);
+    assert_eq!(app.screens().agents.owner_of("cloud-1"), CLOUD);
+    assert_eq!(app.cycle_label(), Some(BackendLabel::Cloud));
     // Round trip: the next backend after the cloud is the local one.
     let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
     let (ticket, backend) = start_ticket(&fx);
@@ -130,8 +130,8 @@ fn cycling_starts_a_conversation_on_the_next_backend() {
         &mut app,
         AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("local-2"))),
     );
-    assert_eq!(app.screens.agents.displayed, LOCAL);
-    assert_eq!(app.session.cycle, Some(BackendLabel::Local));
+    assert_eq!(app.screens().agents.displayed, LOCAL);
+    assert_eq!(app.cycle_label(), Some(BackendLabel::Local));
 }
 
 /// A failed start leaves the displayed backend and the chat as they were
@@ -142,11 +142,11 @@ fn a_failed_switch_keeps_the_displayed_backend() {
     let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
     let (ticket, _) = start_ticket(&fx);
     run(&mut app, AppEv::Reply(ticket, Reply::failed("unavailable")));
-    assert_eq!(app.screens.agents.displayed, LOCAL);
-    assert_eq!(app.session.active, Some(ThreadId::new("local-1")));
-    assert_eq!(app.session.status, Session::Ready);
-    assert_eq!(app.session.switches, 0);
-    assert!(app.active_thread().last_error.is_some());
+    assert_eq!(app.screens().agents.displayed, LOCAL);
+    assert_eq!(app.session().active, Some(ThreadId::new("local-1")));
+    assert_eq!(app.session().status, Session::Ready);
+    assert_eq!(app.session().switches, 0);
+    assert!(app.active_thread().last_error().cloned().is_some());
 }
 
 /// `can_cycle_conversation_backend`: only while the conversation has no turn
@@ -161,7 +161,7 @@ fn a_conversation_with_a_turn_cannot_cycle() {
             text: "hello".into(),
         }),
     );
-    assert_eq!(app.session.cycle, None);
+    assert_eq!(app.cycle_label(), None);
     let fx = run(&mut app, AppEv::Intent(Intent::CycleBackend));
     assert!(fx.commands().is_empty());
 }
@@ -211,7 +211,7 @@ fn thread(id: &str, name: &str) -> codex_app_server_protocol::Thread {
 }
 
 fn name_of(app: &CodexApp, id: &str) -> Option<String> {
-    app.screens
+    app.screens()
         .agents
         .threads
         .iter()
@@ -240,7 +240,7 @@ fn a_notification_of_a_foreign_thread_is_dropped_by_origin() {
             },
         ))),
     );
-    assert_eq!(app.screens.agents.owner_of("remote"), CLOUD);
+    assert_eq!(app.screens().agents.owner_of("remote"), CLOUD);
     let mut fx = AppFx::default();
     apply_app_from(
         &mut app,
@@ -257,7 +257,7 @@ fn a_notification_of_a_foreign_thread_is_dropped_by_origin() {
     );
     assert_eq!(name_of(&app, "remote").as_deref(), Some("From cloud"));
     apply_app_from(&mut app, CLOUD, name_updated("fresh", "Named"), &mut fx);
-    assert_eq!(app.screens.agents.owner_of("fresh"), CLOUD);
+    assert_eq!(app.screens().agents.owner_of("fresh"), CLOUD);
     apply_app_from(&mut app, LOCAL, name_updated("fresh", "Other"), &mut fx);
-    assert_eq!(app.screens.agents.owner_of("fresh"), CLOUD);
+    assert_eq!(app.screens().agents.owner_of("fresh"), CLOUD);
 }

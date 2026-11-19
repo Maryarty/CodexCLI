@@ -19,7 +19,7 @@ fn play(steps: &[&str]) -> Sandbox {
 #[test]
 fn a_fresh_model_is_loading_everywhere() {
     let sandbox = play(&[]);
-    let model = &sandbox.app().screens.usage;
+    let model = &sandbox.app().screens().usage;
     assert_eq!(model.overview, Panel::<Overview>::Loading);
     assert_eq!(model.history, Panel::Loading);
     assert_eq!(model.credits, Panel::Loading);
@@ -33,7 +33,7 @@ fn panels_take_their_own_events_and_stay_independent() {
         r#"{"step":"screen","dir":"usage","ev":{"credits":{"failed":"credits"}}}"#,
         r#"{"step":"screen","dir":"usage","ev":{"usage":{"ready":[]}}}"#,
     ]);
-    let model = &sandbox.app().screens.usage;
+    let model = &sandbox.app().screens().usage;
     assert_eq!(model.history, Panel::Unavailable);
     assert_eq!(model.credits, Panel::Failed(Failure::Credits));
     assert_eq!(model.usage, Panel::Ready(Vec::new()));
@@ -46,7 +46,7 @@ fn an_overview_and_an_account_seed() {
         r#"{"step":"screen","dir":"usage","ev":{"account":{"name":"Example User","handle":"@example.user","plan":"Plus"}}}"#,
         r#"{"step":"screen","dir":"usage","ev":{"overview":{"ready":{"lifetime_tokens":142300000000,"peak_tokens":7000000000,"longest_chat_secs":158820,"current_streak_days":158,"longest_streak_days":160}}}}"#,
     ]);
-    let model = &sandbox.app().screens.usage;
+    let model = &sandbox.app().screens().usage;
     assert_eq!(model.account.as_ref().expect("account").plan, "Plus");
     let Panel::Ready(overview) = &model.overview else {
         panic!("{:?}", model.overview)
@@ -60,5 +60,5 @@ fn the_report_intent_switches_the_tab() {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Usage(
         UsageIntent::Report(Report::Usage),
     ))));
-    assert_eq!(sandbox.app().screens.usage.report, Report::Usage);
+    assert_eq!(sandbox.app().screens().usage.report, Report::Usage);
 }

@@ -24,11 +24,12 @@ use codex_app_server_protocol::ThreadRevertedNotification;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::ThreadStatus;
 use codex_tui_core::app::AppFx;
+use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::screens::agents::{
     Command, Ctx, Ev, Model, Out, Page, Reply, apply, apply_answer, observe,
 };
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::threads::{ThreadAsk, ThreadPreviews};
 use serde_json::json;
 
 fn id(n: u128) -> String {
@@ -86,6 +87,7 @@ fn reads(outs: &[Out], thread: &str) -> usize {
 
 #[test]
 fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
+    let mut catalog = ThreadPreviews::default();
     let mut m = Model::default();
     let [retained, archived, deleted, created] = [id(1), id(2), id(3), id(4)];
     list(
@@ -132,6 +134,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     fresh.preview = "Fresh preview from the read".to_owned();
     let _ = apply_answer(
         &mut m,
+        &mut catalog,
         Ctx::Read {
             thread: retained.clone(),
         },
@@ -146,6 +149,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     for gone in [&archived, &deleted] {
         let _ = apply_answer(
             &mut m,
+            &mut catalog,
             Ctx::Read {
                 thread: gone.clone(),
             },
@@ -157,6 +161,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     // A read that fails keeps the rows.
     let _ = apply_answer(
         &mut m,
+        &mut catalog,
         Ctx::Read {
             thread: retained.clone(),
         },
@@ -165,6 +170,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     assert_eq!(m.threads, expected);
     let _ = apply_answer(
         &mut m,
+        &mut catalog,
         Ctx::Turns {
             thread: retained.clone(),
         },
@@ -189,9 +195,17 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
     });
     for lag in [false, true] {
         // The chain is at its `Turns` question when the invalidation comes.
-        m.last_messages
-            .insert(retained.clone(), "Removed answer".into());
-        m.activity.entry(retained.clone()).or_default();
+        let _ = apply_answer(
+            &mut m,
+            &mut catalog,
+            Ctx::Turns {
+                thread: retained.clone(),
+            },
+            Ok(Reply::Turns {
+                prompt: None,
+                last_message: Some("Removed answer".into()),
+            }),
+        );
         let outs = observe(
             &mut m,
             &ServerNotification::ThreadNameUpdated(ThreadNameUpdatedNotification {
@@ -202,6 +216,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
         assert_eq!(reads(&outs, &retained), 1);
         let outs = apply_answer(
             &mut m,
+            &mut catalog,
             Ctx::Read {
                 thread: retained.clone(),
             },
@@ -214,14 +229,16 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
         );
         if lag {
             apply(&mut m, Ev::Lagged, &mut AppFx::default());
+            catalog.clear();
         } else {
             observe(&mut m, &reverted);
+            catalog.observe(&reverted, true);
         }
-        assert!(!m.activity.contains_key(&retained));
-        assert!(m.last_messages.is_empty());
-        observe(&mut m, &reasoning());
+        assert!(catalog.is_empty());
+        catalog.observe(&reasoning(), true);
         let _ = apply_answer(
             &mut m,
+            &mut catalog,
             Ctx::Turns {
                 thread: retained.clone(),
             },
@@ -230,12 +247,27 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
                 last_message: Some("Removed answer".into()),
             }),
         );
-        assert!(m.last_messages.is_empty(), "the old turns do not return");
-        assert!(m.activity.contains_key(&retained), "fresh activity stays");
+        assert!(
+            catalog
+                .get(&retained)
+                .expect("fresh activity")
+                .history_message
+                .is_none(),
+            "the old turns do not return"
+        );
+        assert!(
+            catalog
+                .get(&retained)
+                .expect("fresh activity")
+                .reasoning_header()
+                .is_some(),
+            "fresh activity stays"
+        );
         // Drain the chain a change queued, so the next round starts clean.
-        while m.reading.contains(&retained) {
+        while m.reading.contains_key(retained.as_str()) {
             let _ = apply_answer(
                 &mut m,
+                &mut catalog,
                 Ctx::Read {
                     thread: retained.clone(),
                 },
@@ -243,6 +275,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
             );
             let _ = apply_answer(
                 &mut m,
+                &mut catalog,
                 Ctx::Turns {
                     thread: retained.clone(),
                 },
@@ -254,6 +287,7 @@ fn shared_overview_keeps_rows_and_replays_changes_over_stale_reads() {
 
 #[test]
 fn shared_overview_seeds_once_and_retains_locally_resumed_history() {
+    let mut catalog = ThreadPreviews::default();
     // The seed lists the recent tasks only (days 3..=12); older history is
     // not listed.
     let recent: Vec<String> = (3..=12).map(id).collect();
@@ -289,8 +323,9 @@ fn shared_overview_seeds_once_and_retains_locally_resumed_history() {
     let older = id(1);
     let _ = apply_answer(
         &mut m,
+        &mut catalog,
         Ctx::Resume {
-            thread: older.clone(),
+            thread: ThreadId::new(older.clone()),
         },
         Ok(Reply::Resumed(Box::new(thread(&older, "Task 1")))),
     );

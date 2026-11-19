@@ -10,9 +10,9 @@
 
 use codex_app_server_protocol::Thread;
 use codex_tui_core::app::AppFx;
-use codex_tui_core::ids::BackendId;
+use codex_tui_core::ids::{BackendId, ThreadId};
 use codex_tui_core::screens::agents::{Ev, Model, Page, Pins, apply};
-use codex_tui_core::threads::ThreadAsk;
+use codex_tui_core::threads::ThreadPreviews;
 use serde_json::json;
 
 fn id(n: u128) -> String {
@@ -69,7 +69,7 @@ fn refreshing_one_backends_pins_preserves_cross_backend_rank() {
         (local, &local_pin),
     ] {
         listed(&mut model, owner, page(Vec::new(), Some(vec![pin.clone()])));
-        let ranks = model.pinned.clone().expect("pins");
+        let ranks = model.pinned_ids().map(str::to_owned).collect::<Vec<_>>();
         if owner == cloud {
             assert_eq!(ranks.len(), 2);
             previous = Some(ranks);
@@ -100,7 +100,7 @@ fn overview_keeps_rows_and_owners_per_backend() {
             None,
         ),
     );
-    assert_eq!(model.owners.get(&remote_id), None);
+    assert_eq!(model.owners.get(remote_id.as_str()), None);
     assert_eq!(model.pins_by_backend.get(&local), Some(&None));
     listed(
         &mut model,
@@ -114,8 +114,8 @@ fn overview_keeps_rows_and_owners_per_backend() {
         ),
     );
     assert_eq!(model.pins_by_backend.get(&remote), Some(&Some(Vec::new())));
-    assert_eq!(model.owners.get(&remote_id), Some(&remote));
-    assert_eq!(model.owners.get(&colliding_id), Some(&local));
+    assert_eq!(model.owners.get(remote_id.as_str()), Some(&remote));
+    assert_eq!(model.owners.get(colliding_id.as_str()), Some(&local));
     // The oracle's rows are a map; the order is not asserted.
     let mut names: Vec<_> = model
         .threads
@@ -181,16 +181,6 @@ fn discovery_is_kept_per_backend() {
     assert_eq!(model.paging_of(cloud).cursor.as_deref(), Some("C"));
 }
 
-fn open_row(model: &mut Model, owner: BackendId) -> Vec<codex_tui_core::screens::agents::Out> {
-    let _ = owner;
-    codex_tui_core::screens::agents::update(
-        model,
-        codex_tui_core::screens::agents::Intent::Accept(
-            codex_tui_core::screens::agents::Sel::Task(id(2)),
-        ),
-    )
-}
-
 /// Opening a row another backend owns resumes it there (oracle:
 /// `select_agents_overview_thread` sends `ResumeBackendSession(owner)`); the
 /// answer makes that backend the displayed one.
@@ -210,13 +200,6 @@ fn opening_a_foreign_row_resumes_it_on_its_owner() {
         cloud,
         paged(vec![thread(&id(2), "Cloud")], Some("C")),
     );
-    let outs = open_row(&mut model, cloud);
-    assert_eq!(outs.len(), 1);
-    assert!(matches!(
-        outs[0].command,
-        Command::Thread(ThreadAsk::Resume { .. })
-    ));
-    assert_eq!(backend_of(&model, &outs[0].command), cloud);
     // The displayed backend's own rows and the lists go to it.
     assert_eq!(
         backend_of(
@@ -230,10 +213,16 @@ fn opening_a_foreign_row_resumes_it_on_its_owner() {
     );
     assert_eq!(backend_of(&model, &Command::List { cursor: None }), local);
     let answer = Reply::Resumed(Box::new(thread(&id(2), "Cloud")));
-    let _ = apply_answer(&mut model, Ctx::Resume { thread: id(2) }, Ok(answer));
+    let _ = apply_answer(
+        &mut model,
+        &mut ThreadPreviews::default(),
+        Ctx::Resume {
+            thread: ThreadId::new(id(2)),
+        },
+        Ok(answer),
+    );
     assert_eq!(model.displayed, cloud);
     assert_eq!(model.paging.cursor.as_deref(), Some("C"));
-    assert_eq!(model.current.as_deref(), Some(id(2).as_str()));
 }
 
 /// A cloud task archives alone, whichever backend is displayed (oracle:
@@ -256,7 +245,12 @@ fn a_cloud_owned_row_archives_only_the_task_from_a_local_session() {
         thread: id(2),
         action: Some(Action::Archive),
     };
-    let _ = apply_answer(&mut model, ctx, Ok(Reply::Done));
+    let _ = apply_answer(
+        &mut model,
+        &mut ThreadPreviews::default(),
+        ctx,
+        Ok(Reply::Done),
+    );
     let left: Vec<_> = model.threads.iter().map(|held| held.id.clone()).collect();
     assert_eq!(left, vec![id(3)]);
 }
@@ -288,7 +282,7 @@ fn pin_is_supported_by_the_displayed_backends_pins() {
 fn the_app_routes_a_resume_to_the_backend_that_owns_the_task() {
     use codex_tui_core::app::{AppEv, Command, Intent, apply_app};
     use codex_tui_core::fixtures::script::build;
-    use codex_tui_core::screens::agents::{Intent as AgentsIntent, Sel};
+    use codex_tui_core::screens::agents::Intent as AgentsIntent;
     use codex_tui_core::screens::{ScreenEv, ScreenIntent};
     let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
     let mut app = build(&format!("{script}\n")).expect("plays").app;
@@ -307,9 +301,7 @@ fn the_app_routes_a_resume_to_the_backend_that_owns_the_task() {
     );
     let fx = send(
         &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Accept(
-            Sel::Task(id(2)),
-        )))),
+        AppEv::Intent(Intent::OpenThread(ThreadId::new(id(2)))),
     );
     let [command] = fx.commands() else {
         panic!("one RPC: {:?}", fx.commands());

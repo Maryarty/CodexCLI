@@ -38,7 +38,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         script: include_str!("fixtures/streamed_answer.jsonl"),
         open: EntryOpen::Route(|seeded: &Seeded| {
             session_page::Chat {
-                ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
+                ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
             }
             .into()
         }),
@@ -49,7 +49,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// entry runs the real composer on a model a fixture script made).
 pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
     session_page::Chat {
-        ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
+        ui: seeded.thread_ui.get(seeded.core.session().active.as_ref()),
     }
     .into()
 }
@@ -57,7 +57,7 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
 /// The `Navigator`'s home: the chat of the active thread.
 pub fn home(app: &crate::app::UiApp) -> AnyWidget {
     session_page::Chat {
-        ui: app.ui.thread_ui.get(app.core.session.active.as_ref()),
+        ui: app.ui.thread_ui.get(app.core.session().active.as_ref()),
     }
     .into()
 }
