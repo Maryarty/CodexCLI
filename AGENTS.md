@@ -63,6 +63,25 @@ as they are.
   and `rtwk-state` (`Source`/`Select`/`store_provider` over an external
   store, optional reactive_graph).
 
+## Architecture is enforced, not described
+The architecture exists to make whole classes of bugs impossible, so every
+decision that can be enforced by the compiler or a rules test IS enforced —
+words in architecture.md are not enough (the person, 2026-11-19, after the
+command center bypassed ADR-003 and hit "thread already has an active writer").
+- Make illegal states unrepresentable: constructors and command variants
+  exist only where the decision allows them (`pub(crate)`, module privacy,
+  sealed enums); a screen cannot even name what it must not do.
+- ADR-003, state: `CodexApp` owns one `ThreadModel` per thread, one writer,
+  changed only through `apply`; `ThreadModel` is created only in
+  `core/src/threads.rs`; thread RPCs (resume, turns, subscribe) exist only in
+  `ThreadFx`; a screen asks the app (`OpenThread(id)`) and never resumes a
+  thread or keeps its own copy of thread state.
+- Layers (core pure, IO only in services/host, views without protocol) and
+  rtwk-first (no hand layout, R15) are rules tests in `tests/rules` and
+  `tests/app/layers.rs`; a new decision comes with its test.
+- Where a rule cannot be a type or a test yet, the brief says so and a debt
+  task carries it (process.md A4.1 "ADR departures").
+
 ## Agents and tokens
 - Implementation: agent type `codex-porter` (Sonnet by default; a model override
   is allowed — the person removed the guard hook 2026-11-18). Reviews and research: `codex-reviewer` (Sonnet; `model: opus`
