@@ -2350,3 +2350,47 @@ fn opening_a_task_is_marked_until_the_resume_answers() {
     assert_eq!(m.opening, None);
     assert_eq!(m.resumes, 1);
 }
+
+/// open-rest: Esc on the loading page cancels the opening (the model forgets
+/// it) and the resume's late answer, success or failure, is ignored: no page
+/// change, no notice.
+#[test]
+fn cancelling_the_opening_ignores_the_late_resume_answer() {
+    let target = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
+    assert_eq!(m.opening, Some(target.clone()));
+    let outs = update(&mut m, AgentsIntent::CancelOpen);
+    assert!(outs.is_empty());
+    assert_eq!(m.opening, None);
+    let current = m.current.clone();
+    let mut failed = m.clone();
+    let _ = apply_answer(
+        &mut failed,
+        Ctx::Resume {
+            thread: target.clone(),
+        },
+        Err(RpcError::Remote("no such session".into())),
+    );
+    assert_eq!(failed.notice, None);
+    let task = thread(&target, None, "Task", idle());
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Resume {
+            thread: target.clone(),
+        },
+        Ok(Reply::Resumed(Box::new(task.clone()))),
+    );
+    assert_eq!(m.resumes, 0);
+    assert_eq!(m.current, current);
+    // The ignored answer is consumed: opening the task again works.
+    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Resume { thread: target },
+        Ok(Reply::Resumed(Box::new(task))),
+    );
+    assert_eq!(m.resumes, 1);
+}

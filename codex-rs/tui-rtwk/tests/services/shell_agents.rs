@@ -1286,3 +1286,45 @@ fn a_failed_resume_returns_to_the_command_center_with_the_error() {
     };
     assert_eq!(highlighted(&screen), highlighted(&before));
 }
+
+/// open-rest: Esc on the "Loading task…" page goes back to the command center
+/// with its highlight where it was.
+#[test]
+fn esc_on_the_loading_page_returns_to_the_command_center() {
+    // `server` leaves `thread/resume` unanswered.
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("down");
+    h.settle();
+    let before = h.t.screen();
+    h.t.press("enter");
+    h.t.pump_for(Duration::from_millis(40));
+    assert!(h.t.screen().contains("Loading task…"), "{}", h.t.screen());
+    h.t.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Loading task…"), "{screen}");
+    assert!(screen.contains("Agent command center"), "{screen}");
+    let highlighted = |s: &str| {
+        s.lines()
+            .position(|line| line.contains("Exec task") || line.contains("Interactive task"))
+    };
+    assert_eq!(highlighted(&screen), highlighted(&before));
+}
+
+/// open-rest: a pick in the resume picker (`o`) opens through the same
+/// loading page: pushed at once, before the resume's reply.
+#[test]
+fn a_pick_in_the_resume_picker_shows_the_loading_page() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("o");
+    h.wait_for("the picker", |s| {
+        s.contains("Resume a previous session") && s.contains("Exec task")
+    });
+    h.t.press("enter");
+    h.t.pump_for(Duration::from_millis(40));
+    let screen = h.t.screen();
+    assert!(screen.contains("Loading task…"), "{screen}");
+    assert!(!screen.contains("Resume a previous session"), "{screen}");
+}

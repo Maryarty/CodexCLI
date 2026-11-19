@@ -357,6 +357,13 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             )));
             return vec![list(model, None, false)];
         }
+        (Ctx::Resume { thread }, _) if model.cancelled.contains(&thread) => {
+            // The opening was cancelled meanwhile: the page is gone, the
+            // answer is of no interest.
+            if let Some(at) = model.cancelled.iter().position(|task| *task == thread) {
+                model.cancelled.remove(at);
+            }
+        }
         (Ctx::Resume { .. }, Err(error)) => {
             // The page opened over the center goes back to it with the error.
             model.opening = None;

@@ -48,6 +48,11 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         Intent::ClearSearch => clear_search(model),
         Intent::Accept(at) => accept(model, at, &mut outs),
+        Intent::CancelOpen => {
+            if let Some(thread) = model.opening.take() {
+                model.cancelled.push(thread);
+            }
+        }
         Intent::Resume(thread) => {
             if model.threads.iter().any(|known| known.id == thread) {
                 model.opening = Some(thread.clone());

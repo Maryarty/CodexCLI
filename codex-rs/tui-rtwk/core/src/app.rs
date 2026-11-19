@@ -675,6 +675,7 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
             | agents::Reply::Started(thread),
         ),
     ) = (&ctx, &result)
+        && !matches!(&ctx, agents::Ctx::Resume { thread } if app.screens.agents.cancelled.contains(thread))
     {
         resume_into_chat(app, thread);
     }

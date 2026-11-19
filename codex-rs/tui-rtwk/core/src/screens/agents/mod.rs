@@ -374,6 +374,9 @@ pub struct Model {
     /// failure) clears it (open-instant: the page change does not wait for
     /// the backend).
     pub opening: Option<String>,
+    /// Tasks whose opening was cancelled (Esc on the loading page) while
+    /// their resume was out: that answer, one per cancel, is ignored.
+    pub cancelled: Vec<String>,
     /// The displayed backend's paging; the others' are `parked` (oracle:
     /// `initialized` and `discovery` per backend).
     pub paging: Paging,
@@ -662,6 +665,9 @@ pub enum Intent {
     Accept(Sel),
     /// The resume picker picked this task, hidden or not.
     Resume(String),
+    /// Esc on the loading page: the opening is given up and the resume's
+    /// late answer is ignored.
+    CancelOpen,
     /// Enter on the "Show more" row while a search is open: more matches.
     MoreMatches(Lens),
     /// The rename line was accepted: the task is named `name`.

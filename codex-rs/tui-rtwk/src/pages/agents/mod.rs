@@ -18,7 +18,7 @@ use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded, Offstage, Stack, StackFit};
-use rtwk::navigation::{Navigator, PageRoute, Route};
+use rtwk::navigation::{Navigator, PageRoute, PopInvoked, Route};
 use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
@@ -176,6 +176,8 @@ pub enum Msg {
     Submit(String),
     /// The confirmation dialog was answered yes: the removal.
     Confirmed(view::Confirm),
+    /// The loading page of an opening was popped.
+    OpeningClosed,
 }
 
 impl StatefulWidget for Screen {
