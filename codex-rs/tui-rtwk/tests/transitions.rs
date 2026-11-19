@@ -57,7 +57,6 @@ command_opens! {
     slash_subagents_opens_the_agents: "/subagents" => "agents";
     slash_resume_opens_the_picker: "/resume" => "resume";
     slash_import_opens_the_import: "/import" => "import";
-    slash_diff_opens_the_pager: "/diff" => "pager";
     slash_status_opens_the_status_card: "/status" => "status";
     slash_usage_opens_the_usage_dashboard: "/usage" => "usage";
     slash_usage_weekly_opens_the_usage_dashboard: "/usage weekly" => "usage";
@@ -103,8 +102,6 @@ macro_rules! chord_opens {
 }
 
 chord_opens! {
-    ctrl_t_opens_the_transcript_pager: "ctrl+t" => "pager";
-    f3_opens_the_transcript_pager_to_find: "f3" => "pager";
     f2_opens_the_warnings: "f2" => "dialogs";
 }
 

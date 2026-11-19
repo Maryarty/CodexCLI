@@ -29,6 +29,15 @@ pub struct Body {
 }
 
 pub fn body(prompt: &Prompt, s: &Strings) -> Body {
+    let mut body = build(prompt, s);
+    if !body.form {
+        // The oracle leaves two blank rows between the header and the options.
+        body.header.extend([String::new(), String::new()]);
+    }
+    body
+}
+
+fn build(prompt: &Prompt, s: &Strings) -> Body {
     match prompt {
         Prompt::Exec(exec) => {
             let mut header = Vec::new();

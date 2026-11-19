@@ -6,7 +6,7 @@ use codex_tui_core::commands::Target;
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_rtwk::screens::chat::open;
 use codex_tui_rtwk::screens::{
-    agents, approvals, backtrack, import, pager, pets, resume, settings, usage, voice,
+    agents, approvals, backtrack, import, pets, resume, settings, usage, voice,
 };
 use codex_tui_rtwk::shell::fake::FAKE_THREAD;
 use rtwk_test::{Finder, find};
@@ -62,7 +62,6 @@ fn target_of(dir: &str) -> Target {
         "agents" => Target::Agents,
         "import" => Target::Import,
         "usage" => Target::Usage,
-        "pager" => Target::Pager,
         "status" => Target::Status,
         "select" => Target::Select,
         "settings" => Target::Settings,
@@ -84,7 +83,6 @@ fn widget_of(dir: &str) -> Finder {
         "agents" => find::by_type::<agents::Screen>(),
         "import" => find::by_type::<import::Screen>(),
         "usage" => find::by_type::<usage::Screen>(),
-        "pager" => find::by_type::<pager::Screen>(),
         "settings" => find::by_type::<settings::Screen>(),
         "dialogs" => find::widget_where("SmallDialog", |w| w.type_name() == "SmallDialog"),
         "pets" => find::by_type::<pets::Screen>(),

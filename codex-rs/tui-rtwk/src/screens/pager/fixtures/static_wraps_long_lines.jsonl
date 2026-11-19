@@ -1,4 +1,0 @@
-# The static pager over one line too long for the width.
-# Oracle: pager_overlay.rs static_overlay_wraps_long_lines.
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"pager","ev":{"page":{"title":"S T A T I C","lines":["a very long line that should wrap when rendered within a narrow pager overlay width"]}}}

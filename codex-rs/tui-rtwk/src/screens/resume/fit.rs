@@ -1,4 +1,4 @@
-//! G39 (`docs/rtwk-port/rtwk-gaps.md`): the picker's chrome picks, by the width it
+//! G41 (`docs/rtwk-port/rtwk-gaps.md`): the picker's chrome picks, by the width it
 //! gets, the first of several spellings that fits: the toolbar (full or
 //! compact), each footer hint row (wide labels, compact, or the hints of the
 //! lowest priority numbers) and the footer's progress label. No rtwk widget

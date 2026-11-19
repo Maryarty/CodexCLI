@@ -61,7 +61,6 @@ macro_rules! screen_list {
         select => Select;
         approvals => Approvals;
         settings => Settings;
-        pager => Pager;
         backtrack => Backtrack;
         resume => Resume;
         status => Status;

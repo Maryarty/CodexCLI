@@ -11,7 +11,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use codex_tui_core::commands::Target;
 
 use crate::screens::{
-    agents, approvals, backtrack, dialogs, import, pager, pets, resume, select, settings, status,
+    agents, approvals, backtrack, dialogs, import, pets, resume, select, settings, status,
     usage, voice,
 };
 
@@ -41,7 +41,9 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Agents => push(cx, agents::route()),
         Target::Import => push(cx, import::route()),
         Target::Usage => push(cx, usage::route()),
-        Target::Pager => push(cx, pager::route()),
+        // The pager is the expanded mode of the session page's transcript (chat-live);
+        // until that lands `/diff` and Ctrl+T open nothing.
+        Target::Pager => {}
         Target::Status => drop(status::open(cx)),
         Target::Select => drop(select::open(cx)),
         Target::Settings => drop(settings::open(cx)),

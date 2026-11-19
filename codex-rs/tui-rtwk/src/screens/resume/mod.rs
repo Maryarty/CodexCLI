@@ -4,7 +4,7 @@
 //! their meta lines and the footer with progress and key hints. Its model,
 //! events and intents are core's `codex_tui_core::screens::resume`.
 //! Oracle: `tui/src/resume_picker.rs` and `resume_picker/layout.rs`; the chrome's rows
-//! and ages are in `layout.rs`, what rtwk cannot pick by width in `fit.rs` (G39).
+//! and ages are in `layout.rs`, what rtwk cannot pick by width in `fit.rs` (G41).
 
 use std::rc::Rc;
 

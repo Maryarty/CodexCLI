@@ -31,8 +31,6 @@ mod dialogs;
 mod import;
 #[path = "onboarding.rs"]
 mod onboarding;
-#[path = "pager.rs"]
-mod pager;
 #[path = "pets.rs"]
 mod pets;
 #[path = "popovers.rs"]

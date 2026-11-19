@@ -56,7 +56,7 @@ fn mixed_backend_resume_table_snapshot() {
     );
 }
 
-// `session_list_more_indicators_snapshot` is pending on G40 in the oracle
+// `session_list_more_indicators_snapshot` is pending on G42 in the oracle
 // shard (`tests/oracle/resume_2.rs`): the row scroll of rtwk's list cuts the
 // third row, and the oracle's rows cannot be had.
 
@@ -113,7 +113,7 @@ fn down_and_up_move_the_marker() {
     assert!(oracle_snap::screen(&h.t)[LIST_AT_22].starts_with("  › "));
 }
 
-/// The probe of G39 (`rtwk-gaps.md`): the routes rtwk offers for a chrome row
+/// The probe of G41 (`rtwk-gaps.md`): the routes rtwk offers for a chrome row
 /// that takes the first spelling that fits. The oracle's compact toolbar at
 /// 40 cells is `Filter: All   Status: Active   Sort: Updated`-short on one
 /// row; `Wrap` over the full strip breaks it into rows instead, and

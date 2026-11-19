@@ -136,7 +136,7 @@ fn narrow_session_snapshot() {
 fn session_list_more_indicators_snapshot() {
     kit::pending(
         Owner::RoutesLists,
-        "G40 (rtwk-gaps.md): the oracle scrolls by whole rows of the list with the two `more` lines taking window rows; rtwk's SelectionList scrolls by cells and its window shrinks for the `more` lines after it settled, so the third row shows cut (title only) with the second above it; the cursor cannot start on it either (G35)",
+        "G42 (rtwk-gaps.md): the oracle scrolls by whole rows of the list with the two `more` lines taking window rows; rtwk's SelectionList scrolls by cells and its window shrinks for the `more` lines after it settled, so the third row shows cut (title only) with the second above it; the cursor cannot start on it either (G35)",
     );
     // Five rows (item-0..item-4); the oracle selects the third and the list
     // scrolls to it. The list is six rows at row 6 of a 16-row screen.

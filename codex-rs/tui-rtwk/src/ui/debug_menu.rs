@@ -39,7 +39,7 @@ struct Row {
 #[derive(Clone, Copy)]
 enum RowOpen {
     Plain(DebugOpen),
-    Entry(EntryOpen, &'static str),
+    Entry(EntryOpen, &'static str, DialogOptions),
 }
 
 fn rows(lang: Lang) -> Vec<Row> {
@@ -65,7 +65,15 @@ fn rows(lang: Lang) -> Vec<Row> {
         for entry in (dir.debug_entries)() {
             rows.push(Row {
                 label: format!("    {} - {}", entry.name, entry.description),
-                open: Some(RowOpen::Entry(entry.open, entry.script)),
+                open: Some(RowOpen::Entry(
+                    entry.open,
+                    entry.script,
+                    if dir.id == codex_tui_core::screens::approvals::ID {
+                        screens::approvals::pane_options()
+                    } else {
+                        DialogOptions::default()
+                    },
+                )),
                 heading: false,
             });
         }
@@ -119,7 +127,7 @@ impl State for DebugMenuState {
                                 DialogOptions::default(),
                             ));
                         }
-                        RowOpen::Entry(open, script) => match open {
+                        RowOpen::Entry(open, script, options) => match open {
                             EntryOpen::Route(build) => {
                                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(
                                     move |_| SeededScope { script, build }.into(),
@@ -129,7 +137,7 @@ impl State for DebugMenuState {
                                 drop(show_dialog::<(), _>(
                                     cx,
                                     move |_| SeededScope { script, build }.into(),
-                                    DialogOptions::default(),
+                                    options,
                                 ));
                             }
                         },
