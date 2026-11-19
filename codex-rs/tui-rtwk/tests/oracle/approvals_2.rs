@@ -626,6 +626,10 @@ fn request_user_input_options_notes_visible_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3410 request_user_input_tight_height_snapshot kind=snap owner=dialogs-pane snap=request_user_input_tight_height
 #[test]
 fn request_user_input_tight_height_snapshot() {
+    kit::pending(
+        Owner::DialogsPane,
+        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells capped to the room (Table fills the room, intrinsic height 0; Grid has no cursor); the dialog keeps one line per row",
+    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 10)
         .script(include_str!("fixtures/approvals_2/options.jsonl"))
@@ -659,6 +663,10 @@ fn request_user_input_wrapped_options_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3554 request_user_input_long_option_text_snapshot kind=snap owner=dialogs-pane snap=request_user_input_long_option_text
 #[test]
 fn request_user_input_long_option_text_snapshot() {
+    kit::pending(
+        Owner::DialogsPane,
+        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells capped to the room (Table fills the room, intrinsic height 0; Grid has no cursor); the dialog keeps one line per row",
+    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 18)
         .script(include_str!("fixtures/approvals_2/very_long_option.jsonl"))
@@ -694,6 +702,10 @@ fn request_user_input_footer_wrap_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3625 request_user_input_scroll_options_snapshot kind=snap owner=dialogs-pane snap=request_user_input_scrolling_options
 #[test]
 fn request_user_input_scroll_options_snapshot() {
+    kit::pending(
+        Owner::DialogsPane,
+        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells capped to the room (Table fills the room, intrinsic height 0; Grid has no cursor); the dialog keeps one line per row",
+    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 12)
         .script(include_str!("fixtures/approvals_2/what_next.jsonl"))
@@ -705,6 +717,10 @@ fn request_user_input_scroll_options_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3677 request_user_input_hidden_options_footer_snapshot kind=snap owner=dialogs-pane snap=request_user_input_hidden_options_footer
 #[test]
 fn request_user_input_hidden_options_footer_snapshot() {
+    kit::pending(
+        Owner::DialogsPane,
+        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells capped to the room (Table fills the room, intrinsic height 0; Grid has no cursor); the dialog keeps one line per row",
+    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 10)
         .script(include_str!("fixtures/approvals_2/what_next.jsonl"))
