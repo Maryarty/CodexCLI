@@ -36,6 +36,9 @@ use codex_tui_core::screens::agents::Ev as AgentsEv;
 
 use crate::app::UiApp;
 
+/// The id of the Cloud backend, the second connection of the app.
+pub const CLOUD_BACKEND: BackendId = BackendId(1);
+
 /// What the shell connects the app to.
 pub enum Backend {
     /// Nothing: state tests that never start the shell.
