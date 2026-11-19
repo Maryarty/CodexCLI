@@ -801,3 +801,17 @@ fn o_is_held_back_while_busy() {
     h.settle();
     assert!(!h.t.screen().contains("Resume a previous session"));
 }
+
+/// Item 4: the search key toggles the line (oracle:
+/// `agents_overview_view.rs:731-745`): F3 opens it, F3 again closes it.
+#[test]
+fn f3_toggles_the_search_line() {
+    let mut h = open("overview", 80, 24);
+    assert!(!h.t.screen().contains("Search \u{203a}"));
+    h.press("f3");
+    h.settle();
+    assert!(h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
+    h.press("f3");
+    h.settle();
+    assert!(!h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
+}

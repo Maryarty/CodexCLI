@@ -897,7 +897,13 @@ impl ScreenState {
                         };
                         return Rebuild::Yes;
                     }
+                    // The search key toggles the line (oracle: `search.is_pressed`
+                    // calls `on_ctrl_c` while searching).
                     Act::Search => {
+                        if self.mode == Mode::Search {
+                            self.cancel_editing(model, &center, cx);
+                            return Rebuild::Yes;
+                        }
                         if !matches!(self.mode, Mode::Rename(_)) {
                             self.set_mode(Mode::Search, &center);
                             return Rebuild::Yes;
