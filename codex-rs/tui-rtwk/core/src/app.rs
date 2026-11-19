@@ -34,9 +34,11 @@ use crate::screens::agents;
 use crate::screens::resume;
 use crate::threads;
 use crate::threads::Failure;
+use crate::threads::Origin;
 use crate::threads::ThreadEv;
 use crate::threads::ThreadFx;
 use crate::threads::ThreadModel;
+use crate::threads::ThreadSet;
 
 /// Where the connection to the app-server stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,9 +244,8 @@ pub enum AppCtx {
 /// The model.
 pub struct CodexApp {
     pub session: Rc<SessionSlice>,
-    pub threads: BTreeMap<ThreadId, Rc<ThreadModel>>,
-    /// The projection of "no thread yet": the provider list stays fixed.
-    pub blank_thread: Rc<ThreadModel>,
+    /// The models of the threads (ADR-003): made only by `ThreadSet::open`.
+    threads: ThreadSet,
     pub requests: Rc<RequestQueue>,
     pub screens: Rc<ScreenStates>,
     pub(crate) mint: TicketMint,
@@ -274,8 +275,7 @@ impl CodexApp {
                 switches: 0,
                 switched_from: None,
             }),
-            threads: BTreeMap::new(),
-            blank_thread: Rc::new(ThreadModel::blank()),
+            threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
             screens: Rc::new(ScreenStates::default()),
             mint: TicketMint::default(),
@@ -318,8 +318,8 @@ impl CodexApp {
             .active
             .as_ref()
             .and_then(|id| self.threads.get(id))
-            .cloned()
-            .unwrap_or_else(|| self.blank_thread.clone())
+            .unwrap_or_else(|| self.threads.blank())
+            .clone()
     }
 
     /// The epoch of `backend`'s connection.
@@ -468,7 +468,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             if let Some(id) = app.session.active.clone()
                 && let Some(thread) = app.threads.get_mut(&id)
             {
-                Rc::make_mut(thread).last_error = Some(Failure::Lagged(skipped));
+                thread.last_error = Some(Failure::Lagged(skipped));
             }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),
@@ -514,7 +514,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                         if let Some(active) = app.session.active.clone()
                             && let Some(model) = app.threads.get_mut(&active)
                         {
-                            Rc::make_mut(model).last_error = Some(Failure::from(error));
+                            model.last_error = Some(Failure::from(error));
                         }
                     }
                     (Some(_), _) => {}
@@ -527,11 +527,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
     }
     // A thread RPC: the thread whose model holds the ticket takes it; a
     // ticket nobody holds is stale and dropped.
-    let owner = app
-        .threads
-        .iter()
-        .find(|(_, model)| model.outgoing.contains(ticket))
-        .map(|(id, _)| id.clone());
+    let owner = app.threads.owner_of(ticket);
     if let Some(thread) = owner {
         apply_thread(app, &thread, ThreadEv::Reply { ticket, reply }, fx);
     }
@@ -548,7 +544,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     // composer's draft clears (the blank projection's ticket).
                     app.queued_submits.push(text);
                     let ticket = app.mint.next();
-                    Rc::make_mut(&mut app.blank_thread).last_submit = Some(ticket);
+                    app.threads.blank_mut().last_submit = Some(ticket);
                 }
             }
         }
@@ -709,11 +705,7 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
     {
         // Another process writes the thread: the chat shows it read-only.
         let id = ThreadId::new(thread);
-        let model = app
-            .threads
-            .entry(id.clone())
-            .or_insert_with(|| Rc::new(ThreadModel::new(id.clone())));
-        Rc::make_mut(model).read_only = true;
+        app.threads.open(&id, Origin::ForeignWriter);
         let session = Rc::make_mut(&mut app.session);
         session.active = Some(id);
         session.status = Session::Ready;
@@ -741,8 +733,7 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
         Answer::ThreadStarted { thread } => {
-            app.threads
-                .insert(thread.clone(), Rc::new(ThreadModel::new(thread.clone())));
+            app.threads.open(&thread, Origin::Started);
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
@@ -759,8 +750,7 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
 /// `start_new_session_on_other_backend`): the new thread is the chat's, its
 /// backend the displayed one; the composer's draft goes with it.
 fn switch_to(app: &mut CodexApp, backend: BackendId, thread: ThreadId) {
-    app.threads
-        .insert(thread.clone(), Rc::new(ThreadModel::new(thread.clone())));
+    app.threads.open(&thread, Origin::Started);
     let session = Rc::make_mut(&mut app.session);
     session.switched_from = session.active.replace(thread.clone());
     session.switches += 1;
@@ -798,9 +788,7 @@ fn refresh_cycle(app: &mut CodexApp) {
 /// The resumed thread becomes the chat's: its model is made and active.
 fn resume_into_chat(app: &mut CodexApp, thread: &codex_app_server_protocol::Thread) {
     let id = ThreadId::new(&thread.id);
-    app.threads
-        .entry(id.clone())
-        .or_insert_with(|| Rc::new(ThreadModel::new(id.clone())));
+    app.threads.open(&id, Origin::Resumed);
     let session = Rc::make_mut(&mut app.session);
     session.active = Some(id);
     session.status = Session::Ready;
@@ -808,7 +796,7 @@ fn resume_into_chat(app: &mut CodexApp, thread: &codex_app_server_protocol::Thre
 
 fn submit(app: &mut CodexApp, thread: &ThreadId, text: String, fx: &mut AppFx) {
     let text = text.trim().to_string();
-    if text.is_empty() || !app.threads.contains_key(thread) {
+    if text.is_empty() || !app.threads.contains(thread) {
         return;
     }
     apply_thread(app, thread, ThreadEv::Submit { text }, fx);
@@ -817,11 +805,7 @@ fn submit(app: &mut CodexApp, thread: &ThreadId, text: String, fx: &mut AppFx) {
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
     if let Some(model) = app.threads.get_mut(thread) {
-        threads::apply(
-            Rc::make_mut(model),
-            ev,
-            &mut ThreadFx::new(thread, fx, &mut app.mint),
-        );
+        threads::apply(model, ev, &mut ThreadFx::new(thread, fx, &mut app.mint));
     }
 }
 

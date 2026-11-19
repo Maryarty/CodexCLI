@@ -2,6 +2,7 @@
 //! only here. A thread RPC is requested through `ThreadFx`, which stamps the
 //! thread id.
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -239,11 +240,109 @@ pub struct ThreadModel {
     pub history_next: Option<String>,
     /// Another process writes this thread: it is shown, not edited.
     pub read_only: bool,
+    /// Keeps the struct literal inside this module: a `ThreadModel` is made
+    /// only by `ThreadSet::open` (ADR-003).
+    seal: Seal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Seal;
+
+/// How a thread's model comes to be held (ADR-003: one model per thread).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// A thread this process just started: a fresh model.
+    Started,
+    /// A thread this process resumed or forked: its model, kept if held.
+    Resumed,
+    /// A thread another process writes (`is_active_writer`): shown read-only.
+    ForeignWriter,
+}
+
+/// The models of the threads one process holds, the only place a
+/// `ThreadModel` is created (ADR-003). A thread has one model; `open` is the
+/// one door.
+#[derive(Clone, Debug)]
+pub struct ThreadSet {
+    held: BTreeMap<ThreadId, Rc<ThreadModel>>,
+    /// The projection of "no thread yet": the provider list stays fixed.
+    blank: Rc<ThreadModel>,
+}
+
+impl Default for ThreadSet {
+    fn default() -> Self {
+        Self {
+            held: BTreeMap::new(),
+            blank: Rc::new(ThreadModel::new(ThreadId::default())),
+        }
+    }
+}
+
+impl ThreadSet {
+    /// The model of `id`, made when it is not held (`Started` always makes a
+    /// fresh one; `ForeignWriter` marks it read-only).
+    pub fn open(&mut self, id: &ThreadId, origin: Origin) -> &mut ThreadModel {
+        if origin == Origin::Started {
+            self.held
+                .insert(id.clone(), Rc::new(ThreadModel::new(id.clone())));
+        }
+        let model = Rc::make_mut(
+            self.held
+                .entry(id.clone())
+                .or_insert_with(|| Rc::new(ThreadModel::new(id.clone()))),
+        );
+        if origin == Origin::ForeignWriter {
+            model.read_only = true;
+        }
+        model
+    }
+
+    pub fn get(&self, id: &ThreadId) -> Option<&Rc<ThreadModel>> {
+        self.held.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &ThreadId) -> Option<&mut ThreadModel> {
+        self.held.get_mut(id).map(Rc::make_mut)
+    }
+
+    pub fn contains(&self, id: &ThreadId) -> bool {
+        self.held.contains_key(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ThreadId, &Rc<ThreadModel>)> {
+        self.held.iter()
+    }
+
+    /// The thread whose model holds this ticket.
+    pub fn owner_of(&self, ticket: Ticket) -> Option<ThreadId> {
+        self.held
+            .iter()
+            .find(|(_, model)| model.outgoing.contains(ticket))
+            .map(|(id, _)| id.clone())
+    }
+
+    /// The projection of "no thread yet".
+    pub fn blank(&self) -> &Rc<ThreadModel> {
+        &self.blank
+    }
+
+    pub fn blank_mut(&mut self) -> &mut ThreadModel {
+        Rc::make_mut(&mut self.blank)
+    }
 }
 
 impl ThreadModel {
-    pub fn new(id: ThreadId) -> Self {
+    fn new(id: ThreadId) -> Self {
         Self {
+            seal: Seal,
             id,
             transcript: Transcript::default(),
             turn: TurnState::Idle,
@@ -256,11 +355,6 @@ impl ThreadModel {
             history_next: None,
             read_only: false,
         }
-    }
-
-    /// The projection of "no thread yet".
-    pub fn blank() -> Self {
-        Self::new(ThreadId::default())
     }
 
     pub fn is_running(&self) -> bool {
