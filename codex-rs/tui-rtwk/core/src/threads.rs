@@ -92,6 +92,19 @@ impl Transcript {
         }
     }
 
+    /// Puts an older page of history before every entry the transcript has
+    /// (oldest first); an entry it already holds keeps its place.
+    pub fn prepend_page(&mut self, page: Vec<(ItemKey, Item)>) {
+        let mut older = Vec::new();
+        for (key, item) in page {
+            if self.items.insert(key.clone(), Rc::new(item)).is_none() {
+                older.push(key);
+            }
+        }
+        older.append(&mut self.order);
+        self.order = older;
+    }
+
     /// Replaces every entry of `turn` with `items`, in their order; a
     /// snapshot wins, it is never merged by id (R4).
     pub fn replace_turn(&mut self, turn: &TurnId, items: Vec<(ItemId, Item)>) {
@@ -149,6 +162,12 @@ pub enum ThreadEv {
     Reply {
         ticket: Ticket,
         reply: Reply,
+    },
+    /// A page of the thread's history (`thread/turns/list`, newest page
+    /// first): the entries go before what the transcript has.
+    HistoryPage {
+        items: Vec<(ItemKey, Item)>,
+        next: Option<String>,
     },
     TurnStarted {
         turn: TurnId,
@@ -215,6 +234,9 @@ pub struct ThreadModel {
     pub last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
     pub last_ended: Option<TurnId>,
+    /// The cursor of the next older page of history; none once the oldest
+    /// page was read.
+    pub history_next: Option<String>,
 }
 
 impl ThreadModel {
@@ -229,6 +251,7 @@ impl ThreadModel {
             slots: ThreadSlots::default(),
             last_error: None,
             last_ended: None,
+            history_next: None,
         }
     }
 
@@ -342,6 +365,48 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
     }
 }
 
+/// The entries of a page of turns, newest page first as the server sends
+/// it, in transcript order (oldest first). Kinds the transcript does not
+/// show yet are left out.
+pub fn history_items(turns: &[codex_app_server_protocol::Turn]) -> Vec<(ItemKey, Item)> {
+    turns
+        .iter()
+        .rev()
+        .flat_map(|turn| {
+            turn.items.iter().filter_map(|item| {
+                let (id, entry) = item_entry(&item.payload)?;
+                Some((
+                    ItemKey {
+                        turn: TurnId::new(&turn.id),
+                        item: ItemId::new(&id),
+                    },
+                    entry,
+                ))
+            })
+        })
+        .collect()
+}
+
+fn item_entry(payload: &ThreadItemPayload) -> Option<(String, Item)> {
+    Some(match payload {
+        ThreadItemPayload::UserMessage { id, content, .. } => {
+            let text = content
+                .iter()
+                .filter_map(|input| match input {
+                    UserInput::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            (id.clone(), Item::User { text })
+        }
+        ThreadItemPayload::AgentMessage { id, text, .. } => {
+            (id.clone(), Item::Agent { text: text.clone() })
+        }
+        _ => return None,
+    })
+}
+
 fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId, ThreadEv)> {
     let (id, entry) = match &item.payload {
         ThreadItemPayload::UserMessage { id, content, .. } => {
@@ -383,6 +448,10 @@ pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 
 fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     match ev {
+        ThreadEv::HistoryPage { items, next } => {
+            model.transcript.prepend_page(items);
+            model.history_next = next;
+        }
         ThreadEv::Submit { text } => {
             // The decision is here (R10): while a turn runs or starts the
             // message is queued, otherwise it starts a turn.

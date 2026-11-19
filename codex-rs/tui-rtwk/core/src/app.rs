@@ -679,6 +679,21 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
     {
         resume_into_chat(app, thread);
     }
+    if let (agents::Ctx::History { thread }, Ok(agents::Reply::History { turns, next })) =
+        (&ctx, &result)
+    {
+        let thread = ThreadId::new(thread);
+        let items = threads::history_items(turns);
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::HistoryPage {
+                items,
+                next: next.clone(),
+            },
+            fx,
+        );
+    }
     let outs = agents::apply_answer(&mut Rc::make_mut(&mut app.screens).agents, ctx, result);
     send_agents(app, outs, fx);
 }

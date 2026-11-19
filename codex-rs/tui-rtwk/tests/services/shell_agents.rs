@@ -1328,3 +1328,51 @@ fn a_pick_in_the_resume_picker_shows_the_loading_page() {
     assert!(screen.contains("Loading task…"), "{screen}");
     assert!(!screen.contains("Resume a previous session"), "{screen}");
 }
+
+/// A turn of `thread/turns/list`: a prompt and an answer.
+fn turn_json(id: &str, prompt: &str, answer: &str) -> Value {
+    json!({
+        "id": id, "rootTurnId": null, "itemsView": "full", "status": "completed",
+        "error": null, "startedAt": null, "completedAt": null, "durationMs": null,
+        "items": [
+            {"type": "userMessage", "id": format!("{id}-u"), "clientId": null,
+             "content": [{"type": "text", "text": prompt, "text_elements": []}]},
+            {"type": "agentMessage", "id": format!("{id}-a"), "text": answer}
+        ]
+    })
+}
+
+/// open-rest: the opened session shows its history: `thread/turns/list`
+/// pages the turns newest first, the transcript shows them oldest first.
+#[test]
+fn the_opened_session_shows_its_history() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Ok(resumed(request["params"]["threadId"].as_str()?))),
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => Some(Ok(json!({
+            "data": [
+                turn_json("t2", "second question", "second answer"),
+                turn_json("t1", "first question", "first answer")
+            ],
+            "nextCursor": null
+        }))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    h.wait_for("the history", |s| s.contains("second answer"));
+    let screen = h.t.screen();
+    let at = |needle: &str| screen.find(needle).unwrap_or_else(|| panic!("{needle}: {screen}"));
+    assert!(at("first question") < at("first answer"), "{screen}");
+    assert!(at("first answer") < at("second question"), "{screen}");
+    assert!(at("second question") < at("second answer"), "{screen}");
+    let asked: Vec<Value> = h
+        .fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "thread/turns/list" && r["params"]["limit"] != 1)
+        .map(|r| r["params"].clone())
+        .collect();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["sortDirection"], "desc");
+    assert_eq!(asked[0]["itemsView"], "full");
+}

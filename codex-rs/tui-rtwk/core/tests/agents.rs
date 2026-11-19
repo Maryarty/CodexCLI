@@ -2394,3 +2394,29 @@ fn cancelling_the_opening_ignores_the_late_resume_answer() {
     );
     assert_eq!(m.resumes, 1);
 }
+
+/// open-rest: an answered resume asks for the task's history, the newest page
+/// first.
+#[test]
+fn an_answered_resume_asks_for_the_history() {
+    let target = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let _ = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
+    let task = thread(&target, None, "Task", idle());
+    let outs = apply_answer(
+        &mut m,
+        Ctx::Resume {
+            thread: target.clone(),
+        },
+        Ok(Reply::Resumed(Box::new(task))),
+    );
+    assert_eq!(
+        outs.iter().map(|out| out.command.clone()).collect::<Vec<_>>(),
+        vec![Command::History {
+            thread: target,
+            cursor: None
+        }]
+    );
+}

@@ -409,7 +409,19 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.current = Some(thread);
             model.opening = None;
             model.resumes += 1;
+            // The session's history, the newest page first.
+            let thread = model.current.clone().unwrap_or_default();
+            return vec![out(
+                Command::History {
+                    thread: thread.clone(),
+                    cursor: None,
+                },
+                Ctx::History { thread },
+            )];
         }
+        // The page of history goes to the thread's transcript (the app
+        // routes it); the center has nothing to change.
+        (Ctx::History { .. }, _) => {}
         (Ctx::Start, Ok(Reply::Started(thread))) => opened(model, &thread),
         (Ctx::Start, Ok(_)) => {}
         (Ctx::Start, Err(error)) => {
