@@ -6,11 +6,27 @@
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
-/// The session `chat` with `route`'s page pushed over it at mount.
+/// The page the command line starts on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Start {
+    Agents,
+    Resume,
+}
+
+impl Start {
+    fn route(self) -> PageRoute<()> {
+        match self {
+            Start::Agents => crate::screens::agents::start_route(),
+            Start::Resume => crate::screens::resume::route(),
+        }
+    }
+}
+
+/// The session `chat` with the `start` page pushed over it at mount.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartPage {
     pub chat: AnyWidget,
-    pub route: fn() -> PageRoute<()>,
+    pub start: Start,
 }
 
 pub struct StartPageState;
@@ -35,7 +51,7 @@ impl State for StartPageState {
     }
 
     fn update(&mut self, _: (), w: &StartPage, cx: &mut Cx<'_, Self>) -> Rebuild {
-        drop(Navigator::of(cx).push::<()>((w.route)()));
+        drop(Navigator::of(cx).push::<()>(w.start.route()));
         Rebuild::No
     }
 

@@ -20,7 +20,7 @@ use crate::app::UiApp;
 use crate::screens;
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::presenter::home_node;
-use crate::ui::start_page::StartPage;
+use crate::ui::start_page::{Start, StartPage};
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {
@@ -57,13 +57,13 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     } else if app.ui.start_agents {
         StartPage {
             chat: screens::chat::home(app),
-            route: screens::agents::start_route,
+            start: Start::Agents,
         }
         .into()
     } else if app.ui.start_resume {
         StartPage {
             chat: screens::chat::home(app),
-            route: screens::resume::route,
+            start: Start::Resume,
         }
         .into()
     } else {
