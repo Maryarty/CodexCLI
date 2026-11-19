@@ -36,6 +36,120 @@ pub struct Model {
     /// What the last command answered with: shown above the composer until
     /// the next submit.
     pub notice: Option<ChatNotice>,
+    /// What the status line shows, read by the host (config, cwd, git).
+    pub status: StatusFacts,
+}
+
+/// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
+/// names none.
+const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
+
+/// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
+const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
+
+/// The facts of the status line that need no session: the loaded config
+/// (model, reasoning effort, approval mode, `tui.status_line`,
+/// `tui.status_line_use_colors`) and what the host reads of the workspace
+/// (cwd, project root, git branch). The host sends them as one event
+/// (`Ev::Status`); the texts are the oracle's
+/// (`status_line_value_for_item`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct StatusFacts {
+    pub model: Option<String>,
+    /// The reasoning effort's name (`high`); none or `none` reads `default`.
+    pub effort: Option<String>,
+    /// The approval policy as the config writes it (`on-request`).
+    pub approval_policy: Option<String>,
+    /// The approvals reviewer is the auto reviewer.
+    pub auto_review: bool,
+    /// The working directory as shown (`~/dev/app`).
+    pub cwd: Option<String>,
+    /// The name of the project root (the git root's directory).
+    pub project_root: Option<String>,
+    pub branch: Option<String>,
+    /// `tui.status_line`: item ids in the order shown; none is the default.
+    pub items: Option<Vec<String>>,
+    /// `tui.status_line_use_colors`.
+    pub colors: bool,
+}
+
+impl Default for StatusFacts {
+    fn default() -> Self {
+        Self {
+            model: None,
+            effort: None,
+            approval_policy: None,
+            auto_review: false,
+            cwd: None,
+            project_root: None,
+            branch: None,
+            items: None,
+            colors: true,
+        }
+    }
+}
+
+impl StatusFacts {
+    /// The items to draw, in the configured order, each as its id (as the
+    /// config wrote it) and text. An item without a value (it needs the
+    /// session, or the host found nothing) and an unknown id are left out.
+    pub fn items(&self) -> Vec<(String, String)> {
+        let ids: Vec<String> = match &self.items {
+            Some(items) => items.clone(),
+            None => DEFAULT_STATUS_LINE_ITEMS
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        };
+        ids.into_iter()
+            .filter_map(|id| self.value(&id).map(|text| (id, text)))
+            .collect()
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        let model = self.model.as_deref()?;
+        Some(if model.eq_ignore_ascii_case(LUNA_RESERVE_MODEL) {
+            "Luna Reserve"
+        } else {
+            model
+        })
+    }
+
+    /// `status_line_reasoning_effort_label`.
+    fn effort_label(&self) -> &str {
+        match self.effort.as_deref() {
+            None | Some("none") => "default",
+            Some(effort) => effort,
+        }
+    }
+
+    /// `approval_mode_display`.
+    fn approval(&self) -> Option<String> {
+        let policy = self.approval_policy.as_deref()?;
+        Some(match (policy, self.auto_review) {
+            ("on-request", true) => "Approve for me".to_string(),
+            ("on-request", false) => "Ask for approval".to_string(),
+            (other, _) => other.to_string(),
+        })
+    }
+
+    /// `status_line_value_for_item` for the items that need no session; the
+    /// ids are `StatusLineItem`'s names and their serialize aliases.
+    fn value(&self, id: &str) -> Option<String> {
+        match id {
+            "model" | "model-name" => self.model_name().map(ToString::to_string),
+            "model-with-reasoning" => self
+                .model_name()
+                .map(|model| format!("{model} {}", self.effort_label())),
+            "reasoning" => Some(self.effort_label().to_string()),
+            "current-dir" => self.cwd.clone(),
+            "project" | "project-root" => self.project_root.clone(),
+            "git-branch" => self.branch.clone(),
+            "approval-mode" | "approval" => self.approval(),
+            _ => None,
+        }
+    }
 }
 
 /// An answer to a command shown in the chat.
@@ -63,6 +177,7 @@ impl Default for Model {
             service_tiers: Vec::new(),
             signed_in: true,
             notice: None,
+            status: StatusFacts::default(),
         }
     }
 }
@@ -74,6 +189,8 @@ pub enum Ev {
     Flags(CommandFlags),
     ServiceTiers(Vec<ServiceTierCommand>),
     SignedIn(bool),
+    /// The host read the config and the workspace.
+    Status(StatusFacts),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -97,6 +214,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Flags(flags) => model.flags = flags,
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
+        Ev::Status(facts) => model.status = facts,
     }
 }
 
@@ -163,13 +281,14 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// The seed form of this screen's events:
 /// `{"flags":{"voice_command_enabled":true}}` (the named gates switch on, the
 /// others keep their defaults), `{"service_tiers":[{id,name,description}]}`,
-/// `{"signed_in":false}`.
+/// `{"signed_in":false}`, `{"status":{StatusFacts}}`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
     Flags(SeedFlags),
     ServiceTiers(Vec<SeedTier>),
     SignedIn(bool),
+    Status(StatusFacts),
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -239,5 +358,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 .collect(),
         ),
         SeedEv::SignedIn(on) => Ev::SignedIn(on),
+        SeedEv::Status(facts) => Ev::Status(facts),
     })
 }
