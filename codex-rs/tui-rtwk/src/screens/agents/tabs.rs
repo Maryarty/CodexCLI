@@ -15,6 +15,7 @@ use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::Style;
 use rtwk::text::Text;
+use rtwk::text::segmenter_of;
 use rtwk_core::unicode::TextSegmenter;
 
 /// The tabs shown at `width` cells: the whole tabs around the active one that
@@ -29,13 +30,12 @@ pub struct Strip {
     pub widths: Vec<usize>,
 }
 
-pub fn strip(labels: &[String], active: usize, width: usize) -> Strip {
+pub fn strip(seg: TextSegmenter, labels: &[String], active: usize, width: usize) -> Strip {
     let count = labels.len();
     let none = Strip { start: 0, end: 0, left: false, right: false, widths: Vec::new() };
     if count == 0 || width == 0 {
         return none;
     }
-    let seg = TextSegmenter::default();
     let widths: Vec<usize> = labels.iter().map(|l| seg.width(l) + 2).collect();
     let occupied = |start: usize, end: usize| {
         widths[start..end].iter().sum::<usize>() + end - start - 1
@@ -83,14 +83,14 @@ fn mark(text: &'static str, style: &Style) -> AnyWidget {
 
 impl Tabs {
     pub fn widget(self) -> AnyWidget {
-        LayoutBuilder::new(move |_, constraints| {
-            self.row(usize::try_from(constraints.max_width).unwrap_or(0))
+        LayoutBuilder::new(move |cx, constraints| {
+            self.row(segmenter_of(cx), usize::try_from(constraints.max_width).unwrap_or(0))
         })
         .into()
     }
 
-    fn row(&self, width: usize) -> AnyWidget {
-        let shown = strip(&self.labels, self.active, width);
+    fn row(&self, seg: TextSegmenter, width: usize) -> AnyWidget {
+        let shown = strip(seg, &self.labels, self.active, width);
         let (selected, idle) = &self.styles;
         let blank = |cells: i32| -> AnyWidget { SizedBox::fixed(cells, 1).into() };
         let mut row = Row::new();
@@ -127,9 +127,9 @@ mod tests {
             .iter()
             .map(ToString::to_string)
             .collect();
-        let narrow = strip(&labels, 0, 44);
+        let narrow = strip(TextSegmenter::default(), &labels, 0, 44);
         assert_eq!((narrow.start, narrow.end, narrow.right), (0, 3, true));
-        let wide = strip(&labels, 0, 76);
+        let wide = strip(TextSegmenter::default(), &labels, 0, 76);
         assert_eq!((wide.end, wide.right), (5, false));
     }
 }

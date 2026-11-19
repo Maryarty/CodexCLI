@@ -3,11 +3,11 @@
 //! groups of `key  action` rows, flowed into three, two or one column by the
 //! width, each group's keys aligned in a `Grid`.
 
+use super::soft::Measure;
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, Grid, GridPlacement, GridTrack, MainAxisSize, Row, SizedBox};
 use rtwk::style::Style;
 use rtwk::text::Text;
-use rtwk_core::unicode::{TextMode, string_width};
 
 /// A titled group of `(key, action)` entries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,8 +26,8 @@ pub struct Ink {
 
 const GAP: i32 = 4;
 
-fn cells(text: &str) -> usize {
-    string_width(text, TextMode::Graphemes, 1)
+fn cells(seg: Measure, text: &str) -> usize {
+    seg.width(text)
 }
 
 impl Group {
@@ -37,23 +37,23 @@ impl Group {
 
     /// The widest of its title and its rows (the key column and two blanks
     /// before the action).
-    fn width(&self) -> usize {
-        let key = self.entries.iter().map(|(key, _)| cells(key)).max().unwrap_or(0);
-        let rows = self.entries.iter().map(|(_, action)| key + 2 + cells(action));
-        rows.chain([cells(&self.title)]).max().unwrap_or(0)
+    fn width(&self, seg: Measure) -> usize {
+        let key = self.entries.iter().map(|(key, _)| cells(seg, key)).max().unwrap_or(0);
+        let rows = self.entries.iter().map(|(_, action)| key + 2 + cells(seg, action));
+        rows.chain([cells(seg, &self.title)]).max().unwrap_or(0)
     }
 
     /// The widest key (the keys of the rows cut off count too).
-    fn keys(&self) -> i32 {
-        let widest = self.entries.iter().map(|(key, _)| cells(key)).max();
+    fn keys(&self, seg: Measure) -> i32 {
+        let widest = self.entries.iter().map(|(key, _)| cells(seg, key)).max();
         i32::try_from(widest.unwrap_or(0)).unwrap_or(0)
     }
 
     /// The group's title and its first `rows - 1` entries.
-    fn grid(&self, rows: usize, ink: &Ink) -> AnyWidget {
+    fn grid(&self, seg: Measure, rows: usize, ink: &Ink) -> AnyWidget {
         let mut grid = Grid::new()
             .overflow_intended(true)
-            .columns([GridTrack::fixed(self.keys()), GridTrack::content()])
+            .columns([GridTrack::fixed(self.keys(seg)), GridTrack::content()])
             .column_gap(2)
             .child(GridPlacement::new(Text::line(self.title.clone()).style(ink.title.clone())).span(1, 2));
         for (key, action) in self.entries.iter().take(rows.saturating_sub(1)) {
@@ -66,7 +66,7 @@ impl Group {
 }
 
 /// Groups stacked with a blank row between, cut to `keep` rows.
-fn stacked(groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
+fn stacked(seg: Measure, groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
     let mut column = Column::new()
         .overflow_intended(true)
         .main_axis_size(MainAxisSize::Min)
@@ -81,7 +81,7 @@ fn stacked(groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
             left -= 1;
         }
         let rows = group.rows().min(left);
-        column = column.child(group.grid(rows, ink));
+        column = column.child(group.grid(seg, rows, ink));
         left -= rows;
         if left == 0 {
             break;
@@ -93,6 +93,7 @@ fn stacked(groups: &[&Group], keep: usize, ink: &Ink) -> AnyWidget {
 /// The help under its `title`, in `width` cells and `fits` rows: the columns
 /// the width holds, and the resize note (`resize`) when the rows do not fit.
 pub fn help(
+    seg: Measure,
     title: &str,
     groups: &[Group; 3],
     (width, fits): (usize, usize),
@@ -100,7 +101,7 @@ pub fn help(
     ink: &Ink,
 ) -> AnyWidget {
     let [a, b, c] = groups;
-    let (wa, wb, wc) = (a.width(), b.width(), c.width());
+    let (wa, wb, wc) = (a.width(seg), b.width(seg), c.width(seg));
     let (columns, rows): (Vec<Vec<&Group>>, usize) = if wa + wb + wc + 2 * GAP as usize <= width {
         (vec![vec![a], vec![b], vec![c]], a.rows().max(b.rows()).max(c.rows()))
     } else if wa + GAP as usize + wb.max(wc) <= width {
@@ -115,7 +116,7 @@ pub fn help(
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(GAP);
     for column in &columns {
-        row = row.child(stacked(column, keep, ink));
+        row = row.child(stacked(seg, column, keep, ink));
     }
     let mut page = Column::new()
         .overflow_intended(true)

@@ -9,16 +9,16 @@ use rtwk_core::unicode::TextSegmenter;
 use rtwk_core::unicode::fit_text;
 
 /// The cells `text` takes on the screen.
-fn columns(text: &str) -> usize {
-    TextSegmenter::default().width(text)
+fn columns(seg: TextSegmenter, text: &str) -> usize {
+    seg.width(text)
 }
 
 /// The end of `original` that fits `allowed` cells behind a `…`.
-fn front_truncate(original: &str, allowed: usize) -> String {
+fn front_truncate(seg: TextSegmenter, original: &str, allowed: usize) -> String {
     if allowed == 0 {
         return String::new();
     }
-    if columns(original) <= allowed {
+    if columns(seg, original) <= allowed {
         return original.to_owned();
     }
     if allowed == 1 {
@@ -26,7 +26,7 @@ fn front_truncate(original: &str, allowed: usize) -> String {
     }
     let room = isize::try_from(allowed).unwrap_or(isize::MAX);
     fit_text(
-        &TextSegmenter::default(),
+        &seg,
         original,
         room,
         TextOverflow::EllipsisStart,
@@ -60,6 +60,7 @@ fn assemble(leading: bool, pieces: &[Piece<'_>]) -> String {
 /// Cuts `pieces` until the path fits `max` cells: the segment that may be
 /// cut, tail ones first, loses its start behind a `…`.
 fn fit_pieces(
+    seg: TextSegmenter,
     leading: bool,
     pieces: &mut [Piece<'_>],
     max: usize,
@@ -68,7 +69,7 @@ fn fit_pieces(
 ) -> Option<String> {
     loop {
         let candidate = assemble(leading, pieces);
-        let width = columns(&candidate);
+        let width = columns(seg, &candidate);
         if width <= max {
             return Some(candidate);
         }
@@ -86,12 +87,12 @@ fn fit_pieces(
             .collect();
         let mut changed = false;
         for at in order {
-            if columns(pieces[at].original) <= max && count > 2 {
+            if columns(seg, pieces[at].original) <= max && count > 2 {
                 continue;
             }
-            let others = width.saturating_sub(columns(&pieces[at].text));
+            let others = width.saturating_sub(columns(seg, &pieces[at].text));
             let allowed = max.saturating_sub(others).max(1);
-            let text = front_truncate(pieces[at].original, allowed);
+            let text = front_truncate(seg, pieces[at].original, allowed);
             if text != pieces[at].text {
                 pieces[at].text = text;
                 changed = true;
@@ -107,11 +108,11 @@ fn fit_pieces(
 /// A path cut to `max` cells with a `…` in place of its middle segments,
 /// its first segments and its last two kept as the room allows (oracle:
 /// `text_formatting.rs` `center_truncate_path`, held to its four tests).
-pub fn center_truncate_path(path: &str, max: usize) -> String {
+pub fn center_truncate_path(seg: TextSegmenter, path: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
     }
-    if columns(path) <= max {
+    if columns(seg, path) <= max {
         return path.to_owned();
     }
     let leading = path.starts_with('/');
@@ -170,18 +171,18 @@ pub fn center_truncate_path(path: &str, max: usize) -> String {
             cuttable: true,
             tail: true,
         }));
-        if let Some(fit) = fit_pieces(leading, &mut pieces, max, ellipsis || count <= 2, count) {
+        if let Some(fit) = fit_pieces(seg, leading, &mut pieces, max, ellipsis || count <= 2, count) {
             return fit;
         }
     }
-    front_truncate(path, max)
+    front_truncate(seg, path, max)
 }
 
 /// A group heading's path cut to what a row of `width` cells leaves behind
 /// the `count` and its two blanks, at most 64 cells (oracle: `heading`).
-pub fn fit_heading(path: &str, count: &str, width: usize) -> String {
-    let room = width.saturating_sub(columns(count) + 2).min(64);
-    center_truncate_path(path, room)
+pub fn fit_heading(seg: TextSegmenter, path: &str, count: &str, width: usize) -> String {
+    let room = width.saturating_sub(columns(seg, count) + 2).min(64);
+    center_truncate_path(seg, path, room)
 }
 
 #[cfg(test)]
@@ -191,7 +192,7 @@ mod tests {
     #[test]
     fn test_center_truncate_doesnt_truncate_short_path() {
         assert_eq!(
-            center_truncate_path("/Users/codex/Public", 40),
+            center_truncate_path(TextSegmenter::default(), "/Users/codex/Public", 40),
             "/Users/codex/Public"
         );
     }
@@ -199,7 +200,7 @@ mod tests {
     #[test]
     fn test_center_truncate_truncates_long_path() {
         assert_eq!(
-            center_truncate_path("~/hello/the/fox/is/very/fast", 24),
+            center_truncate_path(TextSegmenter::default(), "~/hello/the/fox/is/very/fast", 24),
             "~/hello/the/\u{2026}/very/fast"
         );
     }
@@ -208,7 +209,7 @@ mod tests {
     fn test_center_truncate_truncates_long_windows_path() {
         let path = "C:/Users/codex/Projects/super/long/windows/path/file.txt";
         assert_eq!(
-            center_truncate_path(path, 36),
+            center_truncate_path(TextSegmenter::default(), path, 36),
             "C:/Users/codex/\u{2026}/path/file.txt"
         );
     }
@@ -216,7 +217,7 @@ mod tests {
     #[test]
     fn test_center_truncate_handles_long_segment() {
         assert_eq!(
-            center_truncate_path("~/supercalifragilisticexpialidocious", 18),
+            center_truncate_path(TextSegmenter::default(), "~/supercalifragilisticexpialidocious", 18),
             "~/\u{2026}cexpialidocious"
         );
     }

@@ -318,3 +318,13 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
   the time of this task.
 - G36: `agents_overview_tab_strip_draws_oracle_filled_tabs_on_tabbar` is `pending(Rtwk)`
   (probe run: `TabBar` rows differ from the oracle's, see the gap row).
+
+## agents-canonical-fix (review `reviews/agents-canonical.md`)
+
+- Keys sit on each mode's widget (browse on the list or the empty line's focus stop, search/rename on the editing line, help on the help pane); `Mode { Browse, Help, Search, Rename }` replaces `help` + `editing`; no `Msg::Refocus`, `root_focus`, `listed`. List, editing line and help stay mounted under `Offstage` + `ExcludeFocus`, so the focus recovers with no request (tests `modes_hand_the_focus_back_without_a_request`, `the_empty_list_and_the_list_each_hold_the_keys`). An unmounted editor or help, or `SelectionList::enabled(false)`, loses the recovery in the app (the focus lands on the page scope): measured, so the mounted-offstage shape is used.
+- A rename refuses the mouse with `IgnorePointer` at the list (not `enabled(false)`, which loses the focus recovery). The screen's `Msg::Row` guard already refused the click; the test `a_click_while_renaming_leaves_the_highlight_where_it_was` guards it and does not bite on its own.
+- Usage is asked on `Msg::Cursor` (test `an_arrow_move_asks_for_the_new_tasks_usage`, bites).
+- `path`, `soft`, `tabs`, `help` measure with `segmenter_of(cx)` (unit test `rows_follow_the_segmenter_given`).
+- Build writes no state (row/tab taps made in `did_change_dependencies` and after `update`); the filter is a `TabController`.
+- One `ui::session_list` (Agents + Resume) and one `ui::age`; G38 facade export only; N2 not a gap.
+- Left: one shared confirmation picker for `agents/dialogs.rs` and `select/dialog.rs`.

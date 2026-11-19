@@ -16,21 +16,19 @@ use rtwk::StatelessWidget;
 use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
-use rtwk::NotificationListener;
 use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
-use rtwk::focus::{ExcludeFocus, FocusNode};
+use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
-use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::gestures::{GestureDetector, IgnorePointer, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
     BorderType, BoxWidget, Center as Middle, Column, CrossAxisAlignment, Divider, EdgeInsets,
-    Expanded, MainAxisSize, Padding, Row, SizedBox, VerticalDivider,
+    Expanded, MainAxisSize, Offstage, Padding, Row, SizedBox, VerticalDivider,
 };
 use rtwk::overlay::Dialog;
-use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Attrs, Span, Style, ThemeData};
-use rtwk::text::{Text, TextAlign, TextWrap};
+use rtwk::text::{Text, TextAlign, TextWrap, segmenter_of};
 
 use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::{
@@ -39,8 +37,9 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
+use crate::ui::session_list::SessionList;
 use super::path;
-use super::soft;
+use super::soft::{self, Measure};
 use super::strings::Strings;
 use super::tabs::Tabs;
 use super::usage;
@@ -236,13 +235,7 @@ pub fn neighbour(center: &Center, from: usize, forward: bool) -> Option<Sel> {
     found.and_then(RowKey::into_sel)
 }
 
-/// Where the list is scrolled to: whether rows lie above and below the
-/// window (the overflow arrows).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Scrolled {
-    pub above: bool,
-    pub below: bool,
-}
+pub use crate::ui::session_list::Scrolled;
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
 /// handlers of the lines they tell.
@@ -251,11 +244,29 @@ pub struct Controls {
     pub selection: SelectionController<RowKey>,
     pub edit: TextEditingController,
     pub focus: FocusNode,
+    /// The stop of the empty list's line (it holds the keys when no row
+    /// does).
+    pub empty_focus: FocusNode,
     pub edit_focus: FocusNode,
+    /// The keys each mode's widget binds.
+    pub keys: Keys,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
+}
+
+/// A key table's handlers, name and handler (`KeyBindings`).
+pub type Table = Vec<(&'static str, Handler<()>)>;
+
+/// The key tables of the modes: each binds on the widget the mode shows, so
+/// the focus decides which one the key reaches.
+#[derive(Clone)]
+pub struct Keys {
+    pub browse: Table,
+    pub search: Table,
+    pub rename: Table,
+    pub help: Table,
 }
 
 /// The part of the controls the list takes.
@@ -263,6 +274,7 @@ pub struct Controls {
 struct ListControls {
     selection: SelectionController<RowKey>,
     focus: FocusNode,
+    empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
     open: Handler<RowKey>,
 }
@@ -304,22 +316,17 @@ fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
 }
 
 
-/// The age column (oracle: `format_relative_time`).
+/// The age column (oracle: `format_relative_time`): the shared age, worded
+/// with this page's strings.
 fn age(strings: &Strings, now: i64, updated: i64) -> String {
-    let seconds = (now - updated).max(0);
-    if seconds == 0 {
-        return strings.now.to_owned();
+    use crate::ui::age::{Age, age};
+    match age(now, Some(updated)) {
+        Age::Missing | Age::Now => strings.now.to_owned(),
+        Age::Seconds(n) => format!("{n}{}", strings.ago[0]),
+        Age::Minutes(n) => format!("{n}{}", strings.ago[1]),
+        Age::Hours(n) => format!("{n}{}", strings.ago[2]),
+        Age::Days(n) => format!("{n}{}", strings.ago[3]),
     }
-    let (value, unit) = if seconds < 60 {
-        (seconds, strings.ago[0])
-    } else if seconds < 3600 {
-        (seconds / 60, strings.ago[1])
-    } else if seconds < 86_400 {
-        (seconds / 3600, strings.ago[2])
-    } else {
-        (seconds / 86_400, strings.ago[3])
-    };
-    format!("{value}{unit}")
 }
 
 /// The text shown when no row is (oracle: the `indices.is_empty()` arm).
@@ -402,6 +409,7 @@ pub fn header(
 /// A heading of the list (oracle: `render_center_rows`, the `Group` arm);
 /// `width` is the room the row has.
 fn heading(
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -420,7 +428,7 @@ fn heading(
         GroupLabel::Pinned => strings.pinned.to_owned(),
         GroupLabel::Model(name) => name.clone(),
         GroupLabel::Path(path) => {
-            path::fit_heading(&display_directory(path, model.home.as_deref()), count, width)
+            path::fit_heading(seg, &display_directory(path, model.home.as_deref()), count, width)
         }
     };
     one(vec![span(format!("{text}  {count}"), &look.dim)])
@@ -460,6 +468,7 @@ fn metadata(cells: Row, status: (&str, &Style), age: (String, &Style)) -> Row {
 /// One entry of the list as a one-row widget `width` cells wide.
 #[allow(clippy::too_many_arguments)]
 fn entry(
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -475,6 +484,7 @@ fn entry(
     match &center.entries[index] {
         CenterRow::Gap => gap(1),
         CenterRow::Group { label, count } => short(heading(
+            seg,
             look,
             strings,
             model,
@@ -559,6 +569,7 @@ pub fn list(
         },
         selection: controls.selection.clone(),
         focus: controls.focus.clone(),
+        empty_focus: controls.empty_focus.clone(),
         scroll: controls.scroll.clone(),
         open: controls.open.clone(),
         taps: taps.clone(),
@@ -595,6 +606,7 @@ pub struct RowsList {
     inputs: ListInputs,
     selection: SelectionController<RowKey>,
     focus: FocusNode,
+    empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
     open: Handler<RowKey>,
     taps: Rc<Vec<Handler<PointerEvent>>>,
@@ -605,6 +617,7 @@ impl PartialEq for RowsList {
         self.inputs == other.inputs
             && self.selection == other.selection
             && self.focus == other.focus
+            && self.empty_focus == other.empty_focus
             && Rc::ptr_eq(&self.scroll, &other.scroll)
             && self.open == other.open
             && self.taps == other.taps
@@ -618,6 +631,7 @@ impl StatelessWidget for RowsList {
         let controls = ListControls {
             selection: self.selection.clone(),
             focus: self.focus.clone(),
+            empty_focus: self.empty_focus.clone(),
             scroll: self.scroll.clone(),
             open: self.open.clone(),
         };
@@ -635,76 +649,50 @@ fn rows_in(
     controls: ListControls,
     taps: Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
         let width = constraints.max_width;
+        let seg = segmenter_of(cx);
         let model = &*agents;
         if center.entries.is_empty() {
             let text = empty_text(&strings, model, model.threads.is_empty());
-            return top(short(Text::line(text.to_owned()).style(look.dim.clone())));
+            // The line is a focus stop of its own: with no row the keys
+            // have nowhere else to go.
+            let line = top(short(Text::line(text.to_owned()).style(look.dim.clone())));
+            return Focus::new(line)
+                .focus_node(controls.empty_focus.clone())
+                .autofocus()
+                .into();
         }
         let keys: Rc<Vec<RowKey>> = Rc::new(
             (0..center.entries.len())
                 .map(|at| key_of(&center, at))
                 .collect(),
         );
-        let builder = {
-            let (look, agents, center, taps, keys, selection) = (
-                look.clone(),
-                agents.clone(),
-                center.clone(),
-                taps.clone(),
-                keys.clone(),
-                controls.selection.clone(),
-            );
-            move |index: usize| -> AnyWidget {
-                let paint = {
-                    let (look, agents, center, taps) =
-                        (look.clone(), agents.clone(), center.clone(), taps.clone());
-                    move |selected: bool| {
-                        entry(&look, &strings, &agents, &center, index, width, selected, taps.get(index))
-                    }
-                };
-                if !keys[index].selectable() {
-                    return paint(false);
-                }
-                let (selection, key) = (selection.clone(), keys[index].clone());
-                ListenableBuilder::new(selection.listenable(), move |_, _| {
-                    paint(selection.cursor().as_ref() == Some(&key))
-                })
-                .into()
-            }
-        };
-        let rows = SelectionList::new(
-            keys.len(),
-            {
+        let rows = SessionList {
+            len: keys.len(),
+            key: {
                 let keys = keys.clone();
-                move |index| keys[index].clone()
+                Rc::new(move |index| keys[index].clone())
             },
-            builder,
-        )
-        .controller(controls.selection.clone())
-        .item_enabled({
-            let keys = keys.clone();
-            move |index| keys[index].selectable()
-        })
-        .on_submitted(controls.open.clone())
-        .focus_node(controls.focus.clone())
-        .autofocus(true)
-        .item_extent(1)
-        .bar(false)
-        .idle_style(look.selection.clone())
-        .selected_style(Style::new())
-        .disabled_style(Style::new());
-        let scroll = controls.scroll.clone();
-        let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(
-            move |note| {
-                scroll.set_value(Scrolled {
-                    above: note.metrics.pixels > 0,
-                    below: note.metrics.pixels < note.metrics.max_scroll_extent,
-                });
-                false
+            selectable: Some({
+                let keys = keys.clone();
+                Rc::new(move |index| keys[index].selectable())
+            }),
+            row: {
+                let (look, agents, center, taps) =
+                    (look.clone(), agents.clone(), center.clone(), taps.clone());
+                Rc::new(move |index, selected| {
+                    entry(seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                })
             },
-        );
+            selection: controls.selection.clone(),
+            scroll: controls.scroll.clone(),
+            submit: controls.open.clone(),
+            focus: Some(controls.focus.clone()),
+            extent: Some(1),
+            idle: look.selection.clone(),
+        }
+        .build();
         let mut column = Column::new()
             .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -736,7 +724,7 @@ fn rows_in(
 fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWidget {
     let style = look.dim.clone();
     ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
-        let show = if down { scrolled.below } else { scrolled.above };
+        let show = if down { scrolled.below() } else { scrolled.above() };
         let glyph = match (show, down) {
             (false, _) => " ",
             (true, true) => "\u{2193}",
@@ -748,8 +736,8 @@ fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWi
 }
 
 /// The rows a text of the details takes at the pane's width.
-fn flow(text: &str, style: &Style) -> Vec<Line> {
-    soft::rows(text, DETAILS_WIDTH)
+fn flow(seg: Measure, text: &str, style: &Style) -> Vec<Line> {
+    soft::rows(seg, text, DETAILS_WIDTH)
         .into_iter()
         .map(|row| vec![span(row, style)])
         .collect()
@@ -772,18 +760,19 @@ pub fn details(
 ) -> AnyWidget {
     let (look, strings, num, center, agents) =
         (look.clone(), *strings, *num, center.clone(), agents.clone());
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
         let Some(row) = center.selected_row() else {
             return AnyWidget::default();
         };
         let height = usize::try_from(constraints.max_height).unwrap_or(0);
-        let lines = detail_lines(&look, &strings, &num, row, &agents, height);
+        let lines = detail_lines(segmenter_of(cx), &look, &strings, &num, row, &agents, height);
         top(stacked(lines.into_iter().map(one).collect()))
     })
     .into()
 }
 
 fn detail_lines(
+    seg: Measure,
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
@@ -807,7 +796,7 @@ fn detail_lines(
         Vec::new(),
         vec![span(strings.project, &look.dim)],
     ];
-    head.extend(flow(&row.cwd, &look.plain));
+    head.extend(flow(seg, &row.cwd, &look.plain));
     let usage_lines = usage::lines(strings, num, &row.details.usage, bills_in_dollars(model));
     for line in &usage_lines {
         head.push(pair(line.label, &line.value));
@@ -815,7 +804,7 @@ fn detail_lines(
     if let Some(branch) = &row.branch {
         head.push(Vec::new());
         head.push(vec![span(strings.branch, &look.dim)]);
-        head.extend(flow(branch, &look.plain));
+        head.extend(flow(seg, branch, &look.plain));
     }
     let prompt_start = head.len();
     head.push(Vec::new());
@@ -828,7 +817,7 @@ fn detail_lines(
     } else {
         prompt_text
     };
-    let mut prompt = flow(&prompt_text, &look.plain);
+    let mut prompt = flow(seg, &prompt_text, &look.plain);
     if prompt.len() > 2 {
         prompt.truncate(2);
         prompt[1] = vec![span(strings.elision, &look.dim)];
@@ -843,7 +832,7 @@ fn detail_lines(
             DetailLine::NeedsAttention => {
                 activity.push(vec![span(strings.needs_attention, &look.red)]);
             }
-            DetailLine::Request(text) => activity.extend(flow(text, &look.plain)),
+            DetailLine::Request(text) => activity.extend(flow(seg, text, &look.plain)),
             DetailLine::OpenToReview => activity.push(vec![span(strings.open_task, &look.dim)]),
             DetailLine::WaitingApproval => {
                 activity.push(vec![span(strings.wait_approval, &look.plain)]);
@@ -854,14 +843,14 @@ fn detail_lines(
             DetailLine::TaskError => activity.push(vec![span(strings.task_error, &look.plain)]),
             DetailLine::LatestActivity(header) => {
                 activity.push(vec![span(strings.latest_activity, &look.dim)]);
-                activity.extend(flow(header, &look.plain));
+                activity.extend(flow(seg, header, &look.plain));
             }
         }
     }
     if let Some(message) = &row.details.last_message {
         activity.push(Vec::new());
         activity.push(vec![span(strings.last_message, &look.dim)]);
-        activity.extend(flow(message, &look.plain));
+        activity.extend(flow(seg, message, &look.plain));
     }
     let offline = matches!(model.notice, Some(Notice::Reconnecting | Notice::ReconnectFailed));
     if !offline && !activity.is_empty() {
@@ -955,14 +944,14 @@ pub fn editor(look: &Look, strings: &Strings, ui: &Ui, controls: &Controls) -> A
         .focused_style(look.tab.clone())
         .key_hints(false)
         .focus_node(controls.edit_focus.clone())
-        .autofocus(true)
         .on_submitted(controls.submit.clone());
     if !ui.renaming {
         field = field.on_changed(controls.search.clone());
     }
+    let keys = if ui.renaming { &controls.keys.rename } else { &controls.keys.search };
     let row = Row::new()
         .child(Text::line(label).style(label_style))
-        .child(Expanded::new(1, field));
+        .child(Expanded::new(1, KeyBindings::new(keys.clone(), field)));
     BoxWidget::new()
         .style(look.tab.clone())
         .child(SizedBox::new(None, Some(1), Some(row.into())))
@@ -986,13 +975,23 @@ pub fn body(
     let mut pane = Column::new()
         .overflow_intended(true)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if editing {
-        pane = pane.child(editor(look, strings, ui, controls));
-    }
-    // The list gives the focus to the editing line while one is open.
+    // The line stays mounted, offstage and out of the focus while closed:
+    // opening and closing swap which of the two the focus may rest on.
+    pane = pane.child(Offstage::new(
+        !editing,
+        ExcludeFocus::new(editor(look, strings, ui, controls)).excluding(!editing),
+    ));
     let rows = list(look, strings, agents, center, controls, &taps.rows);
     let pane: AnyWidget = pane
-        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing)))
+        // A rename refuses the mouse at the list. The list stays a focus
+        // stop (not `enabled(false)`, not `ExcludeFocus`): the focus goes
+        // back to the nearest stop when the line closes.
+        .child(Expanded::new(
+            1,
+            ExcludeFocus::new(IgnorePointer::new()
+                .ignoring(ui.renaming)
+                .child(KeyBindings::new(controls.keys.browse.clone(), rows))).excluding(editing),
+        ))
         .into();
     let details = details(look, strings, num, center, agents);
     let rule = VerticalDivider::new()
@@ -1073,10 +1072,10 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
         dim: look.dim.clone(),
     };
     let (title, resize) = (strings.help_title, strings.help_resize);
-    inset(LayoutBuilder::new(move |_, constraints| {
+    inset(LayoutBuilder::new(move |cx, constraints| {
         let room = |cells: i32| usize::try_from(cells).unwrap_or(0);
         let size = (room(constraints.max_width), room(constraints.max_height));
-        help::help(title, &groups, size, resize, &ink)
+        help::help(segmenter_of(cx), title, &groups, size, resize, &ink)
     }))
 }
 

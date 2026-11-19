@@ -8,7 +8,7 @@
 
 use std::rc::Rc;
 
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::SelectionController;
 use rtwk::focus::{Focus, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{
@@ -17,11 +17,10 @@ use rtwk::layout::{
 };
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
-use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{
-    AnyWidget, Cx, LayoutBuilder, NotificationListener, Rebuild, State, StatefulWidget, impl_widget,
+    AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
 };
 
 use codex_tui_core::screens::resume::{Intent as ResumeIntent, Load, Model, Row as Saved};
@@ -116,12 +115,7 @@ pub struct ScreenState {
     scroll: Rc<ValueNotifier<Scrolled>>,
 }
 
-/// The list's scroll metrics: the rows above the window, the rows below it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Scrolled {
-    pixels: i64,
-    max: i64,
-}
+use crate::ui::session_list::{Scrolled, SessionList};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
@@ -275,38 +269,28 @@ fn list_of(
             return Text::new(text).style(look.italic.clone()).into();
         }
         let width = constraints.max_width;
-        let builder = {
-            let (look, screens, selection) = (look.clone(), screens.clone(), selection.clone());
-            move |index: usize| -> AnyWidget {
-                let (look, screens, selection) = (look.clone(), screens.clone(), selection.clone());
-                ListenableBuilder::new(selection.clone().listenable(), move |_, _| {
-                    let selected = selection.cursor() == Some(index);
+        let rows = SessionList {
+            len: model.rows.len(),
+            key: Rc::new(|index| index),
+            selectable: None,
+            row: {
+                let (look, screens) = (look.clone(), screens.clone());
+                Rc::new(move |index, selected| {
                     item(&look, strings, num, &screens.resume, index, selected, width)
                 })
-                .into()
-            }
-        };
-        let rows = SelectionList::new(model.rows.len(), |index| index, builder)
-            .controller(selection.clone())
-            .on_submitted(accept.clone())
-            .autofocus(true)
-            .bar(false)
-            .idle_style(Style::new())
-            .selected_style(Style::new())
-            .disabled_style(Style::new())
-            .cursor_style(Style::new());
-        let notify = scroll.clone();
-        let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(move |note| {
-            notify.set_value(Scrolled {
-                pixels: note.metrics.pixels,
-                max: note.metrics.max_scroll_extent,
-            });
-            false
-        });
+            },
+            selection: selection.clone(),
+            scroll: scroll.clone(),
+            submit: accept.clone(),
+            focus: None,
+            extent: None,
+            idle: Style::new(),
+        }
+        .build();
         let more = |text: &'static str, down: bool| -> AnyWidget {
             let style = look.accent.clone();
             ValueListenableBuilder::new(scroll.clone(), move |_, at: &Scrolled, _| {
-                let show = if down { at.pixels < at.max } else { at.pixels > 0 };
+                let show = if down { at.below() } else { at.above() };
                 if show {
                     Text::line(text).style(style.clone()).into()
                 } else {

@@ -6,17 +6,17 @@
 //! holds the keys, the mouse and the widget state, `view.rs` the widgets.
 //! Oracle: `tui/src/app/agent_center/` and `app/agents_overview_view.rs`.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::binding::AppBinding;
-use rtwk::controls::SelectionController;
+use rtwk::controls::{SelectionController, TabController};
 use rtwk::editing::TextEditingController;
-use rtwk::focus::{Focus, FocusNode, KeyBindings};
+use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
-use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded};
+use rtwk::layout::{
+    Alignment, Column, CrossAxisAlignment, Expanded, Offstage, Stack, StackFit,
+};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
@@ -290,11 +290,13 @@ pub struct Screen {
 /// The handlers of the rows' clicks.
 type RowTaps = Rc<Vec<Handler<PointerEvent>>>;
 
-/// What the editing line is for; the controller's text is reset when it
-/// changes (a rename starts from the task's name, a search from nothing).
+/// What the screen shows: the list, the shortcut help in its place, or the
+/// editing line above the list. The controller's text is reset when a line
+/// opens (a rename starts from the task's name, a search from nothing).
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Editing {
-    No,
+enum Mode {
+    Browse,
+    Help,
     Search,
     Rename(String),
 }
@@ -305,23 +307,22 @@ pub struct ScreenState {
     selection: SelectionController<view::RowKey>,
     edit: TextEditingController,
     list_focus: FocusNode,
-    /// The screen's own focus: the keys have it while the help replaces the list.
-    root_focus: FocusNode,
+    /// The empty list's line, and the help: each a focus stop that holds the
+    /// keys while it shows.
+    empty_focus: FocusNode,
+    help_focus: FocusNode,
     edit_focus: FocusNode,
     /// The failure dialog was opened for the model's failure.
     failing: bool,
-    /// The shortcut help replaces the list.
-    help: bool,
     /// The status tab.
-    filter: usize,
-    /// Whether the list shows tasks: an empty list is a line of text, which
-    /// holds no focus, so the keys go to the screen's root.
-    listed: bool,
+    tabs: TabController,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     /// The row handlers made for the rows the list last showed.
-    row_taps: RefCell<Option<(Vec<view::RowKey>, RowTaps)>>,
+    row_taps: Option<(Vec<view::RowKey>, RowTaps)>,
+    /// The handlers of the tab clicks, made once.
+    tab_taps: Vec<Handler<PointerEvent>>,
     listening: Option<Listening>,
-    editing: Editing,
+    mode: Mode,
     /// What the usage request of the highlighted task depends on, as the
     /// screen last saw it: a change asks the model for it (oracle: the
     /// repaint of the view asks).
@@ -366,8 +367,6 @@ pub enum Msg {
     Submit(String),
     /// Enter on the list's cursor.
     Open,
-    /// The mode changed (help, editing): the keys go to what shows now.
-    Refocus,
     /// The confirmation dialog was answered yes: the removal.
     Confirmed(view::Confirm),
 }
@@ -380,16 +379,16 @@ impl StatefulWidget for Screen {
             selection: SelectionController::new(),
             edit: TextEditingController::default(),
             list_focus: FocusNode::new(),
-            root_focus: FocusNode::new(),
+            empty_focus: FocusNode::new(),
+            help_focus: FocusNode::new(),
             edit_focus: FocusNode::new(),
             failing: false,
-            help: false,
-            filter: 0,
-            listed: true,
+            tabs: TabController::new(view::FILTERS),
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
-            row_taps: RefCell::new(None),
+            row_taps: None,
+            tab_taps: Vec::new(),
             listening: None,
-            editing: Editing::No,
+            mode: Mode::Browse,
             usage_seen: None,
             entered: None,
             search_seen: String::new(),
@@ -476,6 +475,13 @@ const BROWSE_KEYS: &[(&str, Act)] = &[
     ("w", Act::NewWorktree),
 ];
 
+/// One mode's keys as `KeyBindings` takes them: each sends its act.
+fn table(cx: &mut Cx<'_, ScreenState>, keys: &[(&'static str, Act)]) -> view::Table {
+    keys.iter()
+        .map(|(name, act)| (*name, cx.send(Msg::Act(*act))))
+        .collect()
+}
+
 impl ScreenState {
     /// The list's cursor as the highlight core knows.
     fn cursor(&self) -> Option<Sel> {
@@ -493,10 +499,10 @@ impl ScreenState {
     /// What the view shows that changes which rows count.
     fn lens(&self) -> Lens {
         Lens {
-            filter: self.filter,
-            searching: self.editing == Editing::Search,
-            renaming: match &self.editing {
-                Editing::Rename(target) => Some(target.clone()),
+            filter: self.tabs.index(),
+            searching: self.mode == Mode::Search,
+            renaming: match &self.mode {
+                Mode::Rename(target) => Some(target.clone()),
                 _ => None,
             },
         }
@@ -505,15 +511,15 @@ impl ScreenState {
     /// What the widgets read of the screen's own state.
     fn ui(&self) -> view::Ui {
         view::Ui {
-            filter: self.filter,
-            help: self.help,
-            searching: self.editing == Editing::Search,
-            renaming: matches!(self.editing, Editing::Rename(_)),
+            filter: self.tabs.index(),
+            help: self.mode == Mode::Help,
+            searching: self.mode == Mode::Search,
+            renaming: matches!(self.mode, Mode::Rename(_)),
         }
     }
 
     fn editing_now(&self) -> bool {
-        self.editing != Editing::No
+        matches!(self.mode, Mode::Search | Mode::Rename(_))
     }
 
     fn send(cx: &mut Cx<'_, Self>, intent: AgentsIntent) {
@@ -543,16 +549,16 @@ impl ScreenState {
     }
 
     /// The editing line changes mode; its text is reset for the new one.
-    fn set_editing(&mut self, editing: Editing, center: &Center, cx: &mut Cx<'_, Self>) {
-        if editing == self.editing {
+    fn set_mode(&mut self, mode: Mode, center: &Center) {
+        if mode == self.mode {
             return;
         }
-        match &editing {
-            Editing::Search => {
+        match &mode {
+            Mode::Search => {
                 self.browse = self.selection.cursor();
                 self.edit.reset("");
             }
-            Editing::Rename(target) => {
+            Mode::Rename(target) => {
                 let name = center
                     .rows
                     .iter()
@@ -561,30 +567,29 @@ impl ScreenState {
                     .unwrap_or_default();
                 self.edit.reset(&name);
             }
-            Editing::No => {
-                if self.editing == Editing::Search
+            Mode::Browse | Mode::Help => {
+                if self.mode == Mode::Search
                     && let Some(key) = self.browse.take()
                 {
                     self.put_cursor(key);
                 }
             }
         }
-        self.editing = editing;
-        self.refocus_after_frame(cx);
+        self.mode = mode;
     }
 
     /// Enter on a row: the task opens (a search closes), "Show more" asks for
     /// the next rows or matches.
     fn accept(&mut self, model: &Model, sel: Sel, center: &Center, cx: &mut Cx<'_, Self>) {
-        let searching = self.editing == Editing::Search;
+        let searching = self.mode == Mode::Search;
         match sel {
             Sel::ShowMore if searching => Self::send(cx, AgentsIntent::MoreMatches(self.lens())),
             Sel::ShowMore => Self::send(cx, AgentsIntent::Accept(Sel::ShowMore)),
-            Sel::Task(_) if matches!(self.editing, Editing::Rename(_)) => {}
+            Sel::Task(_) if matches!(self.mode, Mode::Rename(_)) => {}
             Sel::Task(id) => {
                 Self::send(cx, AgentsIntent::Accept(Sel::Task(id)));
                 if searching && !model.held() {
-                    self.set_editing(Editing::No, center, cx);
+                    self.set_mode(Mode::Browse, center);
                     Self::send(cx, AgentsIntent::ClearSearch);
                 }
             }
@@ -593,10 +598,10 @@ impl ScreenState {
 
     /// Esc or ctrl+c on an open line: a search is cleared, the line closes.
     fn cancel_editing(&mut self, _model: &Model, center: &Center, cx: &mut Cx<'_, Self>) {
-        if self.editing == Editing::Search {
+        if self.mode == Mode::Search {
             Self::send(cx, AgentsIntent::ClearSearch);
         }
-        self.set_editing(Editing::No, center, cx);
+        self.set_mode(Mode::Browse, center);
     }
 
     /// Opens the confirmation of a removal (a dialog of rtwk's overlay).
@@ -624,18 +629,10 @@ impl ScreenState {
         ));
     }
 
-    /// The cursor, the keys' focus and the usage request follow the rows the
-    /// model and the tab show.
-    fn sync(&mut self, model: &Model, cx: &mut Cx<'_, Self>) -> Center {
-        let center = model.center_at(self.cursor().as_ref(), &self.lens());
-        if let Some(entry) = center.selected_entry() {
-            self.put_cursor(view::key_of(&center, entry));
-        } else if center.entries.is_empty() && self.selection.cursor().is_some() {
-            // Oracle (`reconcile_command_center_selection`): nothing
-            // selectable sets the selection to `usize::MAX`, so the first
-            // row is the highlight when rows come back.
-            self.selection.set_cursor(None);
-        }
+    /// The usage of the highlighted task is asked for when what it depends
+    /// on changes: the task, its fetch, the clock (oracle: the repaint that
+    /// follows a move asks).
+    fn ask_usage(&mut self, model: &Model, center: &Center, cx: &mut Cx<'_, Self>) {
         let thread = center.selected_row().map(|row| row.id().to_owned());
         let usage_key = UsageKey {
             fetched_at: thread
@@ -651,19 +648,22 @@ impl ScreenState {
             let thread = self.usage_seen.as_ref().and_then(|key| key.thread.clone());
             Self::send(cx, AgentsIntent::NeedUsage(thread));
         }
-        if center.entries.is_empty() == self.listed {
-            self.listed = !self.listed;
-            self.refocus_after_frame(cx);
-        }
-        center
     }
 
-    /// The keys go to what the mode shows once the frame that shows it is
-    /// out: the widget a mode drops lets go of the focus with the frame, and
-    /// the one it adds (or frees from `ExcludeFocus`) cannot take it before.
-    fn refocus_after_frame(&self, cx: &mut Cx<'_, Self>) {
-        let refocus = cx.map(|_: std::time::Duration| Msg::Refocus);
-        AppBinding::of(cx).add_post_frame_callback(refocus);
+    /// The cursor, the keys' focus and the usage request follow the rows the
+    /// model and the tab show.
+    fn sync(&mut self, model: &Model, cx: &mut Cx<'_, Self>) -> Center {
+        let center = model.center_at(self.cursor().as_ref(), &self.lens());
+        if let Some(entry) = center.selected_entry() {
+            self.put_cursor(view::key_of(&center, entry));
+        } else if center.entries.is_empty() && self.selection.cursor().is_some() {
+            // Oracle (`reconcile_command_center_selection`): nothing
+            // selectable sets the selection to `usize::MAX`, so the first
+            // row is the highlight when rows come back.
+            self.selection.set_cursor(None);
+        }
+        self.ask_usage(model, &center, cx);
+        center
     }
 }
 
@@ -673,6 +673,9 @@ impl State for ScreenState {
 
     fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
         self.listening = Some(Listening::new(cx, self.selection.listenable(), Msg::Cursor));
+        self.tab_taps = (0..view::FILTERS)
+            .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
+            .collect();
         if w.open {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::Open));
@@ -684,6 +687,7 @@ impl State for ScreenState {
             listening.cancel();
         }
         self.selection.dispose();
+        self.tabs.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -711,6 +715,7 @@ impl State for ScreenState {
             }
         }
         self.sync(model, cx);
+        self.retap(cx);
         if model.failure.is_some() != self.failing {
             self.failing = model.failure.is_some();
             if self.failing {
@@ -732,6 +737,45 @@ impl State for ScreenState {
     }
 
     fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let rebuild = self.handle(msg, w, cx);
+        if rebuild == Rebuild::Yes {
+            self.retap(cx);
+        }
+        rebuild
+    }
+
+    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        self.view(w, cx)
+    }
+}
+
+impl ScreenState {
+    /// The handlers of the row clicks, kept while the rows are the same
+    /// ones (a handler made anew is never equal to the last, and the list
+    /// would not compare equal), made here, not in `build`.
+    fn retap(&mut self, cx: &mut Cx<'_, Self>) {
+        let agents = read::<ScreenStates, _>(cx).agents.clone();
+        let center = agents.center_at(self.cursor().as_ref(), &self.lens());
+        let keys: Vec<view::RowKey> = (0..center.entries.len())
+            .map(|index| view::key_of(&center, index))
+            .collect();
+        if self.row_taps.as_ref().is_some_and(|(was, _)| *was == keys) {
+            return;
+        }
+        let taps = Rc::new(
+            keys.iter()
+                .map(|key| {
+                    let key = key.clone();
+                    cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
+                })
+                .collect::<Vec<_>>(),
+        );
+        self.row_taps = Some((keys, taps));
+    }
+
+    /// The key (or click or answer) changes the screen's own state and asks
+    /// the model.
+    fn handle(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         let agents = read::<ScreenStates, _>(cx).agents.clone();
         let model = &*agents;
         // The list's cursor is read here, when the key or click arrives: it
@@ -763,9 +807,8 @@ impl State for ScreenState {
                             cx.emit(&hs.quit, ());
                         }
                     }
-                    Act::Escape if self.help => {
-                        self.help = false;
-                        self.refocus_after_frame(cx);
+                    Act::Escape if self.mode == Mode::Help => {
+                        self.mode = Mode::Browse;
                         return Rebuild::Yes;
                     }
                     Act::Escape if editing => {
@@ -787,18 +830,21 @@ impl State for ScreenState {
                     }
                     Act::Filter { back } => {
                         let count = view::FILTERS;
-                        self.filter = (self.filter + if back { count - 1 } else { 1 }) % count;
+                        self.tabs.set_index((self.tabs.index() + if back { count - 1 } else { 1 }) % count);
                         self.sync(model, cx);
                         return Rebuild::Yes;
                     }
                     Act::Help => {
-                        self.help = !self.help;
-                        self.refocus_after_frame(cx);
+                        self.mode = if self.mode == Mode::Help {
+                            Mode::Browse
+                        } else {
+                            Mode::Help
+                        };
                         return Rebuild::Yes;
                     }
                     Act::Search => {
-                        if !matches!(self.editing, Editing::Rename(_)) {
-                            self.set_editing(Editing::Search, &center, cx);
+                        if !matches!(self.mode, Mode::Rename(_)) {
+                            self.set_mode(Mode::Search, &center);
                             return Rebuild::Yes;
                         }
                     }
@@ -808,7 +854,7 @@ impl State for ScreenState {
                             && model.row(&id).is_some()
                         {
                             Self::send(cx, AgentsIntent::ClearSearch);
-                            self.set_editing(Editing::Rename(id), &center, cx);
+                            self.set_mode(Mode::Rename(id), &center);
                             return Rebuild::Yes;
                         }
                     }
@@ -856,24 +902,14 @@ impl State for ScreenState {
                     }
                 }
             }
-            Msg::Refocus => {
-                if self.help {
-                    self.root_focus.request_focus();
-                } else if self.editing_now() {
-                    self.edit_focus.request_focus();
-                } else if center.entries.is_empty() {
-                    self.root_focus.request_focus();
-                } else {
-                    self.list_focus.request_focus();
-                }
-                return Rebuild::No;
-            }
             Msg::Cursor => {
                 if let Some(l) = &self.listening {
                     l.handled();
                 }
                 // The cursor is the list's own: only the rows that show it
-                // (details, keys) are rebuilt.
+                // (details, keys) are rebuilt; the usage of the task it
+                // lands on is asked for at once.
+                self.ask_usage(model, &center, cx);
                 return Rebuild::Yes;
             }
             Msg::Row(key) => {
@@ -885,7 +921,7 @@ impl State for ScreenState {
                         return Rebuild::Yes;
                     }
                 } else if key.clone().into_sel().is_some()
-                    && !matches!(self.editing, Editing::Rename(_))
+                    && !matches!(self.mode, Mode::Rename(_))
                 {
                     self.put_cursor(key);
                     return Rebuild::Yes;
@@ -902,17 +938,17 @@ impl State for ScreenState {
                 return Rebuild::Yes;
             }
             Msg::Search(text) => {
-                if self.editing == Editing::Search {
+                if self.mode == Mode::Search {
                     let lens = self.lens();
                     Self::send(cx, AgentsIntent::SetSearch { text, lens });
                 }
             }
             Msg::Submit(text) => {
-                if let Editing::Rename(thread) = self.editing.clone() {
+                if let Mode::Rename(thread) = self.mode.clone() {
                     // An empty name keeps the line open.
                     if !text.trim().is_empty() {
                         Self::send(cx, AgentsIntent::Rename { thread, name: text });
-                        self.set_editing(Editing::No, &center, cx);
+                        self.set_mode(Mode::Browse, &center);
                         return Rebuild::Yes;
                     }
                 } else if let Some(sel) = at {
@@ -921,7 +957,7 @@ impl State for ScreenState {
                 }
             }
             Msg::Tab(index) => {
-                self.filter = index.min(view::FILTERS - 1);
+                self.tabs.set_index(index.min(view::FILTERS - 1));
                 self.sync(model, cx);
                 return Rebuild::Yes;
             }
@@ -929,47 +965,32 @@ impl State for ScreenState {
         Rebuild::No
     }
 
-    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    /// The view of the screen's state.
+    fn view(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let agents = watched(cx);
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
         let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
-        // The row handlers are kept while the rows are the same ones: a
-        // handler made anew is never equal to the last, and the list would
-        // not compare equal (a cursor that moves leaves it as it is).
-        let keys: Vec<view::RowKey> = (0..center.entries.len())
-            .map(|index| view::key_of(&center, index))
-            .collect();
-        let rows = {
-            let mut kept = self.row_taps.borrow_mut();
-            match &*kept {
-                Some((was, taps)) if *was == keys => taps.clone(),
-                _ => {
-                    let taps = Rc::new(
-                        keys.iter()
-                            .map(|key| {
-                                let key = key.clone();
-                                cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
-                            })
-                            .collect::<Vec<_>>(),
-                    );
-                    *kept = Some((keys, taps.clone()));
-                    taps
-                }
-            }
-        };
         let taps = view::Taps {
-            rows,
-            tabs: (0..5)
-                .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
-                .collect(),
+            rows: self
+                .row_taps
+                .as_ref()
+                .map_or_else(|| Rc::new(Vec::new()), |(_, taps)| taps.clone()),
+            tabs: self.tab_taps.clone(),
         };
         let controls = view::Controls {
             selection: self.selection.clone(),
             edit: self.edit.clone(),
             focus: self.list_focus.clone(),
+            empty_focus: self.empty_focus.clone(),
+            keys: view::Keys {
+                browse: table(cx, BROWSE_KEYS),
+                search: table(cx, SEARCH_KEYS),
+                rename: table(cx, RENAME_KEYS),
+                help: table(cx, HELP_KEYS),
+            },
             edit_focus: self.edit_focus.clone(),
             scroll: self.scroll.clone(),
             open: rtwk::map_static!(cx, view::RowKey => Msg, |_| Msg::Open),
@@ -977,6 +998,7 @@ impl State for ScreenState {
             submit: cx.map(|text: Rc<str>| Msg::Submit(text.to_string())),
         };
         let can_return = w.can_return;
+        let help_focus = self.help_focus.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
             let model = &*agents;
             if model.failure.is_some() {
@@ -989,30 +1011,31 @@ impl State for ScreenState {
             if constraints.max_height >= 6 {
                 column = column.child(view::header(&look, strings, &num, model, &ui, &center, &taps));
             }
-            let content = if ui.help {
-                view::help(&look, strings, model, &center)
-            } else {
-                view::body(&look, strings, &num, &agents, &ui, &center, &controls, &taps)
-            };
-            column = column.child(Expanded::new(1, content));
+            // Both stay mounted (the list keeps its cursor and scroll); the
+            // help takes the room and the keys while it shows.
+            // Both panes stay mounted, one offstage and out of the focus
+            // (the list keeps its cursor and scroll); the help takes the
+            // room and the keys while it shows.
+            let help = ui.help;
+            let body = view::body(&look, strings, &num, &agents, &ui, &center, &controls, &taps);
+            let help_pane = KeyBindings::new(
+                controls.keys.help.clone(),
+                Focus::new(view::help(&look, strings, model, &center))
+                    .focus_node(help_focus.clone()),
+            );
+            let stack = Stack::new()
+                .fit(StackFit::Expand)
+                .child(Offstage::new(help, ExcludeFocus::new(body).excluding(help)))
+                .child(Offstage::new(
+                    !help,
+                    ExcludeFocus::new(help_pane).excluding(!help),
+                ));
+            column = column.child(Expanded::new(1, stack));
             if constraints.max_height >= 2 {
                 column = column.child(view::footer_row(&look, strings, model, &ui, can_return));
             }
             column.into()
         });
-        let keys: &[(&str, Act)] = if self.help {
-            HELP_KEYS
-        } else {
-            match self.editing {
-                Editing::Search => SEARCH_KEYS,
-                Editing::Rename(_) => RENAME_KEYS,
-                Editing::No => BROWSE_KEYS,
-            }
-        };
-        KeyBindings::new(
-            keys.iter().map(|(name, act)| (*name, cx.send(Msg::Act(*act)))),
-            Focus::new(body).focus_node(self.root_focus.clone()),
-        )
-        .into()
+        FocusScope::new(body).into()
     }
 }
