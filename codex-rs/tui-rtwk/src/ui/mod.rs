@@ -7,5 +7,6 @@ pub mod page_keys;
 pub mod presenter;
 pub mod seeded;
 pub mod start_page;
+pub mod status_line;
 pub mod thread_ui;
 pub mod view;

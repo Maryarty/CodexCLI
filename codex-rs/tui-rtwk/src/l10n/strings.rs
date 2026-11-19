@@ -68,6 +68,8 @@ pub struct Pages {
     pub action_shortcuts: &'static str,
     /// The key of the shortcut overlay, as the footer shows it, and its hint
     /// (oracle: `footer.rs`, `FooterMode::ShortcutSummary`).
+    pub key_agents: &'static str,
+    pub hint_agents: &'static str,
     pub key_shortcuts: &'static str,
     pub hint_shortcuts: &'static str,
 }
@@ -117,6 +119,8 @@ pub const EN: Shared = Shared {
         not_yet: msg!("Not implemented yet: {0}"),
         action_transcript: "expanded transcript",
         action_shortcuts: "shortcut overlay",
+        key_agents: "←",
+        hint_agents: "for agents",
         key_shortcuts: "?",
         hint_shortcuts: "for shortcuts",
     },

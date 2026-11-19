@@ -31,6 +31,7 @@ pub struct Strings {
     pub title: &'static str,
     pub num: NumSyms,
     // bottom_pane/shortcut_overlay.rs: the overlay's two pages.
+    pub shortcuts_title: &'static str,
     pub shortcuts_list_title: &'static str,
     pub shortcuts_keyboard_title: &'static str,
     pub shortcut_groups: [Group; 3],
@@ -69,6 +70,7 @@ pub struct Strings {
 pub const EN: Strings = Strings {
     title: "small dialogs",
     num: NumSyms::ENGLISH,
+    shortcuts_title: "Keyboard shortcuts",
     shortcuts_list_title: "Keyboard shortcuts  ·  Tab: Keyboard",
     shortcuts_keyboard_title: "Keyboard shortcuts  Base  ·  Tab: List",
     shortcut_groups: [
