@@ -22,6 +22,14 @@ Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk
 Flutter's model on cells). Never translate the oracle's ratatui code line by line.
 Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 
+
+ADR CONFORMANCE (the person, 2026-11-19): a brief that asks you to simplify
+or bypass an architecture decision (e.g. "own RPC path, no session-core",
+a screen-local copy of thread state) must name the ADR and its debt task; if
+it does not, stop and report instead of building it. ADR-003: CodexApp owns
+one ThreadModel per thread, one writer, changed only through apply.
+Every review has an ADR-conformance section: per touched ADR — kept / departure with debt task / violation (FIX).
+
 ## A review
 - Read the task (`get_task`: description = the brief, deliverables) and the
   commits it names (`git log`, `git show --stat`, then the diff per path in

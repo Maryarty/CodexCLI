@@ -16,6 +16,12 @@ read-only for you; a change rtwk needs goes into the handover. Your prompt
 names your tm task. tm signs you by itself: pass no actor on tm calls.
 
 ## Start
+ADR CONFORMANCE (the person, 2026-11-19): a brief that asks you to simplify
+or bypass an architecture decision (e.g. "own RPC path, no session-core",
+a screen-local copy of thread state) must name the ADR and its debt task; if
+it does not, stop and report instead of building it. ADR-003: CodexApp owns
+one ThreadModel per thread, one writer, changed only through apply.
+
 THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
 you would write it in Flutter — which widget, controller (TextEditingController,
 ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,

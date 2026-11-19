@@ -313,6 +313,9 @@ Area: <paths>. Out of scope: <…>.
 Evidence: screen tests, oracle map, deltas, pty scenario <name> | n/a until
           scenario-harness lands.
 Review: Sonnet | Opus (why).
+ADR departures: none | ADR-xxx: <what is simplified> → debt task <alias> (the
+      person, 2026-11-19: a departure not named here with its debt task
+      makes the brief invalid; the porter stops and reports).
 ```
 
 Briefs of a wave are drafted by one `codex-reviewer` (Sonnet) from the
@@ -441,7 +444,7 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 | what | reviewer | blocks (the next batch's hand-out; a landed defect is fixed forward) |
 |---|---|---|
 | landing a slice | the orchestrator: sanity check only (crate tree, codex-rs untouched, layer and rules tests, the porter's checks) | a red check, a layer or rules test failing, codex-rs touched |
-| each batch (one hand-out round) | `codex-reviewer`, Sonnet, over the batch diff | a defect; a missing pack item; an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
+| each batch (one hand-out round) | `codex-reviewer`, Sonnet, over the batch diff | a defect; a missing pack item; ADR conformance (per ADR: kept / departure with its debt task / violation = FIX — mandatory, the person 2026-11-19); an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
 | a batch with a risky slice: skeleton, session-core, chat-nav, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
 | the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or from rtwk's standard means; a rule enforced only on paper |
 | the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |
@@ -458,6 +461,12 @@ rounds at most; a third is a stop (§A9). A fix round's re-review reads only the
 fix commits and the open findings.
 
 ## A6. Landing on the integration branch
+
+> **ADR check at landing (the person, 2026-11-19).** Before a candidate lands the
+> orchestrator checks the slice against each ADR it touches (state ownership
+> ADR-003 above all: one CodexApp, one ThreadModel per thread, one writer, no
+> screen-owned copy of thread state or its own RPC path around it). A departure
+> without a named debt task in tm blocks the landing.
 
 One lander: the orchestrator. Order: the tm dependency graph first, then
 readiness. Several reviewed slices are combined in one candidate (rtwk:

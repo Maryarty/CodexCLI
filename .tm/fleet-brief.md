@@ -24,6 +24,11 @@ read only the subsection this file points to.
   shadow of their state, no carried oracle helper that duplicates them. If
   your brief or a research note names such a mechanism, use rtwk instead and
   say so in the handover. Process.md §5.
+- ADR CONFORMANCE (the person, 2026-11-19): a brief that asks you to simplify
+  or bypass an architecture decision (e.g. "own RPC path, no session-core",
+  a screen-local copy of thread state) must name the ADR and its debt task; if
+  it does not, stop and report instead of building it. ADR-003: CodexApp owns
+  one ThreadModel per thread, one writer, changed only through apply.
 - THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
   you would write it in Flutter — which widget, controller (TextEditingController,
   ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
