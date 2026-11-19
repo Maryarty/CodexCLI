@@ -97,6 +97,10 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
             request_id,
             params: ThreadResumeParams {
                 thread_id: thread.clone(),
+                // The center keeps the thread's row, not its turns, and the
+                // chat reads its transcript page by page: the whole history
+                // over the wire is the cost of opening a long session.
+                exclude_turns: true,
                 ..ThreadResumeParams::default()
             },
         },

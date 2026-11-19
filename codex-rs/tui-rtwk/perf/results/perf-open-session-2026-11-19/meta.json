@@ -1,0 +1,91 @@
+{
+ "label": null,
+ "started": "2026-11-19T17:32:36+00:00",
+ "n": 15,
+ "scenarios": [
+  "S12"
+ ],
+ "machine": {
+  "host_model": "MacBookPro18,2",
+  "cpus": 10,
+  "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "mem_gb": 64.0,
+  "power": "Now drawing from 'AC Power'",
+  "python": "3.13.12",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+ },
+ "load_start": 14.3564453125,
+ "load_gate": 15.0,
+ "measure_only": false,
+ "binaries": {
+  "A:oracle": {
+   "path": "/Users/admin/.cache/codexcli/oracle-bin/codex",
+   "sha256": "9248cfeebec9b4cc",
+   "size_mb": 271.0,
+   "version_file": [
+    "codex-cli 0.170.0",
+    "tag rust-v0.170.0",
+    "commit 29eb79e9866b3262a777fdf8195c1b9e63684c91"
+   ],
+   "version": "codex-cli 0.170.0",
+   "kind": "oracle"
+  },
+  "B:rtwk": {
+   "path": "/tmp/pos-fix-rtwk",
+   "sha256": "517c96efa8a3e870",
+   "size_mb": 242.5,
+   "version": "codex-cli 0.170.0",
+   "kind": "rtwk"
+  }
+ },
+ "scenario_defs": {
+  "S12": {
+   "id": "S12",
+   "title": "Open a session from the Agent command center: Enter -> chat page (composer) shows (80-turn history)",
+   "kind": "open",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "settle": 1.0,
+   "subcommand": [
+    "agents",
+    "--no-daemon"
+   ],
+   "seed": {
+    "turns": 80
+   },
+   "mock": {
+    "deltas": 40,
+    "words": 12,
+    "pace": 0.0005,
+    "sentinel": "END-S12"
+   },
+   "ready": {
+    "any": "Agent command center"
+   },
+   "row": "turn 79",
+   "open_ready": "Ask Codex to do anything",
+   "transcript": "END-S12"
+  }
+ },
+ "preflight": {
+  "A:oracle": {
+   "ok": true,
+   "t_ready_ms": 24.7,
+   "wall_s": 1.6
+  },
+  "B:rtwk": {
+   "ok": true,
+   "t_ready_ms": 22.2,
+   "wall_s": 1.6
+  }
+ },
+ "skipped": [],
+ "driver_commit": "05cae4bd3",
+ "same_core": "both frontends run the same Codex core and a fake model of the same shape; only the frontend differs",
+ "finished": "2026-11-19T17:34:58+00:00",
+ "load_end": 6.61865234375
+}
