@@ -612,8 +612,13 @@ def run_open(sess: Session, scenario: dict, kind: str, rec: dict) -> None:
     time.sleep(scenario.get("settle", 1.0))
     sess.watch("chat", text_pred(scenario["open_ready"]))
     sess.watch("transcript", text_pred(scenario["transcript"]))
+    # First frame of the screen change: the command center is gone from the screen (the session page,
+    # loading or ready, is what shows).
+    sess.watch("first", lambda term: term.count(scenario["ready"]["any"]) == 0)
     t0 = sess.send(b"\r")
     t = sess.wait_hit("chat", scenario.get("timeout", 30))
+    tf = sess.hits.get("first")
+    rec["t_first_ms"] = round((tf - t0) * 1000, 1) if tf is not None else None
     rec["t_open_ms"] = round((t - t0) * 1000, 1) if t is not None else None
     if t is None:
         rec["errors"].append("the chat page never showed (composer)")
