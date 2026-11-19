@@ -5,13 +5,18 @@
 //! through a provider projection and returns what the user does as intents.
 //! Oracle: `pets/picker.rs` (`build_pet_picker_params`), `pets/preview.rs`.
 
-use std::cell::Cell;
+use std::rc::Rc;
 
-use rtwk::editing::TextField;
+use rtwk::NotificationListener;
+use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, KeyPress};
+use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::navigation::Navigator;
 use rtwk::provider::{read, select};
+use rtwk::scroll::ScrollNotification;
+use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -81,20 +86,19 @@ pub fn open_empty() -> DebugOpen {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen;
 
-/// Widget state: ids and UI-only positions (R14): whether a picker was shown
-/// (to leave when the model drops it), which search field is current, and the
-/// first row of the window.
-#[derive(Debug)]
+/// Widget state: rtwk's controllers (R14): the cursor row (a key into the
+/// picker's pets), the search text, and whether rows lie below the window.
 pub struct ScreenState {
     shown: bool,
-    field: u32,
-    top: Cell<usize>,
+    cursor: SelectionController<usize>,
+    query: TextEditingController,
+    below: Rc<ValueNotifier<bool>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Move(i32),
-    Search(String),
+    Search,
     Pick,
     Close,
 }
@@ -105,45 +109,98 @@ impl StatefulWidget for Screen {
     fn create_state(&self) -> ScreenState {
         ScreenState {
             shown: false,
-            field: 0,
-            top: Cell::new(0),
+            cursor: SelectionController::new(),
+            query: TextEditingController::default(),
+            below: Rc::new(ValueNotifier::new(false)),
         }
     }
 }
 
 impl_widget!(stateful eq Screen);
 
+impl ScreenState {
+    /// The rows the search leaves, as indices into the picker's pets.
+    fn visible(&self, picker: &Picker) -> Vec<usize> {
+        picker.visible(&self.query.text())
+    }
+
+    /// Puts the cursor on `index` and tells the model which row that is.
+    fn put(&self, picker: &Picker, index: usize, cx: &mut Cx<'_, Self>) {
+        self.cursor.select(index);
+        self.cursor.set_cursor(Some(index));
+        if let Some(pet) = picker.pets.get(index) {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(
+                &hs.screen,
+                ScreenIntent::Pets(Intent::Highlight(pet.selector.clone())),
+            );
+        }
+    }
+}
+
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
-        let open = select::<ScreenStates, bool, _>(cx, |states| states.pets.open.is_some());
-        if !open && self.shown {
+        let picker = select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.open.clone());
+        if picker.is_none() && self.shown {
             Navigator::maybe_pop(cx);
         }
-        self.shown = open;
+        if let (Some(picker), false) = (&picker, self.shown) {
+            // Opened: the cursor starts on the configured pet.
+            let initial = picker.initial();
+            self.cursor.select(initial);
+            self.cursor.set_cursor(Some(initial));
+            self.below.set_value(picker.pets.len() > WINDOW);
+        }
+        self.shown = picker.is_some();
     }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let hs = read::<Hs, _>(cx);
-        let intent = match msg {
-            Msg::Move(delta) => Intent::Move(delta),
-            Msg::Search(text) => Intent::Search(text),
-            Msg::Pick => Intent::Pick,
-            Msg::Close => {
-                // A search typed is cleared by Esc: its field starts afresh.
-                let typed =
-                    select::<ScreenStates, bool, _>(cx, |states| {
-                        states.pets.open.as_ref().is_some_and(|p| !p.query.is_empty())
-                    });
-                if typed {
-                    self.field += 1;
-                }
-                Intent::Close
-            }
+        let Some(picker) =
+            select::<ScreenStates, Option<Picker>, _>(cx, |states| states.pets.open.clone())
+        else {
+            return Rebuild::No;
         };
-        cx.emit(&hs.screen, ScreenIntent::Pets(intent));
+        let visible = self.visible(&picker);
+        let at = self
+            .cursor
+            .cursor()
+            .and_then(|key| visible.iter().position(|index| *index == key));
+        let hs = read::<Hs, _>(cx);
+        match msg {
+            Msg::Move(delta) => {
+                if !visible.is_empty() {
+                    let len = i64::try_from(visible.len()).unwrap_or(1);
+                    let from = i64::try_from(at.unwrap_or(0)).unwrap_or(0);
+                    let to = usize::try_from((from + i64::from(delta)).rem_euclid(len)).unwrap_or(0);
+                    self.put(&picker, visible[to], cx);
+                }
+            }
+            // The search changed: the cursor goes back to the first row.
+            Msg::Search => {
+                if let Some(first) = visible.first() {
+                    self.put(&picker, *first, cx);
+                }
+            }
+            Msg::Pick => {
+                if let Some(pet) = at.and_then(|at| picker.pets.get(visible[at])) {
+                    cx.emit(&hs.screen, ScreenIntent::Pets(Intent::Pick(pet.selector.clone())));
+                }
+            }
+            // Esc clears a search typed, then closes.
+            Msg::Close => {
+                if self.query.text().trim().is_empty() && self.query.text().is_empty() {
+                    cx.emit(&hs.screen, ScreenIntent::Pets(Intent::Close));
+                } else {
+                    self.query.clear();
+                    if let Some(first) = picker.visible("").first() {
+                        self.put(&picker, *first, cx);
+                    }
+                }
+            }
+        }
         Rebuild::Yes
     }
 
@@ -159,45 +216,74 @@ impl State for ScreenState {
             let shared = crate::l10n::strings::of(cx);
             return Text::new(shared.empty_slot(NAME, ID).to_string()).into();
         };
-        let visible = picker.visible();
-        let top = window_top(self.top.get(), picker.cursor, visible.len());
-        self.top.set(top);
-        let shown: Vec<AnyWidget> = visible
-            .iter()
-            .enumerate()
-            .skip(top)
-            .take(WINDOW)
-            .map(|(row, index)| {
-                let pet = &picker.pets[*index];
-                let name = if pet.selector == DISABLED {
-                    s.disable_row
-                } else {
-                    pet.name.as_str()
-                };
-                let marker = if picker.is_current(pet) {
-                    s.current_marker
-                } else {
-                    ""
-                };
-                let at_cursor = row == picker.cursor;
-                let text = format!(
-                    "{}{name}{marker}",
-                    if at_cursor { s.cursor_marker } else { s.indent }
-                );
-                let text = Text::line(text);
-                if at_cursor {
-                    text.style(tokens.selected()).into()
-                } else {
-                    text.into()
+        let picker = Rc::new(picker);
+        let (cursor, below) = (self.cursor.clone(), self.below.clone());
+        // The list and the "more below" row follow the search text.
+        let list = {
+            let (picker, tokens) = (picker.clone(), tokens.clone());
+            ListenableBuilder::new(self.query.listenable(), {
+                let query = self.query.clone();
+                move |_, _| {
+                    let visible = Rc::new(picker.visible(&query.text()));
+                    below.set_value(visible.len() > WINDOW);
+                    let controller = cursor.clone();
+                    let rows = {
+                        let (picker, visible, cursor, tokens) =
+                            (picker.clone(), visible.clone(), cursor.clone(), tokens.clone());
+                        SelectionList::new(
+                            visible.len(),
+                            {
+                                let visible = visible.clone();
+                                move |row| visible[row]
+                            },
+                            move |row: usize| -> AnyWidget {
+                                let index = visible[row];
+                                let (picker, cursor, tokens) =
+                                    (picker.clone(), cursor.clone(), tokens.clone());
+                                ListenableBuilder::new(cursor.listenable(), {
+                                    move |_, _| {
+                                        let pet = &picker.pets[index];
+                                        let name = if pet.selector == DISABLED {
+                                            s.disable_row
+                                        } else {
+                                            pet.name.as_str()
+                                        };
+                                        let marker =
+                                            if picker.is_current(pet) { s.current_marker } else { "" };
+                                        let on = cursor.cursor() == Some(index);
+                                        let text = Text::line(format!(
+                                            "{}{name}{marker}",
+                                            if on { s.cursor_marker } else { s.indent }
+                                        ));
+                                        if on {
+                                            text.style(tokens.selected()).into()
+                                        } else {
+                                            text.into()
+                                        }
+                                    }
+                                })
+                                .into()
+                            },
+                        )
+                        .controller(controller)
+                        .item_extent(1)
+                        .bar(false)
+                        .idle_style(Style::new())
+                        .selected_style(Style::new())
+                        .cursor_style(Style::new())
+                    };
+                    let scroll = below.clone();
+                    let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(
+                        move |note| {
+                            scroll.set_value(note.metrics.pixels < note.metrics.max_scroll_extent);
+                            false
+                        },
+                    );
+                    SizedBox::new(None, Some(i32::try_from(visible.len().min(WINDOW)).unwrap_or(1)), Some(rows.into()))
+                        .into()
                 }
             })
-            .collect();
-        let mut list = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Start);
-        for row in shown {
-            list = list.child(row);
-        }
+        };
         let body = Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, list))
@@ -207,7 +293,17 @@ impl State for ScreenState {
                 Some(preview(&picker, s, &tokens)),
             ))
             .child(SizedBox::new(Some(RIGHT_MARGIN), None, None));
-        let mut column = Column::new()
+        let more = {
+            let style = tokens.dim();
+            ValueListenableBuilder::new(self.below.clone(), move |_, below: &bool, _| {
+                if *below {
+                    Text::line(s.more_below.to_string()).style(style.clone()).into()
+                } else {
+                    AnyWidget::default()
+                }
+            })
+        };
+        let column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Text::line(format!("{}{}", s.indent, s.picker_title)).style(tokens.bold()))
@@ -218,43 +314,24 @@ impl State for ScreenState {
                     .child(SizedBox::new(Some(2), None, None))
                     .child(Expanded::new(
                         1,
-                        AnyWidget::from(
-                            TextField::new()
-                                .placeholder(s.search_placeholder)
-                                .autofocus(true)
-                                .on_changed(cx.map(|text: std::rc::Rc<str>| {
-                                    Msg::Search(text.to_string())
-                                }))
-                                .on_submitted(cx.map(|_: std::rc::Rc<str>| Msg::Pick)),
-                        )
-                        .with_key(self.field),
+                        TextField::new()
+                            .controller(self.query.clone())
+                            .placeholder(s.search_placeholder)
+                            .autofocus(true)
+                            .on_changed(cx.map(|_: Rc<str>| Msg::Search))
+                            .on_submitted(cx.map(|_: Rc<str>| Msg::Pick)),
                     )),
             )
             .child(Text::new(String::new()))
-            .child(body);
-        if top + WINDOW < visible.len() {
-            column = column.child(Text::line(s.more_below.to_string()).style(tokens.dim()));
-        }
-        let column = column.child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
+            .child(body)
+            .child(more)
+            .child(Text::line(format!("{}{}", s.indent, s.hint)).style(tokens.dim()));
         Focus::new(column)
             .can_request_focus(false)
             .bind(KeyPress::ESC, cx.send(Msg::Close))
             .bind(KeyPress::UP, cx.send(Msg::Move(-1)))
             .bind(KeyPress::DOWN, cx.send(Msg::Move(1)))
             .into()
-    }
-}
-
-/// The first row of the window: the old one while the cursor is in it, else
-/// the nearest that shows the cursor.
-fn window_top(top: usize, cursor: usize, len: usize) -> usize {
-    let top = top.min(len.saturating_sub(WINDOW));
-    if cursor < top {
-        cursor
-    } else if cursor >= top + WINDOW {
-        cursor + 1 - WINDOW
-    } else {
-        top
     }
 }
 

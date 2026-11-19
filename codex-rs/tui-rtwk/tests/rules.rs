@@ -417,7 +417,8 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
         // screen's widget, not app data: the model keeps the highlighted task
         // and the search text it filters by; so is the cursor of the
         // confirmation dialog's two rows (`agents/dialogs.rs`); so is the
-        // cursor of the request dialog's option rows (`approvals/dialog.rs`).
+        // cursor of the request dialog's option rows (`approvals/dialog.rs`); so are
+        // the cursor and the search line of the pets picker (`pets/mod.rs`).
         |name| {
             matches!(
                 name,
@@ -425,6 +426,7 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
                     | "src/screens/agents/mod.rs"
                     | "src/screens/agents/dialogs.rs"
                     | "src/screens/approvals/dialog.rs"
+                    | "src/screens/pets/mod.rs"
             )
         },
     );
