@@ -50,6 +50,17 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         config_overrides: &cli.config_overrides,
     };
     let mode = target::Mode::resolve(&flags, |name| std::env::var(name))?;
+    {
+        use std::io::IsTerminal;
+        if let Some(refusal) = target::terminal_refusal(
+            &flags,
+            &mode,
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+        ) {
+            anyhow::bail!(refusal);
+        }
+    }
     let startup_warning = target::startup_warning(&flags);
     let cloud = cloud::Cloud {
         id: codex_tui_rtwk::services::shell::CLOUD_BACKEND,

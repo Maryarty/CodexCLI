@@ -100,6 +100,11 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
         if let Some(status) = overlay.status {
             thread.status = status;
         }
+        if let Some(settings) = overlay.settings {
+            thread.cwd = settings.cwd;
+            thread.model = Some(settings.model);
+            thread.model_provider = settings.model_provider;
+        }
     }
     upsert_thread(&mut model.threads, normalize(thread));
     if unread {

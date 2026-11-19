@@ -334,7 +334,7 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
 | Item | State |
 |---|---|
 | 1 Details Prompt / Last message / title via `thread/read` and `thread/turns/list {limit:1}`, `thread/loaded/list`, re-read after ThreadStarted/Closed/StatusChanged/NameUpdated | done: `core/src/screens/agents/reads.rs`, tests `core/tests/agents_details.rs`. Not ported: `decode_task_links` in the prompt (only Text inputs are joined) |
-| 2 `o` opens the resume picker | done (`Act::Resume`), the resume picker's "unhide on resume" is not done |
+| 2 `o` opens the resume picker | DONE (agents-parity-fix-2): `Act::Resume` pushes the picker over the center (`Navigator.push`, not a replacement); opening it (`resume::Intent::Open`) lists the sessions again and its rows follow the agents list (`resume::listing`, hidden tasks included); a pick resumes the task (`agents::Intent::Resume`, unhides it) and closes the picker; Esc pops back to the center as it was |
 | 3 Latest activity accumulates `**..**` across deltas | done, oracle test ported |
 | 4 F3 closes the search again | done (`f3_toggles_the_search_line`, shown biting) |
 | 5 Grouping persisted and read at start | done, Directory is not saved (as the oracle) |
@@ -396,3 +396,13 @@ Carried vs written (reuse rule): `is_overview_thread`, `supports_shared_pinning`
 Deltas and limits: the oracle's refresh-result and `DynamicToolThreadStarted` mechanism do not exist here (our refresh is a ticket per command), so the two shared_overview tests assert the same facts through the read chain; the switch is a chat key (as in the oracle), not a command-center key; the oracle's per-backend model/reasoning settings and the thread-model swap beyond an empty conversation are not carried (an empty conversation has nothing to swap). No rtwk gap.
 
 Checks: nextest --workspace 745 passed / 17 skipped (735 before, 10 new tests); clippy --workspace --all-targets -D warnings clean; fmt clean; pty scenarios 6/6 green.
+
+## agents-parity-fix-2 (second feature-parity round)
+
+| Review item | Port |
+|---|---|
+| 44 / 69 `o` live resume picker, Esc back to the center | DONE. Tests `tests/shell_agents.rs`: `the_picker_of_the_center_lists_the_sessions`, `cancelling_resume_picker_preserves_command_center_state` (oracle test of the same name; the center's screen is equal after Esc), `a_pick_in_the_picker_resumes_the_task`, `a_hidden_task_comes_back_through_the_picker`. The picker lists the sessions the command center holds (one `thread/list` source, one model), not an own paged list: the oracle's picker filters, sorts and pages by itself (not built). |
+| 70 `ThreadSettingsUpdated` | DONE: row cwd, model, provider, the task read again, replayed over a stale read (`Overlay.settings`); test `core/tests/agents.rs::thread_settings_updated_changes_the_row_and_reads_it_again`. The oracle's permission-profile bookkeeping is not built (no per-task permission selection yet). |
+| 71 `ThreadUnarchived` / `ThreadStarted` clear `removed` | DONE; test `unarchived_and_started_threads_are_no_longer_removed`. |
+| 8 CLI refusals | DONE: prompt/images, conflicting remote endpoints (`Cli::parse`, `tests/app/cli.rs::agents_refuses_a_prompt_images_and_conflicting_endpoints`), remote + `sandbox_workspace_write.writable_roots` (`target.rs`, `a_remote_center_refuses_local_writable_roots`), stdin/stdout not a terminal on the embedded center (`terminal_refusal`, `the_embedded_center_needs_a_terminal`). `--oss`, `--oss-provider`, `--add-dir` are no flags of this binary (unknown argument), so their remote refusal is not reachable. |
+| 5 flaky `a_connection_that_does_not_start_ends_the_app` | Cause: the test's wait, not the core: `StartFailed` crosses the fake's tokio task and the ingress subscription, and ten fixed 20 ms frames of the fake clock did not wait for it under load (1 of 8 runs failed with 12 busy loops; the screen was still the center). Fix: `wait_until_ended` (bounded real-time poll); 30 of 30 green under the same load. The other two backend-crossing waits of the new tests use `wait_for_request`. |

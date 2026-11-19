@@ -31,6 +31,7 @@ use crate::screens::ScreenIntent;
 use crate::screens::ScreenReply;
 use crate::screens::ScreenStates;
 use crate::screens::agents;
+use crate::screens::resume;
 use crate::threads;
 use crate::threads::Failure;
 use crate::threads::ThreadEv;
@@ -380,6 +381,7 @@ pub fn apply_app_from(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut
     let lists = matches!(ev, AppEv::Reply(..) | AppEv::Screen(_));
     apply_event(app, origin, ev, fx);
     refresh_cycle(app);
+    sync_picker(app);
     if lists && agents::wants_dirs(&app.screens.agents) {
         let cwds = agents::wanted_dirs(&mut Rc::make_mut(&mut app.screens).agents);
         if !cwds.is_empty() {
@@ -587,7 +589,37 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
         }
+        Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
+    }
+}
+
+/// The resume picker on the live backend: opening it lists the sessions again,
+/// a pick resumes that task (the center's resume, hidden tasks included).
+fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
+    let screens = Rc::make_mut(&mut app.screens);
+    let outs = match &intent {
+        resume::Intent::Open => agents::update(&mut screens.agents, agents::Intent::Refresh),
+        resume::Intent::Resume(id) => agents::update(
+            &mut screens.agents,
+            agents::Intent::Resume(id.as_str().to_owned()),
+        ),
+    };
+    resume::apply_intent(&mut screens.resume, intent, fx);
+    send_agents(app, outs, fx);
+}
+
+/// While the picker is live its rows follow the list the backend filled.
+fn sync_picker(app: &mut CodexApp) {
+    let model = &app.screens.resume;
+    if !model.live {
+        return;
+    }
+    let (rows, load) = resume::listing(&app.screens.agents);
+    if model.rows != rows || model.load != load {
+        let model = &mut Rc::make_mut(&mut app.screens).resume;
+        model.rows = rows;
+        model.load = load;
     }
 }
 

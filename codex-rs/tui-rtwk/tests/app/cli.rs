@@ -185,3 +185,33 @@ fn config_overrides_are_collected_in_order() {
         "the value of -c is not a word of the command line"
     );
 }
+
+/// `cli/src/main.rs:1088-1096, 1136`: `codex agents` takes no initial prompt
+/// or images, and two different `--remote` endpoints are a conflict; the
+/// oracle's words.
+#[test]
+fn agents_refuses_a_prompt_images_and_conflicting_endpoints() {
+    let prompt = "`codex agents` does not accept an initial prompt or images";
+    assert_eq!(
+        parse(&["agents", "fix the bug"]).unwrap_err().to_string(),
+        prompt
+    );
+    assert_eq!(
+        parse(&["agents", "-i", "a.png"]).unwrap_err().to_string(),
+        prompt
+    );
+    assert_eq!(
+        parse(&["agents", "--image=a.png"]).unwrap_err().to_string(),
+        prompt
+    );
+    assert_eq!(
+        parse(&["--remote", "ws://h:1", "agents", "--remote", "ws://h:2"])
+            .unwrap_err()
+            .to_string(),
+        "`codex agents` received conflicting remote server endpoints"
+    );
+    // The same endpoint twice is no conflict; a prompt without `agents` is not
+    // a thing this app takes yet.
+    assert!(parse(&["--remote", "ws://h:1", "agents", "--remote", "ws://h:1"]).is_ok());
+    assert!(parse(&["fix the bug"]).is_err());
+}

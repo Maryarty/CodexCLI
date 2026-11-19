@@ -2239,3 +2239,72 @@ fn an_unchanging_reasoning_delta_copies_no_screen_state() {
     sandbox.send(delta(" more"));
     assert!(std::rc::Rc::ptr_eq(&held, &sandbox.app().screens));
 }
+
+/// `ThreadUnarchived` and `ThreadStarted` take a task off the removed list
+/// (oracle `agents_overview_threads.rs:129,147`): an unarchived task is shown
+/// again without reopening the center.
+#[test]
+fn unarchived_and_started_threads_are_no_longer_removed() {
+    let target = id(1);
+    let task = thread(&target, None, "Archived elsewhere", idle());
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![task.clone()]);
+    let mut m = model(&sandbox).clone();
+    let archived =
+        ServerNotification::ThreadArchived(codex_app_server_protocol::ThreadArchivedNotification {
+            thread_id: target.clone(),
+        });
+    observe(&mut m, &archived);
+    assert!(m.removed.contains(&target));
+    let unarchived = ServerNotification::ThreadUnarchived(
+        codex_app_server_protocol::ThreadUnarchivedNotification {
+            thread_id: target.clone(),
+        },
+    );
+    observe(&mut m, &unarchived);
+    assert!(!m.removed.contains(&target), "unarchived");
+    observe(&mut m, &archived);
+    assert!(m.removed.contains(&target));
+    let started = ServerNotification::ThreadStarted(ThreadStartedNotification { thread: task });
+    observe(&mut m, &started);
+    assert!(!m.removed.contains(&target), "started");
+    assert!(m.threads.iter().any(|held| held.id == target));
+}
+
+/// `ThreadSettingsUpdated` sets the task's directory, model and provider and
+/// reads the task again (oracle `agents_overview_threads.rs:180-208`).
+#[test]
+fn thread_settings_updated_changes_the_row_and_reads_it_again() {
+    let target = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    let settings: codex_app_server_protocol::ThreadSettingsUpdatedNotification =
+        serde_json::from_value(json!({
+            "threadId": target,
+            "threadSettings": {
+                "disabledPluginIds": [], "cwd": "/tmp/elsewhere", "environments": null,
+                "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                "sandboxPolicy": {"type": "readOnly", "networkAccess": false},
+                "activePermissionProfile": null, "model": "gpt-next",
+                "modelProvider": "other", "serviceTier": null, "effort": null,
+                "summary": null,
+                "collaborationMode": {"mode": "default", "settings": {
+                    "model": "gpt-next", "reasoning_effort": null,
+                    "developer_instructions": null}},
+                "personality": null
+            }
+        }))
+        .expect("settings");
+    let notification = ServerNotification::ThreadSettingsUpdated(settings);
+    let outs = observe(&mut m, &notification);
+    let held = m.threads.iter().find(|held| held.id == target).unwrap();
+    assert_eq!(held.cwd.to_string_lossy(), "/tmp/elsewhere");
+    assert_eq!(held.model.as_deref(), Some("gpt-next"));
+    assert_eq!(held.model_provider, "other");
+    assert!(
+        outs.iter()
+            .any(|out| matches!(&out.command, Command::Read { thread } if thread == &target)),
+        "the task is read again: {outs:?}"
+    );
+}

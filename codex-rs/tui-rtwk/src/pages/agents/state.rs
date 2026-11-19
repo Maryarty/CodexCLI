@@ -442,15 +442,12 @@ impl ScreenState {
                             self.accept(model, sel, &center, cx);
                         }
                     }
-                    // The picker takes the center's place (`pushReplacement`):
-                    // a pick resumes into the chat, Esc returns to it. Held
-                    // back while a notice holds the center.
+                    // The picker is a route over the center (`push`): a pick
+                    // resumes the task, Esc pops back to the center as it was.
+                    // Held back while a notice holds the center.
                     Act::Resume => {
                         if !model.held() {
-                            drop(
-                                Navigator::of(cx)
-                                    .push_replacement::<()>(crate::pages::resume::route()),
-                            );
+                            drop(Navigator::of(cx).push::<()>(crate::pages::resume::route()));
                         }
                     }
                     Act::Grouping => Self::send(cx, AgentsIntent::CycleGrouping),
