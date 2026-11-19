@@ -8,7 +8,7 @@ use std::rc::Rc;
 use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::SizedBox;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
@@ -349,6 +349,19 @@ impl State for ChatState {
                         .style(tokens.dim())
                         .into(),
                 )
+            }
+            None if thread.read_only => {
+                // The external writer view: the composer is replaced by the
+                // notice, the footer by what the page can do.
+                let line = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .child(Text::new(chat_strings.read_only_title).style(tokens.bold()))
+                    .child(Text::new(chat_strings.read_only_hint));
+                let footer = Row::new()
+                    .child(SizedBox::new(Some(2), None, None))
+                    .child(Text::new(chat_strings.read_only_footer).style(tokens.dim()));
+                (line.into(), footer.into())
             }
             None => {
                 let area = TextArea::new()

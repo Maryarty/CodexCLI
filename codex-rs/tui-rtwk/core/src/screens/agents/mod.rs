@@ -68,6 +68,8 @@ pub use refresh::Out;
 pub use crate::protocol::agents::account_ev;
 pub use crate::protocol::agents::account_request;
 pub use refresh::apply_answer;
+pub use refresh::attach_loaded;
+pub use refresh::is_active_writer;
 pub use update::wants_dirs;
 pub use sources::Fanout;
 pub use sources::PinReader;
@@ -374,6 +376,9 @@ pub struct Model {
     /// failure) clears it (open-instant: the page change does not wait for
     /// the backend).
     pub opening: Option<String>,
+    /// Tasks whose opening was cancelled (Esc on the loading page) while
+    /// their resume was out: that answer, one per cancel, is ignored.
+    pub cancelled: Vec<String>,
     /// The displayed backend's paging; the others' are `parked` (oracle:
     /// `initialized` and `discovery` per backend).
     pub paging: Paging,
@@ -610,6 +615,7 @@ pub fn backend_of(model: &Model, command: &Command) -> BackendId {
         | Command::Fork { thread }
         | Command::Usage { thread }
         | Command::Read { thread }
+        | Command::History { thread, .. }
         | Command::Turns { thread } => model.owner_of(thread),
         Command::List { .. }
         | Command::Start { .. }
@@ -662,6 +668,9 @@ pub enum Intent {
     Accept(Sel),
     /// The resume picker picked this task, hidden or not.
     Resume(String),
+    /// Esc on the loading page: the opening is given up and the resume's
+    /// late answer is ignored.
+    CancelOpen,
     /// Enter on the "Show more" row while a search is open: more matches.
     MoreMatches(Lens),
     /// The rename line was accepted: the task is named `name`.
@@ -761,6 +770,12 @@ pub enum Command {
     Turns {
         thread: String,
     },
+    /// One page of a task's turns, newest first (`thread/turns/list`): the
+    /// history of the session being opened, read lazily page by page.
+    History {
+        thread: String,
+        cursor: Option<String>,
+    },
     /// The tasks the server holds loaded (`thread/loaded/list`).
     Loaded,
     /// Writes the grouping to the config: not an RPC, `app::send_agents`
@@ -794,6 +809,11 @@ pub enum Reply {
         last_message: Option<String>,
     },
     Loaded(Vec<String>),
+    /// A page of turns, newest first, and the cursor of the older page.
+    History {
+        turns: Vec<codex_app_server_protocol::Turn>,
+        next: Option<String>,
+    },
 }
 
 impl Eq for Reply {}
@@ -839,6 +859,10 @@ pub enum Ctx {
         thread: String,
     },
     Turns {
+        thread: String,
+    },
+    /// A page of the opened session's history.
+    History {
         thread: String,
     },
     Loaded,

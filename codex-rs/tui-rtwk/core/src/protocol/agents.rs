@@ -17,6 +17,7 @@ use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
 use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadDeleteParams;
@@ -40,7 +41,11 @@ use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnInterruptParams;
+use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
+
+/// How many turns one page of a session's history holds.
+pub const HISTORY_PAGE: u32 = 20;
 use codex_app_server_protocol::UserInput;
 use serde::Deserialize;
 
@@ -133,6 +138,16 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
                 limit: Some(1),
                 sort_direction: None,
                 items_view: None,
+            },
+        },
+        Command::History { thread, cursor } => ClientRequest::ThreadTurnsList {
+            request_id,
+            params: ThreadTurnsListParams {
+                thread_id: thread.clone(),
+                cursor: cursor.clone(),
+                limit: Some(HISTORY_PAGE),
+                sort_direction: Some(SortDirection::Desc),
+                items_view: Some(TurnItemsView::Full),
             },
         },
         Command::Loaded => ClientRequest::ThreadLoadedList {
@@ -267,6 +282,14 @@ pub(crate) fn decode_reply(
             let response: ThreadTurnsListResponse =
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(turn_previews(response.data.first()))
+        }
+        Command::History { .. } => {
+            let response: ThreadTurnsListResponse =
+                serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::History {
+                turns: response.data,
+                next: response.next_cursor,
+            })
         }
         Command::Loaded => {
             let response: ThreadLoadedListResponse =

@@ -357,10 +357,38 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             )));
             return vec![list(model, None, false)];
         }
+        (Ctx::Resume { thread }, _) if model.cancelled.contains(&thread) => {
+            // The opening was cancelled meanwhile: the page is gone, the
+            // answer is of no interest.
+            if let Some(at) = model.cancelled.iter().position(|task| *task == thread) {
+                model.cancelled.remove(at);
+            }
+        }
+        // The thread has another writer (oracle: `is_active_writer_error`):
+        // it opens read-only, its history shown, not as a failure.
+        (Ctx::Resume { thread }, Err(error)) if is_active_writer(&error) => {
+            let owner = model.owner_of(&thread);
+            model.display(owner);
+            model.hidden.remove(&thread);
+            model.current = Some(thread.clone());
+            model.opening = None;
+            model.resumes += 1;
+            return vec![out(
+                Command::History {
+                    thread: thread.clone(),
+                    cursor: None,
+                },
+                Ctx::History { thread },
+            )];
+        }
         (Ctx::Resume { .. }, Err(error)) => {
             // The page opened over the center goes back to it with the error.
             model.opening = None;
-            model.notice = Some(Notice::Error(error_text(error)));
+            // Oracle: `agents_overview.rs`, `Failed to attach to task: {error}`.
+            model.notice = Some(Notice::Error(format!(
+                "Failed to attach to task: {}",
+                error_text(error)
+            )));
         }
         (Ctx::Rename { .. } | Ctx::Stop { .. } | Ctx::Interrupt, Err(error)) => {
             model.notice = Some(Notice::Error(error_text(error)));
@@ -402,7 +430,19 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.current = Some(thread);
             model.opening = None;
             model.resumes += 1;
+            // The session's history, the newest page first.
+            let thread = model.current.clone().unwrap_or_default();
+            return vec![out(
+                Command::History {
+                    thread: thread.clone(),
+                    cursor: None,
+                },
+                Ctx::History { thread },
+            )];
         }
+        // The page of history goes to the thread's transcript (the app
+        // routes it); the center has nothing to change.
+        (Ctx::History { .. }, _) => {}
         (Ctx::Start, Ok(Reply::Started(thread))) => opened(model, &thread),
         (Ctx::Start, Ok(_)) => {}
         (Ctx::Start, Err(error)) => {
@@ -410,6 +450,25 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         }
     }
     Vec::new()
+}
+
+/// A task this process already holds is shown again without a new resume
+/// (ADR-003: one `ThreadModel` per thread, kept while another is shown, and
+/// the server has one writer per thread): the opening is over, the center
+/// pops as it does on a resume's answer.
+pub fn attach_loaded(model: &mut Model, thread: &str) {
+    let owner = model.owner_of(thread);
+    model.display(owner);
+    model.hidden.remove(thread);
+    model.current = Some(thread.to_owned());
+    model.opening = None;
+    model.resumes += 1;
+}
+
+/// The server refused the resume because another process writes the thread
+/// (oracle: `app_server_session::is_active_writer_error`, by the message).
+pub fn is_active_writer(error: &RpcError) -> bool {
+    matches!(error, RpcError::Remote(message) if message.contains("already has an active writer"))
 }
 
 fn error_text(error: RpcError) -> String {

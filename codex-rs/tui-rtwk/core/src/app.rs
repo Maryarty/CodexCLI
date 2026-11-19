@@ -587,6 +587,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     app.session.active.as_ref().map(|id| id.as_str().to_owned());
             }
             let outs = agents::update(&mut screens.agents, intent);
+            let outs = attach_known(app, outs);
             send_agents(app, outs, fx);
         }
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
@@ -606,7 +607,30 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
         ),
     };
     resume::apply_intent(&mut screens.resume, intent, fx);
+    let outs = attach_known(app, outs);
     send_agents(app, outs, fx);
+}
+
+/// A resume of a thread this process already holds (its `ThreadModel` is in
+/// `app.threads`, written by us) is no request: the thread is shown again as
+/// it is, and a thread written by another process is still resumed once.
+fn attach_known(app: &mut CodexApp, outs: Vec<agents::Out>) -> Vec<agents::Out> {
+    outs.into_iter()
+        .filter(|out| {
+            let agents::Command::Resume { thread } = &out.command else {
+                return true;
+            };
+            let id = ThreadId::new(thread);
+            let known = app.threads.get(&id).is_some_and(|model| !model.read_only);
+            if known {
+                agents::attach_loaded(&mut Rc::make_mut(&mut app.screens).agents, thread);
+                let session = Rc::make_mut(&mut app.session);
+                session.active = Some(id);
+                session.status = Session::Ready;
+            }
+            !known
+        })
+        .collect()
 }
 
 /// While the picker is live its rows follow the list the backend filled.
@@ -675,8 +699,39 @@ fn screen_answer(app: &mut CodexApp, ctx: ScreenCtx, answer: Answer, fx: &mut Ap
             | agents::Reply::Started(thread),
         ),
     ) = (&ctx, &result)
+        && !matches!(&ctx, agents::Ctx::Resume { thread } if app.screens.agents.cancelled.contains(thread))
     {
         resume_into_chat(app, thread);
+    }
+    if let (agents::Ctx::Resume { thread }, Err(error)) = (&ctx, &result)
+        && agents::is_active_writer(error)
+        && !app.screens.agents.cancelled.contains(thread)
+    {
+        // Another process writes the thread: the chat shows it read-only.
+        let id = ThreadId::new(thread);
+        let model = app
+            .threads
+            .entry(id.clone())
+            .or_insert_with(|| Rc::new(ThreadModel::new(id.clone())));
+        Rc::make_mut(model).read_only = true;
+        let session = Rc::make_mut(&mut app.session);
+        session.active = Some(id);
+        session.status = Session::Ready;
+    }
+    if let (agents::Ctx::History { thread }, Ok(agents::Reply::History { turns, next })) =
+        (&ctx, &result)
+    {
+        let thread = ThreadId::new(thread);
+        let items = threads::history_items(turns);
+        apply_thread(
+            app,
+            &thread,
+            ThreadEv::HistoryPage {
+                items,
+                next: next.clone(),
+            },
+            fx,
+        );
     }
     let outs = agents::apply_answer(&mut Rc::make_mut(&mut app.screens).agents, ctx, result);
     send_agents(app, outs, fx);

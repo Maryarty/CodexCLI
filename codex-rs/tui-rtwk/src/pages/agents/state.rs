@@ -219,7 +219,8 @@ impl State for ScreenState {
         // the center again with the error).
         if model.opening.is_some() && !self.opening_pushed && Route::is_current_of(cx) {
             self.opening_pushed = true;
-            drop(Navigator::of(cx).push::<()>(super::opening::route()));
+            let popped = cx.map(|_: PopInvoked| Msg::OpeningClosed);
+            drop(Navigator::of(cx).push::<()>(super::opening::route(popped)));
         }
         let answered = model.opening.is_none() && self.opening_pushed;
         if answered {
@@ -505,6 +506,15 @@ impl ScreenState {
                 {
                     self.put_cursor(key);
                     return Rebuild::Yes;
+                }
+            }
+            Msg::OpeningClosed => {
+                // The loading page was popped while the resume is still out:
+                // Esc gave the opening up. (A reply pops it after the model
+                // forgot the opening: nothing to cancel then.)
+                if model.opening.is_some() {
+                    self.opening_pushed = false;
+                    Self::send(cx, AgentsIntent::CancelOpen);
                 }
             }
             Msg::Confirmed(confirm) => {

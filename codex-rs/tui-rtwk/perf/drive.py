@@ -632,7 +632,7 @@ def run_open(sess: Session, scenario: dict, kind: str, rec: dict) -> None:
     if t is None:
         rec["errors"].append("the chat page never showed (composer)")
         return
-    # the transcript's last text: informational (codex-rtwk's chat does not replay history yet)
+    # the transcript's last text: the resumed session's history (thread/turns/list into the transcript)
     tt = sess.wait_hit("transcript", scenario.get("transcript_wait", 2.0))
     rec["t_transcript_ms"] = round((tt - t0) * 1000, 1) if tt is not None else None
     hold = scenario.get("hold", 1.0)

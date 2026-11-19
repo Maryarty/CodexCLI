@@ -1286,3 +1286,174 @@ fn a_failed_resume_returns_to_the_command_center_with_the_error() {
     };
     assert_eq!(highlighted(&screen), highlighted(&before));
 }
+
+/// open-rest: Esc on the "Loading task…" page goes back to the command center
+/// with its highlight where it was.
+#[test]
+fn esc_on_the_loading_page_returns_to_the_command_center() {
+    // `server` leaves `thread/resume` unanswered.
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("down");
+    h.settle();
+    let before = h.t.screen();
+    h.t.press("enter");
+    h.t.pump_for(Duration::from_millis(40));
+    assert!(h.t.screen().contains("Loading task…"), "{}", h.t.screen());
+    h.t.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Loading task…"), "{screen}");
+    assert!(screen.contains("Agent command center"), "{screen}");
+    let highlighted = |s: &str| {
+        s.lines()
+            .position(|line| line.contains("Exec task") || line.contains("Interactive task"))
+    };
+    assert_eq!(highlighted(&screen), highlighted(&before));
+}
+
+/// open-rest: a pick in the resume picker (`o`) opens through the same
+/// loading page: pushed at once, before the resume's reply.
+#[test]
+fn a_pick_in_the_resume_picker_shows_the_loading_page() {
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("o");
+    h.wait_for("the picker", |s| {
+        s.contains("Resume a previous session") && s.contains("Exec task")
+    });
+    h.t.press("enter");
+    h.t.pump_for(Duration::from_millis(40));
+    let screen = h.t.screen();
+    assert!(screen.contains("Loading task…"), "{screen}");
+    assert!(!screen.contains("Resume a previous session"), "{screen}");
+}
+
+/// A turn of `thread/turns/list`: a prompt and an answer.
+fn turn_json(id: &str, prompt: &str, answer: &str) -> Value {
+    json!({
+        "id": id, "rootTurnId": null, "itemsView": "full", "status": "completed",
+        "error": null, "startedAt": null, "completedAt": null, "durationMs": null,
+        "items": [
+            {"type": "userMessage", "id": format!("{id}-u"), "clientId": null,
+             "content": [{"type": "text", "text": prompt, "text_elements": []}]},
+            {"type": "agentMessage", "id": format!("{id}-a"), "text": answer}
+        ]
+    })
+}
+
+/// open-rest: the opened session shows its history: `thread/turns/list`
+/// pages the turns newest first, the transcript shows them oldest first.
+#[test]
+fn the_opened_session_shows_its_history() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Ok(resumed(request["params"]["threadId"].as_str()?))),
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => Some(Ok(json!({
+            "data": [
+                turn_json("t2", "second question", "second answer"),
+                turn_json("t1", "first question", "first answer")
+            ],
+            "nextCursor": null
+        }))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    h.wait_for("the history", |s| s.contains("second answer"));
+    let screen = h.t.screen();
+    let at = |needle: &str| {
+        screen
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {screen}"))
+    };
+    assert!(at("first question") < at("first answer"), "{screen}");
+    assert!(at("first answer") < at("second question"), "{screen}");
+    assert!(at("second question") < at("second answer"), "{screen}");
+    let asked: Vec<Value> = h
+        .fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "thread/turns/list" && r["params"]["limit"] != 1)
+        .map(|r| r["params"].clone())
+        .collect();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["sortDirection"], "desc");
+    assert_eq!(asked[0]["itemsView"], "full");
+}
+
+/// open-rest (review #56, attach conflict): a thread another process writes
+/// does not fail to open: the oracle opens it read-only with its history and
+/// says so where the composer would be.
+#[test]
+fn a_thread_with_another_writer_opens_read_only_with_its_history() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Err(ServerError {
+            code: Some(-32600),
+            message: format!(
+                "thread {} already has an active writer",
+                request["params"]["threadId"].as_str()?
+            ),
+        })),
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => Some(Ok(json!({
+            "data": [turn_json("t1", "first question", "first answer")],
+            "nextCursor": null
+        }))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    h.wait_for("the history", |s| s.contains("first answer"));
+    let screen = h.t.screen();
+    // Oracle: `agents_overview_attach_conflict.snap` (the notice stands
+    // where the composer is).
+    assert!(
+        screen.contains("This conversation is open in another app"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("Close it there and press R to continue here."),
+        "{screen}"
+    );
+    assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
+    assert!(!screen.contains("active writer"), "{screen}");
+    assert!(!screen.contains("Agent command center"), "{screen}");
+}
+
+/// open-rest (ADR-003): several sessions stay attached to the process; opening
+/// A, going back, opening B, back, and A again resumes each thread once (the
+/// server has one writer per thread: a second resume of A would conflict).
+#[test]
+fn open_a_back_open_b_back_open_a_resumes_each_thread_once() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Ok(resumed(request["params"]["threadId"].as_str()?))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    let open_row = |h: &mut live::Live, downs: usize| {
+        for _ in 0..downs {
+            h.t.press("down");
+        }
+        h.settle();
+        h.t.press("enter");
+        h.wait_for("the chat", |s| s.contains("Ask Codex to do anything"));
+        h.t.press("left");
+        h.wait_for("the center", |s| s.contains("Agent command center"));
+    };
+    open_row(&mut h, 0);
+    open_row(&mut h, 1);
+    open_row(&mut h, 0);
+    let resumed: Vec<String> = h
+        .fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "thread/resume")
+        .map(|r| {
+            r["params"]["threadId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(resumed.len(), 2, "{resumed:?}");
+    assert_ne!(resumed[0], resumed[1], "{resumed:?}");
+}
