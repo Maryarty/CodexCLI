@@ -366,3 +366,15 @@ The oracle does not fall back to the embedded server here. `codex agents` calls 
 | scenario `agents` | oracle `-c analytics.enabled=false agents --no-daemon`, ours `-c analytics.enabled=false agents` (default mode; `-c` makes the oracle's default mode embedded as well): 6/6 scenarios green |
 
 Not ported: `--enable/--disable/--search` flags (so the exclusion by them is unreachable), the other exclusions (`--oss`, `--profile`, workload identity, executor URL, GCP/gateway wizards, WSL DrvFS), `daemon_recovery` (feature mismatch restart).
+
+## agents-cloud (multi-backend overview), partly done
+
+Oracle (rust-v0.170.0): `Feature::TuiMultiBackend` + `cloud_preview_available` + macOS/Linux + no workload identity/config server -> `cloud_backend::connect(&config)` (`app-server-client/src/cloud_backend`, used as it is) is registered next to the local session (`app/backend_sessions.rs`); the overview merges the sessions' rows.
+
+| Oracle | Port |
+|---|---|
+| `BackendRegistry::observe/owner` (first backend that lists an id owns it; later rows of that id are dropped) | DONE in core: `Model::observe`, `owners`, `owner_of` (`core/src/screens/agents/mod.rs`), `merge_page(owner, ..)`; `Ev::ListedBy(BackendId, Page)` |
+| `pins_by_backend`, ranks over its values; `refreshing_one_backends_pins_preserves_cross_backend_rank` | DONE: `Model::set_pins`, `pins_by_backend`, `pinned` derived; test `core/tests/agents_backends.rs::refreshing_one_backends_pins_preserves_cross_backend_rank` |
+| `overview_keeps_rows_and_routes_actions_to_the_owner` | rows/owners/pins part ported as `overview_keeps_rows_and_owners_per_backend` (a list page is the unit here, not the oracle's refresh result: no `None` reads, so 3 rows not 2). NOT DONE: `ResumeBackendSession` (selecting a remote-owned row switches the displayed session), pin action unsupported when the displayed backend has no pins, `ThreadNameUpdated` of the displayed backend for a foreign id |
+| per-backend discovery/paging (`discovery: HashMap<BackendId,..>`, `initialized`, `active_refresh: (Uuid, BackendId)`, `has_more(backend)`), `shared_overview_*`, cloud archive/discovery tests | NOT DONE |
+| the cloud connector in host/shell, the feature gate, one ingress per backend with its own epoch, commands carrying the owner | NOT DONE |
