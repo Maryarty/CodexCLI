@@ -437,3 +437,30 @@ fn usage_footer_keys_are_bound() {
     assert!(!h.t.screen().contains("Not implemented yet"));
     assert_eq!(find::by_type::<usage::Screen>().count(&h.t), 1);
 }
+
+/// The resume picker's footer keys not built yet open the popup (the rows
+/// themselves are the oracle's, tests/resume.rs); `esc` returns to the session.
+#[test]
+fn resume_footer_keys_are_bound() {
+    let mut h = open_over_the_session("/resume");
+    for (key, action) in [
+        ("tab", "focus sort/filter"),
+        ("right", "change option"),
+        ("ctrl+o", "dense view"),
+        ("ctrl+t", "transcript"),
+        ("ctrl+e", "expand"),
+    ] {
+        h.press(key);
+        h.t.pump_for(crate::common::ms(600));
+        let screen = h.t.screen();
+        assert!(
+            screen.contains(&format!("Not implemented yet: {action}")),
+            "{key}:\n{screen}"
+        );
+        h.press("enter");
+        h.t.pump_for(crate::common::ms(600));
+    }
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_session_back(&h);
+}

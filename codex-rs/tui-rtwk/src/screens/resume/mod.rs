@@ -126,6 +126,8 @@ struct Scrolled {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Accept(usize),
+    /// A key of the footer whose action is not built yet: the action's name.
+    NotYet(&'static str),
     Close,
 }
 
@@ -398,6 +400,9 @@ impl State for ScreenState {
                     Navigator::maybe_pop(cx);
                 }
             }
+            Msg::NotYet(action) => {
+                drop(crate::ui::page_keys::not_yet(cx, action));
+            }
             Msg::Close => {
                 Navigator::maybe_pop(cx);
             }
@@ -423,8 +428,18 @@ impl State for ScreenState {
         data.glyphs.ellipsis = "...".into();
         let accept = cx.map(Msg::Accept);
         let body = screen(&look, strings, num, screens, self.selection.clone(), self.scroll.clone(), accept);
+        // The footer's keys not built yet (the sort/filter focus and option,
+        // the dense view, the transcript preview, the expand) say so.
         let keys = KeyBindings::new(
-            [("escape", cx.send(Msg::Close))],
+            [
+                ("escape", cx.send(Msg::Close)),
+                ("tab", cx.send(Msg::NotYet(strings.focus_wide))),
+                ("left", cx.send(Msg::NotYet(strings.option_wide))),
+                ("right", cx.send(Msg::NotYet(strings.option_wide))),
+                ("ctrl+o", cx.send(Msg::NotYet(strings.density_wide))),
+                ("ctrl+t", cx.send(Msg::NotYet(strings.transcript_wide))),
+                ("ctrl+e", cx.send(Msg::NotYet(strings.expand_wide))),
+            ],
             Focus::new(body),
         );
         Theme::new(data, keys).into()
