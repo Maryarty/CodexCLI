@@ -155,3 +155,31 @@ fn pets_is_a_sheet_over_the_session_page() {
         "back on the session page"
     );
 }
+
+/// Import is a step of the startup page (architecture §1, amendment
+/// 2026-11-19b: one StartupPage with steps, a step controller), not a page of
+/// its own: `/import` pushes the StartupPage on the import step, and Escape
+/// returns to the chat.
+#[test]
+fn import_is_a_step_of_the_startup_page() {
+    use codex_tui_rtwk::screens::onboarding::{Step, StartupPage};
+    use rtwk_test::find;
+
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    h.t.type_text("/import");
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(800));
+    let page = find::by_type::<StartupPage>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("import (S06): empty slot"),
+        "{}",
+        h.t.screen()
+    );
+    assert_eq!(Step::Import.index(), 3);
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0);
+    assert!(h.t.screen().contains("• Hello"));
+}
