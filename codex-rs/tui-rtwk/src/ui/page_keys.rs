@@ -29,17 +29,42 @@ where
     K: AsRef<str>,
     H: Into<rtwk::text::Str>,
 {
+    footer_with(keys, key, hint, "  ")
+}
+
+/// `footer` with entries apart by `separator` (a page whose oracle row reads
+/// `report · dashboard · help`).
+pub fn footer_with<K, H>(
+    keys: impl IntoIterator<Item = (K, H)>,
+    key: Style,
+    hint: Style,
+    separator: &'static str,
+) -> KeyHintsBar
+where
+    K: AsRef<str>,
+    H: Into<rtwk::text::Str>,
+{
+    let mut shown: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut pairs: Vec<(String, rtwk::text::Str)> = Vec::new();
     for (display, hint_text) in keys {
         let hint_text: rtwk::text::Str = hint_text.into();
         for name in key_names(display.as_ref()) {
+            if let Ok(combo) = KeyCombo::parse(&name) {
+                shown.insert(combo.to_string(), display.as_ref().to_owned());
+            }
             pairs.push((name, hint_text.clone()));
         }
     }
     KeyHintsBar::from_pairs(pairs)
-        .key_label(oracle_label)
+        .key_label(move |combo| {
+            // The text the page gave for the key; the oracle's look for the rest.
+            shown
+                .get(&combo.to_string())
+                .cloned()
+                .unwrap_or_else(|| oracle_label(combo))
+        })
         .join_keys(false)
-        .separator("  ")
+        .separator(separator)
         .key_style(key)
         .hint_style(hint)
 }
@@ -51,6 +76,14 @@ fn key_names(display: &str) -> Vec<String> {
     }
     display
         .split('/')
+        .flat_map(|part| match part.split_once('\u{2013}') {
+            // `1–6`: the keys 1 to 6.
+            Some((from, to)) => match (from.parse::<u32>(), to.parse::<u32>()) {
+                (Ok(from), Ok(to)) => (from..=to).map(|n| n.to_string()).collect(),
+                _ => vec![part.to_owned()],
+            },
+            None => vec![part.to_owned()],
+        })
         .map(|part| {
             let part = part.trim().replace(" + ", "+");
             match part.as_str() {

@@ -32,8 +32,10 @@ pub struct Strings {
     /// Oracle: `controls.rs`, the period control.
     pub control_daily: &'static str,
     /// Oracle: `hints.rs` `footer_lines`.
-    pub back: &'static str,
-    pub hints: &'static str,
+    /// The first row: `esc back`.
+    pub back: (&'static str, &'static str),
+    /// The second row: the key as the oracle writes it, its hint.
+    pub hints: [(&'static str, &'static str); 4],
     /// Oracle: `data.rs` `Remote::message`, `chart.rs` and the errors.
     pub loading: &'static str,
     pub unavailable: &'static str,
@@ -75,8 +77,13 @@ pub const EN: Strings = Strings {
     heading_plan: msg!("Usage · {0}"),
     tabs: ["Overview", "Usage", "Messages", "Plugins", "Skills", "Chats"],
     control_daily: "g Daily",
-    back: "esc back",
-    hints: "tab/1\u{2013}6 report · z dashboard · ? help · R refresh",
+    back: ("esc", "back"),
+    hints: [
+        ("tab/1\u{2013}6", "report"),
+        ("z", "dashboard"),
+        ("?", "help"),
+        ("R", "refresh"),
+    ],
     loading: "Loading…",
     unavailable: "No history has been reported.",
     failed_analytics: "Couldn't load analytics. Press R to retry.",

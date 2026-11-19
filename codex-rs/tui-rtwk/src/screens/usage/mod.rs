@@ -79,6 +79,10 @@ pub struct ScreenState;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Report(Report),
+    /// Tab: the next report, the first after the last.
+    NextReport,
+    /// A key of the footer whose action is not built yet: the hint's index.
+    NotYet(usize),
     Close,
 }
 
@@ -392,8 +396,13 @@ fn dashboard(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width
             Some(line(strings.control_daily, look.dim.clone()).into()),
         ))
         .child(Expanded::new(1, body(model, strings, num, look, inner)))
-        .child(line(strings.back, look.dim.clone()))
-        .child(line(strings.hints, look.dim.clone()));
+        .child(crate::ui::page_keys::footer([strings.back], look.dim.clone(), look.dim.clone()))
+        .child(crate::ui::page_keys::footer_with(
+            strings.hints,
+            look.dim.clone(),
+            look.dim.clone(),
+            " · ",
+        ));
     Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
 }
 
@@ -406,6 +415,17 @@ impl State for ScreenState {
             Msg::Report(report) => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Report(report)));
+            }
+            Msg::NextReport => {
+                let model = &watch::<ScreenStates, _>(cx).usage;
+                let at = Report::ALL.iter().position(|r| *r == model.report).unwrap_or(0);
+                let next = Report::ALL[(at + 1) % Report::ALL.len()];
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Report(next)));
+            }
+            Msg::NotYet(index) => {
+                let action = strings::of(cx).hints[index].1;
+                drop(crate::ui::page_keys::not_yet(cx, action));
             }
             Msg::Close => {
                 Navigator::maybe_pop(cx);
@@ -438,6 +458,12 @@ impl State for ScreenState {
         for (index, report) in Report::ALL.iter().enumerate() {
             let digit = char::from_digit(index as u32 + 1, 10).unwrap_or('1');
             focus = focus.bind(digit, cx.send(Msg::Report(*report)));
+        }
+        // The footer's other keys: tab cycles the reports; the dashboard, the
+        // help and the refresh are not built yet and say so.
+        focus = focus.bind(KeyPress::TAB, cx.send(Msg::NextReport));
+        for (index, key) in [(1, 'z'), (2, '?'), (3, 'R')] {
+            focus = focus.bind(key, cx.send(Msg::NotYet(index)));
         }
         focus.into()
     }
