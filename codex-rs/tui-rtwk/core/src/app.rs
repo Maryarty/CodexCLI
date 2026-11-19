@@ -308,7 +308,9 @@ fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
                 return;
             }
             if agents::wants(&app.screens.agents, &notification) {
-                agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
+                let outs =
+                    agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
+                send_agents(app, outs, fx);
             }
             if let Some((thread, ev)) = threads::project(&notification) {
                 apply_thread(app, &thread, ev, fx);

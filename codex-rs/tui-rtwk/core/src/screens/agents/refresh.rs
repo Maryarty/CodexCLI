@@ -68,6 +68,14 @@ fn upsert(threads: &mut Vec<Thread>, at: &mut HashMap<String, usize>, thread: Th
     }
 }
 
+/// Replaces the held task of that id or adds it at the end.
+pub(super) fn upsert_thread(threads: &mut Vec<Thread>, thread: Thread) {
+    match threads.iter().position(|held| held.id == thread.id) {
+        Some(held) => threads[held] = thread,
+        None => threads.push(thread),
+    }
+}
+
 fn merge_page(model: &mut Model, page: Page) {
     let known: HashSet<String> = page
         .threads
@@ -200,8 +208,15 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         }
         (Ctx::List { append: false }, Ok(Reply::Listed(mut page))) => {
             page.append = false;
+            let first = !model.paging.initialized;
+            let ids = super::reads::recent_ids(&page.threads);
             merge_page(model, page);
-            return super::discovery::refill(model);
+            let mut outs = super::discovery::refill(model);
+            outs.extend(super::reads::want(model, ids));
+            if first {
+                outs.push(out(Command::Loaded, Ctx::Loaded));
+            }
+            return outs;
         }
         (Ctx::List { .. }, Err(_) | Ok(_)) => {
             model.paging.loading = false;
@@ -214,6 +229,9 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         (Ctx::Search { id, limit }, Err(_) | Ok(_)) => {
             return super::discovery::on_search_page(model, id, limit, None);
         }
+        (Ctx::Read { thread }, result) => return super::reads::on_read(model, thread, result),
+        (Ctx::Turns { thread }, result) => return super::reads::on_turns(model, thread, result),
+        (Ctx::Loaded, result) => return super::reads::on_loaded(model, result),
         (Ctx::Usage { thread, id }, result) => {
             super::usage::finish(model, &thread, id, result.ok());
         }
