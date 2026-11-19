@@ -223,14 +223,18 @@ fn ctrl_t_and_diff_open_the_not_implemented_popup() {
 }
 
 /// The session page's bottom menu: the oracle's idle footer
-/// (`footer_shortcuts_default`): the shortcuts hint at the left.
+/// (`agents_navigation_enabled`, new_session_tests: `← for agents · ? for
+/// shortcuts`): the hints at the left.
 #[test]
 fn the_session_page_footer_is_the_oracle_idle_footer() {
     let mut h = start();
     h.wait_for("ready", |s| s.contains("ready"));
     let screen = h.t.screen();
     let last = screen.lines().last().unwrap_or_default().to_string();
-    assert!(last.starts_with("  ? for shortcuts"), "{screen}");
+    assert!(
+        last.starts_with("  ← for agents · ? for shortcuts"),
+        "{screen}"
+    );
     assert!(!screen.contains("F12 screens"), "{screen}");
 }
 
@@ -253,6 +257,29 @@ fn assert_session_back(h: &Harness) {
     assert!(screen.contains("› hi"), "transcript lost:\n{screen}");
     assert!(screen.contains("• Hello"), "transcript lost:\n{screen}");
     assert!(screen.contains("ready"), "no session footer:\n{screen}");
+}
+
+/// `←` on an empty composer opens the agents page (the footer's hint,
+/// `handle_agents_navigation`); with a draft it moves the cursor instead.
+#[test]
+#[ignore = "pending(G43) (rtwk-gaps.md): a key the focused TextArea consumes without a text change (Left at an empty composer) cannot reach the app: no Cx in an EditingKeys handler, no public Handler call"]
+fn left_on_an_empty_composer_opens_the_agents_page() {
+    use codex_tui_rtwk::screens::agents;
+    use rtwk_test::find;
+
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    let page = find::by_type::<agents::Screen>();
+    h.t.type_text("ab");
+    h.press("left");
+    h.t.pump_for(crate::common::ms(400));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    h.press("backspace");
+    h.press("backspace");
+    h.t.pump_for(crate::common::ms(200));
+    h.press("left");
+    h.t.pump_for(crate::common::ms(800));
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
 }
 
 #[test]

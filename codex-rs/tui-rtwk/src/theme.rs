@@ -44,6 +44,16 @@ impl Tokens {
         self.0.accent.clone()
     }
 
+    /// The theme's info colour (the oracle's cyan accents).
+    pub fn info(&self) -> Style {
+        self.0.info.clone()
+    }
+
+    /// The theme's success colour (the oracle's green accents).
+    pub fn success(&self) -> Style {
+        self.0.success.clone()
+    }
+
     pub fn selected(&self) -> Style {
         self.0.accent.clone().attrs(Attrs::BOLD)
     }

@@ -101,3 +101,107 @@ fn widget_of(dir: &str) -> Finder {
 pub(crate) fn shows(h: &Harness, dir: &str) -> bool {
     open::last_opened() == Some(target_of(dir)) && widget_of(dir).count(&h.t) > 0
 }
+
+// ---- the status line (oracle: bottom_pane/status_line_style.rs tests) ----
+
+mod status_line {
+    use codex_tui_rtwk::theme::{Tokens, data};
+    use codex_tui_rtwk::ui::status_line::{item_style, status_line};
+
+    fn drawn(items: &[(&str, &str)], colors: bool) -> Option<String> {
+        let tokens = Tokens::new(data());
+        let line = status_line(
+            items.iter().map(|(id, text)| (*id, (*text).to_string())),
+            colors,
+            &tokens,
+        )?;
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(60, 1));
+        t.pump_widget(line);
+        Some(
+            t.screen()
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim_end()
+                .to_string(),
+        )
+    }
+
+    // status_line_segments_use_secondary_separators_and_theme_styles_first
+    // (the text; the separator is the secondary style, each accent its own).
+    #[test]
+    fn status_line_segments_use_secondary_separators_and_theme_styles_first() {
+        let items = [("model", "gpt-5"), ("context-used", "Context 12% used")];
+        assert_eq!(
+            drawn(&items, true).as_deref(),
+            Some("gpt-5 · Context 12% used")
+        );
+        let tokens = Tokens::new(data());
+        assert_eq!(item_style("model", true, &tokens), tokens.info());
+        assert_eq!(item_style("context-used", true, &tokens), tokens.success());
+        assert_ne!(item_style("model", true, &tokens), tokens.dim());
+    }
+
+    // thread_usage_items_share_an_accent_and_secondary_separator
+    #[test]
+    fn thread_usage_items_share_an_accent_and_secondary_separator() {
+        let items = [
+            ("thread-credits", "5.2 credits"),
+            ("estimated-thread-cost", "~$0.21"),
+        ];
+        assert_eq!(drawn(&items, true).as_deref(), Some("5.2 credits · ~$0.21"));
+        let tokens = Tokens::new(data());
+        assert_eq!(
+            item_style("thread-credits", true, &tokens),
+            item_style("estimated-thread-cost", true, &tokens)
+        );
+    }
+
+    // status_line_segments_can_disable_theme_colors
+    #[test]
+    fn status_line_segments_can_disable_theme_colors() {
+        let items = [("model", "gpt-5"), ("context-used", "Context 12% used")];
+        assert_eq!(
+            drawn(&items, false).as_deref(),
+            Some("gpt-5 · Context 12% used")
+        );
+        let tokens = Tokens::new(data());
+        for id in ["model", "context-used"] {
+            assert_eq!(item_style(id, false, &tokens), tokens.dim());
+        }
+    }
+
+    // pull_request_number_uses_link_style
+    #[test]
+    fn pull_request_number_uses_link_style() {
+        let tokens = Tokens::new(data());
+        assert_ne!(
+            item_style("pull-request-number", false, &tokens),
+            tokens.dim()
+        );
+        assert_eq!(
+            drawn(&[("pull-request-number", "PR #20252")], false).as_deref(),
+            Some("PR #20252")
+        );
+    }
+
+    // status_line_segments_return_none_when_empty
+    #[test]
+    fn status_line_segments_return_none_when_empty() {
+        assert_eq!(drawn(&[], true), None);
+    }
+
+    // new_session_tests: `server-model high · <PROJECT>`, the order the config
+    // gives (item order is the caller's list).
+    #[test]
+    fn items_keep_the_configured_order() {
+        let items = [
+            ("current-dir", "rtwk"),
+            ("model-with-reasoning", "GPT-6.2-Sol high"),
+        ];
+        assert_eq!(
+            drawn(&items, true).as_deref(),
+            Some("rtwk · GPT-6.2-Sol high")
+        );
+    }
+}

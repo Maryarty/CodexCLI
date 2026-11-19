@@ -30,6 +30,7 @@ use crate::screens::dialogs::shortcut_panel;
 use crate::screens::chat::strings as chat_strings;
 use crate::theme;
 use crate::ui::page_keys;
+use crate::ui::status_line::status_line;
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -73,6 +74,8 @@ pub enum ChatMsg {
     Search(SearchKey),
     /// `?`: the shortcut overlay (the footer's hint).
     Shortcuts,
+    /// `←` on an empty composer: the agents page (the footer's hint).
+    Agents,
     /// The composer's text changed (the field's own notification).
     Changed(Rc<str>),
 }
@@ -215,6 +218,16 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
+/// The items of the status line in the order the config gives, with their
+/// texts (`status_line_setup.rs`: model with reasoning, current dir, git
+/// branch, approval mode, context, limits). The core model holds none of
+/// their data nor the saved item list yet (the thread start answer keeps only
+/// the id, `wire.rs`; the settings edit `StatusLineSaved` is not state): the
+/// line is empty until session-core provides them, no value is invented.
+fn status_items() -> Vec<(&'static str, String)> {
+    Vec::new()
+}
+
 impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
@@ -275,6 +288,11 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
+            ChatMsg::Agents => {
+                if w.ui.composer.text().is_empty() {
+                    open(cx, Target::Agents);
+                }
+            }
             ChatMsg::DebugMenu => {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
@@ -437,14 +455,21 @@ impl State for ChatState {
                     .child(Expanded::new(1, field));
                 // The oracle's idle footer (`footer_shortcuts_default`): the hint of
                 // the bound `?`, in dim, two cells in.
-                let bar = page_keys::footer(
-                    [(strings.pages.key_shortcuts, strings.pages.hint_shortcuts)],
+                let bar = page_keys::footer_with(
+                    [
+                        (strings.pages.key_agents, strings.pages.hint_agents),
+                        (strings.pages.key_shortcuts, strings.pages.hint_shortcuts),
+                    ],
                     tokens.dim(),
                     tokens.dim(),
+                    " · ",
                 );
                 let footer = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    Text::new(format!("  {close}")).style(tokens.dim()).into()
+                    Row::new()
+                        .child(SizedBox::new(Some(2), None, None))
+                        .child(Text::new(close).style(tokens.dim()))
+                        .into()
                 } else {
                     Row::new()
                         .child(SizedBox::new(Some(2), None, None))
@@ -479,8 +504,17 @@ impl State for ChatState {
         if self.shortcuts && search.is_none() {
             body = body.child(panel);
         }
+        // The configured status line, two cells in, under the composer.
+        let line = status_line(status_items(), true, &tokens);
+        let mut body = body.child(composer);
+        if let Some(line) = line {
+            body = body.child(
+                Row::new()
+                    .child(SizedBox::new(Some(2), None, None))
+                    .child(Expanded::new(1, line)),
+            );
+        }
         let body = body
-            .child(composer)
             .child(footer);
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);
         let mut focus = Focus::new(body)
@@ -493,8 +527,17 @@ impl State for ChatState {
         // The footer's entries are these bindings' hints: every key it shows is
         // bound here.
         let pages = strings.pages;
-        KeyBindings::new([(pages.key_shortcuts, cx.send(ChatMsg::Shortcuts))], focus)
-            .hints([(pages.key_shortcuts, pages.hint_shortcuts)])
+        KeyBindings::new(
+            [
+                ("left", cx.send(ChatMsg::Agents)),
+                (pages.key_shortcuts, cx.send(ChatMsg::Shortcuts)),
+            ],
+            focus,
+        )
+        .hints([
+            ("left", pages.hint_agents),
+            (pages.key_shortcuts, pages.hint_shortcuts),
+        ])
             .into()
     }
 }
