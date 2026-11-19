@@ -409,40 +409,163 @@ fn r14_the_state_scan_sees_every_declaration_form() {
     assert!(fields.iter().any(|(_, line)| line.contains("ThreadModel")));
 }
 
-/// R14: a controller (rtwk's local UI state) is made only in the UI-only
-/// allowlist; `new`, `default` and the other constructors are caught here,
-/// `new` is also in `clippy.toml`.
+/// R14, as Flutter has it: a controller (`ScrollController`, `ListController`,
+/// `SelectionController`, `TextEditingController`, `TabController`,
+/// `ExpansionController`, `AnimationController`, `FocusNode`, ...) is made
+/// where a widget's `State` is made (`create_state`, `init_state`, the
+/// constructor of a type the `State` holds) and goes away with it. Never in a
+/// `build`/`view` function or a closure (each rebuild would make a new one
+/// and lose the cursor, the scroll offset, the draft), never in core.
+const CONTROLLER_CTORS: [&str; 8] = [
+    "Controller::new(",
+    "Controller::default(",
+    "Controller::with",
+    "Controller::from",
+    "Controller::<",
+    "FocusNode::new(",
+    "FocusNode::default(",
+    "FocusNode::with",
+];
+
+/// A function that runs on every rebuild or paint of a widget.
+fn is_build_fn(name: &str) -> bool {
+    matches!(name, "build" | "view" | "paint" | "layout" | "memo")
+        || name.ends_with("_view")
+        || name.starts_with("view_")
+        || name.starts_with("build_")
+        || name.starts_with("render")
+}
+
+/// The text of `text` with comments, string and char literals blanked, so
+/// braces and quotes in them do not count.
+fn blank_literals(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let (mut chars, mut in_str) = (text.chars().peekable(), false);
+    while let Some(c) = chars.next() {
+        if in_str {
+            match c {
+                '\\' => {
+                    chars.next();
+                }
+                '"' => in_str = false,
+                '\n' => out.push('\n'),
+                _ => {}
+            }
+        } else if c == '"' {
+            in_str = true;
+        } else if c == '/' && chars.peek() == Some(&'/') {
+            for d in chars.by_ref() {
+                if d == '\n' {
+                    out.push('\n');
+                    break;
+                }
+            }
+        } else if c == '\'' {
+            // `'{'` and friends: a char literal is at most 3 chars long.
+            let rest: String = chars.clone().take(3).collect();
+            if rest.chars().nth(1) == Some('\'') {
+                chars.nth(1);
+            } else if rest.starts_with('\\') && rest.chars().nth(2) == Some('\'') {
+                chars.nth(2);
+            } else {
+                out.push(c);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Where each controller constructor of `text` stands: the line, the
+/// innermost `fn` around it and whether a closure (`|..| {`) encloses it.
+fn controller_sites(text: &str) -> Vec<(usize, Option<String>, bool)> {
+    let clean = blank_literals(text);
+    // The header (the line a `{` stands on) of every open block.
+    let mut open: Vec<String> = Vec::new();
+    let mut sites = Vec::new();
+    for (index, line) in clean.lines().enumerate() {
+        if CONTROLLER_CTORS.iter().any(|pat| line.contains(pat)) {
+            let fn_name = open.iter().rev().find_map(|header| {
+                let rest = header.split("fn ").nth(1)?;
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                Some(name)
+            });
+            let in_closure = open
+                .iter()
+                .rev()
+                .take_while(|header| !header.contains("fn "))
+                .any(|header| {
+                    let t = header.trim_end();
+                    t.ends_with("| {") || t.ends_with("|| {") || t.ends_with("|{")
+                });
+            sites.push((index + 1, fn_name, in_closure));
+        }
+        for c in line.chars() {
+            match c {
+                '{' => open.push(line.to_string()),
+                '}' => {
+                    open.pop();
+                }
+                _ => {}
+            }
+        }
+    }
+    sites
+}
+
 #[test]
-fn r14_controllers_are_made_only_in_the_allowlist() {
-    let found = violations(
-        &[
-            "Controller::new(",
-            "Controller::default(",
-            "Controller::with_",
-            "Controller::from",
-            "Controller::<",
-        ],
-        // The agents screen's list cursor (`SelectionController`) and its
-        // search/rename line (`TextEditingController`) are view state of the
-        // screen's widget, not app data: the model keeps the highlighted task
-        // and the search text it filters by; so is the cursor of the
-        // confirmation dialog's two rows (`agents/dialogs.rs`); so is the
-        // cursor of the request dialog's option rows (`approvals/dialog.rs`); so are
-        // the cursor and the search line of the pets picker (`pets/mod.rs`);
-        // so are the cursor and the scroll of the resume list (`resume/mod.rs`).
-        |name| {
-            matches!(
-                name,
-                "src/widgets/thread_ui.rs"
-                    | "src/pages/agents/mod.rs"
-                    | "src/pages/agents/dialogs.rs"
-                    | "src/sheets/approvals/dialog.rs"
-                    | "src/sheets/pets/mod.rs"
-                    | "src/pages/resume/mod.rs"
-                    | "src/widgets/options.rs"
-            )
-        },
-    );
+fn r14_the_controller_scan_sees_the_places_a_controller_must_not_be_made() {
+    let text = "impl StatefulWidget for W {\n    fn create_state(&self) -> S {\n\
+                S { a: ListController::new(), f: FocusNode::new() }\n    }\n}\n\
+                fn build(&self) {\n    let c = ScrollController::default();\n}\n\
+                fn rows_view() {\n    let s = \"{\";\n    let c = TabController::new(1);\n}\n\
+                fn init_state() {\n    let cb = move |x| {\n        let c = \
+                SelectionController::with(false, [0], None);\n    };\n}\n";
+    let sites = controller_sites(text);
+    let bad: Vec<_> = sites
+        .iter()
+        .filter(|(_, name, closure)| *closure || name.as_deref().is_none_or(is_build_fn))
+        .map(|(line, ..)| *line)
+        .collect();
+    assert_eq!(sites.len(), 4);
+    assert_eq!(bad, [7, 11, 15]);
+}
+
+#[test]
+fn r14_controllers_are_made_in_a_state_never_in_build_or_a_closure() {
+    let mut found = Vec::new();
+    for (name, text) in sources() {
+        if !in_ui_or_screens(&name) {
+            continue;
+        }
+        for (line, fn_name, in_closure) in controller_sites(&text) {
+            let in_build = fn_name.as_deref().is_none_or(is_build_fn);
+            if in_build || in_closure {
+                found.push(format!(
+                    "{name}:{line}: in fn {fn_name:?}, closure {in_closure}"
+                ));
+            }
+        }
+    }
+    assert!(found.is_empty(), "R14: {found:#?}");
+}
+
+#[test]
+fn r14_core_has_no_controller() {
+    let found: Vec<String> = sources()
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("core/src/"))
+        .flat_map(|(name, text)| {
+            code_lines(&text)
+                .filter(|(_, line)| line.contains("Controller") || line.contains("FocusNode"))
+                .map(|(index, line)| format!("{name}:{}: {}", index + 1, line.trim()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     assert!(found.is_empty(), "R14: {found:#?}");
 }
 
@@ -472,8 +595,6 @@ fn the_lint_lists_name_the_rules_banned_paths() {
         "chrono::Utc::now",
         "chrono::Local::now",
         "tokio::time::Instant::now",
-        "rtwk::editing::TextEditingController::new",
-        "rtwk::scroll::ScrollController::new",
     ] {
         assert!(clippy.contains(path), "clippy.toml bans `{path}`");
     }

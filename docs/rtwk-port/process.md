@@ -413,7 +413,13 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
   `Navigator` keyed by a `GlobalKey`; (4) the handlers provider
   `.update_should_notify(|_, _| false)`, no decision from a same-flush `read`,
   the presenter never reopens a shown id. Routes and dialogs take ids (R14).
-- **ADR-003 R1–R14**: lints come from the skeleton's `clippy.toml`; an
+- **ADR-003 R1–R14**: lints come from the skeleton's `clippy.toml`; R14's
+  controller rule is as in Flutter (tests in `tests/rules/rules.rs`): a
+  controller (`ScrollController`, `ListController`, `SelectionController`,
+  `TextEditingController`, `TabController`, `FocusNode`, …) is made in a
+  widget's `State` (`create_state` / `init_state`) and goes with it, never in
+  `build`/`view`/a builder closure, never in core; no allowlist, no
+  `::default()` workaround needed; an
   `#[allow(clippy::disallowed_…)]` outside the allowlisted modules is a
   defect. A slice that adds events, intents or lifecycle states extends the
   mandatory tests: switch round-trip (R2), resume/reconnect snapshot (R4),
