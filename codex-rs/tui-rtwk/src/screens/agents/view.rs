@@ -21,7 +21,7 @@ use rtwk::scroll::ListController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
 use rtwk::foundation::{ValueListenableBuilder, ValueNotifier};
-use rtwk::gestures::{GestureDetector, IgnorePointer, PointerEvent};
+use rtwk::gestures::{IgnorePointer, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
     BorderType, BoxWidget, Center as Middle, Column, CrossAxisAlignment, Divider, EdgeInsets,
@@ -276,16 +276,6 @@ pub struct Taps {
     pub tabs: Vec<Handler<PointerEvent>>,
 }
 
-fn tappable(handler: Option<&Handler<PointerEvent>>, child: AnyWidget) -> AnyWidget {
-    match handler {
-        Some(handler) => GestureDetector::new()
-            .on_tap(handler.clone())
-            .child(child)
-            .into(),
-        None => child,
-    }
-}
-
 /// The status word and dot of a row (oracle: `status`).
 fn status<'a>(row: &RowData, strings: &'a Strings, look: &Look) -> (&'a str, Span) {
     match row.group {
@@ -467,7 +457,6 @@ fn entry(
     index: usize,
     width: i32,
     selected: bool,
-    tap: Option<&Handler<PointerEvent>>,
 ) -> AnyWidget {
     let fill = if selected { look.selection.clone() } else { look.plain.clone() };
     let marker = if selected { "\u{203a}" } else { " " };
@@ -485,7 +474,7 @@ fn entry(
         )),
         CenterRow::ShowMore => {
             let label = format!("{marker}   {}", show_more(strings, model));
-            tappable(tap, boxed(Row::new().child(Expanded::new(1, Text::line(label).style(fill.clone())))).into())
+            boxed(Row::new().child(Expanded::new(1, Text::line(label).style(fill.clone())))).into()
         }
         CenterRow::Task(at) => {
             let row = &center.rows[*at];
@@ -535,7 +524,7 @@ fn entry(
                 let age = age(strings, model.now, row.updated_at);
                 cells = metadata(cells, (status_text, &fill), (age, age_style));
             }
-            tappable(tap, boxed(cells.child(gap(1))).into())
+            boxed(cells.child(gap(1))).into()
         }
     }
 }
@@ -670,10 +659,9 @@ fn rows_in(
                 Rc::new(move |index| keys[index].selectable())
             }),
             row: {
-                let (look, agents, center, taps) =
-                    (look.clone(), agents.clone(), center.clone(), taps.clone());
+                let (look, agents, center) = (look.clone(), agents.clone(), center.clone());
                 Rc::new(move |index, selected| {
-                    entry(seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                    entry(seg, &look, &strings, &agents, &center, index, width, selected)
                 })
             },
             selection: controls.selection.clone(),
@@ -681,6 +669,7 @@ fn rows_in(
             scroll: controls.scroll.clone(),
             focus: Some(controls.focus.clone()),
             extent: Some(1),
+            taps: Some(taps.clone()),
         }
         .build();
         let mut column = Column::new()

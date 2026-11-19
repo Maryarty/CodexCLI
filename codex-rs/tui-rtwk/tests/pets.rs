@@ -87,3 +87,25 @@ fn the_cursor_row_stays_in_the_window_when_the_arrows_pass_its_end() {
     let cursor = screen.lines().filter(|l| l.contains('›')).count();
     assert_eq!(cursor, 1, "{screen}");
 }
+
+/// ADR-011 (beyond the oracle): a click on a pet puts the cursor there, a
+/// click on the pet the cursor is on picks it and closes.
+#[test]
+fn a_click_selects_a_pet_and_a_second_click_picks_it() {
+    let mut h = open("picker");
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("Dewey"))
+        .expect("Dewey is listed");
+    let x = u16::try_from(line.find("Dewey").unwrap()).unwrap();
+    let y = u16::try_from(y).unwrap();
+    h.t.click(x, y);
+    h.settle();
+    assert!(h.t.screen().contains("› Dewey"), "{}", h.t.screen());
+    h.t.click(x, y);
+    h.settle();
+    h.t.pump_for(ms(800));
+    assert!(!h.t.screen().contains("Select Pet"), "{}", h.t.screen());
+}

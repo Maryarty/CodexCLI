@@ -116,8 +116,23 @@ impl Options {
             LayoutBuilder::new(move |cx, constraints| {
                 let seg = segmenter_of(cx);
                 let wide = |row: &OptionRow| seg.width(&format!("\u{203a} {}", row.label));
-                let label_width = rows.iter().map(wide).max().unwrap_or(0);
                 let room = usize::try_from(constraints.max_width - 2 * indent).unwrap_or(0);
+                // The label column is the widest label, at most 70% of the
+                // room less the gap (the oracle's `compute_desc_col`) when
+                // there are descriptions: a longer label wraps inside it
+                // (`GridTrack::content().within(0, cap)`, G39b).
+                let described = rows.iter().any(|row| {
+                    row.description
+                        .as_deref()
+                        .is_some_and(|text| !text.is_empty())
+                });
+                let cap = if described {
+                    (room * 70 / 100).saturating_sub(2)
+                } else {
+                    room
+                }
+                .max(1);
+                let label_width = rows.iter().map(wide).max().unwrap_or(0).min(cap);
                 let description_width = room.saturating_sub(label_width + 2).max(1);
                 *heights.borrow_mut() =
                     rows.iter()
@@ -125,11 +140,20 @@ impl Options {
                             let lines = row.description.as_deref().map_or(1, |text| {
                                 measure::rows(seg, text, description_width).len()
                             });
-                            i64::try_from(lines.max(1)).unwrap_or(1)
+                            let label = measure::rows(
+                                seg,
+                                &["\u{203a} ", row.label.as_str()].concat(),
+                                label_width.max(1),
+                            )
+                            .len();
+                            i64::try_from(lines.max(label).max(1)).unwrap_or(1)
                         })
                         .collect();
                 let mut grid = Grid::new()
-                    .columns([GridTrack::content(), GridTrack::fr(1)])
+                    .columns([
+                        GridTrack::content().within(0, i32::try_from(cap).unwrap_or(1)),
+                        GridTrack::fr(1),
+                    ])
                     .column_gap(2);
                 for (index, row) in rows.iter().enumerate() {
                     let at = i32::try_from(index).unwrap_or(0);

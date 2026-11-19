@@ -11,11 +11,13 @@
 use std::rc::Rc;
 
 use rtwk::AnyWidget;
+use rtwk::Handler;
 use rtwk::NotificationListener;
 use rtwk::controls::Pressable;
 use rtwk::controls::SelectionController;
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{ListenableBuilder, ValueNotifier};
+use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 
 /// Where the list is scrolled to: the pixels above the window and the
@@ -113,6 +115,10 @@ pub struct SessionList<K> {
     pub focus: Option<FocusNode>,
     /// The rows a row takes, when every row takes the same.
     pub extent: Option<i32>,
+    /// A tap on the row at an index (the page's handler: a tap on a row the
+    /// cursor is not on moves it there, a tap on the row it is on opens it;
+    /// the wheel is the `ListView`'s own). Made by the page, not in `build`.
+    pub taps: Option<Rc<Vec<Handler<PointerEvent>>>>,
 }
 
 impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K> {
@@ -127,6 +133,7 @@ impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K>
             scroll,
             focus,
             extent,
+            taps,
         } = self;
         let builder = move |index: usize| -> AnyWidget {
             if selectable
@@ -136,8 +143,13 @@ impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K>
                 return row(index, false);
             }
             let (row, selection, at) = (row.clone(), selection.clone(), key(index));
+            let tap = taps.as_ref().and_then(|taps| taps.get(index)).cloned();
             ListenableBuilder::new(selection.listenable(), move |_, _| {
-                row(index, selection.cursor().as_ref() == Some(&at))
+                let row = row(index, selection.cursor().as_ref() == Some(&at));
+                match &tap {
+                    Some(tap) => GestureDetector::new().on_tap(tap.clone()).child(row).into(),
+                    None => row,
+                }
             })
             .into()
         };

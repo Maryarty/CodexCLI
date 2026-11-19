@@ -11,6 +11,7 @@ use std::rc::Rc;
 use rtwk::controls::SelectionController;
 use rtwk::scroll::ListController;
 use rtwk::focus::{Focus, KeyBindings};
+use rtwk::gestures::PointerEvent;
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{
     BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
@@ -21,7 +22,7 @@ use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{
-    AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
+    AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget,
 };
 
 use codex_tui_core::screens::resume::{Intent as ResumeIntent, Load, Model, Row as Saved};
@@ -122,6 +123,8 @@ use crate::ui::session_list::{Move, Scrolled, SessionList, target};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Accept(usize),
+    /// A tap on a row: the cursor goes there, a tap on the row it is on opens it.
+    Row(usize),
     Enter,
     /// A key of the list moved the cursor.
     Move(Move),
@@ -154,6 +157,15 @@ struct Look {
     error: Style,
 }
 
+/// The controllers of the list and the handlers of the row taps.
+#[derive(Clone)]
+struct Controls {
+    selection: SelectionController<usize>,
+    list: ListController,
+    scroll: Rc<ValueNotifier<Scrolled>>,
+    taps: Rc<Vec<Handler<PointerEvent>>>,
+}
+
 /// The header, the toolbar, the search line, the list and the footer, one
 /// under the other with the oracle's collapsing gaps.
 fn screen(
@@ -161,9 +173,7 @@ fn screen(
     strings: &'static Strings,
     num: rtwk::l10n::NumSyms,
     screens: Rc<ScreenStates>,
-    selection: SelectionController<usize>,
-    list: ListController,
-    scroll: Rc<ValueNotifier<Scrolled>>,
+    controls: Controls,
 ) -> AnyWidget {
     let look = cx_look.clone();
     LayoutBuilder::new(move |_, constraints| {
@@ -198,12 +208,12 @@ fn screen(
                 Some(
                     Padding::new(
                         EdgeInsets::only(i32::from(layout::LIST_INSET), 0, 0, 0),
-                        list_of(&look, strings, num, screens.clone(), selection.clone(), list.clone(), scroll.clone()),
+                        list_of(&look, strings, num, screens.clone(), controls.clone()),
                     )
                     .into(),
                 ),
             ))
-            .child(footer(&look, strings, screens.clone(), selection.clone(), scroll.clone(), width))
+            .child(footer(&look, strings, screens.clone(), controls.selection.clone(), controls.scroll.clone(), width))
             .into()
     })
     .into()
@@ -260,12 +270,11 @@ fn list_of(
     strings: &'static Strings,
     num: rtwk::l10n::NumSyms,
     screens: Rc<ScreenStates>,
-    selection: SelectionController<usize>,
-    list: ListController,
-    scroll: Rc<ValueNotifier<Scrolled>>,
+    controls: Controls,
 ) -> AnyWidget {
     let look = look.clone();
     LayoutBuilder::new(move |_, constraints| {
+        let Controls { selection, list, scroll, taps } = controls.clone();
         let model = &screens.resume;
         if model.rows.is_empty() {
             let text = match model.load {
@@ -286,10 +295,11 @@ fn list_of(
                 })
             },
             selection: selection.clone(),
-            list: list.clone(),
+            list,
             scroll: scroll.clone(),
             focus: None,
             extent: None,
+            taps: Some(taps),
         }
         .build();
         let shown = |text: &'static str| -> AnyWidget {
@@ -300,12 +310,12 @@ fn list_of(
         // cursor (the oracle's own rule, so the window and the line agree).
         let up = {
             let above = shown(strings.more_above);
-            ValueListenableBuilder::new(scroll.clone(), move |_, at: &Scrolled, _| {
+            ValueListenableBuilder::new(scroll, move |_, at: &Scrolled, _| {
                 if at.above() { above.clone() } else { none() }
             })
         };
         let down = {
-            let (below, len, selection) = (shown(strings.more_below), model.rows.len(), selection.clone());
+            let (below, len, selection) = (shown(strings.more_below), model.rows.len(), selection);
             ListenableBuilder::new(selection.clone().listenable(), move |_, _| {
                 if selection.cursor().is_some_and(|at| at + 1 < len) { below.clone() } else { none() }
             })
@@ -449,6 +459,15 @@ impl State for ScreenState {
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Accept(index) => accept(index, cx),
+            Msg::Row(index) => {
+                if self.selection.cursor() == Some(index) {
+                    accept(index, cx);
+                } else {
+                    self.selection.set_cursor(Some(index));
+                    self.selection.select(index);
+                    self.list.ensure_index_visible(index);
+                }
+            }
             Msg::Enter => {
                 if let Some(index) = self.selection.cursor() {
                     accept(index, cx);
@@ -484,7 +503,18 @@ impl State for ScreenState {
         // one-cell mark: the glyph for this screen.
         let mut data = (*Theme::of(cx)).clone();
         data.glyphs.ellipsis = "...".into();
-        let body = screen(&look, strings, num, screens, self.selection.clone(), self.list.clone(), self.scroll.clone());
+        let taps = Rc::new(
+            (0..screens.resume.rows.len())
+                .map(|index| cx.map(move |_: PointerEvent| Msg::Row(index)))
+                .collect::<Vec<_>>(),
+        );
+        let controls = Controls {
+            selection: self.selection.clone(),
+            list: self.list.clone(),
+            scroll: self.scroll.clone(),
+            taps,
+        };
+        let body = screen(&look, strings, num, screens, controls);
         // The footer's keys not built yet (the sort/filter focus and option,
         // the dense view, the transcript preview, the expand) say so.
         let keys = KeyBindings::new(

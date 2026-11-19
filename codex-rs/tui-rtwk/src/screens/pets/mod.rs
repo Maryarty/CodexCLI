@@ -11,6 +11,7 @@ use rtwk::NotificationListener;
 use rtwk::controls::SelectionController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, KeyPress};
+use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::navigation::Navigator;
@@ -18,7 +19,7 @@ use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
@@ -110,6 +111,9 @@ pub struct ScreenState {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Move(i32),
+    /// A tap on the pet at an index: the cursor goes there, a tap on the
+    /// pet it is on picks it.
+    Row(usize),
     Search,
     Pick,
     Close,
@@ -192,6 +196,16 @@ impl State for ScreenState {
                     self.list.ensure_index_visible(to);
                 }
             }
+            Msg::Row(index) => {
+                if at.is_some_and(|at| visible[at] == index) {
+                    if let Some(pet) = picker.pets.get(index) {
+                        cx.emit(&hs.screen, ScreenIntent::Pets(Intent::Pick(pet.selector.clone())));
+                    }
+                } else if let Some(row) = visible.iter().position(|pet| *pet == index) {
+                    self.put(&picker, index, cx);
+                    self.list.ensure_index_visible(row);
+                }
+            }
             // The search changed: the cursor goes back to the first row.
             Msg::Search => {
                 if let Some(first) = visible.first() {
@@ -234,6 +248,11 @@ impl State for ScreenState {
         };
         let picker = Rc::new(picker);
         let (cursor, below, list) = (self.cursor.clone(), self.below.clone(), self.list.clone());
+        let taps: Rc<Vec<Handler<PointerEvent>>> = Rc::new(
+            (0..picker.pets.len())
+                .map(|index| cx.map(move |_: PointerEvent| Msg::Row(index)))
+                .collect(),
+        );
         // The list and the "more below" row follow the search text.
         let list = {
             let (picker, tokens) = (picker.clone(), tokens.clone());
@@ -243,15 +262,21 @@ impl State for ScreenState {
                     let visible = Rc::new(picker.visible(&query.text()));
                     below.set_value(visible.len() > WINDOW);
                     let rows = {
-                        let (picker, visible, cursor, tokens) =
-                            (picker.clone(), visible.clone(), cursor.clone(), tokens.clone());
+                        let (picker, visible, cursor, tokens, taps) = (
+                            picker.clone(),
+                            visible.clone(),
+                            cursor.clone(),
+                            tokens.clone(),
+                            taps.clone(),
+                        );
                         ListView::builder(
                             visible.len(),
                             move |row: usize| -> AnyWidget {
                                 let index = visible[row];
                                 let (picker, cursor, tokens) =
                                     (picker.clone(), cursor.clone(), tokens.clone());
-                                ListenableBuilder::new(cursor.listenable(), {
+                                let tap = taps[index].clone();
+                                let row = ListenableBuilder::new(cursor.listenable(), {
                                     move |_, _| {
                                         let pet = &picker.pets[index];
                                         let name = if pet.selector == DISABLED {
@@ -272,8 +297,8 @@ impl State for ScreenState {
                                             text.into()
                                         }
                                     }
-                                })
-                                .into()
+                                });
+                                GestureDetector::new().on_tap(tap).child(row).into()
                             },
                         )
                         .controller(list.clone())
