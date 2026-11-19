@@ -57,6 +57,13 @@ pub struct Strings {
     /// `chat_composer/warning_notice.rs` (`warning_labels`): the footer's
     /// `⚠ N warnings · f2 to view`.
     pub warning_badge: &'static str,
+    /// `bottom_pane`/`chatwidget/rendering.rs`: the backend control above the
+    /// composer, `Cloud  ⌃x b to cycle` (`BackendSessions::displayed_name`).
+    pub backend_local: &'static str,
+    pub backend_cloud: &'static str,
+    pub backend_connection: Msg<1>,
+    pub backend_key: &'static str,
+    pub backend_cycle: &'static str,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
     pub warning_key: &'static str,
@@ -95,6 +102,11 @@ pub const EN: Strings = Strings {
     tag_app: "[App]",
     tag_plugin: "Plugin",
     warning_badge: "\u{26a0} ",
+    backend_local: "Local",
+    backend_cloud: "Cloud",
+    backend_connection: msg!("Connection {0}"),
+    backend_key: "\u{2303}x b",
+    backend_cycle: " to cycle",
     warning_singular: "warning",
     warning_plural: "warnings",
     warning_key: "f2",
@@ -121,6 +133,19 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
+    /// The name of a backend on the control.
+    pub fn backend(&self, label: codex_tui_core::app::BackendLabel) -> String {
+        use codex_tui_core::app::BackendLabel;
+        match label {
+            BackendLabel::Local => self.backend_local.to_owned(),
+            BackendLabel::Cloud => self.backend_cloud.to_owned(),
+            BackendLabel::Connection(n) => {
+                Fmt::new(self.backend_connection, [Arg::Text(&n.to_string())], &self.num)
+                    .to_string()
+            }
+        }
+    }
+
     /// The words of a notice a command line ended in.
     pub fn notice(&self, notice: &Notice) -> String {
         let text = |msg: Msg<1>, name: &str| {

@@ -2,12 +2,11 @@
 //! `run_main_inner` registers `cloud_backend::connect` with the
 //! `InitialBackendSessions`). One future the shell runs, with its own pump:
 //! it answers the commands routed to it and forwards what the cloud tells
-//! under the first connection's epoch. It never sends `Connected`.
+//! under its own epoch and backend id. It never sends `Connected`.
 
 use std::sync::Arc;
 
 use crate::in_process::reject;
-use crate::in_process::sender;
 use crate::in_process::work;
 use crate::target::Mode;
 use crate::workspace::Local;
@@ -32,7 +31,7 @@ use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
-use codex_tui_rtwk::shell::emit;
+use codex_tui_rtwk::shell::emit_from;
 use codex_tui_rtwk::shell::rpc::Ids;
 use codex_tui_rtwk::shell::search::Latest;
 use codex_tui_rtwk::shell::workspace::Boxed;
@@ -103,8 +102,9 @@ async fn run(
         cloud: true,
         worktrees: false,
     };
-    emit(
+    emit_from(
         &ingress,
+        spec.id,
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::CloudBackend(spec.id))),
     );
@@ -118,13 +118,13 @@ async fn run(
             event = client.next_event() => match event {
                 None | Some(AppServerEvent::Disconnected { .. }) => break,
                 Some(AppServerEvent::Lagged { skipped }) => {
-                    emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
+                    emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
                 }
                 Some(AppServerEvent::ServerNotification(notification)) => {
-                    emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
+                    emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
                 Some(AppServerEvent::ServerRequest(request)) => {
-                    emit(&ingress, epoch, AppEv::Backend(BackendEv::Request(request)));
+                    emit_from(&ingress, spec.id, epoch, AppEv::Backend(BackendEv::Request(request)));
                 }
                 Some(
                     AppServerEvent::ThreadStreamDisconnected(_)
@@ -148,7 +148,7 @@ async fn run(
             },
             Some(done) = inflight.next(), if !inflight.is_empty() => {
                 if let Some(ev) = done {
-                    emit(&ingress, epoch, ev);
+                    emit_from(&ingress, spec.id, epoch, ev);
                 }
             }
         }
@@ -192,8 +192,9 @@ async fn connect(
     match Box::pin(cloud_backend::connect(&cloud_config)).await {
         Ok(client) => Some((client, cloud_config.codex_home.to_path_buf())),
         Err(error) => {
-            emit(
+            emit_from(
                 ingress,
+                spec.id,
                 epoch,
                 AppEv::Screen(ScreenEv::Dialogs(DialogsEv::Retained(vec![Warning {
                     source: "Cloud".to_string(),

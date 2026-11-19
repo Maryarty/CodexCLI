@@ -35,6 +35,8 @@ pub struct UiState {
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
+    /// How many backend switches the composers followed.
+    pub switches_seen: u32,
 }
 
 /// The model of the rtwk app.
@@ -62,6 +64,7 @@ impl UiApp {
                 start_agents: false,
                 start_resume: false,
                 presenter: Presenter::new(),
+                switches_seen: 0,
             },
             link: shell::Link::new(backend),
         }
@@ -113,17 +116,25 @@ impl UiApp {
     pub(crate) fn follow_core(&mut self) {
         if let Some(active) = self.core.session.active.clone() {
             self.ui.thread_ui.ensure(&active);
+            // An empty conversation moved to another backend: its draft goes
+            // with it (oracle: `NewBackendSession::CarryDraft`).
+            let switches = self.core.session.switches;
+            if switches != self.ui.switches_seen {
+                self.ui.switches_seen = switches;
+                if let Some(from) = self.core.session.switched_from.clone() {
+                    let draft = self.ui.thread_ui.get(Some(&from)).composer.clone();
+                    let text = draft.text().to_string();
+                    if !text.is_empty() {
+                        self.ui.thread_ui.get(Some(&active)).composer.reset(&text);
+                        draft.clear();
+                    }
+                }
+            }
         }
     }
 
     /// Puts an event into the ingress stream under the current epoch.
     pub fn send(&self, ev: AppEv) {
-        shell::send(
-            self,
-            Ingress {
-                epoch: self.core.epoch(),
-                ev,
-            },
-        );
+        shell::send(self, Ingress::new(self.core.epoch(), ev));
     }
 }

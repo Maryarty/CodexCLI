@@ -182,6 +182,10 @@ name = "shell_backends"
 path = "tests/shell_backends.rs"
 
 [[test]]
+name = "shell_cycle"
+path = "tests/shell_cycle.rs"
+
+[[test]]
 name = "shell_connection"
 path = "tests/shell_connection.rs"
 

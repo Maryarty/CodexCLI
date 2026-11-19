@@ -39,6 +39,7 @@ use std::collections::BTreeSet;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
 
@@ -61,6 +62,7 @@ pub use center::display_directory;
 pub use details::DetailLine;
 pub use details::Details;
 pub use discovery::refill;
+pub use notifications::notification_thread;
 pub use notifications::observe;
 pub use notifications::observes;
 pub use notifications::wants;
@@ -325,6 +327,15 @@ pub struct Model {
     pub reading: BTreeSet<String>,
     /// Tasks that changed while their read was in flight: read again after it.
     pub reread: BTreeSet<String>,
+    /// Tasks whose `thread/turns/list` is in flight.
+    pub turning: BTreeSet<String>,
+    /// Tasks whose turns were asked before a revert or a lag: that answer is
+    /// from the old history and is dropped.
+    pub stale: BTreeSet<String>,
+    /// What notifications set on a task while its read was in flight: they
+    /// are newer than the read and are replayed over it (oracle:
+    /// `refresh_notifications`).
+    pub overlay: BTreeMap<String, Overlay>,
     pub activity: BTreeMap<String, Activity>,
     /// The first pending request of a thread, previewed (oracle:
     /// `agents_overview_request_preview`).
@@ -456,9 +467,19 @@ pub enum Ev {
     Displayed(BackendId),
     /// This backend is the cloud.
     CloudBackend(BackendId),
+    /// The event stream dropped events (oracle: `AppServerEvent::Lagged`):
+    /// what was derived from it is dropped.
+    Lagged,
 }
 
 impl Eq for Ev {}
+
+/// What a notification set on a task while it was being read.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Overlay {
+    pub name: Option<Option<String>>,
+    pub status: Option<ThreadStatus>,
+}
 
 impl Model {
     /// Claims `id` for `owner` unless another backend holds it; whether
@@ -511,6 +532,37 @@ impl Model {
         self.parked.insert(self.displayed, previous);
         self.displayed = backend;
         self.cloud = self.clouds.contains(&backend);
+    }
+
+    /// The backends the chat can move to and from: the first and the clouds
+    /// (oracle: the listening ones, in registration order).
+    fn connected(&self) -> BTreeSet<BackendId> {
+        let mut all = self.clouds.clone();
+        all.insert(BackendId::default());
+        all.insert(self.displayed);
+        all
+    }
+
+    /// The backend after the displayed one, wrapping; none with only one
+    /// connected (oracle: `next_listening_backend`).
+    pub fn next_backend(&self) -> Option<BackendId> {
+        let all = self.connected();
+        all.range((std::ops::Bound::Excluded(self.displayed), std::ops::Bound::Unbounded))
+            .chain(all.iter())
+            .copied()
+            .find(|backend| *backend != self.displayed)
+    }
+
+    /// The displayed backend's name (oracle: `displayed_name`).
+    pub fn label(&self) -> crate::app::BackendLabel {
+        use crate::app::BackendLabel;
+        if self.is_cloud(self.displayed) {
+            BackendLabel::Cloud
+        } else if self.displayed == BackendId::default() {
+            BackendLabel::Local
+        } else {
+            BackendLabel::Connection(self.displayed.0 + 1)
+        }
     }
 
     /// Whether the tasks of `backend` are the cloud's.

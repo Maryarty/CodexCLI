@@ -47,6 +47,7 @@ pub enum SeededMsg {
     Submit(String),
     Dismiss(RequestKey),
     Screen(ScreenIntent),
+    Cycle,
     Quit,
 }
 
@@ -83,6 +84,7 @@ impl State for SeededScopeState {
             },
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
             SeededMsg::Screen(intent) => Intent::Screen(intent),
+            SeededMsg::Cycle => Intent::CycleBackend,
             // The seeded screen is a page of the debug menu: leaving it is the
             // menu's own back key.
             SeededMsg::Quit => return Rebuild::No,
@@ -104,6 +106,7 @@ impl State for SeededScopeState {
             dismiss: cx.map(SeededMsg::Dismiss),
             screen: cx.map(SeededMsg::Screen),
             quit: cx.map(|()| SeededMsg::Quit),
+            cycle: cx.map(|()| SeededMsg::Cycle),
         };
         let child = (w.build)(&Seeded {
             core,

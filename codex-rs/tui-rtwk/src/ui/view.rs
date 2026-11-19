@@ -32,6 +32,8 @@ pub struct Hs {
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     pub quit: Handler<()>,
+    /// Move the empty conversation to the next connected backend.
+    pub cycle: Handler<()>,
 }
 
 /// The view of the app.
@@ -48,6 +50,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),
         quit: cx.on(|_, cx| cx.quit()),
+        cycle: cx.on(|app: &mut UiApp, _cx| app.send(AppEv::Intent(Intent::CycleBackend))),
     };
     // The home is a memo node that leaves its handle for the request
     // presenter, which shows a request's dialog from it as a route of this

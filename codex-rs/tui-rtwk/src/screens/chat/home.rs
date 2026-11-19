@@ -2,9 +2,10 @@
 //! and the composer. The real chat (cells, popovers, backtrack) grows in the
 //! `chat`, `cells`, `composer` and `transcript` slots.
 
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use rtwk::editing::{Autocomplete, Suggestion, TextArea};
+use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
@@ -61,10 +62,21 @@ pub struct ChatState {
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
+    /// `Ctrl+X` was pressed: the next key completes the chord (the leader
+    /// chords of `keymap/chords/leader_defaults.rs`).
+    leader: Rc<Cell<bool>>,
+    /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
+    /// b`) is live; set by `build`, read by the key handler.
+    control: Rc<Cell<bool>>,
+    /// The composer of the thread the chat shows now (the page outlives a
+    /// switch of thread; `build` keeps this current for the key handler).
+    composer: Rc<RefCell<TextEditingController>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatMsg {
+    /// `change_host`: the empty conversation moves to the next backend.
+    Cycle,
     Submit(Rc<str>),
     Quit,
     /// The hidden key: the debug menu over the chat.
@@ -228,6 +240,9 @@ impl StatefulWidget for Chat {
             esc_primed: false,
             shortcuts: false,
             node: FocusNode::new(),
+            leader: Rc::new(Cell::new(false)),
+            control: Rc::new(Cell::new(false)),
+            composer: Rc::new(RefCell::new(self.ui.composer.clone())),
         }
     }
 }
@@ -238,14 +253,31 @@ impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
 
-    fn init_state(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
+    fn init_state(&mut self, _: &Chat, cx: &mut Cx<'_, Self>) {
         // `?` (the shortcut overlay, `footer_shortcuts_default`) and `←`
         // (the agents page, `handle_agents_navigation`) on an EMPTY composer
         // belong to the page; with text they go to the field.
         let send = cx.local_sender();
-        let composer = w.ui.composer.clone();
+        let composer = self.composer.clone();
+        let (leader, control) = (self.leader.clone(), self.control.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
-            if !composer.text().is_empty() || key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT) {
+            // `change_host` is the leader chord `Ctrl+X b`, live while the
+            // backend control shows (`visible_new_backend_control`), and it
+            // works with a draft in the composer.
+            if control.get() {
+                if leader.replace(false) {
+                    if key.mods.is_empty() && key.text() == Some("b") {
+                        send(ChatMsg::Cycle);
+                        return KeyEventResult::Handled;
+                    }
+                } else if key == KeyPress::char('x').with_mods(Mods::CTRL) {
+                    leader.set(true);
+                    return KeyEventResult::Handled;
+                }
+            } else {
+                leader.set(false);
+            }
+            if !composer.borrow().text().is_empty() || key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT) {
                 return KeyEventResult::Ignored;
             }
             match (key.code, key.text()) {
@@ -302,6 +334,7 @@ impl State for ChatState {
                     self.shortcuts = false;
                 }
             }
+            ChatMsg::Cycle => cx.emit(&hs.cycle, ()),
             ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
             ChatMsg::Agents => {
                 if w.ui.composer.text().is_empty() {
@@ -548,6 +581,24 @@ impl State for ChatState {
         // (context, limits) have no value yet and are not drawn.
         let facts = &states.chat.status;
         let line = status_line(facts.items(), facts.colors, &tokens);
+        // The backend control above the composer (`rendering.rs`,
+        // `visible_new_backend_control`): the displayed backend, and the key.
+        let control = session
+            .cycle
+            .filter(|_| search.is_none() && !self.shortcuts);
+        self.control.set(control.is_some());
+        *self.composer.borrow_mut() = w.ui.composer.clone();
+        let mut body = body;
+        if let Some(label) = control {
+            body = body.child(
+                Row::new()
+                    .child(SizedBox::new(Some(2), None, None))
+                    .child(Text::new(chat_strings.backend(label)))
+                    .child(SizedBox::new(Some(2), None, None))
+                    .child(Text::new(chat_strings.backend_key))
+                    .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
+            );
+        }
         let mut body = body.child(composer);
         if let Some(line) = line {
             body = body.child(

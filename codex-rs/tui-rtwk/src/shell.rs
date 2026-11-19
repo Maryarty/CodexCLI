@@ -51,7 +51,8 @@ pub enum Backend {
     /// The first backend and others next to it (oracle:
     /// `InitialBackendSessions::register`), each under its own id. The
     /// others never send `Connected` or `StartFailed` (those are the
-    /// first's); they speak through the same ingress, under its epoch.
+    /// first's); they speak through the same ingress, each under its own
+    /// epoch.
     Several {
         first: Box<Backend>,
         others: Vec<(BackendId, Backend)>,
@@ -138,6 +139,8 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     };
     cx.spawn_tokio(task, |_, (), _| {});
     for (id, backend) in std::mem::take(&mut app.link.others) {
+        // Its own epoch: a reconnect of one backend never drops the other's.
+        let epoch = app.core.attach_backend(id);
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
         let task: BackendTask = match backend {
             Backend::None | Backend::Several { .. } => continue,
@@ -202,7 +205,13 @@ pub fn send(app: &UiApp, ingress: Ingress) {
     }
 }
 
-/// Puts `ev` into `ingress` under `epoch` (for connectors).
+/// Puts `ev` of the first backend into `ingress` under `epoch` (for
+/// connectors).
 pub fn emit(ingress: &IngressTx, epoch: ConnEpoch, ev: AppEv) {
-    let _ = ingress.send(Ingress { epoch, ev });
+    emit_from(ingress, BackendId::default(), epoch, ev);
+}
+
+/// Puts `ev` of `backend` into `ingress` under that backend's `epoch`.
+pub fn emit_from(ingress: &IngressTx, backend: BackendId, epoch: ConnEpoch, ev: AppEv) {
+    let _ = ingress.send(Ingress::of(backend, epoch, ev));
 }
