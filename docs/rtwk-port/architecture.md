@@ -320,6 +320,20 @@ panel in the chat page's bottom slot), **Dialog** (centered, `show_dialog`),
   pre-chat or own-loop screens (three S05 entries unverified).
 - Modes: S17 backtrack (a mode of the pager, not a screen); subagent switcher
   (active thread of the chat page); S27 inline.
+> **Amendment 2026-11-19b (the person): lay the app out as one would in Flutter, not as the oracle is built inside.**
+> The oracle is the spec of what the screen shows; its internal structure (bottom_pane views, overlays) is not a model.
+> - **Pages** (Navigator routes, each its own scaffold): StartupPage (onboarding as one page with steps: sign-in,
+>   trust, model migration, import — a step controller), SessionPage (transcript ListView + composer), AgentsPage
+>   (the command center), ResumePage (pick a past session to continue; a separate page — the same list/row widgets
+>   as AgentsPage may be reused, shown differently), UsagePage (/usage).
+> - **Modes of SessionPage**, switched by a controller, never a new page or a copied widget: expanded transcript
+>   (pager: Ctrl+T, /diff, backtrack), the active thread (subagent switch).
+> - **Modal sheets/dialogs over a page** (Flutter showModalBottomSheet / showDialog; rtwk show_dialog with bottom
+>   alignment / Dialog::bare or centred): approvals, model and other pickers, settings, pets, confirmations.
+> - **Widgets** of SessionPage: transcript cells (/status is a cell), composer with its autocomplete popups, status
+>   line, footer hints, ambient pet; shared: SelectionList-based lists and pickers, the theme with its palette.
+> This replaces the oracle-based classification below wherever they differ.
+
 - Pages also: S21 the Agent command center (the person, 2026-11-19: a page, as VS1 built it — not the oracle's bottom-pane view).
 - Slot views: S13, S14, S15, S23, the pets picker, voice settings (S21 is a page, above)
   the agents command center (the oracle shows it as a 24-row `BottomPaneView`,
