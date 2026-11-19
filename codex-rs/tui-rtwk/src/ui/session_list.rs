@@ -10,13 +10,13 @@
 
 use std::rc::Rc;
 
+use rtwk::AnyWidget;
 use rtwk::NotificationListener;
-use rtwk::controls::SelectionController;
 use rtwk::controls::Pressable;
+use rtwk::controls::SelectionController;
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{ListenableBuilder, ValueNotifier};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
-use rtwk::AnyWidget;
 
 /// Where the list is scrolled to: the pixels above the window and the
 /// extent that can be scrolled.
@@ -145,8 +145,8 @@ impl<K: Clone + Eq + std::hash::Hash + std::fmt::Debug + 'static> SessionList<K>
         if let Some(rows) = extent {
             view = view.item_extent(rows);
         }
-        let scrolled = NotificationListener::<ScrollNotification>::new(view)
-            .on_notification(move |note| {
+        let scrolled =
+            NotificationListener::<ScrollNotification>::new(view).on_notification(move |note| {
                 scroll.set_value(Scrolled {
                     pixels: note.metrics.pixels,
                     max: note.metrics.max_scroll_extent,

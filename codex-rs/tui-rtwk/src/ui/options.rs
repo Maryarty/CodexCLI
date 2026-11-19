@@ -106,8 +106,11 @@ impl Options {
     /// The rows: as tall as they are, scrolled by the room the dialog leaves
     /// (a `Flexible` for the `Column` of the dialog).
     pub fn view(&self, rows: Rc<Vec<OptionRow>>, styles: OptionStyles, indent: i32) -> AnyWidget {
-        let (selection, scroll, heights) =
-            (self.selection.clone(), self.scroll.clone(), self.heights.clone());
+        let (selection, scroll, heights) = (
+            self.selection.clone(),
+            self.scroll.clone(),
+            self.heights.clone(),
+        );
         Flexible::new(
             1,
             LayoutBuilder::new(move |cx, constraints| {
@@ -116,55 +119,68 @@ impl Options {
                 let label_width = rows.iter().map(wide).max().unwrap_or(0);
                 let room = usize::try_from(constraints.max_width - 2 * indent).unwrap_or(0);
                 let description_width = room.saturating_sub(label_width + 2).max(1);
-                *heights.borrow_mut() = rows
-                    .iter()
-                    .map(|row| {
-                        let lines = row
-                            .description
-                            .as_deref()
-                            .map_or(1, |text| measure::rows(seg, text, description_width).len());
-                        i64::try_from(lines.max(1)).unwrap_or(1)
-                    })
-                    .collect();
+                *heights.borrow_mut() =
+                    rows.iter()
+                        .map(|row| {
+                            let lines = row.description.as_deref().map_or(1, |text| {
+                                measure::rows(seg, text, description_width).len()
+                            });
+                            i64::try_from(lines.max(1)).unwrap_or(1)
+                        })
+                        .collect();
                 let mut grid = Grid::new()
                     .columns([GridTrack::content(), GridTrack::fr(1)])
                     .column_gap(2);
                 for (index, row) in rows.iter().enumerate() {
                     let at = i32::try_from(index).unwrap_or(0);
                     let (label, description) = (row.label.clone(), row.description.clone());
-                    let (watch, styles_a, styles_b) = (selection.clone(), styles.clone(), styles.clone());
+                    let (watch, styles_a, styles_b) =
+                        (selection.clone(), styles.clone(), styles.clone());
                     let (watch_b, text) = (selection.clone(), description.unwrap_or_default());
                     grid = grid
-                        .child(GridPlacement::new(
-                            ListenableBuilder::new(watch.listenable(), move |_, _| {
-                                let on = watch.cursor() == Some(index);
-                                let (mark, style) = if on {
-                                    ("\u{203a} ", styles_a.cursor.clone())
-                                } else {
-                                    ("  ", styles_a.label.clone())
-                                };
-                                Text::new([mark, label.as_str()].concat()).style(style).into()
-                            }),
-                        ).at(at, 0))
-                        .child(GridPlacement::new(
-                            ListenableBuilder::new(watch_b.listenable(), move |_, _| {
-                                let on = watch_b.cursor() == Some(index);
-                                let style = if on {
-                                    styles_b.cursor.clone()
-                                } else {
-                                    styles_b.description.clone()
-                                };
-                                Text::new(text.clone()).style(style).into()
-                            }),
-                        ).at(at, 1));
+                        .child(
+                            GridPlacement::new(ListenableBuilder::new(
+                                watch.listenable(),
+                                move |_, _| {
+                                    let on = watch.cursor() == Some(index);
+                                    let (mark, style) = if on {
+                                        ("\u{203a} ", styles_a.cursor.clone())
+                                    } else {
+                                        ("  ", styles_a.label.clone())
+                                    };
+                                    Text::new([mark, label.as_str()].concat())
+                                        .style(style)
+                                        .into()
+                                },
+                            ))
+                            .at(at, 0),
+                        )
+                        .child(
+                            GridPlacement::new(ListenableBuilder::new(
+                                watch_b.listenable(),
+                                move |_, _| {
+                                    let on = watch_b.cursor() == Some(index);
+                                    let style = if on {
+                                        styles_b.cursor.clone()
+                                    } else {
+                                        styles_b.description.clone()
+                                    };
+                                    Text::new(text.clone()).style(style).into()
+                                },
+                            ))
+                            .at(at, 1),
+                        );
                 }
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(Flexible::new(
                         1,
-                        SingleChildScrollView::new(Padding::new(EdgeInsets::symmetric(indent, 0), grid))
-                            .controller(scroll.clone()),
+                        SingleChildScrollView::new(Padding::new(
+                            EdgeInsets::symmetric(indent, 0),
+                            grid,
+                        ))
+                        .controller(scroll.clone()),
                     ))
                     .into()
             }),

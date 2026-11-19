@@ -1,8 +1,8 @@
-//! G37 (`docs/rtwk-port/rtwk-gaps.md`): the one hand text function of the
-//! command center. No `TextOverflow` mode cuts a path by its segments (first
-//! ones and the last two kept, the middle ones behind a `…`), which is what
-//! the oracle's group heading does; the cut is held to the oracle's four
-//! tests. Oracle: `text_formatting.rs` `center_truncate_path`.
+//! Ours, carried pure logic (G37, `docs/rtwk-port/rtwk-gaps.md`): the oracle's
+//! `center_truncate_path` (`text_formatting.rs`) for the group heading of the
+//! command center: the first segments and the last two are kept, the middle
+//! ones go behind a `…`. No `TextOverflow` mode cuts by segments; the port is
+//! held to the oracle's four tests.
 
 use rtwk_core::unicode::TextOverflow;
 use rtwk_core::unicode::TextSegmenter;

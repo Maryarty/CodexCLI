@@ -1,10 +1,9 @@
-//! G36 (`docs/rtwk-port/rtwk-gaps.md`): the filter strip. rtwk's `TabBar`
-//! packs its tabs without a gap, draws its overflow marks over the first and
-//! last cell and scrolls by column, where the oracle's filled bar (oracle:
-//! `selection_tabs.rs` `render_filled_tab_bar`) shows whole tabs one blank
-//! apart, the marks outside them and the active tab in the selection style.
-//! The window of whole tabs is the one piece kept here; the tabs are `Text`s
-//! in a `Row`.
+//! The filter strip of the command center, the Flutter way (G36: not a gap,
+//! `docs/rtwk-port/rtwk-gaps.md`): a `LayoutBuilder` measures the labels with
+//! `segmenter_of(cx)` and a `Row` lays out the whole tabs one blank apart,
+//! the overflow marks outside them and the active tab in the selection style
+//! (oracle: `selection_tabs.rs` `render_filled_tab_bar`). The window of whole
+//! tabs is a pure function, unit-tested at the oracle's widths.
 
 use std::rc::Rc;
 

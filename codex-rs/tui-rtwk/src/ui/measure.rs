@@ -21,7 +21,10 @@ pub fn rows(seg: TextSegmenter, text: &str, width: usize) -> Vec<String> {
                 return vec![String::new()];
             }
             let breaks = break_lines(&seg, part, width, TextWrap::Word);
-            breaks.into_iter().map(|(a, b)| part[a..b].to_owned()).collect()
+            breaks
+                .into_iter()
+                .map(|(a, b)| part[a..b].to_owned())
+                .collect()
         })
         .collect()
 }
