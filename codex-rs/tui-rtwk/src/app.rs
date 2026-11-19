@@ -100,7 +100,13 @@ impl UiApp {
         self.follow_core();
         self.ui.presenter.event();
         presenter::present(self, cx);
+        // The connection did not start: the app ends, and the host reports
+        // why (the oracle's `run_main_inner` returns the error).
+        let ends = fx.ends_app();
         shell::run_effects(self, fx);
+        if ends {
+            cx.quit();
+        }
     }
 
     /// Makes the controllers of the active thread if it has none.

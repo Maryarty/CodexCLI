@@ -178,7 +178,7 @@ impl AppFx {
 
     /// Whether the app ends: its connection did not start.
     pub fn ends_app(&self) -> bool {
-        false
+        self.ends
     }
 
     /// The commands requested, in order.
@@ -300,7 +300,10 @@ fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             app.outgoing.insert(ticket, AppCtx::StartThread);
             fx.commands.push(Command::StartThread { ticket });
         }
-        AppEv::StartFailed(message) => set_status(app, Session::Failed(Failure::Message(message))),
+        AppEv::StartFailed(message) => {
+            fx.ends = true;
+            set_status(app, Session::Failed(Failure::Message(message)));
+        }
         AppEv::Disconnected => set_status(app, Session::Failed(Failure::Stopped)),
         AppEv::Backend(BackendEv::Notification(notification)) => {
             // `serverRequest/resolved`: the server answered or withdrew a

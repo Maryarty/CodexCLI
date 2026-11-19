@@ -42,6 +42,7 @@ use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
+use codex_tui_core::screens::dialogs::Warning;
 use codex_tui_core::wire;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
@@ -173,6 +174,15 @@ pub struct InProcess {
     pub model: Option<String>,
     /// `--cd`: the working root of the agent, over the process's directory.
     pub cwd: Option<std::path::PathBuf>,
+    /// `-c key=value`, raw: applied over the config as the oracle does.
+    pub config_overrides: Vec<String>,
+    /// `target::startup_warning`: why the launch runs without the shared
+    /// server, shown among the startup warnings.
+    pub startup_warning: Option<String>,
+    /// Receives why the server did not start: the app ends then, and `main`
+    /// ends the process with this error (the oracle's `run_main_inner`
+    /// returns it).
+    pub failed: oneshot::Sender<String>,
 }
 
 impl Connector for InProcess {
@@ -200,35 +210,43 @@ async fn run(
         done,
         model,
         cwd,
+        config_overrides,
+        startup_warning,
+        failed,
     } = spec;
+    // A start that fails ends the app: `main` reports `error` once the
+    // terminal is restored.
+    let fail = |error: String| {
+        let _ = failed.send(error.clone());
+        emit(&ingress, epoch, AppEv::StartFailed(error));
+    };
+    let cli_overrides = match (codex_utils_cli::CliConfigOverrides {
+        raw_overrides: config_overrides,
+    })
+    .parse_overrides()
+    {
+        Ok(overrides) => overrides,
+        Err(error) => return fail(format!("Error parsing -c overrides: {error}")),
+    };
     // Loaded here, after the first frame: config, state DB, environment manager.
     let overrides = ConfigOverrides {
         cwd,
         ..Default::default()
     };
     let config = match ConfigBuilder::default()
+        .cli_overrides(cli_overrides)
         .harness_overrides(overrides)
         .build()
         .await
     {
         Ok(config) => Arc::new(config),
-        Err(error) => {
-            emit(
-                &ingress,
-                epoch,
-                AppEv::StartFailed(format!("loading the config: {error}")),
-            );
-            return;
-        }
+        Err(error) => return fail(format!("loading the config: {error}")),
     };
     // The server, and whether its workspace is this machine's (oracle:
     // `worktrees_enabled`: a local workspace, and no cloud list).
     let (client, local) = match connect_first(&mode, &config, arg0_paths).await {
         Ok(connected) => connected,
-        Err(error) => {
-            emit(&ingress, epoch, AppEv::StartFailed(error));
-            return;
-        }
+        Err(error) => return fail(error),
     };
     let facts = Facts {
         cloud: false,
@@ -240,7 +258,11 @@ async fn run(
     let grouping = config.tui_agents_overview_grouping;
     // What the status line and the footer show: read here, sent as events.
     let status = crate::facts::status(&config).await;
-    let warnings = crate::facts::warnings(&config);
+    let mut warnings = crate::facts::warnings(&config);
+    warnings.extend(startup_warning.map(|details| Warning {
+        source: "Startup".to_string(),
+        details,
+    }));
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
     let show_version = config.tui_show_server_version_notice;
     let mut held = HandBack::new(client, done);

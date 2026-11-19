@@ -38,14 +38,45 @@ pub struct Flags<'a> {
 /// it (`daemon_startup.rs::config_exclusion`): any `-c` override but the few
 /// the daemon can take along. A malformed override is the config's error
 /// to report, not an exclusion.
-pub fn config_exclusion(_raw: &[String]) -> Option<&'static str> {
-    None
+pub fn config_exclusion(raw: &[String]) -> Option<&'static str> {
+    let overrides = codex_utils_cli::CliConfigOverrides {
+        raw_overrides: raw.to_vec(),
+    }
+    .parse_overrides()
+    .ok()?;
+    let allowed = overrides
+        .iter()
+        .all(|(key, value)| match key.as_str() {
+            "suppress_unstable_features_warning" | "tui.fullscreen_transcript" => value.is_bool(),
+            "tui" => value.as_table().is_some_and(|tui| {
+                tui.len() == 1
+                    && tui
+                        .get("fullscreen_transcript")
+                        .is_some_and(|value| value.is_bool())
+            }),
+            "features" => value.as_table().is_some_and(|features| {
+                !features.is_empty() && features.values().all(|value| value.is_bool())
+            }),
+            _ => {
+                key.strip_prefix("features.")
+                    .is_some_and(|name| !name.contains('.'))
+                    && value.is_bool()
+            }
+        });
+    (!allowed).then_some(OVERRIDES_EXCLUSION)
 }
+
+const OVERRIDES_EXCLUSION: &str =
+    "command-line configuration overrides (-c, --enable, --disable, or --search)";
 
 /// `startup_orchestration.rs` (`daemon_startup_warning`): the notice that the
 /// launch runs without the shared background server, when it would have used it.
-pub fn startup_warning(_flags: &Flags<'_>) -> Option<String> {
-    None
+pub fn startup_warning(flags: &Flags<'_>) -> Option<String> {
+    let uses_daemon = flags.agents && !flags.no_daemon && flags.remote.is_none();
+    let reason = config_exclusion(flags.config_overrides).filter(|_| uses_daemon)?;
+    Some(format!(
+        "Running without the shared background server: {reason} requires embedded mode."
+    ))
 }
 
 impl Mode {
@@ -61,7 +92,10 @@ impl Mode {
             if flags.remote_auth_token_env.is_some() {
                 anyhow::bail!("`--remote-auth-token-env` requires `--remote`.");
             }
-            return Ok(if flags.agents && !flags.no_daemon {
+            return Ok(if flags.agents
+                && !flags.no_daemon
+                && config_exclusion(flags.config_overrides).is_none()
+            {
                 Mode::Daemon
             } else {
                 Mode::Embedded
