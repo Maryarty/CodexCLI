@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use rtwk::NotificationListener;
-use rtwk::controls::{SelectionController, SelectionList};
+use rtwk::controls::SelectionController;
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
@@ -16,8 +16,7 @@ use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, Expanded, MainA
 use rtwk::navigation::Navigator;
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::provider::{read, select};
-use rtwk::scroll::ScrollNotification;
-use rtwk::style::Style;
+use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
@@ -103,6 +102,7 @@ pub struct Screen;
 pub struct ScreenState {
     shown: bool,
     cursor: SelectionController<usize>,
+    list: ListController,
     query: TextEditingController,
     below: Rc<ValueNotifier<bool>>,
 }
@@ -122,6 +122,7 @@ impl StatefulWidget for Screen {
         ScreenState {
             shown: false,
             cursor: SelectionController::new(),
+            list: ListController::new(),
             query: TextEditingController::default(),
             below: Rc::new(ValueNotifier::new(false)),
         }
@@ -188,12 +189,14 @@ impl State for ScreenState {
                     let from = i64::try_from(at.unwrap_or(0)).unwrap_or(0);
                     let to = usize::try_from((from + i64::from(delta)).rem_euclid(len)).unwrap_or(0);
                     self.put(&picker, visible[to], cx);
+                    self.list.ensure_index_visible(to);
                 }
             }
             // The search changed: the cursor goes back to the first row.
             Msg::Search => {
                 if let Some(first) = visible.first() {
                     self.put(&picker, *first, cx);
+                    self.list.jump_to_index(0);
                 }
             }
             Msg::Pick => {
@@ -209,6 +212,7 @@ impl State for ScreenState {
                     self.query.clear();
                     if let Some(first) = picker.visible("").first() {
                         self.put(&picker, *first, cx);
+                    self.list.jump_to_index(0);
                     }
                 }
             }
@@ -229,7 +233,7 @@ impl State for ScreenState {
             return Dialog::bare(Text::new(shared.empty_slot(NAME, ID).to_string())).into();
         };
         let picker = Rc::new(picker);
-        let (cursor, below) = (self.cursor.clone(), self.below.clone());
+        let (cursor, below, list) = (self.cursor.clone(), self.below.clone(), self.list.clone());
         // The list and the "more below" row follow the search text.
         let list = {
             let (picker, tokens) = (picker.clone(), tokens.clone());
@@ -238,16 +242,11 @@ impl State for ScreenState {
                 move |_, _| {
                     let visible = Rc::new(picker.visible(&query.text()));
                     below.set_value(visible.len() > WINDOW);
-                    let controller = cursor.clone();
                     let rows = {
                         let (picker, visible, cursor, tokens) =
                             (picker.clone(), visible.clone(), cursor.clone(), tokens.clone());
-                        SelectionList::new(
+                        ListView::builder(
                             visible.len(),
-                            {
-                                let visible = visible.clone();
-                                move |row| visible[row]
-                            },
                             move |row: usize| -> AnyWidget {
                                 let index = visible[row];
                                 let (picker, cursor, tokens) =
@@ -277,12 +276,8 @@ impl State for ScreenState {
                                 .into()
                             },
                         )
-                        .controller(controller)
+                        .controller(list.clone())
                         .item_extent(1)
-                        .bar(false)
-                        .idle_style(Style::new())
-                        .selected_style(Style::new())
-                        .cursor_style(Style::new())
                     };
                     let scroll = below.clone();
                     let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(
