@@ -2308,3 +2308,43 @@ fn thread_settings_updated_changes_the_row_and_reads_it_again() {
         "the task is read again: {outs:?}"
     );
 }
+
+/// open-instant: opening a task marks it as being opened (the session page
+/// shows its loading state) until the resume's answer; a failure clears it
+/// and leaves the error for the center.
+#[test]
+fn opening_a_task_is_marked_until_the_resume_answers() {
+    let target = id(1);
+    let mut sandbox = sandbox();
+    list(&mut sandbox, vec![thread(&target, None, "Task", idle())]);
+    let mut m = model(&sandbox).clone();
+    assert_eq!(m.opening, None);
+    let outs = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
+    assert_eq!(
+        outs.iter().map(|out| out.command.clone()).collect::<Vec<_>>(),
+        vec![Command::Resume {
+            thread: target.clone()
+        }]
+    );
+    assert_eq!(m.opening, Some(target.clone()));
+    assert_eq!(m.resumes, 0);
+    let mut failed = m.clone();
+    let _ = apply_answer(
+        &mut failed,
+        Ctx::Resume {
+            thread: target.clone(),
+        },
+        Err(RpcError::Remote("no such session".into())),
+    );
+    assert_eq!(failed.opening, None);
+    assert_eq!(failed.resumes, 0);
+    assert_eq!(failed.notice, Some(Notice::Error("no such session".into())));
+    let task = thread(&target, None, "Task", idle());
+    let _ = apply_answer(
+        &mut m,
+        Ctx::Resume { thread: target },
+        Ok(Reply::Resumed(Box::new(task))),
+    );
+    assert_eq!(m.opening, None);
+    assert_eq!(m.resumes, 1);
+}

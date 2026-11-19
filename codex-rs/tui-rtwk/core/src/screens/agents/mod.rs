@@ -369,6 +369,11 @@ pub struct Model {
     pub home: Option<String>,
     /// How many resumes were answered (the view pops itself on a new one).
     pub resumes: u32,
+    /// The task being opened from the center: its resume is out and the
+    /// session page shows its loading state until the reply (success or
+    /// failure) clears it (open-instant: the page change does not wait for
+    /// the backend).
+    pub opening: Option<String>,
     /// The displayed backend's paging; the others' are `parked` (oracle:
     /// `initialized` and `discovery` per backend).
     pub paging: Paging,
