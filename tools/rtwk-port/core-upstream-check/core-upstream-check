@@ -54,8 +54,10 @@ echo "== add the core as a codex-rs member"
 core_src="$repo/codex-rs/tui-rtwk/core"
 core_dst="$scratch/codex-rs/tui-rtwk/core"
 rsync -a --exclude target "$core_src/" "$core_dst/"
-rsync -a --include '*/' --include 'fixtures/***' --exclude '*' \
-  "$repo/codex-rs/tui-rtwk/src/screens/" "$scratch/codex-rs/tui-rtwk/src/screens/"
+for dir in pages sheets; do
+  rsync -a --include '*/' --include 'fixtures/***' --exclude '*' \
+    "$repo/codex-rs/tui-rtwk/src/$dir/" "$scratch/codex-rs/tui-rtwk/src/$dir/"
+done
 # codex-rs's own clippy.toml governs the core here; the core's extra R1/R11/R12
 # lint file belongs to the port's workspace.
 rm -f "$core_dst/clippy.toml"

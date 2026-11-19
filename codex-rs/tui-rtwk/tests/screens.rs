@@ -1,61 +1,57 @@
 //! The screen tests: one binary, the skeleton's own tests first, then one
-//! module per screen directory (`tests/<dir>.rs`), so a slice adds tests in
+//! module per page, sheet and app part (`tests/{pages,sheets,app}/<name>.rs`), so a slice adds tests in
 //! its file and the build links one test binary, not one per directory.
 
 mod common;
 
-#[path = "cli.rs"]
+#[path = "app/cli.rs"]
 mod cli;
-#[path = "l10n.rs"]
+#[path = "app/l10n.rs"]
 mod l10n;
-#[path = "navigation.rs"]
+#[path = "app/navigation.rs"]
 mod navigation;
-#[path = "skeleton.rs"]
+#[path = "app/skeleton.rs"]
 mod skeleton;
 
-#[path = "agents.rs"]
+#[path = "pages/agents.rs"]
 mod agents;
-#[path = "approvals.rs"]
+#[path = "sheets/approvals.rs"]
 mod approvals;
-#[path = "backtrack.rs"]
+#[path = "pages/backtrack.rs"]
 mod backtrack;
-#[path = "cells.rs"]
+#[path = "pages/cells.rs"]
 mod cells;
-#[path = "chat.rs"]
+#[path = "pages/chat.rs"]
 mod chat;
-#[path = "composer.rs"]
+#[path = "pages/composer.rs"]
 mod composer;
-#[path = "dialogs.rs"]
+#[path = "sheets/dialogs.rs"]
 mod dialogs;
-#[path = "import.rs"]
+#[path = "pages/import.rs"]
 mod import;
-#[path = "onboarding.rs"]
+#[path = "pages/onboarding.rs"]
 mod onboarding;
-#[path = "pets.rs"]
+#[path = "sheets/pets.rs"]
 mod pets;
-#[path = "popovers.rs"]
+#[path = "pages/popovers.rs"]
 mod popovers;
-#[path = "presenter.rs"]
+#[path = "sheets/presenter.rs"]
 mod presenter;
-#[path = "resume.rs"]
+#[path = "pages/resume.rs"]
 mod resume;
-#[path = "select.rs"]
+#[path = "sheets/select.rs"]
 mod select;
-#[path = "settings.rs"]
+#[path = "sheets/settings.rs"]
 mod settings;
-#[path = "sidebar.rs"]
-mod sidebar;
-#[path = "startup.rs"]
+#[path = "pages/startup.rs"]
 mod startup;
-#[path = "status.rs"]
+#[path = "pages/status.rs"]
 mod status;
-#[path = "status_data.rs"]
+#[path = "pages/status_data.rs"]
 mod status_data;
-#[path = "transcript.rs"]
+#[path = "pages/transcript.rs"]
 mod transcript;
-#[path = "ui_tree.rs"]
-mod ui_tree;
-#[path = "usage.rs"]
+#[path = "pages/usage.rs"]
 mod usage;
-#[path = "voice.rs"]
+#[path = "sheets/voice.rs"]
 mod voice;

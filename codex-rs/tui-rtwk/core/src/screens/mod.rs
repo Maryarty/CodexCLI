@@ -69,11 +69,9 @@ macro_rules! screen_list {
         status => Status;
         usage => Usage;
         agents => Agents;
-        sidebar => Sidebar;
         dialogs => Dialogs;
         pets => Pets;
         voice => Voice;
-        ui_tree => UiTree;
         onboarding => Onboarding;
         startup => Startup;
         import => Import;

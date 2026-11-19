@@ -13,11 +13,9 @@
  status      S19      sheet  /status card
  usage       S20      route  /usage dashboard
  agents      S21      route  agents command center
- sidebar     S22      part   sidebar and side conversations
  dialogs     S23      dialog small dialogs
  pets        S24      sheet  pets overlay
  voice       S25      sheet  voice and realtime strip
- ui_tree     S26      part   ui_tree status-line elements
  onboarding  S02-S04  route  onboarding routes
  startup     S05      dialog startup prompts
  import      S06      route  import from other agents

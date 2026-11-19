@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use codex_tui_core::fixtures::script::Input;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::app::debug;
+use codex_tui_rtwk::app::run::{app_view, localized, root};
 use codex_tui_rtwk::l10n::Lang;
-use codex_tui_rtwk::run::{app_view, localized, root};
-use codex_tui_rtwk::screens;
-use codex_tui_rtwk::shell::Backend;
-use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
+use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
+use codex_tui_rtwk::services::shell::Backend;
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.
@@ -306,7 +306,7 @@ impl Harness {
 /// entries (the rows run directory by directory, each followed by its entries).
 pub fn debug_row(dir: &str, entry: Option<&str>) -> usize {
     let mut index = 0;
-    for d in screens::dirs() {
+    for d in debug::dirs() {
         if d.name == dir {
             let Some(entry) = entry else { return index };
             let at = (d.debug_entries)()
@@ -346,7 +346,7 @@ impl Harness {
 /// A slot of the screen map: registered once, with the id and kind the
 /// map says, and empty until its slice fills it.
 pub fn slot(name: &str) {
-    let dirs = screens::dirs();
+    let dirs = debug::dirs();
     let dir = dirs
         .iter()
         .find(|dir| dir.name == name)

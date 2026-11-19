@@ -13,8 +13,8 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::run::run_on;
-use codex_tui_rtwk::shell::Backend;
+use codex_tui_rtwk::app::run::run_on;
+use codex_tui_rtwk::services::shell::Backend;
 
 /// How long `main` waits for the backend future to hand the client back.
 const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -52,7 +52,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     let mode = target::Mode::resolve(&flags, |name| std::env::var(name))?;
     let startup_warning = target::startup_warning(&flags);
     let cloud = cloud::Cloud {
-        id: codex_tui_rtwk::shell::CLOUD_BACKEND,
+        id: codex_tui_rtwk::services::shell::CLOUD_BACKEND,
         mode: mode.clone(),
         model: cli.model.clone(),
         cwd: cli.cwd.clone(),
@@ -73,7 +73,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     let backend = Backend::Several {
         first: Box::new(first),
         others: vec![(
-            codex_tui_rtwk::shell::CLOUD_BACKEND,
+            codex_tui_rtwk::services::shell::CLOUD_BACKEND,
             Backend::Connector(Box::new(cloud)),
         )],
     };

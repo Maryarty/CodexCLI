@@ -14,10 +14,10 @@ use codex_tui_core::screens::settings::{
 };
 use pretty_assertions::assert_eq;
 
-const CONFIG: &str = include_str!("../../src/screens/settings/fixtures/config_panel.jsonl");
-const THEME: &str = include_str!("../../src/screens/settings/fixtures/theme_picker.jsonl");
-const STATUS_LINE: &str = include_str!("../../src/screens/settings/fixtures/status_line.jsonl");
-const KEYMAP: &str = include_str!("../../src/screens/settings/fixtures/keymap.jsonl");
+const CONFIG: &str = include_str!("../../src/sheets/settings/fixtures/config_panel.jsonl");
+const THEME: &str = include_str!("../../src/sheets/settings/fixtures/theme_picker.jsonl");
+const STATUS_LINE: &str = include_str!("../../src/sheets/settings/fixtures/status_line.jsonl");
+const KEYMAP: &str = include_str!("../../src/sheets/settings/fixtures/keymap.jsonl");
 
 fn send(sandbox: &mut Sandbox, intent: SettingsIntent) {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Settings(

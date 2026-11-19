@@ -9,10 +9,9 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::pets::{Choice, DISABLED, Intent as PetsIntent, Picker, Preview};
 use pretty_assertions::assert_eq;
 
-const PLAIN: &str = include_str!("../../src/screens/pets/fixtures/picker.jsonl");
-const CUSTOM: &str = include_str!("../../src/screens/pets/fixtures/picker_custom.jsonl");
-const DISABLED_FIXTURE: &str =
-    include_str!("../../src/screens/pets/fixtures/picker_disabled.jsonl");
+const PLAIN: &str = include_str!("../../src/sheets/pets/fixtures/picker.jsonl");
+const CUSTOM: &str = include_str!("../../src/sheets/pets/fixtures/picker_custom.jsonl");
+const DISABLED_FIXTURE: &str = include_str!("../../src/sheets/pets/fixtures/picker_disabled.jsonl");
 
 fn send(sandbox: &mut Sandbox, intent: PetsIntent) {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Pets(intent))));

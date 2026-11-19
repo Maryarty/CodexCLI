@@ -1,6 +1,6 @@
 # ADR-003 rules R1, R12, R14 as lints. Each path below is banned crate-wide;
-# `src/shell.rs` carries the crate's only `#![allow(clippy::disallowed_*)]`
-# and `tests/rules.rs` rejects any other. The tests directory may use them.
+# `src/services/mod.rs` carries the crate's only `#![allow(clippy::disallowed_*)]`
+# and `tests/rules/rules.rs` rejects any other. The tests directory may use them.
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 
@@ -38,8 +38,8 @@ disallowed-methods = [
     { path = "tokio::net::TcpStream::connect", reason = "R12: no network outside effects" },
     # R14: app data never enters rtwk local state.
     { path = "rtwk::hooks::use_state", reason = "R14: app data lives in the model" },
-    { path = "rtwk::editing::TextEditingController::new", reason = "R14: controllers are made in src/ui/thread_ui.rs only" },
-    { path = "rtwk::scroll::ScrollController::new", reason = "R14: controllers are made in src/ui/thread_ui.rs only" },
+    { path = "rtwk::editing::TextEditingController::new", reason = "R14: controllers are made in src/widgets/thread_ui.rs only" },
+    { path = "rtwk::scroll::ScrollController::new", reason = "R14: controllers are made in src/widgets/thread_ui.rs only" },
 ]
 
 disallowed-types = [

@@ -16,11 +16,6 @@ use super::Page;
 use super::Reply;
 use crate::ids::BackendId;
 use crate::rpc::RpcError;
-use codex_app_server_protocol::Account;
-use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::GetAccountParams;
-use codex_app_server_protocol::GetAccountResponse;
-use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SessionSource;
 use codex_app_server_protocol::Thread;
 use codex_protocol::protocol::SubAgentSource;
@@ -419,33 +414,4 @@ fn error_text(error: RpcError) -> String {
         RpcError::Remote(message) | RpcError::Malformed(message) => message,
         RpcError::Mismatch => "unexpected reply".to_owned(),
     }
-}
-
-/// The bootstrap's `account/read` (oracle: `read_account`, which never
-/// refreshes the token).
-pub fn account_request(request_id: RequestId) -> ClientRequest {
-    ClientRequest::GetAccount {
-        request_id,
-        params: GetAccountParams {
-            refresh_token: false,
-        },
-    }
-}
-
-/// The account's plan and Codex backend auth out of the reply of
-/// `account_request` (oracle: `SessionAccount::from`: a ChatGPT account has
-/// a plan and the Codex backend auth; an API key or none has neither).
-pub fn account_ev(result: serde_json::Value) -> Result<Ev, RpcError> {
-    let response: GetAccountResponse = serde_json::from_value(result)
-        .map_err(|error| RpcError::Malformed(error.to_string()))?;
-    Ok(match response.account {
-        Some(Account::Chatgpt { plan_type, .. }) => Ev::Account {
-            plan: Some(plan_type),
-            backend_auth: true,
-        },
-        _ => Ev::Account {
-            plan: None,
-            backend_auth: false,
-        },
-    })
 }

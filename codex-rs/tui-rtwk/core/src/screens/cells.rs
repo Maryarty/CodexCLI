@@ -1,6 +1,6 @@
 //! `cells` (S11, streaming and history cells): the core half of the screen's directory. The model
 //! part, its events and intents, its RPCs and their protocol wiring live here,
-//! with no rtwk; the view half is `src/screens/cells/` in the UI crate. Nothing
+//! with no rtwk; the view half is `src/pages/session/cells/` in the UI crate. Nothing
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
