@@ -1,0 +1,199 @@
+{
+ "label": null,
+ "started": "2026-11-18T15:36:44+00:00",
+ "n": 2,
+ "scenarios": [
+  "S9",
+  "S11",
+  "S5",
+  "S1",
+  "S2"
+ ],
+ "machine": {
+  "host_model": "MacBookPro18,2",
+  "cpus": 10,
+  "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "mem_gb": 64.0,
+  "power": "Now drawing from 'AC Power'",
+  "python": "3.13.12",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)"
+ },
+ "load_start": 7.55517578125,
+ "load_gate": 15.0,
+ "measure_only": true,
+ "binaries": {
+  "A:oracle": {
+   "path": "/Users/admin/.cache/codexcli/oracle-bin/codex",
+   "sha256": "9248cfeebec9b4cc",
+   "size_mb": 271.0,
+   "version_file": [
+    "codex-cli 0.170.0",
+    "tag rust-v0.170.0",
+    "commit 29eb79e9866b3262a777fdf8195c1b9e63684c91"
+   ],
+   "version": "codex-cli 0.170.0",
+   "kind": "oracle"
+  },
+  "B:rtwk": {
+   "path": "/Users/admin/.cache/codexcli/perfwrap/codex-rtwk",
+   "sha256": "128ec0edc5a44909",
+   "size_mb": 0.0,
+   "version": "",
+   "kind": "rtwk"
+  }
+ },
+ "scenario_defs": {
+  "S9": {
+   "id": "S9",
+   "title": "startup to first frame with the composer",
+   "kind": "startup",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "mock": {
+    "deltas": 10,
+    "pace": 0.01,
+    "sentinel": "END-S9"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   }
+  },
+  "S11": {
+   "id": "S11",
+   "title": "Agent command center: startup, 10 Down keys, idle 10 s",
+   "kind": "agents",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "window": 10,
+   "downs": 10,
+   "subcommand": [
+    "agents",
+    "--no-daemon"
+   ],
+   "mock": {
+    "deltas": 2,
+    "pace": 0.01,
+    "sentinel": "END-S11"
+   },
+   "ready": {
+    "any": "Agent command center"
+   }
+  },
+  "S5": {
+   "id": "S5",
+   "title": "typing 10 keys/s and 30 keys/s autorepeat while S1 streams",
+   "kind": "stream",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "stream_timeout": 120,
+   "settle": 1.0,
+   "prompt": "go",
+   "mock": {
+    "deltas": 2500,
+    "pace": 0.01,
+    "words": 6,
+    "begin": "BEGIN-S5",
+    "sentinel": "END-S5"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   },
+   "typing": {
+    "lead": 2.0,
+    "phases": [
+     {
+      "name": "10/s",
+      "keys": 80,
+      "rate": 10
+     },
+     {
+      "name": "30/s",
+      "keys": 90,
+      "rate": 30
+     }
+    ]
+   }
+  },
+  "S1": {
+   "id": "S1",
+   "title": "stream 100 deltas/s, 20 s",
+   "kind": "stream",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "stream_timeout": 90,
+   "settle": 1.0,
+   "prompt": "go",
+   "mock": {
+    "deltas": 2000,
+    "pace": 0.01,
+    "words": 6,
+    "begin": "BEGIN-S1",
+    "sentinel": "END-S1"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   }
+  },
+  "S2": {
+   "id": "S2",
+   "title": "stream 1000 deltas/s, 10 s",
+   "kind": "stream",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "stream_timeout": 90,
+   "settle": 1.0,
+   "prompt": "go",
+   "mock": {
+    "deltas": 10000,
+    "pace": 0.001,
+    "words": 6,
+    "begin": "BEGIN-S2",
+    "sentinel": "END-S2"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   }
+  }
+ },
+ "preflight": {
+  "A:oracle": {
+   "ok": true,
+   "t_ready_ms": 23.2,
+   "wall_s": 1.6
+  },
+  "B:rtwk": {
+   "ok": true,
+   "t_ready_ms": 52.5,
+   "wall_s": 1.6
+  }
+ },
+ "skipped": [],
+ "driver_commit": "714c3e32a",
+ "same_core": "both frontends run the same Codex core and a fake model of the same shape; only the frontend differs",
+ "finished": "2026-11-18T15:43:10+00:00",
+ "load_end": 4.29833984375
+}
