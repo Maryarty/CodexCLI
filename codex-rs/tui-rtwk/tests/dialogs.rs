@@ -152,6 +152,36 @@ fn session_question_mark_opens_the_footer_mode_shortcut_overlay() {
     assert!(!screen.contains("? for shortcuts"), "{screen}");
 }
 
+// shortcut_help.rs `group_lines`: two columns when three do not fit, one
+// when two do not.
+#[test]
+fn session_shortcut_overlay_narrows_to_two_columns_and_to_one() {
+    for (width, same_row) in [(80, true), (50, false)] {
+        let mut h = start_sized(false, width, 40);
+        h.wait_for("ready", |s| s.contains("ready"));
+        h.t.type_text("?");
+        h.t.pump_for(ms(600));
+        let screen = h.t.screen();
+        let compose = screen
+            .lines()
+            .find(|l| l.contains("Compose"))
+            .expect("Compose");
+        assert_eq!(compose.contains("Session"), same_row, "{screen}");
+        let session = screen.lines().position(|l| l.contains("Session")).unwrap();
+        let transcript = screen
+            .lines()
+            .position(|l| l.contains("Transcript (open first)"))
+            .unwrap();
+        assert!(transcript > session, "{screen}");
+        assert!(
+            !screen
+                .lines()
+                .any(|l| l.contains("Session") && l.contains("Transcript")),
+            "{screen}"
+        );
+    }
+}
+
 #[test]
 fn session_shortcut_overlay_closes_on_question_mark_and_on_escape() {
     for key in ["?", "escape"] {

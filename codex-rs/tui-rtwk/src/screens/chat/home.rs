@@ -26,6 +26,7 @@ use crate::l10n::strings as l10n;
 use crate::screens::chat::keys::{self, Action};
 use crate::screens::chat::open::open;
 use crate::screens::chat::popup;
+use crate::screens::dialogs::shortcut_panel;
 use crate::screens::chat::strings as chat_strings;
 use crate::theme;
 use crate::ui::page_keys;
@@ -52,6 +53,9 @@ pub struct ChatState {
     /// Escape was pressed on an empty composer: the next one starts
     /// backtrack (`app_backtrack.rs`).
     esc_primed: bool,
+    /// The shortcut overlay is expanded above the composer (the oracle's
+    /// `FooterMode::ShortcutOverlay`).
+    shortcuts: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -204,6 +208,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             esc_primed: false,
+            shortcuts: false,
         }
     }
 }
@@ -233,6 +238,7 @@ impl State for ChatState {
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
+        let overlay = self.shortcuts;
         if !matches!(msg, ChatMsg::Escape) {
             self.esc_primed = false;
         }
@@ -262,14 +268,13 @@ impl State for ChatState {
                 // with text before it the key typed as any other.
                 if &*text == "?" {
                     w.ui.composer.clear();
-                    let action = l10n::of(cx).pages.action_shortcuts;
-                    drop(page_keys::not_yet(cx, action));
+                    self.shortcuts = !self.shortcuts;
+                } else if self.shortcuts && !text.is_empty() {
+                    // Any other edit puts the overlay away (`FooterMode`).
+                    self.shortcuts = false;
                 }
             }
-            ChatMsg::Shortcuts => {
-                let action = l10n::of(cx).pages.action_shortcuts;
-                drop(page_keys::not_yet(cx, action));
-            }
+            ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
             ChatMsg::DebugMenu => {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
@@ -295,6 +300,10 @@ impl State for ChatState {
                 }
             },
             ChatMsg::Escape => {
+                if self.shortcuts {
+                    self.shortcuts = false;
+                    return Rebuild::Yes;
+                }
                 // The chat as a page over another (a debug entry) goes back.
                 if Navigator::maybe_pop(cx) {
                     return Rebuild::No;
@@ -332,7 +341,11 @@ impl State for ChatState {
                 cx.emit(&hs.screen, ScreenIntent::from(intent));
             }
         }
-        Rebuild::No
+        if overlay == self.shortcuts {
+            Rebuild::No
+        } else {
+            Rebuild::Yes
+        }
     }
 
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -370,6 +383,7 @@ impl State for ChatState {
             (None, _, true) => Text::new(strings.chat.working).style(tokens.accent()),
             (None, _, false) => Text::new(strings.chat.ready).style(tokens.dim()),
         };
+        let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
         let states = watch::<ScreenStates, _>(cx);
         let search = states.popovers.search.clone();
@@ -428,10 +442,16 @@ impl State for ChatState {
                     tokens.dim(),
                     tokens.dim(),
                 );
-                let footer = Row::new()
-                    .child(SizedBox::new(Some(2), None, None))
-                    .child(Expanded::new(1, bar));
-                (line.into(), footer.into())
+                let footer = if self.shortcuts {
+                    // Open: the footer is the close hint (`close_hint`).
+                    Text::new(format!("  {close}")).style(tokens.dim()).into()
+                } else {
+                    Row::new()
+                        .child(SizedBox::new(Some(2), None, None))
+                        .child(Expanded::new(1, bar))
+                        .into()
+                };
+                (line.into(), footer)
             }
         };
         let mut body = Column::new()
@@ -455,6 +475,9 @@ impl State for ChatState {
             } else {
                 text.style(tokens.error())
             });
+        }
+        if self.shortcuts && search.is_none() {
+            body = body.child(panel);
         }
         let body = body
             .child(composer)
