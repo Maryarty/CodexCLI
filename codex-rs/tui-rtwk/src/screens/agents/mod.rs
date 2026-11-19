@@ -6,11 +6,10 @@
 //! holds the keys, the mouse and the widget state, `view.rs` the widgets.
 //! Oracle: `tui/src/app/agent_center/` and `app/agents_overview_view.rs`.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::controls::SelectionController;
+use rtwk::controls::{SelectionController, TabController};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
@@ -316,10 +315,12 @@ pub struct ScreenState {
     /// The failure dialog was opened for the model's failure.
     failing: bool,
     /// The status tab.
-    filter: usize,
+    tabs: TabController,
     scroll: Rc<ValueNotifier<view::Scrolled>>,
     /// The row handlers made for the rows the list last showed.
-    row_taps: RefCell<Option<(Vec<view::RowKey>, RowTaps)>>,
+    row_taps: Option<(Vec<view::RowKey>, RowTaps)>,
+    /// The handlers of the tab clicks, made once.
+    tab_taps: Vec<Handler<PointerEvent>>,
     listening: Option<Listening>,
     mode: Mode,
     /// What the usage request of the highlighted task depends on, as the
@@ -382,9 +383,10 @@ impl StatefulWidget for Screen {
             help_focus: FocusNode::new(),
             edit_focus: FocusNode::new(),
             failing: false,
-            filter: 0,
+            tabs: TabController::new(view::FILTERS),
             scroll: Rc::new(ValueNotifier::new(view::Scrolled::default())),
-            row_taps: RefCell::new(None),
+            row_taps: None,
+            tab_taps: Vec::new(),
             listening: None,
             mode: Mode::Browse,
             usage_seen: None,
@@ -497,7 +499,7 @@ impl ScreenState {
     /// What the view shows that changes which rows count.
     fn lens(&self) -> Lens {
         Lens {
-            filter: self.filter,
+            filter: self.tabs.index(),
             searching: self.mode == Mode::Search,
             renaming: match &self.mode {
                 Mode::Rename(target) => Some(target.clone()),
@@ -509,7 +511,7 @@ impl ScreenState {
     /// What the widgets read of the screen's own state.
     fn ui(&self) -> view::Ui {
         view::Ui {
-            filter: self.filter,
+            filter: self.tabs.index(),
             help: self.mode == Mode::Help,
             searching: self.mode == Mode::Search,
             renaming: matches!(self.mode, Mode::Rename(_)),
@@ -671,6 +673,9 @@ impl State for ScreenState {
 
     fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
         self.listening = Some(Listening::new(cx, self.selection.listenable(), Msg::Cursor));
+        self.tab_taps = (0..view::FILTERS)
+            .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
+            .collect();
         if w.open {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Agents(AgentsIntent::Open));
@@ -682,6 +687,7 @@ impl State for ScreenState {
             listening.cancel();
         }
         self.selection.dispose();
+        self.tabs.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
@@ -709,6 +715,7 @@ impl State for ScreenState {
             }
         }
         self.sync(model, cx);
+        self.retap(cx);
         if model.failure.is_some() != self.failing {
             self.failing = model.failure.is_some();
             if self.failing {
@@ -730,6 +737,45 @@ impl State for ScreenState {
     }
 
     fn update(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let rebuild = self.handle(msg, w, cx);
+        if rebuild == Rebuild::Yes {
+            self.retap(cx);
+        }
+        rebuild
+    }
+
+    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        self.view(w, cx)
+    }
+}
+
+impl ScreenState {
+    /// The handlers of the row clicks, kept while the rows are the same
+    /// ones (a handler made anew is never equal to the last, and the list
+    /// would not compare equal), made here, not in `build`.
+    fn retap(&mut self, cx: &mut Cx<'_, Self>) {
+        let agents = read::<ScreenStates, _>(cx).agents.clone();
+        let center = agents.center_at(self.cursor().as_ref(), &self.lens());
+        let keys: Vec<view::RowKey> = (0..center.entries.len())
+            .map(|index| view::key_of(&center, index))
+            .collect();
+        if self.row_taps.as_ref().is_some_and(|(was, _)| *was == keys) {
+            return;
+        }
+        let taps = Rc::new(
+            keys.iter()
+                .map(|key| {
+                    let key = key.clone();
+                    cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
+                })
+                .collect::<Vec<_>>(),
+        );
+        self.row_taps = Some((keys, taps));
+    }
+
+    /// The key (or click or answer) changes the screen's own state and asks
+    /// the model.
+    fn handle(&mut self, msg: Msg, w: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         let agents = read::<ScreenStates, _>(cx).agents.clone();
         let model = &*agents;
         // The list's cursor is read here, when the key or click arrives: it
@@ -784,7 +830,7 @@ impl State for ScreenState {
                     }
                     Act::Filter { back } => {
                         let count = view::FILTERS;
-                        self.filter = (self.filter + if back { count - 1 } else { 1 }) % count;
+                        self.tabs.set_index((self.tabs.index() + if back { count - 1 } else { 1 }) % count);
                         self.sync(model, cx);
                         return Rebuild::Yes;
                     }
@@ -911,7 +957,7 @@ impl State for ScreenState {
                 }
             }
             Msg::Tab(index) => {
-                self.filter = index.min(view::FILTERS - 1);
+                self.tabs.set_index(index.min(view::FILTERS - 1));
                 self.sync(model, cx);
                 return Rebuild::Yes;
             }
@@ -919,42 +965,20 @@ impl State for ScreenState {
         Rebuild::No
     }
 
-    fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    /// The view of the screen's state.
+    fn view(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let agents = watched(cx);
         let look = view::Look::new(&Theme::of(cx), agents.thread_colors());
         let center = Rc::new(agents.center_at(self.cursor().as_ref(), &self.lens()));
         let ui = self.ui();
-        // The row handlers are kept while the rows are the same ones: a
-        // handler made anew is never equal to the last, and the list would
-        // not compare equal (a cursor that moves leaves it as it is).
-        let keys: Vec<view::RowKey> = (0..center.entries.len())
-            .map(|index| view::key_of(&center, index))
-            .collect();
-        let rows = {
-            let mut kept = self.row_taps.borrow_mut();
-            match &*kept {
-                Some((was, taps)) if *was == keys => taps.clone(),
-                _ => {
-                    let taps = Rc::new(
-                        keys.iter()
-                            .map(|key| {
-                                let key = key.clone();
-                                cx.map(move |_: PointerEvent| Msg::Row(key.clone()))
-                            })
-                            .collect::<Vec<_>>(),
-                    );
-                    *kept = Some((keys, taps.clone()));
-                    taps
-                }
-            }
-        };
         let taps = view::Taps {
-            rows,
-            tabs: (0..5)
-                .map(|index| cx.map(move |_: PointerEvent| Msg::Tab(index)))
-                .collect(),
+            rows: self
+                .row_taps
+                .as_ref()
+                .map_or_else(|| Rc::new(Vec::new()), |(_, taps)| taps.clone()),
+            tabs: self.tab_taps.clone(),
         };
         let controls = view::Controls {
             selection: self.selection.clone(),
