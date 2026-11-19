@@ -513,7 +513,7 @@ const R15_GAPS: &[(&str, &str)] = &[
     ),
 ];
 const R15_NOT_YET: &[&str] = &[
-    "src/pages/session/home.rs",
+    "src/pages/session/actions.rs",
     "src/sheets/dialogs/feedback.rs",
 ];
 const R15_PATTERNS: &[&str] = &[

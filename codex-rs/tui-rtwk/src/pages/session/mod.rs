@@ -4,14 +4,16 @@
 //! core's `codex_tui_core::screens::chat`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
+mod actions;
 pub mod backtrack;
 pub mod cells;
 pub mod composer;
-mod home;
 mod keys;
 pub mod open;
 pub mod popovers;
 mod popup;
+mod search_key;
+mod session_page;
 pub mod transcript;
 
 use rtwk::navigation::PageRoute;
@@ -35,7 +37,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         description: "a chat transcript with a streamed answer",
         script: include_str!("fixtures/streamed_answer.jsonl"),
         open: EntryOpen::Route(|seeded: &Seeded| {
-            home::Chat {
+            session_page::Chat {
                 ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
             }
             .into()
@@ -46,7 +48,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// The chat of the active thread inside a seeded debug entry (the popovers
 /// entry runs the real composer on a model a fixture script made).
 pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
-    home::Chat {
+    session_page::Chat {
         ui: seeded.thread_ui.get(seeded.core.session.active.as_ref()),
     }
     .into()
@@ -54,7 +56,7 @@ pub fn seeded(seeded: &Seeded<'_>) -> AnyWidget {
 
 /// The `Navigator`'s home: the chat of the active thread.
 pub fn home(app: &crate::app::UiApp) -> AnyWidget {
-    home::Chat {
+    session_page::Chat {
         ui: app.ui.thread_ui.get(app.core.session.active.as_ref()),
     }
     .into()

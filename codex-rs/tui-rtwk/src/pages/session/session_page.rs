@@ -18,11 +18,11 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
-use codex_tui_core::threads::{Failure, Item, ThreadModel};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::threads::{Item, ThreadModel};
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -36,6 +36,9 @@ use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::page_keys;
 use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
+
+use super::actions::*;
+use super::search_key::*;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]
@@ -94,144 +97,6 @@ pub enum ChatMsg {
     Agents,
     /// The composer's text changed (the field's own notification).
     Changed(Rc<str>),
-}
-
-/// What a key does while reverse history search is open.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SearchKey {
-    Char(Rc<str>),
-    Backspace,
-    /// Ctrl+U: the query is emptied.
-    Clear,
-    Older,
-    Newer,
-    Accept,
-    Cancel,
-    /// Any other key: the search consumes it (`_ => (InputResult::None, true)`).
-    Ignore,
-}
-
-/// The key of history search for `key`, if it is one
-/// (`history_search.rs`, `handle_history_search_key`): Ctrl+R and Up step to
-/// an older match, Ctrl+S and Down to a newer one, Esc and Ctrl+C cancel
-/// (the draft is restored), Enter accepts a match, Backspace and Ctrl+H
-/// delete, Ctrl+U clears, other text extends the query.
-fn search_key(key: KeyPress) -> Option<ChatMsg> {
-    let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
-    let found = if key == ctrl('r') || key.code == KeyCode::Up {
-        SearchKey::Older
-    } else if key == ctrl('s') || key.code == KeyCode::Down {
-        SearchKey::Newer
-    } else if key.code == KeyCode::Escape
-        || key == ctrl('c')
-        || (key.mods.is_empty() && key.text() == Some("\u{3}"))
-    {
-        SearchKey::Cancel
-    } else if key.code == KeyCode::Enter && key.mods.is_empty() {
-        SearchKey::Accept
-    } else if key.code == KeyCode::Backspace || key == ctrl('h') {
-        SearchKey::Backspace
-    } else if key == ctrl('u') {
-        SearchKey::Clear
-    } else if let Some(text) = key.as_text() {
-        SearchKey::Char(Rc::from(text))
-    } else if key.code == KeyCode::F12 {
-        // The port's own hidden debug key is not the oracle's to swallow.
-        return None;
-    } else {
-        SearchKey::Ignore
-    };
-    Some(ChatMsg::Search(found))
-}
-
-/// The words of a typed failure.
-fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Failure) -> String {
-    match failure {
-        Failure::Message(message) => strings.error(message).to_string(),
-        Failure::TurnFailed => strings.chat.turn_failed.to_string(),
-        Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
-        Failure::Stopped => strings.chat.server_stopped.to_string(),
-        Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),
-    }
-}
-
-/// The composer's prompt, as wide as its text: a trailing blank is a cell.
-fn prompt(text: &'static str) -> AnyWidget {
-    let width = i32::try_from(text.chars().count()).unwrap_or(2);
-    SizedBox::new(Some(width), None, Some(Text::new(text).into())).into()
-}
-
-/// A line the user sent from the composer: a command opens its screen, asks
-/// the session or says why not (the decision is core's `dispatch`); anything
-/// else is a message for the model.
-/// F2 and `/warnings`: the viewer over the retained warnings (with none it
-/// shows its empty page, `No warnings`).
-fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
-    cx.emit(
-        &hs.screen,
-        ScreenIntent::from(dialogs::Intent::OpenWarnings),
-    );
-    open(cx, Target::Dialogs);
-}
-
-fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
-    // An empty line is nothing to run: the composer was already taken by the
-    // pick or the submit that came with the same Enter.
-    if line.trim().is_empty() {
-        return;
-    }
-    let states = read::<ScreenStates, _>(cx);
-    let thread = read::<ThreadModel, _>(cx);
-    let session = read::<SessionSlice, _>(cx);
-    let facts = DispatchCx {
-        flags: states.chat.flags,
-        task_running: thread.is_running(),
-        side_conversation: states.chat.flags.side_conversation_active,
-        // TODO(session-core): `review_mode` is the thread's code-review state
-        // (`review.is_review_mode`); false until the session models review.
-        review_mode: false,
-        thread_started: matches!(session.status, Session::Ready),
-        has_backend_auth: states.chat.signed_in,
-    };
-    let screen = |cx: &mut Cx<'_, ChatState>, intent: chat::Intent| {
-        cx.emit(&hs.screen, ScreenIntent::from(intent));
-    };
-    let record = |cx: &mut Cx<'_, ChatState>| {
-        let intent = popovers::Intent::Record(line.to_string());
-        cx.emit(&hs.screen, ScreenIntent::from(intent));
-    };
-    let outcome = dispatch(line, &facts);
-    if states.chat.notice.is_some() && !matches!(outcome, Outcome::Notice(_)) {
-        screen(cx, chat::Intent::ClearNotice);
-    }
-    match outcome {
-        Outcome::NotACommand => {
-            // The decision is `apply`'s (R10): it starts a turn or queues
-            // the message; the composer clears when it has.
-            if !line.trim().is_empty() {
-                record(cx);
-                cx.emit(&hs.submit, line.to_string());
-            }
-        }
-        Outcome::Open(opened) => {
-            record(cx);
-            w.ui.composer.clear();
-            if opened.command == SlashCommand::Warnings {
-                open_warnings(cx, hs);
-            } else {
-                open(cx, opened.target);
-            }
-        }
-        Outcome::Session { command, intent } => {
-            record(cx);
-            w.ui.composer.clear();
-            screen(cx, chat::Intent::Session { command, intent });
-        }
-        Outcome::Insert(text) => w.ui.composer.reset(text),
-        Outcome::Quit => cx.emit(&hs.quit, ()),
-        // The line stays in the composer to be corrected.
-        Outcome::Notice(notice) => screen(cx, chat::Intent::Notice(notice)),
-    }
 }
 
 impl StatefulWidget for Chat {
