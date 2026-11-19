@@ -22,18 +22,18 @@ const DIRS: [(&str, &str, Kind); 21] = [
     ("composer", "S10", Kind::Part),
     ("popovers", "S12", Kind::Part),
     ("transcript", "S10", Kind::Part),
-    ("select", "S14", Kind::Dialog),
-    ("approvals", "S13", Kind::Dialog),
-    ("settings", "S15", Kind::Dialog),
+    ("select", "S14", Kind::Sheet),
+    ("approvals", "S13", Kind::Sheet),
+    ("settings", "S15", Kind::Sheet),
     ("backtrack", "S17", Kind::Part),
     ("resume", "S18", Kind::Route),
-    ("status", "S19", Kind::Dialog),
+    ("status", "S19", Kind::Sheet),
     ("usage", "S20", Kind::Route),
     ("agents", "S21", Kind::Route),
     ("sidebar", "S22", Kind::Part),
     ("dialogs", "S23", Kind::Dialog),
-    ("pets", "S24", Kind::Part),
-    ("voice", "S25", Kind::Part),
+    ("pets", "S24", Kind::Sheet),
+    ("voice", "S25", Kind::Sheet),
     ("ui_tree", "S26", Kind::Part),
     ("onboarding", "S02-S04", Kind::Route),
     ("startup", "S05", Kind::Dialog),
@@ -230,6 +230,8 @@ fn debug_menu_scrolls_to_the_cursor() {
     assert!(screen.contains("pets"), "{screen}");
     assert!(!screen.contains(" chat "), "scrolled off: {screen}");
     h.press("enter");
+    // The sheet fades in.
+    h.t.pump_for(crate::common::ms(400));
     assert!(
         h.t.screen().contains("pets (S24): empty slot"),
         "{}",

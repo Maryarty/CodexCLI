@@ -264,53 +264,17 @@ pub fn open_empty() -> DebugOpen {
     })
 }
 
-/// `codex-rtwk agents`: the chat is the navigator's home as ever, and the
-/// command center is pushed over it at once with nowhere to go back to; a
+/// `codex-rtwk agents`: the route of the command center with nowhere to go
+/// back to (`ui::start_page::StartPage` pushes it over the session); a
 /// session opened from it pops the center and shows the chat.
-pub fn standalone(chat: AnyWidget) -> AnyWidget {
-    Standalone { chat }.into()
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct Standalone {
-    chat: AnyWidget,
-}
-
-struct StandaloneState;
-
-impl StatefulWidget for Standalone {
-    type State = StandaloneState;
-
-    fn create_state(&self) -> StandaloneState {
-        StandaloneState
-    }
-}
-
-impl_widget!(stateful eq Standalone);
-
-impl State for StandaloneState {
-    type Widget = Standalone;
-    type Msg = ();
-
-    fn init_state(&mut self, _: &Standalone, cx: &mut Cx<'_, Self>) {
-        let push = cx.send(());
-        cx.emit(&push, ());
-    }
-
-    fn update(&mut self, _: (), _: &Standalone, cx: &mut Cx<'_, Self>) -> Rebuild {
-        drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| {
-            Screen {
-                can_return: false,
-                open: true,
-            }
-            .into()
-        })));
-        Rebuild::No
-    }
-
-    fn build(&self, w: &Standalone, _: &mut Cx<'_, Self>) -> AnyWidget {
-        w.chat.clone()
-    }
+pub fn start_route() -> PageRoute<()> {
+    PageRoute::new(|_| {
+        Screen {
+            can_return: false,
+            open: true,
+        }
+        .into()
+    })
 }
 
 /// The command center; `can_return` is whether a chat lies under it (the

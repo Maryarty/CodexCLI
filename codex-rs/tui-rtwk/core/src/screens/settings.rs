@@ -15,7 +15,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "settings";
 pub const ID: &str = "S15";
-pub const KIND: Kind = Kind::Dialog;
+pub const KIND: Kind = Kind::Sheet;
 
 use std::collections::BTreeMap;
 

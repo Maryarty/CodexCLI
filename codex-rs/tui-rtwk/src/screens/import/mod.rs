@@ -21,10 +21,10 @@ pub fn debug_entries() -> Vec<DebugEntry> {
     Vec::new()
 }
 
-/// The route of this screen, pushed by the widget that opens it
-/// (`Navigator::of(cx).push`).
+/// The route of the import step: a step of the startup page, not a page of
+/// its own.
 pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Screen.into())
+    crate::screens::onboarding::route(crate::screens::onboarding::Step::Import)
 }
 
 /// Opens the empty form of this slot (debug menu).

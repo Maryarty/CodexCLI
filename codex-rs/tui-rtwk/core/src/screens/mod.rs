@@ -20,7 +20,10 @@ pub enum Kind {
     Home,
     /// A `PageRoute` pushed by the widget that opens it.
     Route,
-    /// A `show_dialog` from the widget that asks.
+    /// A modal sheet (`show_dialog` with the shared `sheet_options`) over the
+    /// page that opens it.
+    Sheet,
+    /// A small centred `show_dialog` from the widget that asks.
     Dialog,
     /// A part of the chat screen's subtree.
     Part,

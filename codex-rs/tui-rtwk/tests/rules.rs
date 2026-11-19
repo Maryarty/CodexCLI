@@ -498,10 +498,6 @@ const R15_GAPS: &[(&str, &str)] = &[
         "src/screens/agents/soft.rs",
         "G38: no widget tells how many rows a Text takes; the facade does not export break_lines",
     ),
-    (
-        "src/screens/resume/fit.rs",
-        "G41: no widget shows the first of several candidate layouts that fits (toolbar, hint rows, progress label)",
-    ),
 ];
 const R15_NOT_YET: &[&str] = &[
     "src/screens/chat/home.rs",

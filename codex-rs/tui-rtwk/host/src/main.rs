@@ -50,6 +50,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
         .with_start_agents(cli.agents)
+        .with_start_resume(cli.resume)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     let result = run(app);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts

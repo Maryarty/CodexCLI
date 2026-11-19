@@ -15,7 +15,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "voice";
 pub const ID: &str = "S25";
-pub const KIND: Kind = Kind::Part;
+pub const KIND: Kind = Kind::Sheet;
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

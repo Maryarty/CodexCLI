@@ -15,7 +15,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "select";
 pub const ID: &str = "S14";
-pub const KIND: Kind = Kind::Dialog;
+pub const KIND: Kind = Kind::Sheet;
 
 /// A model of the picker: its name, description and whether it is the one in use.
 #[derive(Clone, Debug, PartialEq, Eq)]

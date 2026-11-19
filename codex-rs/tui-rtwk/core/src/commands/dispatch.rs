@@ -41,7 +41,37 @@ pub enum Target {
     Backtrack,
 }
 
+/// How a target shows up in the app (architecture §1, Amendment 2026-11-19b):
+/// only the five pages are routes; the UI opens the rest over the page that
+/// asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opens {
+    /// A page: Startup (import is its step), Agents, Resume, Usage.
+    Page,
+    /// A modal sheet over the page that opened it.
+    Sheet,
+    /// A small centred dialog over the page.
+    Dialog,
+    /// A mode of the session page (its expanded transcript).
+    Mode,
+}
+
 impl Target {
+    /// How the UI shows the target.
+    pub fn opens(self) -> Opens {
+        match self {
+            Target::Resume | Target::Agents | Target::Import | Target::Usage => Opens::Page,
+            Target::Status
+            | Target::Select
+            | Target::Settings
+            | Target::Approvals
+            | Target::Pets
+            | Target::Voice => Opens::Sheet,
+            Target::Dialogs => Opens::Dialog,
+            Target::Pager | Target::Backtrack => Opens::Mode,
+        }
+    }
+
     /// The name of the screen directory (`screens::dirs()`).
     pub fn dir(self) -> &'static str {
         match self {

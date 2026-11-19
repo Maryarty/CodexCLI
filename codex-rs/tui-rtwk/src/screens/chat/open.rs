@@ -8,7 +8,7 @@ use std::cell::Cell;
 use rtwk::Cx;
 use rtwk::navigation::{Navigator, PageRoute};
 
-use codex_tui_core::commands::Target;
+use codex_tui_core::commands::{Opens, Target};
 
 use crate::screens::{
     agents, approvals, backtrack, dialogs, import, pets, resume, select, settings, status,
@@ -33,25 +33,38 @@ pub fn reset_last_opened() {
     LAST.with(|last| last.set(None));
 }
 
-/// Opens `target` over the chat of `cx`. The chat stays below, with its
-/// transcript and its composer's text; Esc returns to it.
+/// Opens `target` over the chat of `cx`. Only the pages are routes
+/// (`Opens::Page`: Agents, Resume, Usage, the import step of Startup); a sheet
+/// or dialog is shown over the page that asks, a mode belongs to the session
+/// page. The chat stays below, with its transcript and its composer's text;
+/// Esc returns to it.
 pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
-    match target {
-        Target::Resume => push(cx, resume::route()),
-        Target::Agents => push(cx, agents::route()),
-        Target::Import => push(cx, import::route()),
-        Target::Usage => push(cx, usage::route()),
-        // The pager is the expanded mode of the session page's transcript (chat-live);
-        // until that lands `/diff` and Ctrl+T open nothing.
-        Target::Pager => {}
-        Target::Status => drop(status::open(cx)),
-        Target::Select => drop(select::open(cx)),
-        Target::Settings => drop(settings::open(cx)),
-        Target::Dialogs => drop(dialogs::open(cx)),
-        Target::Approvals => drop(approvals::open(cx)),
-        Target::Pets => push(cx, PageRoute::new(|_| pets::part())),
-        Target::Voice => push(cx, PageRoute::new(|_| voice::part())),
-        Target::Backtrack => push(cx, PageRoute::new(|_| backtrack::part())),
+    match target.opens() {
+        Opens::Page => match target {
+            Target::Resume => push(cx, resume::route()),
+            Target::Agents => push(cx, agents::route()),
+            Target::Import => push(cx, import::route()),
+            _ => push(cx, usage::route()),
+        },
+        Opens::Sheet | Opens::Dialog => match target {
+            Target::Status => drop(status::open(cx)),
+            Target::Select => drop(select::open(cx)),
+            Target::Settings => drop(settings::open(cx)),
+            Target::Dialogs => drop(dialogs::open(cx)),
+            Target::Approvals => drop(approvals::open(cx)),
+            Target::Pets => drop(pets::open(cx)),
+            _ => drop(voice::open(cx)),
+        },
+        Opens::Mode => match target {
+            // The pager is the expanded mode of the session page's transcript
+            // (chat-live); until that lands `/diff` and Ctrl+T say so in a popup.
+            Target::Pager => {
+                let action = crate::l10n::strings::of(cx).pages.action_transcript;
+                drop(crate::ui::page_keys::not_yet(cx, action));
+            }
+            // Backtrack becomes a mode of the expanded transcript with chat-live.
+            _ => push(cx, PageRoute::new(|_| backtrack::part())),
+        },
     }
     // Recorded once the directory's opener has run: the identity a test
     // reads is what was opened, not what was asked for.

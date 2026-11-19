@@ -26,6 +26,8 @@ pub struct Cli {
     pub model: Option<String>,
     /// The `agents` subcommand: open the agent command center first.
     pub agents: bool,
+    /// The `resume` subcommand: open the resume picker first.
+    pub resume: bool,
 }
 
 impl Cli {
@@ -80,6 +82,7 @@ impl Cli {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
                 "agents" => cli.agents = true,
+                "resume" => cli.resume = true,
                 "-m" | "--model" => {
                     let value = args
                         .next()

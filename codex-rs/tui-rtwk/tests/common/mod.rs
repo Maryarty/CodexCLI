@@ -57,6 +57,23 @@ pub fn start_debug() -> Harness {
     start_with(true)
 }
 
+/// The live app as `make` builds it from the plain one (a start page of the
+/// command line, `with_start_*`), over the scripted backend.
+pub fn start_app(make: impl FnOnce(UiApp) -> UiApp) -> Harness {
+    let guard = rtwk_tokio::enter(runtime());
+    let (server, fake) = FakeServer::new();
+    let app = make(UiApp::new(Backend::Fake(server)));
+    let mut t = Tester::with(Options::new().size(WIDTH, HEIGHT));
+    t.pump_widget(localized(root(app_view(app)), Lang::En));
+    t.pump_for(ms(200));
+    Harness {
+        t,
+        fake,
+        driver: None,
+        _runtime: guard,
+    }
+}
+
 /// The app on `Tester::pump_app`, which gives it the frame loop's handle:
 /// `AppCx::quit` ends the loop only there (the overlay root of `start` has
 /// none), as in `run_app_with`.

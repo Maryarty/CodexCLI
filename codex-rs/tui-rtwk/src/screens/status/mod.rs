@@ -27,7 +27,8 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 }
 
 /// Opens the card from the widget that asks (`show_dialog`); it reads the
-/// card the model holds.
+/// card the model holds. A modal sheet (centred) over the page until chat-live
+/// makes `/status` a cell of the transcript, as the oracle has it.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(cx, move |_| card::CardDialog.into(), DialogOptions::default())
 }

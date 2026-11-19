@@ -15,7 +15,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "pets";
 pub const ID: &str = "S24";
-pub const KIND: Kind = Kind::Part;
+pub const KIND: Kind = Kind::Sheet;
 
 /// The pet that means "no pet" (`pets::DISABLED_PET_ID`).
 pub const DISABLED: &str = "disabled";

@@ -1353,3 +1353,35 @@ fn available_during_task_equals_the_oracles_arms() {
         );
     }
 }
+
+/// Architecture §1 (Amendment 2026-11-19b): only Startup, Session, Agents,
+/// Resume and Usage are routes; the rest of the targets are modal sheets over
+/// the page that opens them, or a mode of the session page.
+#[test]
+fn only_the_five_pages_are_routes() {
+    let pages: Vec<_> = [
+        Target::Resume,
+        Target::Agents,
+        Target::Import,
+        Target::Usage,
+    ]
+    .into_iter()
+    .collect();
+    for target in &pages {
+        assert_eq!(target.opens(), Opens::Page, "{target:?}");
+    }
+    for target in [
+        Target::Status,
+        Target::Select,
+        Target::Settings,
+        Target::Approvals,
+        Target::Pets,
+        Target::Voice,
+    ] {
+        assert_eq!(target.opens(), Opens::Sheet, "{target:?}");
+    }
+    assert_eq!(Target::Dialogs.opens(), Opens::Dialog);
+    for target in [Target::Pager, Target::Backtrack] {
+        assert_eq!(target.opens(), Opens::Mode, "{target:?}");
+    }
+}

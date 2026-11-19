@@ -8,8 +8,7 @@ mod dialog;
 mod dismiss;
 mod present;
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
-use rtwk::layout::Alignment;
+use rtwk::overlay::{Dialog, DialogResult, show_dialog};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
@@ -82,19 +81,6 @@ pub fn request_dialog(key: codex_tui_core::ids::RequestKey) -> AnyWidget {
     dialog::RequestDialog { key }.into()
 }
 
-/// The options a request pane is shown with, by the presenter and by the
-/// debug menu: no dimming, shown at once, placed at the bottom edge by
-/// `show_dialog` itself; Esc and the options close it, not the barrier.
-pub fn pane_options() -> DialogOptions {
-    DialogOptions {
-        alignment: Alignment::BOTTOM_CENTER,
-        barrier_alpha: Some(0),
-        barrier_dismissible: false,
-        fade_in: std::time::Duration::ZERO,
-        ..DialogOptions::default()
-    }
-}
-
 /// Opens the dialog from the widget that asks (`show_dialog`); the result
 /// returns to the model through a handler, as an intent with its ticket.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
@@ -102,7 +88,11 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
         move |_| Dialog::new(Screen).title(title).into(),
-        DialogOptions::default(),
+        // The empty slot has no keys of its own: the barrier closes it.
+        rtwk::overlay::DialogOptions {
+            barrier_dismissible: true,
+            ..crate::screens::sheet_options()
+        },
     )
 }
 

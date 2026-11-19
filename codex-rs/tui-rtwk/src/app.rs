@@ -30,6 +30,8 @@ pub struct UiState {
     /// Open the agent command center over the chat at start (`codex-rtwk
     /// agents`).
     pub start_agents: bool,
+    /// Open the resume picker over the chat at start (`codex-rtwk resume`).
+    pub start_resume: bool,
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
@@ -58,6 +60,7 @@ impl UiApp {
                 lang: Lang::default(),
                 debug: false,
                 start_agents: false,
+                start_resume: false,
                 presenter: Presenter::new(),
             },
             link: shell::Link::new(backend),
@@ -73,6 +76,11 @@ impl UiApp {
         self.ui.start_agents = on;
         // The overview opens instead of a first thread (`codex agents`).
         self.core.start_thread_on_connect = !on;
+        self
+    }
+
+    pub fn with_start_resume(mut self, on: bool) -> Self {
+        self.ui.start_resume = on;
         self
     }
 

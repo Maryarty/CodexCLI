@@ -15,7 +15,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "status";
 pub const ID: &str = "S19";
-pub const KIND: Kind = Kind::Dialog;
+pub const KIND: Kind = Kind::Sheet;
 
 /// The sandbox profile of the session (`status_permission_summary`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]

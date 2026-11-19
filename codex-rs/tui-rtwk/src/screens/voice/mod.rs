@@ -4,6 +4,7 @@
 //! core's `codex_tui_core::screens::voice`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
+use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
@@ -20,14 +21,23 @@ pub fn debug_entries() -> Vec<DebugEntry> {
     Vec::new()
 }
 
-/// The part as a widget, placed by the chat screen's subtree.
-pub fn part() -> AnyWidget {
-    Screen.into()
+/// Opens the settings as a modal sheet over the session page (bottom edge,
+/// no frame, no dimming: architecture §1, amendment 2026-11-19b).
+pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    show_dialog(
+        cx,
+        move |_| Dialog::bare(Screen).into(),
+        // Esc closes it (the stub has no keys of its own yet).
+        DialogOptions {
+            barrier_dismissible: true,
+            ..crate::screens::sheet_options()
+        },
+    )
 }
 
-/// Opens the empty form of this slot (debug menu), as a page.
+/// Opens the empty form of this slot (debug menu), as a sheet.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen.into())
+    DebugOpen::Dialog(|_| Dialog::bare(Screen).into())
 }
 
 /// The empty screen widget of this slot.
