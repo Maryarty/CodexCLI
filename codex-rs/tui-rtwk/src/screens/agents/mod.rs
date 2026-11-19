@@ -423,7 +423,8 @@ pub enum Act {
     Hide,
     Pin,
     Stop,
-    Open,
+    /// `o`: the resume picker (oracle: `AppEvent::OpenResumePicker`).
+    Resume,
     Fork,
     Right,
 }
@@ -488,7 +489,7 @@ const BROWSE_KEYS: &[(&str, Act)] = &[
     ("h", Act::Hide),
     ("p", Act::Pin),
     ("x", Act::Stop),
-    ("o", Act::Open),
+    ("o", Act::Resume),
     ("f", Act::Fork),
     ("w", Act::NewWorktree),
 ];
@@ -930,9 +931,14 @@ impl ScreenState {
                             self.accept(model, sel, &center, cx);
                         }
                     }
-                    Act::Open => {
-                        if let Some(sel) = at {
-                            Self::send(cx, AgentsIntent::Accept(sel));
+                    // The picker takes the center's place (`pushReplacement`):
+                    // a pick resumes into the chat, Esc returns to it. Held
+                    // back while a notice holds the center.
+                    Act::Resume => {
+                        if !model.held() {
+                            drop(Navigator::of(cx).push_replacement::<()>(
+                                crate::screens::resume::route(),
+                            ));
                         }
                     }
                     Act::Grouping => Self::send(cx, AgentsIntent::CycleGrouping),

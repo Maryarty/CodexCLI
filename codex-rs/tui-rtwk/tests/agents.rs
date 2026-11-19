@@ -772,3 +772,32 @@ fn the_center_draws_at_widths_one_to_ten() {
         }
     }
 }
+
+/// Item 2 (review point 44): `o` opens the resume picker in the center, empty
+/// or not (oracle: `agents_overview_view.rs:766-769`, `OpenResumePicker`), and
+/// it does not open the highlighted task.
+#[test]
+fn o_opens_the_resume_picker() {
+    for entry in ["overview", "empty_narrow"] {
+        let mut h = open(entry, 80, 24);
+        h.press("o");
+        h.wait_for("the resume picker", |s| s.contains("Resume a previous session"));
+        assert!(
+            !h.fake
+                .commands()
+                .iter()
+                .any(|command| format!("{command:?}").contains("Resume {")),
+            "{entry}: no task was resumed"
+        );
+    }
+}
+
+/// While a worktree is being created the center holds `o` back too (oracle:
+/// the gate before `agents_keymap.resume`).
+#[test]
+fn o_is_held_back_while_busy() {
+    let mut h = open("busy", 80, 24);
+    h.press("o");
+    h.settle();
+    assert!(!h.t.screen().contains("Resume a previous session"));
+}
