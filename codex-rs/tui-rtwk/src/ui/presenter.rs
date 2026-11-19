@@ -133,7 +133,7 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         place,
         move |_| screens::approvals::request_dialog(shown.clone()),
         // A bottom pane without a frame, as the oracle draws a request.
-        screens::approvals::pane_options(),
+        screens::sheet_options(),
         move |app, answer, cx| {
             let requests = &app.core.requests;
             app.ui

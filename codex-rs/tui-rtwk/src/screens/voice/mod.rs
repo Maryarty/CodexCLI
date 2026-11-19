@@ -30,7 +30,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
         // Esc closes it (the stub has no keys of its own yet).
         DialogOptions {
             barrier_dismissible: true,
-            ..crate::screens::approvals::pane_options()
+            ..crate::screens::sheet_options()
         },
     )
 }

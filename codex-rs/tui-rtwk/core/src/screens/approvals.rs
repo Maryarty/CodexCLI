@@ -16,7 +16,7 @@ use crate::threads::ThreadFx;
 
 pub const NAME: &str = "approvals";
 pub const ID: &str = "S13";
-pub const KIND: Kind = Kind::Dialog;
+pub const KIND: Kind = Kind::Sheet;
 
 /// One question of a user-input request (`item/tool/requestUserInput`).
 #[derive(Clone, Debug, PartialEq, Eq)]

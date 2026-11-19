@@ -4,7 +4,7 @@
 //! core's `codex_tui_core::screens::settings`. Nothing outside these two
 //! directories (bar their test files) needs an edit when it grows.
 
-use rtwk::overlay::{Dialog, DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{Dialog, DialogResult, show_dialog};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
 
@@ -28,7 +28,11 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
         move |_| Dialog::new(Screen).title(title).into(),
-        DialogOptions::default(),
+        // The stub has no keys of its own yet: the barrier closes it.
+        rtwk::overlay::DialogOptions {
+            barrier_dismissible: true,
+            ..crate::screens::sheet_options()
+        },
     )
 }
 

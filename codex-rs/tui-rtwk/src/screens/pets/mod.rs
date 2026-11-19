@@ -84,7 +84,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
         // search first); the barrier closes the unseeded stub.
         DialogOptions {
             barrier_dismissible: true,
-            ..crate::screens::approvals::pane_options()
+            ..crate::screens::sheet_options()
         },
     )
 }

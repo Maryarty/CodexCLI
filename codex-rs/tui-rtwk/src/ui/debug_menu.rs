@@ -48,6 +48,7 @@ fn rows(lang: Lang) -> Vec<Row> {
         let kind = match dir.kind {
             Kind::Home => "home",
             Kind::Route => "route",
+            Kind::Sheet => "sheet",
             Kind::Dialog => "dialog",
             Kind::Part => "part",
         };
@@ -71,7 +72,7 @@ fn rows(lang: Lang) -> Vec<Row> {
                     if dir.id == codex_tui_core::screens::approvals::ID
                         || dir.id == codex_tui_core::screens::pets::ID
                     {
-                        screens::approvals::pane_options()
+                        screens::sheet_options()
                     } else {
                         DialogOptions::default()
                     },

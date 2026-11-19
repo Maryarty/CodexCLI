@@ -8,7 +8,7 @@ mod dialog;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
-use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
+use rtwk::overlay::{DialogResult, show_dialog};
 
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
@@ -41,7 +41,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
         move |_| dialog::MenuDialog.into(),
-        DialogOptions::default(),
+        crate::screens::sheet_options(),
     )
 }
 
