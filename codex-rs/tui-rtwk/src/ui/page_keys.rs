@@ -17,7 +17,7 @@ use crate::l10n::strings as l10n;
 
 /// The bottom menu of a page: `keys` (key as the oracle writes it, hint), the
 /// same list the page binds with `KeyBindings`. The key text is the oracle's
-/// (`esc`, `enter`, `↑/↓`, `←/→`, `pgup/pgdn`, `ctrl + t`, a character): each is
+/// (`esc`, `enter`, `↑/↓`, `←/→`, `pgup/pgdn`, `ctrl + t`, `⌃c`, a character): each is
 /// turned into the keys rtwk's bar names (a family such as `↑/↓` into its two
 /// keys, shown as one entry) and shown as written. A bar fed by the bindings
 /// alone leaves out a plain character while a text field has the focus (it
@@ -86,6 +86,10 @@ fn key_names(display: &str) -> Vec<String> {
         })
         .map(|part| {
             let part = part.trim().replace(" + ", "+");
+            // `⌃c`: the control sign and the character.
+            if let Some(rest) = part.strip_prefix('\u{2303}') {
+                return format!("ctrl+{rest}");
+            }
             match part.as_str() {
                 "\u{2191}" => "up".to_owned(),
                 "\u{2193}" => "down".to_owned(),

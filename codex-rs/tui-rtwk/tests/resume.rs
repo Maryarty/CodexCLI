@@ -151,3 +151,30 @@ fn g39_probe_wrap_is_not_first_fit() {
         "Wrap puts the strip on {rows} rows; the oracle keeps one"
     );
 }
+
+/// G41, the footer half: the picker's hint rows are first-fit by width with
+/// priorities (`hint_line_for_row`); the shared footer (`KeyHintsBar` through
+/// `ui::page_keys::footer`) takes one spelling and cuts the tail. At 40 cells
+/// the oracle's second row drops `⌃e exp` (priority 6) and keeps `↑/↓
+/// browse` (5): the bar keeps `⌃e` and cuts the last entry instead.
+#[test]
+fn g41_probe_key_hints_bar_has_no_priority() {
+    let hints = [
+        ("⌃o", "dense"),
+        ("⌃t", "preview"),
+        ("⌃e", "exp"),
+        ("\u{2191}/\u{2193}", "browse"),
+    ];
+    let bar = codex_tui_rtwk::ui::page_keys::footer_with(
+        hints,
+        rtwk::style::Style::default(),
+        rtwk::style::Style::default(),
+        "   ",
+    );
+    let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 1));
+    t.pump_widget(bar);
+    let row = t.screen();
+    let oracle = "⌃o dense   ⌃t preview   \u{2191}/\u{2193} browse";
+    assert_ne!(row.trim_end(), oracle, "the bar would fit as the oracle does");
+    assert!(row.contains("⌃e"), "{row}");
+}
