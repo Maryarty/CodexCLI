@@ -217,7 +217,8 @@ fn permissions_prompt_snapshot() {
         .size(120, 18)
         .entry("approvals", "permissions")
         .open()
-        .assert_snap("approval_overlay_permissions_prompt");
+        // The oracle's screen is the bottom pane alone; ours has the debug menu above it.
+        .assert_snap_region("approval_overlay_permissions_prompt", 4, 0);
 }
 
 // ORACLE bottom_pane/approval_overlay.rs:2224 apply_patch_prompt_with_thread_label_omits_command_line kind=ui owner=dialogs-pane

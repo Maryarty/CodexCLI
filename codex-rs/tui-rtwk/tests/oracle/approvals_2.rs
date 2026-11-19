@@ -604,7 +604,8 @@ fn request_user_input_options_snapshot() {
         .size(120, 16)
         .entry("approvals", "user_input")
         .open();
-    s.assert_snap("request_user_input_options");
+    // The oracle's screen is the pane alone; ours has the debug menu above it.
+    s.assert_snap_region("request_user_input_options", 6, 0);
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:3387 request_user_input_options_notes_visible_snapshot kind=snap owner=dialogs-pane snap=request_user_input_options_notes_visible
