@@ -43,8 +43,6 @@ mod resume;
 mod select;
 #[path = "settings.rs"]
 mod settings;
-#[path = "sidebar.rs"]
-mod sidebar;
 #[path = "startup.rs"]
 mod startup;
 #[path = "status.rs"]
@@ -53,8 +51,6 @@ mod status;
 mod status_data;
 #[path = "transcript.rs"]
 mod transcript;
-#[path = "ui_tree.rs"]
-mod ui_tree;
 #[path = "usage.rs"]
 mod usage;
 #[path = "voice.rs"]

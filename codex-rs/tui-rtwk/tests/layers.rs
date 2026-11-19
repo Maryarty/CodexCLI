@@ -234,8 +234,8 @@ fn every_screen_dir_has_a_core_half_and_a_view_half() {
     let core = names(sources_of("core/src"), "core/src/screens/");
     assert_eq!(
         view.len(),
-        21,
-        "the screen map has 21 directories: {view:?}"
+        19,
+        "the screen map has 19 directories: {view:?}"
     );
     assert_eq!(view, core, "view dirs and core files differ");
 }
