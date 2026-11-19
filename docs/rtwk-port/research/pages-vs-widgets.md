@@ -86,7 +86,7 @@ widget, mode or a true dialog. The map's 23+ "screens" are ~6 pages.
   the sidebar (S22) stays a widget of the chat page.
 - dialogs-pane: S13, S14, S15, S23, S24 picker, S25 settings are slot views on
   the view stack; `show_dialog` only for the oracle's `Centered` views.
-- chat-live: S21 agents command center becomes a slot view of 24 rows (the
+- (OVERRULED 2026-11-19 by the person: S21 stays a PAGE.) chat-live: S21 agents command center becomes a slot view of 24 rows (the
   oracle's), with its tabs, list and details inside; revisit the route built
   in VS1 (`Target::Agents`).
 - routes-lists: pages: resume picker, usage, import, onboarding (steps),

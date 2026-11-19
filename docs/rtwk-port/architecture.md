@@ -320,7 +320,8 @@ panel in the chat page's bottom slot), **Dialog** (centered, `show_dialog`),
   pre-chat or own-loop screens (three S05 entries unverified).
 - Modes: S17 backtrack (a mode of the pager, not a screen); subagent switcher
   (active thread of the chat page); S27 inline.
-- Slot views: S13, S14, S15, S23, the pets picker, voice settings, and S21
+- Pages also: S21 the Agent command center (the person, 2026-11-19: a page, as VS1 built it — not the oracle's bottom-pane view).
+- Slot views: S13, S14, S15, S23, the pets picker, voice settings (S21 is a page, above)
   the agents command center (the oracle shows it as a 24-row `BottomPaneView`,
   `app/agent_center/render.rs:88`, not a full screen).
 - Widgets: S11, S12, S19 (`/status` is a history cell), S22, S24 ambient, S25
