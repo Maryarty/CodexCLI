@@ -50,10 +50,10 @@ pub fn config_exclusion(raw: &[String]) -> Option<&'static str> {
             tui.len() == 1
                 && tui
                     .get("fullscreen_transcript")
-                    .is_some_and(|value| value.is_bool())
+                    .is_some_and(codex_config::TomlValue::is_bool)
         }),
         "features" => value.as_table().is_some_and(|features| {
-            !features.is_empty() && features.values().all(|value| value.is_bool())
+            !features.is_empty() && features.values().all(codex_config::TomlValue::is_bool)
         }),
         _ => {
             key.strip_prefix("features.")
