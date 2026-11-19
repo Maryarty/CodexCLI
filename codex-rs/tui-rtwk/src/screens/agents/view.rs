@@ -16,7 +16,6 @@ use rtwk::StatelessWidget;
 use rtwk::impl_widget;
 use rtwk::Handler;
 use rtwk::LayoutBuilder;
-use rtwk::NotificationListener;
 use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
@@ -28,7 +27,6 @@ use rtwk::layout::{
     Expanded, MainAxisSize, Offstage, Padding, Row, SizedBox, VerticalDivider,
 };
 use rtwk::overlay::Dialog;
-use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Attrs, Span, Style, ThemeData};
 use rtwk::text::{Text, TextAlign, TextWrap, segmenter_of};
 
@@ -39,6 +37,7 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
+use crate::ui::session_list::SessionList;
 use super::path;
 use super::soft::{self, Measure};
 use super::strings::Strings;
@@ -236,13 +235,7 @@ pub fn neighbour(center: &Center, from: usize, forward: bool) -> Option<Sel> {
     found.and_then(RowKey::into_sel)
 }
 
-/// Where the list is scrolled to: whether rows lie above and below the
-/// window (the overflow arrows).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Scrolled {
-    pub above: bool,
-    pub below: bool,
-}
+pub use crate::ui::session_list::Scrolled;
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
 /// handlers of the lines they tell.
@@ -323,22 +316,17 @@ fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
 }
 
 
-/// The age column (oracle: `format_relative_time`).
+/// The age column (oracle: `format_relative_time`): the shared age, worded
+/// with this page's strings.
 fn age(strings: &Strings, now: i64, updated: i64) -> String {
-    let seconds = (now - updated).max(0);
-    if seconds == 0 {
-        return strings.now.to_owned();
+    use crate::ui::age::{Age, age};
+    match age(now, Some(updated)) {
+        Age::Missing | Age::Now => strings.now.to_owned(),
+        Age::Seconds(n) => format!("{n}{}", strings.ago[0]),
+        Age::Minutes(n) => format!("{n}{}", strings.ago[1]),
+        Age::Hours(n) => format!("{n}{}", strings.ago[2]),
+        Age::Days(n) => format!("{n}{}", strings.ago[3]),
     }
-    let (value, unit) = if seconds < 60 {
-        (seconds, strings.ago[0])
-    } else if seconds < 3600 {
-        (seconds / 60, strings.ago[1])
-    } else if seconds < 86_400 {
-        (seconds / 3600, strings.ago[2])
-    } else {
-        (seconds / 86_400, strings.ago[3])
-    };
-    format!("{value}{unit}")
 }
 
 /// The text shown when no row is (oracle: the `indices.is_empty()` arm).
@@ -680,64 +668,31 @@ fn rows_in(
                 .map(|at| key_of(&center, at))
                 .collect(),
         );
-        let builder = {
-            let (look, agents, center, taps, keys, selection) = (
-                look.clone(),
-                agents.clone(),
-                center.clone(),
-                taps.clone(),
-                keys.clone(),
-                controls.selection.clone(),
-            );
-            move |index: usize| -> AnyWidget {
-                let paint = {
-                    let (look, agents, center, taps) =
-                        (look.clone(), agents.clone(), center.clone(), taps.clone());
-                    move |selected: bool| {
-                        entry(&seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
-                    }
-                };
-                if !keys[index].selectable() {
-                    return paint(false);
-                }
-                let (selection, key) = (selection.clone(), keys[index].clone());
-                ListenableBuilder::new(selection.listenable(), move |_, _| {
-                    paint(selection.cursor().as_ref() == Some(&key))
-                })
-                .into()
-            }
-        };
-        let rows = SelectionList::new(
-            keys.len(),
-            {
+        let rows = SessionList {
+            len: keys.len(),
+            key: {
                 let keys = keys.clone();
-                move |index| keys[index].clone()
+                Rc::new(move |index| keys[index].clone())
             },
-            builder,
-        )
-        .controller(controls.selection.clone())
-        .item_enabled({
-            let keys = keys.clone();
-            move |index| keys[index].selectable()
-        })
-        .on_submitted(controls.open.clone())
-        .focus_node(controls.focus.clone())
-        .autofocus(true)
-        .item_extent(1)
-        .bar(false)
-        .idle_style(look.selection.clone())
-        .selected_style(Style::new())
-        .disabled_style(Style::new());
-        let scroll = controls.scroll.clone();
-        let rows = NotificationListener::<ScrollNotification>::new(rows).on_notification(
-            move |note| {
-                scroll.set_value(Scrolled {
-                    above: note.metrics.pixels > 0,
-                    below: note.metrics.pixels < note.metrics.max_scroll_extent,
-                });
-                false
+            selectable: Some({
+                let keys = keys.clone();
+                Rc::new(move |index| keys[index].selectable())
+            }),
+            row: {
+                let (look, agents, center, taps) =
+                    (look.clone(), agents.clone(), center.clone(), taps.clone());
+                Rc::new(move |index, selected| {
+                    entry(&seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                })
             },
-        );
+            selection: controls.selection.clone(),
+            scroll: controls.scroll.clone(),
+            submit: controls.open.clone(),
+            focus: Some(controls.focus.clone()),
+            extent: Some(1),
+            idle: look.selection.clone(),
+        }
+        .build();
         let mut column = Column::new()
             .overflow_intended(true)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -769,7 +724,7 @@ fn rows_in(
 fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWidget {
     let style = look.dim.clone();
     ValueListenableBuilder::new(scroll.clone(), move |_, scrolled: &Scrolled, _| {
-        let show = if down { scrolled.below } else { scrolled.above };
+        let show = if down { scrolled.below() } else { scrolled.above() };
         let glyph = match (show, down) {
             (false, _) => " ",
             (true, true) => "\u{2193}",
