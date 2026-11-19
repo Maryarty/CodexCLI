@@ -30,7 +30,7 @@ use rtwk::layout::{
 use rtwk::overlay::Dialog;
 use rtwk::scroll::ScrollNotification;
 use rtwk::style::{Attrs, Span, Style, ThemeData};
-use rtwk::text::{Text, TextAlign, TextWrap};
+use rtwk::text::{Text, TextAlign, TextWrap, segmenter_of};
 
 use codex_tui_core::screens::Shared;
 use codex_tui_core::screens::agents::{
@@ -40,7 +40,7 @@ use codex_tui_core::screens::agents::{
 
 use super::help::{self, Ink};
 use super::path;
-use super::soft;
+use super::soft::{self, Measure};
 use super::strings::Strings;
 use super::tabs::Tabs;
 use super::usage;
@@ -421,6 +421,7 @@ pub fn header(
 /// A heading of the list (oracle: `render_center_rows`, the `Group` arm);
 /// `width` is the room the row has.
 fn heading(
+    seg: &Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -439,7 +440,7 @@ fn heading(
         GroupLabel::Pinned => strings.pinned.to_owned(),
         GroupLabel::Model(name) => name.clone(),
         GroupLabel::Path(path) => {
-            path::fit_heading(&display_directory(path, model.home.as_deref()), count, width)
+            path::fit_heading(seg, &display_directory(path, model.home.as_deref()), count, width)
         }
     };
     one(vec![span(format!("{text}  {count}"), &look.dim)])
@@ -479,6 +480,7 @@ fn metadata(cells: Row, status: (&str, &Style), age: (String, &Style)) -> Row {
 /// One entry of the list as a one-row widget `width` cells wide.
 #[allow(clippy::too_many_arguments)]
 fn entry(
+    seg: &Measure,
     look: &Look,
     strings: &Strings,
     model: &Model,
@@ -494,6 +496,7 @@ fn entry(
     match &center.entries[index] {
         CenterRow::Gap => gap(1),
         CenterRow::Group { label, count } => short(heading(
+            seg,
             look,
             strings,
             model,
@@ -658,8 +661,9 @@ fn rows_in(
     controls: ListControls,
     taps: Rc<Vec<Handler<PointerEvent>>>,
 ) -> AnyWidget {
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
         let width = constraints.max_width;
+        let seg = segmenter_of(cx);
         let model = &*agents;
         if center.entries.is_empty() {
             let text = empty_text(&strings, model, model.threads.is_empty());
@@ -690,7 +694,7 @@ fn rows_in(
                     let (look, agents, center, taps) =
                         (look.clone(), agents.clone(), center.clone(), taps.clone());
                     move |selected: bool| {
-                        entry(&look, &strings, &agents, &center, index, width, selected, taps.get(index))
+                        entry(&seg, &look, &strings, &agents, &center, index, width, selected, taps.get(index))
                     }
                 };
                 if !keys[index].selectable() {
@@ -777,8 +781,8 @@ fn arrow(look: &Look, scroll: &Rc<ValueNotifier<Scrolled>>, down: bool) -> AnyWi
 }
 
 /// The rows a text of the details takes at the pane's width.
-fn flow(text: &str, style: &Style) -> Vec<Line> {
-    soft::rows(text, DETAILS_WIDTH)
+fn flow(seg: &Measure, text: &str, style: &Style) -> Vec<Line> {
+    soft::rows(seg, text, DETAILS_WIDTH)
         .into_iter()
         .map(|row| vec![span(row, style)])
         .collect()
@@ -801,18 +805,19 @@ pub fn details(
 ) -> AnyWidget {
     let (look, strings, num, center, agents) =
         (look.clone(), *strings, *num, center.clone(), agents.clone());
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
         let Some(row) = center.selected_row() else {
             return AnyWidget::default();
         };
         let height = usize::try_from(constraints.max_height).unwrap_or(0);
-        let lines = detail_lines(&look, &strings, &num, row, &agents, height);
+        let lines = detail_lines(&segmenter_of(cx), &look, &strings, &num, row, &agents, height);
         top(stacked(lines.into_iter().map(one).collect()))
     })
     .into()
 }
 
 fn detail_lines(
+    seg: &Measure,
     look: &Look,
     strings: &Strings,
     num: &NumSyms,
@@ -836,7 +841,7 @@ fn detail_lines(
         Vec::new(),
         vec![span(strings.project, &look.dim)],
     ];
-    head.extend(flow(&row.cwd, &look.plain));
+    head.extend(flow(seg, &row.cwd, &look.plain));
     let usage_lines = usage::lines(strings, num, &row.details.usage, bills_in_dollars(model));
     for line in &usage_lines {
         head.push(pair(line.label, &line.value));
@@ -844,7 +849,7 @@ fn detail_lines(
     if let Some(branch) = &row.branch {
         head.push(Vec::new());
         head.push(vec![span(strings.branch, &look.dim)]);
-        head.extend(flow(branch, &look.plain));
+        head.extend(flow(seg, branch, &look.plain));
     }
     let prompt_start = head.len();
     head.push(Vec::new());
@@ -857,7 +862,7 @@ fn detail_lines(
     } else {
         prompt_text
     };
-    let mut prompt = flow(&prompt_text, &look.plain);
+    let mut prompt = flow(seg, &prompt_text, &look.plain);
     if prompt.len() > 2 {
         prompt.truncate(2);
         prompt[1] = vec![span(strings.elision, &look.dim)];
@@ -872,7 +877,7 @@ fn detail_lines(
             DetailLine::NeedsAttention => {
                 activity.push(vec![span(strings.needs_attention, &look.red)]);
             }
-            DetailLine::Request(text) => activity.extend(flow(text, &look.plain)),
+            DetailLine::Request(text) => activity.extend(flow(seg, text, &look.plain)),
             DetailLine::OpenToReview => activity.push(vec![span(strings.open_task, &look.dim)]),
             DetailLine::WaitingApproval => {
                 activity.push(vec![span(strings.wait_approval, &look.plain)]);
@@ -883,14 +888,14 @@ fn detail_lines(
             DetailLine::TaskError => activity.push(vec![span(strings.task_error, &look.plain)]),
             DetailLine::LatestActivity(header) => {
                 activity.push(vec![span(strings.latest_activity, &look.dim)]);
-                activity.extend(flow(header, &look.plain));
+                activity.extend(flow(seg, header, &look.plain));
             }
         }
     }
     if let Some(message) = &row.details.last_message {
         activity.push(Vec::new());
         activity.push(vec![span(strings.last_message, &look.dim)]);
-        activity.extend(flow(message, &look.plain));
+        activity.extend(flow(seg, message, &look.plain));
     }
     let offline = matches!(model.notice, Some(Notice::Reconnecting | Notice::ReconnectFailed));
     if !offline && !activity.is_empty() {
@@ -1112,10 +1117,10 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
         dim: look.dim.clone(),
     };
     let (title, resize) = (strings.help_title, strings.help_resize);
-    inset(LayoutBuilder::new(move |_, constraints| {
+    inset(LayoutBuilder::new(move |cx, constraints| {
         let room = |cells: i32| usize::try_from(cells).unwrap_or(0);
         let size = (room(constraints.max_width), room(constraints.max_height));
-        help::help(title, &groups, size, resize, &ink)
+        help::help(&segmenter_of(cx), title, &groups, size, resize, &ink)
     }))
 }
 
