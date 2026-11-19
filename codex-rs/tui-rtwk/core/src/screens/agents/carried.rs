@@ -86,7 +86,7 @@ pub(super) fn matches_query(thread: &Thread, query: &str) -> bool {
 }
 
 // oracle: agents_overview_discovery.rs fn is_overview_thread
-pub(super) fn is_overview_thread(thread: &Thread) -> bool {
+pub(crate) fn is_overview_thread(thread: &Thread) -> bool {
     !thread.ephemeral
         && thread.parent_thread_id.is_none()
         && !matches!(
@@ -96,7 +96,7 @@ pub(super) fn is_overview_thread(thread: &Thread) -> bool {
 }
 
 // oracle: agents_overview_discovery.rs fn supports_shared_pinning
-pub(super) fn supports_shared_pinning(source: &SessionSource) -> bool {
+pub(crate) fn supports_shared_pinning(source: &SessionSource) -> bool {
     matches!(
         source,
         SessionSource::Cli | SessionSource::VsCode | SessionSource::Exec | SessionSource::AppServer

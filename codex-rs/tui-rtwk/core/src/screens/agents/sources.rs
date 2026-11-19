@@ -17,7 +17,6 @@ use std::collections::VecDeque;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::SessionSource;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
@@ -32,13 +31,9 @@ use super::Page;
 use super::Pins;
 use super::Reply;
 use super::carried::is_overview_thread;
-use super::wire::PINNED_SECTION;
+use super::carried::supports_shared_pinning;
 use crate::rpc::RpcError;
 use crate::rpc::ServerError;
-
-/// A search scans pages of this many rows of each source (oracle:
-/// `page_size = 100`).
-const SEARCH_PAGE_SIZE: u32 = 100;
 
 /// The prefix of a cursor made by `reply`; any other cursor is the
 /// interactive source's own (a seeded page, an older reply).
@@ -150,7 +145,7 @@ impl Fanout {
                     originators: None,
                     cursor: part.cursor.clone(),
                     limit: Some(if self.search {
-                        SEARCH_PAGE_SIZE
+                        crate::protocol::agents::SEARCH_PAGE_SIZE
                     } else {
                         PAGE_SIZE
                     }),
@@ -268,50 +263,6 @@ impl Fanout {
     }
 }
 
-/// One page of the pinned tasks of one source, in rank order: the pinned
-/// section, sorted by its position (oracle: `list_pinned_threads`).
-fn pinned_request(request_id: RequestId, other: bool, cursor: Option<String>) -> ClientRequest {
-    ClientRequest::ThreadList {
-        request_id,
-        params: ThreadListParams {
-            include_attached_threads: false,
-            current_account_only: true,
-            excluded_thread_ids: None,
-            originators: None,
-            cursor,
-            limit: Some(SEARCH_PAGE_SIZE),
-            attached_to_thread_id: None,
-            sort_key: Some(ThreadSortKey::SectionPosition),
-            sort_direction: None,
-            model_providers: Some(Vec::new()),
-            source_kinds: Some(if other {
-                vec![ThreadSourceKind::Exec, ThreadSourceKind::AppServer]
-            } else {
-                Vec::new()
-            }),
-            archived: Some(false),
-            section_id: Some(Some(PINNED_SECTION.to_owned())),
-            project_id: None,
-            parent_thread_id: None,
-            ancestor_thread_id: None,
-            cwd: None,
-            use_state_db_only: true,
-            search_term: None,
-        },
-    }
-}
-
-/// The sources that can share a pin (oracle: `supports_shared_pinning`).
-fn supports_shared_pinning(source: &SessionSource) -> bool {
-    matches!(
-        source,
-        SessionSource::Cli
-            | SessionSource::VsCode
-            | SessionSource::Exec
-            | SessionSource::AppServer
-    ) || matches!(source, SessionSource::Custom(source) if matches!(source.as_str(), "atlas" | "chatgpt"))
-}
-
 /// Reads the pinned tasks of both sources, page after page (oracle:
 /// `list_pinned_threads`: per source, a loop on the server's cursor): the
 /// shell asks `next_request`, sends it, `feed`s the answer back, and asks
@@ -346,7 +297,7 @@ impl PinReader {
     pub fn next_request(&mut self, id: RequestId) -> Option<ClientRequest> {
         self.end
             .is_none()
-            .then(|| pinned_request(id, self.source == 1, self.cursor.clone()))
+            .then(|| crate::protocol::agents::pinned_request(id, self.source == 1, self.cursor.clone()))
     }
 
     /// The answer to the request `next_request` gave last.

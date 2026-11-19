@@ -1,16 +1,19 @@
 //! The wire form of the screen's RPCs and their replies, and a script's seed.
 //! Oracle: `agents_overview_discovery.rs` (list), `agents_overview_actions.rs`.
 
-use super::Command;
-use super::Ev;
-use super::PAGE_SIZE;
-use super::Page;
-use super::Reply;
-use super::UsageOutcome;
-use super::carried::is_overview_thread;
-use super::carried::preview_markdown;
 use crate::rpc::RpcError;
+use crate::screens::agents::Command;
+use crate::screens::agents::Ev;
+use crate::screens::agents::PAGE_SIZE;
+use crate::screens::agents::Page;
+use crate::screens::agents::Reply;
+use crate::screens::agents::UsageOutcome;
+use crate::screens::agents::carried::is_overview_thread;
+use crate::screens::agents::carried::preview_markdown;
+use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::GetAccountParams;
+use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
 use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::RequestId;
@@ -21,13 +24,9 @@ use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadForkResponse;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadListParams;
+use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadLoadedListResponse;
-use codex_app_server_protocol::ThreadTurnsListParams;
-use codex_app_server_protocol::ThreadTurnsListResponse;
-use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::UserInput;
-use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeParams;
@@ -35,14 +34,19 @@ use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadSectionMoveParams;
 use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadSortKey;
+use codex_app_server_protocol::ThreadSourceKind;
 use codex_app_server_protocol::ThreadStartParams;
+use codex_app_server_protocol::ThreadTurnsListParams;
+use codex_app_server_protocol::ThreadTurnsListResponse;
+use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStatus;
+use codex_app_server_protocol::UserInput;
 use serde::Deserialize;
 
 /// The wire request of `command` (oracle: `agents_overview_discovery.rs`,
 /// `agents_overview_actions.rs`).
-pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRequest {
+pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRequest {
     match command {
         Command::List { cursor } => ClientRequest::ThreadList {
             request_id,
@@ -167,7 +171,7 @@ fn unreachable_wire(request_id: RequestId) -> ClientRequest {
 }
 
 /// A search scans pages of this many rows (oracle: `page_size = 100`).
-const SEARCH_PAGE_SIZE: u32 = 100;
+pub(crate) const SEARCH_PAGE_SIZE: u32 = 100;
 
 fn list_params(cursor: Option<String>) -> ThreadListParams {
     ThreadListParams {
@@ -194,9 +198,9 @@ fn list_params(cursor: Option<String>) -> ThreadListParams {
 }
 
 /// `codex_state::PINNED_THREAD_SECTION_ID`, which core does not link.
-pub(super) const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
+pub(crate) const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 
-pub(super) fn decode_reply(
+pub(crate) fn decode_reply(
     command: &Command,
     result: serde_json::Value,
 ) -> Result<Reply, RpcError> {
@@ -312,7 +316,7 @@ fn turn_previews(turn: Option<&Turn>) -> Reply {
 }
 
 /// A script's seed, see `seed` in `mod.rs`.
-pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
+pub(crate) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
     let (key, body) = value
         .as_object()
         .and_then(|object| object.iter().next())
@@ -362,7 +366,7 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
             .map_err(text),
         "grouping" => serde_json::from_value::<String>(body)
             .map_err(text)
-            .and_then(|name| super::Grouping::from_config(&name).ok_or(name))
+            .and_then(|name| crate::screens::agents::Grouping::from_config(&name).ok_or(name))
             .map(Ev::Grouping),
         "notice" => seed_notice(body).map(Ev::Notice),
         "server_version" => Ok(Ev::ServerVersion(body.as_str().map(str::to_owned))),
@@ -377,9 +381,9 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
 
 /// A seeded notice: `null` (none), `"reconnecting"`, `"reconnect_failed"`,
 /// `"creating_worktree"`, `"load_failed"`, `{"error": text}` or `{"removing": "archive" | "delete"}`.
-fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String> {
-    use super::Action;
-    use super::Notice;
+fn seed_notice(body: serde_json::Value) -> Result<Option<crate::screens::agents::Notice>, String> {
+    use crate::screens::agents::Action;
+    use crate::screens::agents::Notice;
     match &body {
         serde_json::Value::Null => Ok(None),
         serde_json::Value::String(name) => match name.as_str() {
@@ -407,4 +411,70 @@ fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String>
         }
         _ => Err("a notice is null, a name or an object".to_owned()),
     }
+}
+
+/// One page of the pinned tasks of one source, in rank order: the pinned
+/// section, sorted by its position (oracle: `list_pinned_threads`).
+pub(crate) fn pinned_request(
+    request_id: RequestId,
+    other: bool,
+    cursor: Option<String>,
+) -> ClientRequest {
+    ClientRequest::ThreadList {
+        request_id,
+        params: ThreadListParams {
+            include_attached_threads: false,
+            current_account_only: true,
+            excluded_thread_ids: None,
+            originators: None,
+            cursor,
+            limit: Some(SEARCH_PAGE_SIZE),
+            attached_to_thread_id: None,
+            sort_key: Some(ThreadSortKey::SectionPosition),
+            sort_direction: None,
+            model_providers: Some(Vec::new()),
+            source_kinds: Some(if other {
+                vec![ThreadSourceKind::Exec, ThreadSourceKind::AppServer]
+            } else {
+                Vec::new()
+            }),
+            archived: Some(false),
+            section_id: Some(Some(PINNED_SECTION.to_owned())),
+            project_id: None,
+            parent_thread_id: None,
+            ancestor_thread_id: None,
+            cwd: None,
+            use_state_db_only: true,
+            search_term: None,
+        },
+    }
+}
+
+/// The bootstrap's `account/read` (oracle: `read_account`, which never
+/// refreshes the token).
+pub fn account_request(request_id: RequestId) -> ClientRequest {
+    ClientRequest::GetAccount {
+        request_id,
+        params: GetAccountParams {
+            refresh_token: false,
+        },
+    }
+}
+
+/// The account's plan and Codex backend auth out of the reply of
+/// `account_request` (oracle: `SessionAccount::from`: a ChatGPT account has
+/// a plan and the Codex backend auth; an API key or none has neither).
+pub fn account_ev(result: serde_json::Value) -> Result<Ev, RpcError> {
+    let response: GetAccountResponse =
+        serde_json::from_value(result).map_err(|error| RpcError::Malformed(error.to_string()))?;
+    Ok(match response.account {
+        Some(Account::Chatgpt { plan_type, .. }) => Ev::Account {
+            plan: Some(plan_type),
+            backend_auth: true,
+        },
+        _ => Ev::Account {
+            plan: None,
+            backend_auth: false,
+        },
+    })
 }

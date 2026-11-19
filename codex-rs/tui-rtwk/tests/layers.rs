@@ -139,7 +139,7 @@ fn views_never_name_protocol_shell_tokio_or_io() {
         &sources(),
         &[
             "codex_app_server_protocol",
-            "codex_tui_core::wire",
+            "codex_tui_core::protocol",
             "crate::shell",
             "shell::",
             "tokio",

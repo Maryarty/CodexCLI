@@ -5,6 +5,8 @@
 //! `decode` in `screens/<dir>.rs`. Server notifications and requests map to
 //! events in `threads::project` and `app::pending_request`.
 
+pub(crate) mod agents;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;

@@ -21,7 +21,7 @@
 //! - RPCs: `Command` -> `wire`/`decode` -> `Reply`; `apply_answer(model, ctx,
 //!   result)`; notifications through `observe` (`observes` says which).
 
-mod carried;
+pub(crate) mod carried;
 mod center;
 mod details;
 mod discovery;
@@ -31,7 +31,6 @@ mod refresh;
 mod sources;
 mod update;
 mod usage;
-mod wire;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -67,8 +66,8 @@ pub use notifications::observe;
 pub use notifications::observes;
 pub use notifications::wants;
 pub use refresh::Out;
-pub use refresh::account_ev;
-pub use refresh::account_request;
+pub use crate::protocol::agents::account_ev;
+pub use crate::protocol::agents::account_request;
 pub use refresh::apply_answer;
 pub use update::wants_dirs;
 pub use sources::Fanout;
@@ -868,17 +867,17 @@ pub fn apply_reply(
 /// not used: these RPCs are app-scoped).
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let _ = thread;
-    wire::wire_request(command, id)
+    crate::protocol::agents::wire_request(command, id)
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    wire::decode_reply(command, result)
+    crate::protocol::agents::decode_reply(command, result)
 }
 
 /// A script's `screen` step for this directory. The forms: `{"listed":
 /// {"threads":[<protocol Thread>..],"unread":[..],"next_cursor":..}}`,
 /// `{"clock":n}`, `{"current":"id"}`, `{"pinned":["id"..]}`, `{"request":["id","text"]}`.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    wire::seed_ev(value).map_err(crate::screens::SeedError::Bad)
+    crate::protocol::agents::seed_ev(value).map_err(crate::screens::SeedError::Bad)
 }

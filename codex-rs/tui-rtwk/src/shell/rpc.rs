@@ -16,6 +16,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::Ticket;
+use codex_tui_core::protocol;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenCommand;
@@ -23,7 +24,6 @@ use codex_tui_core::screens::ScreenReply;
 use codex_tui_core::screens::agents::Command as AgentsCommand;
 use codex_tui_core::screens::agents::PinReader;
 use codex_tui_core::screens::agents::fanout;
-use codex_tui_core::wire;
 
 use super::workspace::Facts;
 
@@ -104,7 +104,7 @@ where
         };
         return Some((*ticket, reply));
     }
-    let request = wire::client_request(&command, ids.next(), model.as_deref())?;
+    let request = protocol::client_request(&command, ids.next(), model.as_deref())?;
     let usage = matches!(
         &command,
         Command::Screen {
@@ -120,5 +120,5 @@ where
     } else {
         send(request).await
     };
-    wire::reply(&command, result.map_err(|error| error.message))
+    protocol::reply(&command, result.map_err(|error| error.message))
 }

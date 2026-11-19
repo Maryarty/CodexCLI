@@ -36,6 +36,7 @@ use codex_tui_core::app::BackendEv;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::protocol;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
@@ -43,7 +44,6 @@ use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::screens::dialogs::Warning;
-use codex_tui_core::wire;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
@@ -538,11 +538,11 @@ pub(crate) fn sender(
 }
 
 pub(crate) async fn reject(client: &AppServerClient, key: &RequestKey) {
-    let Some(request_id) = wire::reject_target(key) else {
+    let Some(request_id) = protocol::reject_target(key) else {
         return;
     };
     let _ = client
-        .reject_server_request(request_id, wire::dismissal())
+        .reject_server_request(request_id, protocol::dismissal())
         .await;
 }
 
