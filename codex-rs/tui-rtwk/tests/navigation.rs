@@ -128,3 +128,27 @@ fn the_menu_says_how_to_go_back_and_the_home_menu_says_q_quits() {
     assert!(screen.contains("q quits"), "{screen}");
     assert!(!screen.contains("esc/q back"), "{screen}");
 }
+
+/// Pets and voice are modal sheets over the session page (architecture §1,
+/// amendment 2026-11-19b), not pages: the transcript stays on the screen
+/// while they are up, and Escape returns to exactly the chat before.
+#[test]
+fn pets_is_a_sheet_over_the_session_page() {
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    let before = h.t.screen();
+    h.t.type_text("/pets");
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(800));
+    let open = h.t.screen();
+    assert!(open.contains("• Hello"), "the sheet covers the session page:\n{open}");
+    assert!(open.contains("empty slot"), "the sheet is not up:\n{open}");
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert!(h.t.screen().contains("• Hello"));
+    assert_eq!(
+        h.t.screen().lines().count(),
+        before.lines().count(),
+        "back on the session page"
+    );
+}
