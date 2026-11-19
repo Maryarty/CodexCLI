@@ -10,7 +10,7 @@ use rtwk::data::{Table, TableCell, TableColumn, TableController, TableSelection}
 use rtwk::focus::Focus;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    Align, Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, GridTrack, MainAxisSize, Padding, SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, GridTrack, MainAxisSize, Padding, SizedBox,
 };
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
@@ -136,10 +136,7 @@ impl State for RequestDialogState {
             .child(SizedBox::new(None, Some(count), Some(options)))
             .child(Text::new(String::new()))
             .child(inset(Text::new(body.hint.clone()).style(tokens.dim())));
-        let mut focus = Focus::new(Dialog::bare(Align::new(
-            Alignment::BOTTOM_CENTER,
-            BoxWidget::new().style(Style::new()).child(pane),
-        )))
+        let mut focus = Focus::new(Dialog::bare(BoxWidget::new().style(Style::new()).child(pane)))
             .can_request_focus(false)
             .bind(rtwk::focus::KeyPress::ESC, cx.send(Msg::Cancel));
         for (index, option) in body.options.iter().enumerate() {
