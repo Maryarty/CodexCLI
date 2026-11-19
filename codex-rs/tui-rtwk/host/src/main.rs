@@ -7,10 +7,8 @@ mod facts;
 mod in_process;
 mod workspace;
 
-use anyhow::Context as _;
 use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
-use codex_core::config::ConfigBuilder;
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::run::run;
@@ -37,14 +35,12 @@ fn main() -> anyhow::Result<()> {
 
 /// Runs the app against the in-process app-server until the user quits.
 async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
-    let config = ConfigBuilder::default()
-        .build()
-        .await
-        .context("loading the config")?;
-    let args = in_process::start_args(config, arg0_paths).await?;
+    // First frame first: the config, the state DB and the environment manager
+    // are loaded by the backend future, after the terminal has painted the
+    // composer (the oracle's `StartupDraft`); a failure arrives as `StartFailed`.
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let backend = Backend::Connector(Box::new(in_process::InProcess {
-        args,
+        arg0_paths,
         done: done_tx,
         model: cli.model.clone(),
     }));

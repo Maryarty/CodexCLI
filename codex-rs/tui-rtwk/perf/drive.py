@@ -318,7 +318,8 @@ def argv_for(kind: str, binary: str, scenario: dict, work: str) -> list[str] | N
         if sub:
             if not rtwk_has_subcommand(binary, sub[0]):
                 return None
-            return [binary] + sub
+            # codex-rtwk has no daemon: `agents` is always the in-process center (the oracle's --no-daemon)
+            return [binary] + [a for a in sub if a != "--no-daemon"]
         return [binary]
     raise SystemExit(f"unknown binary kind {kind!r} (oracle or rtwk)")
 
@@ -590,6 +591,16 @@ def run_once(label: str, kind: str, binary: str, scenario: dict, rnd: int, out: 
                     "COLORTERM": "truecolor", "LINES": str(scenario["size"][1]), "COLUMNS": str(scenario["size"][0])})
         env.pop("NO_COLOR", None)
         cols, rows = scenario["size"]
+        if scenario.get("warm"):
+            # Warm home: one discarded launch first creates the state DB and the rest of CODEX_HOME,
+            # so the measured launch is the second start of the same home (S9 fresh is the first).
+            prime = Session(argv, env, work, rows, cols)
+            try:
+                prime.watch("ready", ready_pred(kind, scenario))
+                prime.wait_hit("ready", scenario.get("timeout", 30))
+                time.sleep(scenario.get("prime_hold", 1.0))
+            finally:
+                prime.finish()
         sess = Session(argv, env, work, rows, cols)
         try:
             RUNNERS[scenario["kind"]](sess, scenario, kind, rec)

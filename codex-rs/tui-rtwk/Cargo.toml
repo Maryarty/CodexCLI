@@ -179,3 +179,10 @@ path = "tests/shell_agents.rs"
 # at terminal open costs ~3.5 ms only in an unstripped binary (perf-size research).
 [profile.release]
 strip = "symbols"
+
+# The shipped binary: `cargo build --profile dist`. Thin LTO and fewer codegen
+# units cost build time, so the default release (measuring, CI) stays without.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 4

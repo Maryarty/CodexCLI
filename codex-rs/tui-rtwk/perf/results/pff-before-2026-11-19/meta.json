@@ -1,0 +1,111 @@
+{
+ "label": null,
+ "started": "2026-11-19T12:07:28+00:00",
+ "n": 15,
+ "scenarios": [
+  "S9",
+  "S9w",
+  "S11"
+ ],
+ "machine": {
+  "host_model": "MacBookPro18,2",
+  "cpus": 10,
+  "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "mem_gb": 64.0,
+  "power": "Now drawing from 'AC Power'",
+  "python": "3.13.12",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+ },
+ "load_start": 5.462890625,
+ "load_gate": 15.0,
+ "measure_only": false,
+ "binaries": {
+  "A:rtwk": {
+   "path": "/tmp/pf-before",
+   "sha256": "d23cb14519ce5641",
+   "size_mb": 235.4,
+   "version": "codex-cli 0.170.0",
+   "kind": "rtwk"
+  }
+ },
+ "scenario_defs": {
+  "S9": {
+   "id": "S9",
+   "title": "startup to first frame with the composer",
+   "kind": "startup",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "mock": {
+    "deltas": 10,
+    "pace": 0.01,
+    "sentinel": "END-S9"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   }
+  },
+  "S9w": {
+   "id": "S9w",
+   "title": "startup to first frame with the composer, warm home (second start of the same CODEX_HOME)",
+   "kind": "startup",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "warm": true,
+   "mock": {
+    "deltas": 10,
+    "pace": 0.01,
+    "sentinel": "END-S9"
+   },
+   "ready": {
+    "oracle": "\u203a",
+    "rtwk": "Ask Codex to do anything"
+   }
+  },
+  "S11": {
+   "id": "S11",
+   "title": "Agent command center: startup, 10 Down keys, idle 10 s",
+   "kind": "agents",
+   "size": [
+    120,
+    40
+   ],
+   "hold": 1.0,
+   "timeout": 30,
+   "window": 10,
+   "downs": 10,
+   "subcommand": [
+    "agents",
+    "--no-daemon"
+   ],
+   "mock": {
+    "deltas": 2,
+    "pace": 0.01,
+    "sentinel": "END-S11"
+   },
+   "ready": {
+    "any": "Agent command center"
+   }
+  }
+ },
+ "preflight": {
+  "A:rtwk": {
+   "ok": true,
+   "t_ready_ms": 62.1,
+   "wall_s": 1.6
+  }
+ },
+ "skipped": [],
+ "driver_commit": "786fb174b",
+ "same_core": "both frontends run the same Codex core and a fake model of the same shape; only the frontend differs",
+ "finished": "2026-11-19T12:12:24+00:00",
+ "load_end": 8.41943359375
+}

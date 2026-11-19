@@ -22,6 +22,7 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
+use codex_core::config::ConfigBuilder;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_tui_core::app::AppEv;
@@ -89,7 +90,7 @@ impl<T> Drop for HandBack<T> {
 }
 
 /// What the in-process client is started with, for `config`.
-pub async fn start_args(
+async fn start_args(
     config: Config,
     arg0_paths: Arg0DispatchPaths,
 ) -> anyhow::Result<InProcessClientStartArgs> {
@@ -145,7 +146,7 @@ pub async fn start_args(
 
 /// The in-process app-server, started when the app attaches it.
 pub struct InProcess {
-    pub args: InProcessClientStartArgs,
+    pub arg0_paths: Arg0DispatchPaths,
     /// Receives the client when the backend future ends or is aborted, so
     /// that `main` shuts it down (see `HandBack`).
     pub done: oneshot::Sender<InProcessAppServerClient>,
@@ -172,7 +173,30 @@ async fn run(
     mut commands: UnboundedReceiver<Command>,
     epoch: ConnEpoch,
 ) {
-    let InProcess { args, done, model } = spec;
+    let InProcess {
+        arg0_paths,
+        done,
+        model,
+    } = spec;
+    // Loaded here, after the first frame: config, state DB, environment manager.
+    let config = match ConfigBuilder::default().build().await {
+        Ok(config) => config,
+        Err(error) => {
+            emit(
+                &ingress,
+                epoch,
+                AppEv::StartFailed(format!("loading the config: {error}")),
+            );
+            return;
+        }
+    };
+    let args = match start_args(config, arg0_paths).await {
+        Ok(args) => args,
+        Err(error) => {
+            emit(&ingress, epoch, AppEv::StartFailed(format!("{error:#}")));
+            return;
+        }
+    };
     // Oracle: `worktrees_enabled` is a local workspace, and no cloud list.
     let local = !args
         .environment_manager
