@@ -137,9 +137,17 @@ fn merge_page(model: &mut Model, owner: BackendId, page: Page) {
     model
         .search_matches
         .retain(|held| !arrived.contains(held.id.as_str()));
-    // The list continues where the displayed backend's list does; another
-    // backend's page leaves the window as it is.
+    // Another backend's page sets where its own list continues (oracle:
+    // `discovery` and `initialized` are per backend); the displayed list's
+    // window stays as it is.
     if owner != model.displayed {
+        let parked = model.parked.entry(owner).or_default();
+        if !parked.initialized || page.append {
+            parked.cursor = page.next_cursor;
+            parked.buffer.clear();
+            parked.initialized = true;
+        }
+        parked.has_more = parked.more();
         return;
     }
     // The first page sets where the list continues; a refresh after the
@@ -163,8 +171,18 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::ListedBy(owner, page) => merge_page(model, owner, page),
         Ev::Clock(now) => model.now = now,
         Ev::Home(home) => model.home = home,
+        Ev::Displayed(backend) => model.display(backend),
+        Ev::CloudBackend(backend) => {
+            model.clouds.insert(backend);
+            model.cloud = model.clouds.contains(&model.displayed);
+        }
         Ev::Backend { cloud, worktrees } => {
             model.cloud = cloud;
+            if cloud {
+                model.clouds.insert(model.displayed);
+            } else {
+                model.clouds.remove(&model.displayed);
+            }
             model.worktrees = worktrees;
         }
         Ev::Directories(keys) => model.dirs.extend(keys),
@@ -296,7 +314,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             if let Some(action) = action {
                 // A cloud archive removes only the task (oracle:
                 // `removes_subtree`).
-                let whole = !(model.cloud && action == Action::Archive);
+                let whole = !(model.is_cloud(model.owner_of(&thread)) && action == Action::Archive);
                 model.remove_tree(&thread, whole);
                 model.hidden.remove(&thread);
                 model.notice = None;
@@ -355,6 +373,10 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             return vec![list(model, None, false)];
         }
         (Ctx::Resume { thread }, Ok(_)) => {
+            // A task of another backend resumes on its owner, which is the
+            // displayed backend from then on (oracle: `ResumeBackendSession`).
+            let owner = model.owner_of(&thread);
+            model.display(owner);
             model.hidden.remove(&thread);
             model.current = Some(thread);
             model.resumes += 1;

@@ -76,7 +76,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             }
         }
         Intent::TogglePin(thread) => {
-            if model.pinned.is_some()
+            if model.pin_action_supported()
                 && !model.pin_pending
                 && let Some(row) = model.row(&thread)
                 && supports_shared_pinning(&row.thread.source)
