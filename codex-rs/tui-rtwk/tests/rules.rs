@@ -22,7 +22,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// The sources of both crates (`src/`, `core/src/`) with their text,
-/// `src/shell*` apart from the rest.
+/// `src/services/` apart from the rest.
 fn sources() -> Vec<(String, String)> {
     let mut files = Vec::new();
     rust_files(&crate_dir().join("src"), &mut files);
@@ -44,7 +44,17 @@ fn sources() -> Vec<(String, String)> {
 /// The shell and its backends: the only files that spawn, read the clock or
 /// touch the file system.
 fn is_shell(name: &str) -> bool {
-    name == "src/shell.rs" || name.starts_with("src/shell/")
+    name.starts_with("src/services/")
+}
+
+/// The widget code that was `src/ui/` and `src/screens/`: the screens, the
+/// shared widgets, the sheets and the app folder's view files (not `mod.rs`,
+/// the model root, nor `run.rs`, the composition root).
+fn in_ui_or_screens(name: &str) -> bool {
+    name.starts_with("src/screens/")
+        || name.starts_with("src/widgets/")
+        || name.starts_with("src/sheets/")
+        || (name.starts_with("src/app/") && !matches!(name, "src/app/mod.rs" | "src/app/run.rs"))
 }
 
 /// Lines of `text` that are code (not `//` comments).
@@ -75,10 +85,10 @@ fn violations(patterns: &[&str], allow: impl Fn(&str) -> bool) -> Vec<String> {
 fn r1_only_the_shell_allows_disallowed_methods() {
     let allows = violations(
         &["allow(clippy::disallowed", "expect(clippy::disallowed"],
-        |name| name == "src/shell.rs",
+        |name| name == "src/services/mod.rs",
     );
     assert!(allows.is_empty(), "R1: {allows:#?}");
-    let shell = std::fs::read_to_string(crate_dir().join("src/shell.rs")).expect("shell.rs");
+    let shell = std::fs::read_to_string(crate_dir().join("src/services/mod.rs")).expect("services");
     assert!(shell.contains("#![allow(clippy::disallowed_methods"));
 }
 
@@ -102,13 +112,13 @@ fn r1_spawn_paths_are_the_shells() {
 }
 
 /// Architecture §A6: `unchanged()` is banned in feature code. The one use is
-/// the ingress router's drop of an older connection's event, in `src/app.rs`
+/// the ingress router's drop of an older connection's event, in `src/app/mod.rs`
 /// (the root, not a feature); a second use there fails this test too.
 #[test]
 fn a6_unchanged_is_banned_in_feature_code() {
-    let found = violations(&[".unchanged("], |name| name == "src/app.rs");
+    let found = violations(&[".unchanged("], |name| name == "src/app/mod.rs");
     assert!(found.is_empty(), "A6: {found:#?}");
-    let app = std::fs::read_to_string(crate_dir().join("src/app.rs")).expect("app.rs");
+    let app = std::fs::read_to_string(crate_dir().join("src/app/mod.rs")).expect("app.rs");
     let uses = code_lines(&app)
         .filter(|(_, line)| line.contains(".unchanged("))
         .count();
@@ -119,12 +129,12 @@ fn a6_unchanged_is_banned_in_feature_code() {
 /// kept in the app, so a change of the provider list cannot drop its stack.
 #[test]
 fn adr002_the_navigator_is_keyed() {
-    let view = std::fs::read_to_string(crate_dir().join("src/ui/view.rs")).expect("view.rs");
+    let view = std::fs::read_to_string(crate_dir().join("src/app/view.rs")).expect("view.rs");
     assert!(
         code_lines(&view).any(|(_, line)| line.contains("with_key(app.ui.nav_key.clone())")),
         "the Navigator needs `.with_key(app.ui.nav_key.clone())`"
     );
-    let app = std::fs::read_to_string(crate_dir().join("src/app.rs")).expect("app.rs");
+    let app = std::fs::read_to_string(crate_dir().join("src/app/mod.rs")).expect("app.rs");
     assert!(app.contains("pub nav_key: GlobalKey"));
 }
 
@@ -194,7 +204,7 @@ fn r13_ids_are_newtypes_not_strings() {
             "item_id: String",
             "request_id: String",
         ],
-        |name| name == "src/shell/fake.rs" || name == "src/shell.rs",
+        |name| name == "src/services/backend/fake.rs" || name == "src/services/shell.rs",
     );
     assert!(found.is_empty(), "R13: {found:#?}");
 }
@@ -328,7 +338,7 @@ fn r14_widget_state_fields_hold_no_screen_model_types() {
     );
     let mut found = Vec::new();
     for (name, text) in sources() {
-        if !(name.starts_with("src/ui/") || name.starts_with("src/screens/")) {
+        if !in_ui_or_screens(&name) {
             continue;
         }
         for state in state_struct_names(&text) {
@@ -357,7 +367,7 @@ fn r14_the_screen_scan_catches_a_copied_menu() {
 
 #[test]
 fn r14_widget_state_fields_hold_no_model_types() {
-    // `State` structs under src/ui and src/screens: no model type in a field.
+    // `State` structs under src/widgets, src/sheets, src/app and src/screens: no model type in a field.
     let model_types = [
         "ThreadModel",
         "Transcript",
@@ -370,7 +380,7 @@ fn r14_widget_state_fields_hold_no_model_types() {
     let mut found = Vec::new();
     let mut checked = 0;
     for (name, text) in sources() {
-        if !(name.starts_with("src/ui/") || name.starts_with("src/screens/")) {
+        if !in_ui_or_screens(&name) {
             continue;
         }
         for state in state_struct_names(&text) {
@@ -423,13 +433,13 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
         |name| {
             matches!(
                 name,
-                "src/ui/thread_ui.rs"
+                "src/widgets/thread_ui.rs"
                     | "src/screens/agents/mod.rs"
                     | "src/screens/agents/dialogs.rs"
                     | "src/screens/approvals/dialog.rs"
                     | "src/screens/pets/mod.rs"
                     | "src/screens/resume/mod.rs"
-                    | "src/ui/options.rs"
+                    | "src/widgets/options.rs"
             )
         },
     );
@@ -476,7 +486,7 @@ fn the_lint_lists_name_the_rules_banned_paths() {
 fn no_literal_colours_anywhere() {
     let found = violations(
         &["Color::", "Color::rgb", "rgb(", "Style::new().fg("],
-        |name| name == "src/theme.rs",
+        |name| name == "src/app/theme.rs",
     );
     assert!(found.is_empty(), "literal colours: {found:#?}");
 }
@@ -498,7 +508,7 @@ const R15_GAPS: &[(&str, &str)] = &[
         "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (
-        "src/ui/measure.rs",
+        "src/widgets/measure.rs",
         "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),
 ];
@@ -537,7 +547,7 @@ fn r15_found(name: &str, text: &str) -> Vec<String> {
 fn r15_views_have_no_hand_text_or_width_math() {
     let mut found = Vec::new();
     for (name, text) in sources() {
-        let in_scope = name.starts_with("src/screens/") || name.starts_with("src/ui/");
+        let in_scope = in_ui_or_screens(&name);
         let allowed =
             R15_GAPS.iter().any(|(file, _)| *file == name) || R15_NOT_YET.contains(&name.as_str());
         if in_scope && !allowed {

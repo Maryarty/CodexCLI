@@ -11,8 +11,8 @@ use rtwk::AnyWidget;
 use rtwk::layout::Alignment;
 use rtwk::overlay::DialogOptions;
 
+use crate::app::debug::seeded::Seeded;
 use crate::l10n::Lang;
-use crate::ui::seeded::Seeded;
 
 /// The options every modal sheet is shown with (`show_dialog`): placed at
 /// the bottom edge where the oracle shows its bottom pane, no dimming, shown

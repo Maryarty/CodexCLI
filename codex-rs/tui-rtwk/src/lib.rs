@@ -9,11 +9,10 @@
 pub mod app;
 pub mod keymap;
 pub mod l10n;
-pub mod run;
 pub mod screens;
-pub mod shell;
-pub mod theme;
-pub mod ui;
+pub mod services;
+pub mod sheets;
+pub mod widgets;
 
 /// The command line of `codex-rtwk`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -56,7 +55,7 @@ impl Cli {
     /// in clap; `--version` of a subcommand is no answer (the oracle's
     /// subcommands have none, and the parse says so).
     pub fn early_answer(args: impl IntoIterator<Item = String>) -> Option<&'static str> {
-        use shell::help;
+        use services::cli_help as help;
         let mut agents = false;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {

@@ -5,7 +5,7 @@
 //! and the chat says which keys do what.
 
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use crate::common::{Harness, start, start_debug, start_quittable};
 

@@ -7,9 +7,9 @@
 
 use codex_tui_rtwk::Cli;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::app::run::{app_view, localized, root};
 use codex_tui_rtwk::l10n::{Lang, Tables};
-use codex_tui_rtwk::run::{app_view, localized, root};
-use codex_tui_rtwk::shell::Backend;
+use codex_tui_rtwk::services::shell::Backend;
 use rtwk::l10n::Locale;
 
 use crate::common::start_lang;
@@ -108,7 +108,7 @@ fn a_string_without_a_russian_entry_stays_english() {
         epoch,
         codex_tui_core::app::AppEv::Backend(
             codex_tui_core::fixtures::builders::tool_input_request(
-                codex_tui_rtwk::shell::fake::FAKE_THREAD,
+                codex_tui_rtwk::services::backend::fake::FAKE_THREAD,
                 "turn-1",
                 7,
             ),

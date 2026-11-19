@@ -19,9 +19,9 @@ use rtwk_core::terminal::Terminal;
 use rtwk_core::terminal::TerminalOptions;
 
 use crate::app::UiApp;
+use crate::app::view::view;
 use crate::l10n::Lang;
-use crate::shell;
-use crate::ui::view::view;
+use crate::services::shell;
 
 /// The app as the tests host it: the view with the shell's `on_start`.
 pub fn app_view(app: UiApp) -> AppView<UiApp> {
@@ -31,7 +31,7 @@ pub fn app_view(app: UiApp) -> AppView<UiApp> {
 /// The app under the overlay layer, with the app's theme at the root: what
 /// the dialogs and routes below it read their tokens from.
 pub fn root(view: AppView<UiApp>) -> rtwk::overlay::App {
-    rtwk::overlay::App::new(view).theme(crate::theme::data())
+    rtwk::overlay::App::new(view).theme(crate::app::theme::data())
 }
 
 /// `root` under rtwk's localizations for `lang`: what the app's own tables

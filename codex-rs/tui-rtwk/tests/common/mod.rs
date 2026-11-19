@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use codex_tui_core::fixtures::script::Input;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::app::run::{app_view, localized, root};
 use codex_tui_rtwk::l10n::Lang;
-use codex_tui_rtwk::run::{app_view, localized, root};
 use codex_tui_rtwk::screens;
-use codex_tui_rtwk::shell::Backend;
-use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
+use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
+use codex_tui_rtwk::services::shell::Backend;
 use rtwk_test::{Options, Tester};
 
 /// The size of the oracle's snapshots.

@@ -28,8 +28,8 @@ use codex_tui_core::screens::pets::{DISABLED, ID, Intent, NAME, Picker, Preview}
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::EntryOpen;
-use crate::theme::Tokens;
-use crate::ui::view::Hs;
+use crate::app::theme::Tokens;
+use crate::app::view::Hs;
 
 pub mod strings;
 

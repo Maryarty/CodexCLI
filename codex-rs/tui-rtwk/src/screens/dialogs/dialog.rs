@@ -13,7 +13,7 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::dialogs::{Intent, Open, PageIntent};
 
 use super::{feedback, shortcuts, strings, warnings};
-use crate::ui::view::Hs;
+use crate::app::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SmallDialog;

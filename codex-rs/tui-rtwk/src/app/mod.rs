@@ -11,11 +11,17 @@ use codex_tui_core::app::Ingress;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
 
+pub mod debug;
+pub mod run;
+pub mod start_page;
+pub mod theme;
+pub mod view;
+
 use crate::l10n::Lang;
-use crate::shell;
-use crate::ui::presenter;
-use crate::ui::presenter::Presenter;
-use crate::ui::thread_ui::ThreadUiMap;
+use crate::services::shell;
+use crate::sheets::presenter;
+use crate::sheets::presenter::Presenter;
+use crate::widgets::thread_ui::ThreadUiMap;
 
 /// What only the UI keeps: never seen by `apply`, never in the core model.
 pub struct UiState {

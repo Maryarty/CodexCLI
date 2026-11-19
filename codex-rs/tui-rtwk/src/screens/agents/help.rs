@@ -3,7 +3,7 @@
 //! groups of `key  action` rows, flowed into three, two or one column by the
 //! width, each group's keys aligned in a `Grid`.
 
-use crate::ui::measure::Measure;
+use crate::widgets::measure::Measure;
 use rtwk::AnyWidget;
 use rtwk::layout::{Column, CrossAxisAlignment, Grid, GridPlacement, GridTrack, MainAxisSize, Row, SizedBox};
 use rtwk::style::Style;

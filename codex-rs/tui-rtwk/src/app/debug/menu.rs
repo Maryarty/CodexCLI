@@ -19,10 +19,10 @@ use crate::l10n::lang;
 use crate::l10n::strings as l10n;
 use codex_tui_core::screens::Kind;
 
+use crate::app::debug::seeded::SeededScope;
+use crate::app::theme;
+use crate::app::view::Hs;
 use crate::screens::{self, DebugOpen, EntryOpen};
-use crate::theme;
-use crate::ui::seeded::SeededScope;
-use crate::ui::view::Hs;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DebugMenu;

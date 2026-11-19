@@ -18,9 +18,9 @@ use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::select::{Access, Intent, Menu};
 
 use super::strings::{self, Strings};
-use crate::theme;
-use crate::ui::options::{OptionRow, OptionStyles, Options};
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::app::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuDialog;

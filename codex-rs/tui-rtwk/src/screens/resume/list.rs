@@ -11,7 +11,7 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 use codex_tui_core::screens::ScreenStates;
 
 use crate::screens::resume::strings;
-use crate::theme;
+use crate::app::theme;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct List;

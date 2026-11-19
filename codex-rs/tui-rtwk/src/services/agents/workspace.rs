@@ -25,7 +25,7 @@ use codex_tui_core::screens::agents::account_request;
 use codex_tui_core::screens::agents::decode;
 use codex_tui_core::screens::agents::wire as agents_wire;
 
-use super::rpc::Ids;
+use crate::services::backend::rpc::Ids;
 
 /// What the backend is, as the oracle derives it: `cloud` is the cloud task
 /// list (`AppServerRequestHandle::Cloud`), `worktrees` is a local workspace

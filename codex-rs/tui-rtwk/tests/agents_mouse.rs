@@ -14,7 +14,7 @@ use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply as AppReply;
 use codex_tui_core::screens::agents::{Command as AgentsCommand, Ev, Page, Reply as AgentsReply};
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use common::{Harness, start_sized};
 use rtwk_core::input::{Mods, MouseKind};
 use serde_json::json;

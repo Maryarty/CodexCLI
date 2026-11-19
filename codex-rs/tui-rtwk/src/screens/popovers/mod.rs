@@ -12,7 +12,7 @@ use codex_tui_core::screens::popovers::{ID, NAME};
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::EntryOpen;
-use crate::ui::seeded::Seeded;
+use crate::app::debug::seeded::Seeded;
 
 pub mod strings;
 

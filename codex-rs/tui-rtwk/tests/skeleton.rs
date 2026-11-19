@@ -10,7 +10,7 @@ use codex_tui_core::fixtures::builders::{
 use codex_tui_core::ids::{ConnEpoch, ThreadId};
 use codex_tui_core::screens::Kind;
 use codex_tui_rtwk::screens;
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use crate::common::{
     assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,

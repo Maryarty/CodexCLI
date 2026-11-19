@@ -8,7 +8,7 @@
 
 use rtwk_core::unicode::{TextMode, string_width};
 
-use crate::ui::page_keys::Variant;
+use crate::widgets::page_keys::Variant;
 
 use super::strings::Strings;
 

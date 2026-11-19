@@ -19,8 +19,8 @@ use codex_tui_core::screens::status::{Approval, Card, Intent, Profile};
 
 use super::format;
 use super::strings::{self, Strings};
-use crate::theme;
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::app::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CardDialog;

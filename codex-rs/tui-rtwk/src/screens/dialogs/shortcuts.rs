@@ -16,7 +16,7 @@ use codex_tui_core::screens::dialogs::ShortcutView;
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
-use crate::theme::Tokens;
+use crate::app::theme::Tokens;
 
 /// The dialog of the page `view`: Tab swaps the pages, `?` and Esc close.
 pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {

@@ -30,12 +30,12 @@ use crate::screens::chat::open::open;
 use crate::screens::chat::popup;
 use crate::screens::dialogs::shortcut_panel;
 use crate::screens::chat::strings as chat_strings;
-use crate::theme;
-use crate::ui::page_keys;
-use crate::ui::status_line::{Notice, status_line, with_warning_notice};
-use crate::ui::debug_menu::DebugMenu;
-use crate::ui::thread_ui::ThreadUi;
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::widgets::page_keys;
+use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
+use crate::app::debug::menu::DebugMenu;
+use crate::widgets::thread_ui::ThreadUi;
+use crate::app::view::Hs;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]

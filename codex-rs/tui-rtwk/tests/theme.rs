@@ -3,12 +3,12 @@
 
 use std::rc::Rc;
 
-use codex_tui_rtwk::run::{app_view, root};
-use codex_tui_rtwk::theme::Tokens;
+use codex_tui_rtwk::app::run::{app_view, root};
+use codex_tui_rtwk::app::theme::Tokens;
 use rtwk::prelude::ThemeData;
 
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::shell::Backend;
+use codex_tui_rtwk::services::shell::Backend;
 
 #[test]
 fn the_tokens_come_from_the_theme_data() {
@@ -35,7 +35,7 @@ fn the_root_carries_a_theme() {
 // ---- the per-thread accents (oracle: `thread_color.rs`, `theme_accents`
 // over the default syntax theme of `render/highlight.rs`)
 
-use codex_tui_rtwk::theme::ThreadPalette;
+use codex_tui_rtwk::app::theme::ThreadPalette;
 use rtwk_core::input::Brightness;
 use rtwk_core::style::Color;
 

@@ -25,9 +25,9 @@ use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 use super::dismiss::DismissDialog;
 use super::present::{self, Body};
 use super::strings;
-use crate::theme;
-use crate::ui::options::{OptionRow, OptionStyles, Options};
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::app::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestDialog {

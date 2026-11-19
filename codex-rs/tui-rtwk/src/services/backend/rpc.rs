@@ -25,7 +25,7 @@ use codex_tui_core::screens::agents::Command as AgentsCommand;
 use codex_tui_core::screens::agents::PinReader;
 use codex_tui_core::screens::agents::fanout;
 
-use super::workspace::Facts;
+use crate::services::agents::workspace::Facts;
 
 /// How long the usage fetch waits (oracle: `THREAD_USAGE_FETCH_TIMEOUT`).
 pub const USAGE_TIMEOUT: Duration = Duration::from_secs(65);

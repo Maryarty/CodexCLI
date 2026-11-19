@@ -16,11 +16,13 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::agents::{DirKeys, Ev, Grouping, Intent as AgentsIntent, Notice};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
-use codex_tui_rtwk::shell::fake::FakeWorkspace;
-use codex_tui_rtwk::shell::rpc::{Ids, USAGE_TIMED_OUT, USAGE_TIMEOUT, answer, answer_with};
-use codex_tui_rtwk::shell::search::{Gate, Latest, SEARCH_DEBOUNCE};
-use codex_tui_rtwk::shell::workspace::{
+use codex_tui_rtwk::services::agents::search::{Gate, Latest, SEARCH_DEBOUNCE};
+use codex_tui_rtwk::services::agents::workspace::{
     Boxed, Checkout, Facts, Workspace, account, backend_ev, directories, save_grouping, worktree,
+};
+use codex_tui_rtwk::services::backend::fake::FakeWorkspace;
+use codex_tui_rtwk::services::backend::rpc::{
+    Ids, USAGE_TIMED_OUT, USAGE_TIMEOUT, answer, answer_with,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -567,10 +569,10 @@ fn other_commands_neither_wait_nor_drop_a_search() {
 mod live {
     use super::*;
     use codex_tui_rtwk::app::UiApp;
+    use codex_tui_rtwk::app::run::{app_view, localized, root};
     use codex_tui_rtwk::l10n::Lang;
-    use codex_tui_rtwk::run::{app_view, localized, root};
-    use codex_tui_rtwk::shell::Backend;
-    use codex_tui_rtwk::shell::fake::{FakeHandle, FakeServer};
+    use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
+    use codex_tui_rtwk::services::shell::Backend;
     use rtwk_test::{Options, Tester};
 
     pub struct Live {

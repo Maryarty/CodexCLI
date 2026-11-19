@@ -23,7 +23,7 @@ pub mod strings;
 /// The shortcut overlay's body for a bottom pane, and its close hint (the
 /// footer's line while it is open). Oracle: `shortcut_overlay.rs`.
 pub fn shortcut_panel(cx: &mut Cx<'_, impl Sized>) -> (AnyWidget, &'static str) {
-    let tokens = crate::theme::Tokens::of(cx);
+    let tokens = crate::app::theme::Tokens::of(cx);
     let s = strings::of(cx);
     (shortcuts::panel(s, &tokens), s.shortcuts_close)
 }

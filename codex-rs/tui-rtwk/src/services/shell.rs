@@ -3,18 +3,6 @@
 //! hands to `spawn_tokio`; everything it learns enters the app as one
 //! ordered ingress stream the shell `subscribe`s to, each event stamped with
 //! the epoch its connection was attached under.
-//!
-//! The clippy `disallowed_methods` allow below is the only one in the
-//! library; `tests/rules.rs` rejects any other.
-#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
-
-pub mod fake;
-pub mod help;
-pub mod reconnect;
-pub mod rpc;
-pub mod search;
-pub mod version;
-pub mod workspace;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -47,7 +35,7 @@ pub enum Backend {
     /// app-server, in `host/src/in_process.rs`).
     Connector(Box<dyn Connector>),
     /// A scripted server for screen tests.
-    Fake(fake::FakeServer),
+    Fake(super::backend::fake::FakeServer),
     /// The first backend and others next to it (oracle:
     /// `InitialBackendSessions::register`), each under its own id. The
     /// others never send `Connected` or `StartFailed` (those are the
@@ -135,7 +123,12 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     let task: BackendTask = match backend {
         Backend::None | Backend::Several { .. } => return,
         Backend::Connector(connector) => connector.run(ingress_tx.clone(), command_rx, epoch),
-        Backend::Fake(server) => Box::pin(fake::run(server, ingress_tx.clone(), command_rx, epoch)),
+        Backend::Fake(server) => Box::pin(super::backend::fake::run(
+            server,
+            ingress_tx.clone(),
+            command_rx,
+            epoch,
+        )),
     };
     cx.spawn_tokio(task, |_, (), _| {});
     for (id, backend) in std::mem::take(&mut app.link.others) {
@@ -145,7 +138,7 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         let task: BackendTask = match backend {
             Backend::None | Backend::Several { .. } => continue,
             Backend::Connector(connector) => connector.run(ingress_tx.clone(), command_rx, epoch),
-            Backend::Fake(server) => Box::pin(fake::run_other(
+            Backend::Fake(server) => Box::pin(super::backend::fake::run_other(
                 server,
                 id,
                 ingress_tx.clone(),

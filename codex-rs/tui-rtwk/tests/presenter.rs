@@ -8,8 +8,8 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::builders::{server_request_resolved, tool_input_request};
 use codex_tui_core::ids::{ConnEpoch, RequestKey, ServerRequestId, ThreadId};
 use codex_tui_rtwk::app::UiApp;
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
-use codex_tui_rtwk::ui::presenter::Presenter;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+use codex_tui_rtwk::sheets::presenter::Presenter;
 use rtwk::GlobalKey;
 
 use crate::common::{Harness, ms, start};

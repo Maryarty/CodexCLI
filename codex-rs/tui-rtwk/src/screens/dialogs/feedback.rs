@@ -15,7 +15,7 @@ use codex_tui_core::screens::dialogs::{Attachments, Feedback, FeedbackCategory};
 
 use super::dialog::{Msg, SmallDialogState};
 use super::strings::Strings;
-use crate::theme::Tokens;
+use crate::app::theme::Tokens;
 
 pub(super) fn build(step: &Feedback, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
     let tokens = Tokens::of(cx);

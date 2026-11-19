@@ -20,8 +20,8 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, Shared};
 
 use super::{strings, view};
 use crate::l10n::strings as shared;
-use crate::ui::options::Options;
-use crate::ui::view::Hs;
+use crate::widgets::options::Options;
+use crate::app::view::Hs;
 
 fn model_of<S>(cx: &mut Cx<'_, S>) -> Shared<Model> {
     select::<ScreenStates, Shared<Model>, _>(cx, |states| states.agents.clone())

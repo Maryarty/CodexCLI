@@ -20,8 +20,8 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
 
-use crate::ui::thread_ui::ThreadUiMap;
-use crate::ui::view::Hs;
+use crate::app::view::Hs;
+use crate::widgets::thread_ui::ThreadUiMap;
 
 /// What a debug entry's builder sees of the seeded model.
 pub struct Seeded<'a> {

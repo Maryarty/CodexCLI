@@ -55,7 +55,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             // says so (oracle: `AppEvent::OpenAgentPicker`).
             Target::AgentPicker => {
                 let action = crate::l10n::strings::of(cx).pages.action_subagents;
-                drop(crate::ui::page_keys::not_yet(cx, action));
+                drop(crate::widgets::page_keys::not_yet(cx, action));
             }
             Target::Approvals => drop(approvals::open(cx)),
             Target::Pets => drop(pets::open(cx)),
@@ -66,7 +66,7 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
             // (chat-live); until that lands `/diff` and Ctrl+T say so in a popup.
             Target::Pager => {
                 let action = crate::l10n::strings::of(cx).pages.action_transcript;
-                drop(crate::ui::page_keys::not_yet(cx, action));
+                drop(crate::widgets::page_keys::not_yet(cx, action));
             }
             // Backtrack becomes a mode of the expanded transcript with chat-live.
             _ => push(cx, PageRoute::new(|_| backtrack::part())),

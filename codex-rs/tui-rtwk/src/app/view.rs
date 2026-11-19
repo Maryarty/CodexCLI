@@ -17,10 +17,10 @@ use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::UiApp;
+use crate::app::debug::menu::DebugMenu;
+use crate::app::start_page::{Start, StartPage};
 use crate::screens;
-use crate::ui::debug_menu::DebugMenu;
-use crate::ui::presenter::home_node;
-use crate::ui::start_page::{Start, StartPage};
+use crate::sheets::presenter::home_node;
 
 /// The app's handlers, provided to the tree.
 pub struct Hs {

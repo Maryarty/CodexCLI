@@ -8,7 +8,7 @@ use codex_tui_rtwk::screens::chat::open;
 use codex_tui_rtwk::screens::{
     agents, approvals, backtrack, import, pets, resume, settings, usage, voice,
 };
-use codex_tui_rtwk::shell::fake::FAKE_THREAD;
+use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use rtwk_test::{Finder, find};
 
 use crate::common::{Harness, slot};
@@ -105,8 +105,8 @@ pub(crate) fn shows(h: &Harness, dir: &str) -> bool {
 // ---- the status line (oracle: bottom_pane/status_line_style.rs tests) ----
 
 mod status_line {
-    use codex_tui_rtwk::theme::{Tokens, data};
-    use codex_tui_rtwk::ui::status_line::{item_style, status_line};
+    use codex_tui_rtwk::app::theme::{Tokens, data};
+    use codex_tui_rtwk::widgets::status_line::{item_style, status_line};
 
     fn drawn(items: &[(&str, &str)], colors: bool) -> Option<String> {
         let tokens = Tokens::new(data());

@@ -15,8 +15,8 @@ use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Notice;
 use tokio::time::Instant;
 
-use super::IngressTx;
-use super::emit;
+use crate::services::shell::IngressTx;
+use crate::services::shell::emit;
 
 /// The waits before the attempts; the last one repeats.
 pub const DELAYS: [u64; 4] = [0, 1, 2, 4];

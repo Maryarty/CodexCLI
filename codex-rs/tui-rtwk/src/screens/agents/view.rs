@@ -38,14 +38,14 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
-use crate::ui::options::{OptionRow, OptionStyles, Options};
-use crate::ui::session_list::SessionList;
+use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::session_list::SessionList;
 use super::path;
-use crate::ui::measure::{self as soft, Measure};
+use crate::widgets::measure::{self as soft, Measure};
 use super::strings::Strings;
 use super::tabs::Tabs;
 use super::usage;
-use crate::theme::ThreadPalette;
+use crate::app::theme::ThreadPalette;
 /// What the screen's own state decides the view shows (the model holds none
 /// of it): the status tab, the help, and the editing line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -226,7 +226,7 @@ pub fn key_of(center: &Center, index: usize) -> RowKey {
     }
 }
 
-pub use crate::ui::session_list::Scrolled;
+pub use crate::widgets::session_list::Scrolled;
 
 /// What the widget keeps for rtwk's widgets: the controllers and the
 /// handlers of the lines they tell.
@@ -300,7 +300,7 @@ fn grouping_name(strings: &Strings, grouping: Grouping) -> &str {
 /// The age column (oracle: `format_relative_time`): the shared age, worded
 /// with this page's strings.
 fn age(strings: &Strings, now: i64, updated: i64) -> String {
-    use crate::ui::age::{Age, age};
+    use crate::widgets::age::{Age, age};
     match age(now, Some(updated)) {
         Age::Missing | Age::Now => strings.now.to_owned(),
         Age::Seconds(n) => format!("{n}{}", strings.ago[0]),
@@ -1010,7 +1010,7 @@ pub fn footer_row(
         Footer::Notice(line) => inset(one(line)),
         // The hints are the page's key list on the shared bottom menu
         // (`ui::page_keys::footer`); each key is one `KeyBindings` binds.
-        Footer::Hints(items) => inset(crate::ui::page_keys::footer(
+        Footer::Hints(items) => inset(crate::widgets::page_keys::footer(
             items.into_iter().map(|(key, label)| (key, label.to_owned())),
             look.plain.clone(),
             look.muted.clone(),

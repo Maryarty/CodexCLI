@@ -12,7 +12,7 @@ use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::style::Attrs;
 use rtwk_core::unicode::{TextMode, string_width};
 
-use crate::theme::Tokens;
+use crate::app::theme::Tokens;
 
 /// `STATUS_LINE_SEPARATOR`.
 pub const SEPARATOR: &str = " \u{b7} ";

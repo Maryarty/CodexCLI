@@ -28,9 +28,9 @@ use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::EntryOpen;
-use crate::theme;
-use crate::ui::seeded::Seeded;
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::app::debug::seeded::Seeded;
+use crate::app::view::Hs;
 
 pub mod strings;
 
@@ -396,8 +396,8 @@ fn dashboard(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width
             Some(line(strings.control_daily, look.dim.clone()).into()),
         ))
         .child(Expanded::new(1, body(model, strings, num, look, inner)))
-        .child(crate::ui::page_keys::footer([strings.back], look.dim.clone(), look.dim.clone()))
-        .child(crate::ui::page_keys::footer_with(
+        .child(crate::widgets::page_keys::footer([strings.back], look.dim.clone(), look.dim.clone()))
+        .child(crate::widgets::page_keys::footer_with(
             strings.hints,
             look.dim.clone(),
             look.dim.clone(),
@@ -425,7 +425,7 @@ impl State for ScreenState {
             }
             Msg::NotYet(index) => {
                 let action = strings::of(cx).hints[index].1;
-                drop(crate::ui::page_keys::not_yet(cx, action));
+                drop(crate::widgets::page_keys::not_yet(cx, action));
             }
             Msg::Close => {
                 Navigator::maybe_pop(cx);

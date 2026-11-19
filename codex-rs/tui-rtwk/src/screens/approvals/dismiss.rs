@@ -14,8 +14,8 @@ use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
 
 use crate::l10n::strings as l10n;
-use crate::theme;
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::app::view::Hs;
 
 /// The skeleton's dialog for a request: dismiss it.
 #[derive(PartialEq)]

@@ -15,18 +15,18 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(crate_dir().join(rel)).unwrap_or_else(|_| panic!("read {rel}"))
 }
 
-/// The UI crate's view files: everything under `src/` except the shell, the
-/// model root (`app.rs`), the composition root (`run.rs`) and `lib.rs`. An
+/// The UI crate's view files: everything under `src/` except services/, the
+/// model root (`app/mod.rs`), the composition root (`app/run.rs`) and `lib.rs`. An
 /// allowlist of the non-views, so a new directory is a view until it is named
 /// here.
 fn is_view(name: &str) -> bool {
     name.starts_with("src/")
         && !is_shell(name)
-        && !matches!(name, "src/app.rs" | "src/run.rs" | "src/lib.rs")
+        && !matches!(name, "src/app/mod.rs" | "src/app/run.rs" | "src/lib.rs")
 }
 
 fn is_shell(name: &str) -> bool {
-    name == "src/shell.rs" || name.starts_with("src/shell/")
+    name.starts_with("src/services/")
 }
 
 /// The direct dependencies core may have, by name: the protocol (which pulls
@@ -140,7 +140,7 @@ fn views_never_name_protocol_shell_tokio_or_io() {
         &[
             "codex_app_server_protocol",
             "codex_tui_core::protocol",
-            "crate::shell",
+            "crate::services::shell",
             "shell::",
             "tokio",
             "fixtures::script",
@@ -270,7 +270,7 @@ fn shell_names_no_widget() {
             "close_dialog",
             "crate::ui",
             "crate::screens",
-            "crate::theme",
+            "crate::app::theme",
         ],
         |name| !is_shell(name),
     );
@@ -281,7 +281,7 @@ fn shell_names_no_widget() {
 /// of the UI's fields.
 #[test]
 fn the_ui_model_is_the_core_model_plus_ui_state() {
-    let app = read("src/app.rs");
+    let app = read("src/app/mod.rs");
     for needle in [
         "pub struct UiApp",
         "pub core: CodexApp",
@@ -292,7 +292,7 @@ fn the_ui_model_is_the_core_model_plus_ui_state() {
         "pub lang: Lang",
         "pub debug: bool",
     ] {
-        assert!(app.contains(needle), "src/app.rs lacks `{needle}`");
+        assert!(app.contains(needle), "src/app/mod.rs lacks `{needle}`");
     }
     let core = read("core/src/app.rs");
     for needle in ["nav_key", "thread_ui", "GlobalKey", "Lang", "debug_screens"] {

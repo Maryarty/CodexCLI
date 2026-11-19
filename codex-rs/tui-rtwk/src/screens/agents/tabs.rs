@@ -17,7 +17,7 @@ use rtwk::text::Text;
 use rtwk::text::segmenter_of;
 use rtwk_core::unicode::TextSegmenter;
 
-use crate::ui::dots::dots_end;
+use crate::widgets::dots::dots_end;
 
 /// The tabs shown at `width` cells: the whole tabs around the active one that
 /// fit beside the marks, and what the marks show.

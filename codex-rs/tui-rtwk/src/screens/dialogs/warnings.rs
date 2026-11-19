@@ -13,7 +13,7 @@ use codex_tui_core::screens::dialogs::{PageIntent, Warnings};
 
 use super::dialog::{Msg, SmallDialogState, ctrl_o, f2};
 use super::strings::Strings;
-use crate::theme::Tokens;
+use crate::app::theme::Tokens;
 
 /// `WARNING_PANEL_CONTENT_ROWS` less the header and its blank row.
 const BODY_ROWS: i32 = 8;

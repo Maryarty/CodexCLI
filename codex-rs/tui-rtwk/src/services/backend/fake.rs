@@ -25,20 +25,20 @@ use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::shell::IngressTx;
-use crate::shell::rpc::Ids;
-use crate::shell::rpc::answer;
-use crate::shell::search::Gate;
-use crate::shell::search::Latest;
-use crate::shell::workspace::Boxed;
-use crate::shell::workspace::Checkout;
-use crate::shell::workspace::Facts;
-use crate::shell::workspace::Workspace;
-use crate::shell::workspace::account;
-use crate::shell::workspace::backend_ev;
-use crate::shell::workspace::directories;
-use crate::shell::workspace::save_grouping;
-use crate::shell::workspace::worktree;
+use crate::services::agents::search::Gate;
+use crate::services::agents::search::Latest;
+use crate::services::agents::workspace::Boxed;
+use crate::services::agents::workspace::Checkout;
+use crate::services::agents::workspace::Facts;
+use crate::services::agents::workspace::Workspace;
+use crate::services::agents::workspace::account;
+use crate::services::agents::workspace::backend_ev;
+use crate::services::agents::workspace::directories;
+use crate::services::agents::workspace::save_grouping;
+use crate::services::agents::workspace::worktree;
+use crate::services::backend::rpc::Ids;
+use crate::services::backend::rpc::answer;
+use crate::services::shell::IngressTx;
 
 /// The id of the one thread the fake starts.
 pub const FAKE_THREAD: &str = "thread-1";

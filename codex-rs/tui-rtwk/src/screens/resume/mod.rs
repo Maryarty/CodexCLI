@@ -32,9 +32,9 @@ use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::EntryOpen;
-use crate::theme;
-use crate::ui::seeded::Seeded;
-use crate::ui::view::Hs;
+use crate::app::theme;
+use crate::app::debug::seeded::Seeded;
+use crate::app::view::Hs;
 
 mod chrome;
 mod layout;
@@ -118,7 +118,7 @@ pub struct ScreenState {
     scroll: Rc<ValueNotifier<Scrolled>>,
 }
 
-use crate::ui::session_list::{Move, Scrolled, SessionList, target};
+use crate::widgets::session_list::{Move, Scrolled, SessionList, target};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
@@ -251,7 +251,7 @@ fn footer(
         })
     };
     let hint = |variants| {
-        crate::ui::page_keys::footer_fit(variants, look.dim.clone(), look.dim.clone(), "   ", 1)
+        crate::widgets::page_keys::footer_fit(variants, look.dim.clone(), look.dim.clone(), "   ", 1)
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)
@@ -357,7 +357,7 @@ fn item(
             .max_lines(1)
             .overflow(TextOverflow::Ellipsis),
     ));
-    let date = strings.age(crate::ui::age::age(model.clock, row.updated.or(row.created)), &num);
+    let date = strings.age(crate::widgets::age::age(model.clock, row.updated.or(row.created)), &num);
     let part = |icon: &'static str, text: &Option<String>, none: &'static str| -> Text {
         let (text, style) = match text {
             Some(text) => (text.clone(), look.dim.clone()),
@@ -478,7 +478,7 @@ impl State for ScreenState {
                 self.move_cursor(rows, mv);
             }
             Msg::NotYet(action) => {
-                drop(crate::ui::page_keys::not_yet(cx, action));
+                drop(crate::widgets::page_keys::not_yet(cx, action));
             }
             Msg::Close => {
                 Navigator::maybe_pop(cx);

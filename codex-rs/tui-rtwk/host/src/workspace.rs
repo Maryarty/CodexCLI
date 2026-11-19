@@ -16,9 +16,9 @@ use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::load_config_toml_with_layer_stack;
 use codex_tui_core::screens::agents::DirKeys;
-use codex_tui_rtwk::shell::workspace::Boxed;
-use codex_tui_rtwk::shell::workspace::Checkout;
-use codex_tui_rtwk::shell::workspace::Workspace;
+use codex_tui_rtwk::services::agents::workspace::Boxed;
+use codex_tui_rtwk::services::agents::workspace::Checkout;
+use codex_tui_rtwk::services::agents::workspace::Workspace;
 use codex_worktree::CreateWorktree;
 use codex_worktree::WorktreeManager;
 use codex_worktree::WorktreeSettings;
@@ -122,7 +122,7 @@ impl Workspace for Local {
             let manager = WorktreeManager::new(settings);
             let source_cwd = config.cwd.to_path_buf();
             let worker = manager.clone();
-            let checkout = codex_tui_rtwk::shell::workspace::blocking(move || {
+            let checkout = codex_tui_rtwk::services::agents::workspace::blocking(move || {
                 codex_worktree::default_worktree_base(&source_cwd)
                     .and_then(|base| {
                         worker.create(&CreateWorktree {

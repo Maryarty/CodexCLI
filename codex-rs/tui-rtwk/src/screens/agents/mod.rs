@@ -12,7 +12,7 @@ use std::time::Duration;
 use rtwk::controls::{SelectionController, TabController};
 use rtwk::scroll::ListController;
 
-use crate::ui::session_list::{Move, page_rows, target};
+use crate::widgets::session_list::{Move, page_rows, target};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
@@ -34,8 +34,8 @@ use crate::l10n::strings as shared;
 use crate::screens::DebugEntry;
 use crate::screens::DebugOpen;
 use crate::screens::EntryOpen;
-use crate::ui::seeded::Seeded;
-use crate::ui::view::Hs;
+use crate::app::debug::seeded::Seeded;
+use crate::app::view::Hs;
 
 mod dialogs;
 mod help;

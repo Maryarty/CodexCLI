@@ -13,11 +13,11 @@ use std::time::Duration;
 use codex_tui_core::app::Command;
 use codex_tui_core::ids::BackendId;
 use codex_tui_rtwk::app::UiApp;
+use codex_tui_rtwk::app::run::{localized, root};
 use codex_tui_rtwk::l10n::Lang;
-use codex_tui_rtwk::run::{localized, root};
-use codex_tui_rtwk::shell::Backend;
-use codex_tui_rtwk::shell::fake::FakeServer;
-use codex_tui_rtwk::shell::workspace::Facts;
+use codex_tui_rtwk::services::agents::workspace::Facts;
+use codex_tui_rtwk::services::backend::fake::FakeServer;
+use codex_tui_rtwk::services::shell::Backend;
 use rtwk_test::{Options, Tester};
 
 const CLOUD: BackendId = BackendId(1);
@@ -50,7 +50,7 @@ fn control(t: &Tester, name: &str) -> Option<String> {
 }
 
 /// How many conversations the server was asked to start.
-fn started(server: &codex_tui_rtwk::shell::fake::FakeHandle) -> usize {
+fn started(server: &codex_tui_rtwk::services::backend::fake::FakeHandle) -> usize {
     server
         .commands()
         .iter()
@@ -74,7 +74,7 @@ fn empty_thread_backend_chord_preserves_draft_until_first_submission() {
     let app = UiApp::new(backend);
     let mut t = Tester::with(Options::new().size(100, 30));
     t.pump_widget(localized(
-        root(codex_tui_rtwk::run::app_view(app)),
+        root(codex_tui_rtwk::app::run::app_view(app)),
         Lang::En,
     ));
     settle(&mut t);
