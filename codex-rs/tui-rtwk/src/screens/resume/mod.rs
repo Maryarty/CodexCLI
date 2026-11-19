@@ -4,7 +4,7 @@
 //! their meta lines and the footer with progress and key hints. Its model,
 //! events and intents are core's `codex_tui_core::screens::resume`.
 //! Oracle: `tui/src/resume_picker.rs` and `resume_picker/layout.rs`; the chrome's rows
-//! and ages are in `layout.rs`, what rtwk cannot pick by width in `fit.rs` (G41).
+//! and ages are in `layout.rs`, the spellings picked by width in `chrome.rs`.
 
 use std::rc::Rc;
 
@@ -35,7 +35,7 @@ use crate::theme;
 use crate::ui::seeded::Seeded;
 use crate::ui::view::Hs;
 
-mod fit;
+mod chrome;
 mod layout;
 mod list;
 pub mod strings;
@@ -175,7 +175,7 @@ fn screen(
         let chrome = |line: AnyWidget| -> AnyWidget {
             Padding::new(EdgeInsets::only(1, 0, 1, 0), line).into()
         };
-        let toolbar: Vec<Span> = fit::toolbar(strings, width.saturating_sub(2))
+        let toolbar: Vec<Span> = chrome::toolbar(strings, width.saturating_sub(2))
             .into_iter()
             .map(|(text, active)| Span::styled(text, if active { look.bold.clone() } else { look.dim.clone() }))
             .collect();
@@ -219,7 +219,7 @@ fn footer(
     width: usize,
 ) -> AnyWidget {
     let look = look.clone();
-    let [first, second] = fit::hint_rows(strings, width);
+    let [first, second] = chrome::hint_rows(strings);
     let rule = {
         let look = look.clone();
         ListenableBuilder::new(selection.listenable(), move |_, _| {
@@ -230,7 +230,7 @@ fn footer(
                 let position = if rows == 0 { 0 } else { selection.cursor().map_or(1, |at| at + 1) };
                 let total = if matches!(model.load, Load::Loading) { format!("{rows}…") } else { rows.to_string() };
                 let percent = if at.max <= 0 { 100 } else { ((at.pixels as f64 / at.max as f64) * 100.0).round() as u8 };
-                let label = fit::progress_label(position, &total, percent, width);
+                let label = chrome::progress_label(position, &total, percent, width);
                 Row::new()
                     .child(Expanded::new(1, Divider::new().kind(BorderType::Single).style(look.dim.clone()).merge(false)))
                     .child(Text::line(label).style(look.dim.clone()))
@@ -240,7 +240,9 @@ fn footer(
             .into()
         })
     };
-    let hint = |text: String| Text::line(text).style(look.dim.clone()).wrap(TextWrap::None);
+    let hint = |variants| {
+        crate::ui::page_keys::footer_fit(variants, look.dim.clone(), look.dim.clone(), "   ", 1)
+    };
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)

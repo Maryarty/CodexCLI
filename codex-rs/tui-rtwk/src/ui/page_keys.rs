@@ -3,15 +3,17 @@
 //! page's `KeyBindings`, so every key shown is bound) and the popup a key
 //! whose action is not built yet opens (`not_yet`), never a silent no-op.
 
+use rtwk::LayoutBuilder;
 use rtwk::controls::KeyHintsBar;
 use rtwk::focus::{Focus, KeyCombo, KeyPress};
-use rtwk::layout::{Column, MainAxisSize};
+use rtwk::layout::{Column, EdgeInsets, MainAxisSize, Padding, SizedBox};
 use rtwk::overlay::{Dialog, DialogOptions, DialogResult, close_dialog_handler, show_dialog};
 use rtwk::prelude::KeyCode;
 use rtwk::style::Glyphs;
 use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::l10n::strings as l10n;
 
@@ -67,6 +69,56 @@ where
         .separator(separator)
         .key_style(key)
         .hint_style(hint)
+}
+
+/// One spelling of a footer row: its entries (key, hint; an empty hint shows
+/// the key alone) and the narrowest width it is used from (the oracle's wide
+/// labels only from 120 cells, whatever room is left).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant {
+    pub min_width: i32,
+    pub entries: Vec<(String, String)>,
+}
+
+impl Variant {
+    /// The cells the row takes: each key, a blank and its hint, the entries
+    /// apart by `separator`.
+    fn width(&self, separator: &str) -> i32 {
+        let cells = |text: &str| string_width(text, TextMode::Graphemes, 1) as i32;
+        let entries: i32 = self
+            .entries
+            .iter()
+            .map(|(key, hint)| cells(key) + if hint.is_empty() { 0 } else { 1 + cells(hint) })
+            .sum();
+        entries + cells(separator) * (self.entries.len() as i32 - 1).max(0)
+    }
+}
+
+/// A footer row that takes the first of `variants` (in the order of
+/// priority: full, compact, minimal) that fits the width it is given, `pad`
+/// cells in; an empty row when none does (the oracle's `hint_line_for_row`).
+pub fn footer_fit(
+    variants: Vec<Variant>,
+    key: Style,
+    hint: Style,
+    separator: &'static str,
+    pad: i32,
+) -> AnyWidget {
+    LayoutBuilder::new(move |_, constraints| {
+        let room = constraints.max_width;
+        match variants
+            .iter()
+            .find(|v| room >= v.min_width && v.width(separator) + pad <= room)
+        {
+            Some(v) => Padding::new(
+                EdgeInsets::only(pad, 0, 0, 0),
+                footer_with(v.entries.clone(), key.clone(), hint.clone(), separator),
+            )
+            .into(),
+            None => SizedBox::new(None, Some(1), None).into(),
+        }
+    })
+    .into()
 }
 
 /// The key names rtwk reads for a key as the oracle writes it.
