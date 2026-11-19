@@ -4,7 +4,7 @@
 //! `app/server_version_notice.rs`, `update_versions.rs`. The server is a
 //! scripted `connect` (the host's real one is IO); time is paused.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
 use std::cell::Cell;
 use std::time::Duration;
@@ -163,7 +163,7 @@ async fn the_budget_ends_in_reconnect_failed() {
 async fn a_hanging_attempt_is_cut_at_the_budget() {
     let (tx, _rx) = unbounded_channel();
     let start = Instant::now();
-    let client: Option<()> = restore(|| std::future::pending::<Option<()>>(), &tx, EPOCH).await;
+    let client: Option<()> = restore(std::future::pending::<Option<()>>, &tx, EPOCH).await;
     assert_eq!(client, None);
     assert_eq!(start.elapsed(), Duration::from_secs(120));
 }
