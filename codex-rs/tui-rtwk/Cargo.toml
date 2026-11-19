@@ -84,11 +84,13 @@ rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
+semver = "1.0"
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+tokio = { version = "1", features = ["macros", "test-util"] }
 rtwk-term = { workspace = true }
 rtwk-test = { workspace = true }
 
