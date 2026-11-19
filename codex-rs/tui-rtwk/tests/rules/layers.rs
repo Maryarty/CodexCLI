@@ -436,3 +436,28 @@ fn thread_rpcs_only_in_threads() {
         "thread RPC built outside threads.rs: {found:#?}"
     );
 }
+
+/// Which thread the chat shows is decided in `apply_app` (core/src/app.rs)
+/// alone: no screen, view or shell file assigns `session.active` or makes the
+/// session slice mutable, so "switch or resume once" has one place.
+#[test]
+fn the_shown_thread_is_set_only_in_apply_app() {
+    let mut files = sources_of("core/src");
+    files.extend(sources_of("src"));
+    files.extend(sources_of("host"));
+    let found = scan(
+        &files,
+        &[
+            "active = Some(",
+            ".active.replace(",
+            ".active.take(",
+            "make_mut(&mut app.session)",
+            "make_mut(&mut self.session)",
+        ],
+        |name| name == "core/src/app.rs",
+    );
+    assert!(
+        found.is_empty(),
+        "the shown thread set outside app.rs: {found:#?}"
+    );
+}
