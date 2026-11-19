@@ -233,3 +233,168 @@ fn the_session_page_footer_is_the_oracle_idle_footer() {
     assert!(last.starts_with("  ? for shortcuts"), "{screen}");
     assert!(!screen.contains("F12 screens"), "{screen}");
 }
+
+// ---------------------------------------------------------------- the edges
+// between the five pages (architecture §1, Amendment 2026-11-19b): the
+// Session is the Navigator's home, every other page is pushed over it and
+// pops back to it; "replace" (a page ends and the session shows) is that pop.
+
+fn open_over_the_session(command: &str) -> Harness {
+    let mut h = start();
+    crate::chat::chat_with_history(&mut h);
+    h.t.type_text(command);
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(800));
+    h
+}
+
+fn assert_session_back(h: &Harness) {
+    let screen = h.t.screen();
+    assert!(screen.contains("› hi"), "transcript lost:\n{screen}");
+    assert!(screen.contains("• Hello"), "transcript lost:\n{screen}");
+    assert!(screen.contains("ready"), "no session footer:\n{screen}");
+}
+
+#[test]
+fn session_to_agents_and_back_keeps_the_session() {
+    use codex_tui_rtwk::screens::agents;
+    use rtwk_test::find;
+
+    let mut h = open_over_the_session("/agents");
+    let page = find::by_type::<agents::Screen>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    h.press("down");
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    assert_session_back(&h);
+    // Again: the page is there again and Esc still returns.
+    h.t.type_text("/agents");
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(800));
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_session_back(&h);
+}
+
+/// Enter on a task of the command center resumes it; the answer (here the
+/// shell's `Started`, which bumps the same counter) ends the page and the
+/// session shows.
+#[test]
+fn agents_to_session_when_a_task_opens() {
+    use codex_app_server_protocol::Thread;
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::agents::Ev;
+    use codex_tui_rtwk::screens::agents;
+    use rtwk_test::find;
+
+    let mut h = open_over_the_session("/agents");
+    let page = find::by_type::<agents::Screen>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    let thread: Thread = serde_json::from_value(serde_json::json!({
+        "id": "t-2", "environments": null, "extra": null, "sessionId": "t-2",
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": "t-2", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+        "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000, "status": {"type": "idle"},
+        "path": null, "cwd": "/tmp", "cliVersion": "0.0.0", "originator": null,
+        "source": "cli", "canAcceptDirectInput": true, "threadSource": null,
+        "agentNickname": null, "agentRole": null, "gitInfo": null, "name": "t-2",
+        "daybreakEnabled": null, "turns": []
+    }))
+    .unwrap();
+    let epoch = h.fake.epoch().expect("connected");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(Ev::Started(Box::new(thread)))),
+    );
+    h.settle();
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    assert!(h.t.screen().contains("ready"), "{}", h.t.screen());
+}
+
+#[test]
+fn session_to_resume_and_back() {
+    use codex_tui_rtwk::screens::resume;
+    use rtwk_test::find;
+
+    let mut h = open_over_the_session("/resume");
+    let page = find::by_type::<resume::Screen>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    assert_session_back(&h);
+}
+
+/// Enter on a row of the picker ends the page (the session replaces it): the
+/// picker returns its choice.
+#[test]
+fn resume_picks_a_row_and_returns_to_the_session() {
+    use crate::common::start_sized;
+    use codex_tui_rtwk::screens::resume;
+    use rtwk_test::find;
+
+    let mut h = start_sized(true, 80, 24);
+    h.open_debug_row("resume", Some("table"));
+    let page = find::by_type::<resume::Screen>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    h.press("enter");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+}
+
+#[test]
+fn session_to_usage_and_back() {
+    use codex_tui_rtwk::screens::usage;
+    use rtwk_test::find;
+
+    let mut h = open_over_the_session("/usage");
+    let page = find::by_type::<usage::Screen>();
+    assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
+    assert_session_back(&h);
+}
+
+/// The command line's entries: `codex-rtwk` starts on the session,
+/// `codex-rtwk agents` on the command center, `codex-rtwk resume` on the
+/// picker; the entry page has no page to return to (agents) or returns to
+/// the session (resume).
+#[test]
+fn the_cli_entries_start_at_the_right_page() {
+    use codex_tui_rtwk::Cli;
+    use codex_tui_rtwk::screens::{agents, resume};
+    use rtwk_test::find;
+
+    let args = |words: &[&str]| Cli::parse(words.iter().map(|w| (*w).to_string())).unwrap();
+    assert!(!args(&[]).agents && !args(&[]).resume);
+    assert!(args(&["agents"]).agents);
+    assert!(args(&["resume"]).resume);
+
+    let agents_page = find::by_type::<agents::Screen>();
+    let resume_page = find::by_type::<resume::Screen>();
+
+    let mut h = crate::common::start_app(|app| app);
+    h.t.pump_for(crate::common::ms(400));
+    assert_eq!(agents_page.count(&h.t), 0);
+    assert_eq!(resume_page.count(&h.t), 0);
+
+    let mut h = crate::common::start_app(|app| app.with_start_agents(true));
+    h.t.pump_for(crate::common::ms(400));
+    assert_eq!(agents_page.count(&h.t), 1, "{}", h.t.screen());
+    assert_eq!(resume_page.count(&h.t), 0);
+
+    let mut h = crate::common::start_app(|app| app.with_start_resume(true));
+    h.t.pump_for(crate::common::ms(400));
+    assert_eq!(resume_page.count(&h.t), 1, "{}", h.t.screen());
+    assert_eq!(agents_page.count(&h.t), 0);
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(600));
+    assert_eq!(resume_page.count(&h.t), 0, "{}", h.t.screen());
+}
