@@ -43,6 +43,7 @@ use codex_app_server_protocol::ThreadUsage;
 use codex_protocol::account::PlanType;
 
 use crate::app::AppFx;
+use crate::ids::BackendId;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -338,8 +339,19 @@ pub struct Model {
     /// fetched for the plans that show it).
     pub plan: Option<PlanType>,
     pub backend_auth: bool,
-    /// The pinned threads in rank order; `None`: the server has no pins.
+    /// The pinned threads in rank order across the backends; `None`: no
+    /// backend has pins. Derived from `pins_by_backend`.
     pub pinned: Option<Vec<String>>,
+    /// The backend the chat shows; its rows are the ones the list pages of
+    /// `Ev::Listed` belong to (oracle: `app_server_backend_id`).
+    pub displayed: BackendId,
+    /// The backend that owns each thread: the first that listed it (oracle:
+    /// `BackendRegistry::observe`). A later backend's row of the same id is
+    /// dropped.
+    pub owners: BTreeMap<String, BackendId>,
+    /// Each backend's pins in its own rank order; `None`: it has none
+    /// (oracle: `pins_by_backend`).
+    pub pins_by_backend: BTreeMap<BackendId, Option<Vec<String>>>,
     /// The thread the chat shows (oracle: `is_current`).
     pub current: Option<String>,
     /// The clock, epoch seconds (R11).
@@ -430,6 +442,8 @@ pub enum Ev {
     ThreadColors(bool),
     /// `tui.agents_overview_grouping`: the grouping the center opens with.
     Grouping(Grouping),
+    /// A page of one backend's list (`Listed` is the displayed backend's).
+    ListedBy(BackendId, Page),
 }
 
 impl Eq for Ev {}
