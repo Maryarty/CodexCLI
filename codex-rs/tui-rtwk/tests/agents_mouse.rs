@@ -12,11 +12,12 @@ use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::Reply as AppReply;
-use codex_tui_core::screens::agents::{Command as AgentsCommand, Page, Reply as AgentsReply};
-use codex_tui_core::screens::{ScreenCommand, ScreenReply};
+use codex_tui_core::screens::agents::{Command as AgentsCommand, Ev, Page, Reply as AgentsReply};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
 use codex_tui_rtwk::shell::fake::FAKE_THREAD;
 use common::{Harness, start_sized};
 use rtwk_core::input::{Mods, MouseKind};
+use serde_json::json;
 
 fn open(entry: &str, width: u16, height: u16) -> Harness {
     let mut h = start_sized(true, width, height);
@@ -215,4 +216,140 @@ fn a_click_after_a_step_in_one_flush_selects_the_clicked_row() {
         h.t.screen()
     );
     assert!(h.t.screen().contains("Agent command center"));
+}
+
+// ---- the agents-canonical fixes ----
+
+fn highlighted_task(h: &Harness) -> String {
+    h.t.screen()
+        .lines()
+        .find(|line| line.trim_start().starts_with("\u{203a} "))
+        .and_then(|line| line.split('\u{2502}').next())
+        .unwrap_or_default()
+        .trim_end()
+        .to_owned()
+}
+
+/// Fix 1: `ExcludeFocus` only removes focus; the list itself must refuse the
+/// click (`SelectionList::enabled(false)`) while a name is being edited.
+#[test]
+fn a_click_while_renaming_leaves_the_highlight_where_it_was() {
+    let mut h = open("overview", 96, 25);
+    let before = highlighted_task(&h);
+    assert!(before.contains("Build the dashboard"), "{}", h.t.screen());
+    h.press("r");
+    h.settle();
+    let (x, y) = find(&h, "Repair authentication");
+    h.t.click(x, y);
+    h.settle();
+    assert_eq!(highlighted_task(&h), before, "{}", h.t.screen());
+    h.press("esc");
+    h.settle();
+    let (x, y) = find(&h, "Repair authentication");
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        highlighted_task(&h).contains("Repair authentication"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+fn usage_asks(h: &Harness) -> Vec<(Ticket, String)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(AgentsCommand::Usage { thread }),
+                ..
+            } => Some((ticket, thread)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Fix 2 (oracle: the repaint after the move asks): an arrow move asks for
+/// the new task's usage in the same flush, not at the next model change.
+#[test]
+fn an_arrow_move_asks_for_the_new_tasks_usage() {
+    let mut h = common::start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake.script_turn(vec![
+        agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
+        agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
+        turn_completed(FAKE_THREAD, "turn-1"),
+    ]);
+    h.t.type_text("hi");
+    h.press("enter");
+    h.wait_for("the answer", |s| s.contains("\u{2022} Hello"));
+    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.t.type_text("/agents");
+    h.press("enter");
+    h.t.pump_for(common::ms(800));
+    h.wait_for("the command center", |s| s.contains("Agent command center"));
+    h.settle();
+    let epoch = h.fake.epoch().expect("connected");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(Ev::Account {
+            plan: Some(serde_json::from_value(json!("business")).unwrap()),
+            backend_auth: true,
+        })),
+    );
+    let ticket = h
+        .fake
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(AgentsCommand::List { .. }),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("the list was asked for");
+    let script = include_str!("../src/screens/agents/fixtures/overview.jsonl");
+    let threads: Vec<Thread> = script
+        .lines()
+        .filter(|line| line.contains("\"listed\""))
+        .find_map(|line| {
+            let step: serde_json::Value = serde_json::from_str(line).ok()?;
+            serde_json::from_value(step["ev"]["listed"]["threads"].clone()).ok()
+        })
+        .expect("threads");
+    h.fake.inject(
+        epoch,
+        AppEv::Reply(
+            ticket,
+            AppReply::screen(ScreenReply::Agents(AgentsReply::Listed(Page {
+                threads,
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        ),
+    );
+    h.wait_for("the rows", |s| s.contains("Repair authentication"));
+    h.settle();
+    let first = usage_asks(&h);
+    assert!(
+        !first.is_empty(),
+        "the highlighted task's usage is asked for"
+    );
+    let asked = first.len();
+    // The fetch ends (a refused one counts), or no other is due.
+    h.fake
+        .inject(epoch, AppEv::Reply(first[0].0, AppReply::failed("down")));
+    h.settle();
+    h.press("down");
+    h.settle();
+    let after = usage_asks(&h);
+    assert!(
+        after.len() > asked && after.last().map(|a| &a.1) != first.last().map(|a| &a.1),
+        "an arrow move asks for the new task: {first:?} then {after:?}"
+    );
 }

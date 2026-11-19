@@ -624,18 +624,10 @@ impl ScreenState {
         ));
     }
 
-    /// The cursor, the keys' focus and the usage request follow the rows the
-    /// model and the tab show.
-    fn sync(&mut self, model: &Model, cx: &mut Cx<'_, Self>) -> Center {
-        let center = model.center_at(self.cursor().as_ref(), &self.lens());
-        if let Some(entry) = center.selected_entry() {
-            self.put_cursor(view::key_of(&center, entry));
-        } else if center.entries.is_empty() && self.selection.cursor().is_some() {
-            // Oracle (`reconcile_command_center_selection`): nothing
-            // selectable sets the selection to `usize::MAX`, so the first
-            // row is the highlight when rows come back.
-            self.selection.set_cursor(None);
-        }
+    /// The usage of the highlighted task is asked for when what it depends
+    /// on changes: the task, its fetch, the clock (oracle: the repaint that
+    /// follows a move asks).
+    fn ask_usage(&mut self, model: &Model, center: &Center, cx: &mut Cx<'_, Self>) {
         let thread = center.selected_row().map(|row| row.id().to_owned());
         let usage_key = UsageKey {
             fetched_at: thread
@@ -651,6 +643,21 @@ impl ScreenState {
             let thread = self.usage_seen.as_ref().and_then(|key| key.thread.clone());
             Self::send(cx, AgentsIntent::NeedUsage(thread));
         }
+    }
+
+    /// The cursor, the keys' focus and the usage request follow the rows the
+    /// model and the tab show.
+    fn sync(&mut self, model: &Model, cx: &mut Cx<'_, Self>) -> Center {
+        let center = model.center_at(self.cursor().as_ref(), &self.lens());
+        if let Some(entry) = center.selected_entry() {
+            self.put_cursor(view::key_of(&center, entry));
+        } else if center.entries.is_empty() && self.selection.cursor().is_some() {
+            // Oracle (`reconcile_command_center_selection`): nothing
+            // selectable sets the selection to `usize::MAX`, so the first
+            // row is the highlight when rows come back.
+            self.selection.set_cursor(None);
+        }
+        self.ask_usage(model, &center, cx);
         if center.entries.is_empty() == self.listed {
             self.listed = !self.listed;
             self.refocus_after_frame(cx);
@@ -873,7 +880,9 @@ impl State for ScreenState {
                     l.handled();
                 }
                 // The cursor is the list's own: only the rows that show it
-                // (details, keys) are rebuilt.
+                // (details, keys) are rebuilt; the usage of the task it
+                // lands on is asked for at once.
+                self.ask_usage(model, &center, cx);
                 return Rebuild::Yes;
             }
             Msg::Row(key) => {

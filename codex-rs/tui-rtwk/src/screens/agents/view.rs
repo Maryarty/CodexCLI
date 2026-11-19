@@ -261,6 +261,7 @@ pub struct Controls {
 /// The part of the controls the list takes.
 #[derive(Clone)]
 struct ListControls {
+    enabled: bool,
     selection: SelectionController<RowKey>,
     focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
@@ -549,8 +550,10 @@ pub fn list(
     center: &Rc<Center>,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
+    enabled: bool,
 ) -> AnyWidget {
     RowsList {
+        enabled,
         inputs: ListInputs {
             look: look.clone(),
             strings,
@@ -593,6 +596,8 @@ impl PartialEq for ListInputs {
 #[derive(Clone)]
 pub struct RowsList {
     inputs: ListInputs,
+    /// The list takes keys and clicks (a rename refuses them).
+    enabled: bool,
     selection: SelectionController<RowKey>,
     focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
@@ -603,6 +608,7 @@ pub struct RowsList {
 impl PartialEq for RowsList {
     fn eq(&self, other: &Self) -> bool {
         self.inputs == other.inputs
+            && self.enabled == other.enabled
             && self.selection == other.selection
             && self.focus == other.focus
             && Rc::ptr_eq(&self.scroll, &other.scroll)
@@ -620,6 +626,7 @@ impl StatelessWidget for RowsList {
             focus: self.focus.clone(),
             scroll: self.scroll.clone(),
             open: self.open.clone(),
+            enabled: self.enabled,
         };
         rows_in(look, strings, agents, center, controls, taps)
     }
@@ -690,6 +697,9 @@ fn rows_in(
         .on_submitted(controls.open.clone())
         .focus_node(controls.focus.clone())
         .autofocus(true)
+        // `ExcludeFocus` takes the focus, not the clicks: a rename refuses
+        // them at the list.
+        .enabled(controls.enabled)
         .item_extent(1)
         .bar(false)
         .idle_style(look.selection.clone())
@@ -990,7 +1000,7 @@ pub fn body(
         pane = pane.child(editor(look, strings, ui, controls));
     }
     // The list gives the focus to the editing line while one is open.
-    let rows = list(look, strings, agents, center, controls, &taps.rows);
+    let rows = list(look, strings, agents, center, controls, &taps.rows, !ui.renaming);
     let pane: AnyWidget = pane
         .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing)))
         .into();
