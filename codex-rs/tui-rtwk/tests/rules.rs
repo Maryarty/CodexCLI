@@ -504,7 +504,6 @@ const R15_NOT_YET: &[&str] = &[
     "src/screens/chat/home.rs",
     "src/screens/dialogs/feedback.rs",
     "src/screens/dialogs/shortcuts.rs",
-    "src/screens/pager/mod.rs",
     "src/screens/pets/mod.rs",
     "src/screens/select/dialog.rs",
     "src/screens/status/card.rs",

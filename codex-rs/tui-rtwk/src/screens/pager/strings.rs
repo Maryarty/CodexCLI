@@ -33,6 +33,9 @@ pub struct Strings {
     pub loading: &'static str,
     pub earlier: &'static str,
     pub retry: &'static str,
+    /// Oracle: `render_header`: `"/ "` over the row's width, the title over
+    /// its start (here wider than any terminal, cut by the row).
+    pub header_fill: &'static str,
 }
 
 /// English: the oracle's text.
@@ -47,6 +50,7 @@ pub const EN: Strings = Strings {
     loading: "Loading earlier messages…",
     earlier: "Earlier messages available.  ",
     retry: "Retry history: ⌥</⌃home.",
+    header_fill: "/ / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / ",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

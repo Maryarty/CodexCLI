@@ -7,16 +7,17 @@
 
 use std::rc::Rc;
 
-use rtwk::foundation::{ValueListenableBuilder, ValueNotifier};
-use rtwk::NotificationListener;
 use rtwk::focus::Focus;
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, SizedBox};
+use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::{
+    BorderType, Column, CrossAxisAlignment, Divider, Expanded, Row, SizedBox, Stack, StackFit,
+};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::watch;
-use rtwk::scroll::{ListView, ScrollNotification, SingleChildScrollView};
+use rtwk::scroll::{ListView, ScrollController, SingleChildScrollView};
 use rtwk::style::Span;
-use rtwk::text::{Text, TextWrap};
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::text::{Text, TextOverflow, TextWrap};
+use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::pager::HistoryState;
@@ -90,12 +91,11 @@ pub fn open_empty() -> DebugOpen {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Screen;
 
-/// Widget state: where the static page is scrolled to, as (offset, largest
-/// offset), told by the scroll notifications (no controller, R14); `None`
-/// until the first move, when the largest offset is estimated (an rtwk gap).
+/// Widget state: the static page's scroll controller, which the rule's
+/// percentage reads (R14: view state, the model holds none of it).
 #[derive(Debug)]
 pub struct ScreenState {
-    scroll: Rc<ValueNotifier<Option<(i64, i64)>>>,
+    scroll: ScrollController,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,82 +108,21 @@ impl StatefulWidget for Screen {
 
     fn create_state(&self) -> ScreenState {
         ScreenState {
-            scroll: Rc::new(ValueNotifier::new(None)),
+            scroll: ScrollController::new(),
         }
     }
 }
 
 impl_widget!(stateful eq Screen);
 
-/// The header: `/ ` repeated, with `/ <title>` over its start (oracle:
-/// `PagerView::render_header`). Clipped to the row by the `Text`.
-fn header(title: &str) -> String {
-    let mut text = format!("/ {title}");
-    let mut column = text.chars().count();
-    while column < 400 {
-        text.push(if column % 2 == 0 { '/' } else { ' ' });
-        column += 1;
-    }
-    text
-}
-
-/// The rows of the screen that are not content: the header, the rule, the
-/// hints and the empty row under them.
-const CHROME_ROWS: i32 = 5;
 /// The rows of the hints and the empty row under them.
 const BOTTOM_ROWS: i32 = 3;
 
-/// The largest scroll offset of `lines` wrapped at `width` words, in a
-/// window of `rows`: what the page will report once it moves.
-fn estimate_max(lines: &[String], width: i32, rows: i32) -> i64 {
-    let width = width.max(1) as usize;
-    let mut total = 0i64;
-    for line in lines {
-        let mut used = 0usize;
-        let mut count = 1i64;
-        for word in line.split(' ') {
-            let w = word.chars().count();
-            if used > 0 && used + 1 + w > width {
-                count += 1;
-                used = 0;
-            }
-            used += if used == 0 { 0 } else { 1 };
-            let mut w = w;
-            while used + w > width {
-                count += 1;
-                w -= (width - used).max(1).min(w);
-                used = 0;
-            }
-            used += w;
-        }
-        total += count;
-    }
-    (total - i64::from(rows)).max(0)
-}
-
-/// The percentage of the bottom bar (oracle: `PagerView::render_bottom_bar`).
-fn percent(offset: i64, max: i64) -> i64 {
-    if max <= 0 {
-        100
-    } else {
-        ((offset.min(max) as f64 / max as f64) * 100.0).round() as i64
-    }
-}
-
-/// The rule with ` N% ` near its right end.
-fn bar(width: i32, percent: i64) -> String {
-    let label = format!(" {percent}% ");
-    let label_width = label.chars().count() as i32;
-    let width = width.max(0);
-    if label_width + 1 > width {
-        return "─".repeat(width as usize);
-    }
-    let left = width - label_width - 1;
-    format!("{}{label}─", "─".repeat(left as usize))
-}
-
 fn one_line(text: String) -> Text {
-    Text::new(text).wrap(TextWrap::None).max_lines(1)
+    Text::new(text)
+        .wrap(TextWrap::None)
+        .max_lines(1)
+        .overflow(TextOverflow::Clip)
 }
 
 impl State for ScreenState {
@@ -211,21 +150,10 @@ impl State for ScreenState {
         let (title, content, static_page): (String, AnyWidget, bool) = match &pager.page {
             Some(page) => (
                 page.title.clone(),
-                {
-                    let scroll = self.scroll.clone();
-                    NotificationListener::<ScrollNotification>::new(
-                        SingleChildScrollView::new(
-                            Text::new(page.lines.join("\n")).wrap(TextWrap::Word),
-                        )
-                        .autofocus(true),
-                    )
-                    .on_notification(move |n| {
-                        let m = &n.metrics;
-                        scroll.set_value(Some((m.pixels, m.max_scroll_extent)));
-                        false
-                    })
-                    .into()
-                },
+                SingleChildScrollView::new(Text::new(page.lines.join("\n")).wrap(TextWrap::Word))
+                    .controller(self.scroll.clone())
+                    .autofocus(true)
+                    .into(),
                 true,
             ),
             None => {
@@ -246,28 +174,37 @@ impl State for ScreenState {
         };
 
         // The row under the content: the rule and percentage of the static
-        // pager, the history status of the transcript pager.
-        let lines: Vec<String> = pager.page.as_ref().map(|p| p.lines.clone()).unwrap_or_default();
-        let scroll = self.scroll.clone();
-        let rule_style = dim.clone();
-        let status_for = move |width: i32, height: i32| -> AnyWidget {
-            let rule_style = rule_style.clone();
-            let lines = lines.clone();
-            ValueListenableBuilder::new(scroll.clone(), move |_, at, _| {
-                let (offset, max) =
-                    at.unwrap_or_else(|| (0, estimate_max(&lines, width, height - CHROME_ROWS)));
-                one_line(bar(width, percent(offset, max)))
+        // pager (read from the scroll controller as the page lays out), the
+        // history status of the transcript pager.
+        let status: AnyWidget = if static_page {
+            let scroll = self.scroll.clone();
+            let rule_style = dim.clone();
+            let rule = move || {
+                Divider::new()
+                    .kind(BorderType::Single)
                     .style(rule_style.clone())
+                    .merge(false)
+            };
+            let label_style = tokens.dim();
+            ListenableBuilder::new(Rc::new(self.scroll.clone()), move |_, _| {
+                let percent = scroll.try_position().map_or(100, |at| {
+                    let (offset, max) = (at.pixels(), at.max_scroll_extent());
+                    if max <= 0 {
+                        100
+                    } else {
+                        ((offset.min(max) as f64 / max as f64) * 100.0).round() as i64
+                    }
+                });
+                Row::new()
+                    .child(Expanded::new(1, rule()))
+                    .child(one_line(format!(" {percent}% ")).style(label_style.clone()))
+                    .child(SizedBox::new(Some(1), Some(1), Some(rule().into())))
                     .into()
             })
             .into()
-        };
-        let status: Option<AnyWidget> = if static_page {
-            None
         } else {
-            let history = pager.history;
             let mut spans = Vec::new();
-            match history {
+            match pager.history {
                 HistoryState::LoadingOlder | HistoryState::LoadingBeginning => {
                     spans.push(Span::styled(strings.loading_marker, tokens.accent()));
                     spans.push(Span::new(strings.loading));
@@ -281,7 +218,7 @@ impl State for ScreenState {
                     spans.push(Span::styled(strings.select, dim.clone()));
                 }
             }
-            Some(Text::rich(spans).wrap(TextWrap::None).max_lines(1).into())
+            Text::rich(spans).wrap(TextWrap::None).max_lines(1).into()
         };
 
         // The two hint rows and the empty row under them (the oracle's
@@ -301,20 +238,20 @@ impl State for ScreenState {
             Column::new().cross_axis_alignment(CrossAxisAlignment::Start)
         };
 
-        let head = one_line(header(&title)).style(dim);
+        // `/ ` over the row with `/ <title>` over its start.
+        let head = Stack::new()
+            .fit(StackFit::Loose)
+            .child(one_line(strings.header_fill.to_string()).style(dim.clone()))
+            .child(one_line(format!("/ {title}")).style(dim));
         let hints: AnyWidget = SizedBox::new(None, Some(BOTTOM_ROWS), Some(hints.into())).into();
-        Focus::new(LayoutBuilder::new(move |_, constraints| {
-            let status = status
-                .clone()
-                .unwrap_or_else(|| status_for(constraints.max_width, constraints.max_height));
+        Focus::new(
             Column::new()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(head.clone())
-                .child(Expanded::new(1, content.clone()))
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(head)
+                .child(Expanded::new(1, content))
                 .child(status)
-                .child(hints.clone())
-                .into()
-        }))
+                .child(hints),
+        )
         .bind('q', cx.send(Msg::Close))
         .into()
     }
