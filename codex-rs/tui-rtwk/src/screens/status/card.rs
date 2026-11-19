@@ -2,7 +2,11 @@
 //! dialog, the labels padded to one column.
 
 use rtwk::focus::Focus;
-use rtwk::layout::{Column, Grid, GridTrack, MainAxisSize, SizedBox};
+use rtwk::layout::{
+    CellPainter, Column, CustomPaint, Grid, GridTrack, MainAxisSize, Row, SizedBox,
+};
+use rtwk_core::canvas::Canvas;
+use rtwk_core::style::PenId;
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
@@ -84,39 +88,41 @@ impl State for CardDialogState {
 /// The labelled rows (`FieldFormatter`): a `Grid` of a label track sized to
 /// its content and a value track, two cells apart.
 fn fields(card: &Card, s: &Strings) -> AnyWidget {
-    let mut rows: Vec<(String, String)> = vec![
-        (s.model.into(), model_value(card, s)),
-        (s.directory.into(), card.directory.clone()),
-        (s.permissions.into(), permissions_value(card, s)),
+    let mut rows: Vec<(String, AnyWidget)> = vec![
+        (s.model.into(), txt(model_value(card, s))),
+        (s.directory.into(), txt(card.directory.clone())),
+        (s.permissions.into(), txt(permissions_value(card, s))),
         (
             s.agents.into(),
-            if card.agents.is_empty() {
+            txt(if card.agents.is_empty() {
                 s.agents_none.to_string()
             } else {
                 card.agents.join(", ")
-            },
+            }),
         ),
     ];
     let blank_before = [rows.len()];
     let tokens = &card.tokens;
     rows.push((
         s.token_usage.into(),
-        s.tokens_total(
-            &format::tokens_compact(tokens.blended_total()),
-            &format::tokens_compact((tokens.input - tokens.cached_input).max(0)),
-            &format::tokens_compact(tokens.output),
-        )
-        .to_string(),
+        txt(s
+            .tokens_total(
+                &format::tokens_compact(tokens.blended_total()),
+                &format::tokens_compact((tokens.input - tokens.cached_input).max(0)),
+                &format::tokens_compact(tokens.output),
+            )
+            .to_string()),
     ));
     if let Some(context) = &card.context {
         rows.push((
             s.context_window.into(),
-            s.context_value(
-                context.percent_left,
-                &format::tokens_compact(context.used),
-                &format::tokens_compact(context.window),
-            )
-            .to_string(),
+            txt(s
+                .context_value(
+                    context.percent_left,
+                    &format::tokens_compact(context.used),
+                    &format::tokens_compact(context.window),
+                )
+                .to_string()),
         ));
     }
     for limit in &card.limits {
@@ -137,8 +143,7 @@ fn fields(card: &Card, s: &Strings) -> AnyWidget {
             .unwrap_or_default();
         rows.push((
             label,
-            s.limit_value(&format::progress_bar(left), left, &resets)
-                .to_string(),
+            limit_bar(left, &s.limit_value("", left, &resets).to_string()),
         ));
     }
     let mut grid = Grid::new()
@@ -150,9 +155,53 @@ fn fields(card: &Card, s: &Strings) -> AnyWidget {
                 .child(SizedBox::fixed(0, 1))
                 .child(SizedBox::fixed(0, 1));
         }
-        grid = grid.child(Text::new(label)).child(Text::new(value));
+        grid = grid.child(Text::new(label)).child(value);
     }
     grid.into()
+}
+
+fn txt(text: String) -> AnyWidget {
+    Text::new(text).into()
+}
+
+/// The 20-cell bar of a limit (oracle `render_limit_progress_bar`): `[`, whole
+/// `█` cells for the share left, `░` for the rest, `]`, then the text. A
+/// `CustomPaint` with a `CellPainter` (G40: no gauge draws whole cells).
+fn limit_bar(percent_left: i64, rest: &str) -> AnyWidget {
+    let filled = ((percent_left.clamp(0, 100) * Bar::CELLS) as f64 / 100.0).round() as i32;
+    Row::new()
+        .child(
+            CustomPaint::new()
+                .painter(Bar { filled })
+                .size(Bar::CELLS as i32 + 2, 1),
+        )
+        .child(Text::new(rest.to_string()))
+        .into()
+}
+
+#[derive(Debug)]
+struct Bar {
+    filled: i32,
+}
+
+impl Bar {
+    const CELLS: i64 = 20;
+}
+
+impl CellPainter for Bar {
+    fn paint(&self, canvas: &mut Canvas<'_>, width: i32, _height: i32) {
+        let inner = (width - 2).max(0);
+        let filled = self.filled.min(inner);
+        canvas.fill_char(0, 0, 1, 1, PenId(0), '[');
+        canvas.fill_char(1, 0, filled, 1, PenId(0), '█');
+        canvas.fill_char(1 + filled, 0, inner - filled, 1, PenId(0), '░');
+        canvas.fill_char(1 + inner, 0, 1, 1, PenId(0), ']');
+    }
+
+    fn should_repaint(&self, old: &dyn CellPainter) -> bool {
+        old.downcast_ref::<Bar>()
+            .is_none_or(|old| old.filled != self.filled)
+    }
 }
 
 fn model_value(card: &Card, s: &Strings) -> String {

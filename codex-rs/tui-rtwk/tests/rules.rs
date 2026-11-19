@@ -503,7 +503,6 @@ const R15_NOT_YET: &[&str] = &[
     "src/screens/chat/home.rs",
     "src/screens/dialogs/feedback.rs",
     "src/screens/select/dialog.rs",
-    "src/screens/status/format.rs",
 ];
 const R15_PATTERNS: &[&str] = &[
     ".chars().count()",
