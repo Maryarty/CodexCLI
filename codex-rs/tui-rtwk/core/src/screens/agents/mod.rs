@@ -653,6 +653,8 @@ pub enum Intent {
     ClearSearch,
     /// Enter on the list's cursor row: open the task or the "Show more" row.
     Accept(Sel),
+    /// The resume picker picked this task, hidden or not.
+    Resume(String),
     /// Enter on the "Show more" row while a search is open: more matches.
     MoreMatches(Lens),
     /// The rename line was accepted: the task is named `name`.

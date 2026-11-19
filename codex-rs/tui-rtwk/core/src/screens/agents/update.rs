@@ -48,6 +48,16 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         Intent::ClearSearch => clear_search(model),
         Intent::Accept(at) => accept(model, at, &mut outs),
+        Intent::Resume(thread) => {
+            if model.threads.iter().any(|known| known.id == thread) {
+                outs.push(out(
+                    Command::Resume {
+                        thread: thread.clone(),
+                    },
+                    Ctx::Resume { thread },
+                ));
+            }
+        }
         Intent::MoreMatches(lens) => outs.extend(super::discovery::load_matches(
             model,
             crate::screens::agents::PAGE_SIZE as usize,

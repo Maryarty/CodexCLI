@@ -26,8 +26,11 @@ pub struct Model {
     /// clock is a model input).
     pub clock: i64,
     pub load: Load,
-    /// The thread the user asked to resume; the shell resumes it.
+    /// The thread the user asked to resume (the app asks the backend).
     pub resuming: Option<ThreadId>,
+    /// The picker was opened on the live backend: its rows are the
+    /// backend's sessions (`sync`), not the ones a script seeded.
+    pub live: bool,
 }
 
 /// Where the list stands (oracle: `PaginationState` and `inline_error`).
@@ -85,6 +88,8 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
+    /// The picker opened on the live backend: the sessions are listed.
+    Open,
     /// Enter on a row: resume (or fork) this thread.
     Resume(ThreadId),
 }
@@ -105,8 +110,54 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
+        Intent::Open => model.live = true,
         Intent::Resume(id) => model.resuming = Some(id),
     }
+}
+
+/// The picker's rows out of the sessions the app knows (the command center's
+/// list, which the backend's `thread/list` fills): the root threads, newest
+/// first. Hidden tasks are in: the picker is how they come back.
+pub fn listing(agents: &crate::screens::agents::Model) -> (Vec<Row>, Load) {
+    let mut threads: Vec<_> = agents
+        .threads
+        .iter()
+        .filter(|thread| {
+            thread.parent_thread_id.is_none()
+                && !thread.ephemeral
+                && !agents.removed.contains(&thread.id)
+        })
+        .collect();
+    threads.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let rows: Vec<Row> = threads
+        .into_iter()
+        .map(|thread| Row {
+            id: ThreadId::new(&thread.id),
+            preview: thread.preview.clone(),
+            model_provider: thread.model_provider.clone(),
+            started: String::new(),
+            thread_name: thread.name.clone(),
+            created: Some(thread.created_at),
+            updated: Some(thread.updated_at),
+            cwd: Some(thread.cwd.display().to_string()),
+            branch: thread.git_info.as_ref().and_then(|git| git.branch.clone()),
+            cloud: false,
+            unread: agents.unread.contains(&thread.id),
+        })
+        .collect();
+    let load = if agents.paging.failed {
+        Load::Failed("Could not load more sessions".to_owned())
+    } else if agents.paging.loading && rows.is_empty() {
+        Load::Loading
+    } else {
+        Load::Idle
+    };
+    (rows, load)
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed

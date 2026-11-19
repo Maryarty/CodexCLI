@@ -55,37 +55,37 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "table",
             description: "three rows: a cloud one, an unread one, a plain one",
             script: include_str!("fixtures/table.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
         DebugEntry {
             name: "more_indicators",
             description: "five rows, to scroll down to the third",
             script: include_str!("fixtures/more_indicators.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
         DebugEntry {
             name: "search_error",
             description: "a listing that failed: the message on the search line",
             script: include_str!("fixtures/search_error.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
         DebugEntry {
             name: "footer_wide",
             description: "no rows at 220 cells: the footer's wide hints",
             script: include_str!("fixtures/footer_wide.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
         DebugEntry {
             name: "loading",
             description: "the first page is loading",
             script: include_str!("fixtures/loading.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
         DebugEntry {
             name: "empty",
             description: "no saved sessions",
             script: include_str!("fixtures/empty.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen.into()),
+            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
         },
     ]
 }
@@ -93,17 +93,20 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// The route of this screen, pushed by the widget that opens it
 /// (`Navigator::of(cx).push`).
 pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Screen.into())
+    PageRoute::new(|_| Screen { live: true }.into())
 }
 
 /// Opens the picker on the live model (debug menu).
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Screen.into())
+    DebugOpen::Route(|_| Screen { live: true }.into())
 }
 
-/// The picker.
+/// The picker. `live`: it lists the backend's sessions (opening asks for
+/// them); a seeded one shows the rows its script made.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Screen;
+pub struct Screen {
+    pub live: bool,
+}
 
 /// Widget state: the selection (rtwk's controller owns the cursor and the
 /// scroll) and where the list is scrolled to, told by its notifications.
@@ -545,6 +548,13 @@ fn accept(index: usize, cx: &mut Cx<'_, ScreenState>) {
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
+
+    fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
+        if w.live {
+            let hs = read::<Hs, _>(cx);
+            cx.emit(&hs.screen, ScreenIntent::Resume(ResumeIntent::Open));
+        }
+    }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
