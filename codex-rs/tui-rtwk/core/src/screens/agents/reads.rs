@@ -92,12 +92,22 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
     }
     thread.turns.clear();
     model.search_matches.retain(|held| held.id != id);
+    // What notifications set while this read was in flight is newer.
+    if let Some(overlay) = model.overlay.remove(&id) {
+        if let Some(name) = overlay.name {
+            thread.name = name;
+        }
+        if let Some(status) = overlay.status {
+            thread.status = status;
+        }
+    }
     upsert_thread(&mut model.threads, normalize(thread));
     if unread {
         model.unread.insert(id.clone());
     } else {
         model.unread.remove(&id);
     }
+    model.turning.insert(id.clone());
     vec![out(
         Command::Turns { thread: id.clone() },
         Ctx::Turns { thread: id },
@@ -106,6 +116,13 @@ pub(super) fn on_read(model: &mut Model, id: String, result: Result<Reply, RpcEr
 
 /// The answer of `thread/turns/list`: the prompt and the last answer.
 pub(super) fn on_turns(model: &mut Model, id: String, result: Result<Reply, RpcError>) -> Vec<Out> {
+    model.turning.remove(&id);
+    // Asked before a revert or a lag: the answer is of the old history; the
+    // chain starts again.
+    if model.stale.remove(&id) {
+        model.reread.insert(id.clone());
+        return finish(model, &id);
+    }
     if let Ok(Reply::Turns {
         prompt,
         last_message,
@@ -123,6 +140,8 @@ pub(super) fn on_turns(model: &mut Model, id: String, result: Result<Reply, RpcE
 /// The chain of `id` ended; a change that came meanwhile starts the next.
 fn finish(model: &mut Model, id: &str) -> Vec<Out> {
     model.reading.remove(id);
+    model.turning.remove(id);
+    model.overlay.remove(id);
     if model.reread.remove(id) {
         return want(model, [id.to_owned()]);
     }

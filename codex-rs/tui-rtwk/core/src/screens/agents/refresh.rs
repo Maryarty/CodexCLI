@@ -209,6 +209,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::Reconnecting => reconnecting(model),
         Ev::Reconnected => model.notice = None,
         Ev::Started(thread) => opened(model, &thread),
+        Ev::Lagged => lagged(model),
         Ev::Voice(owner) => model.voice = owner,
         Ev::Request(thread, preview) => match preview {
             Some(preview) => {
@@ -236,6 +237,16 @@ fn reconnecting(model: &mut Model) {
     // The older-server notice is judged again by the new connection.
     model.server_version = None;
     model.notice = Some(Notice::Reconnecting);
+}
+
+/// Events were dropped (oracle: `AppServerEvent::Lagged`): what was derived
+/// from the stream is dropped, and what is being read is read again.
+fn lagged(model: &mut Model) {
+    super::usage::reset(model);
+    model.activity.clear();
+    model.last_messages.clear();
+    model.stale.extend(model.turning.iter().cloned());
+    model.paging.initialized = false;
 }
 
 /// A task the app started opens in the chat; the busy notice ends.
@@ -372,7 +383,20 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             }
             return vec![list(model, None, false)];
         }
-        (Ctx::Resume { thread }, Ok(_)) => {
+        (Ctx::Resume { thread }, result @ Ok(_)) => {
+            // Opening older history is a local addition: the row stays, even
+            // when no list reaches it.
+            if let Ok(Reply::Resumed(resumed)) = result {
+                let owner = model.owner_of(&thread);
+                if !resumed.ephemeral
+                    && !model.removed.contains(&thread)
+                    && model.observe(owner, &thread)
+                {
+                    let mut resumed = *resumed;
+                    resumed.turns.clear();
+                    upsert_thread(&mut model.threads, normalize(resumed));
+                }
+            }
             // A task of another backend resumes on its owner, which is the
             // displayed backend from then on (oracle: `ResumeBackendSession`).
             let owner = model.owner_of(&thread);

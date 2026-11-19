@@ -50,7 +50,7 @@ pub(crate) struct Shared {
     /// per turn, in order.
     turns: VecDeque<Vec<BackendEv>>,
     started_turns: usize,
-    ingress: Option<(IngressTx, ConnEpoch)>,
+    ingress: Option<(IngressTx, ConnEpoch, BackendId)>,
     /// What the backend is, told to the app when it connects.
     facts: Option<Facts>,
     /// Answers our RPCs of the screens; without one they stay unanswered
@@ -234,11 +234,8 @@ impl FakeHandle {
     pub fn announce(&self, facts: Facts) {
         if let Ok(mut shared) = self.shared.lock() {
             shared.facts = Some(facts);
-            if let Some((ingress, epoch)) = &shared.ingress {
-                let _ = ingress.send(Ingress {
-                    epoch: *epoch,
-                    ev: backend_ev(facts),
-                });
+            if let Some((ingress, epoch, backend)) = &shared.ingress {
+                let _ = ingress.send(Ingress::of(*backend, *epoch, backend_ev(facts)));
             }
         }
     }
@@ -294,16 +291,16 @@ impl FakeHandle {
         self.shared
             .lock()
             .ok()
-            .and_then(|shared| shared.ingress.as_ref().map(|(_, epoch)| *epoch))
+            .and_then(|shared| shared.ingress.as_ref().map(|(_, epoch, _)| *epoch))
     }
 
     /// Delivers `ev` as if the backend had sent it, under `epoch` (a stale
     /// epoch must be dropped).
     pub fn inject(&self, epoch: ConnEpoch, ev: AppEv) {
         if let Ok(shared) = self.shared.lock()
-            && let Some((ingress, _)) = &shared.ingress
+            && let Some((ingress, _, backend)) = &shared.ingress
         {
-            let _ = ingress.send(Ingress { epoch, ev });
+            let _ = ingress.send(Ingress::of(*backend, epoch, ev));
         }
     }
 }
@@ -338,11 +335,12 @@ async fn run_as(
     epoch: ConnEpoch,
 ) {
     let shared = server.shared;
+    let backend = other.unwrap_or_default();
     if let Ok(mut guard) = shared.lock() {
-        guard.ingress = Some((ingress.clone(), epoch));
+        guard.ingress = Some((ingress.clone(), epoch, backend));
     }
     let emit = |ev: AppEv| {
-        let _ = ingress.send(Ingress { epoch, ev });
+        let _ = ingress.send(Ingress::of(backend, epoch, ev));
     };
     let facts = shared.lock().ok().and_then(|guard| guard.facts);
     match other {
@@ -374,7 +372,7 @@ async fn run_as(
         tokio::spawn(async move {
             let send = request_sender(log, responder);
             if let Some(ev) = account(ids, send).await {
-                let _ = ingress.send(Ingress { epoch, ev });
+                let _ = ingress.send(Ingress::of(backend, epoch, ev));
             }
         });
     }
@@ -395,7 +393,11 @@ async fn run_as(
         match command {
             Command::StartThread { ticket, .. } => emit(AppEv::Reply(
                 ticket,
-                Reply::thread_started(ThreadId::new(FAKE_THREAD)),
+                // A further backend's thread has an id of its own.
+                Reply::thread_started(ThreadId::new(&match other {
+                    None => FAKE_THREAD.to_owned(),
+                    Some(id) => format!("{FAKE_THREAD}-{}", id.0),
+                })),
             )),
             Command::StartTurn {
                 ticket,
@@ -430,7 +432,7 @@ async fn run_as(
                 let ingress = ingress.clone();
                 tokio::spawn(async move {
                     let ev = directories(workspace, cwds).await;
-                    let _ = ingress.send(Ingress { epoch, ev });
+                    let _ = ingress.send(Ingress::of(backend, epoch, ev));
                 });
             }
             Command::SaveGrouping { grouping, .. } => {
@@ -438,7 +440,7 @@ async fn run_as(
                 let ingress = ingress.clone();
                 tokio::spawn(async move {
                     if let Some(ev) = save_grouping(workspace, grouping).await {
-                        let _ = ingress.send(Ingress { epoch, ev });
+                        let _ = ingress.send(Ingress::of(backend, epoch, ev));
                     }
                 });
             }
@@ -462,16 +464,17 @@ async fn run_as(
                     match other {
                         Command::Worktree { cwd, .. } => {
                             let ev = worktree(workspace, cwd, ids, send).await;
-                            let _ = ingress.send(Ingress { epoch, ev });
+                            let _ = ingress.send(Ingress::of(backend, epoch, ev));
                         }
                         command => {
                             if let Some((ticket, reply)) =
                                 answer(command, facts, ids, None, send).await
                             {
-                                let _ = ingress.send(Ingress {
+                                let _ = ingress.send(Ingress::of(
+                                    backend,
                                     epoch,
-                                    ev: AppEv::Reply(ticket, reply),
-                                });
+                                    AppEv::Reply(ticket, reply),
+                                ));
                             }
                         }
                     }

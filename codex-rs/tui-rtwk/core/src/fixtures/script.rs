@@ -176,5 +176,5 @@ impl Script {
 /// has no backend.
 fn ingest(app: &mut CodexApp, ev: AppEv) -> AppFx {
     let epoch = app.epoch();
-    app.ingest(Ingress { epoch, ev }).unwrap_or_default()
+    app.ingest(Ingress::new(epoch, ev)).unwrap_or_default()
 }

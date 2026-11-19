@@ -16,6 +16,34 @@ use codex_app_server_protocol::ThreadStatus;
 
 use super::refresh::normalize;
 
+/// The thread a notification is about (oracle: `server_notification_thread_target`
+/// in `app_server_event_targets.rs`, adapted: only the notifications this
+/// app reads).
+pub fn notification_thread(notification: &ServerNotification) -> Option<&str> {
+    use ServerNotification as N;
+    Some(match notification {
+        N::ThreadStarted(n) => &n.thread.id,
+        N::ThreadStatusChanged(n) => &n.thread_id,
+        N::ThreadNameUpdated(n) => &n.thread_id,
+        N::ThreadArchived(n) => &n.thread_id,
+        N::ThreadDeleted(n) => &n.thread_id,
+        N::ThreadClosed(n) => &n.thread_id,
+        N::ThreadReverted(n) => &n.thread_id,
+        N::ThreadReadStateChanged(n) => &n.thread_id,
+        N::ThreadTokenUsageUpdated(n) => &n.thread_id,
+        N::TurnStarted(n) => &n.thread_id,
+        N::TurnCompleted(n) => &n.thread_id,
+        N::ItemStarted(n) => &n.thread_id,
+        N::ItemCompleted(n) => &n.thread_id,
+        N::AgentMessageDelta(n) => &n.thread_id,
+        N::ReasoningSummaryTextDelta(n) => &n.thread_id,
+        N::ReasoningSummaryPartAdded(n) => &n.thread_id,
+        N::ServerRequestResolved(n) => &n.thread_id,
+        N::Error(n) => &n.thread_id,
+        _ => return None,
+    })
+}
+
 /// Whether `observe` would change `model` for `notification`: decided on
 /// `&Model`, so that a notification that changes nothing (a reasoning delta
 /// after the header) copies no state.
@@ -81,13 +109,24 @@ pub fn observes(notification: &ServerNotification) -> bool {
 /// and `track_agents_overview_activity`. The tasks it changed are read again
 /// (oracle: `refresh_thread_ids`), as the RPCs returned.
 pub fn observe(model: &mut Model, notification: &ServerNotification) -> Vec<Out> {
-    apply(model, notification);
-    match changed_thread(notification) {
-        Some(id) if model.threads.iter().any(|held| held.id == id) => {
-            super::reads::want(model, [id.to_owned()])
-        }
+    let id = changed_thread(notification);
+    let held = |model: &Model, id: &str| model.threads.iter().any(|held| held.id == id);
+    // The read of a held task is asked first: what the notification sets is
+    // newer than it and is replayed over its answer (`overlay`).
+    let mut outs = match id {
+        Some(id) if held(model, id) => super::reads::want(model, [id.to_owned()]),
         _ => Vec::new(),
+    };
+    apply(model, notification);
+    // A task the notification added is read too.
+    if let Some(id) = id
+        && outs.is_empty()
+        && !model.reading.contains(id)
+        && held(model, id)
+    {
+        outs = super::reads::want(model, [id.to_owned()]);
     }
+    outs
 }
 
 /// The task a notification changed the row of: the oracle re-reads every
@@ -119,6 +158,9 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
             if let Some(thread) = model.threads.iter_mut().find(|t| t.id == change.thread_id) {
                 thread.status = change.status.clone();
             }
+            if let Some(overlay) = overlay(model, &change.thread_id) {
+                overlay.status = Some(change.status.clone());
+            }
             if !matches!(change.status, ThreadStatus::Active { .. })
                 && let Some(activity) = model.activity.get_mut(&change.thread_id)
             {
@@ -128,6 +170,9 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         ServerNotification::ThreadNameUpdated(update) => {
             if let Some(thread) = model.threads.iter_mut().find(|t| t.id == update.thread_id) {
                 thread.name.clone_from(&update.thread_name);
+            }
+            if let Some(overlay) = overlay(model, &update.thread_id) {
+                overlay.name = Some(update.thread_name.clone());
             }
         }
         ServerNotification::ThreadArchived(gone) => remove(model, &gone.thread_id),
@@ -140,12 +185,18 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
             if let Some(thread) = model.threads.iter_mut().find(|t| t.id == closed.thread_id) {
                 thread.status = ThreadStatus::NotLoaded;
             }
+            if let Some(overlay) = overlay(model, &closed.thread_id) {
+                overlay.status = Some(ThreadStatus::NotLoaded);
+            }
         }
         // The history was rewound: what was derived from it is stale (oracle:
         // `ThreadReverted`).
         ServerNotification::ThreadReverted(reverted) => {
             model.activity.remove(&reverted.thread_id);
             model.last_messages.remove(&reverted.thread_id);
+            if model.turning.contains(&reverted.thread_id) {
+                model.stale.insert(reverted.thread_id.clone());
+            }
             if let Some(usage) = model.usage.get_mut(&reverted.thread_id) {
                 usage.tokens = None;
             }
@@ -225,6 +276,14 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
         }
         _ => {}
     }
+}
+
+/// The overlay of a task being read: what notifications set meanwhile.
+fn overlay<'a>(model: &'a mut Model, thread: &str) -> Option<&'a mut super::Overlay> {
+    model
+        .reading
+        .contains(thread)
+        .then(|| model.overlay.entry(thread.to_owned()).or_default())
 }
 
 fn end_stream(model: &mut Model, thread: &str) {

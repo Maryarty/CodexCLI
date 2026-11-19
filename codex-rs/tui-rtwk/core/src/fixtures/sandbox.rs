@@ -29,6 +29,6 @@ impl Sandbox {
     /// Applies `ev` under the model's epoch; the effects are dropped.
     pub fn send(&mut self, ev: AppEv) {
         let epoch = self.app.epoch();
-        drop(self.app.ingest(Ingress { epoch, ev }));
+        drop(self.app.ingest(Ingress::new(epoch, ev)));
     }
 }
