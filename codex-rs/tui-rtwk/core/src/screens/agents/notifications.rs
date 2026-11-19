@@ -27,6 +27,8 @@ pub fn notification_thread(notification: &ServerNotification) -> Option<&str> {
         N::ThreadNameUpdated(n) => &n.thread_id,
         N::ThreadArchived(n) => &n.thread_id,
         N::ThreadDeleted(n) => &n.thread_id,
+        N::ThreadUnarchived(n) => &n.thread_id,
+        N::ThreadSettingsUpdated(n) => &n.thread_id,
         N::ThreadClosed(n) => &n.thread_id,
         N::ThreadReverted(n) => &n.thread_id,
         N::ThreadReadStateChanged(n) => &n.thread_id,
@@ -91,6 +93,8 @@ pub fn observes(notification: &ServerNotification) -> bool {
             | ServerNotification::ThreadNameUpdated(_)
             | ServerNotification::ThreadArchived(_)
             | ServerNotification::ThreadDeleted(_)
+            | ServerNotification::ThreadUnarchived(_)
+            | ServerNotification::ThreadSettingsUpdated(_)
             | ServerNotification::ThreadClosed(_)
             | ServerNotification::ThreadReadStateChanged(_)
             | ServerNotification::ThreadTokenUsageUpdated(_)
@@ -137,6 +141,7 @@ fn changed_thread(notification: &ServerNotification) -> Option<&str> {
         ServerNotification::ThreadClosed(closed) => Some(&closed.thread_id),
         ServerNotification::ThreadStatusChanged(change) => Some(&change.thread_id),
         ServerNotification::ThreadNameUpdated(update) => Some(&update.thread_id),
+        ServerNotification::ThreadSettingsUpdated(update) => Some(&update.thread_id),
         _ => None,
     }
 }
@@ -145,6 +150,7 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
     match notification {
         ServerNotification::ThreadStarted(started) => {
             if !started.thread.ephemeral {
+                model.removed.remove(&started.thread.id);
                 let mut thread = started.thread.clone();
                 thread.turns.clear();
                 let thread = normalize(thread);
@@ -173,6 +179,20 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
             }
             if let Some(overlay) = overlay(model, &update.thread_id) {
                 overlay.name = Some(update.thread_name.clone());
+            }
+        }
+        ServerNotification::ThreadUnarchived(back) => {
+            model.removed.remove(&back.thread_id);
+        }
+        ServerNotification::ThreadSettingsUpdated(update) => {
+            let settings = &update.thread_settings;
+            if let Some(thread) = model.threads.iter_mut().find(|t| t.id == update.thread_id) {
+                thread.cwd.clone_from(&settings.cwd);
+                thread.model = Some(settings.model.clone());
+                thread.model_provider.clone_from(&settings.model_provider);
+            }
+            if let Some(overlay) = overlay(model, &update.thread_id) {
+                overlay.settings = Some(settings.clone());
             }
         }
         ServerNotification::ThreadArchived(gone) => remove(model, &gone.thread_id),

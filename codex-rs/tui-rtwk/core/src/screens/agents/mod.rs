@@ -477,6 +477,8 @@ impl Eq for Ev {}
 pub struct Overlay {
     pub name: Option<Option<String>>,
     pub status: Option<ThreadStatus>,
+    /// The directory, model and provider of a `ThreadSettingsUpdated`.
+    pub settings: Option<codex_app_server_protocol::ThreadSettings>,
 }
 
 impl Model {
