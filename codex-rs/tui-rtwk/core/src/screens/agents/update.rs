@@ -56,8 +56,8 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         )),
         Intent::Rename { thread, name } => rename(model, thread, name, &mut outs),
         Intent::Stop(thread) => {
-            if let Some(row) = model.row(&thread)
-                && matches!(row.thread.status, ThreadStatus::Active { .. })
+            if let Some(task) = model.task(&thread)
+                && matches!(task.status, ThreadStatus::Active { .. })
             {
                 outs.push(out(
                     Command::Thread(ThreadAsk::ActiveTurn {
@@ -72,17 +72,17 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::Archive(thread) => remove(model, thread, Action::Archive, &mut outs),
         Intent::Delete(thread) => remove(model, thread, Action::Delete, &mut outs),
         Intent::Hide(id) => {
-            if model.row(&id).is_some() {
+            if model.has_task(&id) {
                 model.hidden.insert(id);
             }
         }
         Intent::TogglePin(thread) => {
             if model.pin_action_supported()
                 && !model.pin_pending
-                && let Some(row) = model.row(&thread)
-                && supports_shared_pinning(&row.thread.source)
+                && let Some(task) = model.task(&thread)
+                && supports_shared_pinning(&task.source)
             {
-                let pinned = !row.pinned;
+                let pinned = model.pin_rank(&thread).is_none();
                 model.pin_pending = true;
                 outs.push(out(
                     Command::Pin {
@@ -108,7 +108,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             }
         }
         Intent::Fork(thread) => {
-            if model.row(&thread).is_some() {
+            if model.has_task(&thread) {
                 outs.push(out(
                     Command::Thread(ThreadAsk::Fork { thread }),
                     Ctx::Fork,
@@ -137,7 +137,7 @@ fn set_grouping(model: &mut Model, grouping: super::Grouping) -> Option<Out> {
 /// Archive or delete the task (oracle: `run_agents_overview_action`, after
 /// the confirmation the view asked).
 fn remove(model: &mut Model, thread: String, action: Action, outs: &mut Vec<Out>) {
-    if model.row(&thread).is_none() {
+    if !model.has_task(&thread) {
         return;
     }
     model.notice = Some(Notice::Removing(action));
@@ -163,7 +163,7 @@ fn remove(model: &mut Model, thread: String, action: Action, outs: &mut Vec<Out>
 
 /// The directory of the task `at`, if there is one.
 fn cwd_of(model: &Model, at: Option<String>) -> Option<String> {
-    model.row(&at?).map(|row| row.thread.cwd.display().to_string())
+    model.task(&at?).map(|task| task.cwd.display().to_string())
 }
 
 /// Whether the server's lock or the connection holds the intent back: while
@@ -198,7 +198,7 @@ fn clear_search(model: &mut Model) {
 /// The task is named `name` (oracle: `activate`).
 fn rename(model: &Model, thread: String, name: String, outs: &mut Vec<Out>) {
     let name = name.trim().to_owned();
-    if name.is_empty() || model.row(&thread).is_none() {
+    if name.is_empty() || !model.has_task(&thread) {
         return;
     }
     outs.push(out(

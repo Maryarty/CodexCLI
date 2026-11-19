@@ -279,3 +279,38 @@ unchanged. The 77 oracle tests of the screen (47 snapshots) are still ported by 
 For VS2, the proved files alone are 1,879 prod lines by path with 35
 oracle tests;
 with app_server_session and keymap, if proved, about 12k.
+
+## 6. Live VS1 implementation (2026-11-19)
+
+Choose the reuse boundary at the call site. Keep the pinned oracle as the
+behaviour reference and use the port's ADRs, data ownership and measured
+cost to choose the implementation.
+
+| Area | Implementation |
+|---|---|
+| Command-center reads and request previews | Carry `listed_threads` and `request_preview` verbatim under the existing drift test. Keep receipts with their listed rows. Retain the already carried grouping, filtering and formatting fragments. |
+| Discovery | Share the oracle's recency ordering across merging and detail selection. Move owned wire rows through the merge and retain the existing per-source continuation contract. |
+| Protocol targets | Match the oracle's thread-bearing request variants on the typed protocol enum. Borrow the exact backend ID and keep numeric and string JSON-RPC IDs distinct. Notification routing covers the events consumed on this live path. |
+| Command-center actions | Look up the visible root in the existing catalog. The rtwk view uses the full row projection when drawing the list. |
+| Session ownership and transport | `CodexApp` and `ThreadModel` own session state under ADR-003. The existing host transports protocol commands and executes effects. Reuse of individual session helpers goes through these boundaries. |
+| VS2 consumers | `session-core`, `keymap`, `chat-live` and `usage` pick up the reusable logic when their live call sites are in place. rtwk owns input routing, frame pacing and the rendering and selection state. |
+
+The component benchmark compared the integration tree `674b13c8c` with
+this slice using the same Debug build profile and Rust toolchain. A
+counting allocator measured allocations and requested bytes, including
+reallocations. Fixture construction was outside each timed loop. The
+median is from eight runs per side, alternating run order. Lookup used the
+last root in catalogs built from the 30-row fixture. Merge used two
+10-row pages with 880-byte previews and took the first 10. Each lookup and
+merge sample ran 2,000 operations. Request ingress queued one typed
+tool-input request per app across 10,000 apps.
+
+| Operation | Allocations before → after | Bytes before → after | Median time before → after |
+|---|---:|---:|---:|
+| Lookup, 30 rows | 310 → 0 | 79,122 → 0 | 31.1 → 0.3 µs |
+| Lookup, 300 rows | 3,019 → 0 | 1,268,922 → 0 | 282.7 → 2.0 µs |
+| Decode and merge two pages | 381 → 91 | 143,589 → 58,565 | 203.6 → 182.8 µs |
+| Request ingress | 20 → 3 | 1,838 → 411 | 5.6 → 2.0 µs |
+
+The measurements cover the named operations inside the application.
+S11 and S12 measure the end-to-end terminal latency with release builds.

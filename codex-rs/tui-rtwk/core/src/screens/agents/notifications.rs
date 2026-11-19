@@ -7,36 +7,6 @@ use codex_app_server_protocol::{AuthMode, ServerNotification, ThreadStatus};
 
 use super::refresh::normalize;
 
-/// The thread a notification is about (oracle: `server_notification_thread_target`
-/// in `app_server_event_targets.rs`, adapted: only the notifications this
-/// app reads).
-pub fn notification_thread(notification: &ServerNotification) -> Option<&str> {
-    use ServerNotification as N;
-    Some(match notification {
-        N::ThreadStarted(n) => &n.thread.id,
-        N::ThreadStatusChanged(n) => &n.thread_id,
-        N::ThreadNameUpdated(n) => &n.thread_id,
-        N::ThreadArchived(n) => &n.thread_id,
-        N::ThreadDeleted(n) => &n.thread_id,
-        N::ThreadUnarchived(n) => &n.thread_id,
-        N::ThreadSettingsUpdated(n) => &n.thread_id,
-        N::ThreadClosed(n) => &n.thread_id,
-        N::ThreadReverted(n) => &n.thread_id,
-        N::ThreadReadStateChanged(n) => &n.thread_id,
-        N::ThreadTokenUsageUpdated(n) => &n.thread_id,
-        N::TurnStarted(n) => &n.thread_id,
-        N::TurnCompleted(n) => &n.thread_id,
-        N::ItemStarted(n) => &n.thread_id,
-        N::ItemCompleted(n) => &n.thread_id,
-        N::AgentMessageDelta(n) => &n.thread_id,
-        N::ReasoningSummaryTextDelta(n) => &n.thread_id,
-        N::ReasoningSummaryPartAdded(n) => &n.thread_id,
-        N::ServerRequestResolved(n) => &n.thread_id,
-        N::Error(n) => &n.thread_id,
-        _ => return None,
-    })
-}
-
 /// Whether `observe` reads `notification`.
 pub fn observes(notification: &ServerNotification) -> bool {
     matches!(

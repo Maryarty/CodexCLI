@@ -107,9 +107,7 @@ impl ScreenState {
             Sel::ShowMore if searching => Self::send(cx, AgentsIntent::MoreMatches(self.lens())),
             Sel::ShowMore => Self::send(cx, AgentsIntent::ShowMore),
             Sel::Task(_) if matches!(self.mode, Mode::Rename(_)) => {}
-            Sel::Task(id)
-                if !model.held() && model.failure.is_none() && model.row(&id).is_some() =>
-            {
+            Sel::Task(id) if !model.held() && model.failure.is_none() && model.has_task(&id) => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.open_thread, codex_tui_core::ids::ThreadId::new(id));
                 if searching {
@@ -443,7 +441,7 @@ impl ScreenState {
                     Act::Rename => {
                         if let Some(id) = task()
                             && !model.held()
-                            && model.row(&id).is_some()
+                            && model.has_task(&id)
                         {
                             Self::send(cx, AgentsIntent::ClearSearch);
                             self.set_mode(Mode::Rename(id), &center);
@@ -453,7 +451,7 @@ impl ScreenState {
                     Act::Archive | Act::Delete => {
                         if let Some(thread) = task()
                             && !model.held()
-                            && model.row(&thread).is_some()
+                            && model.has_task(&thread)
                         {
                             let action = if act == Act::Archive {
                                 Action::Archive

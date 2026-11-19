@@ -52,7 +52,7 @@ pub fn refresh_usage(model: &mut Model, at: Option<String>) -> Option<Out> {
     {
         return None;
     }
-    let thread = model.row(&at?)?.id().to_owned();
+    let thread = at.filter(|id| model.has_task(id))?;
     if usage_wait(model, &thread).is_some() {
         return None;
     }

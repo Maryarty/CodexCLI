@@ -134,6 +134,39 @@ fn page_json(rows: &[(&str, i64)]) -> Result<Value, ServerError> {
     page(rows, None)
 }
 
+#[test]
+fn page_receipts_follow_the_rows_that_were_read() {
+    use codex_tui_core::screens::agents::decode;
+
+    let mut interactive = page_json(&[("read", 10), ("unread", 6)]).unwrap();
+    interactive["readStates"] = json!({
+        "read": {"firstUnread": null, "revision": "read-revision"},
+        "unread": {"firstUnread": {"type": "threadStart"}, "revision": "unread-revision"},
+        "absent": {"firstUnread": {"type": "threadStart"}, "revision": "absent-revision"}
+    });
+    let command = list(None);
+    let Reply::Listed(single) = decode(&command, interactive.clone()).unwrap() else {
+        panic!("expected a page");
+    };
+    assert_eq!(single.unread, ["unread"]);
+
+    let Reply::Listed(merged) = fanout_of(&command)
+        .reply(vec![Ok(interactive), page_json(&[("exec", 8)])], None)
+        .unwrap()
+    else {
+        panic!("expected a merged page");
+    };
+    assert_eq!(
+        merged
+            .threads
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        ["read", "exec", "unread"]
+    );
+    assert_eq!(merged.unread, single.unread);
+}
+
 /// Reads the pins as the shell does: a request, its answer, until none is
 /// left. `answers` are the answers in order; the requests asked are returned
 /// with what the reader made of them.

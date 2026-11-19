@@ -53,11 +53,7 @@ pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> A
 /// The name a confirmation asks about: the task's name or its preview, the
 /// first non-empty line (oracle: `confirm_agents_overview_action`).
 pub fn confirm_name(strings: &Strings, model: &Model, confirm: &Confirm) -> String {
-    let row = model.row(&confirm.thread);
-    let name = row
-        .as_ref()
-        .map(|row| row.name.as_deref().unwrap_or(&row.preview))
-        .unwrap_or_default();
+    let name = model.task_name(&confirm.thread).unwrap_or_default();
     name.trim()
         .lines()
         .next()

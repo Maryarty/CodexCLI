@@ -32,6 +32,7 @@ use super::Pins;
 use super::Reply;
 use super::carried::is_overview_thread;
 use super::carried::supports_shared_pinning;
+use crate::protocol::agents::listed_page;
 use crate::rpc::RpcError;
 use crate::rpc::ServerError;
 
@@ -112,6 +113,13 @@ pub fn fanout(command: &Command, cloud: bool) -> Option<Fanout> {
     })
 }
 
+struct SourcePage {
+    other: bool,
+    next_cursor: Option<String>,
+    rows: VecDeque<Thread>,
+    shown: usize,
+}
+
 impl Fanout {
     /// Whether this page also reads the pinned tasks.
     pub fn reads_pins(&self) -> bool {
@@ -119,14 +127,13 @@ impl Fanout {
     }
 
     /// The sources still asked, in the order the results come back.
-    fn active(&self) -> Vec<(bool, &Part)> {
+    fn active(&self) -> impl Iterator<Item = (bool, &Part)> {
         [
             (false, &self.cursors.interactive),
             (true, &self.cursors.other),
         ]
         .into_iter()
         .filter(|(_, part)| !part.done)
-        .collect()
     }
 
     /// One `thread/list` per source that is not exhausted, each under an id
@@ -134,7 +141,6 @@ impl Fanout {
     pub fn requests(&self, mut ids: impl FnMut() -> RequestId) -> Vec<ClientRequest> {
         self
             .active()
-            .into_iter()
             .map(|(other, part)| ClientRequest::ThreadList {
                 request_id: ids(),
                 params: ThreadListParams {
@@ -179,78 +185,61 @@ impl Fanout {
         results: Vec<Result<serde_json::Value, ServerError>>,
         pins: Option<Pins>,
     ) -> Result<Reply, RpcError> {
-        let active = self.active();
-        let mut fetched: Vec<(bool, ThreadListResponse, VecDeque<Thread>)> = Vec::new();
+        let mut fetched = Vec::new();
         let mut unread = Vec::new();
-        for ((other, part), result) in active.iter().zip(results) {
+        for ((other, part), result) in self.active().zip(results) {
             let json = result.map_err(|error| RpcError::Remote(error.message))?;
-            let page: ThreadListResponse = serde_json::from_value(json)
+            let response: ThreadListResponse = serde_json::from_value(json)
                 .map_err(|error| RpcError::Malformed(error.to_string()))?;
-            // The server repeating the cursor it was given cannot advance.
-            if page.next_cursor.is_some() && page.next_cursor == part.cursor {
+            if response.next_cursor.is_some() && response.next_cursor == part.cursor {
                 return Err(RpcError::Remote("the cursor did not advance".to_owned()));
             }
-            unread.extend(
-                page.read_states
-                    .iter()
-                    .flatten()
-                    .filter(|(_, state)| state.first_unread.is_some())
-                    .map(|(id, _)| id.clone()),
-            );
-            let rows = page
-                .data
-                .iter()
-                .filter(|thread| is_overview_thread(thread))
-                .skip(part.skip)
-                .cloned()
-                .collect();
-            fetched.push((*other, page, rows));
+
+            let page = listed_page(response);
+            unread.extend(page.unread);
+            let mut rows = VecDeque::from(page.threads);
+            rows.drain(..part.skip.min(rows.len()));
+            fetched.push(SourcePage {
+                other,
+                next_cursor: page.next_cursor,
+                rows,
+                shown: 0,
+            });
         }
         let limit = if self.search {
             usize::MAX
         } else {
             PAGE_SIZE as usize
         };
-        let mut queues: Vec<VecDeque<Thread>> =
-            fetched.iter().map(|(_, _, rows)| rows.clone()).collect();
         let mut threads = Vec::new();
-        let mut shown = vec![0_usize; queues.len()];
         while threads.len() < limit {
-            // The newer head wins; on a tie the greater id (oracle:
-            // `next_batch`).
-            let next = queues
+            // The newer head wins; on a tie the greater id (oracle: `next_batch`).
+            let next = fetched
                 .iter()
                 .enumerate()
-                .filter_map(|(index, rows)| rows.front().map(|thread| (index, thread)))
-                .max_by(|(_, left), (_, right)| {
-                    left.recency_at
-                        .unwrap_or(left.updated_at)
-                        .cmp(&right.recency_at.unwrap_or(right.updated_at))
-                        .then_with(|| left.id.cmp(&right.id))
-                })
+                .filter_map(|(index, page)| page.rows.front().map(|thread| (index, thread)))
+                .max_by(|(_, left), (_, right)| super::compare_recency(left, right))
                 .map(|(index, _)| index);
             let Some(index) = next else { break };
-            if let Some(thread) = queues[index].pop_front() {
+            let page = &mut fetched[index];
+            if let Some(thread) = page.rows.pop_front() {
                 threads.push(thread);
-                shown[index] += 1;
+                page.shown += 1;
             }
         }
         let mut cursors = self.cursors.clone();
-        for (((other, page, rows), shown), (_, part)) in
-            fetched.iter().zip(shown).zip(active.iter())
-        {
-            let target = if *other {
+        for page in fetched {
+            let target = if page.other {
                 &mut cursors.other
             } else {
                 &mut cursors.interactive
             };
-            if shown < rows.len() {
-                // Rows of this page were not shown: stay on it.
-                target.skip = part.skip + shown;
-            } else {
+            if page.rows.is_empty() {
                 target.skip = 0;
-                target.cursor.clone_from(&page.next_cursor);
                 target.done = page.next_cursor.is_none();
+                target.cursor = page.next_cursor;
+            } else {
+                target.skip += page.shown;
             }
         }
         Ok(Reply::Listed(Page {

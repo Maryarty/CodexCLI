@@ -196,14 +196,8 @@ impl Model {
                 children.entry(parent.clone()).or_default().push(thread);
             }
         }
-        // The rows of a history search count while it is open (oracle:
-        // `includes_row`).
-        let matches = self.history.iter().flat_map(|_| self.search_matches.iter());
         let mut roots = self
-            .threads
-            .iter()
-            .chain(matches)
-            .filter(|thread| thread.parent_thread_id.is_none())
+            .visible_roots()
             .map(|root| (root, agents_overview_group(root, &children)))
             .collect::<Vec<_>>();
         roots.sort_by(|(left, left_group), (right, right_group)| {
@@ -220,7 +214,6 @@ impl Model {
         });
         roots
             .into_iter()
-            .filter(|(root, _)| !self.hidden.contains(&root.id))
             .map(|(root, group)| RowData {
                 thread: root.clone(),
                 name: root.name.clone(),
@@ -239,7 +232,7 @@ impl Model {
             .collect()
     }
 
-    fn pin_rank(&self, id: &str) -> Option<usize> {
+    pub(super) fn pin_rank(&self, id: &str) -> Option<usize> {
         self.pinned_ids().position(|pin| pin == id)
     }
 
@@ -389,9 +382,31 @@ impl Model {
         CenterRow::Group { label, count }
     }
 
-    /// The row of task `id`.
-    pub fn row(&self, id: &str) -> Option<RowData> {
-        self.rows(None).into_iter().find(|row| row.id() == id)
+    fn task_candidates(&self) -> impl Iterator<Item = &Thread> {
+        let matches = self.history.iter().flat_map(|_| self.search_matches.iter());
+        self.threads.iter().chain(matches)
+    }
+
+    fn visible_roots(&self) -> impl Iterator<Item = &Thread> {
+        self.task_candidates()
+            .filter(|thread| thread.parent_thread_id.is_none() && !self.hidden.contains(&thread.id))
+    }
+
+    pub(super) fn task(&self, id: &str) -> Option<&Thread> {
+        if self.hidden.contains(id) {
+            return None;
+        }
+        self.task_candidates()
+            .find(|thread| thread.id == id && thread.parent_thread_id.is_none())
+    }
+
+    pub fn has_task(&self, id: &str) -> bool {
+        self.task(id).is_some()
+    }
+
+    /// The text a confirmation uses for the task's name.
+    pub fn task_name(&self, id: &str) -> Option<&str> {
+        self.task(id).map(|thread| thread.name.as_deref().unwrap_or(&thread.preview))
     }
 
     /// Everything the view draws, with the highlight at the default row (the

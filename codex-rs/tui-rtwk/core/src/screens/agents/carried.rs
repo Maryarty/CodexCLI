@@ -6,9 +6,12 @@
 
 use std::collections::HashMap;
 
+use codex_app_server_protocol::McpServerElicitationRequest;
+use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SessionSource;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadActiveFlag;
+use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadStatus;
 use codex_protocol::protocol::SubAgentSource;
 
@@ -120,3 +123,38 @@ pub fn preview_markdown(text: &str) -> String {
         .collect()
 }
 
+// oracle: agents_overview_details.rs fn request_preview
+pub(crate) fn request_preview(request: &ServerRequest) -> Option<String> {
+    let text = match request {
+        ServerRequest::CommandExecutionRequestApproval { params, .. } => {
+            params.reason.as_deref().or(params.command.as_deref())
+        }
+        ServerRequest::FileChangeRequestApproval { params, .. } => params.reason.as_deref(),
+        ServerRequest::PermissionsRequestApproval { params, .. } => params.reason.as_deref(),
+        ServerRequest::McpServerElicitationRequest { params, .. } => match &params.request {
+            McpServerElicitationRequest::Form { message, .. }
+            | McpServerElicitationRequest::OpenAiForm { message, .. }
+            | McpServerElicitationRequest::OpenAiElicitationForm { message, .. }
+            | McpServerElicitationRequest::Url { message, .. } => Some(message.as_str()),
+            McpServerElicitationRequest::UserVerification { .. } => None,
+        },
+        ServerRequest::ToolRequestUserInput { params, .. } => params
+            .questions
+            .first()
+            .map(|question| question.question.as_str()),
+        _ => None,
+    }?;
+    Some(preview_text(text))
+}
+
+// oracle: agents_overview_discovery.rs fn listed_threads
+pub(crate) fn listed_threads(page: ThreadListResponse) -> impl Iterator<Item = (Thread, bool)> {
+    page.data.into_iter().map(move |thread| {
+        let unread = page
+            .read_states
+            .as_ref()
+            .and_then(|states| states.get(&thread.id))
+            .is_some_and(|state| state.first_unread.is_some());
+        (thread, unread)
+    })
+}

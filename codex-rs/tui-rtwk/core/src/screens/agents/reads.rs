@@ -28,13 +28,7 @@ const RECENT_DETAIL_LIMIT: usize = 10;
 /// every one the server holds loaded (oracle: `detail_thread_ids`).
 pub(super) fn recent_ids(threads: &[Thread]) -> Vec<String> {
     let mut threads: Vec<&Thread> = threads.iter().collect();
-    threads.sort_by(|left, right| {
-        right
-            .recency_at
-            .unwrap_or(right.updated_at)
-            .cmp(&left.recency_at.unwrap_or(left.updated_at))
-            .then_with(|| right.id.cmp(&left.id))
-    });
+    threads.sort_by(|left, right| super::compare_recency(right, left));
     threads
         .into_iter()
         .enumerate()

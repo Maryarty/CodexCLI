@@ -52,7 +52,7 @@ use crate::threads::ThreadFx;
 
 pub use carried::AgentsOverviewGroup as Group;
 pub use carried::preview_markdown;
-pub(crate) use carried::{PREVIEW_CHARS, preview_text};
+pub(crate) use carried::{PREVIEW_CHARS, preview_text, request_preview};
 pub use center::Center;
 pub use center::CenterRow;
 pub use center::CenterThreads;
@@ -63,7 +63,6 @@ pub use center::display_directory;
 pub use details::DetailLine;
 pub use details::Details;
 pub use discovery::refill;
-pub use notifications::notification_thread;
 pub use notifications::observe;
 pub use notifications::observes;
 pub use refresh::Out;
@@ -836,4 +835,12 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// `{"clock":n}`, `{"current":"id"}`, `{"pinned":["id"..]}`, `{"request":["id","text"]}`.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     crate::protocol::agents::seed_ev(value).map_err(crate::screens::SeedError::Bad)
+}
+
+/// The oracle's recency order for discovery and detail reads.
+pub(super) fn compare_recency(left: &Thread, right: &Thread) -> std::cmp::Ordering {
+    left.recency_at
+        .unwrap_or(left.updated_at)
+        .cmp(&right.recency_at.unwrap_or(right.updated_at))
+        .then_with(|| left.id.cmp(&right.id))
 }
