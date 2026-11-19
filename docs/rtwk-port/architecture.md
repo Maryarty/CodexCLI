@@ -292,8 +292,8 @@ scroll and selection controllers) live in a `ThreadUi` map keyed by
 `ThreadId`: a field of the UI model (`UiApp.ui`, `UiState.thread_ui`; rtwk
 triage keeps its controllers in the app struct too, app.rs:58-63), beside the
 core model `UiApp.core` (`CodexApp`) and never inside it: core has no rtwk, so
-a controller cannot be there. They are written only by UI modules on the R14
-allowlist, and outside `ThreadModel`, which is what `apply` sees. On a
+a controller cannot be there. They are made only where Flutter makes them (R14: in a widget's
+`State`, or in this per-thread UI holder, disposed with it) and outside `ThreadModel`, which is what `apply` sees. On a
 switch the subtree is keyed by ThreadId and reuses that thread's controllers,
 so A→B→A keeps the draft and kill buffer (SC2b). Text the model needs
 (submit, queue) enters `apply` as an intent on submit; the model never mirrors
@@ -540,7 +540,7 @@ cross-thread state are values (R10).
 | R11 | lists use rtwk's keyed `SelectionList<K>`; the clock is a model input | lint on `Instant::now`/`SystemTime::now` in views |
 | R12 | no IO in `apply` or views; IO only in effects run by the shell | `disallowed_methods` lint |
 | R13 | a newtype per id kind; composite keys where an id is scoped | types |
-| R14 | app data never enters rtwk local state outside an allowlist of UI-only modules (incl. `ThreadUi`); screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`, controller constructors; a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
+| R14 | app data never enters rtwk local state; controllers (`ScrollController`, `ListController`, `SelectionController`, `TextEditingController`, `TabController`, `ExpansionController`, `AnimationController`, `FocusNode`) are made as Flutter makes them: in a widget's `State` (`create_state`/`init_state`/its fields' constructors) or the per-thread `ThreadUi` holder, disposed with it, never inside a `build`/`view`/`*_view`/`render*` function or a builder closure, never in core; screens take app data only as `&CodexApp`, memo deps or `rtwk::provider` projections of the model; routes and dialogs take ids, not data (a dialog that edits a value copies it as its draft) | `disallowed_types` `Obs`; `disallowed_methods` `use_state`, `TokioApp::follow`; `rules.rs`: `r14_controllers_are_made_in_a_state_never_in_build_or_a_closure`, `r14_core_has_no_controller` (the constructor ban and its file allowlist are gone, 2026-11-19); a check that `State` fields of screens and dialogs hold ids, drafts and controllers, never model types — a lint, so SC6a is caught, not impossible |
 
 **ADR-003 thread ownership: how it is enforced (2026-11-19, adr003-enforce).**
 By type (the compiler refuses a violation): `ThreadModel` has a private
@@ -734,7 +734,7 @@ codex-rs/tui-rtwk/          own workspace (members: core, host), package codex-t
   src/theme.rs              style tokens from the rtwk ThemeData at the root (no literal colours)
   src/l10n/                 ADR-010: Lang, Tables<T>, the shared strings.rs (EN + a RU proof); each screen dir has its own strings.rs
   src/ui/view.rs            root: Theme, MultiProvider (model projections, handlers), Navigator (home: chat), request presenter
-  src/ui/{presenter,thread_ui,debug_menu,seeded}.rs   request presenter; ThreadUi controllers (R14 allowlist); debug menu; a seeded model for an entry
+  src/ui/{presenter,thread_ui,debug_menu,seeded}.rs   request presenter; ThreadUi controllers (R14: per-thread holder); debug menu; a seeded model for an entry
   src/screens/<dir>/        22 view dirs: widgets, strings.rs, debug entries, fixtures/*.jsonl; no model, no protocol
   host/                     the binary's backend (in-process app-server) and main
   tests/screens.rs          Tester over the app on a fake backend
