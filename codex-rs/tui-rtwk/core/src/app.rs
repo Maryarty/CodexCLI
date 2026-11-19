@@ -40,6 +40,7 @@ use crate::threads::ThreadEv;
 use crate::threads::ThreadFx;
 use crate::threads::ThreadModel;
 use crate::threads::ThreadSet;
+use crate::threads::TurnState;
 
 /// Where the connection to the app-server stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +131,10 @@ pub enum Intent {
     /// Move the empty conversation to the next connected backend (oracle:
     /// `CycleNewConversationBackend`).
     CycleBackend,
+    /// Show `ThreadId` in the chat: the one door every screen uses to open a
+    /// thread (ADR-003). A thread this process holds is shown again as it
+    /// is; any other is resumed once, by `apply_app` alone.
+    OpenThread(ThreadId),
     Screen(ScreenIntent),
 }
 
@@ -286,6 +291,40 @@ impl CodexApp {
         }
     }
 
+    /// The invariants of the model (ADR-003 R7), checked by the tests after
+    /// every event: the shown thread is held, each model sits under its own
+    /// id, a ticket is awaited in one place only, a server request is queued
+    /// once, and the blank projection is the blank one.
+    pub fn assert_consistent(&self) {
+        if let Some(active) = &self.session.active {
+            assert!(
+                self.threads.contains(active),
+                "active {active:?} is not held"
+            );
+        }
+        assert_eq!(self.threads.blank().id, ThreadId::default());
+        let mut seen: Vec<Ticket> = self.outgoing.tickets().collect();
+        for (id, model) in self.threads.iter() {
+            assert_eq!(&model.id, id, "a model under another thread's key");
+            if let TurnState::Running(running) = &model.turn {
+                assert_ne!(
+                    model.last_ended.as_ref(),
+                    Some(&running.turn),
+                    "{id:?} runs the turn it ended"
+                );
+            }
+            seen.extend(model.outgoing.tickets());
+        }
+        let total = seen.len();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), total, "a ticket awaited twice");
+        let keys: Vec<_> = self.requests.entries.iter().map(|e| &e.key).collect();
+        for (at, key) in keys.iter().enumerate() {
+            assert!(!keys[..at].contains(key), "a request queued twice");
+        }
+    }
+
     /// The app-scoped RPCs whose answer is still awaited.
     pub fn in_flight(&self) -> usize {
         self.outgoing.len()
@@ -311,6 +350,11 @@ impl CodexApp {
             Command::StartThread { backend, .. } => *backend,
             _ => agents.displayed,
         }
+    }
+
+    /// The model of a thread this process holds.
+    pub fn thread(&self, id: &ThreadId) -> Option<&Rc<ThreadModel>> {
+        self.threads.get(id)
     }
 
     /// The projection of the active thread, or the blank one.
@@ -584,9 +628,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                     app.session.active.as_ref().map(|id| id.as_str().to_owned());
             }
             let outs = agents::update(&mut screens.agents, intent);
-            let outs = attach_known(app, outs);
             send_agents(app, outs, fx);
         }
+        Intent::OpenThread(id) => open_thread(app, &id, fx),
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }
@@ -598,36 +642,24 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
     let screens = Rc::make_mut(&mut app.screens);
     let outs = match &intent {
         resume::Intent::Open => agents::update(&mut screens.agents, agents::Intent::Refresh),
-        resume::Intent::Resume(id) => agents::update(
-            &mut screens.agents,
-            agents::Intent::Resume(id.as_str().to_owned()),
-        ),
+        resume::Intent::Resume(id) => {
+            resume::apply_intent(&mut screens.resume, intent.clone(), fx);
+            let id = id.clone();
+            return open_thread(app, &id, fx);
+        }
     };
     resume::apply_intent(&mut screens.resume, intent, fx);
-    let outs = attach_known(app, outs);
     send_agents(app, outs, fx);
 }
 
-/// A resume of a thread this process already holds (its `ThreadModel` is in
-/// `app.threads`, written by us) is no request: the thread is shown again as
-/// it is, and a thread written by another process is still resumed once.
-fn attach_known(app: &mut CodexApp, outs: Vec<agents::Out>) -> Vec<agents::Out> {
-    outs.into_iter()
-        .filter(|out| {
-            let agents::Command::Thread(ThreadAsk::Resume { thread }) = &out.command else {
-                return true;
-            };
-            let id = ThreadId::new(thread);
-            let known = app.threads.get(&id).is_some_and(|model| !model.read_only);
-            if known {
-                agents::attach_loaded(&mut Rc::make_mut(&mut app.screens).agents, thread);
-                let session = Rc::make_mut(&mut app.session);
-                session.active = Some(id);
-                session.status = Session::Ready;
-            }
-            !known
-        })
-        .collect()
+/// `OpenThread`: the center opens the task (its loading state, `opening`);
+/// the resume itself is decided where every thread RPC is, `send_agents`.
+fn open_thread(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
+    let outs = agents::update(
+        &mut Rc::make_mut(&mut app.screens).agents,
+        agents::Intent::Resume(id.as_str().to_owned()),
+    );
+    send_agents(app, outs, fx);
 }
 
 /// While the picker is live its rows follow the list the backend filled.
@@ -648,6 +680,20 @@ fn sync_picker(app: &mut CodexApp) {
 /// RPCs are app-scoped: the command carries no thread.
 fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     for out in outs {
+        // A resume of a thread this process already holds (its `ThreadModel`
+        // is in `threads`, written by us) is no request: the thread is shown
+        // again as it is. A thread another process writes is still resumed
+        // once. The one place that decides "switch or resume" (ADR-003).
+        if let agents::Command::Thread(ThreadAsk::Resume { thread }) = &out.command {
+            let id = ThreadId::new(thread);
+            if app.threads.get(&id).is_some_and(|model| !model.read_only) {
+                agents::attach_loaded(&mut Rc::make_mut(&mut app.screens).agents, thread);
+                let session = Rc::make_mut(&mut app.session);
+                session.active = Some(id);
+                session.status = Session::Ready;
+                continue;
+            }
+        }
         match out.command {
             agents::Command::NewWorktree { cwd } => {
                 fx.commands.push(Command::Worktree { cwd });

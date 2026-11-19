@@ -117,6 +117,11 @@ impl<C> Pending<C> {
         self.entries.insert(ticket, ctx);
     }
 
+    /// The tickets in flight, in order.
+    pub fn tickets(&self) -> impl Iterator<Item = Ticket> + '_ {
+        self.entries.keys().copied()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
