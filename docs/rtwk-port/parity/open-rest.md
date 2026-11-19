@@ -21,3 +21,7 @@ streams into A while B is shown. Oracle's Esc during the loading frame cannot ca
 handler); the person asked for it. The addendum (every RpcError-to-notice mapping of the center) is not done: only the
 resume's `Failed to attach to task:` is. The root cause of the person's second-open conflict was not reproduced with
 the fake (a second resume of an already attached thread, now avoided; a real writer elsewhere takes the read-only path).
+
+S12 (N=7, release, interleaved, `--measure-only`, load 9-16; `perf/results/open-rest-2026-11-19`), medians in ms from Enter:
+first frame oracle 0.5 / rtwk 0.5; composer oracle 92.8 / rtwk 35.1; **t_transcript_ms (last message of the 80-turn
+history on screen) oracle 92.8 / rtwk 52.9** (rtwk had no history before this task: it never showed).
