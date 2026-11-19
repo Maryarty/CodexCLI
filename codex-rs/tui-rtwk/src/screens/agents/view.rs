@@ -873,11 +873,13 @@ pub fn footer<'a>(
         Some(Notice::Removing(Action::Delete)) => Some(strings.deleting.to_owned()),
         Some(Notice::CreatingWorktree) => Some(strings.creating_worktree.to_owned()),
         Some(Notice::LoadFailed) => Some(strings.load_failed.to_owned()),
-        Some(Notice::ServerVersion(text) | Notice::Error(text)) => Some(text.clone()),
+        Some(Notice::Error(text)) => Some(text.clone()),
         None => {
             let failed =
                 model.paging.failed || model.history.as_ref().is_some_and(|history| history.failed);
-            (failed && !model.paging.loading).then(|| strings.load_failed.to_owned())
+            (failed && !model.paging.loading)
+                .then(|| strings.load_failed.to_owned())
+                .or_else(|| model.server_version.clone())
         }
     };
     if let Some(text) = notice.filter(|_| !ui.help) {

@@ -342,7 +342,17 @@ fn apply_event(app: &mut CodexApp, ev: AppEv, fx: &mut AppFx) {
             if let ScreenEv::Agents(agents::Ev::Started(thread)) = &ev {
                 resume_into_chat(app, thread);
             }
+            let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if reconnected {
+                // A new connection: the list is read again (oracle:
+                // `finish_reconnect` leaves the overview to refresh).
+                let outs = agents::update(
+                    &mut Rc::make_mut(&mut app.screens).agents,
+                    agents::Intent::Open,
+                );
+                send_agents(app, outs, fx);
+            }
         }
     }
 }

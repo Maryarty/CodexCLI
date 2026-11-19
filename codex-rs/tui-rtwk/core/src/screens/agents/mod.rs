@@ -145,7 +145,8 @@ pub enum Action {
 }
 
 /// The notice that replaces the footer hints (oracle: `connection_notice`,
-/// `creating_worktree`, `removal`, `refresh_failed`, `server_version_notice`).
+/// `creating_worktree`, `removal`, `refresh_failed`; the server version
+/// notice is `Model::server_version`, which yields to all of them).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     Reconnecting,
@@ -154,8 +155,6 @@ pub enum Notice {
     /// A worktree is being created for `w`.
     CreatingWorktree,
     LoadFailed,
-    /// The server's own words about its version.
-    ServerVersion(String),
     /// A failed action, as a message of the server (oracle:
     /// `add_agents_overview_error`).
     Error(String),
@@ -365,6 +364,9 @@ pub struct Model {
     pub search_matches: Vec<Thread>,
     pub search_seq: u64,
     pub notice: Option<Notice>,
+    /// The server's own words about its version (oracle:
+    /// `server_version_notice`): the footer shows them when no notice does.
+    pub server_version: Option<String>,
     /// A refused removal, until the user goes back (it holds the screen).
     pub failure: Option<Failure>,
     /// The thread that owns the voice session (oracle: `voice_owner_thread_id`).
@@ -407,6 +409,16 @@ pub enum Ev {
     ListFailed,
     /// A notice, or none.
     Notice(Option<Notice>),
+    /// The server is older than (or differs from) the client: its words, or
+    /// none (oracle: `update_server_version_overview_notice`).
+    ServerVersion(Option<String>),
+    /// The connection to the server was lost and is being restored: the
+    /// stale reads are dropped (oracle: `begin_reconnect`) and the footer
+    /// says `Reconnecting`.
+    Reconnecting,
+    /// A new connection is up (oracle: `finish_reconnect`): the notice ends
+    /// and the list is read again.
+    Reconnected,
     /// A request waits on a thread (preview text), or was answered.
     Request(String, Option<String>),
     /// The shell started a task by itself (a worktree's) and it opens in the
