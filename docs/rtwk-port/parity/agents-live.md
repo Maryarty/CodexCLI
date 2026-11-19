@@ -339,5 +339,18 @@ does; the wrap of the long help is the one clap uses without a terminal (width 1
 | 4 F3 closes the search again | done (`f3_toggles_the_search_line`, shown biting) |
 | 5 Grouping persisted and read at start | done, Directory is not saved (as the oracle) |
 | 6 ThreadReverted resets Prompt, Last message, tokens | done |
-| 7 CLI `--cd/-C`, `--no-alt-screen`, `--remote`/`--no-daemon` refusals | done; `--remote` is refused ("codex-rtwk runs its own embedded app server") until daemon support; inline rendering under `--no-alt-screen` is not verified by a test |
+| 7 CLI `--cd/-C`, `--no-alt-screen`, `--remote`/`--no-daemon` | `--cd` and `--no-alt-screen` done (inline rendering not verified by a test); `--remote` and `--no-daemon` now live (see agents-daemon below) |
 | 8 `/subagents` | opens `Target::AgentPicker`; the picker is not built, the sheet shows "Not implemented yet: subagent picker"; `/agents` is the command center |
+
+## agents-daemon (daemon, remote, reconnect, older-server notice)
+
+| Oracle | Port |
+|---|---|
+| `codex agents` starts or reuses the local daemon (`start_with_features_classified`) and connects over its UDS | `host/src/in_process.rs` `connect_first`; default for `agents`; verified by hand in a pty against the real daemon (real tasks shown) |
+| `--no-daemon` embeds the app server | `Mode::resolve` in `host/src/target.rs`; the agents scenario runs `agents --no-daemon` on our side (a fresh CODEX_HOME has no installed daemon package) |
+| `--remote ADDR` (`ws://`, `wss://` with `--remote-auth-token-env`, `unix://`) and its refusals (`--no-daemon` with `--remote`, token over plain ws to non-loopback) | `host/src/target.rs` `resolve_remote_addr`, tests ported there; `Cli.remote*` in `src/lib.rs`, `tests/cli.rs` |
+| reconnect policy 0, 1, 2, 4, then 8 s, budget 120 s; "Reconnecting - agent list is stale", "Reconnect failed - agent list is stale; relaunch to retry" | `src/shell/reconnect.rs`; tests `tests/shell_connection.rs` on tokio paused time (shown biting: delays mutated, red); core `core/tests/agents_reconnect.rs` (`reconnecting_drops_the_stale_reads_and_says_so`, `a_new_connection_ends_the_notice_and_reads_the_list`, `a_failed_reconnect_asks_for_nothing`) |
+| older-server notice `Service v{server} {<|!=} Codex CLI v{client}` (+ ` / daemon` locally), lowest footer priority | `src/shell/version.rs`, `Model.server_version`, tests `tests/shell_connection.rs` (stable/prerelease/other lines/words) |
+| `refreshing_one_backends_pins_preserves_cross_backend_rank`, `overview_keeps_rows_and_routes_actions_to_the_owner`, `shared_overview_*` | NOT DONE. The oracle's only second backend is the feature-gated Cloud one (`BackendId`, `BackendRegistry`); the port has no cloud connector and core has no owner per row, per-backend pins/cursors or owner-routed commands. A core refactor plus a connector is needed; left for a decision |
+
+Notes: the epoch of the connection is kept across a reconnect and in-flight work is dropped; after `Reconnected` core reads the list again.
