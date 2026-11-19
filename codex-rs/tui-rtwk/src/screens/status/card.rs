@@ -12,6 +12,7 @@ use rtwk::provider::{read, select};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::format::format_tokens_compact;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::status::{Approval, Card, Intent, Profile};
@@ -107,9 +108,9 @@ fn fields(card: &Card, s: &Strings) -> AnyWidget {
         s.token_usage.into(),
         txt(s
             .tokens_total(
-                &format::tokens_compact(tokens.blended_total()),
-                &format::tokens_compact((tokens.input - tokens.cached_input).max(0)),
-                &format::tokens_compact(tokens.output),
+                &format_tokens_compact(tokens.blended_total()),
+                &format_tokens_compact((tokens.input - tokens.cached_input).max(0)),
+                &format_tokens_compact(tokens.output),
             )
             .to_string()),
     ));
@@ -119,8 +120,8 @@ fn fields(card: &Card, s: &Strings) -> AnyWidget {
             txt(s
                 .context_value(
                     context.percent_left,
-                    &format::tokens_compact(context.used),
-                    &format::tokens_compact(context.window),
+                    &format_tokens_compact(context.used),
+                    &format_tokens_compact(context.window),
                 )
                 .to_string()),
         ));

@@ -9,6 +9,7 @@
 pub mod app;
 pub mod commands;
 pub mod fixtures;
+pub mod format;
 pub mod ids;
 pub mod protocol;
 pub mod rpc;

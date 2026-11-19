@@ -16,7 +16,7 @@ use rtwk::l10n::msg;
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
-use crate::screens::resume::layout::Age;
+use crate::ui::age::Age;
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

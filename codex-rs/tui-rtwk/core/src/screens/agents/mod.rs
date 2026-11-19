@@ -50,7 +50,6 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub use carried::AgentsOverviewGroup as Group;
-pub use carried::format_tokens_compact;
 pub use carried::preview_markdown;
 pub use center::Center;
 pub use center::CenterRow;

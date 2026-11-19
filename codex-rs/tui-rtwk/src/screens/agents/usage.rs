@@ -6,7 +6,8 @@
 
 use rtwk::l10n::NumSyms;
 
-use codex_tui_core::screens::agents::{Usage, format_tokens_compact};
+use codex_tui_core::format::format_tokens_compact;
+use codex_tui_core::screens::agents::Usage;
 
 use super::strings::Strings;
 

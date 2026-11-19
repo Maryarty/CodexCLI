@@ -357,7 +357,7 @@ fn item(
             .max_lines(1)
             .overflow(TextOverflow::Ellipsis),
     ));
-    let date = strings.age(layout::age(model.clock, row.updated.or(row.created)), &num);
+    let date = strings.age(crate::ui::age::age(model.clock, row.updated.or(row.created)), &num);
     let part = |icon: &'static str, text: &Option<String>, none: &'static str| -> Text {
         let (text, style) = match text {
             Some(text) => (text.clone(), look.dim.clone()),

@@ -37,8 +37,6 @@ pub fn areas(height: u16) -> Areas {
     }
 }
 
-pub use crate::ui::age::{Age, age};
-
 #[cfg(test)]
 mod tests {
     use super::*;
