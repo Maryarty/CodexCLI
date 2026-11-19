@@ -3,6 +3,7 @@
 //! model. One worked example per kind: a chat transcript with a streamed
 //! answer, an exec approval request, a resume list from fake rollouts.
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use codex_tui_core::app::Command;

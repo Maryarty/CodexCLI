@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use codex_app_server_protocol::Thread;
@@ -148,7 +149,7 @@ fn resumes(h: &Harness) -> Vec<Command> {
 
 /// The threads of the `overview` fixture, as the protocol has them.
 fn fixture_threads() -> Vec<Thread> {
-    let script = include_str!("../src/pages/agents/fixtures/overview.jsonl");
+    let script = include_str!("../../src/pages/agents/fixtures/overview.jsonl");
     script
         .lines()
         .filter(|line| line.contains("\"listed\""))
@@ -311,7 +312,7 @@ fn an_arrow_move_asks_for_the_new_tasks_usage() {
             _ => None,
         })
         .expect("the list was asked for");
-    let script = include_str!("../src/pages/agents/fixtures/overview.jsonl");
+    let script = include_str!("../../src/pages/agents/fixtures/overview.jsonl");
     let threads: Vec<Thread> = script
         .lines()
         .filter(|line| line.contains("\"listed\""))

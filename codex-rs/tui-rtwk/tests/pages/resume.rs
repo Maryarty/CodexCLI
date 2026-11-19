@@ -5,7 +5,7 @@
 //! `render_picker_footer`) and `resume_picker/layout.rs` (the chrome).
 
 #[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
-#[path = "oracle_snap/mod.rs"]
+#[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
 use crate::common::{Harness, start_sized};

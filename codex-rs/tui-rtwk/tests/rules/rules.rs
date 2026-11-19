@@ -684,12 +684,12 @@ fn adr010_no_format_literal_with_words_outside_the_tables() {
 
 // The pending screen tests (a `pending(..)` marker fails the test by design)
 // run in the nextest profile `pending`, out of the default one. The list in
-// `.config/nextest.toml` and the markers in `tests/agents.rs` must agree, so
+// `.config/nextest.toml` and the markers in `tests/pages/agents.rs` must agree, so
 // that nothing hides in the list and nothing pending is left in the gate.
 
-/// The test fns of `tests/agents.rs` whose first statement is `pending(`.
+/// The test fns of `tests/pages/agents.rs` whose first statement is `pending(`.
 fn pending_markers() -> Vec<String> {
-    let text = std::fs::read_to_string(crate_dir().join("tests/agents.rs")).expect("read");
+    let text = std::fs::read_to_string(crate_dir().join("tests/pages/agents.rs")).expect("read");
     let lines: Vec<&str> = text.lines().collect();
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {

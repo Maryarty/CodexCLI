@@ -1,6 +1,6 @@
 # ADR-003 rules R1, R12, R14 as lints. Each path below is banned crate-wide;
 # `src/services/mod.rs` carries the crate's only `#![allow(clippy::disallowed_*)]`
-# and `tests/rules.rs` rejects any other. The tests directory may use them.
+# and `tests/rules/rules.rs` rejects any other. The tests directory may use them.
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 

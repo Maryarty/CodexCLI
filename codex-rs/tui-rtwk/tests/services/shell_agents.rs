@@ -28,7 +28,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 #[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
-#[path = "oracle_snap/mod.rs"]
+#[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
 const TIMESTAMP: i64 = 1_700_000_000;

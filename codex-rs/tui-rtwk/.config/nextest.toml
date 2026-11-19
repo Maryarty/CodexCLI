@@ -7,10 +7,10 @@
 #   python3 -I tests/oracle/tools/summary.py            (pass / pending / todo / red per shard)
 #
 # The screen tests whose oracle behaviour needs a slice that does not exist yet
-# are marked `pending(owner, reason)` in tests/agents.rs: they fail by design,
+# are marked `pending(owner, reason)` in tests/pages/agents.rs: they fail by design,
 # printing PENDING[owner]: reason. They stay in the tree unweakened and run in
 # the profile `pending`, out of the default one, so that the default run is
-# green and tests/rules.rs keeps this list and the markers equal:
+# green and tests/rules/rules.rs keeps this list and the markers equal:
 #
 #   acargo nextest run --profile pending --no-fail-fast     (every one must fail, with its owner)
 [profile.default]

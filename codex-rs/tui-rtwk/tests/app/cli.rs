@@ -50,15 +50,15 @@ fn answer(args: &[&str]) -> Option<String> {
 
 #[test]
 fn version_prints_the_oracles_line() {
-    let want = include_str!("cli_help/version.txt");
+    let want = include_str!("../cli_help/version.txt");
     assert_eq!(answer(&["--version"]).as_deref(), Some(want));
     assert_eq!(answer(&["-V"]).as_deref(), Some(want));
 }
 
 #[test]
 fn the_top_level_help_long_and_short() {
-    let long = include_str!("cli_help/top_long.txt");
-    let short = include_str!("cli_help/top_short.txt");
+    let long = include_str!("../cli_help/top_long.txt");
+    let short = include_str!("../cli_help/top_short.txt");
     assert_eq!(answer(&["--help"]).as_deref(), Some(long));
     assert_eq!(answer(&["help"]).as_deref(), Some(long));
     assert_eq!(answer(&["-h"]).as_deref(), Some(short));
@@ -66,8 +66,8 @@ fn the_top_level_help_long_and_short() {
 
 #[test]
 fn the_agents_help_long_and_short() {
-    let long = include_str!("cli_help/agents_long.txt");
-    let short = include_str!("cli_help/agents_short.txt");
+    let long = include_str!("../cli_help/agents_long.txt");
+    let short = include_str!("../cli_help/agents_short.txt");
     assert_eq!(answer(&["agents", "--help"]).as_deref(), Some(long));
     assert_eq!(answer(&["help", "agents"]).as_deref(), Some(long));
     assert_eq!(answer(&["agents", "-h"]).as_deref(), Some(short));
@@ -76,7 +76,7 @@ fn the_agents_help_long_and_short() {
 /// Help wins over the other flags that come before it, as in clap.
 #[test]
 fn help_is_answered_whatever_comes_before() {
-    let long = include_str!("cli_help/agents_long.txt");
+    let long = include_str!("../cli_help/agents_long.txt");
     assert_eq!(
         answer(&["--locale", "ru", "agents", "--help"]).as_deref(),
         Some(long)

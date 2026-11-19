@@ -7,6 +7,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+#[path = "../srcscan/mod.rs"]
 mod srcscan;
 
 use srcscan::{code_lines, crate_dir, scan, sources, sources_of};

@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[allow(clippy::duplicate_mod)] // one helper, a module in each slice file
-#[path = "oracle_snap/mod.rs"]
+#[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
 use crate::common::{Harness, start_clipping, start_sized};
@@ -14,7 +14,7 @@ use crate::common::{Harness, start_clipping, start_sized};
 /// shipped for the `backspace` of the oracle's `cfg(test)` snapshots, the
 /// modifier symbols), the same one the kit's comparison makes.
 #[allow(clippy::duplicate_mod)]
-#[path = "kit/labels.rs"]
+#[path = "../kit/labels.rs"]
 mod labels;
 
 /// The screen's rows equal the oracle's: ours go through the kit's label
