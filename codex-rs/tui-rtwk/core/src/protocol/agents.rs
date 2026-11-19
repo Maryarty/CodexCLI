@@ -478,3 +478,26 @@ pub fn account_ev(result: serde_json::Value) -> Result<Ev, RpcError> {
         },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opening a task from the center must not pull its whole history over the
+    /// wire (perf-open-session): the resume asks for the thread's state only;
+    /// the transcript is read page by page (`thread/turns/list`) when the chat
+    /// shows it, as the oracle's paginated sessions do.
+    #[test]
+    fn resume_asks_for_no_turns() {
+        let command = Command::Resume {
+            thread: "t1".to_owned(),
+        };
+        let ClientRequest::ThreadResume { params, .. } =
+            wire_request(&command, RequestId::Integer(1))
+        else {
+            panic!("resume is thread/resume");
+        };
+        assert_eq!(params.thread_id, "t1");
+        assert!(params.exclude_turns, "thread/resume must exclude the turns");
+    }
+}
