@@ -12,7 +12,7 @@ use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{Align, Alignment, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::navigation::Navigator;
 use rtwk::provider::{read, select};
 use rtwk::scroll::ScrollNotification;
@@ -340,15 +340,19 @@ fn preview(picker: &Picker, s: &strings::Strings, tokens: &Tokens) -> AnyWidget 
     let Some((_, Preview::Loading)) = &picker.preview else {
         return AnyWidget::default();
     };
-    let text = s.preview_loading;
-    let left = usize::try_from(PREVIEW_WIDTH).unwrap_or(0).saturating_sub(text.chars().count()) / 2;
     Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::new(String::new()))
-        .child(
-            Row::new()
-                .child(SizedBox::new(Some(i32::try_from(left).unwrap_or(0)), None, None))
-                .child(Text::line(text.to_string()).style(tokens.bold())),
-        )
+        .child(SizedBox::new(
+            None,
+            Some(1),
+            Some(
+                Align::new(
+                    Alignment::TOP_CENTER,
+                    Text::line(s.preview_loading.to_string()).style(tokens.bold()),
+                )
+                .into(),
+            ),
+        ))
         .into()
 }
