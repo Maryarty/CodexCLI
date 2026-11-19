@@ -68,6 +68,8 @@ pub use refresh::Out;
 pub use crate::protocol::agents::account_ev;
 pub use crate::protocol::agents::account_request;
 pub use refresh::apply_answer;
+pub use refresh::attach_loaded;
+pub use refresh::is_active_writer;
 pub use update::wants_dirs;
 pub use sources::Fanout;
 pub use sources::PinReader;

@@ -1376,3 +1376,69 @@ fn the_opened_session_shows_its_history() {
     assert_eq!(asked[0]["sortDirection"], "desc");
     assert_eq!(asked[0]["itemsView"], "full");
 }
+
+/// open-rest (review #56, attach conflict): a thread another process writes
+/// does not fail to open: the oracle opens it read-only with its history and
+/// says so where the composer would be.
+#[test]
+fn a_thread_with_another_writer_opens_read_only_with_its_history() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Err(ServerError {
+            code: Some(-32600),
+            message: format!(
+                "thread {} already has an active writer",
+                request["params"]["threadId"].as_str()?
+            ),
+        })),
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => Some(Ok(json!({
+            "data": [turn_json("t1", "first question", "first answer")],
+            "nextCursor": null
+        }))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    h.wait_for("the history", |s| s.contains("first answer"));
+    let screen = h.t.screen();
+    // Oracle: `agents_overview_attach_conflict.snap` (the notice stands
+    // where the composer is).
+    assert!(screen.contains("This conversation is open in another app"), "{screen}");
+    assert!(screen.contains("Close it there and press R to continue here."), "{screen}");
+    assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
+    assert!(!screen.contains("active writer"), "{screen}");
+    assert!(!screen.contains("Agent command center"), "{screen}");
+}
+
+/// open-rest (ADR-003): several sessions stay attached to the process; opening
+/// A, going back, opening B, back, and A again resumes each thread once (the
+/// server has one writer per thread: a second resume of A would conflict).
+#[test]
+fn open_a_back_open_b_back_open_a_resumes_each_thread_once() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Ok(resumed(request["params"]["threadId"].as_str()?))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    let open_row = |h: &mut live::Live, downs: usize| {
+        for _ in 0..downs {
+            h.t.press("down");
+        }
+        h.settle();
+        h.t.press("enter");
+        h.wait_for("the chat", |s| s.contains("Ask Codex to do anything"));
+        h.t.press("left");
+        h.wait_for("the center", |s| s.contains("Agent command center"));
+    };
+    open_row(&mut h, 0);
+    open_row(&mut h, 1);
+    open_row(&mut h, 0);
+    let resumed: Vec<String> = h
+        .fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "thread/resume")
+        .map(|r| r["params"]["threadId"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(resumed.len(), 2, "{resumed:?}");
+    assert_ne!(resumed[0], resumed[1], "{resumed:?}");
+}

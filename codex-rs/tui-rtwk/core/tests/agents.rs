@@ -2340,7 +2340,12 @@ fn opening_a_task_is_marked_until_the_resume_answers() {
     );
     assert_eq!(failed.opening, None);
     assert_eq!(failed.resumes, 0);
-    assert_eq!(failed.notice, Some(Notice::Error("no such session".into())));
+    assert_eq!(
+        failed.notice,
+        Some(Notice::Error(
+            "Failed to attach to task: no such session".into()
+        ))
+    );
     let task = thread(&target, None, "Task", idle());
     let _ = apply_answer(
         &mut m,

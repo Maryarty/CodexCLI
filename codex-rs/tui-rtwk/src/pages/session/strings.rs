@@ -63,6 +63,11 @@ pub struct Strings {
     pub backend_cloud: &'static str,
     pub backend_connection: Msg<1>,
     pub backend_key: &'static str,
+    /// Oracle: `chatwidget/rendering.rs` (the external writer view): the
+    /// session is open in another process and shown read-only.
+    pub read_only_title: &'static str,
+    pub read_only_hint: &'static str,
+    pub read_only_footer: &'static str,
     pub backend_cycle: &'static str,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
@@ -105,6 +110,9 @@ pub const EN: Strings = Strings {
     backend_cloud: "Cloud",
     backend_connection: msg!("Connection {0}"),
     backend_key: "\u{2303}x b",
+    read_only_title: "\u{1f512}  This conversation is open in another app",
+    read_only_hint: "    Close it there and press R to continue here.",
+    read_only_footer: "\u{2190}/esc command center",
     backend_cycle: " to cycle",
     warning_singular: "warning",
     warning_plural: "warnings",

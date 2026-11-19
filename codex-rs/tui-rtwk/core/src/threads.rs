@@ -237,6 +237,8 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     pub history_next: Option<String>,
+    /// Another process writes this thread: it is shown, not edited.
+    pub read_only: bool,
 }
 
 impl ThreadModel {
@@ -252,6 +254,7 @@ impl ThreadModel {
             last_error: None,
             last_ended: None,
             history_next: None,
+            read_only: false,
         }
     }
 
