@@ -32,6 +32,8 @@ use codex_tui_core::ids::RequestKey;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::chat::Ev as ChatEv;
+use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::wire;
 use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
@@ -182,6 +184,9 @@ async fn run(
     };
     // `tui.status_line_use_colors`: whether the tasks get their own colour.
     let thread_colors = args.config.tui_status_line_use_colors;
+    // What the status line and the footer show: read here, sent as events.
+    let status = crate::facts::status(&args.config).await;
+    let warnings = crate::facts::warnings(&args.config);
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(args.config.codex_home.to_path_buf()));
     // Boxed: the start future is large, and the pump should not carry it inline.
     let started = match Box::pin(InProcessAppServerClient::start(args)).await {
@@ -199,6 +204,18 @@ async fn run(
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::ThreadColors(thread_colors))),
     );
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(ChatEv::Status(status))),
+    );
+    if !warnings.is_empty() {
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Dialogs(DialogsEv::Retained(warnings))),
+        );
+    }
     let Some(handle) = held.get().map(|client| client.request_handle()) else {
         return;
     };
