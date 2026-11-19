@@ -2321,7 +2321,9 @@ fn opening_a_task_is_marked_until_the_resume_answers() {
     assert_eq!(m.opening, None);
     let outs = update(&mut m, AgentsIntent::Accept(Sel::Task(target.clone())));
     assert_eq!(
-        outs.iter().map(|out| out.command.clone()).collect::<Vec<_>>(),
+        outs.iter()
+            .map(|out| out.command.clone())
+            .collect::<Vec<_>>(),
         vec![Command::Resume {
             thread: target.clone()
         }]

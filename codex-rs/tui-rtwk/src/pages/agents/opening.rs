@@ -3,12 +3,11 @@
 //! the center pops it (and itself, on success) when the reply comes, as
 //! Flutter's `Navigator.push` shows a page whose `FutureBuilder` waits.
 
-use rtwk::layout::Center;
 use rtwk::navigation::PageRoute;
+use rtwk::style::{Attrs, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
-use crate::app::theme;
 use crate::pages::agents::strings;
 
 /// The route of the loading page.
@@ -23,7 +22,10 @@ impl_widget!(stateless eq Opening);
 
 impl StatelessWidget for Opening {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
-        let tokens = theme::Tokens::of(cx);
-        Center::new(Text::new(strings::of(cx).resuming).style(tokens.dim())).into()
+        // Oracle: `agents_overview_loading.rs`, the bold line at the top left
+        // of an otherwise empty screen, wrapped to the width.
+        Text::new(strings::of(cx).resuming)
+            .style(Style::new().attrs(Attrs::BOLD))
+            .into()
     }
 }

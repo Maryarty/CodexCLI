@@ -1232,7 +1232,17 @@ fn enter_shows_the_session_page_before_the_resume_reply() {
     h.t.pump_for(Duration::from_millis(20));
     let screen = h.t.screen();
     assert!(!screen.contains("Agent command center"), "{screen}");
-    assert!(screen.contains("Resuming session"), "{screen}");
+    // The oracle's frame (`agents_overview_loading.rs`): the bold line at the
+    // top left of an otherwise empty screen.
+    assert_eq!(
+        screen.lines().next().map(str::trim_end),
+        Some("Loading task…"),
+        "{screen}"
+    );
+    assert!(
+        screen.lines().skip(1).all(|line| line.trim().is_empty()),
+        "{screen}"
+    );
     assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
 }
 
@@ -1248,7 +1258,7 @@ fn the_resume_reply_fills_the_session_page() {
     h.t.press("enter");
     h.wait_for("the chat", |s| s.contains("Ask Codex to do anything"));
     let screen = h.t.screen();
-    assert!(!screen.contains("Resuming session"), "{screen}");
+    assert!(!screen.contains("Loading task…"), "{screen}");
     assert!(!screen.contains("Agent command center"), "{screen}");
 }
 
@@ -1268,7 +1278,7 @@ fn a_failed_resume_returns_to_the_command_center_with_the_error() {
     h.wait_for("the error", |s| s.contains("no such session"));
     h.settle();
     let screen = h.t.screen();
-    assert!(!screen.contains("Resuming session"), "{screen}");
+    assert!(!screen.contains("Loading task…"), "{screen}");
     assert!(screen.contains("Agent command center"), "{screen}");
     let highlighted = |s: &str| {
         s.lines()
