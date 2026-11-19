@@ -1,0 +1,3 @@
+{"id":"S12","title":"Open a session from the Agent command center: Enter -> chat page (composer) shows (80-turn history)","kind":"open","size":[120,40],"hold":1.0,"timeout":30,"settle":1.0,
+ "subcommand":["agents","--no-daemon"],"seed":{"turns":80},"mock":{"deltas":40,"words":12,"pace":0.0005,"sentinel":"END-S12"},
+ "ready":{"any":"Agent command center"},"row":"turn 79","open_ready":"Ask Codex to do anything","transcript":"END-S12"}

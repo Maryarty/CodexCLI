@@ -1,0 +1,89 @@
+<!doctype html><meta charset=utf-8><title>Codex TUI perf report</title><style>
+body{font:14px/1.45 system-ui,sans-serif;margin:0;color:#1a202c;background:#f7fafc}
+main{max-width:1000px;margin:0 auto;padding:16px 20px 60px}
+h1{font-size:22px;margin:8px 0}h2{font-size:18px;margin:34px 0 8px;border-bottom:2px solid #cbd5e0;padding-bottom:4px}
+h3{font-size:14px;margin:16px 0 4px;color:#2d3748}
+table{border-collapse:collapse;font-size:12.5px;margin:6px 0}th,td{border:1px solid #e2e8f0;padding:3px 8px;text-align:right}
+th{background:#edf2f7}td:first-child,th:first-child{text-align:left}
+.muted{color:#718096}.card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 14px;margin:12px 0}
+.g{background:#c6f6d5}.r{background:#fed7d7}.n{background:#edf2f7}.w{background:#fefcbf}
+.A{color:#2b6cb0}.B{color:#dd6b20}.logv{display:none}body.log .logv{display:block}body.log .lin{display:none}
+pre{background:#edf2f7;padding:8px;overflow:auto;font-size:12px}.warn{background:#fefcbf;border:1px solid #ecc94b;padding:6px 10px;border-radius:4px}
+.player{display:flex;gap:8px}.player pre{margin:0;flex:1;background:#1a202c;color:#e2e8f0;font-size:6.3px;line-height:1.15;white-space:pre;overflow:hidden}
+.scr{width:100%}
+</style><body><main>
+<h1>Codex TUI performance: A:oracle vs B:rtwk</h1>
+<p class=muted> - started 2026-11-19T17:32:36+00:00, finished 2026-11-19T17:34:58+00:00</p>
+<label><input type=checkbox id=logt> log scale on the distribution plots</label>
+<div class=card><h3>What is compared</h3><p>Same Codex core and the same kind of fake model (Codex's own MockResponsesServer, one server and one fresh CODEX_HOME per run, analytics off, no network); both run in a pty at the scenario size with TERM=xterm-256color and the driver's VT model; only the frontend differs. Everything is black box through the pty: CPU and RSS from proc_pidinfo every 100 ms and wait4 rusage, frames are DEC 2026 pairs (read bursts when absent), a key is "visible" when the VT model shows it in the screen (a DEC 2026 update held longer than 150 ms counts as visible). The VT model is a model, not a GPU terminal: byte volume is the proxy for terminal cost.</p>
+<table><tr><th>binary</th><th>kind</th><th>version / sha256</th><th>runs ok</th></tr>
+<tr><td class=A>A:oracle</td><td>oracle</td><td>codex-cli 0.170.0 9248cfeebec9b4cc (271.0 MB)<br><span class=muted>codex-cli 0.170.0 tag rust-v0.170.0 commit 29eb79e9866b3262a777fdf8195c1b9e63684c91</span></td><td>15</td></tr>
+<tr><td class=B>B:rtwk</td><td>rtwk</td><td>codex-cli 0.170.0 517c96efa8a3e870 (242.5 MB)<br><span class=muted></span></td><td>15</td></tr>
+</table>
+<p>N = 15 rounds, interleaved (A B, B A, ...), a preflight launch per binary discarded. Machine: MacBookPro18,2, 10 CPUs, 64.0 GB, macOS-26.6.2-arm64-arm-64bit-Mach-O, power: Now drawing from &#x27;AC Power&#x27;; rustc 1.99.1 (58cf8f9c3 2026-10-13); driver commit 05cae4bd3.</p>
+<p class="muted">Load (1-min, before each run): median 7.8, max 14.4, gate 15.0 (1.5 x CPUs); 0 of 30 runs started above the gate. Start 14.4, end 6.6.</p>
+<p>Screen mode: A:oracle: alt-screen, B:rtwk: alt-screen. Frame source: .</p>
+</div>
+<h2>Final screens</h2>
+<table><tr><th>scenario</th><th>A:oracle</th><th>B:rtwk</th><th>transcript tail equal</th></tr>
+</table><p class=muted>Transcript tail: the last 60 stream words above the sentinel row of the median run, compared between binaries; a mismatch is flagged, never timed silently.</p>
+<h2>Verdict table</h2>
+<p>p50 of the per-run values for each binary; ratio = B/A of the medians with a 95% bootstrap interval over runs (2000 resamples). Green: B lower (better) with the interval clear of 1.0 and of the baseline noise band; red: B higher; grey: within noise, fewer than 5 runs per side, or no direction (frame rate is informational).</p>
+<table><tr><th>scenario</th><th>metric</th><th class=A>A:oracle p50 [min, max]</th><th class=B>B:rtwk p50 [min, max]</th><th>ratio B/A [95% CI]</th></tr>
+</table>
+<h2>Appendix: run table</h2><table><tr><th>scenario</th><th>bin</th><th>round</th><th>load</th><th>ok</th><th>key numbers</th></tr>
+<tr><td>S12</td><td>A:oracle</td><td>0</td><td>14.4</td><td>ok</td><td style="text-align:left"> ready 54 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>0</td><td>13.4</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>1</td><td>12.6</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>1</td><td>11.8</td><td>ok</td><td style="text-align:left"> ready 51 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>2</td><td>10.9</td><td>ok</td><td style="text-align:left"> ready 49 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>2</td><td>10.1</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>3</td><td>9.9</td><td>ok</td><td style="text-align:left"> ready 18 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>3</td><td>9.7</td><td>ok</td><td style="text-align:left"> ready 48 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>4</td><td>9.7</td><td>ok</td><td style="text-align:left"> ready 48 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>4</td><td>9.7</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>5</td><td>9.5</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>5</td><td>9.3</td><td>ok</td><td style="text-align:left"> ready 50 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>6</td><td>9.3</td><td>ok</td><td style="text-align:left"> ready 53 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>6</td><td>8.7</td><td>ok</td><td style="text-align:left"> ready 21 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>7</td><td>8.1</td><td>ok</td><td style="text-align:left"> ready 18 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>7</td><td>7.6</td><td>ok</td><td style="text-align:left"> ready 48 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>8</td><td>7.0</td><td>ok</td><td style="text-align:left"> ready 51 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>8</td><td>6.9</td><td>ok</td><td style="text-align:left"> ready 21 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>9</td><td>6.7</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>9</td><td>6.7</td><td>ok</td><td style="text-align:left"> ready 48 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>10</td><td>6.8</td><td>ok</td><td style="text-align:left"> ready 48 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>10</td><td>6.5</td><td>ok</td><td style="text-align:left"> ready 18 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>11</td><td>7.2</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>11</td><td>6.8</td><td>ok</td><td style="text-align:left"> ready 47 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>12</td><td>6.8</td><td>ok</td><td style="text-align:left"> ready 51 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>12</td><td>6.4</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>13</td><td>5.9</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>13</td><td>5.9</td><td>ok</td><td style="text-align:left"> ready 51 ms</td></tr>
+<tr><td>S12</td><td>A:oracle</td><td>14</td><td>5.7</td><td>ok</td><td style="text-align:left"> ready 49 ms</td></tr>
+<tr><td>S12</td><td>B:rtwk</td><td>14</td><td>6.7</td><td>ok</td><td style="text-align:left"> ready 19 ms</td></tr>
+</table>
+<h2>Appendix: commands</h2><pre>python3 -I perf/drive.py --a oracle=&lt;A&gt; --b rtwk=&lt;B&gt; --scenarios  --n 15 --out &lt;dir&gt;
+python3 -I perf/report.py &lt;dir&gt;</pre><p class=muted>Micro-benchmarks: none in this report (they would be labelled as such and never prove a speed claim).</p>
+<script>
+document.getElementById('logt').onchange=function(){document.body.classList.toggle('log',this.checked)};
+async function inflate(b64){const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+ const ds=new DecompressionStream('deflate');const s=new Blob([bin]).stream().pipeThrough(ds);
+ return JSON.parse(await new Response(s).text());}
+function Pane(el,data){this.el=el;this.data=data;this.i=-1;this.rows=Array(data.h).fill('');}
+Pane.prototype.seek=function(t){const s=this.data.snaps;let j=this.i;
+ if(j<0||s[j][0]>t){j=-1;this.rows=Array(this.data.h).fill('');}
+ while(j+1<s.length&&s[j+1][0]<=t){j++;for(const k in s[j][1])this.rows[+k]=s[j][1][k];}
+ this.i=j;this.el.textContent=this.rows.join('\n');};
+document.querySelectorAll('.player').forEach(async function(pl){
+ try{const a=await inflate(pl.dataset.a);const b=await inflate(pl.dataset.b);
+ const pa=new Pane(pl.querySelector('.pa'),a),pb=new Pane(pl.querySelector('.pb'),b);
+ const sl=pl.parentNode.querySelector('input[type=range]');const lab=pl.parentNode.querySelector('.tl');
+ const end=Math.max(a.snaps.length?a.snaps[a.snaps.length-1][0]:0,b.snaps.length?b.snaps[b.snaps.length-1][0]:0);
+ sl.max=end;let playing=false,t=Math.min(1500,end),last=0;
+ function show(){pa.seek(t);pb.seek(t);sl.value=t;lab.textContent=(t/1000).toFixed(1)+' s'}
+ sl.oninput=function(){t=+sl.value;show()};
+ pl.parentNode.querySelector('button').onclick=function(){playing=!playing;this.textContent=playing?'pause':'play';last=performance.now();
+  (function tick(n){if(!playing)return;t+=n-last;last=n;if(t>=end){t=end;playing=false}show();if(playing)requestAnimationFrame(tick)})(last)};
+ show();}catch(e){pl.textContent='replay needs DecompressionStream (a current browser): '+e}});
+</script></main></body>
