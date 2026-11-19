@@ -19,13 +19,13 @@ use rtwk::LayoutBuilder;
 use rtwk::NotificationListener;
 use rtwk::controls::{SelectionController, SelectionList};
 use rtwk::editing::{TextEditingController, TextField};
-use rtwk::focus::{ExcludeFocus, FocusNode};
+use rtwk::focus::{ExcludeFocus, Focus, FocusNode, KeyBindings};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
-use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::gestures::{GestureDetector, IgnorePointer, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
     BorderType, BoxWidget, Center as Middle, Column, CrossAxisAlignment, Divider, EdgeInsets,
-    Expanded, MainAxisSize, Padding, Row, SizedBox, VerticalDivider,
+    Expanded, MainAxisSize, Offstage, Padding, Row, SizedBox, VerticalDivider,
 };
 use rtwk::overlay::Dialog;
 use rtwk::scroll::ScrollNotification;
@@ -251,19 +251,37 @@ pub struct Controls {
     pub selection: SelectionController<RowKey>,
     pub edit: TextEditingController,
     pub focus: FocusNode,
+    /// The stop of the empty list's line (it holds the keys when no row
+    /// does).
+    pub empty_focus: FocusNode,
     pub edit_focus: FocusNode,
+    /// The keys each mode's widget binds.
+    pub keys: Keys,
     pub scroll: Rc<ValueNotifier<Scrolled>>,
     pub open: Handler<RowKey>,
     pub search: Handler<Rc<str>>,
     pub submit: Handler<Rc<str>>,
 }
 
+/// A key table's handlers, name and handler (`KeyBindings`).
+pub type Table = Vec<(&'static str, Handler<()>)>;
+
+/// The key tables of the modes: each binds on the widget the mode shows, so
+/// the focus decides which one the key reaches.
+#[derive(Clone)]
+pub struct Keys {
+    pub browse: Table,
+    pub search: Table,
+    pub rename: Table,
+    pub help: Table,
+}
+
 /// The part of the controls the list takes.
 #[derive(Clone)]
 struct ListControls {
-    enabled: bool,
     selection: SelectionController<RowKey>,
     focus: FocusNode,
+    empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
     open: Handler<RowKey>,
 }
@@ -550,10 +568,8 @@ pub fn list(
     center: &Rc<Center>,
     controls: &Controls,
     taps: &Rc<Vec<Handler<PointerEvent>>>,
-    enabled: bool,
 ) -> AnyWidget {
     RowsList {
-        enabled,
         inputs: ListInputs {
             look: look.clone(),
             strings,
@@ -562,6 +578,7 @@ pub fn list(
         },
         selection: controls.selection.clone(),
         focus: controls.focus.clone(),
+        empty_focus: controls.empty_focus.clone(),
         scroll: controls.scroll.clone(),
         open: controls.open.clone(),
         taps: taps.clone(),
@@ -596,10 +613,9 @@ impl PartialEq for ListInputs {
 #[derive(Clone)]
 pub struct RowsList {
     inputs: ListInputs,
-    /// The list takes keys and clicks (a rename refuses them).
-    enabled: bool,
     selection: SelectionController<RowKey>,
     focus: FocusNode,
+    empty_focus: FocusNode,
     scroll: Rc<ValueNotifier<Scrolled>>,
     open: Handler<RowKey>,
     taps: Rc<Vec<Handler<PointerEvent>>>,
@@ -608,9 +624,9 @@ pub struct RowsList {
 impl PartialEq for RowsList {
     fn eq(&self, other: &Self) -> bool {
         self.inputs == other.inputs
-            && self.enabled == other.enabled
             && self.selection == other.selection
             && self.focus == other.focus
+            && self.empty_focus == other.empty_focus
             && Rc::ptr_eq(&self.scroll, &other.scroll)
             && self.open == other.open
             && self.taps == other.taps
@@ -624,9 +640,9 @@ impl StatelessWidget for RowsList {
         let controls = ListControls {
             selection: self.selection.clone(),
             focus: self.focus.clone(),
+            empty_focus: self.empty_focus.clone(),
             scroll: self.scroll.clone(),
             open: self.open.clone(),
-            enabled: self.enabled,
         };
         rows_in(look, strings, agents, center, controls, taps)
     }
@@ -647,7 +663,13 @@ fn rows_in(
         let model = &*agents;
         if center.entries.is_empty() {
             let text = empty_text(&strings, model, model.threads.is_empty());
-            return top(short(Text::line(text.to_owned()).style(look.dim.clone())));
+            // The line is a focus stop of its own: with no row the keys
+            // have nowhere else to go.
+            let line = top(short(Text::line(text.to_owned()).style(look.dim.clone())));
+            return Focus::new(line)
+                .focus_node(controls.empty_focus.clone())
+                .autofocus()
+                .into();
         }
         let keys: Rc<Vec<RowKey>> = Rc::new(
             (0..center.entries.len())
@@ -697,9 +719,6 @@ fn rows_in(
         .on_submitted(controls.open.clone())
         .focus_node(controls.focus.clone())
         .autofocus(true)
-        // `ExcludeFocus` takes the focus, not the clicks: a rename refuses
-        // them at the list.
-        .enabled(controls.enabled)
         .item_extent(1)
         .bar(false)
         .idle_style(look.selection.clone())
@@ -965,14 +984,14 @@ pub fn editor(look: &Look, strings: &Strings, ui: &Ui, controls: &Controls) -> A
         .focused_style(look.tab.clone())
         .key_hints(false)
         .focus_node(controls.edit_focus.clone())
-        .autofocus(true)
         .on_submitted(controls.submit.clone());
     if !ui.renaming {
         field = field.on_changed(controls.search.clone());
     }
+    let keys = if ui.renaming { &controls.keys.rename } else { &controls.keys.search };
     let row = Row::new()
         .child(Text::line(label).style(label_style))
-        .child(Expanded::new(1, field));
+        .child(Expanded::new(1, KeyBindings::new(keys.clone(), field)));
     BoxWidget::new()
         .style(look.tab.clone())
         .child(SizedBox::new(None, Some(1), Some(row.into())))
@@ -996,13 +1015,23 @@ pub fn body(
     let mut pane = Column::new()
         .overflow_intended(true)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if editing {
-        pane = pane.child(editor(look, strings, ui, controls));
-    }
-    // The list gives the focus to the editing line while one is open.
-    let rows = list(look, strings, agents, center, controls, &taps.rows, !ui.renaming);
+    // The line stays mounted, offstage and out of the focus while closed:
+    // opening and closing swap which of the two the focus may rest on.
+    pane = pane.child(Offstage::new(
+        !editing,
+        ExcludeFocus::new(editor(look, strings, ui, controls)).excluding(!editing),
+    ));
+    let rows = list(look, strings, agents, center, controls, &taps.rows);
     let pane: AnyWidget = pane
-        .child(Expanded::new(1, ExcludeFocus::new(rows).excluding(editing)))
+        // A rename refuses the mouse at the list. The list stays a focus
+        // stop (not `enabled(false)`, not `ExcludeFocus`): the focus goes
+        // back to the nearest stop when the line closes.
+        .child(Expanded::new(
+            1,
+            ExcludeFocus::new(IgnorePointer::new()
+                .ignoring(ui.renaming)
+                .child(KeyBindings::new(controls.keys.browse.clone(), rows))).excluding(editing),
+        ))
         .into();
     let details = details(look, strings, num, center, agents);
     let rule = VerticalDivider::new()

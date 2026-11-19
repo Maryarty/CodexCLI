@@ -353,3 +353,77 @@ fn an_arrow_move_asks_for_the_new_tasks_usage() {
         "an arrow move asks for the new task: {first:?} then {after:?}"
     );
 }
+
+/// Fix 3: every mode's keys sit on the widget that shows it and the focus
+/// follows the mode with no request from the screen: search, rename and the
+/// help each close back to a list that takes its keys.
+#[test]
+fn modes_hand_the_focus_back_without_a_request() {
+    let mut h = open("overview", 96, 25);
+    for (open_key, shown) in [
+        ("/", "Search \u{203a}"),
+        ("r", "Rename \u{203a}"),
+        ("?", "Task shortcuts"),
+    ] {
+        h.press(open_key);
+        h.settle();
+        assert!(h.t.screen().contains(shown), "{open_key}\n{}", h.t.screen());
+        h.press("esc");
+        h.settle();
+        assert!(
+            !h.t.screen().contains(shown),
+            "{open_key}\n{}",
+            h.t.screen()
+        );
+        h.press("j");
+        h.settle();
+        assert!(
+            highlighted_task(&h).contains("Repair authentication")
+                || highlighted_task(&h).contains("Review"),
+            "the list has the keys after {open_key}\n{}",
+            h.t.screen()
+        );
+        h.press("k");
+        h.settle();
+        assert!(
+            highlighted_task(&h).contains("Build the dashboard"),
+            "{open_key}"
+        );
+    }
+}
+
+/// Fix 3: the empty list's line is a focus stop with the keys too: help
+/// opens and closes over it, and a tab with tasks gives the list its keys.
+#[test]
+fn the_empty_list_and_the_list_each_hold_the_keys() {
+    let mut h = open("overview", 96, 25);
+    for _ in 0..3 {
+        h.press("tab");
+    }
+    h.settle();
+    assert!(
+        !h.t.screen().contains("Build the dashboard"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("?");
+    h.settle();
+    assert!(h.t.screen().contains("Task shortcuts"), "{}", h.t.screen());
+    h.press("esc");
+    h.settle();
+    h.press("tab");
+    h.press("tab");
+    h.settle();
+    assert!(
+        h.t.screen().contains("Build the dashboard"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("j");
+    h.settle();
+    assert!(
+        !highlighted_task(&h).contains("Build the dashboard"),
+        "the list has the keys again\n{}",
+        h.t.screen()
+    );
+}
