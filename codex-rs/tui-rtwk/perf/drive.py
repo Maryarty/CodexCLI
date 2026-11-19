@@ -318,8 +318,8 @@ def argv_for(kind: str, binary: str, scenario: dict, work: str) -> list[str] | N
         if sub:
             if not rtwk_has_subcommand(binary, sub[0]):
                 return None
-            # codex-rtwk has no daemon: `agents` is always the in-process center (the oracle's --no-daemon)
-            return [binary] + [a for a in sub if a != "--no-daemon"]
+            # --no-daemon: the embedded server, as the oracle's run (the daemon needs a packaged CLI)
+            return [binary] + list(sub)
         return [binary]
     raise SystemExit(f"unknown binary kind {kind!r} (oracle or rtwk)")
 
@@ -344,6 +344,38 @@ def load_scenarios() -> dict[str, dict]:
         sc = json.loads(p.read_text())
         out[sc["id"]] = sc
     return out
+
+
+ORACLE_BIN = Path.home() / ".cache" / "codexcli" / "oracle-bin" / "codex"
+
+
+def seed_root(scenario: dict) -> Path:
+    # fixed: the state DB and the rollout hold absolute paths of this root
+    return Path(os.path.realpath("/tmp")) / f"perf-seed-{scenario['id']}"
+
+
+def ensure_seed(scenario: dict) -> Path:
+    """A CODEX_HOME + work dir with one long session (scenario seed.turns turns), built once through the
+    oracle's `codex exec` / `exec resume --last` against the fake model, kept as <root>.tmpl."""
+    root = seed_root(scenario)
+    tmpl = root.with_name(root.name + ".tmpl")
+    if (tmpl / "ok").exists():
+        return tmpl
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.rmtree(tmpl, ignore_errors=True)
+    mock = MockProc(scenario, root)
+    try:
+        env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER")}
+        env.update({"CODEX_HOME": mock.info["home"], "OPENAI_API_KEY": "dummy"})
+        base = [str(ORACLE_BIN), "-c", "analytics.enabled=false", "exec", "--skip-git-repo-check"]
+        for i in range(scenario["seed"]["turns"]):
+            argv = base + ([] if i == 0 else ["resume", "--last"]) + [f"turn {i}"]
+            subprocess.run(argv, cwd=mock.info["work"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=60)
+    finally:
+        mock.stop()
+    shutil.copytree(root, tmpl)
+    (tmpl / "ok").write_text("1")
+    return tmpl
 
 
 class MockProc:
@@ -568,11 +600,47 @@ def run_agents(sess: Session, scenario: dict, kind: str, rec: dict) -> None:
     rec["idle"] = window_stats(sess, t1 + 0.5, sess.now())
 
 
-RUNNERS = {"stream": run_stream, "startup": run_startup, "idle": run_idle, "agents": run_agents}
+def run_open(sess: Session, scenario: dict, kind: str, rec: dict) -> None:
+    """Command center up (the seeded session listed) -> Enter -> the chat shows the transcript's last text."""
+    run_startup(sess, scenario, kind, rec)
+    if rec["errors"]:
+        return
+    sess.watch("list", text_pred(scenario["row"]))
+    if sess.wait_hit("list", scenario.get("timeout", 30)) is None:
+        rec["errors"].append("the seeded session never showed in the list")
+        return
+    time.sleep(scenario.get("settle", 1.0))
+    sess.watch("chat", text_pred(scenario["open_ready"]))
+    sess.watch("transcript", text_pred(scenario["transcript"]))
+    t0 = sess.send(b"\r")
+    t = sess.wait_hit("chat", scenario.get("timeout", 30))
+    rec["t_open_ms"] = round((t - t0) * 1000, 1) if t is not None else None
+    if t is None:
+        rec["errors"].append("the chat page never showed (composer)")
+        return
+    # the transcript's last text: informational (codex-rtwk's chat does not replay history yet)
+    tt = sess.wait_hit("transcript", scenario.get("transcript_wait", 2.0))
+    rec["t_transcript_ms"] = round((tt - t0) * 1000, 1) if tt is not None else None
+    hold = scenario.get("hold", 1.0)
+    sess.sleep_until(t + hold)
+    rec["after_open"] = window_stats(sess, t, t + hold)
+    a = sess.cpu_at(t + hold)
+    rec["rss_after_open"] = a[1] if a else None
+    rec["cpu_s_to_open"] = a[0] if a else None
+
+
+RUNNERS = {"open": run_open, "stream": run_stream, "startup": run_startup, "idle": run_idle, "agents": run_agents}
 
 
 def run_once(label: str, kind: str, binary: str, scenario: dict, rnd: int, out: Path, cast_dir: Path | None, load_gate: float) -> dict | None:
-    root = Path(tempfile.mkdtemp(prefix="perf-run-"))
+    if scenario.get("seed"):
+        tmpl = ensure_seed(scenario)
+        root = seed_root(scenario)
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.copytree(tmpl, root)
+        (root / "ok").unlink()
+    else:
+        root = Path(tempfile.mkdtemp(prefix="perf-run-"))
     rec: dict = {
         "scenario": scenario["id"], "bin": label, "kind": kind, "round": rnd,
         "size": scenario["size"], "started": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
