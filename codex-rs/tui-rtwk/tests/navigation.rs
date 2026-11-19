@@ -183,3 +183,54 @@ fn import_is_a_step_of_the_startup_page() {
     assert_eq!(page.count(&h.t), 0);
     assert!(h.t.screen().contains("• Hello"));
 }
+
+const NOT_YET: &str = "Not implemented yet: expanded transcript";
+
+/// A key or command whose action is not built yet opens a small popup, never
+/// a silent no-op (the person, 2026-11-19): Ctrl+T and `/diff` on the session
+/// page until chat-live builds the expanded transcript. Esc and Enter close.
+#[test]
+fn ctrl_t_and_diff_open_the_not_implemented_popup() {
+    for trigger in ["ctrl+t", "/diff"] {
+        let mut h = start();
+        crate::chat::chat_with_history(&mut h);
+        let before = h.t.screen();
+        if trigger.starts_with('/') {
+            h.t.type_text(trigger);
+            h.press("enter");
+        } else {
+            h.press(trigger);
+        }
+        h.t.pump_for(crate::common::ms(800));
+        assert!(h.t.screen().contains(NOT_YET), "{trigger}:\n{}", h.t.screen());
+        for close in ["escape", "enter"] {
+            h.press(close);
+            h.t.pump_for(crate::common::ms(600));
+            assert!(!h.t.screen().contains(NOT_YET), "{trigger} {close}:\n{}", h.t.screen());
+            if close == "escape" {
+                // Again: the same trigger reopens it.
+                if trigger.starts_with('/') {
+                    h.t.type_text(trigger);
+                    h.press("enter");
+                } else {
+                    h.press(trigger);
+                }
+                h.t.pump_for(crate::common::ms(800));
+                assert!(h.t.screen().contains(NOT_YET));
+            }
+        }
+        assert_eq!(h.t.screen(), before, "back on the session page");
+    }
+}
+
+/// The session page's bottom menu: the oracle's idle footer
+/// (`footer_shortcuts_default`): the shortcuts hint at the left.
+#[test]
+fn the_session_page_footer_is_the_oracle_idle_footer() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    let screen = h.t.screen();
+    let last = screen.lines().last().unwrap_or_default().to_string();
+    assert!(last.starts_with("  ? for shortcuts"), "{screen}");
+    assert!(!screen.contains("F12 screens"), "{screen}");
+}
