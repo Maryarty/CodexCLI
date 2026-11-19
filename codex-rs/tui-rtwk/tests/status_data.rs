@@ -105,7 +105,7 @@ fn colours_off_make_the_line_plain() {
             .iter()
             .position(|r| r.starts_with("  GPT-6.2-Sol"))
             .expect("status row");
-        (h.t.cell(2, y).fg, h.t.cell(2 + "GPT-6.2-Sol high".len(), y).fg)
+        (h.t.cell(2, y).fg, h.t.cell(2 + "GPT-6.2-Sol high".len() + 1, y).fg)
     };
     let on = session(80, &status("GPT-6.2-Sol", r#"["model-with-reasoning","git-branch"]"#, true));
     let (model, separator) = fg(&on);
@@ -137,7 +137,7 @@ fn warning_notice_is_at_the_footer_right() {
     let at = |col: usize| h.t.cell(col, y);
     assert_eq!(at(54).text, "⚠");
     assert_ne!(at(56).fg, at(54).fg, "the count has the warning colour");
-    assert_eq!(at(54).fg, at(66).fg, "the separator is secondary");
+    assert_eq!(at(54).fg, at(67).fg, "the separator is secondary");
     assert!(at(69).attrs.0 & rtwk_core::style::Attrs::BOLD.0 != 0, "f2 is bold");
 }
 

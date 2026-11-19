@@ -11,6 +11,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::ListView;
+use rtwk::style::Theme;
 use rtwk::layout::SizedBox;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -19,7 +20,7 @@ use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
 use codex_tui_core::threads::{Failure, Item, ThreadModel};
 
 use crate::l10n::strings as l10n;
@@ -30,7 +31,7 @@ use crate::screens::dialogs::shortcut_panel;
 use crate::screens::chat::strings as chat_strings;
 use crate::theme;
 use crate::ui::page_keys;
-use crate::ui::status_line::status_line;
+use crate::ui::status_line::{Notice, status_line, with_warning_notice};
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -151,6 +152,16 @@ fn prompt(text: &'static str) -> AnyWidget {
 /// A line the user sent from the composer: a command opens its screen, asks
 /// the session or says why not (the decision is core's `dispatch`); anything
 /// else is a message for the model.
+/// F2 and `/warnings`: the viewer over the retained warnings (nothing
+/// retained opens nothing).
+fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    if read::<ScreenStates, _>(cx).dialogs.retained.is_empty() {
+        return;
+    }
+    cx.emit(&hs.screen, ScreenIntent::from(dialogs::Intent::OpenWarnings));
+    open(cx, Target::Dialogs);
+}
+
 fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter.
@@ -193,7 +204,11 @@ fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
         Outcome::Open(opened) => {
             record(cx);
             w.ui.composer.clear();
-            open(cx, opened.target);
+            if opened.command == SlashCommand::Warnings {
+                open_warnings(cx, hs);
+            } else {
+                open(cx, opened.target);
+            }
         }
         Outcome::Session { command, intent } => {
             record(cx);
@@ -221,16 +236,6 @@ impl StatefulWidget for Chat {
 }
 
 impl_widget!(stateful eq Chat);
-
-/// The items of the status line in the order the config gives, with their
-/// texts (`status_line_setup.rs`: model with reasoning, current dir, git
-/// branch, approval mode, context, limits). The core model holds none of
-/// their data nor the saved item list yet (the thread start answer keeps only
-/// the id, `wire.rs`; the settings edit `StatusLineSaved` is not state): the
-/// line is empty until session-core provides them, no value is invented.
-fn status_items() -> Vec<(&'static str, String)> {
-    Vec::new()
-}
 
 impl State for ChatState {
     type Widget = Chat;
@@ -327,6 +332,7 @@ impl State for ChatState {
                     );
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
                 }
+                Action::OpenWarnings => open_warnings(cx, &hs),
                 other => {
                     if let Some(target) = other.target() {
                         open(cx, target);
@@ -496,6 +502,27 @@ impl State for ChatState {
                 (line.into(), footer)
             }
         };
+        // `⚠ N warnings · f2 to view` at the footer's right (not while history
+        // search owns the footer).
+        let footer = if search.is_none() {
+            let data = Theme::of(cx);
+            with_warning_notice(
+                footer,
+                states.dialogs.retained.len(),
+                Notice {
+                    badge: chat_strings.warning_badge,
+                    singular: chat_strings.warning_singular,
+                    plural: chat_strings.warning_plural,
+                    key: chat_strings.warning_key,
+                    view: chat_strings.warning_view,
+                    accent: data.warning.clone(),
+                    secondary: tokens.dim(),
+                    key_style: tokens.bold(),
+                },
+            )
+        } else {
+            footer
+        };
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
@@ -522,7 +549,11 @@ impl State for ChatState {
             body = body.child(panel);
         }
         // The configured status line, two cells in, under the composer.
-        let line = status_line(status_items(), true, &tokens);
+        // The items and their order are the config's, the texts the facts the
+        // host read (core `StatusFacts`); the ones that need the session
+        // (context, limits) have no value yet and are not drawn.
+        let facts = &states.chat.status;
+        let line = status_line(facts.items(), facts.colors, &tokens);
         let mut body = body.child(composer);
         if let Some(line) = line {
             body = body.child(
