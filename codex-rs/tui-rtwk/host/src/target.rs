@@ -86,6 +86,11 @@ impl Mode {
         if flags.no_daemon && flags.remote.is_some() {
             anyhow::bail!("--no-daemon cannot be used with --remote.");
         }
+        if flags.agents && flags.remote.is_some() && sets_writable_roots(flags.config_overrides) {
+            anyhow::bail!(
+                "`codex agents` cannot apply local provider or additional-directory overrides to a remote server"
+            );
+        }
         let Some(remote) = flags.remote else {
             if flags.remote_auth_token_env.is_some() {
                 anyhow::bail!("`--remote-auth-token-env` requires `--remote`.");
@@ -120,6 +125,38 @@ impl Mode {
             if default_socket().as_ref() == Some(socket_path));
         Ok(Mode::Remote { endpoint, daemon })
     }
+}
+
+/// Whether a `-c` override sets the workspace-write roots, a local
+/// additional directory a remote server cannot take (`cli/src/main.rs:1121`).
+fn sets_writable_roots(raw: &[String]) -> bool {
+    codex_utils_cli::CliConfigOverrides {
+        raw_overrides: raw.to_vec(),
+    }
+    .parse_overrides()
+    .is_ok_and(|overrides| {
+        overrides.iter().any(|(key, value)| {
+            key == "sandbox_workspace_write.writable_roots"
+                || (key == "sandbox_workspace_write" && value.get("writable_roots").is_some())
+        })
+    })
+}
+
+/// The refusal of a command center on the embedded server when a terminal is
+/// missing (`cli/src/main.rs:2595`, `AppExitInfo::fatal`).
+pub fn terminal_refusal(
+    flags: &Flags<'_>,
+    mode: &Mode,
+    stdin_tty: bool,
+    stdout_tty: bool,
+) -> Option<&'static str> {
+    if !flags.agents || *mode != Mode::Embedded {
+        return None;
+    }
+    if !stdin_tty {
+        return Some("stdin is not a terminal");
+    }
+    (!stdout_tty).then_some("stdout is not a terminal")
 }
 
 fn default_socket() -> Option<AbsolutePathBuf> {
@@ -286,6 +323,60 @@ mod tests {
             let err = resolve_remote_addr(addr).unwrap_err();
             assert!(err.to_string().contains(INVALID), "{addr}");
         }
+    }
+
+    /// `cli/src/main.rs:1121`: a remote command center takes no local
+    /// additional-directory override.
+    #[test]
+    fn a_remote_center_refuses_local_writable_roots() {
+        let roots = raw(&["sandbox_workspace_write.writable_roots=[\"/x\"]"]);
+        let table = raw(&["sandbox_workspace_write={writable_roots=[\"/x\"]}"]);
+        for overrides in [&roots, &table] {
+            let flags = Flags {
+                config_overrides: overrides,
+                ..flags(Some("ws://127.0.0.1:4500"), None)
+            };
+            let err = Mode::resolve(&flags, env).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "`codex agents` cannot apply local provider or additional-directory overrides to a remote server"
+            );
+        }
+        let fine = raw(&["analytics.enabled=false"]);
+        let flags = Flags {
+            config_overrides: &fine,
+            ..flags(Some("ws://127.0.0.1:4500"), None)
+        };
+        assert!(Mode::resolve(&flags, env).is_ok());
+    }
+
+    /// `cli/src/main.rs:2595`: the embedded command center needs terminals.
+    #[test]
+    fn the_embedded_center_needs_a_terminal() {
+        let embedded = Flags {
+            no_daemon: true,
+            ..flags(None, None)
+        };
+        let mode = Mode::Embedded;
+        assert_eq!(
+            terminal_refusal(&embedded, &mode, false, true),
+            Some("stdin is not a terminal")
+        );
+        assert_eq!(
+            terminal_refusal(&embedded, &mode, true, false),
+            Some("stdout is not a terminal")
+        );
+        assert_eq!(terminal_refusal(&embedded, &mode, true, true), None);
+        // The chat and the daemon are not asked.
+        let chat = Flags {
+            agents: false,
+            ..flags(None, None)
+        };
+        assert_eq!(terminal_refusal(&chat, &mode, false, false), None);
+        assert_eq!(
+            terminal_refusal(&flags(None, None), &Mode::Daemon, false, false),
+            None
+        );
     }
 
     /// `startup_orchestration.rs:16`: the two flags exclude each other.

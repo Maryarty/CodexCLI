@@ -47,6 +47,9 @@ pub struct Cli {
 /// oracle words it (`startup_orchestration.rs`); the rest (`--remote` values,
 /// the token variable) is the host's, with the oracle's words.
 const NO_DAEMON_WITH_REMOTE: &str = "--no-daemon cannot be used with --remote.";
+const AGENTS_NO_PROMPT: &str = "`codex agents` does not accept an initial prompt or images";
+const AGENTS_CONFLICTING_REMOTE: &str =
+    "`codex agents` received conflicting remote server endpoints";
 
 impl Cli {
     /// The text `--help`, `-h`, `help`, `--version` or `-V` asks for, if the
@@ -104,6 +107,9 @@ impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
         let mut args = args.into_iter();
+        // What `codex agents` refuses: a prompt or images, and two endpoints.
+        let mut prompt_or_images = false;
+        let mut other_remote: Option<String> = None;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--debug-screens" => cli.debug_screens = true,
@@ -126,7 +132,15 @@ impl Cli {
                     let value = args
                         .next()
                         .ok_or_else(|| anyhow::anyhow!("--remote needs a value"))?;
+                    if cli.remote.as_ref().is_some_and(|first| *first != value) {
+                        other_remote = Some(value.clone());
+                    }
                     cli.remote = Some(value);
+                }
+                "-i" | "--image" => {
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    prompt_or_images = true;
                 }
                 "--remote-auth-token-env" => {
                     let value = args
@@ -153,7 +167,15 @@ impl Cli {
                     } else if let Some(value) = other.strip_prefix("--cd=") {
                         cli.cwd = Some(value.into());
                     } else if let Some(value) = other.strip_prefix("--remote=") {
+                        if cli.remote.as_deref().is_some_and(|first| first != value) {
+                            other_remote = Some(value.to_string());
+                        }
                         cli.remote = Some(value.to_string());
+                    } else if other.starts_with("--image=") {
+                        prompt_or_images = true;
+                    } else if cli.agents && !other.starts_with('-') {
+                        // The positional prompt of `codex`.
+                        prompt_or_images = true;
                     } else if let Some(value) = other.strip_prefix("--remote-auth-token-env=") {
                         cli.remote_auth_token_env = Some(value.to_string());
                     } else if let Some(value) = other.strip_prefix("--locale=") {
@@ -165,6 +187,12 @@ impl Cli {
                     }
                 }
             }
+        }
+        if cli.agents && other_remote.is_some() {
+            anyhow::bail!(AGENTS_CONFLICTING_REMOTE);
+        }
+        if cli.agents && prompt_or_images {
+            anyhow::bail!(AGENTS_NO_PROMPT);
         }
         if cli.remote.is_some() && cli.no_daemon {
             anyhow::bail!(NO_DAEMON_WITH_REMOTE);
