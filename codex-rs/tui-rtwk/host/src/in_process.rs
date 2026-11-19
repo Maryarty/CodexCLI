@@ -5,16 +5,21 @@
 
 use std::sync::Arc;
 
+use crate::target::Mode;
 use crate::workspace::Local;
 use anyhow::Context as _;
+use codex_app_server_client::AppServerClient;
+use codex_app_server_client::AppServerEvent;
+use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::EmbeddedNetworkPolicy;
 use codex_app_server_client::EnvironmentManager;
 use codex_app_server_client::ExecServerRuntimeOptions;
 use codex_app_server_client::InProcessAppServerClient;
-use codex_app_server_client::InProcessAppServerRequestHandle;
 use codex_app_server_client::InProcessClientStartArgs;
-use codex_app_server_client::InProcessServerEvent;
+use codex_app_server_client::RemoteAppServerClient;
+use codex_app_server_client::RemoteAppServerConnectArgs;
+use codex_app_server_client::RemoteAppServerEndpoint;
 use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
@@ -42,9 +47,11 @@ use codex_tui_rtwk::shell::BackendTask;
 use codex_tui_rtwk::shell::Connector;
 use codex_tui_rtwk::shell::IngressTx;
 use codex_tui_rtwk::shell::emit;
+use codex_tui_rtwk::shell::reconnect;
 use codex_tui_rtwk::shell::rpc::Ids;
 use codex_tui_rtwk::shell::rpc::answer;
 use codex_tui_rtwk::shell::search::Latest;
+use codex_tui_rtwk::shell::version;
 use codex_tui_rtwk::shell::workspace::Boxed;
 use codex_tui_rtwk::shell::workspace::Facts;
 use codex_tui_rtwk::shell::workspace::Workspace;
@@ -53,6 +60,7 @@ use codex_tui_rtwk::shell::workspace::backend_ev;
 use codex_tui_rtwk::shell::workspace::directories;
 use codex_tui_rtwk::shell::workspace::save_grouping;
 use codex_tui_rtwk::shell::workspace::worktree;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -82,6 +90,12 @@ impl<T> HandBack<T> {
     pub fn get(&mut self) -> Option<&mut T> {
         self.value.as_mut()
     }
+
+    /// Puts `value` in place of the held one (a restored connection); the
+    /// old one is dropped.
+    pub fn set(&mut self, value: T) {
+        self.value = Some(value);
+    }
 }
 
 impl<T> Drop for HandBack<T> {
@@ -94,7 +108,7 @@ impl<T> Drop for HandBack<T> {
 
 /// What the in-process client is started with, for `config`.
 async fn start_args(
-    config: Config,
+    config: Arc<Config>,
     arg0_paths: Arg0DispatchPaths,
 ) -> anyhow::Result<InProcessClientStartArgs> {
     let loader_overrides = LoaderOverrides::default();
@@ -125,7 +139,7 @@ async fn start_args(
     Ok(InProcessClientStartArgs {
         required_human_approval: false,
         arg0_paths,
-        config: Arc::new(config),
+        config,
         cli_overrides: Vec::new(),
         loader_overrides,
         strict_config: false,
@@ -150,9 +164,11 @@ async fn start_args(
 /// The in-process app-server, started when the app attaches it.
 pub struct InProcess {
     pub arg0_paths: Arg0DispatchPaths,
+    /// Which server: the embedded one, the local daemon or a remote one.
+    pub mode: Mode,
     /// Receives the client when the backend future ends or is aborted, so
     /// that `main` shuts it down (see `HandBack`).
-    pub done: oneshot::Sender<InProcessAppServerClient>,
+    pub done: oneshot::Sender<AppServerClient>,
     /// `--model`: the model of the thread, over the config's.
     pub model: Option<String>,
     /// `--cd`: the working root of the agent, over the process's directory.
@@ -180,6 +196,7 @@ async fn run(
 ) {
     let InProcess {
         arg0_paths,
+        mode,
         done,
         model,
         cwd,
@@ -194,7 +211,7 @@ async fn run(
         .build()
         .await
     {
-        Ok(config) => config,
+        Ok(config) => Arc::new(config),
         Err(error) => {
             emit(
                 &ingress,
@@ -204,39 +221,29 @@ async fn run(
             return;
         }
     };
-    let args = match start_args(config, arg0_paths).await {
-        Ok(args) => args,
+    // The server, and whether its workspace is this machine's (oracle:
+    // `worktrees_enabled`: a local workspace, and no cloud list).
+    let (client, local) = match connect_first(&mode, &config, arg0_paths).await {
+        Ok(connected) => connected,
         Err(error) => {
-            emit(&ingress, epoch, AppEv::StartFailed(format!("{error:#}")));
+            emit(&ingress, epoch, AppEv::StartFailed(error));
             return;
         }
     };
-    // Oracle: `worktrees_enabled` is a local workspace, and no cloud list.
-    let local = !args
-        .environment_manager
-        .default_environment()
-        .is_some_and(|environment| environment.is_remote());
     let facts = Facts {
         cloud: false,
         worktrees: local,
     };
     // `tui.status_line_use_colors`: whether the tasks get their own colour.
-    let thread_colors = args.config.tui_status_line_use_colors;
+    let thread_colors = config.tui_status_line_use_colors;
     // `tui.agents_overview_grouping`: the grouping the center opens with.
-    let grouping = args.config.tui_agents_overview_grouping;
+    let grouping = config.tui_agents_overview_grouping;
     // What the status line and the footer show: read here, sent as events.
-    let status = crate::facts::status(&args.config).await;
-    let warnings = crate::facts::warnings(&args.config);
-    let workspace: Arc<dyn Workspace> = Arc::new(Local::new(args.config.codex_home.to_path_buf()));
-    // Boxed: the start future is large, and the pump should not carry it inline.
-    let started = match Box::pin(InProcessAppServerClient::start(args)).await {
-        Ok(client) => client,
-        Err(error) => {
-            emit(&ingress, epoch, AppEv::StartFailed(error.to_string()));
-            return;
-        }
-    };
-    let mut held = HandBack::new(started, done);
+    let status = crate::facts::status(&config).await;
+    let warnings = crate::facts::warnings(&config);
+    let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
+    let show_version = config.tui_show_server_version_notice;
+    let mut held = HandBack::new(client, done);
     emit(&ingress, epoch, AppEv::Connected);
     emit(&ingress, epoch, backend_ev(facts));
     emit(
@@ -263,7 +270,11 @@ async fn run(
             AppEv::Screen(ScreenEv::Dialogs(DialogsEv::Retained(warnings))),
         );
     }
-    let Some(handle) = held.get().map(|client| client.request_handle()) else {
+    let daemon = matches!(mode, Mode::Daemon | Mode::Remote { daemon: true, .. });
+    if show_version && let Some(client) = held.get() {
+        emit_version(&ingress, epoch, client, daemon);
+    }
+    let Some(mut handle) = held.get().map(|client| client.request_handle()) else {
         return;
     };
     let ids = Ids::default();
@@ -274,22 +285,28 @@ async fn run(
     // The history search's debounce: the oracle waits 180 ms and a newer
     // search drops the pending one.
     let mut latest = Latest::default();
+    let endpoint = reconnect_endpoint(&mode);
     while let Some(client) = held.get() {
+        // The connection ended: restored or not, decided after the select,
+        // when the client is no longer borrowed.
+        let mut lost = false;
         tokio::select! {
             event = client.next_event() => match event {
-                None => {
-                    emit(&ingress, epoch, AppEv::Disconnected);
-                    break;
-                }
-                Some(InProcessServerEvent::Lagged { skipped }) => {
+                None | Some(AppServerEvent::Disconnected { .. }) => lost = true,
+                Some(AppServerEvent::Lagged { skipped }) => {
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
                 }
-                Some(InProcessServerEvent::ServerNotification(notification)) => {
+                Some(AppServerEvent::ServerNotification(notification)) => {
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Notification(notification)));
                 }
-                Some(InProcessServerEvent::ServerRequest(request)) => {
+                Some(AppServerEvent::ServerRequest(request)) => {
                     emit(&ingress, epoch, AppEv::Backend(BackendEv::Request(request)));
                 }
+                // Cloud streams: this app has no cloud backend.
+                Some(
+                    AppServerEvent::ThreadStreamDisconnected(_)
+                    | AppServerEvent::ThreadStreamReconnected(_),
+                ) => {}
             },
             command = commands.recv() => match command {
                 None => break,
@@ -312,8 +329,134 @@ async fn run(
                 }
             }
         }
+        if !lost {
+            continue;
+        }
+        let Some(endpoint) = endpoint.clone() else {
+            // The embedded server has no connection to restore.
+            emit(&ingress, epoch, AppEv::Disconnected);
+            break;
+        };
+        // What the lost connection was asked will never answer.
+        inflight = FuturesUnordered::new();
+        let restored =
+            reconnect::restore(|| connect_remote(endpoint.clone()), &ingress, epoch).await;
+        let Some(restored) = restored else {
+            // The notice stays; the app is closed with its commands.
+            while commands.recv().await.is_some() {}
+            break;
+        };
+        held.set(restored);
+        let Some(client) = held.get() else {
+            break;
+        };
+        handle = client.request_handle();
+        if show_version {
+            emit_version(&ingress, epoch, client, daemon);
+        }
+        inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+/// The endpoint a lost connection is restored through; `None` for the
+/// embedded server.
+fn reconnect_endpoint(mode: &Mode) -> Option<RemoteAppServerEndpoint> {
+    match mode {
+        Mode::Embedded => None,
+        Mode::Remote { endpoint, .. } => Some(endpoint.clone()),
+        // The daemon's socket is where it was started (the same one the
+        // oracle's `LocalDaemon` target reconnects to).
+        Mode::Daemon => codex_core::config::find_codex_home()
+            .ok()
+            .and_then(|home| codex_app_server_client::app_server_control_socket_path(&home).ok())
+            .map(|socket_path| RemoteAppServerEndpoint::UnixSocket { socket_path }),
+    }
+}
+
+/// The server's first connection, and whether its workspace is this
+/// machine's. A failure is the text the app shows (`StartFailed`).
+async fn connect_first(
+    mode: &Mode,
+    config: &Arc<Config>,
+    arg0_paths: Arg0DispatchPaths,
+) -> Result<(AppServerClient, bool), String> {
+    match mode {
+        Mode::Embedded => {
+            let args = start_args(config.clone(), arg0_paths)
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+            let local = !args
+                .environment_manager
+                .default_environment()
+                .is_some_and(|environment| environment.is_remote());
+            // Boxed: the start future is large, and the pump should not carry it inline.
+            let client = Box::pin(InProcessAppServerClient::start(args))
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok((AppServerClient::InProcess(client), local))
+        }
+        Mode::Daemon => {
+            // As the oracle's startup: the daemon is started when it is not
+            // running (`startup_orchestration.rs`), and a failure says how to
+            // work without it.
+            let started =
+                codex_app_server_daemon::start_with_features_classified(&Default::default())
+                    .await
+                    .map_err(|failure| format!("{:#}\n{DAEMON_FAILURE_HINT}", failure.error))?;
+            let socket_path = AbsolutePathBuf::from_absolute_path_checked(started.socket_path)
+                .map_err(|error| error.to_string())?;
+            let client = connect_remote(RemoteAppServerEndpoint::UnixSocket { socket_path })
+                .await
+                .ok_or_else(|| {
+                    format!("failed to connect to the local daemon\n{DAEMON_FAILURE_HINT}")
+                })?;
+            Ok((client, true))
+        }
+        Mode::Remote { endpoint, daemon } => {
+            let client = connect_remote(endpoint.clone())
+                .await
+                .ok_or_else(|| "failed to connect to remote app server".to_string())?;
+            Ok((client, *daemon))
+        }
+    }
+}
+
+/// `daemon_startup.rs::FAILURE_HINT`.
+const DAEMON_FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
+
+/// One connection to a server at `endpoint` (oracle:
+/// `connect_remote_app_server`); a failure is `None`, whose text the oracle
+/// never shows.
+async fn connect_remote(endpoint: RemoteAppServerEndpoint) -> Option<AppServerClient> {
+    RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
+        required_human_approval: true,
+        endpoint,
+        client_name: "codex-rtwk".to_string(),
+        client_version: env!("CARGO_PKG_VERSION").to_string(),
+        experimental_api: true,
+        mcp_server_openai_form_elicitation: false,
+        opt_out_notification_methods: Vec::new(),
+        channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+    })
+    .await
+    .ok()
+    .map(AppServerClient::Remote)
+}
+
+/// The older-server words of the connected server, or their absence.
+fn emit_version(ingress: &IngressTx, epoch: ConnEpoch, client: &AppServerClient, daemon: bool) {
+    let AppServerClient::Remote(remote) = client else {
+        return;
+    };
+    let text = remote
+        .server_version()
+        .and_then(|server| version::notice(env!("CARGO_PKG_VERSION"), server, daemon));
+    emit(
+        ingress,
+        epoch,
+        AppEv::Screen(ScreenEv::Agents(AgentsEv::ServerVersion(text))),
+    );
 }
 
 /// The work a command of ours asks, as one boxed future (the pump holds many
@@ -323,7 +466,7 @@ async fn run(
 /// only sends.
 fn work(
     command: Command,
-    handle: InProcessAppServerRequestHandle,
+    handle: AppServerRequestHandle,
     ids: Ids,
     facts: Facts,
     workspace: Arc<dyn Workspace>,
@@ -349,11 +492,11 @@ fn work(
     }
 }
 
-/// The client of the shell's effects: one request over the in-process
-/// handle. A server's refusal keeps its JSON-RPC code (the pin read tells
-/// "no pins" by it); the message is the client's own text.
+/// The client of the shell's effects: one request over the handle. A
+/// server's refusal keeps its JSON-RPC code (the pin read tells "no pins" by
+/// it); the message is the client's own text.
 fn sender(
-    handle: InProcessAppServerRequestHandle,
+    handle: AppServerRequestHandle,
 ) -> impl Fn(ClientRequest) -> Boxed<Result<serde_json::Value, ServerError>> {
     move |request: ClientRequest| {
         let handle = handle.clone();
@@ -372,7 +515,7 @@ fn sender(
     }
 }
 
-async fn reject(client: &InProcessAppServerClient, key: &RequestKey) {
+async fn reject(client: &AppServerClient, key: &RequestKey) {
     let Some(request_id) = wire::reject_target(key) else {
         return;
     };

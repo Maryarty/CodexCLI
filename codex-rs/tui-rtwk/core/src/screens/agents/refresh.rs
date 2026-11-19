@@ -169,6 +169,9 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             }
             model.notice = notice;
         }
+        Ev::ServerVersion(text) => model.server_version = text,
+        Ev::Reconnecting => reconnecting(model),
+        Ev::Reconnected => model.notice = None,
         Ev::Started(thread) => opened(model, &thread),
         Ev::Voice(owner) => model.voice = owner,
         Ev::Request(thread, preview) => match preview {
@@ -180,6 +183,23 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             }
         },
     }
+}
+
+/// The connection was lost (oracle: `begin_reconnect`): what was read from
+/// the old one is dropped, the reads in flight will never answer, and the
+/// footer says so until a new connection is up.
+fn reconnecting(model: &mut Model) {
+    super::usage::reset(model);
+    model.activity.clear();
+    model.last_messages.clear();
+    model.reading.clear();
+    model.reread.clear();
+    model.pin_pending = false;
+    model.paging.loading = false;
+    model.paging.initialized = false;
+    // The older-server notice is judged again by the new connection.
+    model.server_version = None;
+    model.notice = Some(Notice::Reconnecting);
 }
 
 /// A task the app started opens in the chat; the busy notice ends.

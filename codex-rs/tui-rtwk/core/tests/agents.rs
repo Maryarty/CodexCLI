@@ -949,8 +949,10 @@ fn failed_background_worker_only_needs_attention_for_a_pending_request() {
     );
 }
 
-fn notice(sandbox: &mut Sandbox, notice: Option<Notice>) {
-    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::Notice(notice))));
+fn server_version(sandbox: &mut Sandbox, text: Option<&str>) {
+    sandbox.send(AppEv::Screen(ScreenEv::Agents(Ev::ServerVersion(
+        text.map(str::to_owned),
+    ))));
 }
 
 /// `server_version_overview_notice_updates_and_clears`
@@ -964,14 +966,11 @@ fn server_version_overview_notice_updates_and_clears() {
     let newer = "Service v0.151.0 < Codex CLI v0.153.0";
     let mut sandbox = sandbox();
     list(&mut sandbox, Vec::new());
-    notice(&mut sandbox, Some(Notice::ServerVersion(older.into())));
-    notice(&mut sandbox, Some(Notice::ServerVersion(newer.into())));
-    assert_eq!(
-        model(&sandbox).notice,
-        Some(Notice::ServerVersion(newer.into()))
-    );
-    notice(&mut sandbox, None);
-    assert_eq!(model(&sandbox).notice, None);
+    server_version(&mut sandbox, Some(older));
+    server_version(&mut sandbox, Some(newer));
+    assert_eq!(model(&sandbox).server_version.as_deref(), Some(newer));
+    server_version(&mut sandbox, None);
+    assert_eq!(model(&sandbox).server_version, None);
 }
 
 /// `overview_right_opens_current_or_highlighted_task`
@@ -2172,12 +2171,6 @@ fn only_the_ent26_plan_bills_in_dollars() {
 #[test]
 fn a_script_seeds_the_notices() {
     for (body, expected) in [
-        (
-            json!({"server_version": "Service v0.152.1 < Codex CLI v0.153.0"}),
-            Some(Notice::ServerVersion(
-                "Service v0.152.1 < Codex CLI v0.153.0".into(),
-            )),
-        ),
         (json!("reconnecting"), Some(Notice::Reconnecting)),
         (json!("creating_worktree"), Some(Notice::CreatingWorktree)),
         (json!(null), None),
@@ -2187,6 +2180,11 @@ fn a_script_seeds_the_notices() {
         assert_eq!(ev, Ev::Notice(expected));
     }
     assert!(codex_tui_core::screens::agents::seed(json!({"notice": "bogus"})).is_err());
+    assert_eq!(
+        codex_tui_core::screens::agents::seed(json!({"server_version": "Service v1"}))
+            .expect("a version"),
+        Ev::ServerVersion(Some("Service v1".into()))
+    );
 }
 
 /// VS1 review D5: a search the next keystroke supersedes never answers (the

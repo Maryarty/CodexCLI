@@ -84,11 +84,13 @@ rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
+semver = "1.0"
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+tokio = { version = "1", features = ["macros", "test-util"] }
 rtwk-term = { workspace = true }
 rtwk-test = { workspace = true }
 
@@ -174,6 +176,10 @@ path = "tests/agents_mouse.rs"
 [[test]]
 name = "shell_agents"
 path = "tests/shell_agents.rs"
+
+[[test]]
+name = "shell_connection"
+path = "tests/shell_connection.rs"
 
 # Release builds strip symbols (the person, 2026-11-19): -84 MB, and rtwk's atexit/dladdr scan
 # at terminal open costs ~3.5 ms only in an unstripped binary (perf-size research).

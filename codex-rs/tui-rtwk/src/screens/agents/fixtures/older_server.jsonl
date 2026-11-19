@@ -2,4 +2,4 @@
 {"step": "seed", "seed": "session", "thread": "thread-1"}
 {"step": "screen", "dir": "agents", "ev": {"current": "00000000-0000-0000-0000-000000000101"}}
 {"step": "screen", "dir": "agents", "ev": {"listed": {"threads": []}}}
-{"step": "screen", "dir": "agents", "ev": {"notice": {"server_version": "Service v0.152.1 < Codex CLI v0.153.0"}}}
+{"step": "screen", "dir": "agents", "ev": {"server_version": "Service v0.152.1 < Codex CLI v0.153.0"}}

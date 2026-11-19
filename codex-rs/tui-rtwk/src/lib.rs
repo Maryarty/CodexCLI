@@ -32,16 +32,19 @@ pub struct Cli {
     pub cwd: Option<std::path::PathBuf>,
     /// `--no-alt-screen`: run inline, keeping the terminal's scrollback.
     pub no_alt_screen: bool,
-    /// `--no-daemon`: the embedded app server (the only one this app runs).
+    /// `--no-daemon`: the embedded app server, not the local daemon.
     pub no_daemon: bool,
+    /// `--remote ADDR`: an explicit app server (`ws://host:port`,
+    /// `wss://host:port`, `unix://[PATH]`); the host resolves it.
+    pub remote: Option<String>,
+    /// `--remote-auth-token-env VAR`: the variable holding its bearer token.
+    pub remote_auth_token_env: Option<String>,
 }
 
-/// The refusals of the connection flags, as the oracle words them
-/// (`startup_orchestration.rs`), until the app can connect to a server.
+/// The refusal of the connection flags that needs no server to tell, as the
+/// oracle words it (`startup_orchestration.rs`); the rest (`--remote` values,
+/// the token variable) is the host's, with the oracle's words.
 const NO_DAEMON_WITH_REMOTE: &str = "--no-daemon cannot be used with --remote.";
-const REMOTE_UNSUPPORTED: &str =
-    "--remote is not supported yet: codex-rtwk runs its own embedded app server.";
-const AUTH_TOKEN_NEEDS_REMOTE: &str = "--remote-auth-token-env requires --remote.";
 
 impl Cli {
     /// The text `--help`, `-h`, `help`, `--version` or `-V` asks for, if the
@@ -96,7 +99,6 @@ impl Cli {
 
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
-        let (mut remote, mut token_env) = (false, false);
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -111,14 +113,16 @@ impl Cli {
                     cli.cwd = Some(value.into());
                 }
                 "--remote" => {
-                    args.next()
+                    let value = args
+                        .next()
                         .ok_or_else(|| anyhow::anyhow!("--remote needs a value"))?;
-                    remote = true;
+                    cli.remote = Some(value);
                 }
                 "--remote-auth-token-env" => {
-                    args.next()
+                    let value = args
+                        .next()
                         .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
-                    token_env = true;
+                    cli.remote_auth_token_env = Some(value);
                 }
                 "resume" => cli.resume = true,
                 "-m" | "--model" => {
@@ -136,10 +140,10 @@ impl Cli {
                 other => {
                     if let Some(value) = other.strip_prefix("--cd=") {
                         cli.cwd = Some(value.into());
-                    } else if other.starts_with("--remote=") {
-                        remote = true;
-                    } else if other.starts_with("--remote-auth-token-env=") {
-                        token_env = true;
+                    } else if let Some(value) = other.strip_prefix("--remote=") {
+                        cli.remote = Some(value.to_string());
+                    } else if let Some(value) = other.strip_prefix("--remote-auth-token-env=") {
+                        cli.remote_auth_token_env = Some(value.to_string());
                     } else if let Some(value) = other.strip_prefix("--locale=") {
                         cli.locale = Some(parse_locale(value)?);
                     } else if let Some(value) = other.strip_prefix("--model=") {
@@ -150,14 +154,8 @@ impl Cli {
                 }
             }
         }
-        if remote && cli.no_daemon {
+        if cli.remote.is_some() && cli.no_daemon {
             anyhow::bail!(NO_DAEMON_WITH_REMOTE);
-        }
-        if remote {
-            anyhow::bail!(REMOTE_UNSUPPORTED);
-        }
-        if token_env {
-            anyhow::bail!(AUTH_TOKEN_NEEDS_REMOTE);
         }
         Ok(cli)
     }

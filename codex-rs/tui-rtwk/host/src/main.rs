@@ -5,6 +5,7 @@
 
 mod facts;
 mod in_process;
+mod target;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;
@@ -39,8 +40,18 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     // are loaded by the backend future, after the terminal has painted the
     // composer (the oracle's `StartupDraft`); a failure arrives as `StartFailed`.
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let mode = target::Mode::resolve(
+        &target::Flags {
+            no_daemon: cli.no_daemon,
+            agents: cli.agents,
+            remote: cli.remote.as_deref(),
+            remote_auth_token_env: cli.remote_auth_token_env.as_deref(),
+        },
+        |name| std::env::var(name),
+    )?;
     let backend = Backend::Connector(Box::new(in_process::InProcess {
         arg0_paths,
+        mode,
         done: done_tx,
         model: cli.model.clone(),
         cwd: cli.cwd.clone(),

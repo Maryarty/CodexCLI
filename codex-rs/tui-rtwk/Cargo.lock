@@ -3619,6 +3619,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "codex-app-server-client",
+ "codex-app-server-daemon",
  "codex-app-server-protocol",
  "codex-arg0",
  "codex-config",
@@ -3628,6 +3629,7 @@ dependencies = [
  "codex-protocol",
  "codex-tui-core",
  "codex-tui-rtwk",
+ "codex-utils-absolute-path",
  "codex-utils-path",
  "codex-worktree",
  "dunce",
@@ -3637,6 +3639,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -3882,6 +3885,7 @@ dependencies = [
  "rtwk-term",
  "rtwk-test",
  "rtwk-tokio",
+ "semver",
  "serde_json",
  "tokio",
 ]

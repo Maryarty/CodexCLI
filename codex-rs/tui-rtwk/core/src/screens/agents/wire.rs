@@ -365,6 +365,9 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
             .and_then(|name| super::Grouping::from_config(&name).ok_or(name))
             .map(Ev::Grouping),
         "notice" => seed_notice(body).map(Ev::Notice),
+        "server_version" => Ok(Ev::ServerVersion(body.as_str().map(str::to_owned))),
+        "reconnecting" => Ok(Ev::Reconnecting),
+        "reconnected" => Ok(Ev::Reconnected),
         "request" => serde_json::from_value::<(String, String)>(body)
             .map(|(thread, preview)| Ev::Request(thread, Some(preview)))
             .map_err(text),
@@ -373,8 +376,7 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
 }
 
 /// A seeded notice: `null` (none), `"reconnecting"`, `"reconnect_failed"`,
-/// `"creating_worktree"`, `"load_failed"`, `{"server_version": text}`,
-/// `{"error": text}` or `{"removing": "archive" | "delete"}`.
+/// `"creating_worktree"`, `"load_failed"`, `{"error": text}` or `{"removing": "archive" | "delete"}`.
 fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String> {
     use super::Action;
     use super::Notice;
@@ -394,7 +396,6 @@ fn seed_notice(body: serde_json::Value) -> Result<Option<super::Notice>, String>
                 .ok_or_else(|| "an empty notice".to_owned())?;
             let text = value.as_str().unwrap_or_default().to_owned();
             match key.as_str() {
-                "server_version" => Ok(Some(Notice::ServerVersion(text))),
                 "error" => Ok(Some(Notice::Error(text))),
                 "removing" => match text.as_str() {
                     "archive" => Ok(Some(Notice::Removing(Action::Archive))),
