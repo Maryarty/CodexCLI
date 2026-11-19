@@ -14,6 +14,7 @@ use super::Model;
 use super::Notice;
 use super::Page;
 use super::Reply;
+use crate::ids::BackendId;
 use crate::rpc::RpcError;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
@@ -76,18 +77,20 @@ pub(super) fn upsert_thread(threads: &mut Vec<Thread>, thread: Thread) {
     }
 }
 
-fn merge_page(model: &mut Model, page: Page) {
-    let known: HashSet<String> = page
-        .threads
-        .iter()
-        .map(|thread| thread.id.clone())
-        .collect();
-    let fresh = page
-        .threads
-        .into_iter()
-        .filter(|thread| !thread.ephemeral && !model.removed.contains(&thread.id))
-        .map(normalize)
-        .collect::<Vec<_>>();
+fn merge_page(model: &mut Model, owner: BackendId, page: Page) {
+    // What the list reaches: the rows this backend owns (a row of an id
+    // another backend owns is not this list's, and the held one stays).
+    let mut known = HashSet::new();
+    let mut fresh = Vec::new();
+    for thread in page.threads {
+        let ours = model.observe(owner, &thread.id);
+        if ours {
+            known.insert(thread.id.clone());
+        }
+        if ours && !thread.ephemeral && !model.removed.contains(&thread.id) {
+            fresh.push(normalize(thread));
+        }
+    }
     if page.append {
         let mut at = positions(&model.threads);
         for thread in fresh {
@@ -112,17 +115,33 @@ fn merge_page(model: &mut Model, page: Page) {
         // A pinned task need not be among the recent ones: it is a row too.
         let mut at = positions(&model.threads);
         for thread in pins.threads {
-            if thread.ephemeral || model.removed.contains(&thread.id) {
+            if thread.ephemeral
+                || model.removed.contains(&thread.id)
+                || !model.observe(owner, &thread.id)
+            {
                 continue;
             }
             upsert(&mut model.threads, &mut at, normalize(thread));
         }
-        model.pinned = pins.ids;
+        // Only the ids this backend owns, once each (oracle: the pins are
+        // filtered through `BackendRegistry::observe`).
+        let ids = pins.ids.map(|ids| {
+            let mut seen = HashSet::new();
+            ids.into_iter()
+                .filter(|id| model.observe(owner, id) && seen.insert(id.clone()))
+                .collect()
+        });
+        model.set_pins(owner, ids);
     }
     let arrived: HashSet<&str> = model.threads.iter().map(|held| held.id.as_str()).collect();
     model
         .search_matches
         .retain(|held| !arrived.contains(held.id.as_str()));
+    // The list continues where the displayed backend's list does; another
+    // backend's page leaves the window as it is.
+    if owner != model.displayed {
+        return;
+    }
     // The first page sets where the list continues; a refresh after the
     // window grew leaves it (oracle: a refresh without discovery).
     if !model.paging.initialized || page.append {
@@ -140,8 +159,8 @@ fn merge_page(model: &mut Model, page: Page) {
 
 pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
     match ev {
-        Ev::Listed(page) => merge_page(model, page),
-        Ev::ListedBy(_owner, page) => merge_page(model, page),
+        Ev::Listed(page) => merge_page(model, model.displayed, page),
+        Ev::ListedBy(owner, page) => merge_page(model, owner, page),
         Ev::Clock(now) => model.now = now,
         Ev::Home(home) => model.home = home,
         Ev::Backend { cloud, worktrees } => {
@@ -157,9 +176,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
         Ev::ThreadColors(on) => model.thread_colors_off = !on,
         Ev::Grouping(grouping) => model.grouping = grouping,
         Ev::Current(current) => model.current = current,
-        Ev::Pinned(pinned) => {
-            model.pinned = pinned;
-        }
+        Ev::Pinned(pinned) => model.set_pins(model.displayed, pinned),
         Ev::ListFailed => {
             model.paging.loading = false;
             model.paging.failed = true;
@@ -232,7 +249,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             page.append = false;
             let first = !model.paging.initialized;
             let ids = super::reads::recent_ids(&page.threads);
-            merge_page(model, page);
+            merge_page(model, model.displayed, page);
             let mut outs = super::discovery::refill(model);
             outs.extend(super::reads::want(model, ids));
             if first {
@@ -326,11 +343,14 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.pin_pending = false;
             // Sets the requested state (oracle `complete_agents_overview_pin`):
             // idempotent, and a new pin goes last.
-            if let Some(pins) = &mut model.pinned {
+            let owner = model.owner_of(&thread);
+            if let Some(Some(pins)) = model.pins_by_backend.get(&owner).cloned() {
+                let mut pins = pins;
                 pins.retain(|pin| *pin != thread);
                 if pinned {
                     pins.push(thread);
                 }
+                model.set_pins(owner, Some(pins));
             }
             return vec![list(model, None, false)];
         }

@@ -62,7 +62,11 @@ fn refreshing_one_backends_pins_preserves_cross_backend_rank() {
     model.displayed = local;
     let (local_pin, cloud_pin) = (id(1), id(2));
     let mut previous = None;
-    for (owner, pin) in [(local, &local_pin), (cloud, &cloud_pin), (local, &local_pin)] {
+    for (owner, pin) in [
+        (local, &local_pin),
+        (cloud, &cloud_pin),
+        (local, &local_pin),
+    ] {
         listed(&mut model, owner, page(Vec::new(), Some(vec![pin.clone()])));
         let ranks = model.pinned.clone().expect("pins");
         if owner == cloud {
@@ -111,13 +115,19 @@ fn overview_keeps_rows_and_owners_per_backend() {
     assert_eq!(model.pins_by_backend.get(&remote), Some(&Some(Vec::new())));
     assert_eq!(model.owners.get(&remote_id), Some(&remote));
     assert_eq!(model.owners.get(&colliding_id), Some(&local));
-    let names: Vec<_> = model
+    // The oracle's rows are a map; the order is not asserted.
+    let mut names: Vec<_> = model
         .threads
         .iter()
         .map(|held| held.name.clone().unwrap_or_default())
         .collect();
+    names.sort();
     assert_eq!(
         names,
-        ["Local task", "Name from the displayed backend", "Remote task"]
+        [
+            "Local task",
+            "Name from the displayed backend",
+            "Remote task"
+        ]
     );
 }

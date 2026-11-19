@@ -448,6 +448,31 @@ pub enum Ev {
 
 impl Eq for Ev {}
 
+impl Model {
+    /// Claims `id` for `owner` unless another backend holds it; whether
+    /// `owner` owns it (oracle: `BackendRegistry::observe`).
+    pub fn observe(&mut self, owner: BackendId, id: &str) -> bool {
+        *self.owners.entry(id.to_owned()).or_insert(owner) == owner
+    }
+
+    /// The backend a task belongs to: its owner, the displayed one when no
+    /// backend has claimed it (oracle: `owner(id).or(displayed)`).
+    pub fn owner_of(&self, id: &str) -> BackendId {
+        self.owners.get(id).copied().unwrap_or(self.displayed)
+    }
+
+    /// Sets one backend's pins and derives the order across the backends
+    /// (oracle: `pins_by_backend`, ranked over its values).
+    pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
+        self.pins_by_backend.insert(owner, pins);
+        self.pinned = self
+            .pins_by_backend
+            .values()
+            .any(Option::is_some)
+            .then(|| self.pins_by_backend.values().flatten().flatten().cloned().collect());
+    }
+}
+
 /// One page of `thread/list`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Page {
