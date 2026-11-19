@@ -44,25 +44,23 @@ pub fn config_exclusion(raw: &[String]) -> Option<&'static str> {
     }
     .parse_overrides()
     .ok()?;
-    let allowed = overrides
-        .iter()
-        .all(|(key, value)| match key.as_str() {
-            "suppress_unstable_features_warning" | "tui.fullscreen_transcript" => value.is_bool(),
-            "tui" => value.as_table().is_some_and(|tui| {
-                tui.len() == 1
-                    && tui
-                        .get("fullscreen_transcript")
-                        .is_some_and(|value| value.is_bool())
-            }),
-            "features" => value.as_table().is_some_and(|features| {
-                !features.is_empty() && features.values().all(|value| value.is_bool())
-            }),
-            _ => {
-                key.strip_prefix("features.")
-                    .is_some_and(|name| !name.contains('.'))
-                    && value.is_bool()
-            }
-        });
+    let allowed = overrides.iter().all(|(key, value)| match key.as_str() {
+        "suppress_unstable_features_warning" | "tui.fullscreen_transcript" => value.is_bool(),
+        "tui" => value.as_table().is_some_and(|tui| {
+            tui.len() == 1
+                && tui
+                    .get("fullscreen_transcript")
+                    .is_some_and(|value| value.is_bool())
+        }),
+        "features" => value.as_table().is_some_and(|features| {
+            !features.is_empty() && features.values().all(|value| value.is_bool())
+        }),
+        _ => {
+            key.strip_prefix("features.")
+                .is_some_and(|name| !name.contains('.'))
+                && value.is_bool()
+        }
+    });
     (!allowed).then_some(OVERRIDES_EXCLUSION)
 }
 
@@ -92,14 +90,16 @@ impl Mode {
             if flags.remote_auth_token_env.is_some() {
                 anyhow::bail!("`--remote-auth-token-env` requires `--remote`.");
             }
-            return Ok(if flags.agents
-                && !flags.no_daemon
-                && config_exclusion(flags.config_overrides).is_none()
-            {
-                Mode::Daemon
-            } else {
-                Mode::Embedded
-            });
+            return Ok(
+                if flags.agents
+                    && !flags.no_daemon
+                    && config_exclusion(flags.config_overrides).is_none()
+                {
+                    Mode::Daemon
+                } else {
+                    Mode::Embedded
+                },
+            );
         };
         let mut endpoint = resolve_remote_addr(remote)?;
         if let Some(name) = flags.remote_auth_token_env {
@@ -432,6 +432,10 @@ mod tests {
             agents: false,
             ..with_override
         };
-        assert_eq!(startup_warning(&chat), None, "the chat never used the daemon");
+        assert_eq!(
+            startup_warning(&chat),
+            None,
+            "the chat never used the daemon"
+        );
     }
 }

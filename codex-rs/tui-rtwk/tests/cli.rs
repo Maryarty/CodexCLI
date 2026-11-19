@@ -171,7 +171,11 @@ fn config_overrides_are_collected_in_order() {
     assert!(cli.agents);
     assert_eq!(
         cli.config_overrides,
-        ["analytics.enabled=false", "model=\"x\"", "tui.animations=false"]
+        [
+            "analytics.enabled=false",
+            "model=\"x\"",
+            "tui.animations=false"
+        ]
     );
     assert!(parse(&["-c"]).is_err());
     assert!(parse(&["--config"]).is_err());
