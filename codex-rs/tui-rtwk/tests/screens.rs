@@ -49,6 +49,8 @@ mod sidebar;
 mod startup;
 #[path = "status.rs"]
 mod status;
+#[path = "status_data.rs"]
+mod status_data;
 #[path = "transcript.rs"]
 mod transcript;
 #[path = "ui_tree.rs"]

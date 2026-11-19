@@ -54,6 +54,13 @@ pub struct Strings {
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
     pub tag_plugin: &'static str,
+    /// `chat_composer/warning_notice.rs` (`warning_labels`): the footer's
+    /// `⚠ N warnings · f2 to view`.
+    pub warning_badge: &'static str,
+    pub warning_singular: &'static str,
+    pub warning_plural: &'static str,
+    pub warning_key: &'static str,
+    pub warning_view: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -87,6 +94,11 @@ pub const EN: Strings = Strings {
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
+    warning_badge: "\u{26a0} ",
+    warning_singular: "warning",
+    warning_plural: "warnings",
+    warning_key: "f2",
+    warning_view: " to view",
     num: NumSyms::ENGLISH,
 };
 

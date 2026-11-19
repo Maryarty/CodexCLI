@@ -5,12 +5,13 @@
 use std::rc::Rc;
 
 use rtwk::editing::{Autocomplete, Suggestion, TextArea};
-use rtwk::focus::{Focus, KeyBindings, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::ListView;
+use rtwk::style::Theme;
 use rtwk::layout::SizedBox;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -19,7 +20,7 @@ use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
 use codex_tui_core::threads::{Failure, Item, ThreadModel};
 
 use crate::l10n::strings as l10n;
@@ -30,7 +31,7 @@ use crate::screens::dialogs::shortcut_panel;
 use crate::screens::chat::strings as chat_strings;
 use crate::theme;
 use crate::ui::page_keys;
-use crate::ui::status_line::status_line;
+use crate::ui::status_line::{Notice, status_line, with_warning_notice};
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -57,6 +58,9 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    /// The composer's focus node: the page sees `?` and `←` before the field
+    /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
+    node: FocusNode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -148,6 +152,13 @@ fn prompt(text: &'static str) -> AnyWidget {
 /// A line the user sent from the composer: a command opens its screen, asks
 /// the session or says why not (the decision is core's `dispatch`); anything
 /// else is a message for the model.
+/// F2 and `/warnings`: the viewer over the retained warnings (with none it
+/// shows its empty page, `No warnings`).
+fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+    cx.emit(&hs.screen, ScreenIntent::from(dialogs::Intent::OpenWarnings));
+    open(cx, Target::Dialogs);
+}
+
 fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter.
@@ -190,7 +201,11 @@ fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
         Outcome::Open(opened) => {
             record(cx);
             w.ui.composer.clear();
-            open(cx, opened.target);
+            if opened.command == SlashCommand::Warnings {
+                open_warnings(cx, hs);
+            } else {
+                open(cx, opened.target);
+            }
         }
         Outcome::Session { command, intent } => {
             record(cx);
@@ -212,25 +227,35 @@ impl StatefulWidget for Chat {
             seen: None,
             esc_primed: false,
             shortcuts: false,
+            node: FocusNode::new(),
         }
     }
 }
 
 impl_widget!(stateful eq Chat);
 
-/// The items of the status line in the order the config gives, with their
-/// texts (`status_line_setup.rs`: model with reasoning, current dir, git
-/// branch, approval mode, context, limits). The core model holds none of
-/// their data nor the saved item list yet (the thread start answer keeps only
-/// the id, `wire.rs`; the settings edit `StatusLineSaved` is not state): the
-/// line is empty until session-core provides them, no value is invented.
-fn status_items() -> Vec<(&'static str, String)> {
-    Vec::new()
-}
-
 impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
+
+    fn init_state(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
+        // `?` (the shortcut overlay, `footer_shortcuts_default`) and `←`
+        // (the agents page, `handle_agents_navigation`) on an EMPTY composer
+        // belong to the page; with text they go to the field.
+        let send = cx.local_sender();
+        let composer = w.ui.composer.clone();
+        self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            if !composer.text().is_empty() || key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT) {
+                return KeyEventResult::Ignored;
+            }
+            match (key.code, key.text()) {
+                (KeyCode::Char, Some("?")) => send(ChatMsg::Shortcuts),
+                (KeyCode::Left, _) => send(ChatMsg::Agents),
+                _ => return KeyEventResult::Ignored,
+            }
+            KeyEventResult::Handled
+        })));
+    }
 
     fn did_change_dependencies(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
         // The composer clears when the model accepted (or queued) the
@@ -275,14 +300,7 @@ impl State for ChatState {
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
             ChatMsg::Changed(text) => {
-                // `?` typed into an empty composer is the shortcut (the
-                // oracle's `footer_shortcuts_default`), decided where the
-                // field reports the edit: the character does not stay, and
-                // with text before it the key typed as any other.
-                if &*text == "?" {
-                    w.ui.composer.clear();
-                    self.shortcuts = !self.shortcuts;
-                } else if self.shortcuts && !text.is_empty() {
+                if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
                 }
@@ -311,6 +329,7 @@ impl State for ChatState {
                     );
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
                 }
+                Action::OpenWarnings => open_warnings(cx, &hs),
                 other => {
                     if let Some(target) = other.target() {
                         open(cx, target);
@@ -439,6 +458,7 @@ impl State for ChatState {
                     .min_lines(1)
                     .max_lines(6)
                     .autofocus(true)
+                    .focus_node(self.node.clone())
                     .on_changed(cx.map(ChatMsg::Changed))
                     .on_submitted(cx.map(ChatMsg::Submit));
                 let data = states.clone();
@@ -479,6 +499,27 @@ impl State for ChatState {
                 (line.into(), footer)
             }
         };
+        // `⚠ N warnings · f2 to view` at the footer's right (not while history
+        // search owns the footer).
+        let footer = if search.is_none() {
+            let data = Theme::of(cx);
+            with_warning_notice(
+                footer,
+                states.dialogs.retained.len(),
+                Notice {
+                    badge: chat_strings.warning_badge,
+                    singular: chat_strings.warning_singular,
+                    plural: chat_strings.warning_plural,
+                    key: chat_strings.warning_key,
+                    view: chat_strings.warning_view,
+                    accent: data.warning.clone(),
+                    secondary: tokens.dim(),
+                    key_style: tokens.bold(),
+                },
+            )
+        } else {
+            footer
+        };
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
@@ -505,7 +546,11 @@ impl State for ChatState {
             body = body.child(panel);
         }
         // The configured status line, two cells in, under the composer.
-        let line = status_line(status_items(), true, &tokens);
+        // The items and their order are the config's, the texts the facts the
+        // host read (core `StatusFacts`); the ones that need the session
+        // (context, limits) have no value yet and are not drawn.
+        let facts = &states.chat.status;
+        let line = status_line(facts.items(), facts.colors, &tokens);
         let mut body = body.child(composer);
         if let Some(line) = line {
             body = body.child(

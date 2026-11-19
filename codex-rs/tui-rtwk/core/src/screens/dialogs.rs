@@ -152,6 +152,10 @@ pub struct Model {
     pub copied: Vec<String>,
     /// The note the feedback flow asked for last.
     pub note: Option<NoteRequest>,
+    /// The warnings the session keeps (startup and config warnings): the
+    /// footer counts them and F2 / `/warnings` shows them. A page seen and
+    /// left is dismissed and leaves the list.
+    pub retained: Vec<Warning>,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -160,6 +164,8 @@ pub struct Model {
 pub enum Ev {
     /// A small dialog was opened.
     Opened(Open),
+    /// Warnings the session retains (a startup warning of the config).
+    Retained(Vec<Warning>),
 }
 
 /// The warnings viewer's actions (`WarningsView::handle_key`).
@@ -184,12 +190,16 @@ pub enum Intent {
     PickCategory(usize),
     /// The consent step was answered: include logs or not.
     Consent(bool),
+    /// F2 or `/warnings`: the viewer over the retained warnings (none: its
+    /// empty page).
+    OpenWarnings,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Opened(open) => model.open = Some(open),
+        Ev::Retained(entries) => model.retained.extend(entries),
     }
 }
 
@@ -197,6 +207,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Close => close(model),
+        Intent::OpenWarnings => {
+            model.open = Some(Open::Warnings(Warnings::new(model.retained.clone())));
+        }
         Intent::ToggleKeyboard => {
             if let Some(Open::Shortcuts(view)) = &mut model.open {
                 *view = match view {
@@ -240,6 +253,11 @@ fn close(model: &mut Model) {
                 kept.push(entry);
             } else if warnings.visited.contains(&index) {
                 dismissed.push(entry);
+            }
+        }
+        for gone in &dismissed {
+            if let Some(at) = model.retained.iter().position(|w| w == gone) {
+                model.retained.remove(at);
             }
         }
         if !dismissed.is_empty() || !kept.is_empty() {
@@ -328,6 +346,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 
 /// The seed forms of this screen's events: `{"kind":"shortcuts"}`,
 /// `{"kind":"warnings","entries":[{"source":..,"details":..}]}`,
+/// `{"kind":"retained","entries":[..]}` (the retained list, nothing opened),
 /// `{"kind":"feedback_categories"}` and
 /// `{"kind":"feedback_consent","category":"bug","can_save":true,..}`.
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -336,6 +355,7 @@ enum SeedEv {
     Shortcuts,
     Warnings { entries: Vec<SeedWarning> },
     FeedbackCategories,
+    Retained { entries: Vec<SeedWarning> },
     FeedbackConsent {
         category: FeedbackCategory,
         #[serde(flatten)]
@@ -354,6 +374,17 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
+        SeedEv::Retained { entries } => {
+            return Ok(Ev::Retained(
+                entries
+                    .into_iter()
+                    .map(|entry| Warning {
+                        source: entry.source,
+                        details: entry.details,
+                    })
+                    .collect(),
+            ));
+        }
         SeedEv::Shortcuts => Open::Shortcuts(ShortcutView::List),
         SeedEv::Warnings { entries } => Open::Warnings(Warnings::new(
             entries

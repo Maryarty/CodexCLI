@@ -3,6 +3,7 @@
 // oracle's `codex-tui` and `codex-app-server-client` raise it to the same value).
 #![recursion_limit = "256"]
 
+mod facts;
 mod in_process;
 mod workspace;
 

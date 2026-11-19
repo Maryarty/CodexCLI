@@ -5,11 +5,12 @@
 //! Oracle: `bottom_pane/status_line_style.rs` (`status_line_from_segments`,
 //! `StatusLineAccent::for_item`, `fallback_color`).
 
-use rtwk::AnyWidget;
-use rtwk::layout::Row;
-use rtwk::style::Style;
+use rtwk::layout::{Expanded, Row, SizedBox};
+use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
+use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::style::Attrs;
+use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::theme::Tokens;
 
@@ -108,4 +109,91 @@ where
         row = row.child(Text::line(text).style(item_style(id.as_ref(), colors, tokens)));
     }
     any.then(|| row.into())
+}
+
+/// What `warning_notice` is made of: the texts (the screen's string table)
+/// and the styles.
+pub struct Notice<'a> {
+    pub badge: &'a str,
+    pub singular: &'a str,
+    pub plural: &'a str,
+    pub key: &'a str,
+    pub view: &'a str,
+    pub accent: Style,
+    pub secondary: Style,
+    pub key_style: Style,
+}
+
+impl Notice<'_> {
+    /// The three spellings of `warning_labels`: full, compact, count.
+    fn labels(&self, count: usize) -> [Vec<(String, Style)>; 3] {
+        let word = if count == 1 {
+            self.singular
+        } else {
+            self.plural
+        };
+        let sep = || (SEPARATOR.to_string(), self.secondary.clone());
+        let key = || (self.key.to_string(), self.key_style.clone());
+        let badge = || (self.badge.to_string(), self.secondary.clone());
+        [
+            vec![
+                badge(),
+                (format!("{count} {word}"), self.accent.clone()),
+                sep(),
+                key(),
+                (self.view.to_string(), self.secondary.clone()),
+            ],
+            vec![
+                badge(),
+                (count.to_string(), self.accent.clone()),
+                sep(),
+                key(),
+            ],
+            vec![badge(), (count.to_string(), self.accent.clone())],
+        ]
+    }
+}
+
+fn labels_width(parts: &[(String, Style)]) -> i32 {
+    parts
+        .iter()
+        .map(|(text, _)| string_width(text, TextMode::Graphemes, 1) as i32)
+        .sum()
+}
+
+/// `footer` with the oracle's warning notice at its right (`warning_notice_layout`):
+/// half the width (at least 14) of what is left after the clear cell at the
+/// edge is its budget; the full label, else the compact one, else the count;
+/// none when not even the count fits.
+pub fn with_warning_notice(footer: AnyWidget, count: usize, notice: Notice<'static>) -> AnyWidget {
+    if count == 0 {
+        return footer;
+    }
+    LayoutBuilder::new(move |_, constraints| {
+        let footer = footer.clone();
+        let available = (constraints.max_width - 1).max(0);
+        let budget = (available / 2).max(14).min(available);
+        let labels = notice.labels(count);
+        let [full, compact, only] = labels;
+        let chosen = [full, compact, only]
+            .into_iter()
+            .find(|parts| labels_width(parts) <= budget);
+        match chosen {
+            Some(parts) => {
+                // One line of spans: the notice is the secondary style with
+                // the count in the accent and the key bold.
+                let spans: Vec<Span> = parts
+                    .into_iter()
+                    .map(|(text, style)| Span::styled(text, style))
+                    .collect();
+                Row::new()
+                    .child(Expanded::new(1, footer))
+                    .child(Text::rich_line(spans))
+                    .child(SizedBox::new(Some(1), None, None))
+                    .into()
+            }
+            None => footer,
+        }
+    })
+    .into()
 }
