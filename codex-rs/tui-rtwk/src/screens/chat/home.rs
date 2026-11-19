@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use rtwk::editing::{Autocomplete, Suggestion, TextArea};
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::{Focus, KeyBindings, KeyPress};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
@@ -28,6 +28,7 @@ use crate::screens::chat::open::open;
 use crate::screens::chat::popup;
 use crate::screens::chat::strings as chat_strings;
 use crate::theme;
+use crate::ui::page_keys;
 use crate::ui::debug_menu::DebugMenu;
 use crate::ui::thread_ui::ThreadUi;
 use crate::ui::view::Hs;
@@ -66,6 +67,8 @@ pub enum ChatMsg {
     Escape,
     /// A key of history search.
     Search(SearchKey),
+    /// `?`: the shortcut overlay (the footer's hint).
+    Shortcuts,
 }
 
 /// What a key does while reverse history search is open.
@@ -250,6 +253,10 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Quit => cx.emit(&hs.quit, ()),
+            ChatMsg::Shortcuts => {
+                let action = l10n::of(cx).pages.action_shortcuts;
+                drop(page_keys::not_yet(cx, action));
+            }
             ChatMsg::DebugMenu => {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
@@ -353,7 +360,7 @@ impl State for ChatState {
         let chat_strings = chat_strings::of(cx);
         let states = watch::<ScreenStates, _>(cx);
         let search = states.popovers.search.clone();
-        let (composer, footer): (AnyWidget, String) = match &search {
+        let (composer, footer): (AnyWidget, AnyWidget) = match &search {
             Some(search) => {
                 // Reverse history search: the preview stands where the text
                 // is, the keys are the search's (`history_search.rs`).
@@ -373,7 +380,12 @@ impl State for ChatState {
                     .can_request_focus(true)
                     .autofocus()
                     .on_key(cx.keys(search_key));
-                (field.into(), chat_strings.search_footer(&search.query, status))
+                (
+                    field.into(),
+                    Text::new(chat_strings.search_footer(&search.query, status))
+                        .style(tokens.dim())
+                        .into(),
+                )
             }
             None => {
                 let area = TextArea::new()
@@ -395,7 +407,17 @@ impl State for ChatState {
                 let line = Row::new()
                     .child(prompt(chat_strings.prompt))
                     .child(Expanded::new(1, field));
-                (line.into(), strings.chat.keys.to_string())
+                // The oracle's idle footer (`footer_shortcuts_default`): the hint of
+                // the bound `?`, in dim, two cells in.
+                let bar = page_keys::footer(
+                    [(strings.pages.key_shortcuts, strings.pages.hint_shortcuts)],
+                    tokens.dim(),
+                    tokens.dim(),
+                );
+                let footer = Row::new()
+                    .child(SizedBox::new(Some(2), None, None))
+                    .child(Expanded::new(1, bar));
+                (line.into(), footer.into())
             }
         };
         let mut body = Column::new()
@@ -422,7 +444,7 @@ impl State for ChatState {
         }
         let body = body
             .child(composer)
-            .child(Text::new(footer).style(tokens.dim()));
+            .child(footer);
         let quit = KeyPress::char('c').with_mods(Mods::CTRL);
         let mut focus = Focus::new(body)
             .bind(quit, cx.send(ChatMsg::Quit))
@@ -431,6 +453,11 @@ impl State for ChatState {
         for (action, key) in keys::defaults() {
             focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
         }
-        focus.into()
+        // The footer's entries are these bindings' hints: every key it shows is
+        // bound here.
+        let pages = strings.pages;
+        KeyBindings::new([(pages.key_shortcuts, cx.send(ChatMsg::Shortcuts))], focus)
+            .hints([(pages.key_shortcuts, pages.hint_shortcuts)])
+            .into()
     }
 }

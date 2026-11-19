@@ -42,8 +42,11 @@ pub fn open<S>(cx: &mut Cx<'_, S>, target: Target) {
         Target::Import => push(cx, import::route()),
         Target::Usage => push(cx, usage::route()),
         // The pager is the expanded mode of the session page's transcript (chat-live);
-        // until that lands `/diff` and Ctrl+T open nothing.
-        Target::Pager => {}
+        // until that lands `/diff` and Ctrl+T say so in a popup.
+        Target::Pager => {
+            let action = crate::l10n::strings::of(cx).pages.action_transcript;
+            drop(crate::ui::page_keys::not_yet(cx, action));
+        }
         Target::Status => drop(status::open(cx)),
         Target::Select => drop(select::open(cx)),
         Target::Settings => drop(settings::open(cx)),

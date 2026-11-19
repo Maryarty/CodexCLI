@@ -107,15 +107,6 @@ fn q_in_the_menu_as_home_quits() {
 }
 
 #[test]
-fn the_chat_lists_its_keys() {
-    let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
-    let screen = h.t.screen();
-    assert!(screen.contains("F12 screens"), "{screen}");
-    assert!(screen.contains("Ctrl+C quit"), "{screen}");
-}
-
-#[test]
 fn the_menu_says_how_to_go_back_and_the_home_menu_says_q_quits() {
     let mut h = start();
     h.wait_for("ready", |s| s.contains("ready"));
@@ -202,11 +193,19 @@ fn ctrl_t_and_diff_open_the_not_implemented_popup() {
             h.press(trigger);
         }
         h.t.pump_for(crate::common::ms(800));
-        assert!(h.t.screen().contains(NOT_YET), "{trigger}:\n{}", h.t.screen());
+        assert!(
+            h.t.screen().contains(NOT_YET),
+            "{trigger}:\n{}",
+            h.t.screen()
+        );
         for close in ["escape", "enter"] {
             h.press(close);
             h.t.pump_for(crate::common::ms(600));
-            assert!(!h.t.screen().contains(NOT_YET), "{trigger} {close}:\n{}", h.t.screen());
+            assert!(
+                !h.t.screen().contains(NOT_YET),
+                "{trigger} {close}:\n{}",
+                h.t.screen()
+            );
             if close == "escape" {
                 // Again: the same trigger reopens it.
                 if trigger.starts_with('/') {

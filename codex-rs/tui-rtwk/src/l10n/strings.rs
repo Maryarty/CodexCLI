@@ -57,6 +57,21 @@ pub struct Debug {
     pub empty_slot: Msg<2>,
 }
 
+/// What the pages share for their keys (`ui/page_keys.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pages {
+    /// The popup of a key whose action is not built yet.
+    pub not_yet: Msg<1>,
+    /// The name of the expanded transcript (Ctrl+T, `/diff`).
+    pub action_transcript: &'static str,
+    /// The name of the shortcut overlay (`?`).
+    pub action_shortcuts: &'static str,
+    /// The key of the shortcut overlay, as the footer shows it, and its hint
+    /// (oracle: `footer.rs`, `FooterMode::ShortcutSummary`).
+    pub key_shortcuts: &'static str,
+    pub hint_shortcuts: &'static str,
+}
+
 /// One locale's shared table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shared {
@@ -65,6 +80,7 @@ pub struct Shared {
     pub chat: Chat,
     pub presenter: Presenter,
     pub debug: Debug,
+    pub pages: Pages,
 }
 
 /// English. The skeleton's own text (no oracle string).
@@ -96,6 +112,13 @@ pub const EN: Shared = Shared {
         hint: "up/down move, enter opens, esc/q back",
         hint_home: "up/down move, enter opens, q quits",
         empty_slot: msg!("{0} ({1}): empty slot"),
+    },
+    pages: Pages {
+        not_yet: msg!("Not implemented yet: {0}"),
+        action_transcript: "expanded transcript",
+        action_shortcuts: "shortcut overlay",
+        key_shortcuts: "?",
+        hint_shortcuts: "for shortcuts",
     },
 };
 
@@ -144,6 +167,10 @@ impl Shared {
 
     pub fn needs_answer<'a>(&'a self, id: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.presenter.needs_answer, [Arg::Text(id)], &self.num)
+    }
+
+    pub fn not_yet<'a>(&'a self, action: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.pages.not_yet, [Arg::Text(action)], &self.num)
     }
 
     pub fn empty_slot<'a>(&'a self, name: &'a str, id: &'a str) -> Fmt<'a, 2> {
