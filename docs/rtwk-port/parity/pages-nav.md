@@ -65,3 +65,23 @@ architecture §1 Amendment 2026-11-19b only.
   voice; a shared `screens::sheet_options` belongs in `screens/mod.rs`
   (outside this area).
 - The brief (task description) was unreadable for this agent.
+
+## Footers and the not-implemented popup (scope added 2026-11-19)
+
+Shared: `src/ui/page_keys.rs` (`footer(pairs, key_style, hint_style)` on rtwk
+`KeyHintsBar::from_pairs`; `not_yet(cx, action)` popup "Not implemented yet:
+<action>", centred, Esc/Enter close); strings in `l10n/strings.rs` (`Pages`).
+
+| page | footer | state |
+|---|---|---|
+| SessionPage | oracle idle footer `  ? for shortcuts` (`footer_shortcuts_default`); `?` bound via `KeyBindings`; Ctrl+T, F3 and `/diff` open the popup | done; the right-hand `100% context left` is not drawn (no context data in the model) |
+| AgentsPage | hand-made hint row (`agents/view.rs` `hint_line`), keys bound via `KeyBindings` (`agents/mod.rs:1048`) | not moved to the shared footer; per-key popup audit left |
+| ResumePage | hand-made width-fitted hint row (`resume/fit.rs`, oracle `hint_line_for_row`); keys bound via `KeyBindings` (`resume/mod.rs:423`) | left: KeyHintsBar has no priority collapse, probe against the oracle's rows before deciding (possible gap) |
+| UsagePage | `strings.hints` line (`usage/mod.rs:396`) | left |
+| StartupPage | stubs, no oracle footer text yet | left |
+
+rtwk finding: `KeyHintsBar` fed by bindings drops a plain character key while
+a text field has the focus, so `?` is shown with `from_pairs`; the `?`
+binding itself is then swallowed by the composer (the oracle fires it on an
+empty composer only): the binding exists, the popup for it is unreachable by
+keyboard until the composer hands an empty-composer `?` up.
