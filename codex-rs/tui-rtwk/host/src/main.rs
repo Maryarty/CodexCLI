@@ -3,6 +3,7 @@
 // oracle's `codex-tui` and `codex-app-server-client` raise it to the same value).
 #![recursion_limit = "256"]
 
+mod cloud;
 mod facts;
 mod in_process;
 mod target;
@@ -50,7 +51,14 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     };
     let mode = target::Mode::resolve(&flags, |name| std::env::var(name))?;
     let startup_warning = target::startup_warning(&flags);
-    let backend = Backend::Connector(Box::new(in_process::InProcess {
+    let cloud = cloud::Cloud {
+        id: codex_tui_rtwk::shell::CLOUD_BACKEND,
+        mode: mode.clone(),
+        model: cli.model.clone(),
+        cwd: cli.cwd.clone(),
+        config_overrides: cli.config_overrides.clone(),
+    };
+    let first = Backend::Connector(Box::new(in_process::InProcess {
         arg0_paths,
         mode,
         done: done_tx,
@@ -60,6 +68,15 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         startup_warning,
         failed: failed_tx,
     }));
+    // The Cloud connection next to the first, when the oracle's gate lets it
+    // be tried (it decides inside, once the config is read).
+    let backend = Backend::Several {
+        first: Box::new(first),
+        others: vec![(
+            codex_tui_rtwk::shell::CLOUD_BACKEND,
+            Backend::Connector(Box::new(cloud)),
+        )],
+    };
     let app = UiApp::new(backend)
         .with_debug_screens(cli.debug_screens)
         .with_start_agents(cli.agents)

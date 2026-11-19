@@ -16,6 +16,7 @@ pub mod search;
 pub mod version;
 pub mod workspace;
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -28,11 +29,15 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::AppFx;
 use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 
 use crate::app::UiApp;
+
+/// The id of the Cloud backend, the second connection of the app.
+pub const CLOUD_BACKEND: BackendId = BackendId(1);
 
 /// What the shell connects the app to.
 pub enum Backend {
@@ -43,6 +48,14 @@ pub enum Backend {
     Connector(Box<dyn Connector>),
     /// A scripted server for screen tests.
     Fake(fake::FakeServer),
+    /// The first backend and others next to it (oracle:
+    /// `InitialBackendSessions::register`), each under its own id. The
+    /// others never send `Connected` or `StartFailed` (those are the
+    /// first's); they speak through the same ingress, under its epoch.
+    Several {
+        first: Box<Backend>,
+        others: Vec<(BackendId, Backend)>,
+    },
 }
 
 /// Where a backend puts what it learns.
@@ -70,16 +83,24 @@ pub trait Connector: Send {
 /// The app's end of the shell: set up at start, then only used to send.
 pub struct Link {
     pub(crate) backend: Option<Backend>,
+    /// The other backends the app connects next to the first (oracle:
+    /// `InitialBackendSessions::register`), each under its own id.
+    pub(crate) others: Vec<(BackendId, Backend)>,
     pub(crate) ingress: Option<IngressTx>,
+    /// The first backend's commands (`BackendId::default()`).
     pub(crate) commands: Option<UnboundedSender<Command>>,
+    /// The other backends' commands.
+    pub(crate) other_commands: BTreeMap<BackendId, UnboundedSender<Command>>,
 }
 
 impl Link {
     pub fn new(backend: Backend) -> Self {
         Self {
             backend: Some(backend),
+            others: Vec::new(),
             ingress: None,
             commands: None,
+            other_commands: BTreeMap::new(),
         }
     }
 }
@@ -88,9 +109,13 @@ impl Link {
 /// epoch and runs the backend on the tokio runtime. Called once, from the
 /// root's `on_start`.
 pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
-    let Some(backend) = app.link.backend.take() else {
+    let Some(mut backend) = app.link.backend.take() else {
         return;
     };
+    if let Backend::Several { first, others } = backend {
+        app.link.others = others;
+        backend = *first;
+    }
     // Nothing to connect: state tests and seeded models never start the shell.
     if matches!(backend, Backend::None) {
         return;
@@ -107,11 +132,27 @@ pub fn start(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
     app.link.commands = Some(command_tx);
     cx.spawn_tokio(ambient(ingress_tx.clone(), epoch), |_, (), _| {});
     let task: BackendTask = match backend {
-        Backend::None => return,
-        Backend::Connector(connector) => connector.run(ingress_tx, command_rx, epoch),
-        Backend::Fake(server) => Box::pin(fake::run(server, ingress_tx, command_rx, epoch)),
+        Backend::None | Backend::Several { .. } => return,
+        Backend::Connector(connector) => connector.run(ingress_tx.clone(), command_rx, epoch),
+        Backend::Fake(server) => Box::pin(fake::run(server, ingress_tx.clone(), command_rx, epoch)),
     };
     cx.spawn_tokio(task, |_, (), _| {});
+    for (id, backend) in std::mem::take(&mut app.link.others) {
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+        let task: BackendTask = match backend {
+            Backend::None | Backend::Several { .. } => continue,
+            Backend::Connector(connector) => connector.run(ingress_tx.clone(), command_rx, epoch),
+            Backend::Fake(server) => Box::pin(fake::run_other(
+                server,
+                id,
+                ingress_tx.clone(),
+                command_rx,
+                epoch,
+            )),
+        };
+        app.link.other_commands.insert(id, command_tx);
+        cx.spawn_tokio(task, |_, (), _| {});
+    }
 }
 
 /// How often the clock the screens show ages by is moved on.
@@ -146,7 +187,11 @@ pub fn run_effects(app: &UiApp, fx: AppFx) {
         return;
     };
     for command in fx.into_commands() {
-        let _ = commands.send(command);
+        // To the backend that owns what the command is about; a backend
+        // that is not connected leaves it to the first.
+        let backend = app.core.backend_of(&command);
+        let target = app.link.other_commands.get(&backend).unwrap_or(commands);
+        let _ = target.send(command);
     }
 }
 

@@ -486,7 +486,7 @@ fn emit_version(ingress: &IngressTx, epoch: ConnEpoch, client: &AppServerClient,
 /// app is waiting for, if any. Core's `wire` makes the requests and reads the
 /// results; the shell's `answer`, `directories` and `worktree` run them; this
 /// only sends.
-fn work(
+pub(crate) fn work(
     command: Command,
     handle: AppServerRequestHandle,
     ids: Ids,
@@ -517,7 +517,7 @@ fn work(
 /// The client of the shell's effects: one request over the handle. A
 /// server's refusal keeps its JSON-RPC code (the pin read tells "no pins" by
 /// it); the message is the client's own text.
-fn sender(
+pub(crate) fn sender(
     handle: AppServerRequestHandle,
 ) -> impl Fn(ClientRequest) -> Boxed<Result<serde_json::Value, ServerError>> {
     move |request: ClientRequest| {
@@ -537,7 +537,7 @@ fn sender(
     }
 }
 
-async fn reject(client: &AppServerClient, key: &RequestKey) {
+pub(crate) async fn reject(client: &AppServerClient, key: &RequestKey) {
     let Some(request_id) = wire::reject_target(key) else {
         return;
     };

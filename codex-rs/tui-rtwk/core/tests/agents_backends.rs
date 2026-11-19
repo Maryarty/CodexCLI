@@ -131,3 +131,191 @@ fn overview_keeps_rows_and_owners_per_backend() {
         ]
     );
 }
+
+fn paged(threads: Vec<Thread>, next: Option<&str>) -> Page {
+    Page {
+        threads,
+        unread: Vec::new(),
+        next_cursor: next.map(str::to_owned),
+        append: false,
+        pins: None,
+    }
+}
+
+/// `AgentsOverviewState::{initialized, discovery}` are per backend: another
+/// backend's first page sets its own cursor and leaves the displayed list's
+/// alone, and displaying it later continues from there.
+#[test]
+fn discovery_is_kept_per_backend() {
+    let mut model = Model::default();
+    let (local, cloud) = (BackendId(1), BackendId(2));
+    model.displayed = local;
+    listed(
+        &mut model,
+        local,
+        paged(vec![thread(&id(1), "Local")], Some("L")),
+    );
+    listed(
+        &mut model,
+        cloud,
+        paged(vec![thread(&id(2), "Cloud")], Some("C")),
+    );
+    assert_eq!(model.paging.cursor.as_deref(), Some("L"));
+    assert!(model.paging.has_more);
+    assert!(model.paging_of(cloud).initialized);
+    assert_eq!(model.paging_of(cloud).cursor.as_deref(), Some("C"));
+    assert!(model.has_more(cloud));
+    // A backend nothing was read from has more to read.
+    assert!(model.has_more(BackendId(9)));
+    assert!(!model.paging_of(BackendId(9)).initialized);
+
+    apply(&mut model, Ev::Displayed(cloud), &mut AppFx::default());
+    assert_eq!(model.displayed, cloud);
+    assert_eq!(model.paging.cursor.as_deref(), Some("C"));
+    assert!(model.paging.initialized);
+    assert_eq!(model.paging_of(local).cursor.as_deref(), Some("L"));
+    // Back again: nothing was lost.
+    apply(&mut model, Ev::Displayed(local), &mut AppFx::default());
+    assert_eq!(model.paging.cursor.as_deref(), Some("L"));
+    assert_eq!(model.paging_of(cloud).cursor.as_deref(), Some("C"));
+}
+
+fn open_row(model: &mut Model, owner: BackendId) -> Vec<codex_tui_core::screens::agents::Out> {
+    let _ = owner;
+    codex_tui_core::screens::agents::update(
+        model,
+        codex_tui_core::screens::agents::Intent::Accept(
+            codex_tui_core::screens::agents::Sel::Task(id(2)),
+        ),
+    )
+}
+
+/// Opening a row another backend owns resumes it there (oracle:
+/// `select_agents_overview_thread` sends `ResumeBackendSession(owner)`); the
+/// answer makes that backend the displayed one.
+#[test]
+fn opening_a_foreign_row_resumes_it_on_its_owner() {
+    use codex_tui_core::screens::agents::{Command, Ctx, Reply, apply_answer, backend_of};
+    let mut model = Model::default();
+    let (local, cloud) = (BackendId(1), BackendId(2));
+    model.displayed = local;
+    listed(
+        &mut model,
+        local,
+        paged(vec![thread(&id(1), "Local")], None),
+    );
+    listed(
+        &mut model,
+        cloud,
+        paged(vec![thread(&id(2), "Cloud")], Some("C")),
+    );
+    let outs = open_row(&mut model, cloud);
+    assert_eq!(outs.len(), 1);
+    assert!(matches!(outs[0].command, Command::Resume { .. }));
+    assert_eq!(backend_of(&model, &outs[0].command), cloud);
+    // The displayed backend's own rows and the lists go to it.
+    assert_eq!(
+        backend_of(
+            &model,
+            &Command::Rename {
+                thread: id(1),
+                name: "x".into()
+            }
+        ),
+        local
+    );
+    assert_eq!(backend_of(&model, &Command::List { cursor: None }), local);
+    let answer = Reply::Resumed(Box::new(thread(&id(2), "Cloud")));
+    let _ = apply_answer(&mut model, Ctx::Resume { thread: id(2) }, Ok(answer));
+    assert_eq!(model.displayed, cloud);
+    assert_eq!(model.paging.cursor.as_deref(), Some("C"));
+    assert_eq!(model.current.as_deref(), Some(id(2).as_str()));
+}
+
+/// A cloud task archives alone, whichever backend is displayed (oracle:
+/// the thread params mode is the owner's).
+#[test]
+fn a_cloud_owned_row_archives_only_the_task_from_a_local_session() {
+    use codex_tui_core::screens::agents::{Action, Ctx, Reply, apply_answer};
+    let mut model = Model::default();
+    let (local, cloud) = (BackendId(1), BackendId(2));
+    model.displayed = local;
+    apply(&mut model, Ev::CloudBackend(cloud), &mut AppFx::default());
+    let mut child = thread(&id(3), "Child");
+    child.parent_thread_id = Some(id(2));
+    listed(
+        &mut model,
+        cloud,
+        paged(vec![thread(&id(2), "Cloud parent"), child], None),
+    );
+    let ctx = Ctx::Action {
+        thread: id(2),
+        action: Some(Action::Archive),
+    };
+    let _ = apply_answer(&mut model, ctx, Ok(Reply::Done));
+    let left: Vec<_> = model.threads.iter().map(|held| held.id.clone()).collect();
+    assert_eq!(left, vec![id(3)]);
+}
+
+/// `view.pin_action_supported`: judged by the displayed backend's pins alone
+/// (oracle: `pins.get(&displayed).map(is_some).unwrap_or(true)`).
+#[test]
+fn pin_is_supported_by_the_displayed_backends_pins() {
+    use codex_tui_core::screens::agents::{Intent, update};
+    let mut model = Model::default();
+    let (local, cloud) = (BackendId(1), BackendId(2));
+    model.displayed = local;
+    listed(&mut model, local, page(vec![thread(&id(1), "Local")], None));
+    listed(
+        &mut model,
+        cloud,
+        page(vec![thread(&id(2), "Cloud")], Some(Vec::new())),
+    );
+    // The local backend has no pins even though the cloud has.
+    assert!(update(&mut model, Intent::TogglePin(id(1))).is_empty());
+    assert!(!model.pin_action_supported());
+    apply(&mut model, Ev::Displayed(cloud), &mut AppFx::default());
+    assert!(model.pin_action_supported());
+}
+
+/// What the shell routes by: the owner of a task for a command about it, the
+/// displayed backend for the lists (`CodexApp::backend_of`).
+#[test]
+fn the_app_routes_a_resume_to_the_backend_that_owns_the_task() {
+    use codex_tui_core::app::{AppEv, Command, Intent, apply_app};
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::screens::agents::{Intent as AgentsIntent, Sel};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    let mut app = build(&format!("{script}\n")).expect("plays").app;
+    let cloud = BackendId(1);
+    let send = |app: &mut _, ev: AppEv| {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    };
+    send(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::ListedBy(
+            cloud,
+            paged(vec![thread(&id(2), "Cloud")], None),
+        ))),
+    );
+    let fx = send(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Accept(
+            Sel::Task(id(2)),
+        )))),
+    );
+    let [command] = fx.commands() else {
+        panic!("one RPC: {:?}", fx.commands());
+    };
+    assert!(matches!(command, Command::Screen { .. }));
+    assert_eq!(app.backend_of(command), cloud);
+    // The lists go to the displayed backend.
+    let fx = send(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Refresh))),
+    );
+    assert_eq!(app.backend_of(&fx.commands()[0]), BackendId::default());
+}

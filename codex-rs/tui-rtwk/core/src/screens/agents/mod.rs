@@ -360,9 +360,15 @@ pub struct Model {
     pub home: Option<String>,
     /// How many resumes were answered (the view pops itself on a new one).
     pub resumes: u32,
+    /// The displayed backend's paging; the others' are `parked` (oracle:
+    /// `initialized` and `discovery` per backend).
     pub paging: Paging,
-    /// The backend is the cloud: a cloud archive removes only the task.
+    pub parked: BTreeMap<BackendId, Paging>,
+    /// The displayed backend is the cloud: a cloud archive removes only the
+    /// task.
     pub cloud: bool,
+    /// The backends that are the cloud (their tasks archive alone).
+    pub clouds: BTreeSet<BackendId>,
     /// Worktrees are enabled (`w`, project grouping by repository).
     pub worktrees: bool,
     pub dirs: BTreeMap<String, DirKeys>,
@@ -444,6 +450,12 @@ pub enum Ev {
     Grouping(Grouping),
     /// A page of one backend's list (`Listed` is the displayed backend's).
     ListedBy(BackendId, Page),
+    /// The chat now shows this backend's session (oracle:
+    /// `app_server.backend_id()` after a backend switch): its paging is the
+    /// displayed one, the previous one is kept.
+    Displayed(BackendId),
+    /// This backend is the cloud.
+    CloudBackend(BackendId),
 }
 
 impl Eq for Ev {}
@@ -461,6 +473,59 @@ impl Model {
         self.owners.get(id).copied().unwrap_or(self.displayed)
     }
 
+    /// One backend's paging: the displayed one's, a parked one, or none read
+    /// yet (oracle: `discovery.get(&backend)`, `initialized`).
+    pub fn paging_of(&self, backend: BackendId) -> &Paging {
+        static NONE: Paging = Paging {
+            loading: false,
+            failed: false,
+            has_more: false,
+            initialized: false,
+            cursor: None,
+            buffer: Vec::new(),
+            refill: 0,
+            want: 0,
+        };
+        if backend == self.displayed {
+            &self.paging
+        } else {
+            self.parked.get(&backend).unwrap_or(&NONE)
+        }
+    }
+
+    /// Whether the backend has more to list; true while nothing was read
+    /// from it (oracle: `has_more`, `is_none_or`).
+    pub fn has_more(&self, backend: BackendId) -> bool {
+        let paging = self.paging_of(backend);
+        !paging.initialized || paging.more()
+    }
+
+    /// Makes `backend` the displayed one: its paging becomes `paging` and
+    /// the one it replaces is kept.
+    pub fn display(&mut self, backend: BackendId) {
+        if backend == self.displayed {
+            return;
+        }
+        let next = self.parked.remove(&backend).unwrap_or_default();
+        let previous = std::mem::replace(&mut self.paging, next);
+        self.parked.insert(self.displayed, previous);
+        self.displayed = backend;
+        self.cloud = self.clouds.contains(&backend);
+    }
+
+    /// Whether the tasks of `backend` are the cloud's.
+    pub fn is_cloud(&self, backend: BackendId) -> bool {
+        self.clouds.contains(&backend) || (backend == self.displayed && self.cloud)
+    }
+
+    /// The pin action works when the displayed backend has pins (oracle:
+    /// `pin_action_supported`; true while it was not listed).
+    pub fn pin_action_supported(&self) -> bool {
+        self.pins_by_backend
+            .get(&self.displayed)
+            .is_none_or(Option::is_some)
+    }
+
     /// Sets one backend's pins and derives the order across the backends
     /// (oracle: `pins_by_backend`, ranked over its values).
     pub fn set_pins(&mut self, owner: BackendId, pins: Option<Vec<String>>) {
@@ -470,6 +535,31 @@ impl Model {
             .values()
             .any(Option::is_some)
             .then(|| self.pins_by_backend.values().flatten().flatten().cloned().collect());
+    }
+}
+
+/// The backend an RPC of this screen goes to: a task's owner for what is
+/// about a task, the displayed backend for the rest (oracle: the owner's
+/// session answers `thread/*` for its tasks).
+pub fn backend_of(model: &Model, command: &Command) -> BackendId {
+    match command {
+        Command::Rename { thread, .. }
+        | Command::Archive { thread }
+        | Command::Delete { thread }
+        | Command::ActiveTurn { thread }
+        | Command::Interrupt { thread, .. }
+        | Command::Pin { thread, .. }
+        | Command::Resume { thread }
+        | Command::Fork { thread }
+        | Command::Usage { thread }
+        | Command::Read { thread }
+        | Command::Turns { thread } => model.owner_of(thread),
+        Command::List { .. }
+        | Command::Start { .. }
+        | Command::NewWorktree { .. }
+        | Command::Search { .. }
+        | Command::Loaded
+        | Command::SaveGrouping { .. } => model.displayed,
     }
 }
 
