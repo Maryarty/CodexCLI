@@ -46,6 +46,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
             agents: cli.agents,
             remote: cli.remote.as_deref(),
             remote_auth_token_env: cli.remote_auth_token_env.as_deref(),
+            config_overrides: &cli.config_overrides,
         },
         |name| std::env::var(name),
     )?;

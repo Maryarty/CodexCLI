@@ -165,12 +165,20 @@ pub enum Command {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AppFx {
     pub(crate) commands: Vec<Command>,
+    /// The app cannot go on: the connection did not start (the oracle ends
+    /// with the error, `run_main_inner` returning it).
+    pub(crate) ends: bool,
 }
 
 impl AppFx {
     /// The commands, taken: what the shell runs.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
+    }
+
+    /// Whether the app ends: its connection did not start.
+    pub fn ends_app(&self) -> bool {
+        false
     }
 
     /// The commands requested, in order.

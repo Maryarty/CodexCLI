@@ -490,3 +490,20 @@ fn an_error_that_will_be_retried_is_not_shown() {
     notification(&mut app, turn_error(T, "turn-1", "reconnecting", true));
     assert_eq!(thread(&app).last_error, None);
 }
+
+/// The oracle ends with the error when the server does not start
+/// (`startup_orchestration.rs`: the daemon's `start_with_features_classified`
+/// error, `run_main_inner` returning it): the model fails the session and
+/// says the app ends; a started connection does not.
+#[test]
+fn a_start_failure_ends_the_app() {
+    let mut app = app();
+    let fx = run(&mut app, AppEv::StartFailed("no daemon package".into()));
+    assert!(fx.ends_app());
+    assert_eq!(
+        app.session.status,
+        Session::Failed(Failure::Message("no daemon package".into()))
+    );
+    let mut app = self::app();
+    assert!(!run(&mut app, AppEv::Connected).ends_app());
+}

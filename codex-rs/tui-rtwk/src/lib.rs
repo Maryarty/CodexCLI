@@ -39,6 +39,9 @@ pub struct Cli {
     pub remote: Option<String>,
     /// `--remote-auth-token-env VAR`: the variable holding its bearer token.
     pub remote_auth_token_env: Option<String>,
+    /// `-c key=value` / `--config key=value`, raw, in order (the host parses
+    /// them as the oracle does and applies them over the config).
+    pub config_overrides: Vec<String>,
 }
 
 /// The refusal of the connection flags that needs no server to tell, as the
@@ -87,6 +90,8 @@ impl Cli {
                 | "--locale"
                 | "-C"
                 | "--cd"
+                | "-c"
+                | "--config"
                 | "--remote"
                 | "--remote-auth-token-env" => {
                     args.next();
@@ -106,6 +111,12 @@ impl Cli {
                 "agents" => cli.agents = true,
                 "--no-alt-screen" => cli.no_alt_screen = true,
                 "--no-daemon" => cli.no_daemon = true,
+                "-c" | "--config" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
+                    cli.config_overrides.push(value);
+                }
                 "-C" | "--cd" => {
                     let value = args
                         .next()
@@ -138,7 +149,9 @@ impl Cli {
                     cli.locale = Some(parse_locale(&value)?);
                 }
                 other => {
-                    if let Some(value) = other.strip_prefix("--cd=") {
+                    if let Some(value) = other.strip_prefix("--config=") {
+                        cli.config_overrides.push(value.to_string());
+                    } else if let Some(value) = other.strip_prefix("--cd=") {
                         cli.cwd = Some(value.into());
                     } else if let Some(value) = other.strip_prefix("--remote=") {
                         cli.remote = Some(value.to_string());

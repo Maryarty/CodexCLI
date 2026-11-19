@@ -785,6 +785,23 @@ fn ctrl_c_closes_a_line_first_then_quits() {
     assert!(!h.t.is_running(), "the second one quits");
 }
 
+/// The server did not start (the daemon has no package to start, say): the
+/// oracle's `run_main_inner` returns the error and the process ends with it;
+/// the command center is never left on "Loading tasks…" (pty scenario
+/// `agents` without the daemon: the error and exit 1).
+#[test]
+fn a_connection_that_does_not_start_ends_the_app() {
+    let mut h = live::start_quittable(server);
+    h.wait_for("the tasks", |s| s.contains("Interactive task"));
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        codex_tui_core::app::AppEv::StartFailed("no daemon package".into()),
+    );
+    h.settle();
+    assert!(!h.t.is_running(), "{}", h.t.screen());
+}
+
 /// An empty filter keeps the keys: Tab moves to a filter without tasks and
 /// Shift+Tab comes back (pty scenario `agents`, checkpoint `filter-all`).
 #[test]
