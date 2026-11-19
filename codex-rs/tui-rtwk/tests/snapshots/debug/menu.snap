@@ -8,7 +8,6 @@
  select      S14      dialog generic selection dialog
  approvals   S13      dialog approvals and requests
  settings    S15      dialog settings dialogs
- pager       S16      route  transcript pager
  backtrack   S17      part   backtrack (Esc Esc)
  resume      S18      route  resume and fork picker
  status      S19      dialog /status card

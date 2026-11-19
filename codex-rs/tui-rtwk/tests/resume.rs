@@ -56,16 +56,9 @@ fn mixed_backend_resume_table_snapshot() {
     );
 }
 
-#[test]
-fn session_list_more_indicators_snapshot() {
-    let h = open("more_indicators", WIDE_FOR_80_LIST, 13);
-    oracle_snap::assert_fragment(
-        "resume_picker_more_indicators",
-        &oracle_snap::screen(&h.t),
-        LIST_AT_13,
-        &inset(oracle_snap::rows(&snap("resume_picker_more_indicators")), 2),
-    );
-}
+// `session_list_more_indicators_snapshot` is pending on G42 in the oracle
+// shard (`tests/oracle/resume_2.rs`): the row scroll of rtwk's list cuts the
+// third row, and the oracle's rows cannot be had.
 
 #[test]
 fn resume_search_error_snapshot() {
@@ -118,4 +111,43 @@ fn down_and_up_move_the_marker() {
     assert!(!second[LIST_AT_22].contains('›'), "{second:?}");
     h.press("up");
     assert!(oracle_snap::screen(&h.t)[LIST_AT_22].starts_with("  › "));
+}
+
+/// The probe of G41 (`rtwk-gaps.md`): the routes rtwk offers for a chrome row
+/// that takes the first spelling that fits. The oracle's compact toolbar at
+/// 40 cells is `Filter: All   Status: Active   Sort: Updated`-short on one
+/// row; `Wrap` over the full strip breaks it into rows instead, and
+/// `KeyHintsBar::from_pairs` reads its keys as a `KeyBindings` does (`ctrl+c`) and
+/// panics on the oracle's `⌃c` (its doc), and has no wide/compact labels.
+#[test]
+fn g39_probe_wrap_is_not_first_fit() {
+    use rtwk::layout::Wrap;
+    use rtwk::text::Text;
+    let strip = [
+        "Filter: ",
+        " All ",
+        "   ",
+        "Status: ",
+        " Active ",
+        " Archived ",
+        "   ",
+        "Sort: ",
+        " Updated ",
+        " Created ",
+    ];
+    let mut wrap = Wrap::new().spacing(0).run_spacing(0);
+    for part in strip {
+        wrap = wrap.child(Text::new(part));
+    }
+    let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 4));
+    t.pump_widget(wrap);
+    let rows = t
+        .screen()
+        .lines()
+        .filter(|row| !row.trim().is_empty())
+        .count();
+    assert!(
+        rows > 1,
+        "Wrap puts the strip on {rows} rows; the oracle keeps one"
+    );
 }

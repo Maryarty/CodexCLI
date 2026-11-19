@@ -16,7 +16,7 @@ use crate::common::{
     assert_snapshot, assert_snapshot_where, start, start_debug, start_quittable, start_sized,
 };
 
-const DIRS: [(&str, &str, Kind); 22] = [
+const DIRS: [(&str, &str, Kind); 21] = [
     ("chat", "S10", Kind::Home),
     ("cells", "S11", Kind::Part),
     ("composer", "S10", Kind::Part),
@@ -25,7 +25,6 @@ const DIRS: [(&str, &str, Kind); 22] = [
     ("select", "S14", Kind::Dialog),
     ("approvals", "S13", Kind::Dialog),
     ("settings", "S15", Kind::Dialog),
-    ("pager", "S16", Kind::Route),
     ("backtrack", "S17", Kind::Part),
     ("resume", "S18", Kind::Route),
     ("status", "S19", Kind::Dialog),

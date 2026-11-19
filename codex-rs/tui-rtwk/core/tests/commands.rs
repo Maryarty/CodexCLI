@@ -1151,12 +1151,13 @@ fn every_screen_opening_command_names_its_target() {
             other => panic!("{line}: {other:?}"),
         }
     }
+    // `Target::Pager` has no screen directory: the pager is the expanded mode of the
+    // session transcript (chat-live), so the target opens nothing for now.
     for target in [
         Target::Resume,
         Target::Agents,
         Target::Import,
         Target::Usage,
-        Target::Pager,
         Target::Status,
         Target::Select,
         Target::Settings,
