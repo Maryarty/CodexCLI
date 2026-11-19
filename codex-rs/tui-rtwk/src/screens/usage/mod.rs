@@ -8,14 +8,16 @@
 //! `hints.rs`, `data.rs`, `chart.rs`).
 
 use rtwk::focus::{Focus, KeyPress};
-use rtwk::layout::{Column, CrossAxisAlignment};
+use rtwk::layout::{
+    BorderType, Center, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize,
+    Padding, Positioned, Row, SizedBox, Stack, StackFit,
+};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
-use rtwk::style::{Span, Style};
-use rtwk::text::{Text, TextWrap};
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{Text, TextAlign, TextWrap};
 use rtwk::{AnyWidget, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk::{Cx, l10n::NumSyms};
-use rtwk_core::style::Attrs;
 
 use codex_tui_core::screens::usage::{
     Failure, Intent as UsageIntent, Model, Overview, Panel, Report,
@@ -90,33 +92,6 @@ impl StatefulWidget for Screen {
 
 impl_widget!(stateful eq Screen);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Look {
-    Plain,
-    Dim,
-    Bold,
-    Accent,
-    Selected,
-}
-
-type Line = Vec<(String, Look)>;
-
-fn text(text: impl Into<String>, look: Look) -> Line {
-    vec![(text.into(), look)]
-}
-
-fn pad(mut line: Line, left: usize) -> Line {
-    if left > 0 && !line.is_empty() {
-        line.insert(0, (" ".repeat(left), Look::Plain));
-    }
-    line
-}
-
-fn centered(line: Line, width: usize) -> Line {
-    let used: usize = line.iter().map(|(t, _)| t.chars().count()).sum();
-    pad(line, width.saturating_sub(used) / 2)
-}
-
 /// A figure with a suffix: 142_300_000_000 as `142.3B` (oracle: `tokens.rs`).
 fn compact(value: u64, units: &[&str; 4]) -> String {
     let mut scaled = value;
@@ -139,6 +114,24 @@ fn compact(value: u64, units: &[&str; 4]) -> String {
     }
 }
 
+/// The styles the dashboard draws with.
+#[derive(Clone)]
+struct Look {
+    dim: Style,
+    bold: Style,
+    accent: Style,
+    selected: Style,
+}
+
+/// An empty row.
+fn gap() -> AnyWidget {
+    SizedBox::new(None, Some(1), None).into()
+}
+
+fn line(shown: impl Into<String>, style: Style) -> Text {
+    Text::line(shown.into()).style(style).wrap(TextWrap::None)
+}
+
 fn message<T>(panel: &Panel<T>, strings: &Strings) -> Option<&'static str> {
     match panel {
         Panel::Loading => Some(strings.loading),
@@ -151,47 +144,28 @@ fn message<T>(panel: &Panel<T>, strings: &Strings) -> Option<&'static str> {
 
 /// The four panels, one message each, a blank row between (oracle:
 /// `Remote::message` and the chart's empty range).
-fn panel_lines(model: &Model, strings: &Strings) -> Vec<Line> {
+fn panels(model: &Model, strings: &Strings) -> AnyWidget {
     let list_message = |panel: &Panel<Vec<_>>| {
         message(panel, strings).or(match panel {
             Panel::Ready(days) if days.is_empty() => Some(strings.empty_range),
             _ => None,
         })
     };
-    let mut lines = Vec::new();
-    let overview = message(&model.overview, strings);
-    for shown in [
-        overview,
+    let shown = [
+        message(&model.overview, strings),
         list_message(&model.history),
         list_message(&model.credits),
         list_message(&model.usage),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !lines.is_empty() {
-            lines.push(Vec::new());
-        }
-        lines.push(text(shown, Look::Plain));
-    }
-    lines
+    ];
+    Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .spacing(1)
+        .children(shown.into_iter().flatten().map(|m| Text::new(m).into()))
+        .into()
 }
 
-/// The overview's body: profile, numbers, heat map, insights (oracle:
-/// `summary.rs`).
-fn summary_lines(model: &Model, overview: &Overview, strings: &Strings, num: &NumSyms, width: usize) -> Vec<Line> {
-    const BLOCK: usize = 110;
-    const COLUMN: usize = 22;
-    let block = width.min(BLOCK);
-    let margin = width.saturating_sub(block) / 2;
-    let at = |line: Line| pad(line, margin);
-    let mut lines: Vec<Line> = Vec::new();
-    if let Some(account) = &model.account {
-        lines.push(centered(text(account.name.clone(), Look::Bold), width));
-        lines.push(centered(text(account.handle.clone(), Look::Dim), width));
-        lines.push(centered(text(account.plan.clone(), Look::Dim), width));
-        lines.push(Vec::new());
-    }
+/// The five figures, a column each (oracle: `summary.rs`).
+fn figures(overview: &Overview, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
     let figures = [
         (compact(overview.lifetime_tokens, &strings.units), strings.lifetime_tokens),
         (compact(overview.peak_tokens, &strings.units), strings.peak_tokens),
@@ -206,176 +180,221 @@ fn summary_lines(model: &Model, overview: &Overview, strings: &Strings, num: &Nu
         (strings.days(u64::from(overview.current_streak_days), num), strings.current_streak),
         (strings.days(u64::from(overview.longest_streak_days), num), strings.longest_streak),
     ];
-    let cell = |shown: &str, look: Look| -> Line {
-        let used = shown.chars().count();
-        let left = COLUMN.saturating_sub(used) / 2;
-        text(format!("{}{shown}{}", " ".repeat(left), " ".repeat(COLUMN - left - used.min(COLUMN - left))), look)
+    let row = |style: &Style, pick: fn(&(String, &'static str)) -> String| -> AnyWidget {
+        let cells = figures.iter().map(|figure| {
+            Expanded::new(1, line(pick(figure), style.clone()).text_align(TextAlign::Center)).into()
+        });
+        Row::new().children(cells).into()
     };
-    let mut numbers = Line::new();
-    let mut labels = Line::new();
-    for (value, label) in &figures {
-        numbers.extend(cell(value, Look::Bold));
-        labels.extend(cell(label, Look::Dim));
-    }
-    lines.push(at(numbers));
-    lines.push(at(labels));
-    lines.push(Vec::new());
-    lines.push(at(text(strings.activity, Look::Bold)));
-    lines.push(at(text(strings.last_year, Look::Dim)));
-    lines.push(Vec::new());
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(row(&look.bold, |(value, _)| value.clone()))
+        .child(row(&look.dim, |(_, label)| (*label).to_string()))
+        .into()
+}
 
-    let weeks = overview.activity.weeks.min(block.saturating_sub(2) / 2);
-    let mut months = " ".repeat(3);
-    for mark in &overview.activity.months {
-        if mark.week >= weeks {
-            continue;
-        }
-        let column = 3 + 2 * mark.week;
-        let have = months.chars().count();
-        if column >= have {
-            months.push_str(&" ".repeat(column - have));
-            months.push_str(&mark.label);
-        }
+/// The activity heat map: month marks over seven weekday rows of cells
+/// (`□` none, `■` some), then the legend.
+fn heat_map(overview: &Overview, strings: &Strings, look: &Look) -> AnyWidget {
+    let activity = &overview.activity;
+    let mut months = Stack::new().fit(StackFit::Expand);
+    for mark in activity.months.iter().filter(|m| m.week < activity.weeks) {
+        let at = i32::try_from(3 + 2 * mark.week).unwrap_or(i32::MAX);
+        months = months.child(Positioned::new(line(mark.label.clone(), look.dim.clone())).left(at).top(0));
     }
-    lines.push(at(pad(text(months, Look::Dim), 1)));
+    let mut rows = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(SizedBox::new(None, Some(1), Some(months.into())));
     for (day, weekday) in strings.weekdays.iter().enumerate() {
-        let mut row = text(weekday.to_string(), Look::Dim);
-        for week in 0..weeks {
-            if week + 1 == overview.activity.weeks && day > overview.activity.last_day {
+        let mut spans = vec![Span::styled((*weekday).to_string(), look.dim.clone())];
+        for week in 0..activity.weeks {
+            if week + 1 == activity.weeks && day > activity.last_day {
                 break;
             }
-            let level = overview
-                .activity
+            let level = activity
                 .cells
                 .iter()
                 .find(|(w, d, _)| *w == week && *d == day)
                 .map_or(0, |(_, _, level)| *level);
-            row.push((" ".to_string(), Look::Plain));
-            if level == 0 {
-                row.push(("□".to_string(), Look::Dim));
+            spans.push(if level == 0 {
+                Span::styled(strings.cell_none, look.dim.clone())
             } else {
-                row.push(("■".to_string(), Look::Accent));
-            }
+                Span::styled(strings.cell_some, look.accent.clone())
+            });
         }
-        lines.push(at(pad(row, 1)));
+        rows = rows.child(Text::rich(spans).wrap(TextWrap::None).max_lines(1));
     }
-    lines.push(Vec::new());
-    let mut legend = text(format!("{} □ ", strings.less), Look::Dim);
-    legend.push(("■ ■ ■ ■".to_string(), Look::Accent));
-    legend.push((format!(" {}", strings.more), Look::Dim));
-    lines.push(at(pad(legend, 3)));
-    lines.push(Vec::new());
+    let legend = Text::rich([
+        Span::styled(strings.less, look.dim.clone()),
+        Span::styled(strings.legend_none, look.dim.clone()),
+        Span::styled(strings.legend_scale, look.accent.clone()),
+        Span::styled(strings.legend_gap, look.dim.clone()),
+        Span::styled(strings.more, look.dim.clone()),
+    ])
+    .wrap(TextWrap::None);
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Padding::new(EdgeInsets::only(1, 0, 0, 0), rows))
+        .child(gap())
+        .child(Padding::new(EdgeInsets::only(3, 0, 0, 0), legend))
+        .into()
+}
 
-    // Insights on the left, the most used on the right, each half the block
-    // less a four-cell gap.
-    let half = block.saturating_sub(4) / 2;
-    let two = |left: Line, right: Line| -> Line {
-        let used: usize = left.iter().map(|(t, _)| t.chars().count()).sum();
-        let mut line = left;
-        line.push((" ".repeat((half + 4).saturating_sub(used)), Look::Plain));
-        line.extend(right);
-        line
-    };
-    let row = |label: &str, value: &str, look: Look| -> Line {
-        let used = label.chars().count() + value.chars().count();
-        vec![
-            (label.to_string(), look),
-            (" ".repeat(half.saturating_sub(used)), Look::Plain),
-            (value.to_string(), Look::Plain),
-        ]
-    };
-    lines.push(at(two(text(strings.insights, Look::Bold), text(strings.top_uses, Look::Bold))));
-    lines.push(Vec::new());
+/// A label at the left and its value at the right of the room it gets.
+fn entry(label: &str, value: String) -> AnyWidget {
+    Row::new()
+        .child(Expanded::new(1, line(label, Style::default())))
+        .child(line(value, Style::default()))
+        .into()
+}
+
+/// Two columns with a four-cell gap between.
+fn pair(left: AnyWidget, right: AnyWidget) -> AnyWidget {
+    Row::new()
+        .child(Expanded::new(1, left))
+        .child(SizedBox::new(Some(4), None, None))
+        .child(Expanded::new(1, right))
+        .into()
+}
+
+fn nothing() -> AnyWidget {
+    SizedBox::new(Some(0), Some(0), None).into()
+}
+
+/// Insights on the left, the most used on the right.
+fn insights(overview: &Overview, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(pair(
+            line(strings.insights, look.bold.clone()).into(),
+            line(strings.top_uses, look.bold.clone()).into(),
+        ))
+        .child(gap());
     for index in 0..overview.insights.len().max(overview.top.len()) {
         let left = overview
             .insights
             .get(index)
-            .map(|i| row(&i.label, &i.value, Look::Plain))
-            .unwrap_or_default();
+            .map_or_else(nothing, |i| entry(&i.label, i.value.clone()));
         let right = overview
             .top
             .get(index)
-            .map(|t| row(&t.name, &strings.runs(t.runs, num), Look::Plain))
-            .unwrap_or_default();
-        lines.push(at(two(left, right)));
+            .map_or_else(nothing, |t| entry(&t.name, strings.runs(t.runs, num)));
+        column = column.child(pair(left, right));
     }
-    lines.push(Vec::new());
-    if let Some(date) = &model.as_of {
-        lines.push(at(text(strings.as_of(date, num), Look::Dim)));
-    }
-    lines
+    column.into()
 }
 
-fn body_lines(model: &Model, strings: &Strings, num: &NumSyms, width: usize, height: usize) -> Vec<Line> {
+/// The overview's body: profile, numbers, heat map, insights (oracle:
+/// `summary.rs`); the block is at most 110 cells wide, centred.
+fn summary(
+    model: &Model,
+    overview: &Overview,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    width: i32,
+) -> AnyWidget {
+    const BLOCK: i32 = 110;
+    let mut block = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(figures(overview, strings, num, look))
+        .child(gap())
+        .child(line(strings.activity, look.bold.clone()))
+        .child(line(strings.last_year, look.dim.clone()))
+        .child(gap())
+        .child(heat_map(overview, strings, look))
+        .child(gap())
+        .child(insights(overview, strings, num, look))
+        .child(gap());
+    if let Some(date) = &model.as_of {
+        block = block.child(line(strings.as_of(date, num), look.dim.clone()));
+    }
+    let block =
+        Center::new(SizedBox::new(Some(width.min(BLOCK)), None, Some(block.into()))).height_factor(1);
+    let mut whole = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if let Some(account) = &model.account {
+        let centred = |shown: &str, style: &Style| {
+            line(shown, style.clone()).text_align(TextAlign::Center)
+        };
+        whole = whole
+            .child(centred(&account.name, &look.bold))
+            .child(centred(&account.handle, &look.dim))
+            .child(centred(&account.plan, &look.dim))
+            .child(gap());
+    }
+    let whole = whole.child(block);
+    if model.account.is_some() {
+        Center::new(whole).into()
+    } else {
+        whole.into()
+    }
+}
+
+fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width: i32) -> AnyWidget {
+    let text = |shown: &'static str| -> AnyWidget { Text::new(shown).into() };
     match model.report {
         Report::Overview => match &model.overview {
-            Panel::Ready(overview) => {
-                let mut lines = summary_lines(model, overview, strings, num, width);
-                if model.account.is_some() {
-                    let padding = height.saturating_sub(lines.len()) / 2;
-                    lines.splice(0..0, std::iter::repeat_n(Vec::new(), padding));
-                }
-                lines
-            }
-            other => message(other, strings).map(|m| vec![text(m, Look::Plain)]).unwrap_or_default(),
+            Panel::Ready(overview) => summary(model, overview, strings, num, look, width),
+            other => message(other, strings).map_or_else(nothing, text),
         },
         Report::Usage => match &model.usage {
-            Panel::Ready(days) if !days.is_empty() => days
-                .iter()
-                .map(|day| text(format!("{}  {}", day.date, compact(day.total, &strings.units)), Look::Plain))
-                .collect(),
-            other => vec![text(
-                message(other, strings).unwrap_or(strings.empty_range),
-                Look::Plain,
-            )],
+            Panel::Ready(days) if !days.is_empty() => Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .children(days.iter().map(|day| {
+                    Row::new()
+                        .spacing(2)
+                        .child(Text::new(day.date.clone()))
+                        .child(Text::new(compact(day.total, &strings.units)))
+                        .into()
+                }))
+                .into(),
+            other => text(message(other, strings).unwrap_or(strings.empty_range)),
         },
-        _ => vec![text(
-            message(&model.history, strings).unwrap_or(strings.empty_range),
-            Look::Plain,
-        )],
+        _ => text(message(&model.history, strings).unwrap_or(strings.empty_range)),
     }
 }
 
-/// The whole dashboard as `height` lines of `width` cells (oracle:
-/// `render.rs`).
-fn screen_lines(model: &Model, strings: &Strings, num: &NumSyms, width: usize, height: usize) -> Vec<Line> {
-    let inset = usize::from(width > 2);
-    let inner = width.saturating_sub(2 * inset);
+/// The whole dashboard (oracle: `render.rs`): heading, tabs, rule, the
+/// period control, the body, the key hints.
+fn dashboard(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width: i32) -> AnyWidget {
+    let inset = i32::from(width > 2);
+    let inner = width - 2 * inset;
     let controls = if inner >= 100 { 2 } else { 3 };
-    let hints = 2;
-    let body_height = height.saturating_sub(3 + controls + hints).max(1);
-    let mut lines: Vec<Line> = vec![Vec::new(); height];
-    let mut put = |row: usize, line: Line| {
-        if row < height {
-            lines[row] = pad(line, inset);
-        }
-    };
     let heading = match &model.account {
         Some(account) => strings.heading_with(&account.plan, num),
         None => strings.heading.to_string(),
     };
-    put(0, text(heading, Look::Bold));
-    let mut tabs: Line = Vec::new();
-    for (index, report) in Report::ALL.iter().enumerate() {
+    let tabs = Row::new().spacing(1).children(Report::ALL.iter().enumerate().map(|(index, report)| {
         let label = if inner >= 80 {
             format!(" {} {} ", index + 1, strings.tabs[index])
         } else {
             format!(" {} ", strings.tabs[index])
         };
-        let look = if *report == model.report { Look::Selected } else { Look::Plain };
-        tabs.push((label, look));
-        tabs.push((" ".to_string(), Look::Plain));
-    }
-    put(1, tabs);
-    put(2, text("─".repeat(inner), Look::Dim));
-    put(3, text(strings.control_daily, Look::Dim));
-    let body = body_lines(model, strings, num, inner, body_height);
-    for (offset, line) in body.into_iter().take(body_height).enumerate() {
-        put(3 + controls + offset, line);
-    }
-    put(height.saturating_sub(2), text(strings.back, Look::Dim));
-    put(height.saturating_sub(1), text(strings.hints, Look::Dim));
-    lines
+        let style = if *report == model.report { look.selected.clone() } else { Style::default() };
+        line(label, style).into()
+    }));
+    let rule = Divider::new().kind(BorderType::Single).style(look.dim.clone()).merge(false);
+    let column = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(line(heading, look.bold.clone()))
+        .child(tabs)
+        .child(rule)
+        .child(SizedBox::new(
+            None,
+            Some(controls),
+            Some(line(strings.control_daily, look.dim.clone()).into()),
+        ))
+        .child(Expanded::new(1, body(model, strings, num, look, inner)))
+        .child(line(strings.back, look.dim.clone()))
+        .child(line(strings.hints, look.dim.clone()));
+    Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
 }
 
 impl State for ScreenState {
@@ -401,34 +420,19 @@ impl State for ScreenState {
         let num = shared::of(cx).num;
         let screens = watch::<ScreenStates, _>(cx);
         let panels_only = w.panels_only;
+        let look = Look {
+            dim: tokens.dim(),
+            bold: tokens.bold(),
+            accent: tokens.accent(),
+            selected: tokens.selected().attrs(Attrs::REVERSE),
+        };
         let body = LayoutBuilder::new(move |_, constraints| {
-            let width = usize::try_from(constraints.max_width).unwrap_or(0);
-            let height = usize::try_from(constraints.max_height).unwrap_or(0);
             let model = &screens.usage;
-            let lines = if panels_only {
-                panel_lines(model, strings)
+            if panels_only {
+                panels(model, strings)
             } else {
-                screen_lines(model, strings, &num, width, height)
-            };
-            let style = |look: Look| -> Style {
-                match look {
-                    Look::Plain => Style::default(),
-                    Look::Dim => tokens.dim(),
-                    Look::Bold => tokens.bold(),
-                    Look::Accent => tokens.accent(),
-                    Look::Selected => tokens.selected().attrs(Attrs::REVERSE),
-                }
-            };
-            let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Start);
-            for line in lines {
-                let spans: Vec<Span> = if line.is_empty() {
-                    vec![Span::new(strings.blank)]
-                } else {
-                    line.into_iter().map(|(t, look)| Span::styled(t, style(look))).collect()
-                };
-                column = column.child(Text::rich(spans).wrap(TextWrap::None).max_lines(1));
+                dashboard(model, strings, &num, &look, constraints.max_width)
             }
-            column.into()
         });
         let mut focus = Focus::new(body).autofocus().bind(KeyPress::ESC, cx.send(Msg::Close));
         for (index, report) in Report::ALL.iter().enumerate() {

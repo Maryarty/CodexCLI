@@ -508,7 +508,6 @@ const R15_NOT_YET: &[&str] = &[
     "src/screens/select/dialog.rs",
     "src/screens/status/card.rs",
     "src/screens/status/format.rs",
-    "src/screens/usage/mod.rs",
 ];
 const R15_PATTERNS: &[&str] = &[
     ".chars().count()",
