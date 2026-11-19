@@ -318,7 +318,8 @@ def argv_for(kind: str, binary: str, scenario: dict, work: str) -> list[str] | N
         if sub:
             if not rtwk_has_subcommand(binary, sub[0]):
                 return None
-            return [binary] + sub
+            # codex-rtwk has no daemon: `agents` is always the in-process center (the oracle's --no-daemon)
+            return [binary] + [a for a in sub if a != "--no-daemon"]
         return [binary]
     raise SystemExit(f"unknown binary kind {kind!r} (oracle or rtwk)")
 
