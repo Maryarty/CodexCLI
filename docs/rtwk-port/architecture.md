@@ -304,6 +304,33 @@ rtwk. Codex's pure composer logic (paste-burst detector, mention codec,
 history store) is carried as ADAPT. Until G12 lands, S10 lists the missing
 behaviours as deltas.
 
+### Amendment 2026-11-19: pages, modes, slot views and widgets
+
+The person: "there are not many pages here; distinguish, as in Flutter, what
+is a page and what is a widget." Research `docs/rtwk-port/research/pages-vs-widgets.md`
+classified every entry of the map against the oracle. Classes (Flutter
+analogue): **Page** (a `Navigator` route with its own layout), **Mode** (a
+state of one page or widget, switched by its controller), **Slot view** (a
+panel in the chat page's bottom slot), **Dialog** (centered, `show_dialog`),
+**Widget** (part of a page). Result, by id:
+
+- Pages (~6): S10 home chat; S16 pager (transcript, static `/diff`) with S20
+  `/usage` as the same alt-screen overlay family; S18 resume picker; S02-S04
+  onboarding; S01/S05 (cwd, model migration, OSS, unarchive) and S06 import as
+  pre-chat or own-loop screens (three S05 entries unverified).
+- Modes: S17 backtrack (a mode of the pager, not a screen); subagent switcher
+  (active thread of the chat page); S27 inline.
+- Slot views: S13, S14, S15, S23, the pets picker, voice settings, and S21
+  the agents command center (the oracle shows it as a 24-row `BottomPaneView`,
+  `app/agent_center/render.rs:88`, not a full screen).
+- Widgets: S11, S12, S19 (`/status` is a history cell), S22, S24 ambient, S25
+  strip, S26.
+
+The rule: **a mode of one widget is driven by its controller, never a second
+copy** (no parallel screen with its own list, scroll or selection for what is
+one widget in another mode). The "screen" column of the map above reads
+"entry"; a row is a page only where this amendment says so.
+
 ### Amendment 2026-11-18: the bottom pane is a slot of the chat page
 
 The person, after research `parity-routes` (`docs/rtwk-port/research/parity-routes.md`)
