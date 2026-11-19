@@ -14,12 +14,15 @@ use codex_tui_core::app::Command;
 use codex_tui_core::app::Ingress;
 use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::builders::user_item;
+use codex_tui_core::ids::BackendId;
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::ids::TurnId;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::DirKeys;
+use codex_tui_core::screens::agents::Ev as AgentsEv;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::shell::IngressTx;
@@ -308,6 +311,29 @@ impl FakeHandle {
 pub(crate) async fn run(
     server: FakeServer,
     ingress: IngressTx,
+    commands: UnboundedReceiver<Command>,
+    epoch: ConnEpoch,
+) {
+    run_as(server, None, ingress, commands, epoch).await;
+}
+
+/// A backend next to the first: it does not connect the app (no
+/// `Connected`, no account), and says only that it is the cloud when its
+/// facts say so.
+pub(crate) async fn run_other(
+    server: FakeServer,
+    id: BackendId,
+    ingress: IngressTx,
+    commands: UnboundedReceiver<Command>,
+    epoch: ConnEpoch,
+) {
+    run_as(server, Some(id), ingress, commands, epoch).await;
+}
+
+async fn run_as(
+    server: FakeServer,
+    other: Option<BackendId>,
+    ingress: IngressTx,
     mut commands: UnboundedReceiver<Command>,
     epoch: ConnEpoch,
 ) {
@@ -318,10 +344,19 @@ pub(crate) async fn run(
     let emit = |ev: AppEv| {
         let _ = ingress.send(Ingress { epoch, ev });
     };
-    emit(AppEv::Connected);
     let facts = shared.lock().ok().and_then(|guard| guard.facts);
-    if let Some(facts) = facts {
-        emit(backend_ev(facts));
+    match other {
+        None => {
+            emit(AppEv::Connected);
+            if let Some(facts) = facts {
+                emit(backend_ev(facts));
+            }
+        }
+        Some(id) => {
+            if facts.is_some_and(|facts| facts.cloud) {
+                emit(AppEv::Screen(ScreenEv::Agents(AgentsEv::CloudBackend(id))));
+            }
+        }
     }
     let ids = Ids::default();
     let gate = shared
@@ -332,7 +367,9 @@ pub(crate) async fn run(
         .as_ref()
         .map_or_else(Latest::default, Latest::paused_by);
     // As the host does once connected: the account is read, for the usage.
-    if let Some(responder) = shared.lock().ok().and_then(|guard| guard.responder.clone()) {
+    if other.is_none()
+        && let Some(responder) = shared.lock().ok().and_then(|guard| guard.responder.clone())
+    {
         let (ingress, ids, log) = (ingress.clone(), ids.clone(), shared.clone());
         tokio::spawn(async move {
             let send = request_sender(log, responder);

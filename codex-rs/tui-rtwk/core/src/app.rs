@@ -246,6 +246,23 @@ impl CodexApp {
         self.session.epoch
     }
 
+    /// The backend a command goes to: a task's owner for what is about a
+    /// task, the displayed backend for the rest (oracle: the owner's
+    /// session answers for its tasks). `BackendId::default()` is the first
+    /// connection.
+    pub fn backend_of(&self, command: &Command) -> crate::ids::BackendId {
+        let agents = &self.screens.agents;
+        match command {
+            Command::Screen {
+                command: ScreenCommand::Agents(command),
+                ..
+            } => agents::backend_of(agents, command),
+            Command::StartTurn { thread, .. } => agents.owner_of(thread.as_str()),
+            Command::RejectRequest { key } => agents.owner_of(key.thread.as_str()),
+            _ => agents.displayed,
+        }
+    }
+
     /// The projection of the active thread, or the blank one.
     pub fn active_thread(&self) -> Rc<ThreadModel> {
         self.session

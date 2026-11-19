@@ -277,3 +277,45 @@ fn pin_is_supported_by_the_displayed_backends_pins() {
     apply(&mut model, Ev::Displayed(cloud), &mut AppFx::default());
     assert!(model.pin_action_supported());
 }
+
+/// What the shell routes by: the owner of a task for a command about it, the
+/// displayed backend for the lists (`CodexApp::backend_of`).
+#[test]
+fn the_app_routes_a_resume_to_the_backend_that_owns_the_task() {
+    use codex_tui_core::app::{AppEv, Command, Intent, apply_app};
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::screens::agents::{Intent as AgentsIntent, Sel};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+    let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+    let mut app = build(&format!("{script}\n")).expect("plays").app;
+    let cloud = BackendId(1);
+    let send = |app: &mut _, ev: AppEv| {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    };
+    send(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::ListedBy(
+            cloud,
+            paged(vec![thread(&id(2), "Cloud")], None),
+        ))),
+    );
+    let fx = send(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Accept(
+            Sel::Task(id(2)),
+        )))),
+    );
+    let [command] = fx.commands() else {
+        panic!("one RPC: {:?}", fx.commands());
+    };
+    assert!(matches!(command, Command::Screen { .. }));
+    assert_eq!(app.backend_of(command), cloud);
+    // The lists go to the displayed backend.
+    let fx = send(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Agents(AgentsIntent::Refresh))),
+    );
+    assert_eq!(app.backend_of(&fx.commands()[0]), BackendId::default());
+}
