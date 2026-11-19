@@ -40,7 +40,6 @@ use crate::ui::view::Hs;
 mod dialogs;
 mod help;
 mod path;
-mod soft;
 mod tabs;
 pub mod strings;
 mod usage;

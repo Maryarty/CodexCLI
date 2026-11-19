@@ -40,7 +40,7 @@ use codex_tui_core::screens::agents::{
 use super::help::{self, Ink};
 use crate::ui::session_list::SessionList;
 use super::path;
-use super::soft::{self, Measure};
+use crate::ui::measure::{self as soft, Measure};
 use super::strings::Strings;
 use super::tabs::Tabs;
 use super::usage;

@@ -429,6 +429,7 @@ fn r14_controllers_are_made_only_in_the_allowlist() {
                     | "src/screens/approvals/dialog.rs"
                     | "src/screens/pets/mod.rs"
                     | "src/screens/resume/mod.rs"
+                    | "src/ui/options.rs"
             )
         },
     );
@@ -497,14 +498,13 @@ const R15_GAPS: &[(&str, &str)] = &[
         "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (
-        "src/screens/agents/soft.rs",
+        "src/ui/measure.rs",
         "measure, not a gap: break_lines is the TextPainter of the oracle's row count",
     ),
 ];
 const R15_NOT_YET: &[&str] = &[
     "src/screens/chat/home.rs",
     "src/screens/dialogs/feedback.rs",
-    "src/screens/select/dialog.rs",
 ];
 const R15_PATTERNS: &[&str] = &[
     ".chars().count()",

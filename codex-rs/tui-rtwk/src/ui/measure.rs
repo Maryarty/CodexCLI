@@ -1,8 +1,8 @@
-//! G38 (`docs/rtwk-port/rtwk-gaps.md`): the rows a text takes when `Text`
-//! wraps it by word. The details pane puts an elision on its last visible
+//! The rows a text takes when `Text` wraps it by word (G38: not a gap, this
+//! is Flutter's `TextPainter.layout().computeLineMetrics()`). The details pane puts an elision on its last visible
 //! row and keeps two rows of a prompt, so the view must know how many rows
 //! a text takes; no widget tells it. The breaking is rtwk-render's own
-//! `break_lines` (the engine `Text` uses); the facade does not export it.
+//! `break_lines` (the engine `Text` uses).
 
 use rtwk_core::unicode::TextSegmenter;
 use rtwk_render::objects::text::{TextWrap, break_lines};

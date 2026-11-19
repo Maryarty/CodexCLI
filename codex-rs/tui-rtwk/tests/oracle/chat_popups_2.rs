@@ -178,7 +178,7 @@ fn permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profil
 fn approvals_selection_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "G39 (rtwk-gaps.md): no content-sized selectable list with a shared label column and wrapped variable-height description cells (Table fills the room, intrinsic height 0; Grid has no cursor); the select dialog keeps one line per row",
+        "open (not G39: the rows are `ui::options`, Grid + scroll view now): the oracle draws the popup in its bottom pane (no frame, the hint at the left edge, rows at column 0), the port draws it in a framed `Dialog`; the dialogs-pane slice builds that look",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
