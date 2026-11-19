@@ -357,10 +357,12 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             )));
             return vec![list(model, None, false)];
         }
-        (
-            Ctx::Rename { .. } | Ctx::Resume { .. } | Ctx::Stop { .. } | Ctx::Interrupt,
-            Err(error),
-        ) => {
+        (Ctx::Resume { .. }, Err(error)) => {
+            // The page opened over the center goes back to it with the error.
+            model.opening = None;
+            model.notice = Some(Notice::Error(error_text(error)));
+        }
+        (Ctx::Rename { .. } | Ctx::Stop { .. } | Ctx::Interrupt, Err(error)) => {
             model.notice = Some(Notice::Error(error_text(error)));
         }
         (Ctx::Pin { thread, pinned }, Ok(_)) => {
@@ -398,6 +400,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.display(owner);
             model.hidden.remove(&thread);
             model.current = Some(thread);
+            model.opening = None;
             model.resumes += 1;
         }
         (Ctx::Start, Ok(Reply::Started(thread))) => opened(model, &thread),

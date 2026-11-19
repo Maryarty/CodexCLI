@@ -18,7 +18,7 @@ use rtwk::focus::{ExcludeFocus, Focus, FocusNode, FocusScope, KeyBindings};
 use rtwk::foundation::{Listening, ValueNotifier};
 use rtwk::gestures::PointerEvent;
 use rtwk::layout::{Alignment, Column, CrossAxisAlignment, Expanded, Offstage, Stack, StackFit};
-use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::overlay::{DialogOptions, show_dialog};
 use rtwk::provider::{read, select};
 use rtwk::style::Theme;
@@ -39,6 +39,7 @@ mod debug;
 mod dialogs;
 mod help;
 mod keys;
+mod opening;
 mod path;
 mod state;
 pub mod strings;
@@ -136,6 +137,8 @@ pub struct ScreenState {
     /// How many resumes the model had answered when the screen opened: one
     /// more means a session was opened from here.
     entered: Option<u32>,
+    /// The loading page of a task being opened is on top of this screen.
+    opening_pushed: bool,
     /// The search text the screen last saw: a change highlights the first
     /// match (oracle: `edit_input`).
     search_seen: String,
@@ -196,6 +199,7 @@ impl StatefulWidget for Screen {
             mode: Mode::Browse,
             usage_seen: None,
             entered: None,
+            opening_pushed: false,
             search_seen: String::new(),
             browse: None,
         }

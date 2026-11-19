@@ -36,6 +36,9 @@ pub struct Strings {
     group_heading: Msg<2>,
     group_heading_of: Msg<3>,
     pub no_tasks: &'static str,
+    /// The session page while its resume is out (open-instant; the oracle
+    /// shows "Loading task…" the same way).
+    pub resuming: &'static str,
     pub no_match: &'static str,
     /// Oracle: `agents_overview_view.rs` `status` and `render_details`.
     pub needs_input: &'static str,
@@ -159,6 +162,7 @@ pub const EN: Strings = Strings {
     group_heading: msg!("{0}  {1}"),
     group_heading_of: msg!("{0}  {1} of {2}"),
     no_tasks: "No tasks yet",
+    resuming: "Loading task…",
     no_match: "No matching tasks",
     needs_input: "Needs input",
     working: "Working",

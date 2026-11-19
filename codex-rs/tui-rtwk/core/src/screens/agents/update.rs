@@ -50,6 +50,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::Accept(at) => accept(model, at, &mut outs),
         Intent::Resume(thread) => {
             if model.threads.iter().any(|known| known.id == thread) {
+                model.opening = Some(thread.clone());
                 outs.push(out(
                     Command::Resume {
                         thread: thread.clone(),
@@ -227,6 +228,7 @@ fn accept(model: &mut Model, at: Sel, outs: &mut Vec<Out>) {
     if let Sel::Task(thread) = at
         && model.row(&thread).is_some()
     {
+        model.opening = Some(thread.clone());
         outs.push(out(
             Command::Resume {
                 thread: thread.clone(),

@@ -214,6 +214,18 @@ impl State for ScreenState {
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         let agents = watched(cx);
         let model = &*agents;
+        // A task is being opened from here: its page is pushed at once, in
+        // its loading state, and goes when the reply comes (a failure shows
+        // the center again with the error).
+        if model.opening.is_some() && !self.opening_pushed && Route::is_current_of(cx) {
+            self.opening_pushed = true;
+            drop(Navigator::of(cx).push::<()>(super::opening::route()));
+        }
+        let answered = model.opening.is_none() && self.opening_pushed;
+        if answered {
+            self.opening_pushed = false;
+            Navigator::maybe_pop(cx);
+        }
         match self.entered {
             None => self.entered = Some(model.resumes),
             Some(entered) if model.resumes > entered => {

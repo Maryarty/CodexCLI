@@ -1205,3 +1205,84 @@ fn the_shell_saves_the_grouping_and_reports_a_failure() {
         )
     );
 }
+
+/// What the backend answers a resume with: the thread and the settings the
+/// chat starts from.
+fn resumed(id: &str) -> Value {
+    json!({
+        "thread": thread_json(id, 90, "/w/two"),
+        "model": "gpt-5", "modelProvider": "openai", "serviceTier": null,
+        "cwd": "/w/two", "instructionSources": [],
+        "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+    })
+}
+
+/// Enter on a task of the center (open-instant): the session page is pushed
+/// at once, before the backend answers the resume, in a loading state; the
+/// command center is not on the screen any more.
+#[test]
+fn enter_shows_the_session_page_before_the_resume_reply() {
+    // `server` leaves `thread/resume` unanswered: the reply never comes.
+    let mut h = live::start(server);
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    // One frame, no wait for the request: the page change is the model's
+    // answer to the key, not to the backend's.
+    h.t.pump_for(Duration::from_millis(20));
+    let screen = h.t.screen();
+    assert!(!screen.contains("Agent command center"), "{screen}");
+    // The oracle's frame (`agents_overview_loading.rs`): the bold line at the
+    // top left of an otherwise empty screen.
+    assert_eq!(
+        screen.lines().next().map(str::trim_end),
+        Some("Loading task…"),
+        "{screen}"
+    );
+    assert!(
+        screen.lines().skip(1).all(|line| line.trim().is_empty()),
+        "{screen}"
+    );
+    assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
+}
+
+/// The reply fills the page: the loading state is replaced by the chat of
+/// the resumed thread.
+#[test]
+fn the_resume_reply_fills_the_session_page() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Ok(resumed(request["params"]["threadId"].as_str()?))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("enter");
+    h.wait_for("the chat", |s| s.contains("Ask Codex to do anything"));
+    let screen = h.t.screen();
+    assert!(!screen.contains("Loading task…"), "{screen}");
+    assert!(!screen.contains("Agent command center"), "{screen}");
+}
+
+/// A failed resume goes back to the center as it was, with the error the
+/// oracle shows there; the highlight is where it was.
+#[test]
+fn a_failed_resume_returns_to_the_command_center_with_the_error() {
+    let mut h = live::start(|request| match request["method"].as_str()? {
+        "thread/resume" => Some(Err(ServerError::from("no such session"))),
+        _ => server(request),
+    });
+    h.wait_for("both tasks", |s| s.contains("Exec task"));
+    h.t.press("down");
+    h.settle();
+    let before = h.t.screen();
+    h.t.press("enter");
+    h.wait_for("the error", |s| s.contains("no such session"));
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Loading task…"), "{screen}");
+    assert!(screen.contains("Agent command center"), "{screen}");
+    let highlighted = |s: &str| {
+        s.lines()
+            .position(|line| line.contains("Exec task") || line.contains("Interactive task"))
+    };
+    assert_eq!(highlighted(&screen), highlighted(&before));
+}
