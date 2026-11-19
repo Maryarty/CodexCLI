@@ -781,7 +781,9 @@ fn o_opens_the_resume_picker() {
     for entry in ["overview", "empty_narrow"] {
         let mut h = open(entry, 80, 24);
         h.press("o");
-        h.wait_for("the resume picker", |s| s.contains("Resume a previous session"));
+        h.wait_for("the resume picker", |s| {
+            s.contains("Resume a previous session")
+        });
         assert!(
             !h.fake
                 .commands()
@@ -813,5 +815,9 @@ fn f3_toggles_the_search_line() {
     assert!(h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
     h.press("f3");
     h.settle();
-    assert!(!h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
+    assert!(
+        !h.t.screen().contains("Search \u{203a}"),
+        "{}",
+        h.t.screen()
+    );
 }

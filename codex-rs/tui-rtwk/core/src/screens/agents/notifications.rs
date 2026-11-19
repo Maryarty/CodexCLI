@@ -32,8 +32,8 @@ pub fn wants(model: &Model, notification: &ServerNotification) -> bool {
             {
                 Some(reasoning) => {
                     reasoning.header.is_none()
-                        || reasoning.turn_id != delta.turn_id
-                        || reasoning.item_id != delta.item_id
+                        || reasoning.turn != delta.turn_id
+                        || reasoning.item != delta.item_id
                         || reasoning.summary_index != delta.summary_index
                 }
                 None => true,
@@ -184,13 +184,13 @@ fn apply(model: &mut Model, notification: &ServerNotification) {
             }
             let activity = model.activity.entry(delta.thread_id.clone()).or_default();
             if activity.reasoning.as_ref().is_none_or(|reasoning| {
-                reasoning.turn_id != delta.turn_id
-                    || reasoning.item_id != delta.item_id
+                reasoning.turn != delta.turn_id
+                    || reasoning.item != delta.item_id
                     || reasoning.summary_index != delta.summary_index
             }) {
                 activity.reasoning = Some(Reasoning {
-                    turn_id: delta.turn_id.clone(),
-                    item_id: delta.item_id.clone(),
+                    turn: delta.turn_id.clone(),
+                    item: delta.item_id.clone(),
                     summary_index: delta.summary_index,
                     ..Reasoning::default()
                 });

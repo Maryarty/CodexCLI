@@ -33,6 +33,7 @@ use codex_tui_core::ids::RequestKey;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
 use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::dialogs::Ev as DialogsEv;
 use codex_tui_core::wire;
@@ -49,6 +50,7 @@ use codex_tui_rtwk::shell::workspace::Workspace;
 use codex_tui_rtwk::shell::workspace::account;
 use codex_tui_rtwk::shell::workspace::backend_ev;
 use codex_tui_rtwk::shell::workspace::directories;
+use codex_tui_rtwk::shell::workspace::save_grouping;
 use codex_tui_rtwk::shell::workspace::worktree;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -208,6 +210,8 @@ async fn run(
     };
     // `tui.status_line_use_colors`: whether the tasks get their own colour.
     let thread_colors = args.config.tui_status_line_use_colors;
+    // `tui.agents_overview_grouping`: the grouping the center opens with.
+    let grouping = args.config.tui_agents_overview_grouping;
     // What the status line and the footer show: read here, sent as events.
     let status = crate::facts::status(&args.config).await;
     let warnings = crate::facts::warnings(&args.config);
@@ -228,6 +232,13 @@ async fn run(
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::ThreadColors(thread_colors))),
     );
+    if let Some(grouping) = AgentsGrouping::from_config(grouping.as_str()) {
+        emit(
+            &ingress,
+            epoch,
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Grouping(grouping))),
+        );
+    }
     emit(
         &ingress,
         epoch,
@@ -310,6 +321,9 @@ fn work(
     match command {
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
+        }
+        Command::SaveGrouping { grouping, .. } => {
+            Box::pin(async move { save_grouping(workspace, grouping).await })
         }
         Command::Worktree { cwd, .. } => {
             Box::pin(async move { Some(worktree(workspace, cwd, ids, send).await) })

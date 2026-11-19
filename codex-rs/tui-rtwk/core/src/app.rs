@@ -147,6 +147,11 @@ pub enum Command {
     /// screen's `Ev::Directories`.
     #[non_exhaustive]
     Directories { cwds: Vec<String> },
+    /// Writes `tui.agents_overview_grouping` (`project`, `status`, `model`):
+    /// a config edit the shell does; a failure comes back as the agents
+    /// screen's `Ev::Notice`.
+    #[non_exhaustive]
+    SaveGrouping { grouping: String },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -429,9 +434,16 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
 /// RPCs are app-scoped: the command carries no thread.
 fn send_agents(app: &mut CodexApp, outs: Vec<agents::Out>, fx: &mut AppFx) {
     for out in outs {
-        if let agents::Command::NewWorktree { cwd } = out.command {
-            fx.commands.push(Command::Worktree { cwd });
-            continue;
+        match out.command {
+            agents::Command::NewWorktree { cwd } => {
+                fx.commands.push(Command::Worktree { cwd });
+                continue;
+            }
+            agents::Command::SaveGrouping { grouping } => {
+                fx.commands.push(Command::SaveGrouping { grouping });
+                continue;
+            }
+            _ => {}
         }
         // The shell drops the search before a new one (it never answers):
         // its ticket is released here (R5).

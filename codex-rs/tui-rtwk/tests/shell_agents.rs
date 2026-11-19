@@ -14,13 +14,13 @@ use std::time::Duration;
 use codex_app_server_protocol::ClientRequest;
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::rpc::ServerError;
-use codex_tui_core::screens::agents::{DirKeys, Ev, Intent as AgentsIntent, Notice};
+use codex_tui_core::screens::agents::{DirKeys, Ev, Grouping, Intent as AgentsIntent, Notice};
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use codex_tui_rtwk::shell::fake::FakeWorkspace;
 use codex_tui_rtwk::shell::rpc::{Ids, USAGE_TIMED_OUT, USAGE_TIMEOUT, answer, answer_with};
 use codex_tui_rtwk::shell::search::{Gate, Latest, SEARCH_DEBOUNCE};
 use codex_tui_rtwk::shell::workspace::{
-    Boxed, Checkout, Facts, Workspace, account, backend_ev, directories, worktree,
+    Boxed, Checkout, Facts, Workspace, account, backend_ev, directories, save_grouping, worktree,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -993,4 +993,82 @@ fn a_bound_task_stays_subscribed() {
         std::future::ready(started(&request))
     });
     assert_eq!(sent.into_inner().unwrap().len(), 1);
+}
+
+/// Item 5 (oracle `agents_overview_tests.rs:3255-3320`): `g` cycles the
+/// grouping; the config is written for all but the directory grouping, which
+/// is view-local, and the saved one is the next start's.
+#[test]
+fn a_grouping_change_is_saved_to_the_config_but_the_directory_one() {
+    let mut app = CodexApp::new();
+    let mut saved = Vec::new();
+    for expected in [
+        (Grouping::Directory, None),
+        (Grouping::Status, Some("status")),
+        (Grouping::Model, Some("model")),
+        (Grouping::Project, Some("project")),
+    ] {
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Agents(
+                AgentsIntent::CycleGrouping,
+            ))),
+        );
+        assert_eq!(agents(&app).grouping, expected.0);
+        let wrote: Vec<String> = fx
+            .into_commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::SaveGrouping { grouping, .. } => Some(grouping),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            wrote,
+            expected
+                .1
+                .map(str::to_owned)
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
+        saved.extend(wrote);
+    }
+    assert_eq!(saved, ["status", "model", "project"]);
+}
+
+/// The configured grouping is the one the center opens with.
+#[test]
+fn the_configured_grouping_is_the_one_the_center_opens_with() {
+    let mut app = CodexApp::new();
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(Ev::Grouping(Grouping::Model))),
+    );
+    assert_eq!(agents(&app).grouping, Grouping::Model);
+}
+
+/// The shell writes it; a failed write is the center's error notice, as the
+/// oracle words it.
+#[test]
+fn the_shell_saves_the_grouping_and_reports_a_failure() {
+    let workspace = Arc::new(FakeWorkspace::default());
+    assert!(
+        runtime()
+            .block_on(save_grouping(workspace.clone(), "status".to_owned()))
+            .is_none()
+    );
+    assert_eq!(workspace.saved(), ["status"]);
+    workspace.fail_save(Some("disk full"));
+    let ev = runtime()
+        .block_on(save_grouping(workspace, "model".to_owned()))
+        .expect("an event");
+    assert_eq!(
+        format!("{ev:?}"),
+        format!(
+            "{:?}",
+            AppEv::Screen(ScreenEv::Agents(Ev::Notice(Some(Notice::Error(
+                "Failed to save Command Center grouping: disk full".to_owned()
+            )))))
+        )
+    );
 }

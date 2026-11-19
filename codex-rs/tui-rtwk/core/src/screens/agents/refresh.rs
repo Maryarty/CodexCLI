@@ -154,6 +154,7 @@ pub(super) fn apply_ev(model: &mut Model, ev: Ev) {
             super::usage::reset(model);
         }
         Ev::ThreadColors(on) => model.thread_colors_off = !on,
+        Ev::Grouping(grouping) => model.grouping = grouping,
         Ev::Current(current) => model.current = current,
         Ev::Pinned(pinned) => {
             model.pinned = pinned;
@@ -235,6 +236,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
         (Ctx::Usage { thread, id }, result) => {
             super::usage::finish(model, &thread, id, result.ok());
         }
+        (Ctx::SaveGrouping, _) => {}
         (Ctx::NewWorktree, _) => {
             if matches!(model.notice, Some(Notice::CreatingWorktree)) {
                 model.notice = None;

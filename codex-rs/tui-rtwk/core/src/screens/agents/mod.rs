@@ -195,8 +195,8 @@ impl Activity {
 /// `**bold**` run closes into `header`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reasoning {
-    pub turn_id: String,
-    pub item_id: String,
+    pub turn: String,
+    pub item: String,
     pub summary_index: i64,
     pub buffer: String,
     pub header: Option<String>,
@@ -416,6 +416,8 @@ pub enum Ev {
     Voice(Option<String>),
     /// `tui.status_line_use_colors`: whether tasks get their own colour.
     ThreadColors(bool),
+    /// `tui.agents_overview_grouping`: the grouping the center opens with.
+    Grouping(Grouping),
 }
 
 impl Eq for Ev {}
@@ -561,6 +563,11 @@ pub enum Command {
     },
     /// The tasks the server holds loaded (`thread/loaded/list`).
     Loaded,
+    /// Writes the grouping to the config: not an RPC, `app::send_agents`
+    /// hands it to the shell.
+    SaveGrouping {
+        grouping: String,
+    },
 }
 
 /// The decoded replies.
@@ -635,6 +642,7 @@ pub enum Ctx {
         thread: String,
     },
     Loaded,
+    SaveGrouping,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {

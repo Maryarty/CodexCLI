@@ -143,12 +143,25 @@ pub(super) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
         // A worktree is git work, not an RPC: `app::send_agents` hands it to
         // the shell, and never here. Were it asked, the task would start in
         // the directory itself.
+        Command::SaveGrouping { .. } => unreachable_wire(request_id),
         Command::Start { cwd } | Command::NewWorktree { cwd } => ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
                 cwd: cwd.clone(),
                 ..ThreadStartParams::default()
             },
+        },
+    }
+}
+
+/// A config write is no RPC: `app::send_agents` never hands it to the wire.
+/// Were it asked, the answer is a harmless read of nothing.
+fn unreachable_wire(request_id: RequestId) -> ClientRequest {
+    ClientRequest::ThreadLoadedList {
+        request_id,
+        params: ThreadLoadedListParams {
+            cursor: None,
+            limit: None,
         },
     }
 }
@@ -347,6 +360,10 @@ pub(super) fn seed_ev(value: serde_json::Value) -> Result<Ev, String> {
         "thread_colors" => serde_json::from_value(body)
             .map(Ev::ThreadColors)
             .map_err(text),
+        "grouping" => serde_json::from_value::<String>(body)
+            .map_err(text)
+            .and_then(|name| super::Grouping::from_config(&name).ok_or(name))
+            .map(Ev::Grouping),
         "notice" => seed_notice(body).map(Ev::Notice),
         "request" => serde_json::from_value::<(String, String)>(body)
             .map(|(thread, preview)| Ev::Request(thread, Some(preview)))

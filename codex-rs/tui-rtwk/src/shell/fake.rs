@@ -34,6 +34,7 @@ use crate::shell::workspace::Workspace;
 use crate::shell::workspace::account;
 use crate::shell::workspace::backend_ev;
 use crate::shell::workspace::directories;
+use crate::shell::workspace::save_grouping;
 use crate::shell::workspace::worktree;
 
 /// The id of the one thread the fake starts.
@@ -76,6 +77,8 @@ struct WorkspaceState {
     create: Option<Result<Checkout, String>>,
     bind: Option<Result<(), String>>,
     key_reads: Vec<String>,
+    saved: Vec<String>,
+    save: Option<Result<(), String>>,
     created: Vec<Option<String>>,
     bound: Vec<(Checkout, String, String)>,
 }
@@ -99,6 +102,21 @@ impl FakeWorkspace {
     pub fn set_bind(&self, result: Result<(), String>) {
         if let Ok(mut state) = self.state.lock() {
             state.bind = Some(result);
+        }
+    }
+
+    /// The groupings written to the config.
+    pub fn saved(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .map(|state| state.saved.clone())
+            .unwrap_or_default()
+    }
+
+    /// Makes the next config writes fail with `error` (`None`: succeed).
+    pub fn fail_save(&self, error: Option<&str>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.save = Some(error.map_or(Ok(()), |error| Err(error.to_owned())));
         }
     }
 
@@ -148,6 +166,18 @@ impl Workspace for FakeWorkspace {
                     .create
                     .clone()
                     .unwrap_or_else(|| Err("no worktree scripted".to_owned()))
+            })
+            .unwrap_or_else(|_| Err("poisoned".to_owned()));
+        Box::pin(std::future::ready(result))
+    }
+
+    fn save_grouping(&self, grouping: &str) -> Boxed<Result<(), String>> {
+        let result = self
+            .state
+            .lock()
+            .map(|mut state| {
+                state.saved.push(grouping.to_owned());
+                state.save.clone().unwrap_or(Ok(()))
             })
             .unwrap_or_else(|_| Err("poisoned".to_owned()));
         Box::pin(std::future::ready(result))
@@ -364,6 +394,15 @@ pub(crate) async fn run(
                 tokio::spawn(async move {
                     let ev = directories(workspace, cwds).await;
                     let _ = ingress.send(Ingress { epoch, ev });
+                });
+            }
+            Command::SaveGrouping { grouping, .. } => {
+                let workspace = server.workspace.clone();
+                let ingress = ingress.clone();
+                tokio::spawn(async move {
+                    if let Some(ev) = save_grouping(workspace, grouping).await {
+                        let _ = ingress.send(Ingress { epoch, ev });
+                    }
                 });
             }
             other @ (Command::Worktree { .. } | Command::Screen { .. }) => {

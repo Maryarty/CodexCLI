@@ -66,6 +66,9 @@ pub trait Workspace: Send + Sync + 'static {
     /// Binds the started task to its checkout; `cwd` is the directory the
     /// server started the task in, which must be the checkout's.
     fn bind_worktree(&self, checkout: &Checkout, thread: &str, cwd: &str) -> Result<(), String>;
+    /// Writes `tui.agents_overview_grouping` to the user's config; the
+    /// message of why not.
+    fn save_grouping(&self, grouping: &str) -> Boxed<Result<(), String>>;
 }
 
 /// Runs `work` on the blocking pool; `None` if it panicked.
@@ -84,6 +87,15 @@ pub async fn directories(workspace: Arc<dyn Workspace>, cwds: Vec<String>) -> Ap
     .await
     .unwrap_or_default();
     AppEv::Screen(ScreenEv::Agents(AgentsEv::Directories(keys)))
+}
+
+/// The config edit of a grouping change; a failure is the center's error
+/// notice (oracle: `persist_agents_overview_grouping`).
+pub async fn save_grouping(workspace: Arc<dyn Workspace>, grouping: String) -> Option<AppEv> {
+    let error = workspace.save_grouping(&grouping).await.err()?;
+    Some(AppEv::Screen(ScreenEv::Agents(AgentsEv::Notice(Some(
+        Notice::Error(format!("Failed to save Command Center grouping: {error}")),
+    )))))
 }
 
 /// A new task in a new worktree of `cwd`'s repository, as the oracle does

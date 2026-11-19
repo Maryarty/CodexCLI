@@ -12,6 +12,8 @@ use std::sync::Mutex;
 
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
+use codex_core::config::edit::ConfigEdit;
+use codex_core::config::edit::ConfigEditsBuilder;
 use codex_core::config::load_config_toml_with_layer_stack;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_rtwk::shell::workspace::Boxed;
@@ -71,6 +73,21 @@ pub fn dir_keys(cwd: &str) -> DirKeys {
 impl Workspace for Local {
     fn dir_keys(&self, cwd: &str) -> Option<DirKeys> {
         Some(dir_keys(cwd))
+    }
+
+    fn save_grouping(&self, grouping: &str) -> Boxed<Result<(), String>> {
+        let codex_home = self.codex_home.clone();
+        let grouping = grouping.to_owned();
+        Box::pin(async move {
+            ConfigEditsBuilder::new(&codex_home)
+                .with_edits([ConfigEdit::SetPath {
+                    segments: vec!["tui".to_owned(), "agents_overview_grouping".to_owned()],
+                    value: grouping.as_str().into(),
+                }])
+                .apply()
+                .await
+                .map_err(|error| error.to_string())
+        })
     }
 
     fn create_worktree(&self, source_cwd: Option<String>) -> Boxed<Result<Checkout, String>> {

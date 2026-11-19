@@ -37,8 +37,11 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             outs.push(list(model, None, false));
         }
         Intent::Refresh => outs.push(list(model, None, false)),
-        Intent::CycleGrouping => model.grouping = model.grouping.next(),
-        Intent::SetGrouping(grouping) => model.grouping = grouping,
+        Intent::CycleGrouping => {
+            let next = model.grouping.next();
+            outs.extend(set_grouping(model, next));
+        }
+        Intent::SetGrouping(grouping) => outs.extend(set_grouping(model, grouping)),
         Intent::SetSearch { text, lens } => {
             model.search = text;
             outs.extend(super::discovery::restart_history(model, &lens));
@@ -114,6 +117,20 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         Intent::NeedUsage(at) => outs.extend(super::usage::refresh_usage(model, at)),
     }
     outs
+}
+
+/// The grouping changes; `Directory` is view-local, the others are written to
+/// the config (oracle: `PersistAgentsOverviewGrouping`).
+fn set_grouping(model: &mut Model, grouping: super::Grouping) -> Option<Out> {
+    model.grouping = grouping;
+    grouping.persisted().map(|name| {
+        out(
+            Command::SaveGrouping {
+                grouping: name.to_owned(),
+            },
+            Ctx::SaveGrouping,
+        )
+    })
 }
 
 /// Archive or delete the task (oracle: `run_agents_overview_action`, after
