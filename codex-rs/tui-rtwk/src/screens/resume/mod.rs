@@ -393,6 +393,9 @@ impl State for ScreenState {
                     let hs = read::<Hs, _>(cx);
                     let intent = ScreenIntent::Resume(ResumeIntent::Resume(row.id.clone()));
                     cx.emit(&hs.screen, intent);
+                    // The picker returned its choice: the session replaces the
+                    // page (it is the navigator's home below).
+                    Navigator::maybe_pop(cx);
                 }
             }
             Msg::Close => {

@@ -6,5 +6,6 @@ pub mod debug_menu;
 pub mod page_keys;
 pub mod presenter;
 pub mod seeded;
+pub mod start_page;
 pub mod thread_ui;
 pub mod view;
