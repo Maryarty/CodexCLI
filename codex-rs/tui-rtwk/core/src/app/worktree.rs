@@ -8,7 +8,7 @@ use crate::rpc::{Answer, RpcError};
 use crate::screens::{ScreenCommand, ScreenReply, agents};
 use crate::threads::{Origin, ThreadAsk};
 
-use super::{AppCtx, AppFx, CodexApp, Command, show_thread};
+use super::{AppCtx, AppFx, CodexApp, Command, attach_thread, show_held_thread};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checkout {
@@ -118,7 +118,8 @@ impl Step {
                 agents.observe(backend, thread.as_str());
                 agents.display(backend);
                 agents::finish_start(agents, thread.as_str());
-                show_thread(app, thread, Origin::Started);
+                attach_thread(app, &thread, backend, Origin::Started, fx);
+                show_held_thread(app, thread);
                 return;
             }
             (Self::Binding { checkout, thread }, Answer::WorktreeBound(Err(error))) => {

@@ -24,5 +24,5 @@ SCENARIO = Scenario(
     pty_only=True,
     helpers="ev_output_text_delta (stream cut by the client)",
     suite="abort_tasks.rs (interrupt of a running turn), abort_lifecycle.rs",
-    notes="Press Esc while the words stream; the second prompt then answers. check.py presses Esc 4 s after Enter.",
+    notes="check.py sends a single Escape byte four seconds after the model request. It checks for an SSE disconnect before submitting the second prompt.",
 )

@@ -26,7 +26,7 @@ use crate::ids::ThreadId;
 use crate::threads::{ThreadPreview, ThreadPreviews};
 
 /// Read-only thread data supplied by the app when it projects the center.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CenterThreads {
     active: Option<ThreadId>,
     previews: ThreadPreviews,

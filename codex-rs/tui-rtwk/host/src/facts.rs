@@ -43,6 +43,15 @@ pub async fn status(config: &Config) -> StatusFacts {
             .as_ref()
             .map(|effort| effort.as_str().to_string()),
         approval_policy: Some(config.permissions.approval_policy.value().to_string()),
+        profile: match config.permissions.legacy_sandbox_policy(cwd) {
+            codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => {
+                codex_tui_core::screens::status::Profile::ReadOnly
+            }
+            codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. } => {
+                codex_tui_core::screens::status::Profile::Workspace
+            }
+            _ => codex_tui_core::screens::status::Profile::Full,
+        },
         auto_review: matches!(
             config.approvals_reviewer,
             codex_config::types::ApprovalsReviewer::AutoReview

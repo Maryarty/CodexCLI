@@ -15,6 +15,7 @@ import json
 import re
 import threading
 from dataclasses import dataclass
+from enum import Enum, auto
 
 import harness
 import scenario as scenarios
@@ -38,15 +39,25 @@ class ScenarioSse(harness.MockSseResponse):
     headers: tuple[tuple[str, str], ...] = ()
 
 
+class StreamStatus(Enum):
+    STARTED = auto()
+    SENT = auto()
+    DISCONNECTED = auto()
+
+
 class _Handler(harness.H._ResponsesHandler):  # type: ignore[misc]
-    """The harness's handler, with the status and headers of the response being served.
-    Both are read from the serving thread's `_seen.resp`; nothing else is changed."""
+    """Adds scenario response metadata and records whether each write completed."""
 
     def do_POST(self):  # type: ignore[override]
+        mock = self.server.mock
+        mock._seen.resp = None
+        mock._seen.turn_index = None
         try:
             super().do_POST()
         except (BrokenPipeError, ConnectionResetError):
-            pass  # the client cut the stream (an interrupted turn); nothing to report
+            mock._record_stream_end(StreamStatus.DISCONNECTED)
+        else:
+            mock._record_stream_end(StreamStatus.SENT)
 
     def send_response(self, code, message=None):  # type: ignore[override]
         resp = getattr(self.server.mock._seen, "resp", None)
@@ -66,6 +77,8 @@ class ScenarioServer(harness.MockResponsesServer):
         super().__init__()
         self._server.RequestHandlerClass = _Handler
         self._seen = threading.local()
+        self._stream_statuses: list[StreamStatus] = []
+        self._stream_status_lock = threading.Lock()
         self.title_requests = 0
         # Responses with `when`/`unless` are served by body match, once each.
         self._matched: list[scenarios.Resp] = []
@@ -80,7 +93,24 @@ class ScenarioServer(harness.MockResponsesServer):
     def _record_request(self, handler, body: bytes) -> None:  # type: ignore[override]
         self._seen.is_title = bool(TITLE_RE.search(body))
         self._seen.body = body
+        if not self._seen.is_title and handler.path.endswith("/responses"):
+            with self._stream_status_lock:
+                self._seen.turn_index = len(self._stream_statuses)
+                self._stream_statuses.append(StreamStatus.STARTED)
         super()._record_request(handler, body)
+
+    def _record_stream_end(self, end: StreamStatus) -> None:
+        index = self._seen.turn_index
+        if index is not None and self._seen.resp is not None:
+            with self._stream_status_lock:
+                self._stream_statuses[index] = end
+
+    def turn_stream_status(self, request_number: int) -> StreamStatus | None:
+        """The status of the given 1-based non-title Responses request."""
+        with self._stream_status_lock:
+            if 0 < request_number <= len(self._stream_statuses):
+                return self._stream_statuses[request_number - 1]
+            return None
 
     def _next_response(self):  # type: ignore[override]
         resp = self._pick_response()

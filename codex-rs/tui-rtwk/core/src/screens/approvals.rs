@@ -96,6 +96,18 @@ pub enum Decision {
     Choose(usize),
 }
 
+/// Input from the request sheet. The app validates it against the pending request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RequestAnswer {
+    Choice(Decision),
+    UserInput(std::collections::BTreeMap<String, Vec<String>>),
+    Elicitation {
+        decision: Decision,
+        content: Option<serde_json::Value>,
+        meta: Option<serde_json::Value>,
+    },
+}
+
 /// What a request asks, in the form the dialog needs; made from the
 /// protocol's own request (`prompt_of`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,6 +292,9 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
 /// oracle's `exec_approval_request_from_params` and its siblings in
 /// `chatwidget.rs`).
 pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
+    if matches!(request, ServerRequest::ToolRequestUserInput { params, .. } if params.questions.is_empty()) {
+        return None;
+    }
     let wire = serde_json::to_value(request).ok()?;
     let method = wire.get("method")?.as_str()?;
     let id = wire.get("id")?.to_string();

@@ -183,11 +183,12 @@ pub fn run_effects(app: &UiApp, fx: AppFx) {
         return;
     };
     for command in fx.into_commands() {
-        // To the backend that owns what the command is about; a backend
-        // that is not connected leaves it to the first.
         let backend = app.core.backend_of(&command);
-        let target = app.link.other_commands.get(&backend).unwrap_or(commands);
-        let _ = target.send(command);
+        if let Some(target) = app.link.other_commands.get(&backend) {
+            let _ = target.send(command);
+        } else if backend == BackendId::default() {
+            let _ = commands.send(command);
+        }
     }
 }
 

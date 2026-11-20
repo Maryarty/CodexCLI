@@ -4,6 +4,7 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 
+use crate::ids::BackendId;
 use crate::ids::ConnEpoch;
 use crate::ids::RequestKey;
 use crate::ids::ServerRequestId;
@@ -68,12 +69,18 @@ pub(crate) fn request_target(request: &ServerRequest) -> (&'static str, &str) {
 }
 
 /// Preserves the JSON-RPC distinction between numeric and string IDs.
-pub(crate) fn request_key(epoch: ConnEpoch, thread: &str, id: &RequestId) -> RequestKey {
+pub(crate) fn request_key(
+    backend: BackendId,
+    epoch: ConnEpoch,
+    thread: &str,
+    id: &RequestId,
+) -> RequestKey {
     let id = match id {
         RequestId::Integer(id) => id.to_string(),
         RequestId::String(id) => serde_json::to_string(id).unwrap_or_default(),
     };
     RequestKey {
+        backend,
         epoch,
         thread: ThreadId::new(thread),
         id: ServerRequestId::new(id),

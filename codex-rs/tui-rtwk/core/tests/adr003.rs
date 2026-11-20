@@ -16,7 +16,7 @@ use codex_tui_core::fixtures::script::build;
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
-use codex_tui_core::screens::{ScreenEv, ScreenReply};
+use codex_tui_core::screens::{ScreenEv, ScreenReply, ScreenThreadIntent};
 use codex_tui_core::threads::{Item, ThreadAsk, TurnState};
 use serde_json::json;
 
@@ -185,7 +185,7 @@ fn every_turn_end_path_leaves_the_thread_idle() {
 /// breaking an invariant.
 #[test]
 fn every_intent_in_every_lifecycle_state_keeps_the_model_consistent() {
-    let intents: [fn() -> Intent; 5] = [
+    let intents: [fn() -> Intent; 8] = [
         || Intent::Submit {
             thread: None,
             text: "hi".into(),
@@ -197,6 +197,16 @@ fn every_intent_in_every_lifecycle_state_keeps_the_model_consistent() {
         || Intent::CycleBackend,
         || Intent::OpenThread(ThreadId::new(B)),
         || Intent::OpenThread(ThreadId::new("unknown")),
+        || Intent::Interrupt(ThreadId::new(A)),
+        || Intent::ThreadScreen {
+            thread: ThreadId::new(A),
+            intent: ScreenThreadIntent::Chat(codex_tui_core::screens::chat::ThreadIntent::Compact),
+        },
+        || {
+            Intent::Screen(codex_tui_core::screens::ScreenIntent::Status(
+                codex_tui_core::screens::status::Intent::Open,
+            ))
+        },
     ];
     let starts: [fn() -> CodexApp; 3] = [
         CodexApp::new,
@@ -266,4 +276,150 @@ fn any_interleaving_of_two_threads_events_gives_each_its_own_transcript() {
         assert!(!app.thread(&ThreadId::new(A)).unwrap().is_running());
         assert!(!app.thread(&ThreadId::new(B)).unwrap().is_running());
     }
+}
+
+#[test]
+fn events_before_the_resume_reply_replay_in_wire_order() {
+    let mut app = app_with_a_and_b();
+    let request = open(&mut app, B);
+    let ticket = resume_ticket(&request, B).expect("resume");
+    note(&mut app, turn_started(B, "b-turn"));
+    note(&mut app, agent_delta(B, "b-turn", "answer", "one "));
+    note(&mut app, agent_delta(B, "b-turn", "answer", "two"));
+    assert!(app.thread(&ThreadId::new(B)).is_none());
+    answer_resume(&mut app, ticket, B);
+    assert!(app.active_thread().is_running());
+    let rows = app.active_thread();
+    assert!(
+        matches!(rows.transcript().get(0), Some((_, Item::Agent { text })) if text == "one two")
+    );
+    assert!(
+        app.thread(&ThreadId::new(A))
+            .expect("A")
+            .transcript()
+            .is_empty()
+    );
+}
+
+#[test]
+fn compact_rpc_and_reply_are_scoped_to_the_thread_even_after_switching() {
+    use codex_tui_core::screens::{ScreenCommand, chat};
+    let mut app = app_with_a_and_b();
+    let fx = send(
+        &mut app,
+        AppEv::Intent(Intent::ThreadScreen {
+            thread: ThreadId::new(A),
+            intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Compact),
+        }),
+    );
+    let [
+        Command::Screen {
+            ticket,
+            thread: target,
+            command: ScreenCommand::Chat(chat::Command::Compact),
+            ..
+        },
+    ] = fx.commands()
+    else {
+        panic!(
+            "compact should use the thread's effect: {:?}",
+            fx.commands()
+        );
+    };
+    assert_eq!(target, &ThreadId::new(A));
+    let resume = open(&mut app, B);
+    answer_resume(&mut app, resume_ticket(&resume, B).expect("resume"), B);
+    send(
+        &mut app,
+        AppEv::Reply(*ticket, Reply::failed("compact failed")),
+    );
+    assert!(app.active_thread().screen_slots().chat.error.is_none());
+    assert!(
+        app.thread(&ThreadId::new(A))
+            .expect("A")
+            .screen_slots()
+            .chat
+            .error
+            .is_some()
+    );
+}
+
+#[test]
+fn runtime_exchanges_events_and_effects_without_sharing_the_model() {
+    fn is_send<T: Send>() {}
+    is_send::<codex_tui_core::app::Ingress>();
+    is_send::<codex_tui_core::app::Command>();
+}
+
+#[test]
+fn the_full_history_turn_replaces_live_rows_with_different_ids() {
+    let mut app = app_with_a_and_b();
+    note(&mut app, turn_started(A, "turn-live"));
+    note(&mut app, agent_delta(A, "turn-live", "live-id", "partial"));
+    let BackendEv::Notification(event) = turn_completed(A, "turn-live") else {
+        panic!("notification");
+    };
+    let codex_app_server_protocol::ServerNotification::TurnCompleted(completion) = *event else {
+        panic!("completion");
+    };
+    let BackendEv::Notification(event) = agent_completed(A, "turn-live", "rollout-id", "saved")
+    else {
+        panic!("notification");
+    };
+    let codex_app_server_protocol::ServerNotification::ItemCompleted(item) = *event else {
+        panic!("item");
+    };
+    let mut turn = completion.turn;
+    turn.items_view = codex_app_server_protocol::TurnItemsView::Full;
+    turn.items.push(item.item);
+    let mut fx = AppFx::default();
+    codex_tui_core::app::apply_thread(
+        &mut app,
+        &ThreadId::new(A),
+        codex_tui_core::threads::history_page(&[turn], None),
+        &mut fx,
+    );
+    note(&mut app, agent_completed(A, "turn-live", "live-id", "late"));
+    let model = app.active_thread();
+    assert_eq!(model.transcript().len(), 1);
+    assert!(!model.is_running());
+    assert!(
+        matches!(model.transcript().get(0), Some((_, Item::Agent { text })) if text == "saved")
+    );
+}
+
+#[test]
+fn reconnect_reattaches_the_active_thread_and_ignores_the_lost_rpc() {
+    let mut app = app_with_a_and_b();
+    let start = send(
+        &mut app,
+        AppEv::Intent(Intent::Submit {
+            thread: Some(ThreadId::new(A)),
+            text: "first turn".into(),
+        }),
+    );
+    let [Command::StartTurn { ticket, .. }] = start.commands() else {
+        panic!("submit did not start a turn");
+    };
+    send(&mut app, AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting)));
+    let reconnected = send(&mut app, AppEv::Screen(ScreenEv::Agents(Ev::Reconnected)));
+    let resume = resume_ticket(&reconnected, A).expect("reattach active thread");
+    assert!(
+        open(&mut app, A).commands().is_empty(),
+        "one resume in flight"
+    );
+    send(
+        &mut app,
+        AppEv::Reply(
+            *ticket,
+            Reply::turn_started(
+                ThreadId::new(A),
+                codex_tui_core::ids::TurnId::new("lost-connection"),
+            ),
+        ),
+    );
+    assert!(!app.active_thread().is_running());
+    answer_resume(&mut app, resume, A);
+    assert_eq!(app.session().active, Some(ThreadId::new(A)));
+    assert!(open(&mut app, A).commands().is_empty(), "writer reattached");
 }

@@ -31,7 +31,6 @@ use codex_app_server_protocol::ThreadLoadedListResponse;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadSectionMoveParams;
-use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
 use codex_app_server_protocol::ThreadTurnsListResponse;
@@ -49,13 +48,11 @@ pub(crate) fn wire_request(command: &Command, request_id: RequestId) -> ClientRe
             request_id,
             params: list_params(cursor.clone()),
         },
-        Command::Rename { thread, name } => ClientRequest::ThreadSetName {
-            request_id,
-            params: ThreadSetNameParams {
-                thread_id: thread.clone(),
-                name: name.clone(),
-            },
-        },
+        Command::Rename { thread, name } => ThreadAsk::Rename {
+            thread: thread.clone(),
+            name: name.clone(),
+        }
+        .wire(request_id),
         Command::Archive { thread } => ClientRequest::ThreadArchive {
             request_id,
             params: ThreadArchiveParams {

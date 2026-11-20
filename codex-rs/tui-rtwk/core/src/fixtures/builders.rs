@@ -29,7 +29,7 @@ fn turn(id: &str, status: TurnStatus) -> Turn {
         id: id.to_string(),
         root_turn_id: None,
         items: Vec::new(),
-        items_view: Default::default(),
+        items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
         status,
         error: None,
         started_at: None,

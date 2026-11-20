@@ -11,6 +11,8 @@ that the turns end as the scenario says.
   gets each prompt typed and Enter, "y" at an approval prompt, then Ctrl+C. It
   passes when the mock served every queued response, the process stayed up until
   the quit and the quit worked; "sentinel on screen" is reported next to it.
+  Interrupt scenarios also require the interrupted stream to disconnect and the final
+  sentinel to be displayed.
 - `--pty` runs the oracle in the pty driver too; a scenario marked `pty_only` (keys, slash
   commands, a question to answer) always does.
 - `--json FILE` writes the results (coverage.py reads it); `--dump` prints, per model
@@ -53,7 +55,7 @@ except RuntimeError as exc:  # harness.HarnessChanged: a missing name, said plai
 import bins  # noqa: E402
 import home  # noqa: E402
 import scenario as scenarios  # noqa: E402
-from server import ScenarioServer  # noqa: E402
+from server import ScenarioServer, StreamStatus  # noqa: E402
 
 ANSI = re.compile(rb"\x1b(\[[0-9;?<>=! ]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[()][0-9A-B]|[=>78M])")
 APPROVAL = re.compile(r"\(y\)|Yes, proceed|Would you like to")  # the prompt, not the history line "You approved ..."
@@ -213,6 +215,29 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
                 return False
         return False
 
+    def interrupt(request_number: int, delay: float) -> str | None:
+        deadline = time.monotonic() + budget(sc)
+        while srv.turn_stream_status(request_number) is None:
+            if not alive() or time.monotonic() >= deadline:
+                return "the model request did not start before Escape"
+            pump(0.1)
+        pump(delay)
+        if srv.turn_stream_status(request_number) is not StreamStatus.STARTED:
+            return "the model stream already ended before Escape"
+
+        sent_at = time.monotonic()
+        send(b"\x1b")
+        notes.append(f"sent a single Escape byte {delay:g}s after the model request")
+        deadline = sent_at + budget(sc)
+        while (status := srv.turn_stream_status(request_number)) is StreamStatus.STARTED:
+            if not alive() or time.monotonic() >= deadline:
+                return "no model stream disconnect after Escape"
+            pump(0.1)
+        if status is not StreamStatus.DISCONNECTED:
+            return "Escape did not interrupt the model stream; the complete response was sent"
+        notes.append(f"Escape disconnected the model stream in {time.monotonic() - sent_at:.2f}s")
+        return None
+
     try:
         quiet_for(1.5, 30)
         if not alive():
@@ -229,11 +254,8 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
             send(turn.prompt.encode())
             pump(0.4)
             send(b"\r")
-            if turn.esc_after is not None:
-                pump(turn.esc_after)
-                send(b"\x1b")
-                notes.append(f"pressed Esc {turn.esc_after:g}s after Enter")
-                pump(1.0)
+            if turn.esc_after is not None and (error := interrupt(expected, turn.esc_after)):
+                return False, f"turn {i + 1}: {error}", notes
             end = time.time() + budget(sc)
             while time.time() < end:
                 pump(0.25)
@@ -276,6 +298,8 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
         still = alive()
         if still:
             notes.append("did not quit on Ctrl+C twice; killed")
+        if not seen and any(turn.esc_after is not None for turn in sc.turns):
+            return False, "the answer after Escape did not appear", notes
         ok, detail, notes = drained(srv, sc, notes)
         return ok, detail, notes
     finally:

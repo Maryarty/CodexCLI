@@ -115,6 +115,7 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
+    Open,
     /// The card was closed.
     Close,
 }
@@ -129,6 +130,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
+        Intent::Open => {}
         Intent::Close => model.card = None,
     }
 }
@@ -136,11 +138,78 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    pub tokens: Tokens,
+    pub context: Option<Context>,
+}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    TokenUsage { tokens: Tokens, context: Option<Context> },
+}
+
+pub(crate) fn project(
+    notification: &codex_app_server_protocol::ServerNotification,
+) -> Option<(ThreadId, ThreadEv)> {
+    let codex_app_server_protocol::ServerNotification::ThreadTokenUsageUpdated(note) = notification else {
+        return None;
+    };
+    Some((ThreadId::new(&note.thread_id), token_usage(&note.token_usage)))
+}
+
+fn token_usage(usage: &codex_app_server_protocol::ThreadTokenUsage) -> ThreadEv {
+    let total = &usage.total;
+    let tokens = Tokens {
+        input: total.input_tokens,
+        cached_input: total.cached_input_tokens,
+        output: total.output_tokens,
+        total: total.total_tokens,
+    };
+    // Match the oracle's effective context window, reserved baseline included.
+    let context = usage.model_context_window.filter(|window| *window > 0).map(|window| {
+        let used = usage.last.total_tokens.max(0);
+        let usage = codex_protocol::protocol::TokenUsage { total_tokens: used, ..Default::default() };
+        Context { window, used, percent_left: usage.percent_of_context_window_remaining(window) }
+    });
+    ThreadEv::TokenUsage { tokens, context }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RateLimits {
+    pub primary: Option<RateWindow>,
+    pub secondary: Option<RateWindow>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RateWindow {
+    pub window_minutes: Option<i64>,
+    pub used_percent: i32,
+    pub resets_at: Option<i64>,
+}
+
+impl From<codex_app_server_protocol::RateLimitSnapshot> for RateLimits {
+    fn from(snapshot: codex_app_server_protocol::RateLimitSnapshot) -> Self {
+        let window = |w: codex_app_server_protocol::RateLimitWindow| RateWindow {
+            window_minutes: w.window_duration_mins,
+            used_percent: w.used_percent,
+            resets_at: w.resets_at,
+        };
+        Self { primary: snapshot.primary.map(window), secondary: snapshot.secondary.map(window) }
+    }
+}
+
+impl RateLimits {
+    pub fn card_limits(&self) -> Vec<Limit> {
+        self.primary.iter().chain(&self.secondary).filter_map(|rate| {
+            Some(Limit {
+                window_minutes: rate.window_minutes?,
+                used_percent: i64::from(rate.used_percent),
+                reset: None,
+            })
+        }).collect()
+    }
+}
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
@@ -156,8 +225,10 @@ pub enum Reply {}
 pub enum Ctx {}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {}
+    let _ = fx;
+    let ThreadEv::TokenUsage { tokens, context } = ev;
+    part.tokens = tokens;
+    part.context = context;
 }
 
 pub fn apply_reply(

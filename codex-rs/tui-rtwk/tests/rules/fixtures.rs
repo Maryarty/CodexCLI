@@ -35,9 +35,7 @@ fn the_chat_entry_shows_the_streamed_answer() {
     let screen = h.t.screen();
     assert!(screen.contains("hello"), "{screen}");
     assert!(screen.contains("The transport kept this."), "{screen}");
-    // Delta D1: the oracle repairs the rest from the items of `turn/completed`,
-    // the skeleton's projection does not (session-core).
-    assert!(!screen.contains("And dropped this."), "{screen}");
+    assert!(screen.contains("And dropped this."), "{screen}");
 }
 
 #[test]

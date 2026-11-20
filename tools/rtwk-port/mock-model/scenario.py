@@ -50,7 +50,7 @@ class Turn:
     prompt: str
     responses: list[Resp]
     outcome: str = "completed"  # "completed" or "failed" (a fatal error ends the turn)
-    esc_after: float | None = None  # pty runs press Esc this many seconds after Enter (an interrupted turn)
+    esc_after: float | None = None  # Seconds after the model request before the PTY sends Escape.
 
 
 @dataclass(frozen=True)

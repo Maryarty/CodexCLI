@@ -116,7 +116,7 @@ fn a_path_is_a_message_not_a_command() {
 
 #[test]
 fn a_command_that_needs_the_session_says_it_is_not_available_yet() {
-    for line in ["/compact", "/init", "/new", "/fork", "/copy", "/mcp"] {
+    for line in ["/init", "/copy", "/mcp"] {
         let mut h = chat();
         send(&mut h, line);
         let name = line.trim_start_matches('/');

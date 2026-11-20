@@ -429,3 +429,20 @@ fn a_queue_survives_a_second_submit() {
     assert!(screen.contains("(queued) two"), "{screen}");
     assert!(screen.contains("(queued) three"), "{screen}");
 }
+
+#[test]
+fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
+    let mut h = start();
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "partial")]);
+    h.t.type_text("hi");
+    h.press("enter");
+    h.wait_for("the streamed text", |s| s.contains("• partial"));
+    h.press("esc");
+    h.settle();
+    assert!(h.fake.commands().iter().any(|command| {
+        matches!(command, Command::InterruptTurn { thread, turn, .. }
+            if thread.as_str() == FAKE_THREAD && turn.as_str() == "turn-1")
+    }));
+}

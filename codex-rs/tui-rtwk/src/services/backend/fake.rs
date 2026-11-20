@@ -426,7 +426,9 @@ async fn run_as(
             }
             // Slot RPCs are recorded; a test replies with `inject`, or the
             // responder answers them as the client does.
-            Command::RejectRequest { .. } => {}
+            Command::RejectRequest { .. }
+            | Command::ResolveRequest { .. }
+            | Command::InterruptTurn { .. } => {}
             Command::Directories { cwds, .. } => {
                 let workspace = server.workspace.clone();
                 let ingress = ingress.clone();
@@ -466,7 +468,7 @@ async fn run_as(
                     let _ = ingress.send(Ingress::of(backend, epoch, ev));
                 });
             }
-            other @ Command::Screen { .. } => {
+            other @ (Command::Screen { .. } | Command::ReadRateLimits { .. }) => {
                 let (responder, facts) = shared
                     .lock()
                     .map(|guard| (guard.responder.clone(), guard.facts))

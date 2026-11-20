@@ -77,6 +77,18 @@ impl Reply {
         Self(Answer::TurnStarted { thread, turn })
     }
 
+    pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
+        Self(Answer::RateLimits(limits))
+    }
+
+    pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
+        Self(Answer::InterruptTurnChanged(actual))
+    }
+
+    pub fn turn_interrupted() -> Self {
+        Self(Answer::TurnInterrupted)
+    }
+
     pub fn screen(reply: ScreenReply) -> Self {
         Self(Answer::Screen(reply))
     }
@@ -103,6 +115,9 @@ impl Reply {
 pub enum Answer {
     ThreadStarted { thread: ThreadId },
     TurnStarted { thread: ThreadId, turn: TurnId },
+    TurnInterrupted,
+    InterruptTurnChanged(TurnId),
+    RateLimits(crate::screens::status::RateLimits),
     Screen(ScreenReply),
     WorktreeCreated(Result<Checkout, String>),
     WorktreeBound(Result<(), BindFailure>),

@@ -94,6 +94,7 @@ impl TicketMint {
 /// (R3).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RequestKey {
+    pub backend: BackendId,
     pub epoch: ConnEpoch,
     pub thread: ThreadId,
     pub id: ServerRequestId,

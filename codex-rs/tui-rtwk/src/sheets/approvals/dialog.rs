@@ -17,7 +17,6 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
 use super::dismiss::DismissDialog;
@@ -57,10 +56,10 @@ impl StatefulWidget for RequestDialog {
 impl_widget!(stateful eq RequestDialog);
 
 /// The prompt the model holds for `key`, read where it is drawn or answered.
-fn prompt_of(key: &RequestKey, cx: &mut Cx<'_, RequestDialogState>) -> Option<Prompt> {
+fn prompt_of(key: &RequestKey, cx: &mut Cx<'_, RequestDialogState>) -> Option<Rc<Prompt>> {
     let key = key.clone();
-    select::<ScreenStates, Option<Prompt>, _>(cx, move |states| {
-        states.approvals.prompt(&key.thread, &key.id).cloned()
+    select::<RequestQueue, Option<Rc<Prompt>>, _>(cx, move |queue| {
+        queue.get(&key).and_then(|entry| entry.prompt.clone())
     })
 }
 
@@ -95,13 +94,17 @@ impl State for RequestDialogState {
             // The oracle's cancel: the list's cancel option.
             Msg::Cancel => decisions
                 .iter()
-                .find(|d| matches!(d, Decision::Cancel))
+                .find(|d| matches!(d, Decision::Cancel | Decision::DenyPermissions))
                 .cloned(),
         };
+        let hs = read::<Hs, _>(cx);
         let Some(decision) = decision else {
+            if msg == Msg::Cancel {
+                cx.emit(&hs.dismiss, w.key.clone());
+                close_dialog(cx, Some(()));
+            }
             return Rebuild::No;
         };
-        let hs = read::<Hs, _>(cx);
         cx.emit(
             &hs.screen,
             ScreenIntent::Approvals(Intent::Answer {
@@ -109,8 +112,6 @@ impl State for RequestDialogState {
                 decision,
             }),
         );
-        cx.emit(&hs.dismiss, w.key.clone());
-        close_dialog(cx, Some(()));
         Rebuild::No
     }
 

@@ -63,6 +63,7 @@ pub struct StatusFacts {
     pub approval_policy: Option<String>,
     /// The approvals reviewer is the auto reviewer.
     pub auto_review: bool,
+    pub profile: super::status::Profile,
     /// The working directory as shown (`~/dev/app`).
     pub cwd: Option<String>,
     /// The name of the project root (the git root's directory).
@@ -81,6 +82,7 @@ impl Default for StatusFacts {
             effort: None,
             approval_policy: None,
             auto_review: false,
+            profile: super::status::Profile::Workspace,
             cwd: None,
             project_root: None,
             branch: None,
@@ -196,9 +198,9 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A command the session has to carry out. Until session-core gives each
-    /// its effect the chat answers `ChatNotice::NotAvailable`.
+    /// A session command addressed to the thread shown when it was submitted.
     Session {
+        thread: Option<ThreadId>,
         command: SlashCommand,
         intent: SessionIntent,
     },
@@ -221,7 +223,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Session { command, intent: _ } => {
+        Intent::Session { command, .. } => {
             model.notice = Some(ChatNotice::NotAvailable(command));
         }
         Intent::Notice(notice) => model.notice = Some(ChatNotice::Command(notice)),
@@ -229,27 +231,64 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     }
 }
 
-/// Per-thread state of this screen: a part of every `ThreadModel`, changed
-/// only by `apply_thread` and `apply_reply`.
+/// Per-thread state and intents for the chat.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ThreadPart {}
+pub struct ThreadPart {
+    compact_pending: bool,
+    pub error: Option<RpcError>,
+}
 
-/// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
+impl ThreadPart {
+    pub(crate) fn connection_lost(&mut self) {
+        self.compact_pending = false;
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadIntent {
+    Compact,
+    Rename(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {}
 
-/// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
-/// the thread and the ticket; the shell sends them through `wire`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
+pub enum Command {
+    Compact,
+    Rename(String),
+}
 
-/// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
+pub enum Reply {
+    Ack,
+}
 
-/// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
+pub enum Ctx {
+    Compact,
+    Rename,
+}
+
+pub fn apply_thread_intent(
+    part: &mut ThreadPart,
+    intent: ThreadIntent,
+    busy: bool,
+    fx: &mut ThreadFx<'_>,
+) {
+    match intent {
+        ThreadIntent::Compact if !part.compact_pending && !busy => {
+            part.error = None;
+            part.compact_pending = true;
+            fx.request(Ctx::Compact, Command::Compact);
+        }
+        ThreadIntent::Rename(name) if !name.trim().is_empty() => {
+            part.error = None;
+            fx.request(Ctx::Rename, Command::Rename(name));
+        }
+        _ => {}
+    }
+}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
@@ -262,20 +301,31 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    let _ = fx;
+    if matches!(ctx, Ctx::Compact) {
+        part.compact_pending = false;
+    }
+    part.error = result.err();
 }
 
-/// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let ask = match command {
+        Command::Compact => crate::threads::ThreadAsk::Compact { thread: thread.to_string() },
+        Command::Rename(name) => crate::threads::ThreadAsk::Rename {
+            thread: thread.to_string(),
+            name: name.clone(),
+        },
+    };
+    ask.wire(id)
 }
 
-/// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    use codex_app_server_protocol::{ThreadCompactStartResponse, ThreadSetNameResponse};
+    let decoded = match command {
+        Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
+        Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
+    };
+    decoded.map_err(|error| RpcError::Malformed(error.to_string()))
 }
 
 /// The seed form of this screen's events:

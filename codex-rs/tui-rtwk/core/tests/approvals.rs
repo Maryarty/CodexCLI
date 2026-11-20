@@ -9,8 +9,8 @@
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::{RequestKey, ServerRequestId, ThreadId};
-use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent as ApprovalIntent, Prompt};
+use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
 
 fn play(request: &str) -> Sandbox {
@@ -125,6 +125,7 @@ fn patch_options_use_expected_decisions() {
 fn an_answer_is_a_model_fact_and_the_prompt_goes() {
     let mut sandbox = play(&exec(""));
     let key = RequestKey {
+        backend: Default::default(),
         epoch: sandbox.app().epoch(),
         thread: ThreadId::new("thread-1"),
         id: ServerRequestId::new("1"),
@@ -153,4 +154,82 @@ fn a_bad_seed_is_an_error_with_its_line() {
     .err()
     .expect("fails");
     assert_eq!(err.line, 1);
+}
+
+#[test]
+fn live_request_uses_the_original_parameters_even_when_another_backend_reuses_its_id() {
+    use codex_tui_core::app::{AppFx, BackendEv, CodexApp, Command, apply_app, apply_app_from};
+    use codex_tui_core::ids::BackendId;
+    use codex_tui_core::screens::approvals::RequestAnswer;
+
+    let mut app = CodexApp::new();
+    let primary = BackendId::default();
+    let secondary = BackendId(1);
+    app.attach_backend(primary);
+    app.attach_backend(secondary);
+    let first = serde_json::from_str(&exec(
+        r#","proposedExecpolicyAmendment":["echo","hello world"]"#,
+    ))
+    .expect("request");
+    let second = serde_json::from_str(&exec("")).expect("request");
+    let mut fx = AppFx::default();
+    for (origin, request) in [(primary, first), (secondary, second)] {
+        apply_app_from(
+            &mut app,
+            origin,
+            AppEv::Backend(BackendEv::Request(Box::new(request))),
+            &mut fx,
+        );
+    }
+    assert_eq!(app.requests().entries.len(), 2);
+    let key = app.requests().head().expect("first").key.clone();
+
+    let answer = || {
+        AppEv::Intent(Intent::AnswerRequest {
+            key: key.clone(),
+            answer: RequestAnswer::Choice(Decision::AcceptWithPrefix("echo hello world".into())),
+        })
+    };
+    apply_app(&mut app, answer(), &mut fx);
+    apply_app(&mut app, answer(), &mut fx);
+    let [command @ Command::ResolveRequest { result, .. }] = fx.commands() else {
+        panic!("expected one keyed answer: {:?}", fx.commands());
+    };
+    assert_eq!(app.backend_of(command), primary);
+    assert_eq!(
+        result["decision"]["acceptWithExecpolicyAmendment"]["execpolicy_amendment"],
+        serde_json::json!(["echo", "hello world"])
+    );
+    assert_eq!(
+        app.requests().head().expect("second").key.backend,
+        secondary
+    );
+}
+
+#[test]
+fn reconnect_drops_the_old_request_key_even_if_the_new_server_reuses_its_id() {
+    use codex_tui_core::app::{AppFx, BackendEv, CodexApp, apply_app};
+    use codex_tui_core::screens::agents;
+
+    let mut app = CodexApp::new();
+    let request = || {
+        let request = serde_json::from_str(&exec("")).expect("request");
+        AppEv::Backend(BackendEv::Request(Box::new(request)))
+    };
+    let mut fx = AppFx::default();
+    apply_app(&mut app, request(), &mut fx);
+    let old = app.requests().head().expect("old request").key.clone();
+    apply_app(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+        &mut fx,
+    );
+    apply_app(&mut app, request(), &mut fx);
+    apply_app(
+        &mut app,
+        AppEv::Intent(Intent::DismissRequest(old.clone())),
+        &mut fx,
+    );
+    assert!(fx.commands().is_empty());
+    assert_ne!(app.requests().head().expect("new request").key, old);
 }

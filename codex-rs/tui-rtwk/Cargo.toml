@@ -10,6 +10,7 @@ members = ["host", "core"]
 rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk" }
 rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-core" }
 rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-render" }
+rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-rich" }
 rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-term" }
 rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-test" }
 rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-tokio" }
@@ -82,6 +83,7 @@ codex-tui-core = { path = "core" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }
+rtwk-rich = { workspace = true }
 rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
 semver = "1.0"
