@@ -354,7 +354,10 @@ fn the_completed_item_replaces_the_streamed_text_in_place() {
     assert_eq!(
         items,
         vec![
-            Item::User { text: "hi".into() },
+            Item::User(codex_tui_core::threads::UserPrompt {
+                text: "hi".into(),
+                ..Default::default()
+            }),
             Item::Agent {
                 text: "Hello".into()
             },

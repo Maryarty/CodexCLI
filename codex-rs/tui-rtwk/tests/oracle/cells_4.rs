@@ -432,14 +432,17 @@ fn session_header_truncates_halfwidth_directory() {
 // ORACLE history_cell/tests.rs:1976 coalesces_sequential_reads_within_one_call kind=snap owner=chat-live snap=coalesces_sequential_reads_within_one_call
 #[test]
 fn coalesces_sequential_reads_within_one_call() {
-    kit::pending(Owner::ChatLive, NO_EXEC_CELL);
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 15)
         .script(include_str!(
             "fixtures/cells_4/coalesces_sequential_reads_within_one_call.jsonl"
         ))
         .open();
-    s.assert_snap_region("coalesces_sequential_reads_within_one_call", 0, 0);
+    s.assert_snap_region(
+        "coalesces_sequential_reads_within_one_call",
+        explored_row(&s),
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2017 coalesces_reads_across_multiple_calls kind=snap owner=chat-live snap=coalesces_reads_across_multiple_calls
@@ -458,14 +461,21 @@ fn coalesces_reads_across_multiple_calls() {
 // ORACLE history_cell/tests.rs:2070 coalesced_reads_dedupe_names kind=snap owner=chat-live snap=coalesced_reads_dedupe_names
 #[test]
 fn coalesced_reads_dedupe_names() {
-    kit::pending(Owner::ChatLive, NO_EXEC_CELL);
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 15)
         .script(include_str!(
             "fixtures/cells_4/coalesced_reads_dedupe_names.jsonl"
         ))
         .open();
-    s.assert_snap_region("coalesced_reads_dedupe_names", 0, 0);
+    s.assert_snap_region("coalesced_reads_dedupe_names", explored_row(&s), 0);
+}
+
+fn explored_row(screen: &Screen) -> usize {
+    screen
+        .rows()
+        .iter()
+        .position(|row| row.contains("• Explored"))
+        .unwrap_or_else(|| panic!("missing exploration row:\n{}", screen.text()))
 }
 
 // ORACLE history_cell/tests.rs:2107 multiline_command_wraps_with_extra_indent_on_subsequent_lines kind=snap owner=chat-live snap=multiline_command_wraps_with_extra_indent_on_subsequent_lines

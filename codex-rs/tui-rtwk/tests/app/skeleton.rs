@@ -531,6 +531,54 @@ fn empty_blossom_is_visible_only_without_a_draft() {
 }
 
 #[test]
+fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::fixtures::builders::turn_started;
+    use serde_json::json;
+
+    let mut h = start_sized(false, 56, 24);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_started(FAKE_THREAD, "turn-1")));
+    let command = |status: &str| {
+        json!({
+            "type": "commandExecution", "id": "cmd-1", "command": "/bin/zsh -lc 'printf test'",
+            "cwd": "/tmp", "source": "agent", "status": status, "commandActions": [],
+        })
+    };
+    let notify = |method, params| {
+        BackendEv::Notification(Box::new(
+            serde_json::from_value(json!({"method": method, "params": params}))
+                .expect("notification"),
+        ))
+    };
+    let context = |item| {
+        json!({
+            "item": item, "threadId": FAKE_THREAD, "turnId": "turn-1",
+            "startedAtMs": 1000, "completedAtMs": 2000,
+        })
+    };
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(notify("item/started", context(command("inProgress")))),
+    );
+    h.fake.inject(epoch, AppEv::Backend(notify("item/commandExecution/outputDelta", json!({
+        "threadId": FAKE_THREAD, "turnId": "turn-1", "itemId": "cmd-1", "delta": "tool output"
+    }))));
+    h.wait_for("running command with output", |s| {
+        s.contains("Running printf test") && s.contains("└ tool output")
+    });
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(notify("item/completed", context(command("completed")))),
+    );
+    h.wait_for("completed command with preserved output", |s| {
+        s.contains("Ran printf test") && s.contains("└ tool output")
+    });
+}
+
+#[test]
 fn transcript_prompt_surfaces_and_separators_keep_their_rows() {
     use codex_tui_core::fixtures::builders::user_item;
 

@@ -1276,9 +1276,8 @@ fn enter_shows_the_session_page_before_the_resume_reply() {
     let mut h = live::start(server);
     h.wait_for("both tasks", |s| s.contains("Exec task"));
     h.t.press("enter");
-    // One frame, no wait for the request: the page change is the model's
-    // answer to the key, not to the backend's.
-    h.t.pump_for(Duration::from_millis(20));
+    // The backend leaves the request unanswered throughout this check.
+    h.wait_for("loading page", |s| s.contains("Loading task…"));
     let screen = h.t.screen();
     assert!(!screen.contains("Agent command center"), "{screen}");
     // The oracle's frame (`agents_overview_loading.rs`): the bold line at the
@@ -1454,10 +1453,14 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
             let mut turn = turn_json("t1", "first question", "first answer");
             turn["durationMs"] = json!(8_500);
             let items = turn["items"].as_array_mut().expect("fixture items");
+            items[0]["content"]
+                .as_array_mut()
+                .expect("prompt inputs")
+                .push(json!({"type":"localImage", "path":"fixture.png"}));
             items.insert(1, json!({
-                "type": "commandExecution", "id": "command-1", "command": "printf example",
+                "type": "commandExecution", "id": "command-1", "command": "/bin/zsh -lc 'printf example'",
                 "cwd": "/tmp", "processId": null, "source": "agent", "status": "completed",
-                "commandActions": [], "aggregatedOutput": "tool preview", "exitCode": 0, "durationMs": 8
+                "commandActions": [], "aggregatedOutput": "hidden first\nsecond\nthird\ntool preview", "exitCode": 0, "durationMs": 8
             }));
             items.insert(
                 2,
@@ -1479,10 +1482,13 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
         "This conversation is open in another app",
         "Close it there and press R to continue here.",
         "r to retry",
+        "[Image #1]",
         "Ran printf example",
-        "tool preview",
+        "└ second",
+        "+ 1 line",
         "Called catalog.lookup",
-        "lookup result",
+        "└ lookup result",
+        "+ Show details",
         "first answer",
     ] {
         assert!(screen.contains(needle), "{needle} missing:\n{screen}");
@@ -1490,11 +1496,28 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
     assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
     assert!(!screen.contains("active writer"), "{screen}");
     assert!(!screen.contains("Agent command center"), "{screen}");
+    assert!(!screen.contains("hidden first"), "{screen}");
 
     let first_prompt = screen
         .lines()
         .position(|line| line.contains("first question"));
-    assert!(first_prompt.is_some_and(|row| row < 4), "{screen}");
+    assert!(first_prompt.is_some_and(|row| row < 6), "{screen}");
+
+    let details_row = screen
+        .lines()
+        .position(|line| line.contains("+ 1 line"))
+        .expect("command disclosure");
+    h.t.click(9, details_row as u16);
+    h.wait_for("expanded command", |s| s.contains("hidden first"));
+    let expanded_row =
+        h.t.screen()
+            .lines()
+            .position(|line| line.contains("Hide details"))
+            .expect("collapse control");
+    h.t.click(9, expanded_row as u16);
+    h.wait_for("collapsed command", |s| {
+        s.contains("+ 1 line") && !s.contains("hidden first")
+    });
 
     h.t.press("r");
     h.wait_for("the writer attached on retry", |s| {

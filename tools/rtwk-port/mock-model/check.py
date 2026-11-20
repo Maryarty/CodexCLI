@@ -15,6 +15,10 @@ that the turns end as the scenario says.
   sentinel to be displayed.
 - `--pty` runs the oracle in the pty driver too; a scenario marked `pty_only` (keys, slash
   commands, a question to answer) always does.
+- `--size WIDTHxHEIGHT` sets the PTY dimensions. `--capture-dir DIR` runs in PTY
+  mode and saves the terminal stream at matching checkpoints for both binaries.
+- `--capture-resume` also opens the same fixture saved by the oracle in both
+  binaries and saves the resumed frames.
 - `--json FILE` writes the results (coverage.py reads it); `--dump` prints, per model
   request, the tool names it offered and the output items it carried (to see what the
   binary accepted).
@@ -33,7 +37,6 @@ import os
 import re
 import select
 import shutil
-import signal
 import struct
 import subprocess
 import sys
@@ -73,6 +76,11 @@ class Result:
     seconds: float
     detail: str = ""
     notes: list[str] = field(default_factory=list)
+
+@dataclass(frozen=True)
+class Terminal:
+    size: tuple[int, int] = (120, 40)
+    light: bool = False
 
 
 def budget(sc: scenarios.Scenario) -> float:
@@ -159,15 +167,27 @@ def tools_answered(srv: ScenarioServer, sc: scenarios.Scenario) -> str:
 # ----------------------------------------------------------------- pty mode
 
 
-def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer, *, oracle: bool) -> tuple[bool, str, list[str]]:
-    codex_home, work = home.write_home(sc, srv.url, root)
-    env = {**os.environ, "CODEX_HOME": str(codex_home), "OPENAI_API_KEY": "dummy", "TERM": "xterm-256color", "COLUMNS": "120", "LINES": "40"}
-    argv = [binary] + (["-c", "analytics.enabled=false", "-C", str(work)] if oracle else [])
-    pid, fd = os_forkpty(argv, work, env)
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer, *, oracle: bool, terminal: Terminal = Terminal(), capture: Path | None = None, resume: str | None = None) -> tuple[bool, str, list[str]]:
+    codex_home, work = (root / "codex-home", (root / "work").resolve()) if resume else home.write_home(sc, srv.url, root)
+    width, height = terminal.size
+    fg, bg = (b"2020/2424/2727", b"fafa/fafa/fafa") if terminal.light else (b"d8d8/e4e4/f0f0", b"0404/1919/2727")
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "OPENAI_API_KEY": "dummy", "TERM": "xterm-256color", "COLUMNS": str(width), "LINES": str(height)}
+    argv = [binary]
+    if resume:
+        argv.append("resume")
+        if oracle:
+            argv += ["--no-daemon", resume]
+    if oracle:
+        argv += ["-c", "analytics.enabled=false", "-C", str(work)]
+    child, fd = spawn_pty(argv, work, env, width, height)
     out = bytearray()
     state = {"last": time.time(), "scan": 0, "answered": 0}
     notes: list[str] = []
+
+    def checkpoint(name: str) -> None:
+        if capture is not None:
+            capture.mkdir(parents=True, exist_ok=True)
+            (capture / f"{name}.ansi").write_bytes(out)
 
     def pump(seconds: float) -> None:
         end = time.time() + seconds
@@ -187,6 +207,10 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
                 send(b"\x1b[1;1R")
             if b"\x1b[c" in data or b"\x1b[0c" in data:
                 send(b"\x1b[?62;c")
+            if b"\x1b]10;?" in data:
+                send(b"\x1b]10;rgb:" + fg + b"\x07")
+            if b"\x1b]11;?" in data:
+                send(b"\x1b]11;rgb:" + bg + b"\x07")
 
     def send(data: bytes) -> None:
         try:
@@ -197,7 +221,7 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
     def alive() -> bool:
         if state.get("dead"):
             return False
-        done, _ = os.waitpid(pid, os.WNOHANG)
+        done = child.poll() is not None
         if done:
             state["dead"] = True
         return not done
@@ -242,8 +266,36 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
         quiet_for(1.5, 30)
         if not alive():
             return False, "exited at startup: " + screen_text()[-200:].replace("\n", " "), notes
+        if resume:
+            if not oracle:
+                deadline = time.monotonic() + 20
+                while alive() and time.monotonic() < deadline:
+                    pump(0.2)
+                    if "Mock scenario" in screen_text():
+                        break
+                if "Mock scenario" not in screen_text():
+                    checkpoint("picker")
+                    return False, "resume picker did not load the saved row", notes
+                quiet_for(0.5, 2)
+                checkpoint("picker")
+                # The saved scenario is the oldest row whether or not the
+                # app's fresh thread has appeared in the picker.
+                send(b"\x1b[F")
+                pump(0.3)
+                send(b"\r")
+            deadline = time.monotonic() + 15.0
+            while alive() and time.monotonic() < deadline:
+                pump(0.2)
+                if sc.sentinel in re.sub(r"\s+", "", screen_text()):
+                    quiet_for(0.5, 2)
+                    break
+            checkpoint("resumed")
+            if sc.sentinel not in re.sub(r"\s+", "", screen_text()):
+                return False, "resumed thread did not show the scenario answer", notes
+        else:
+            checkpoint("ready")
         expected = 0
-        for i, turn in enumerate(sc.turns):
+        for i, turn in enumerate(() if resume else sc.turns):
             expected += len(turn.responses)
             pump(1.0)
             if NUDGE.search(screen_text(max(0, len(out) - 3000))):
@@ -257,11 +309,15 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
             if turn.esc_after is not None and (error := interrupt(expected, turn.esc_after)):
                 return False, f"turn {i + 1}: {error}", notes
             end = time.time() + budget(sc)
+            working = False
             while time.time() < end:
                 pump(0.25)
                 if not alive():
                     return False, f"exited during turn {i + 1}", notes
                 tail = screen_text(max(mark, len(out) - 4000))
+                if not working and "esc to interrupt" in tail:
+                    checkpoint(f"turn-{i + 1}-working")
+                    working = True
                 if NUDGE.search(tail) and time.time() - state["last"] > 0.5:
                     send(b"2")
                     notes.append("answered the rate-limit nudge (keep the model)")
@@ -284,8 +340,10 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
                 if srv.turn_requests() >= expected and time.time() - state["last"] > 2.0:
                     break
             else:
+                checkpoint(f"timeout-{i + 1}")
                 last = " | ".join(x.strip() for x in screen_text(max(0, len(out) - 3000)).splitlines() if x.strip())[-int(os.environ.get("MOCK_SCREEN_CHARS", "360")):]
                 return False, f"turn {i + 1}: mock served {srv.turn_requests()} of {expected} model request(s) in {budget(sc):.0f}s; screen ends: {last}", notes
+            checkpoint(f"turn-{i + 1}")
         seen = sc.sentinel in re.sub(r"\s+", "", screen_text())
         notes.append(f"sentinel on screen: {'yes' if seen else 'no'}")
         if not seen and os.environ.get("MOCK_DUMP_SCREEN"):
@@ -303,26 +361,35 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
         ok, detail, notes = drained(srv, sc, notes)
         return ok, detail, notes
     finally:
-        if not state.get("dead"):
-            try:
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
-            except (ProcessLookupError, ChildProcessError):
-                pass
-        os.close(fd)
-
-
-def os_forkpty(argv: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, int]:
-    import pty
-
-    pid, fd = pty.fork()
-    if pid == 0:
         try:
-            os.chdir(cwd)
-            os.execve(argv[0], argv, env)
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=3)
         finally:
-            os._exit(127)
-    return pid, fd
+            os.close(fd)
+
+
+def spawn_pty(argv: list[str], cwd: Path, env: dict[str, str], width: int, height: int) -> tuple[subprocess.Popen, int]:
+    master, slave = os.openpty()
+    try:
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
+        # The mock HTTP server has worker threads. Acquire the controlling
+        # terminal in a fresh process rather than running Python after forkpty.
+        bootstrap = (
+            "import fcntl, os, sys, termios\n"
+            "fcntl.ioctl(0, termios.TIOCSCTTY, 0)\n"
+            "os.execve(sys.argv[1], sys.argv[1:], os.environ)\n"
+        )
+        child = subprocess.Popen(
+            [sys.executable, "-I", "-c", bootstrap, *argv],
+            cwd=cwd, env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+        )
+    except Exception:
+        os.close(master)
+        raise
+    finally:
+        os.close(slave)
+    return child, master
 
 
 # --------------------------------------------------------------------- main
@@ -346,7 +413,7 @@ def dump(srv: ScenarioServer) -> None:
                 print(f"           output {i.get('call_id')}: {json.dumps(i.get('output'))[:200]}")
 
 
-def run_one(name: str, label: str, binary: str, mode: str, show: bool = False) -> Result:
+def run_one(name: str, label: str, binary: str, mode: str, show: bool = False, *, terminal: Terminal = Terminal(), capture_dir: Path | None = None, resume_with: str | None = None) -> Result:
     sc = scenarios.load(name)
     root = home.temp_root()
     started = time.time()
@@ -362,7 +429,23 @@ def run_one(name: str, label: str, binary: str, mode: str, show: bool = False) -
                 if mode == "exec":
                     ok, detail, notes = run_exec(binary, sc, root, srv)
                 else:
-                    ok, detail, notes = run_pty(binary, sc, root, srv, oracle=(label == "oracle"))
+                    capture = capture_dir / name / label if capture_dir is not None else None
+                    ok, detail, notes = run_pty(binary, sc, root, srv, oracle=(label == "oracle"), terminal=terminal, capture=capture)
+                    if ok and resume_with and capture_dir is not None:
+                        rollouts = list((root / "codex-home" / "sessions").rglob("rollout-*.jsonl"))
+                        if len(rollouts) != 1:
+                            raise ValueError(f"expected one saved session, found {len(rollouts)}")
+                        with rollouts[0].open() as rollout:
+                            thread_id = json.loads(rollout.readline())["payload"]["id"]
+                        for replay_label, replay_bin in (("oracle", binary), ("rtwk", resume_with)):
+                            ok, detail, _ = run_pty(
+                                replay_bin, sc, root, srv, oracle=(replay_label == "oracle"), terminal=terminal,
+                                capture=capture_dir / name / replay_label, resume=thread_id,
+                            )
+                            if not ok:
+                                detail = f"{replay_label} resume: {detail}"
+                                break
+                            notes.append(f"{replay_label} restored the saved turn")
             finally:
                 if show:
                     dump(srv)
@@ -373,16 +456,32 @@ def run_one(name: str, label: str, binary: str, mode: str, show: bool = False) -
     return Result(name, label, mode, "PASS" if ok else "FAIL", time.time() - started, detail, notes)
 
 
+def terminal_size(value: str) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d+)x(\d+)", value)
+    if match is None:
+        raise argparse.ArgumentTypeError("expected terminal WIDTHxHEIGHT")
+    width, height = map(int, match.groups())
+    if not 1 <= width <= 1000 or not 1 <= height <= 1000:
+        raise argparse.ArgumentTypeError("terminal width and height must be between 1 and 1000")
+    return width, height
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", help="comma-separated scenario names")
     ap.add_argument("--bin", choices=["rtwk", "oracle"], action="append")
     ap.add_argument("--pty", action="store_true", help="drive the oracle in a pty instead of exec")
+    ap.add_argument("--size", type=terminal_size, default=(120, 40), metavar="WIDTHxHEIGHT")
+    ap.add_argument("--palette", choices=["dark", "light"], default="dark", help="default PTY colors")
+    ap.add_argument("--capture-dir", type=Path, help="save named PTY checkpoints under DIR/scenario/binary")
+    ap.add_argument("--capture-resume", action="store_true", help="add a shared saved-session checkpoint")
     ap.add_argument("--list-bins", action="store_true")
     ap.add_argument("--json", help="write the results to this file")
     ap.add_argument("--dump", action="store_true", help="print the tools and tool outputs of every model request")
     args = ap.parse_args()
     found = {"rtwk": bins.rtwk_bin(), "oracle": bins.oracle_bin()}
+    if args.capture_resume and (args.capture_dir is None or args.bin or not all(found.values())):
+        ap.error("--capture-resume requires --capture-dir and both binaries")
     for label, path in found.items():
         print(f"{label:7} {path or 'NOT BUILT (no binary found; nothing is built here)'}")
     if args.list_bins:
@@ -395,13 +494,15 @@ def main() -> int:
         orig = scenarios.load
         scenarios.load = lambda n: (lambda sc: dataclasses.replace(sc, turns=sc.turns[lo:hi]) if n in names else sc)(orig(n))
     results: list[Result] = []
+    terminal = Terminal(args.size, args.palette == "light")
     for label in args.bin or ["oracle", "rtwk"]:
         path = found[label]
         if not path:
             continue
         for name in names:
-            mode = "pty" if (label == "rtwk" or args.pty or scenarios.load(name).pty_only) else "exec"
-            r = run_one(name, label, path, mode, args.dump)
+            mode = "pty" if (label == "rtwk" or args.pty or args.capture_dir or scenarios.load(name).pty_only) else "exec"
+            resume_with = found["rtwk"] if args.capture_resume and label == "oracle" else None
+            r = run_one(name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with)
             results.append(r)
             extra = f"  {r.detail}" if r.detail else ""
             print(f"{r.status}  {label:6} {mode:4} {name:16} {r.seconds:5.1f}s{extra}  [{'; '.join(dict.fromkeys(r.notes))}]", flush=True)

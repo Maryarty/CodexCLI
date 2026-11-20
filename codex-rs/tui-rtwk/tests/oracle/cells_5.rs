@@ -118,7 +118,6 @@ fn user_history_cell_wraps_long_urls_inside_the_message_gutter() {
 // ORACLE history_cell/tests.rs:2415 user_history_cell_renders_remote_image_urls kind=snap owner=chat-live snap=user_history_cell_renders_remote_image_urls
 #[test]
 fn user_history_cell_renders_remote_image_urls() {
-    kit::pending(Owner::ChatLive, USER_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -127,7 +126,12 @@ fn user_history_cell_renders_remote_image_urls() {
         .open();
     s.assert_contains("[Image #1]");
     s.assert_contains("describe these");
-    s.assert_snap_region("user_history_cell_renders_remote_image_urls", 0, 0);
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("[Image #1]"))
+        .expect("image");
+    s.assert_snap_region("user_history_cell_renders_remote_image_urls", row - 1, 0);
 }
 
 // ORACLE history_cell/tests.rs:2432 user_image_labels_follow_the_painted_prompt_surface kind=snap owner=chat-live snap=user_image_labels_follow_the_painted_prompt_surface
@@ -170,7 +174,6 @@ fn user_history_cell_summarizes_inline_data_urls() {
 // ORACLE history_cell/tests.rs:2498 user_history_cell_numbers_multiple_remote_images kind=snap owner=chat-live snap=user_history_cell_numbers_multiple_remote_images
 #[test]
 fn user_history_cell_numbers_multiple_remote_images() {
-    kit::pending(Owner::ChatLive, USER_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -179,7 +182,16 @@ fn user_history_cell_numbers_multiple_remote_images() {
         .open();
     s.assert_contains("[Image #1]");
     s.assert_contains("[Image #2]");
-    s.assert_snap_region("user_history_cell_numbers_multiple_remote_images", 0, 0);
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.contains("[Image #1]"))
+        .expect("image");
+    s.assert_snap_region(
+        "user_history_cell_numbers_multiple_remote_images",
+        row - 1,
+        0,
+    );
 }
 
 // ORACLE history_cell/tests.rs:2518 user_history_cell_height_matches_rendered_lines_with_remote_images kind=ui owner=chat-live

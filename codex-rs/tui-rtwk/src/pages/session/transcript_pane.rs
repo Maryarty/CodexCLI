@@ -2,11 +2,10 @@
 //! position and preserves the parser for a row while its item key is mounted.
 
 use rtwk::gestures::SelectionArea;
-use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
-};
+use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
 use rtwk::provider::{read, watch};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
+use rtwk::style::Attrs;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::markdown::MarkdownView;
@@ -19,7 +18,6 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 
-use super::actions::prompt;
 use super::strings as chat_strings;
 
 #[derive(Clone, PartialEq)]
@@ -50,10 +48,8 @@ impl State for ViewportState {
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
-        let prompt_style = tokens.history_prompt_mark();
-        let agent_style = tokens.dim();
+        let agent_style = tokens.dim().attrs(Attrs::DIM);
         let table = chat_strings::of(cx);
-        let prompt_mark = table.prompt;
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
@@ -68,17 +64,16 @@ impl State for ViewportState {
             };
             let previous = index.checked_sub(1).and_then(|index| transcript.get(index));
             let row: AnyWidget = match item {
-                Item::User { text } => {
-                    let joins_prompt = matches!(previous, Some((_, Item::User { .. })));
-                    let panel = BoxWidget::new()
-                        .style(prompt_surface.clone())
-                        .padding(EdgeInsets::only(0, i32::from(!joins_prompt), 1, 1))
-                        .child(
-                            Row::new()
-                                .cross_axis_alignment(CrossAxisAlignment::Start)
-                                .child(prompt(prompt_mark, prompt_style.clone()))
-                                .child(Expanded::new(1, Text::new(text.trim_end().to_owned()))),
-                        );
+                Item::User(prompt) => {
+                    let joins_prompt = matches!(previous, Some((_, Item::User(_))))
+                        && transcript.timing_after(index.saturating_sub(1)).is_none();
+                    let panel = super::transcript_prompt::panel(
+                        prompt,
+                        prompt_surface.clone(),
+                        &tokens,
+                        table,
+                        joins_prompt,
+                    );
                     // A separator belongs to the transcript, outside the prompt surface.
                     Padding::new(
                         EdgeInsets::only(0, i32::from(previous.is_some() && !joins_prompt), 0, 0),

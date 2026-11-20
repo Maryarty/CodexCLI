@@ -7,12 +7,15 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
+mod user_prompt;
 
-pub use activity::{ToolActivity, ToolKind, ToolStatus};
+pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
+pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
@@ -31,7 +34,6 @@ use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStatus;
-use codex_app_server_protocol::UserInput;
 
 use crate::app::AppFx;
 use crate::app::Command;
@@ -61,9 +63,9 @@ pub struct ItemKey {
 /// A transcript entry keyed by the server item ID.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
-    User { text: String },
+    User(UserPrompt),
     Agent { text: String },
-    Tool(std::sync::Arc<ToolActivity>),
+    Tool(Arc<ToolActivity>),
 }
 
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
@@ -179,7 +181,14 @@ impl Transcript {
     }
 
     /// Inserts or replaces the entry; a replaced entry keeps its place.
-    pub fn upsert(&mut self, key: ItemKey, item: Item) {
+    pub fn upsert(&mut self, key: ItemKey, mut item: Item) {
+        if let Item::Tool(tool) = &mut item
+            && tool.output.is_none()
+            && let Some(Item::Tool(previous)) = self.item(&key)
+            && let Some(output) = &previous.output
+        {
+            Arc::make_mut(tool).output = Some(output.clone());
+        }
         let was_live = self.streaming.remove(&key).is_some();
         let before = Rc::make_mut(&mut self.items).insert(key.clone(), Rc::new(item));
         if !was_live && before.is_none() {
@@ -213,7 +222,7 @@ impl Transcript {
                 let (item, committed) = match self.items.get(entry.key()) {
                     Some(item) => match item.as_ref() {
                         Item::Agent { text } => (item.clone(), text.len()),
-                        Item::User { .. } | Item::Tool(_) => return,
+                        Item::User(_) | Item::Tool(_) => return,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
@@ -233,6 +242,37 @@ impl Transcript {
                 live.committed = text.len() + last + 1;
             }
             text.push_str(delta);
+        }
+    }
+
+    fn append_command_output(&mut self, key: ItemKey, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        use std::collections::hash_map::Entry;
+        let live = match self.streaming.entry(key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let Some(item) = self.items.get(entry.key()) else {
+                    return;
+                };
+                if !matches!(item.as_ref(), Item::Tool(tool) if tool.status == ToolStatus::Running)
+                {
+                    return;
+                }
+                entry.insert(StreamingItem {
+                    item: item.clone(),
+                    committed: 0,
+                })
+            }
+        };
+        if let Item::Tool(tool) = Rc::make_mut(&mut live.item)
+            && tool.status == ToolStatus::Running
+        {
+            Arc::make_mut(tool)
+                .output
+                .get_or_insert_with(String::new)
+                .push_str(delta);
         }
     }
 
@@ -392,6 +432,10 @@ pub enum ThreadEv {
         item: Item,
     },
     AgentDelta {
+        key: ItemKey,
+        delta: String,
+    },
+    CommandOutputDelta {
         key: ItemKey,
         delta: String,
     },
@@ -964,6 +1008,16 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 delta: n.delta.clone(),
             },
         )),
+        ServerNotification::CommandExecutionOutputDelta(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::CommandOutputDelta {
+                key: ItemKey {
+                    turn: TurnId::new(&n.turn_id),
+                    item: ItemId::new(&n.item_id),
+                },
+                delta: n.delta.clone(),
+            },
+        )),
         _ => None,
     };
     transcript.or_else(|| {
@@ -1011,22 +1065,13 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
 fn item_entry(payload: &ThreadItemPayload) -> Option<(ItemId, Item)> {
     Some(match payload {
         ThreadItemPayload::UserMessage { id, content, .. } => {
-            let text = content
-                .iter()
-                .filter_map(|input| match input {
-                    UserInput::Text { text, .. } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            (ItemId::new(id), Item::User { text })
+            (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
         }
         ThreadItemPayload::AgentMessage { id, text, .. } => {
             (ItemId::new(id), Item::Agent { text: text.clone() })
         }
         _ => {
-            return activity::tool(payload)
-                .map(|(id, tool)| (id, Item::Tool(std::sync::Arc::new(tool))));
+            return activity::tool(payload).map(|(id, tool)| (id, Item::Tool(Arc::new(tool))));
         }
     })
 }
@@ -1241,6 +1286,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
                 model.transcript.append_agent(key, &delta);
+            }
+        }
+        ThreadEv::CommandOutputDelta { key, delta } => {
+            if !model.finished_turns.contains(&key.turn) {
+                model.transcript.append_command_output(key, &delta);
             }
         }
         ThreadEv::TurnEnded { turn, end } => end_turn(model, turn, end, None, fx),

@@ -20,6 +20,7 @@ use crate::l10n::Tables;
 use crate::l10n::lang;
 
 pub(super) const INLINE_GAP: &str = " ";
+pub(super) const MORE: &str = " …";
 
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
@@ -71,8 +72,24 @@ pub struct Strings {
     pub read_only_hint: &'static str,
     pub running_command: &'static str,
     pub ran_command: &'static str,
+    pub user_ran_command: &'static str,
     pub calling_tool: &'static str,
     pub called_tool: &'static str,
+    pub failed_tool: &'static str,
+    pub tool_result_image: &'static str,
+    pub tool_result_audio: &'static str,
+    pub image_label: Msg<1>,
+    pub explored: &'static str,
+    pub exploring: &'static str,
+    pub explored_read: Msg<1>,
+    pub explored_list: Msg<1>,
+    pub explored_search: Msg<1>,
+    pub tool_no_output: &'static str,
+    pub show_tool_details: &'static str,
+    pub hide_tool_details: &'static str,
+    pub hidden_output_lines: Msg<1>,
+    pub hidden_output_line: &'static str,
+    pub command_exited: Msg<1>,
     pub worked_for: Msg<1>,
     pub writer_retry_key: &'static str,
     pub writer_retry_detail: &'static str,
@@ -127,8 +144,24 @@ pub const EN: Strings = Strings {
     read_only_hint: "Close it there and press R to continue here.",
     running_command: "Running",
     ran_command: "Ran",
+    user_ran_command: "You ran",
     calling_tool: "Calling",
     called_tool: "Called",
+    failed_tool: "Failed",
+    tool_result_image: "Returned image",
+    tool_result_audio: "Returned audio",
+    image_label: msg!("[Image #{0}]"),
+    explored: "Explored",
+    exploring: "Exploring",
+    explored_read: msg!("Read {0}"),
+    explored_list: msg!("List {0}"),
+    explored_search: msg!("Search {0}"),
+    tool_no_output: "(no output)",
+    show_tool_details: "+ Show details",
+    hide_tool_details: "− Hide details",
+    hidden_output_lines: msg!("+ {0} lines"),
+    hidden_output_line: "+ 1 line",
+    command_exited: msg!("Exited (status {0})"),
     worked_for: msg!("Worked for {0}"),
     writer_retry_key: "r",
     writer_retry_detail: " to retry",
@@ -164,6 +197,10 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
+    pub(super) fn transcript_label(&self, message: Msg<1>, arg: &str) -> String {
+        Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
+    }
+
     pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
     }

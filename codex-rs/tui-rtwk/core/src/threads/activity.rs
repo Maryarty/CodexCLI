@@ -1,8 +1,8 @@
 //! The activity shown alongside messages in live and restored turns.
 
 use codex_app_server_protocol::{
-    CommandExecutionStatus, DynamicToolCallOutputContentItem, DynamicToolCallStatus,
-    McpToolCallStatus, ThreadItemPayload,
+    CommandAction, CommandExecutionSource, CommandExecutionStatus,
+    DynamicToolCallOutputContentItem, DynamicToolCallStatus, McpToolCallStatus, ThreadItemPayload,
 };
 
 use crate::ids::ItemId;
@@ -18,12 +18,57 @@ pub struct ToolActivity {
 pub enum ToolKind {
     Shell {
         command: String,
+        actions: Vec<ExplorationAction>,
+        exit_code: Option<i32>,
+        user_shell: bool,
     },
     Call {
         namespace: Option<String>,
         name: String,
         arguments: serde_json::Value,
+        media: Vec<ToolMedia>,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolMedia {
+    Image,
+    Audio,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExplorationAction {
+    Read(Vec<String>),
+    List(String),
+    Search(String),
+}
+
+fn exploration(actions: &[CommandAction]) -> Vec<ExplorationAction> {
+    let reads_only = actions
+        .iter()
+        .all(|action| matches!(action, CommandAction::Read { .. }));
+    let mut result = Vec::new();
+    for action in actions {
+        match action {
+            CommandAction::Read { name, .. } => {
+                if reads_only && let Some(ExplorationAction::Read(names)) = result.last_mut() {
+                    if !names.contains(name) {
+                        names.push(name.clone());
+                    }
+                } else {
+                    result.push(ExplorationAction::Read(vec![name.clone()]));
+                }
+            }
+            CommandAction::ListFiles { command, path } => result.push(ExplorationAction::List(
+                path.as_ref().unwrap_or(command).clone(),
+            )),
+            CommandAction::Search { command, query, .. } => result.push(ExplorationAction::Search(
+                query.as_ref().unwrap_or(command).clone(),
+            )),
+            CommandAction::Unknown { .. } => return Vec::new(),
+        }
+    }
+    result
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,11 +87,21 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
             command,
             status,
             aggregated_output,
+            command_actions,
+            exit_code,
+            source,
             ..
         } => (
             id,
             ToolKind::Shell {
                 command: command.clone(),
+                actions: if *source == CommandExecutionSource::UserShell {
+                    Vec::new()
+                } else {
+                    exploration(command_actions)
+                },
+                exit_code: *exit_code,
+                user_shell: *source == CommandExecutionSource::UserShell,
             },
             match status {
                 CommandExecutionStatus::InProgress => Running,
@@ -71,6 +126,15 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                 namespace: Some(server.clone()),
                 name: tool.clone(),
                 arguments: arguments.clone(),
+                media: result
+                    .iter()
+                    .flat_map(|result| &result.content)
+                    .filter_map(|block| match block.get("type")?.as_str()? {
+                        "image" => Some(ToolMedia::Image),
+                        "audio" => Some(ToolMedia::Audio),
+                        _ => None,
+                    })
+                    .collect(),
             },
             match status {
                 McpToolCallStatus::InProgress => Running,
@@ -118,6 +182,19 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                 namespace: namespace.clone(),
                 name: tool.clone(),
                 arguments: arguments.clone(),
+                media: content_items
+                    .iter()
+                    .flatten()
+                    .filter_map(|item| match item {
+                        DynamicToolCallOutputContentItem::InputImage { .. } => {
+                            Some(ToolMedia::Image)
+                        }
+                        DynamicToolCallOutputContentItem::InputAudio { .. } => {
+                            Some(ToolMedia::Audio)
+                        }
+                        DynamicToolCallOutputContentItem::InputText { .. } => None,
+                    })
+                    .collect(),
             },
             match status {
                 DynamicToolCallStatus::InProgress => Running,
