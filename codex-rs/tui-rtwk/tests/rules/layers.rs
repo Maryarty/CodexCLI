@@ -429,6 +429,8 @@ fn thread_rpcs_only_in_threads() {
         &[
             "ClientRequest::ThreadResume",
             "ClientRequest::ThreadFork",
+            "ClientRequest::ThreadCompactStart",
+            "ClientRequest::ThreadSetName",
             "ClientRequest::ThreadStart",
             "ClientRequest::ThreadRead",
             "ClientRequest::ThreadTurnsList",
@@ -437,6 +439,8 @@ fn thread_rpcs_only_in_threads() {
             "ClientRequest::TurnInterrupt",
             "ThreadResumeParams",
             "ThreadForkParams",
+            "ThreadCompactStartParams",
+            "ThreadSetNameParams",
             "ThreadStartParams",
             "ThreadUnsubscribeParams",
             "TurnInterruptParams",

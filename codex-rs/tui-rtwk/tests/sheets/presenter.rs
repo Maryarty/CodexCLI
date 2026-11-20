@@ -16,6 +16,7 @@ use crate::common::{Harness, ms, start};
 
 fn key(id: &str) -> RequestKey {
     RequestKey {
+        backend: Default::default(),
         epoch: ConnEpoch(1),
         thread: ThreadId::new("t"),
         id: ServerRequestId::new(id),

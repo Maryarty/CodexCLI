@@ -32,6 +32,7 @@ pub struct Hs {
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     pub open_thread: Handler<ThreadId>,
+    pub interrupt: Handler<ThreadId>,
     pub quit: Handler<()>,
     /// Move the empty conversation to the next connected backend.
     pub cycle: Handler<()>,
@@ -52,6 +53,9 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         }),
         open_thread: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
             app.send(AppEv::Intent(Intent::OpenThread(id)));
+        }),
+        interrupt: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
+            app.send(AppEv::Intent(Intent::Interrupt(id)));
         }),
         quit: cx.on(|_, cx| cx.quit()),
         cycle: cx.on(|app: &mut UiApp, _cx| app.send(AppEv::Intent(Intent::CycleBackend))),

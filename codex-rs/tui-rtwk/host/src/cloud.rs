@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use crate::in_process::reject;
+use crate::in_process::resolve;
 use crate::in_process::work;
 use crate::target::Mode;
 use crate::workspace::Local;
@@ -108,6 +109,7 @@ async fn run(
         epoch,
         AppEv::Screen(ScreenEv::Agents(AgentsEv::CloudBackend(spec.id))),
     );
+    emit_from(&ingress, spec.id, epoch, AppEv::Connected);
     let handle = client.request_handle();
     let ids = Ids::default();
     let mut inflight: FuturesUnordered<Boxed<Option<AppEv>>> = FuturesUnordered::new();
@@ -133,7 +135,16 @@ async fn run(
             },
             command = commands.recv() => match command {
                 None => break,
-                Some(Command::RejectRequest { key, .. }) => reject(&client, &key).await,
+                Some(Command::RejectRequest { key, .. }) => {
+                    if key.epoch == epoch {
+                        reject(&client, &key).await;
+                    }
+                }
+                Some(Command::ResolveRequest { key, result, .. }) => {
+                    if key.epoch == epoch && let Some(ev) = resolve(&client, key, result).await {
+                        emit_from(&ingress, spec.id, epoch, ev);
+                    }
+                }
                 Some(command) => {
                     let job = work(
                         command.clone(),
@@ -153,6 +164,7 @@ async fn run(
             }
         }
     }
+    emit_from(&ingress, spec.id, epoch, AppEv::Disconnected);
 }
 
 /// The cloud client and the codex home of its config, when the gate lets it

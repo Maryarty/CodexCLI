@@ -1,4 +1,4 @@
-//! The skeleton's chat screen: the transcript as plain text, a status line
+//! The session page: the transcript, a status line
 //! and the composer. The real chat (cells, popovers, backtrack) grows in the
 //! `chat`, `cells`, `composer` and `transcript` slots.
 
@@ -16,13 +16,14 @@ use rtwk::scroll::ListView;
 use rtwk::style::Theme;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk_rich::markdown::MarkdownView;
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Item, ThreadModel};
+use codex_tui_core::threads::{Failure, Item, ThreadModel};
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -240,6 +241,12 @@ impl State for ChatState {
                     self.shortcuts = false;
                     return Rebuild::Yes;
                 }
+                let thread = read::<ThreadModel, _>(cx);
+                if thread.can_interrupt() {
+                    let hs = read::<Hs, _>(cx);
+                    cx.emit(&hs.interrupt, thread.id().clone());
+                    return Rebuild::No;
+                }
                 // The chat as a page over another (a debug entry) goes back.
                 if Navigator::maybe_pop(cx) {
                     return Rebuild::No;
@@ -299,15 +306,25 @@ impl State for ChatState {
                         .style(row_tokens.bold())
                         .into()
                 }
-                Some((_, Item::Agent { text })) => {
-                    Text::new(row_strings.agent_line(text).to_string()).into()
-                }
+                Some((_, Item::Agent { text })) => Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .spacing(1)
+                    .child(Text::new(row_strings.agent_line("").to_string()))
+                    .child(Expanded::new(
+                        1,
+                        MarkdownView::new(text.as_str()).hyperlinks(false),
+                    ))
+                    .into(),
                 None => AnyWidget::default(),
             }
         })
         .stick_to_bottom(true);
         // The session's failure first, then the thread's last one.
-        let failure = match (&session.status, thread.last_error()) {
+        let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
+        let failure = match (
+            &session.status,
+            thread.last_error().or(screen_error.as_ref()),
+        ) {
             (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
             _ => None,
         };
@@ -480,6 +497,10 @@ impl State for ChatState {
                     .child(Text::new(chat_strings.backend_key))
                     .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
             );
+        }
+        let backend = states.agents.owner_of(thread.id().as_str());
+        if let Some(notice) = session.backend_notices.get(&backend) {
+            body = body.child(Text::new(notice.clone()).style(tokens.dim()));
         }
         let mut body = body.child(composer);
         if let Some(line) = line {

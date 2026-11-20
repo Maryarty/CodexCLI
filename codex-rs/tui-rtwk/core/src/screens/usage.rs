@@ -177,6 +177,7 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
+    RefreshRateLimits,
     /// A report of the tab row (`1`-`6`).
     Report(Report),
 }
@@ -196,6 +197,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
+        Intent::RefreshRateLimits => {}
         Intent::Report(report) => model.report = report,
     }
 }

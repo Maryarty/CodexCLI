@@ -48,6 +48,7 @@ pub enum SeededMsg {
     Dismiss(RequestKey),
     Screen(ScreenIntent),
     OpenThread(ThreadId),
+    Interrupt(ThreadId),
     Cycle,
     Quit,
 }
@@ -86,6 +87,7 @@ impl State for SeededScopeState {
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
             SeededMsg::Screen(intent) => Intent::Screen(intent),
             SeededMsg::OpenThread(id) => Intent::OpenThread(id),
+            SeededMsg::Interrupt(id) => Intent::Interrupt(id),
             SeededMsg::Cycle => Intent::CycleBackend,
             // The seeded screen is a page of the debug menu: leaving it is the
             // menu's own back key.
@@ -108,6 +110,7 @@ impl State for SeededScopeState {
             dismiss: cx.map(SeededMsg::Dismiss),
             screen: cx.map(SeededMsg::Screen),
             open_thread: cx.map(SeededMsg::OpenThread),
+            interrupt: cx.map(SeededMsg::Interrupt),
             quit: cx.map(|()| SeededMsg::Quit),
             cycle: cx.map(|()| SeededMsg::Cycle),
         };

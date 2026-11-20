@@ -7,18 +7,20 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
@@ -42,6 +44,7 @@ use crate::screens;
 use crate::screens::ScreenCommand;
 use crate::screens::ScreenCtx;
 use crate::screens::ScreenThreadEv;
+use crate::screens::ScreenThreadIntent;
 use crate::screens::ThreadSlots;
 
 /// The key of a transcript entry (R4).
@@ -62,8 +65,17 @@ pub enum Item {
 /// order they first arrived, changed only by upsert (R4). There is no `push`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Transcript {
-    order: Vec<ItemKey>,
-    items: HashMap<ItemKey, Rc<Item>>,
+    order: Rc<Vec<ItemKey>>,
+    items: Rc<HashMap<ItemKey, Rc<Item>>>,
+    // Keep streaming rows separate so updating a preview never copies history
+    // held by the provider. There is still one ordered index for the transcript.
+    streaming: HashMap<ItemKey, StreamingItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StreamingItem {
+    item: Rc<Item>,
+    committed: usize,
 }
 
 impl Transcript {
@@ -77,64 +89,163 @@ impl Transcript {
 
     pub fn get(&self, index: usize) -> Option<(&ItemKey, &Item)> {
         let key = self.order.get(index)?;
-        self.items.get(key).map(|item| (key, item.as_ref()))
+        self.item(key).map(|item| (key, item))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ItemKey, &Item)> {
         self.order
             .iter()
-            .filter_map(|key| self.items.get(key).map(|item| (key, item.as_ref())))
+            .filter_map(|key| self.item(key).map(|item| (key, item)))
+    }
+
+    fn item(&self, key: &ItemKey) -> Option<&Item> {
+        self.streaming
+            .get(key)
+            .map(|live| live.item.as_ref())
+            .or_else(|| self.items.get(key).map(Rc::as_ref))
     }
 
     /// Inserts or replaces the entry; a replaced entry keeps its place.
     pub fn upsert(&mut self, key: ItemKey, item: Item) {
-        if self.items.insert(key.clone(), Rc::new(item)).is_none() {
-            self.order.push(key);
+        let was_live = self.streaming.remove(&key).is_some();
+        let before = Rc::make_mut(&mut self.items).insert(key.clone(), Rc::new(item));
+        if !was_live && before.is_none() {
+            Rc::make_mut(&mut self.order).push(key);
         }
     }
 
-    /// Appends `delta` to an agent entry, creating it if the delta came
-    /// before the item (R9).
+    /// The source eligible for a stable commit. The raw item retains its
+    /// partial line for rtwk's live preview.
+    pub fn committed_agent_text(&self, key: &ItemKey) -> Option<&str> {
+        let Item::Agent { text } = self.item(key)? else {
+            return None;
+        };
+        Some(
+            &text[..self
+                .streaming
+                .get(key)
+                .map_or(text.len(), |live| live.committed)],
+        )
+    }
+
+    /// Appends a delta in wire order, scanning only its new bytes for a line boundary.
     pub fn append_agent(&mut self, key: ItemKey, delta: &str) {
-        match self.items.get_mut(&key).map(Rc::make_mut) {
-            Some(Item::Agent { text }) => text.push_str(delta),
-            Some(Item::User { .. }) => {}
-            None => self.upsert(
-                key,
-                Item::Agent {
-                    text: delta.to_string(),
-                },
-            ),
+        if delta.is_empty() {
+            return;
+        }
+        use std::collections::hash_map::Entry;
+        let live = match self.streaming.entry(key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let (item, committed) = match self.items.get(entry.key()) {
+                    Some(item) => match item.as_ref() {
+                        Item::Agent { text } => (item.clone(), text.len()),
+                        Item::User { .. } => return,
+                    },
+                    None => {
+                        Rc::make_mut(&mut self.order).push(entry.key().clone());
+                        (
+                            Rc::new(Item::Agent {
+                                text: String::new(),
+                            }),
+                            0,
+                        )
+                    }
+                };
+                entry.insert(StreamingItem { item, committed })
+            }
+        };
+        if let Item::Agent { text } = Rc::make_mut(&mut live.item) {
+            if let Some(last) = delta.rfind('\n') {
+                live.committed = text.len() + last + 1;
+            }
+            text.push_str(delta);
         }
     }
 
-    /// Puts an older page of history before every entry the transcript has
-    /// (oldest first); an entry it already holds keeps its place.
-    pub fn prepend_page(&mut self, page: Vec<(ItemKey, Item)>) {
+    fn finish_streams(&mut self, turn: &TurnId) {
+        for (key, live) in self.streaming.extract_if(|key, _| &key.turn == turn) {
+            Rc::make_mut(&mut self.items).insert(key, live.item);
+        }
+    }
+
+    /// Installs a page from persisted history. Its full turns replace any
+    /// live rows for those turns, including rows with synthesized ids.
+    fn prepend_snapshots(&mut self, snapshots: Vec<HistoryTurn>) {
+        if snapshots.is_empty() {
+            return;
+        }
+        let full: HashSet<_> = snapshots
+            .iter()
+            .filter_map(|snapshot| {
+                matches!(snapshot.items, TurnSnapshot::Full(_)).then_some(&snapshot.turn)
+            })
+            .collect();
+        let stored = Rc::make_mut(&mut self.items);
+        let order = Rc::make_mut(&mut self.order);
+        order.retain(|key| {
+            if full.contains(&key.turn) {
+                stored.remove(key);
+                false
+            } else {
+                true
+            }
+        });
+        self.streaming.retain(|key, _| !full.contains(&key.turn));
         let mut older = Vec::new();
-        for (key, item) in page {
-            if self.items.insert(key.clone(), Rc::new(item)).is_none() {
-                older.push(key);
+        for HistoryTurn { turn, items, .. } in snapshots {
+            let items = match items {
+                TurnSnapshot::Full(items) | TurnSnapshot::Summary(items) => items,
+            };
+            for (item, value) in items {
+                let key = ItemKey {
+                    turn: turn.clone(),
+                    item,
+                };
+                if !self.streaming.contains_key(&key)
+                    && let std::collections::hash_map::Entry::Vacant(entry) =
+                        stored.entry(key.clone())
+                {
+                    entry.insert(Rc::new(value));
+                    older.push(key);
+                }
             }
         }
-        older.append(&mut self.order);
-        self.order = older;
+        if !older.is_empty() {
+            older.append(order);
+            *order = older;
+        }
     }
 
     /// Replaces every entry of `turn` with `items`, in their order; a
     /// snapshot wins, it is never merged by id (R4).
     pub fn replace_turn(&mut self, turn: &TurnId, items: Vec<(ItemId, Item)>) {
-        self.order.retain(|key| &key.turn != turn);
-        self.items.retain(|key, _| &key.turn != turn);
+        self.streaming.retain(|key, _| &key.turn != turn);
+        let history = Rc::make_mut(&mut self.items);
+        let order = Rc::make_mut(&mut self.order);
+        let first = order
+            .iter()
+            .position(|key| &key.turn == turn)
+            .unwrap_or(order.len());
+        order.retain(|key| {
+            if &key.turn == turn {
+                history.remove(key);
+                false
+            } else {
+                true
+            }
+        });
+        let mut keys = Vec::with_capacity(items.len());
         for (item, entry) in items {
-            self.upsert(
-                ItemKey {
-                    turn: turn.clone(),
-                    item,
-                },
-                entry,
-            );
+            let key = ItemKey {
+                turn: turn.clone(),
+                item,
+            };
+            if history.insert(key.clone(), Rc::new(entry)).is_none() {
+                keys.push(key);
+            }
         }
+        order.splice(first..first, keys);
     }
 }
 
@@ -149,6 +260,7 @@ pub enum TurnState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunningTurn {
     pub turn: TurnId,
+    interrupt_sent: bool,
 }
 
 /// How a turn ended.
@@ -162,7 +274,8 @@ pub enum TurnEnd {
 /// What an outgoing thread RPC was for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadCtx {
-    StartTurn { text: String },
+    StartTurn { interrupt: bool },
+    Interrupt { turn: TurnId, retried: bool },
     Screen(ScreenCtx),
 }
 
@@ -171,12 +284,15 @@ pub enum ThreadCtx {
 pub enum ThreadEv {
     /// A startup draft was accepted while an attached thread is pending.
     DeferredSubmit,
+    ConnectionLost,
     /// An app-scoped error for this thread.
     Failure(Failure),
     /// The user sent `text`; `apply` refuses it while a turn runs or starts.
     Submit {
         text: String,
     },
+    Interrupt,
+    ScreenIntent(ScreenThreadIntent),
     /// An event of a screen slot's per-thread part.
     Screen(ScreenThreadEv),
     Reply {
@@ -186,11 +302,15 @@ pub enum ThreadEv {
     /// A page of the thread's history (`thread/turns/list`, newest page
     /// first): the entries go before what the transcript has.
     HistoryPage {
-        items: Vec<(ItemKey, Item)>,
+        turns: Vec<HistoryTurn>,
         next: Option<String>,
     },
     TurnStarted {
         turn: TurnId,
+    },
+    ItemStarted {
+        key: ItemKey,
+        item: Item,
     },
     ItemUpsert {
         key: ItemKey,
@@ -204,11 +324,32 @@ pub enum ThreadEv {
         turn: TurnId,
         end: TurnEnd,
     },
+    TurnCompleted {
+        turn: TurnId,
+        end: TurnEnd,
+        snapshot: Option<TurnSnapshot>,
+        error: Option<String>,
+    },
     /// The server's `error` notification (not one it will retry): why a
     /// turn goes wrong, kept for the status line.
     TurnError {
         message: String,
     },
+}
+
+/// The payload of a terminal notification may be a full history or a summary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TurnSnapshot {
+    Full(Vec<(ItemId, Item)>),
+    Summary(Vec<(ItemId, Item)>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryTurn {
+    turn: TurnId,
+    end: Option<TurnEnd>,
+    error: Option<String>,
+    items: TurnSnapshot,
 }
 
 /// Why a turn, a start or the session went wrong. A server's message is
@@ -254,14 +395,23 @@ pub struct ThreadModel {
     last_error: Option<Failure>,
     /// The last turn that ended: a late start of it must not revive it.
     last_ended: Option<TurnId>,
+    finished_turns: Rc<HashSet<TurnId>>,
+    authoritative_turns: Rc<HashSet<TurnId>>,
+    completed_items: HashSet<ItemKey>,
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
-    /// Another process writes this thread: it is shown, not edited.
-    read_only: bool,
+    writer: Writer,
     /// Keeps the struct literal inside this module: a `ThreadModel` is made
     /// only by `ThreadSet::open` (ADR-003).
     seal: Seal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Writer {
+    Attached,
+    Detached,
+    Foreign,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -320,7 +470,10 @@ impl ThreadSet {
                 .entry(id.clone())
                 .or_insert_with(|| Rc::new(ThreadModel::new(id.clone()))),
         );
-        model.read_only = origin == Origin::ForeignWriter;
+        model.writer = match origin {
+            Origin::ForeignWriter => Writer::Foreign,
+            Origin::Started | Origin::Resumed => Writer::Attached,
+        };
         model
     }
 
@@ -379,8 +532,11 @@ impl ThreadModel {
             slots: ThreadSlots::default(),
             last_error: None,
             last_ended: None,
+            finished_turns: Rc::default(),
+            authoritative_turns: Rc::default(),
+            completed_items: HashSet::new(),
             history_next: None,
-            read_only: false,
+            writer: Writer::Detached,
         }
     }
 
@@ -408,6 +564,10 @@ impl ThreadModel {
         &self.queue
     }
 
+    pub fn screen_slots(&self) -> &ThreadSlots {
+        &self.slots
+    }
+
     pub fn last_error(&self) -> Option<&Failure> {
         self.last_error.as_ref()
     }
@@ -417,7 +577,15 @@ impl ThreadModel {
     }
 
     pub fn read_only(&self) -> bool {
-        self.read_only
+        self.writer == Writer::Foreign
+    }
+
+    pub(crate) fn has_writer(&self) -> bool {
+        self.writer == Writer::Attached
+    }
+
+    pub fn can_interrupt(&self) -> bool {
+        self.has_writer() && (self.is_running() || self.outgoing.any(is_start_turn))
     }
 
     pub fn is_running(&self) -> bool {
@@ -431,26 +599,50 @@ impl ThreadModel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadAsk {
     /// `thread/resume`: the thread into the chat.
-    Resume { thread: String },
+    Resume {
+        thread: String,
+    },
     /// `thread/fork`.
-    Fork { thread: String },
+    Fork {
+        thread: String,
+    },
     /// `thread/start` in `cwd` (a new task).
-    Start { cwd: Option<String> },
+    Start {
+        cwd: Option<String>,
+    },
     /// `thread/read` without turns.
-    Read { thread: String },
+    Read {
+        thread: String,
+    },
     /// `thread/read` with turns: the turn in progress, half of stopping it.
-    ActiveTurn { thread: String },
+    ActiveTurn {
+        thread: String,
+    },
     /// The newest turn of a thread (`thread/turns/list`, limit 1).
-    Turns { thread: String },
+    Turns {
+        thread: String,
+    },
     /// One page of a thread's history, newest first.
     History {
         thread: String,
         cursor: Option<String>,
     },
     /// `turn/interrupt`.
-    Interrupt { thread: String, turn: String },
+    Interrupt {
+        thread: String,
+        turn: String,
+    },
+    Compact {
+        thread: String,
+    },
+    Rename {
+        thread: String,
+        name: String,
+    },
     /// `thread/unsubscribe`: a thread started and not used.
-    Unsubscribe { thread: String },
+    Unsubscribe {
+        thread: String,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -467,6 +659,8 @@ impl ThreadAsk {
             | ThreadAsk::Turns { thread }
             | ThreadAsk::History { thread, .. }
             | ThreadAsk::Interrupt { thread, .. }
+            | ThreadAsk::Compact { thread }
+            | ThreadAsk::Rename { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -541,6 +735,19 @@ impl ThreadAsk {
                     turn_id: turn.clone(),
                 },
             },
+            ThreadAsk::Compact { thread } => ClientRequest::ThreadCompactStart {
+                request_id,
+                params: ThreadCompactStartParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::Rename { thread, name } => ClientRequest::ThreadSetName {
+                request_id,
+                params: ThreadSetNameParams {
+                    thread_id: thread.clone(),
+                    name: name.clone(),
+                },
+            },
             ThreadAsk::Unsubscribe { thread } => ClientRequest::ThreadUnsubscribe {
                 request_id,
                 params: ThreadUnsubscribeParams {
@@ -579,7 +786,7 @@ impl<'a> ThreadFx<'a> {
     pub fn start_turn(&mut self, text: String) -> Ticket {
         let ticket = self.mint.next();
         self.registered
-            .push((ticket, ThreadCtx::StartTurn { text: text.clone() }));
+            .push((ticket, ThreadCtx::StartTurn { interrupt: false }));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
@@ -588,9 +795,24 @@ impl<'a> ThreadFx<'a> {
         ticket
     }
 
+    fn interrupt(&mut self, turn: TurnId, retried: bool) {
+        let ticket = self.mint.next();
+        self.registered.push((
+            ticket,
+            ThreadCtx::Interrupt {
+                turn: turn.clone(),
+                retried,
+            },
+        ));
+        self.out.commands.push(Command::InterruptTurn {
+            ticket,
+            thread: self.thread.clone(),
+            turn,
+        });
+    }
+
     /// An RPC of a screen slot: `ctx` is kept with the ticket and comes back
-    /// with the reply. (Unreachable while no slot defines a `Ctx` yet.)
-    #[allow(unreachable_code, unused_variables)]
+    /// with the reply.
     pub fn request(
         &mut self,
         ctx: impl Into<ScreenCtx>,
@@ -620,13 +842,15 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         ServerNotification::TurnCompleted(n) => Some((
             ThreadId::new(&n.thread_id),
-            ThreadEv::TurnEnded {
+            ThreadEv::TurnCompleted {
                 turn: TurnId::new(&n.turn.id),
                 end: match n.turn.status {
                     TurnStatus::Interrupted => TurnEnd::Interrupted,
                     TurnStatus::Failed => TurnEnd::Failed,
                     TurnStatus::Completed | TurnStatus::InProgress => TurnEnd::Completed,
                 },
+                snapshot: turn_snapshot(&n.turn),
+                error: n.turn.error.as_ref().map(|error| error.message.clone()),
             },
         )),
         ServerNotification::Error(n) if !n.will_retry => Some((
@@ -635,7 +859,12 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 message: n.error.message.clone(),
             },
         )),
-        ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
+        ServerNotification::ItemStarted(n) => {
+            item_upsert(&n.thread_id, &n.turn_id, &n.item).map(|(thread, ev)| match ev {
+                ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),
+                _ => (thread, ev),
+            })
+        }
         ServerNotification::ItemCompleted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
         ServerNotification::AgentMessageDelta(n) => Some((
             ThreadId::new(&n.thread_id),
@@ -647,33 +876,48 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 delta: n.delta.clone(),
             },
         )),
-        _ => None,
+        _ => {
+            screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
+        }
     }
 }
 
-/// The entries of a page of turns, newest page first as the server sends
-/// it, in transcript order (oldest first). Kinds the transcript does not
-/// show yet are left out.
-pub fn history_items(turns: &[codex_app_server_protocol::Turn]) -> Vec<(ItemKey, Item)> {
-    turns
-        .iter()
-        .rev()
-        .flat_map(|turn| {
-            turn.items.iter().filter_map(|item| {
-                let (id, entry) = item_entry(&item.payload)?;
-                Some((
-                    ItemKey {
-                        turn: TurnId::new(&turn.id),
-                        item: ItemId::new(&id),
-                    },
-                    entry,
-                ))
-            })
-        })
-        .collect()
+fn turn_end(status: &TurnStatus) -> Option<TurnEnd> {
+    match status {
+        TurnStatus::InProgress => None,
+        TurnStatus::Interrupted => Some(TurnEnd::Interrupted),
+        TurnStatus::Failed => Some(TurnEnd::Failed),
+        TurnStatus::Completed => Some(TurnEnd::Completed),
+    }
 }
 
-fn item_entry(payload: &ThreadItemPayload) -> Option<(String, Item)> {
+fn turn_snapshot(turn: &codex_app_server_protocol::Turn) -> Option<TurnSnapshot> {
+    let items = || turn.item_payloads().filter_map(item_entry).collect();
+    match turn.items_view {
+        TurnItemsView::Full => Some(TurnSnapshot::Full(items())),
+        TurnItemsView::Summary => Some(TurnSnapshot::Summary(items())),
+        TurnItemsView::NotLoaded => None,
+    }
+}
+
+/// The server lists newest turns first. Project them in transcript order.
+pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<String>) -> ThreadEv {
+    let turns = turns
+        .iter()
+        .rev()
+        .filter_map(|turn| {
+            Some(HistoryTurn {
+                turn: TurnId::new(&turn.id),
+                end: turn_end(&turn.status),
+                error: turn.error.as_ref().map(|error| error.message.clone()),
+                items: turn_snapshot(turn)?,
+            })
+        })
+        .collect();
+    ThreadEv::HistoryPage { turns, next }
+}
+
+fn item_entry(payload: &ThreadItemPayload) -> Option<(ItemId, Item)> {
     Some(match payload {
         ThreadItemPayload::UserMessage { id, content, .. } => {
             let text = content
@@ -684,39 +928,23 @@ fn item_entry(payload: &ThreadItemPayload) -> Option<(String, Item)> {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            (id.clone(), Item::User { text })
+            (ItemId::new(id), Item::User { text })
         }
         ThreadItemPayload::AgentMessage { id, text, .. } => {
-            (id.clone(), Item::Agent { text: text.clone() })
+            (ItemId::new(id), Item::Agent { text: text.clone() })
         }
         _ => return None,
     })
 }
 
 fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId, ThreadEv)> {
-    let (id, entry) = match &item.payload {
-        ThreadItemPayload::UserMessage { id, content, .. } => {
-            let text = content
-                .iter()
-                .filter_map(|input| match input {
-                    UserInput::Text { text, .. } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            (id, Item::User { text })
-        }
-        ThreadItemPayload::AgentMessage { id, text, .. } => {
-            (id, Item::Agent { text: text.clone() })
-        }
-        _ => return None,
-    };
+    let (id, entry) = item_entry(&item.payload)?;
     Some((
         ThreadId::new(thread),
         ThreadEv::ItemUpsert {
             key: ItemKey {
                 turn: TurnId::new(turn),
-                item: ItemId::new(id),
+                item: id,
             },
             item: entry,
         },
@@ -735,12 +963,40 @@ pub fn apply(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     match ev {
         ThreadEv::DeferredSubmit => model.last_submit = Some(fx.mint()),
+        ThreadEv::ConnectionLost if model.has_writer() => {
+            model.writer = Writer::Detached;
+            model.outgoing = Pending::default();
+            model.turn = TurnState::Idle;
+            model.slots.chat.connection_lost();
+        }
+        ThreadEv::ConnectionLost => {}
         ThreadEv::Failure(error) => model.last_error = Some(error),
-        ThreadEv::HistoryPage { items, next } => {
-            model.transcript.prepend_page(items);
+        ThreadEv::HistoryPage { turns, next } => {
+            for snapshot in &turns {
+                if let Some(end) = snapshot.end {
+                    if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
+                    {
+                        end_turn(
+                            model,
+                            snapshot.turn.clone(),
+                            end,
+                            snapshot.error.clone(),
+                            fx,
+                        );
+                    } else {
+                        Rc::make_mut(&mut model.finished_turns).insert(snapshot.turn.clone());
+                    }
+                    if matches!(snapshot.items, TurnSnapshot::Full(_)) {
+                        Rc::make_mut(&mut model.authoritative_turns).insert(snapshot.turn.clone());
+                    }
+                } else {
+                    start_turn(model, snapshot.turn.clone());
+                }
+            }
+            model.transcript.prepend_snapshots(turns);
             model.history_next = next;
         }
-        ThreadEv::Submit { text } => {
+        ThreadEv::Submit { text } if model.has_writer() => {
             // The decision is here (R10): while a turn runs or starts the
             // message is queued, otherwise it starts a turn.
             // An older queued message goes first, whatever the turn state.
@@ -756,26 +1012,74 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.last_error = None;
             model.last_submit = Some(fx.start_turn(text));
         }
+        ThreadEv::Submit { .. } => {}
+        ThreadEv::Interrupt if model.can_interrupt() => {
+            if let TurnState::Running(running) = &mut model.turn {
+                if !running.interrupt_sent {
+                    running.interrupt_sent = true;
+                    fx.interrupt(running.turn.clone(), false);
+                }
+            } else if let Some(ThreadCtx::StartTurn { interrupt }) =
+                model.outgoing.find_mut(is_start_turn)
+            {
+                *interrupt = true;
+            }
+        }
+        ThreadEv::Interrupt => {}
         ThreadEv::Reply { ticket, reply } => {
             // A reply whose ticket is not ours any more is stale.
             let Some((ctx, answer)) = model.outgoing.resolve(ticket, reply) else {
                 return;
             };
             match (ctx, answer) {
-                (ThreadCtx::StartTurn { .. }, Answer::TurnStarted { turn, .. }) => {
+                (ThreadCtx::StartTurn { interrupt }, Answer::TurnStarted { turn, .. }) => {
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so
                     // the next queued message goes out now.
-                    let over = model.last_ended.as_ref() == Some(&turn);
+                    let over = model.finished_turns.contains(&turn);
                     start_turn(model, turn);
                     if over {
                         send_next(model, fx);
+                    } else if interrupt {
+                        apply_ev(model, ThreadEv::Interrupt, fx);
                     }
                 }
                 (ThreadCtx::StartTurn { .. }, Answer::Failed(error)) => {
-                    model.turn = TurnState::Idle;
-                    model.last_error = Some(Failure::from(error));
-                    send_next(model, fx);
+                    if !model.is_running() {
+                        model.last_error = Some(Failure::from(error));
+                        send_next(model, fx);
+                    }
+                }
+                (
+                    ThreadCtx::Interrupt {
+                        turn,
+                        retried: false,
+                    },
+                    Answer::InterruptTurnChanged(actual),
+                ) => {
+                    if let TurnState::Running(running) = &mut model.turn
+                        && running.turn == turn
+                        && !model.finished_turns.contains(&actual)
+                    {
+                        running.turn = actual.clone();
+                        fx.interrupt(actual, true);
+                    }
+                }
+                (ThreadCtx::Interrupt { turn, .. }, Answer::InterruptTurnChanged(_)) => {
+                    if let TurnState::Running(running) = &mut model.turn
+                        && running.turn == turn
+                    {
+                        running.interrupt_sent = false;
+                        model.last_error = Some(Failure::ReplyMismatch);
+                    }
+                }
+                (ThreadCtx::Interrupt { turn, .. }, Answer::Failed(error)) => {
+                    if let TurnState::Running(running) = &mut model.turn
+                        && running.turn == turn
+                    {
+                        running.interrupt_sent = false;
+                        model.last_error = Some(Failure::from(error));
+                    }
                 }
                 (ThreadCtx::Screen(ctx), Answer::Screen(reply)) => {
                     screens::apply_reply(&mut model.slots, ctx, Ok(reply), fx);
@@ -786,22 +1090,98 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
         }
+        ThreadEv::ScreenIntent(intent) if model.has_writer() => {
+            let busy = model.is_running() || model.outgoing.any(is_start_turn);
+            screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
+        }
+        ThreadEv::ScreenIntent(_) => {}
         ThreadEv::Screen(ev) => screens::apply_thread_ev(&mut model.slots, ev, fx),
         ThreadEv::TurnError { message } => model.last_error = Some(Failure::Message(message)),
-        ThreadEv::TurnStarted { turn } => start_turn(model, turn),
-        ThreadEv::ItemUpsert { key, item } => model.transcript.upsert(key, item),
-        ThreadEv::AgentDelta { key, delta } => model.transcript.append_agent(key, &delta),
-        ThreadEv::TurnEnded { turn, end } => {
-            let ends_running =
-                matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
-            model.last_ended = Some(turn);
-            if ends_running {
-                model.turn = TurnState::Idle;
-                if end == TurnEnd::Failed && model.last_error.is_none() {
-                    model.last_error = Some(Failure::TurnFailed);
-                }
-                send_next(model, fx);
+        ThreadEv::TurnStarted { turn } => {
+            start_turn(model, turn);
+            if model
+                .outgoing
+                .any(|ctx| matches!(ctx, ThreadCtx::StartTurn { interrupt: true }))
+            {
+                apply_ev(model, ThreadEv::Interrupt, fx);
             }
+        }
+        ThreadEv::ItemStarted { key, item } => {
+            if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
+                model.transcript.upsert(key, item);
+            }
+        }
+        ThreadEv::ItemUpsert { key, item } => {
+            if !model.authoritative_turns.contains(&key.turn) {
+                if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
+                    model.completed_items.insert(key.clone());
+                }
+                model.transcript.upsert(key, item);
+            }
+        }
+        ThreadEv::AgentDelta { key, delta } => {
+            if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
+                model.transcript.append_agent(key, &delta);
+            }
+        }
+        ThreadEv::TurnEnded { turn, end } => end_turn(model, turn, end, None, fx),
+        ThreadEv::TurnCompleted {
+            turn,
+            end,
+            snapshot,
+            error,
+        } => {
+            match snapshot {
+                Some(TurnSnapshot::Full(items)) => {
+                    Rc::make_mut(&mut model.authoritative_turns).insert(turn.clone());
+                    model.transcript.replace_turn(&turn, items);
+                }
+                Some(TurnSnapshot::Summary(items))
+                    if !model.authoritative_turns.contains(&turn) =>
+                {
+                    for (item, entry) in items {
+                        model.transcript.upsert(
+                            ItemKey {
+                                turn: turn.clone(),
+                                item,
+                            },
+                            entry,
+                        );
+                    }
+                }
+                _ => {}
+            }
+            end_turn(model, turn, end, error, fx);
+        }
+    }
+}
+
+fn end_turn(
+    model: &mut ThreadModel,
+    turn: TurnId,
+    end: TurnEnd,
+    error: Option<String>,
+    fx: &mut ThreadFx<'_>,
+) {
+    Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
+    model.transcript.finish_streams(&turn);
+    model.completed_items.retain(|key| key.turn != turn);
+    let ends_running = matches!(&model.turn, TurnState::Running(running) if running.turn == turn);
+    if ends_running || !model.is_running() {
+        model.last_ended = Some(turn.clone());
+    }
+    model
+        .outgoing
+        .retain(|ctx| !matches!(ctx, ThreadCtx::Interrupt { turn: target, .. } if *target == turn));
+    if ends_running {
+        model.turn = TurnState::Idle;
+        if let Some(message) = error {
+            model.last_error = Some(Failure::Message(message));
+        } else if end == TurnEnd::Failed && model.last_error.is_none() {
+            model.last_error = Some(Failure::TurnFailed);
+        }
+        if !model.outgoing.any(is_start_turn) {
+            send_next(model, fx);
         }
     }
 }
@@ -821,11 +1201,16 @@ fn is_start_turn(ctx: &ThreadCtx) -> bool {
 
 fn start_turn(model: &mut ThreadModel, turn: TurnId) {
     // A turn that already ended is never revived by a late start.
-    if model.last_ended.as_ref() == Some(&turn) {
+    if model.finished_turns.contains(&turn) {
         return;
     }
     match &model.turn {
-        TurnState::Idle => model.turn = TurnState::Running(RunningTurn { turn }),
+        TurnState::Idle => {
+            model.turn = TurnState::Running(RunningTurn {
+                turn,
+                interrupt_sent: false,
+            })
+        }
         TurnState::Running(_) => {}
     }
 }

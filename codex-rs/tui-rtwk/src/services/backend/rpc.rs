@@ -120,5 +120,5 @@ where
     } else {
         send(request).await
     };
-    protocol::reply(&command, result.map_err(|error| error.message))
+    protocol::reply_from_server(&command, result)
 }

@@ -13,6 +13,32 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::threads::ThreadFx;
 
+/// Screen intents that have an explicit thread target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScreenThreadIntent {
+    Chat(chat::ThreadIntent),
+}
+
+pub(crate) fn apply_thread_intent(
+    slots: &mut ThreadSlots,
+    intent: ScreenThreadIntent,
+    busy: bool,
+    fx: &mut ThreadFx<'_>,
+) {
+    match intent {
+        ScreenThreadIntent::Chat(intent) => {
+            chat::apply_thread_intent(&mut slots.chat, intent, busy, fx)
+        }
+    }
+}
+
+/// Protocol projection for thread-scoped screen slots.
+pub(crate) fn project_thread(
+    notification: &codex_app_server_protocol::ServerNotification,
+) -> Option<(ThreadId, ScreenThreadEv)> {
+    status::project(notification).map(|(thread, ev)| (thread, ScreenThreadEv::Status(ev)))
+}
+
 /// Where a slot shows up in the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {

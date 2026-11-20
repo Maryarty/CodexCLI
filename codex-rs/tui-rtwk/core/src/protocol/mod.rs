@@ -6,13 +6,16 @@
 //! events in `threads::project` and `app::pending_request`.
 
 pub(crate) mod agents;
+pub(crate) mod requests;
 pub(crate) mod targets;
 
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
+use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
@@ -24,6 +27,7 @@ use crate::ids::Ticket;
 use crate::ids::TurnId;
 use crate::rpc::Reply;
 use crate::rpc::RpcError;
+use crate::rpc::ServerError;
 use crate::screens;
 
 /// The wire request of `command`, under `request_id`. `model` is the
@@ -35,6 +39,10 @@ pub fn client_request(
     model: Option<&str>,
 ) -> Option<ClientRequest> {
     match command {
+        Command::ReadRateLimits { .. } => Some(ClientRequest::GetAccountRateLimits {
+            request_id,
+            params: None,
+        }),
         Command::StartThread { .. } => Some(ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
@@ -53,10 +61,18 @@ pub fn client_request(
                 ..TurnStartParams::default()
             },
         }),
+        Command::InterruptTurn { thread, turn, .. } => Some(
+            crate::threads::ThreadAsk::Interrupt {
+                thread: thread.to_string(),
+                turn: turn.to_string(),
+            }
+            .wire(request_id),
+        ),
         Command::Screen {
             thread, command, ..
         } => Some(screens::wire(command, thread, request_id)),
         Command::RejectRequest { .. }
+        | Command::ResolveRequest { .. }
         | Command::CreateWorktree { .. }
         | Command::BindWorktree { .. }
         | Command::Directories { .. }
@@ -71,6 +87,13 @@ pub fn reply(
     result: Result<serde_json::Value, String>,
 ) -> Option<(Ticket, Reply)> {
     match command {
+        Command::ReadRateLimits { ticket, .. } => Some((
+            *ticket,
+            match decode::<GetAccountRateLimitsResponse>("account/rateLimits/read", result) {
+                Ok(response) => Reply::rate_limits(response.rate_limits.into()),
+                Err(error) => Reply::error(error),
+            },
+        )),
         Command::StartThread { ticket, .. } => Some((
             *ticket,
             match decode::<ThreadStartResponse>("thread/start", result) {
@@ -82,6 +105,13 @@ pub fn reply(
             *ticket,
             match decode::<TurnStartResponse>("turn/start", result) {
                 Ok(response) => Reply::turn_started(thread.clone(), TurnId::new(response.turn.id)),
+                Err(error) => Reply::error(error),
+            },
+        )),
+        Command::InterruptTurn { ticket, .. } => Some((
+            *ticket,
+            match decode::<TurnInterruptResponse>("turn/interrupt", result) {
+                Ok(_) => Reply::turn_interrupted(),
                 Err(error) => Reply::error(error),
             },
         )),
@@ -98,11 +128,33 @@ pub fn reply(
             },
         )),
         Command::RejectRequest { .. }
+        | Command::ResolveRequest { .. }
         | Command::CreateWorktree { .. }
         | Command::BindWorktree { .. }
         | Command::Directories { .. }
         | Command::SaveGrouping { .. } => None,
     }
+}
+
+/// Preserve a typed server refusal for the interrupt race before formatting other errors.
+pub fn reply_from_server(
+    command: &Command,
+    result: Result<serde_json::Value, ServerError>,
+) -> Option<(Ticket, Reply)> {
+    if let (Command::InterruptTurn { ticket, turn, .. }, Err(error)) = (command, &result)
+        && error.code == Some(-32602)
+        && let Some((expected, actual)) = error
+            .message
+            .strip_prefix("expected active turn id ")
+            .and_then(|message| message.split_once(" but found "))
+        && expected.trim_matches('`') == turn.as_str()
+    {
+        let actual = actual.trim_matches('`');
+        if !actual.is_empty() && !actual.contains(char::is_whitespace) && actual != turn.as_str() {
+            return Some((*ticket, Reply::interrupt_turn_changed(TurnId::new(actual))));
+        }
+    }
+    reply(command, result.map_err(|error| error.message))
 }
 
 fn decode<T: serde::de::DeserializeOwned>(

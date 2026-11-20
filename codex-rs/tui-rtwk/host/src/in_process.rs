@@ -308,6 +308,7 @@ async fn run(
     // search drops the pending one.
     let mut latest = Latest::default();
     let endpoint = reconnect_endpoint(&mode);
+    let mut request_epoch = epoch;
     while let Some(client) = held.get() {
         // The connection ended: restored or not, decided after the select,
         // when the client is no longer borrowed.
@@ -332,7 +333,16 @@ async fn run(
             },
             command = commands.recv() => match command {
                 None => break,
-                Some(Command::RejectRequest { key, .. }) => reject(client, &key).await,
+                Some(Command::RejectRequest { key, .. }) => {
+                    if key.epoch == request_epoch {
+                        reject(client, &key).await;
+                    }
+                }
+                Some(Command::ResolveRequest { key, result, .. }) => {
+                    if key.epoch == request_epoch && let Some(ev) = resolve(client, key, result).await {
+                        emit(&ingress, epoch, ev);
+                    }
+                }
                 Some(command) => {
                     let job = work(
                         command.clone(),
@@ -368,6 +378,7 @@ async fn run(
             while commands.recv().await.is_some() {}
             break;
         };
+        request_epoch = request_epoch.next();
         held.set(restored);
         let Some(client) = held.get() else {
             break;
@@ -555,6 +566,22 @@ pub(crate) async fn reject(client: &AppServerClient, key: &RequestKey) {
     let _ = client
         .reject_server_request(request_id, protocol::dismissal())
         .await;
+}
+
+pub(crate) async fn resolve(
+    client: &AppServerClient,
+    key: RequestKey,
+    result: serde_json::Value,
+) -> Option<AppEv> {
+    let request_id = protocol::reject_target(&key)?;
+    client
+        .resolve_server_request(request_id, result)
+        .await
+        .err()
+        .map(|error| AppEv::ServerAnswerFailed {
+            key,
+            message: error.to_string(),
+        })
 }
 
 #[cfg(test)]

@@ -979,7 +979,7 @@ dependencies = [
  "addr2line",
  "cfg-if",
  "libc",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "object",
  "rustc-demangle",
  "windows-link",
@@ -3885,6 +3885,7 @@ dependencies = [
  "rtwk",
  "rtwk-core",
  "rtwk-render",
+ "rtwk-rich",
  "rtwk-term",
  "rtwk-test",
  "rtwk-tokio",
@@ -5594,7 +5595,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b375d6465b98090a5f25b1c7703f3859783755aa9a80433b36e0379a3ec2f369"
 dependencies = [
  "crc32fast",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "zlib-rs 0.5.5",
 ]
 
@@ -8120,6 +8121,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+dependencies = [
+ "adler2",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9154,7 +9164,7 @@ dependencies = [
  "crc32fast",
  "fdeflate",
  "flate2",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
 ]
 
 [[package]]
@@ -10546,6 +10556,17 @@ name = "rtwk-render"
 version = "0.1.0"
 dependencies = [
  "rtwk-core",
+ "rtwk-unicode",
+]
+
+[[package]]
+name = "rtwk-rich"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide 0.9.1",
+ "rtwk",
+ "rtwk-core",
+ "rtwk-render",
  "rtwk-unicode",
 ]
 

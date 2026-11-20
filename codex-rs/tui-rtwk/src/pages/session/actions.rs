@@ -88,6 +88,14 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Open(opened) => {
             record(cx);
             w.ui.composer.clear();
+            if matches!(opened.target, Target::Status | Target::Usage) {
+                let intent = if opened.target == Target::Status {
+                    ScreenIntent::Status(codex_tui_core::screens::status::Intent::Open)
+                } else {
+                    ScreenIntent::Usage(codex_tui_core::screens::usage::Intent::RefreshRateLimits)
+                };
+                cx.emit(&hs.screen, intent);
+            }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx, hs);
             } else {
@@ -97,7 +105,14 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Session { command, intent } => {
             record(cx);
             w.ui.composer.clear();
-            screen(cx, chat::Intent::Session { command, intent });
+            screen(
+                cx,
+                chat::Intent::Session {
+                    thread: session.active.clone(),
+                    command,
+                    intent,
+                },
+            );
         }
         Outcome::Insert(text) => w.ui.composer.reset(text),
         Outcome::Quit => cx.emit(&hs.quit, ()),

@@ -401,6 +401,7 @@ fn a_server_request_is_queued_once_and_rejected_once() {
     assert_eq!(
         key,
         RequestKey {
+            backend: Default::default(),
             epoch: ConnEpoch(0),
             thread: ThreadId::new(T),
             id: ServerRequestId::new("7"),
@@ -426,9 +427,11 @@ fn the_projection_maps_what_the_skeleton_shows() {
     assert_eq!(thread, ThreadId::new(T));
     assert_eq!(
         ev,
-        threads::ThreadEv::TurnEnded {
+        threads::ThreadEv::TurnCompleted {
             turn: TurnId::new("turn-3"),
             end: TurnEnd::Completed,
+            snapshot: None,
+            error: None,
         }
     );
 }
@@ -544,4 +547,216 @@ fn a_start_failure_ends_the_app() {
     );
     let mut app = self::app();
     assert!(!run(&mut app, AppEv::Connected).ends_app());
+}
+
+#[test]
+fn interrupt_waits_for_the_turn_id_and_is_sent_once() {
+    for notification_first in [false, true] {
+        let mut app = ready();
+        let start = start_turns(&submit(&mut app, "first"))[0].0;
+        let interrupt = || AppEv::Intent(Intent::Interrupt(ThreadId::new(T)));
+        assert!(run(&mut app, interrupt()).commands().is_empty());
+        let started = || {
+            AppEv::Reply(
+                start,
+                Reply::turn_started(ThreadId::new(T), TurnId::new("turn-1")),
+            )
+        };
+        let fx = if notification_first {
+            notification(&mut app, turn_started(T, "turn-1"))
+        } else {
+            run(&mut app, started())
+        };
+        let [
+            Command::InterruptTurn {
+                ticket,
+                thread: target,
+                turn,
+                ..
+            },
+        ] = fx.commands()
+        else {
+            panic!("expected one interrupt, got {:?}", fx.commands());
+        };
+        assert_eq!(target, &ThreadId::new(T));
+        assert_eq!(turn, &TurnId::new("turn-1"));
+        let ticket = *ticket;
+
+        if notification_first {
+            assert!(run(&mut app, started()).commands().is_empty());
+        } else {
+            assert!(
+                notification(&mut app, turn_started(T, "turn-1"))
+                    .commands()
+                    .is_empty()
+            );
+        }
+        notification(&mut app, agent_delta(T, "turn-1", "msg-1", "partial"));
+        assert!(run(&mut app, interrupt()).commands().is_empty());
+        assert!(start_turns(&submit(&mut app, "queued")).is_empty());
+        let fx = notification(&mut app, turn_completed(T, "turn-1"));
+        assert_eq!(start_turns(&fx)[0].1, "queued");
+        assert!(thread(&app).last_error().is_none());
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::failed("late interrupt")),
+        );
+        assert!(thread(&app).last_error().is_none());
+        assert_eq!(
+            thread(&app)
+                .transcript()
+                .committed_agent_text(&key("msg-1")),
+            Some("partial")
+        );
+    }
+}
+
+#[test]
+fn ended_before_start_reply_skips_interrupt_and_sends_one_queued_turn() {
+    let mut app = ready();
+    let start = start_turns(&submit(&mut app, "first"))[0].0;
+    run(&mut app, AppEv::Intent(Intent::Interrupt(ThreadId::new(T))));
+    submit(&mut app, "queued");
+    assert!(
+        notification(&mut app, turn_completed(T, "turn-1"))
+            .commands()
+            .is_empty()
+    );
+    let fx = run(
+        &mut app,
+        AppEv::Reply(
+            start,
+            Reply::turn_started(ThreadId::new(T), TurnId::new("turn-1")),
+        ),
+    );
+    assert!(matches!(fx.commands(), [Command::StartTurn { text, .. }] if text == "queued"));
+}
+
+#[test]
+fn streaming_commits_complete_utf8_lines_and_keeps_a_preview() {
+    let mut app = ready();
+    let key = key("msg-1");
+    for (delta, stable) in [
+        ("перв", ""),
+        ("ая\nвто", "первая\n"),
+        ("рая\nтретья", "первая\nвторая\n"),
+    ] {
+        notification(&mut app, agent_delta(T, "turn-1", "msg-1", delta));
+        assert_eq!(
+            thread(&app).transcript().committed_agent_text(&key),
+            Some(stable)
+        );
+    }
+    notification(
+        &mut app,
+        agent_completed(T, "turn-1", "msg-1", "первая\nвторая\nтретья"),
+    );
+    assert_eq!(
+        thread(&app).transcript().committed_agent_text(&key),
+        Some("первая\nвторая\nтретья")
+    );
+}
+
+#[test]
+fn rate_limit_notification_supersedes_the_outstanding_account_read() {
+    use codex_tui_core::ids::BackendId;
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::status::{Intent as StatusIntent, RateLimits};
+
+    let mut app = ready();
+    let fx = run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
+    );
+    let [
+        Command::ReadRateLimits {
+            ticket, backend, ..
+        },
+    ] = fx.commands()
+    else {
+        panic!(
+            "expected the status card's account read: {:?}",
+            fx.commands()
+        );
+    };
+    assert_eq!(*backend, BackendId::default());
+    let update = serde_json::from_value(serde_json::json!({
+        "method": "account/rateLimits/updated",
+        "params": {"rateLimits": {"primary": {"usedPercent": 30, "windowDurationMins": 300, "resetsAt": 2000000000}}}
+    })).expect("rate limits notification");
+    notification(&mut app, BackendEv::Notification(Box::new(update)));
+    run(
+        &mut app,
+        AppEv::Reply(*ticket, Reply::rate_limits(RateLimits::default())),
+    );
+
+    let card = app.screens().status.card.as_ref().expect("status card");
+    assert_eq!(card.limits[0].used_percent, 30);
+    assert_eq!(
+        app.session().rate_limits[backend]
+            .primary
+            .expect("primary")
+            .resets_at,
+        Some(2000000000)
+    );
+}
+
+#[test]
+fn status_reads_token_usage_from_its_thread_slot() {
+    use codex_tui_core::screens::{ScreenIntent, status};
+
+    let mut app = ready();
+    let usage = serde_json::json!({
+        "totalTokens": 15000,
+        "inputTokens": 14000,
+        "cachedInputTokens": 500,
+        "outputTokens": 1000,
+        "reasoningOutputTokens": 250
+    });
+    let update = serde_json::from_value(serde_json::json!({
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": T, "turnId": "turn-1",
+            "tokenUsage": {"total": usage, "last": usage, "modelContextWindow": 22000}
+        }
+    }))
+    .expect("token usage notification");
+    notification(&mut app, BackendEv::Notification(Box::new(update)));
+    run(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Status(status::Intent::Open))),
+    );
+    let card = app.screens().status.card.as_ref().expect("status card");
+    assert_eq!(card.tokens.blended_total(), 14500);
+    assert_eq!(card.context.expect("context").percent_left, 70);
+}
+
+#[test]
+fn interrupt_retries_once_when_the_server_names_a_different_active_turn() {
+    use codex_tui_core::protocol::reply_from_server;
+    use codex_tui_core::rpc::ServerError;
+
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "old"));
+    let fx = run(&mut app, AppEv::Intent(Intent::Interrupt(ThreadId::new(T))));
+    let refusal = |expected, actual| {
+        Err(ServerError {
+            code: Some(-32602),
+            message: format!("expected active turn id {expected} but found {actual}"),
+        })
+    };
+    let (ticket, reply) =
+        reply_from_server(&fx.commands()[0], refusal("old", "actual")).expect("reply");
+    let retry = run(&mut app, AppEv::Reply(ticket, reply));
+    assert!(
+        matches!(retry.commands(), [Command::InterruptTurn { turn, .. }] if turn.as_str() == "actual")
+    );
+    let (ticket, reply) =
+        reply_from_server(&retry.commands()[0], refusal("actual", "later")).expect("reply");
+    assert!(
+        run(&mut app, AppEv::Reply(ticket, reply))
+            .commands()
+            .is_empty()
+    );
+    assert!(thread(&app).last_error().is_some());
 }
