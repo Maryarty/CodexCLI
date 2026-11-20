@@ -215,6 +215,11 @@ impl Transcript {
         }
     }
 
+    /// A partial answer still receiving text deltas.
+    pub fn is_agent_streaming(&self, key: &ItemKey) -> bool {
+        self.streaming.contains_key(key)
+    }
+
     /// The source eligible for a stable commit. The raw item retains its
     /// partial line for rtwk's live preview.
     pub fn committed_agent_text(&self, key: &ItemKey) -> Option<&str> {

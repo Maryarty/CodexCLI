@@ -67,6 +67,12 @@ The comparator replays both ANSI streams through the same rtwk terminal emulator
 
 Use the resumed checkpoints when checking transcript geometry, since they reopen one saved session with the same paths, timestamps and turns in both applications. Test live behavior in the live checkpoints, whose timings may vary with process startup. The shell comparison included a successful four-line command and an exit-3 command in both binaries, with collapsed previews before and after reopening.
 
+### Lists in long answers
+
+Assistant lists keep adjacent items together while text arrives. In a finished or restored answer, siblings get a blank row between them if any item wraps or has more than one line. The same Markdown widget recomputes this from its current width. Short lists stay compact. The transcript uses the original's built-in heading, bold text, unordered marker and link roles for dark and light terminals.
+
+The `markdown-list-layout` mock adds a Cyrillic section with long and short lists. Use `COLORTERM=truecolor` and unset `NO_COLOR` when capturing it. Compare the restored sections at 56×45 and 148×45. The heading and list regions match in position, glyphs and visible styles at both widths and in the light palette at 56×45. Three separator spaces inside the bold list introductions retain a different foreground or attribute. The original also displays the destination of the prose link before the lists. The rtwk tests check that collapsing provisional gaps preserves link hits and text selection.
+
 ## Remaining differences
 
 - The footer and title use available thread settings, account limits and host data. Live PR and branch-change summaries, enterprise thread billing and workspace headline still need data sources.

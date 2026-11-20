@@ -9,11 +9,10 @@ use rtwk::gestures::SelectionArea;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
-use rtwk::style::{Attrs, Theme as WidgetTheme};
+use rtwk::style::Attrs;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::{BlockStyle, MarkdownTheme, MarkdownView, TableStyle};
-use rtwk_rich::style::{Style, Theme};
+use rtwk_rich::markdown::{ListSpacing, MarkdownTheme, MarkdownView};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -112,16 +111,7 @@ impl State for ViewportState {
             super::transcript_header::header(cwd, &facts, &tokens, table)
                 .with_key(Key::value("session header"))
         });
-        let markdown = MarkdownTheme {
-            block_style: BlockStyle::SourceMarkers,
-            quote: Style::new(),
-            quote_bar: Style::new(),
-            code_block: Style::new(),
-            table_style: TableStyle::RowRules,
-            table_header: tokens.accent().attrs(Attrs::BOLD),
-            table_border: tokens.dim().attrs(Attrs::DIM),
-            ..MarkdownTheme::from_theme(&Theme::from_data(&WidgetTheme::of(cx)))
-        };
+        let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
         let rows = self.rows(&thread);
@@ -163,21 +153,29 @@ impl State for ViewportState {
                     )
                     .into()
                 }
-                Item::Agent { text } => Padding::new(
-                    EdgeInsets::only(0, i32::from(separator), 1, 0),
-                    Row::new()
-                        .cross_axis_alignment(CrossAxisAlignment::Start)
-                        .spacing(1)
-                        .child(
-                            Text::new(strings.agent_line("").to_string())
-                                .style(agent_style.clone()),
-                        )
-                        .child(Expanded::new(
-                            1,
-                            MarkdownView::new(text.as_str()).theme(markdown.clone()),
-                        )),
-                )
-                .into(),
+                Item::Agent { text } => {
+                    let list_spacing = if transcript.is_agent_streaming(key) {
+                        ListSpacing::Compact
+                    } else {
+                        ListSpacing::Uniform
+                    };
+                    let markdown = MarkdownView::new(text.as_str()).theme(MarkdownTheme {
+                        list_spacing,
+                        ..markdown.clone()
+                    });
+                    Padding::new(
+                        EdgeInsets::only(0, i32::from(separator), 1, 0),
+                        Row::new()
+                            .cross_axis_alignment(CrossAxisAlignment::Start)
+                            .spacing(1)
+                            .child(
+                                Text::new(strings.agent_line("").to_string())
+                                    .style(agent_style.clone()),
+                            )
+                            .child(Expanded::new(1, markdown)),
+                    )
+                    .into()
+                }
                 Item::Tool(tool) => Padding::new(
                     EdgeInsets::only(0, i32::from(separator), 1, 0),
                     super::transcript_activity::ToolRow {

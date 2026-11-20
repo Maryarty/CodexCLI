@@ -522,7 +522,7 @@ test setup or assertions and can be omitted in an application), the second
 compiles the pairs above. `cargo xtask skill-references --check` holds
 `references/` to the catalog and the guides.
 
-<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 87396fba); do not edit. -->
+<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 9de30fba); do not edit. -->
 
 
 ## CodexCLI: porting codex-tui onto rtwk
