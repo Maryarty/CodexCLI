@@ -14,10 +14,12 @@ use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
-use rtwk::style::Theme;
+use rtwk::style::{Attrs, Theme};
 use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
+
+use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, RequestQueue, Session, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
@@ -524,6 +526,8 @@ impl State for ChatState {
                 let area = TextArea::new()
                     .controller(w.ui.composer.clone())
                     .placeholder(strings.chat.placeholder)
+                    .placeholder_style(tokens.dim().attrs(Attrs::DIM))
+                    .cursor_shape(CursorShape::TerminalDefault)
                     .min_lines(1)
                     .max_lines(6)
                     .autofocus(true)
@@ -543,14 +547,12 @@ impl State for ChatState {
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .child(prompt(chat_strings.prompt, tokens.bold()))
                     .child(Expanded::new(1, field));
-                // The oracle's idle footer (`footer_shortcuts_default`): the hint of
-                // the bound `?`, in dim, two cells in.
                 let bar = page_keys::footer_with(
                     [
                         (strings.pages.key_agents, strings.pages.hint_agents),
                         (strings.pages.key_shortcuts, strings.pages.hint_shortcuts),
                     ],
-                    tokens.dim(),
+                    tokens.bold(),
                     tokens.dim(),
                     " · ",
                 );

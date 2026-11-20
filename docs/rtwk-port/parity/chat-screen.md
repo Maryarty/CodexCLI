@@ -51,15 +51,21 @@ Run from the repository root to record each app at startup, during work when cap
 
 ```sh
 python3 -I tools/rtwk-port/mock-model/check.py \
-  --only exploration,exec-command,mcp-tool,markdown \
+  --only exploration,markdown \
   --size 148x34 --palette dark --capture-resume --capture-details --capture-dir /tmp/chat-parity-148
-cargo run --quiet --manifest-path codex-rs/tui-rtwk/Cargo.toml \
+cargo run --quiet --manifest-path codex-rs/tui-rtwk/Cargo.toml -p codex-tui-rtwk \
   --example compare-transcript -- 148x34 \
-  /tmp/chat-parity-148/mcp-tool/oracle/turn-1.ansi \
-  /tmp/chat-parity-148/mcp-tool/rtwk/turn-1.ansi
+  /tmp/chat-parity-148/markdown/oracle/resumed.ansi \
+  /tmp/chat-parity-148/markdown/rtwk/resumed.ansi \
+  --frames /tmp/chat-parity-148/markdown/resumed
+cmp /tmp/chat-parity-148/markdown/resumed/{oracle,rtwk}.frame
 ```
 
-Repeat at 56×34 for wrapping and at 80×30 with the light palette for surface contrast. The comparison replays the two ANSI streams into rtwk's terminal emulator and prints differing rows with their styles. It shows startup layout, fixture paths and timings, which vary across runs. Use cell-level tests for assertions at known positions within a prompt or tool row. The shell comparison included a successful four-line command and an exit-3 command in both binaries, with collapsed previews before and after reopening.
+Repeat at 56×34 for wrapping and at 80×30 with the light palette for surface contrast. Pair the same named checkpoint from each binary. Compare `ready`, every captured `turn-*-working` and `turn-*`, `detailed`, `resumed`, and `resumed-detailed` when that state exists in both recordings. Record a checkpoint available in only one binary separately so the missing state is visible.
+
+The comparator replays both ANSI streams through the same rtwk terminal emulator. The frame files contain the glyph and wide-glyph continuation, foreground, background, underline color, attribute bits and hyperlink of every cell, plus the visible cursor's position and shape. `--check` exits nonzero when the frame bytes differ. The report gives a differing cell count and the first changed column in each affected row. Every cell is compared, including styled spaces. Terminal session lifecycle notifications have no grid effect and are skipped. Unsupported terminal operations and pixel image overlays are reported as errors.
+
+Use the resumed checkpoints when checking transcript geometry, since they reopen one saved session with the same paths, timestamps and turns in both applications. Test live behavior in the live checkpoints, whose timings may vary with process startup. The shell comparison included a successful four-line command and an exit-3 command in both binaries, with collapsed previews before and after reopening.
 
 ## Remaining differences
 
@@ -67,4 +73,5 @@ Repeat at 56×34 for wrapping and at 80×30 with the light palette for surface c
 - Rich transcript cell types, composer steer/rejection states and sidebar, voice, and UI tree integration belong to their tracked slices. The session queue still uses its existing submit behavior for Enter.
 - Owner notification, reset-credit confirmation and the persisted Luna Reserve automatic switch and recovery are pending. Browser links are the supported banner actions in this slice.
 - Terminal notification delivery uses the framework's negotiated method. Explicit notification-method overrides, title action-required flashing and plan-mode-specific notifications still differ from the oracle.
-- Rich Markdown headings and quote glyphs follow rtwk. The oracle's narrow-table record heuristics differ from the layout's minimum-width fallback. The return-to-latest control and the inline transcript overlay remain tracked by their own slices.
+- The oracle pins a one-row preview of the request preceding the first visible answer when that request has scrolled out of view. Use the list viewport’s laid-out item positions for this behavior, including reverse lists and variable-height children. The header belongs to the viewport and clicking it returns to the original request.
+- Embedded Markdown uses source markers for headings and quotes and compact spacing for adjacent tight lists. The oracle's narrow-table record heuristics differ from the layout's minimum-width fallback. The return-to-latest control and the inline transcript overlay remain tracked by their own slices.

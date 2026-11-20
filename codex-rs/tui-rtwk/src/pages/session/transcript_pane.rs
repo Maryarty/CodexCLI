@@ -12,8 +12,8 @@ use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::{Attrs, Theme as WidgetTheme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::{MarkdownTheme, MarkdownView, TableStyle};
-use rtwk_rich::style::Theme;
+use rtwk_rich::markdown::{BlockStyle, MarkdownTheme, MarkdownView, TableStyle};
+use rtwk_rich::style::{Style, Theme};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -113,6 +113,10 @@ impl State for ViewportState {
                 .with_key(Key::value("session header"))
         });
         let markdown = MarkdownTheme {
+            block_style: BlockStyle::SourceMarkers,
+            quote: Style::new(),
+            quote_bar: Style::new(),
+            code_block: Style::new(),
             table_style: TableStyle::RowRules,
             table_header: tokens.accent().attrs(Attrs::BOLD),
             table_border: tokens.dim().attrs(Attrs::DIM),
