@@ -55,6 +55,10 @@ impl Tokens {
         Style::new().bg(Color::lerp(bg, toward, strength))
     }
 
+    pub(crate) fn history_prompt_mark(&self) -> Style {
+        self.0.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
+    }
+
     pub fn dim(&self) -> Style {
         self.0.dim()
     }

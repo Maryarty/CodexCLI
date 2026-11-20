@@ -2,6 +2,7 @@
 
 use rtwk::layout::{EdgeInsets, Padding};
 use rtwk::provider::read;
+use rtwk::style::Style;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
@@ -28,9 +29,9 @@ pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Fai
 }
 
 /// The composer's prompt, as wide as its text: a trailing blank is a cell.
-pub(super) fn prompt(text: &'static str) -> AnyWidget {
+pub(super) fn prompt(text: &'static str, style: Style) -> AnyWidget {
     let label = text.trim_end_matches(' ');
-    Padding::new(EdgeInsets::only(0, 0, 1, 0), Text::line(label)).into()
+    Padding::new(EdgeInsets::only(0, 0, 1, 0), Text::line(label).style(style)).into()
 }
 
 /// A line the user sent from the composer: a command opens its screen, asks

@@ -45,32 +45,49 @@ impl State for ViewportState {
     fn build(&self, widget: &TranscriptPane, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let thread = watch::<ThreadModel, _>(cx);
         let strings = l10n::of(cx);
-        let prompt_surface = theme::Tokens::of(cx).prompt_surface(cx, true);
+        let tokens = theme::Tokens::of(cx);
+        let prompt_surface = tokens.prompt_surface(cx, true);
+        let prompt_style = tokens.history_prompt_mark();
+        let agent_style = tokens.dim();
         let prompt_mark = chat_strings::of(cx).prompt;
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
         let count = thread.transcript().len();
         let list = ListView::builder(count, move |index| {
-            let Some((key, item)) = thread.transcript().get(count - 1 - index) else {
+            let index = count - 1 - index;
+            let transcript = thread.transcript();
+            let Some((key, item)) = transcript.get(index) else {
                 return AnyWidget::default();
             };
+            let previous = index.checked_sub(1).and_then(|index| transcript.get(index));
             let row: AnyWidget = match item {
-                Item::User { text } => BoxWidget::new()
-                    .style(prompt_surface.clone())
-                    .padding(EdgeInsets::only(0, 1, 1, 1))
-                    .child(
-                        Row::new()
-                            .cross_axis_alignment(CrossAxisAlignment::Start)
-                            .child(prompt(prompt_mark))
-                            .child(Expanded::new(1, Text::new(text.clone()))),
+                Item::User { text } => {
+                    let joins_prompt = matches!(previous, Some((_, Item::User { .. })));
+                    let panel = BoxWidget::new()
+                        .style(prompt_surface.clone())
+                        .padding(EdgeInsets::only(0, i32::from(!joins_prompt), 1, 1))
+                        .child(
+                            Row::new()
+                                .cross_axis_alignment(CrossAxisAlignment::Start)
+                                .child(prompt(prompt_mark, prompt_style.clone()))
+                                .child(Expanded::new(1, Text::new(text.trim_end().to_owned()))),
+                        );
+                    // A separator belongs to the transcript, outside the prompt surface.
+                    Padding::new(
+                        EdgeInsets::only(0, i32::from(previous.is_some() && !joins_prompt), 0, 0),
+                        panel,
                     )
-                    .into(),
+                    .into()
+                }
                 Item::Agent { text } => Padding::new(
-                    EdgeInsets::only(0, 1, 1, 0),
+                    EdgeInsets::only(0, i32::from(previous.is_some()), 1, 0),
                     Row::new()
                         .cross_axis_alignment(CrossAxisAlignment::Start)
                         .spacing(1)
-                        .child(Text::new(strings.agent_line("").to_string()))
+                        .child(
+                            Text::new(strings.agent_line("").to_string())
+                                .style(agent_style.clone()),
+                        )
                         .child(Expanded::new(1, MarkdownView::new(text.as_str()))),
                 )
                 .into(),

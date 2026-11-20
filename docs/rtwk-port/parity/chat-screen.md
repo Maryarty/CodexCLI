@@ -24,6 +24,8 @@ The fullscreen oracle snapshots `owned_transcript_composer_gap`, `fresh_thread_h
 
 Both binaries ran the same mocked Markdown prompt in an 80×24 PTY. The port snapshots cover an empty chat and a short completed exchange. The seeded `streamed_answer` entry also shows the configured model and working directory.
 
+The multi-turn scenario also runs in both binaries at 148×34. Between ordinary transcript cells, the separator uses the terminal background. Adjacent user prompts share a surface, and display ignores trailing blank prompt lines. A headless comparison at widths 56 and 148 checks the prompt surface and its right edge, the separator colors, and multiline alignment after a Cyrillic Markdown table.
+
 ## Remaining differences
 
 - The footer and title use available thread settings, account limits and host data. Live PR and branch-change summaries, enterprise thread billing and workspace headline still need data sources.

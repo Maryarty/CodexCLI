@@ -456,7 +456,7 @@ impl State for ChatState {
                 };
                 let line = Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(prompt(chat_strings.prompt))
+                    .child(prompt(chat_strings.prompt, tokens.bold()))
                     .child(Expanded::new(1, Text::new(shown)));
                 let field = Focus::new(line)
                     .can_request_focus(true)
@@ -503,7 +503,7 @@ impl State for ChatState {
                 .on_selected(cx.map(|picked: Suggestion| ChatMsg::Picked(Rc::from(&*picked.text))));
                 let line = Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(prompt(chat_strings.prompt))
+                    .child(prompt(chat_strings.prompt, tokens.bold()))
                     .child(Expanded::new(1, field));
                 // The oracle's idle footer (`footer_shortcuts_default`): the hint of
                 // the bound `?`, in dim, two cells in.

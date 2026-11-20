@@ -529,3 +529,69 @@ fn empty_blossom_is_visible_only_without_a_draft() {
         s.contains("draft") && !blossom(s)
     });
 }
+
+#[test]
+fn transcript_prompt_surfaces_and_separators_keep_their_rows() {
+    use codex_tui_core::fixtures::builders::user_item;
+
+    for width in [56, 148] {
+        let mut h = start_sized(false, width, 26);
+        h.wait_idle();
+        let epoch = h.fake.epoch().expect("attached");
+        for item in [
+            agent_completed(
+                FAKE_THREAD,
+                "turn-1",
+                "prev",
+                "Предыдущий ответ.\n\n| Вариант | Количество |\n| --- | ---: |\n| Пример | 42 |\n\nКонец сравнения.",
+            ),
+            user_item(FAKE_THREAD, "turn-2", "prompt-1", "Первый запрос\r\n\n  \n"),
+            user_item(
+                FAKE_THREAD,
+                "turn-2",
+                "prompt-2",
+                "Второй запрос\nПродолжение",
+            ),
+            agent_completed(FAKE_THREAD, "turn-2", "last", "Следующий ответ."),
+        ] {
+            h.fake.inject(epoch, AppEv::Backend(item));
+        }
+        h.wait_for("follow-up response", |screen| {
+            screen.contains("Следующий ответ.")
+        });
+        let lines = h.t.lines();
+        let row = |needle: &str| {
+            lines
+                .iter()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("missing {needle} at width {width}\n{}", h.t.screen()))
+        };
+        assert!(lines[row("Вариант")].contains("Количество"));
+        let before = row("Конец сравнения.");
+        let first = row("Первый запрос");
+        let second = row("Второй запрос");
+        let after = row("Следующий ответ.");
+        assert_eq!(first, before + 3, "{}", h.t.screen());
+        assert_eq!(second, first + 2, "{}", h.t.screen());
+        assert_eq!(after, second + 4, "{}", h.t.screen());
+        assert!(
+            lines[second + 1].starts_with("  Продолжение"),
+            "{}",
+            h.t.screen()
+        );
+
+        let background = h.t.cell(0, before).bg;
+        let panel = h.t.cell(0, first).bg;
+        assert_ne!(panel, background);
+        assert_eq!(h.t.cell(0, before + 1).bg, background);
+        assert_eq!(h.t.cell(0, after - 1).bg, background);
+        for line in first - 1..after - 1 {
+            assert_eq!(h.t.cell(0, line).bg, panel, "row {line} at width {width}");
+            assert_eq!(
+                h.t.cell(usize::from(width - 1), line).bg,
+                panel,
+                "right edge at row {line}, width {width}"
+            );
+        }
+    }
+}
