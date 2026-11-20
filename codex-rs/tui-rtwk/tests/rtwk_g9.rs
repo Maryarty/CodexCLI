@@ -139,8 +139,15 @@ fn a_selection_keeps_its_entries_when_older_history_is_prepended() {
     t.mouse(MouseKind::Drag, 9, 3, 0, Mods::NONE);
     t.mouse(MouseKind::Up, 9, 3, 0, Mods::NONE);
     let before = selection.text();
-    assert!(before.starts_with("entry 0 a\nentry 0 b\nentry 1 a"), "{before:?}");
+    assert!(
+        before.starts_with("entry 0 a\nentry 0 b\nentry 1 a"),
+        "{before:?}"
+    );
     entries.insert(0, 1000);
     t.pump_widget(transcript(&entries, &scroll, &selection));
-    assert_eq!(selection.text(), before, "the selection moved off its entries");
+    assert_eq!(
+        selection.text(),
+        before,
+        "the selection moved off its entries"
+    );
 }
