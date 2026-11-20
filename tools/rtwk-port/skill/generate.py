@@ -29,7 +29,7 @@ sys.path.insert(0, HERE)
 import rsscan  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT_PIN = os.environ.get("RTWK_PIN", os.path.expanduser("~/.cache/codexcli/rtwk-pin"))
+MANIFEST = os.path.join(ROOT, "codex-rs", "tui-rtwk", "Cargo.toml")
 OUT_REL = ".claude/skills/rtwk"
 GEN = "tools/rtwk-port/skill/generate.py"
 
@@ -407,7 +407,9 @@ def build(pin, ref_file=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pin", default=DEFAULT_PIN)
+    match = re.search(r'^rtwk = \{ path = "([^"]+)/crates/rtwk" \}', read(MANIFEST), re.M)
+    default_pin = os.environ.get("RTWK_PIN") or (match.group(1) if match else None)
+    ap.add_argument("--pin", default=default_pin, required=default_pin is None)
     ap.add_argument("--out", default=os.path.join(ROOT, OUT_REL))
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--ref-file", default=None, help="the RTWK_REF to compare with the pin (default docs/rtwk-port/RTWK_REF)")

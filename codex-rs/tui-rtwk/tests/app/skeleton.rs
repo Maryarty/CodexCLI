@@ -576,6 +576,52 @@ fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
     h.wait_for("completed command with preserved output", |s| {
         s.contains("Ran printf test") && s.contains("└ tool output")
     });
+    h.t.type_text("pending draft");
+    h.press("ctrl+t");
+    h.wait_for("full command and intact draft", |s| {
+        s.contains("$ printf test") && s.contains("tool output") && s.contains("pending draft")
+    });
+    h.press("escape");
+    h.wait_for("compact command and intact draft", |s| {
+        s.contains("Ran printf test") && s.contains("pending draft")
+    });
+}
+
+#[test]
+fn the_session_heading_scrolls_with_the_transcript() {
+    use codex_tui_core::screens::{ScreenEv, chat};
+    let mut h = start_sized(false, 56, 20);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                cwd: Some("/Users/example/project".into()),
+                home_directory: Some("/Users/example".into()),
+                version: Some("0.170.0".into()),
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    h.wait_for("session heading", |screen| {
+        screen.contains("OpenAI Codex (v0.170.0)")
+    });
+    assert_eq!(h.t.lines()[1].trim_end(), "  >_ OpenAI Codex (v0.170.0)");
+    assert_eq!(h.t.lines()[2].trim_end(), "     ~/project");
+    for index in 0..12 {
+        h.fake.inject(
+            epoch,
+            AppEv::Backend(agent_completed(
+                FAKE_THREAD,
+                "turn-1",
+                &format!("message-{index}"),
+                &format!("Reply {index}"),
+            )),
+        );
+    }
+    h.wait_for("latest reply", |screen| screen.contains("Reply 11"));
+    assert!(!h.t.screen().contains("OpenAI Codex"), "{}", h.t.screen());
 }
 
 #[test]

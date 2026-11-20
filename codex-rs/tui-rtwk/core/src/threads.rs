@@ -68,12 +68,22 @@ pub enum Item {
     Tool(Arc<ToolActivity>),
 }
 
+impl Item {
+    /// An exploration can share one visible section with its neighbors.
+    pub fn is_exploration(&self) -> bool {
+        matches!(self, Self::Tool(tool) if matches!(
+            &tool.kind, ToolKind::Shell { actions, .. } if !actions.is_empty()
+        ))
+    }
+}
+
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
 /// order they first arrived, changed only by upsert (R4). There is no `push`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Transcript {
     order: Rc<Vec<ItemKey>>,
     items: Rc<HashMap<ItemKey, Rc<Item>>>,
+    layout_revision: u64,
     timings: Rc<HashMap<TurnId, TimedTurn>>,
     // Keep streaming rows separate so updating a preview never copies history
     // held by the provider. There is still one ordered index for the transcript.
@@ -112,6 +122,12 @@ impl TurnTiming {
 }
 
 impl Transcript {
+    /// Changes when the ordered keys or their exploration classification change.
+    /// A streamed text or command output delta leaves the layout index valid.
+    pub fn layout_revision(&self) -> u64 {
+        self.layout_revision
+    }
+
     pub fn len(&self) -> usize {
         self.order.len()
     }
@@ -182,6 +198,9 @@ impl Transcript {
 
     /// Inserts or replaces the entry; a replaced entry keeps its place.
     pub fn upsert(&mut self, key: ItemKey, mut item: Item) {
+        if self.item(&key).map(Item::is_exploration) != Some(item.is_exploration()) {
+            self.layout_revision += 1;
+        }
         if let Item::Tool(tool) = &mut item
             && tool.output.is_none()
             && let Some(Item::Tool(previous)) = self.item(&key)
@@ -226,6 +245,7 @@ impl Transcript {
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
+                        self.layout_revision += 1;
                         (
                             Rc::new(Item::Agent {
                                 text: String::new(),
@@ -288,6 +308,7 @@ impl Transcript {
         if snapshots.is_empty() {
             return;
         }
+        self.layout_revision += 1;
         let full: HashSet<_> = snapshots
             .iter()
             .filter_map(|snapshot| {
@@ -333,6 +354,7 @@ impl Transcript {
     /// Replaces every entry of `turn` with `items`, in their order; a
     /// snapshot wins, it is never merged by id (R4).
     pub fn replace_turn(&mut self, turn: &TurnId, items: Vec<(ItemId, Item)>) {
+        self.layout_revision += 1;
         self.streaming.retain(|key, _| &key.turn != turn);
         let history = Rc::make_mut(&mut self.items);
         let order = Rc::make_mut(&mut self.order);

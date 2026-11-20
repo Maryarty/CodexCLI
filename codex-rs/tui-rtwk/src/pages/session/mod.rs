@@ -20,6 +20,7 @@ mod session_page;
 mod status_surfaces;
 pub mod transcript;
 mod transcript_activity;
+mod transcript_header;
 mod transcript_pane;
 mod transcript_prompt;
 mod window_title;

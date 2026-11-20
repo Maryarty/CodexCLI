@@ -4,7 +4,11 @@
 #   tools/rtwk-port/skill/compile-snippets.sh [PIN_DIR]
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-pin=${1:-${RTWK_PIN:-$HOME/.cache/codexcli/rtwk-pin}}
+manifest="$here/../../../codex-rs/tui-rtwk/Cargo.toml"
+pin=${1:-${RTWK_PIN:-}}
+if [ -z "$pin" ]; then
+    pin=$(sed -n 's,^rtwk = { path = "\(.*\)/crates/rtwk" }$,\1,p' "$manifest")
+fi
 work=${TMPDIR:-/tmp}/rtwk-skill-recipes
 mkdir -p "$work/src"
 cat > "$work/Cargo.toml" <<EOF

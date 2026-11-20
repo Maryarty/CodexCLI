@@ -1519,6 +1519,17 @@ fn a_thread_with_another_writer_opens_read_only_with_its_history() {
         s.contains("+ 1 line") && !s.contains("hidden first")
     });
 
+    h.t.press("ctrl+t");
+    h.wait_for("full transcript while the writer is locked", |s| {
+        s.contains("hidden first")
+            && s.contains(r#""query":"fixture""#)
+            && s.contains("This conversation is open in another app")
+    });
+    h.t.press("ctrl+t");
+    h.wait_for("compact transcript", |s| {
+        s.contains("+ 1 line") && !s.contains("hidden first")
+    });
+
     h.t.press("r");
     h.wait_for("the writer attached on retry", |s| {
         s.contains("Ask Codex to do anything")

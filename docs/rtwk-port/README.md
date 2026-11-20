@@ -18,7 +18,7 @@ the design and the references agents read.
 | `refs/` | generated references (ADR-008), written by `tools/rtwk-port/` |
 
 Worktrees: `codex-rs/tui-rtwk` builds against the rtwk pin, a checkout of the
-commit in [RTWK_REF](RTWK_REF) at `/Users/admin/.cache/codexcli/rtwk-pin`. Its
+commit in [RTWK_REF](RTWK_REF) at `/Users/admin/.cache/codexcli/rtwk-chat-pin`. Its
 `Cargo.toml` names the pin's crates by that absolute path: a relative path
 through a symlink makes cargo read the outer `codex-rs` workspace root and
 fail on `rust-version` inheritance. `tui-rtwk/tests/pin.rs` checks that the

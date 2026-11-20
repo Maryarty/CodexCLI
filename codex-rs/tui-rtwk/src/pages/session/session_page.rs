@@ -67,6 +67,7 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    detailed_transcript: bool,
     draft_empty: bool,
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
@@ -119,6 +120,7 @@ impl StatefulWidget for Chat {
             seen: None,
             esc_primed: false,
             shortcuts: false,
+            detailed_transcript: false,
             draft_empty: self.ui.composer.text().is_empty(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
@@ -178,6 +180,7 @@ impl State for ChatState {
             *self.composer.borrow_mut() = w.ui.composer.clone();
             self.draft_empty = w.ui.composer.text().is_empty();
             self.esc_primed = false;
+            self.detailed_transcript = false;
             self.leader.set(false);
         }
     }
@@ -221,7 +224,12 @@ impl State for ChatState {
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
-        let previous = (self.shortcuts, self.esc_primed, self.draft_empty);
+        let previous = (
+            self.shortcuts,
+            self.esc_primed,
+            self.draft_empty,
+            self.detailed_transcript,
+        );
         if !matches!(msg, ChatMsg::Escape) {
             self.esc_primed = false;
         }
@@ -299,9 +307,7 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => match action {
-                Action::OpenTranscript if read::<ThreadModel, _>(cx).read_only() => {
-                    super::external_writer::open_transcript(cx);
-                }
+                Action::OpenTranscript => self.detailed_transcript = !self.detailed_transcript,
                 Action::SearchPrevious => {
                     let draft = w.ui.composer.text().to_string();
                     let intent = popovers::Intent::SearchStart { draft };
@@ -324,6 +330,10 @@ impl State for ChatState {
             ChatMsg::Escape => {
                 if self.shortcuts {
                     self.shortcuts = false;
+                    return Rebuild::Yes;
+                }
+                if self.detailed_transcript {
+                    self.detailed_transcript = false;
                     return Rebuild::Yes;
                 }
                 let thread = read::<ThreadModel, _>(cx);
@@ -373,7 +383,14 @@ impl State for ChatState {
                 cx.emit(&hs.screen, ScreenIntent::from(intent));
             }
         }
-        if previous == (self.shortcuts, self.esc_primed, self.draft_empty) {
+        if previous
+            == (
+                self.shortcuts,
+                self.esc_primed,
+                self.draft_empty,
+                self.detailed_transcript,
+            )
+        {
             Rebuild::No
         } else {
             Rebuild::Yes
@@ -392,7 +409,10 @@ impl State for ChatState {
         let facts = &states.chat.status;
         let mut transcript = Stack::new()
             .alignment(Alignment::CENTER)
-            .child(TranscriptPane(w.ui.transcript.clone()));
+            .child(TranscriptPane(
+                w.ui.transcript.clone(),
+                self.detailed_transcript,
+            ));
         if facts.animations
             && facts.empty_state
             && self.draft_empty

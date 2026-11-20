@@ -30,7 +30,7 @@ The multi-turn scenario also runs in both binaries at 148×34. Between ordinary 
 
 Both binaries opened the same saved mock conversation in the external-writer state at 148×30. The comparison now includes the restored user prompt, assistant messages, completion time and the lock notice. In the read-only view, short history starts at the top and the notice occupies the composer slot with its own key hints. The retry, fork and command center actions use the existing app intents. The read-only transcript opens the same provider-backed list on a separate route.
 
-The terminal capture placed the first prompt on row 6 in the oracle and row 2 in the port, with the oracle's startup header accounting for the extra rows. The completion summary appeared on rows 15 and 11 and had the same time and text. The lock title and shortcut footer appeared on rows 27 and 30 in both captures.
+The session header is the first item in the history list. It uses the current session directory, shortens home paths and keeps both ends of a truncated path. Short live and restored histories with a header start at the top. The bottom sheet stays anchored to the composer slot while the header scrolls with history.
 
 The mock's saved rollout showed no retained command previews in either binary. A separate protocol fixture supplies command and MCP items in `thread/turns/list` alongside message data. It verifies the preview rows, completion timing and retry through the actual keyboard path. The core carries the same activity types for live items and saved turns.
 
@@ -41,18 +41,18 @@ Use the oracle's render branches to choose fixtures. Each fixture needs an obser
 | Oracle source | Variations to exercise | Coverage |
 |---|---|---|
 | `history_cell/messages.rs` | Plain text and explicit newlines, typed Markdown, image-only, remote/local attachments, inline placeholders, adjacent prompts, narrow wrapping. Spoken and async-reply presentations have their own branches. | Four image snapshots compare the actual prompt region to the oracle. Headless tests check prompt surfaces, padding and wrapping. Spoken and async-reply prompts remain in S11. |
-| `exec_cell/model.rs`, `exec_cell/compact.rs`, `exec_cell/render.rs` | Running, success, nonzero exit, user shell, exploration of read/list/search, absent and multiline output, width-clipped lines, disclosure, background and stdin interaction. | Oracle snapshots for mixed and deduplicated reads in one call. Protocol tests cover live output, resume output, omission by line count, and expand/collapse. Cross-call grouping, background execution and stdin interaction remain in S11. |
+| `exec_cell/model.rs`, `exec_cell/compact.rs`, `exec_cell/render.rs` | Running, success, nonzero exit, user shell, exploration of read/list/search, absent and multiline output, width-clipped lines, disclosure, background and stdin interaction. | Oracle snapshots cover mixed actions and deduplicated reads within and across calls. The exploration scenario runs one search and two reads in both binaries. Protocol tests cover live and restored output, omission by line count, and expand/collapse. Background execution and stdin interaction remain in S11. |
 | `history_cell/mcp_preview.rs`, `history_cell/mcp.rs`, `history_cell/dynamic.rs` | Running, success, error, text, structured result, image/audio, multiple output blocks, long results, tool-specific labels and details. | Real MCP echo and image calls in the paired PTY capture. History mock covers text, name and disclosure. Tool-specific labels and exact ordering of mixed media remain in S11. |
-| `history_cell/messages.rs`, `markdown_render/`, `streaming/` | Live tail and finalized answer, headings, code, links, quotes, tables, CJK and emoji, long rows, resize. | Markdown and multi-turn PTY scenarios pair live and restored frames. The oracle's `markdown_streaming_*` shards hold more cell and width cases. |
-| `history_cell/separators.rs`, `app/owned_transcript.rs`, `chatwidget/rendering.rs` | Fresh and restored history, editable or locked, short or longer than a viewport, gaps and selection, completion timing, retry and expansion. | Paired PTY frames for live and restored chat. The external-writer protocol fixture verifies restoration, tool details, timing and retry. Raw transcript and selection parity have their own shards. |
+| `history_cell/messages.rs`, `markdown_render/`, `streaming/` | Live tail and finalized answer, headings, code, links, quotes, tables, CJK and emoji, long rows, resize. | The embedded rtwk Markdown theme draws a heavy header rule and light body rules. It preserves table alignment and renders records when the columns cannot fit. Markdown PTY frames pair live and restored tables. |
+| `history_cell/separators.rs`, `app/owned_transcript.rs`, `chatwidget/rendering.rs` | Fresh and restored history, editable or locked, short or longer than a viewport, gaps and selection, completion timing, retry and expansion. | Paired PTY frames for live and restored chat, including a Ctrl+T checkpoint. The locked-writer fixture verifies compact and detailed rendering in the same viewport, timing and retry. Raw transcript and selection parity have their own shards. |
 | `history_cell/{patches,plans,notices,session,search,hook_cell,computer_activity}.rs` | Diff and patch failure, plan stages, warning and error cells, session header, search and hooks, image generation and computer activity. | Follow the registered oracle `cells_*`, `chat_live_*` and `transcript_view_*` shards for S11. |
 
 Run from the repository root to record each app at startup, during work when captured, after each scripted turn and after reopening the same oracle-produced session. Use a fresh capture directory for each size and palette.
 
 ```sh
 python3 -I tools/rtwk-port/mock-model/check.py \
-  --only exec-command,mcp-tool,markdown,multi-turn \
-  --size 148x34 --palette dark --capture-resume --capture-dir /tmp/chat-parity-148
+  --only exploration,exec-command,mcp-tool,markdown \
+  --size 148x34 --palette dark --capture-resume --capture-details --capture-dir /tmp/chat-parity-148
 cargo run --quiet --manifest-path codex-rs/tui-rtwk/Cargo.toml \
   --example compare-transcript -- 148x34 \
   /tmp/chat-parity-148/mcp-tool/oracle/turn-1.ansi \
@@ -67,4 +67,4 @@ Repeat at 56×34 for wrapping and at 80×30 with the light palette for surface c
 - Rich transcript cell types, composer steer/rejection states and sidebar, voice, and UI tree integration belong to their tracked slices. The session queue still uses its existing submit behavior for Enter.
 - Owner notification, reset-credit confirmation and the persisted Luna Reserve automatic switch and recovery are pending. Browser links are the supported banner actions in this slice.
 - Terminal notification delivery uses the framework's negotiated method. Explicit notification-method overrides, title action-required flashing and plan-mode-specific notifications still differ from the oracle.
-- Rich Markdown heading, table and quote glyphs follow rtwk. The oracle groups consecutive exploration calls, has a global shortcut for all details and shows a return-to-latest control while reading older history. The port's detail row supports click, Enter and Space when focused.
+- Rich Markdown headings and quote glyphs follow rtwk. The oracle's narrow-table record heuristics differ from the layout's minimum-width fallback. The return-to-latest control and the inline transcript overlay remain tracked by their own slices.

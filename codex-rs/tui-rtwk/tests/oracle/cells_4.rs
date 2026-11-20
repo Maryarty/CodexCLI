@@ -448,14 +448,14 @@ fn coalesces_sequential_reads_within_one_call() {
 // ORACLE history_cell/tests.rs:2017 coalesces_reads_across_multiple_calls kind=snap owner=chat-live snap=coalesces_reads_across_multiple_calls
 #[test]
 fn coalesces_reads_across_multiple_calls() {
-    kit::pending(Owner::ChatLive, NO_EXEC_CELL);
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 15)
         .script(include_str!(
             "fixtures/cells_4/coalesces_reads_across_multiple_calls.jsonl"
         ))
         .open();
-    s.assert_snap_region("coalesces_reads_across_multiple_calls", 0, 0);
+    s.assert_snap_region("coalesces_reads_across_multiple_calls", explored_row(&s), 0);
+    assert_eq!(s.text().matches("Explored").count(), 1);
 }
 
 // ORACLE history_cell/tests.rs:2070 coalesced_reads_dedupe_names kind=snap owner=chat-live snap=coalesced_reads_dedupe_names

@@ -34,10 +34,13 @@ impl Action {
     /// The screen the action opens, if it opens one.
     pub fn target(self) -> Option<Target> {
         match self {
-            Action::OpenTranscript | Action::FindTranscript => Some(Target::Pager),
+            Action::FindTranscript => Some(Target::Pager),
             Action::OpenWarnings => Some(Target::Dialogs),
             Action::ToggleVoice => Some(Target::Voice),
-            Action::SearchPrevious | Action::SearchNext | Action::ToggleSide => None,
+            Action::OpenTranscript
+            | Action::SearchPrevious
+            | Action::SearchNext
+            | Action::ToggleSide => None,
         }
     }
 }

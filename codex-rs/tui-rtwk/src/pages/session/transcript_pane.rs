@@ -1,14 +1,19 @@
 //! The retained transcript viewport. Inline Markdown uses this list's scroll
 //! position and preserves the parser for a row while its item key is mounted.
 
+use std::cell::RefCell;
+use std::ops::Range;
+use std::rc::Rc;
+
 use rtwk::gestures::SelectionArea;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
-use rtwk::provider::{read, watch};
+use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
-use rtwk::style::Attrs;
+use rtwk::style::{Attrs, Theme as WidgetTheme};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::MarkdownView;
+use rtwk_rich::markdown::{MarkdownTheme, MarkdownView, TableStyle};
+use rtwk_rich::style::Theme;
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -21,15 +26,60 @@ use crate::l10n::strings as l10n;
 use super::strings as chat_strings;
 
 #[derive(Clone, PartialEq)]
-pub(super) struct TranscriptPane(pub ListController);
+pub(super) struct TranscriptPane(pub ListController, pub bool);
 
-pub(super) struct ViewportState;
+pub(super) struct ViewportState {
+    layout: RefCell<Option<RowLayout>>,
+}
+
+struct RowLayout {
+    thread: ThreadId,
+    revision: u64,
+    rows: Rc<[Range<usize>]>,
+}
+
+impl ViewportState {
+    fn rows(&self, thread: &ThreadModel) -> Rc<[Range<usize>]> {
+        let mut cache = self.layout.borrow_mut();
+        let transcript = thread.transcript();
+        let revision = transcript.layout_revision();
+        if let Some(layout) = cache.as_ref()
+            && layout.thread == *thread.id()
+            && layout.revision == revision
+        {
+            return layout.rows.clone();
+        }
+        let mut rows: Vec<Range<usize>> = Vec::new();
+        let mut exploration = None;
+        for (index, (key, item)) in transcript.iter().enumerate() {
+            let turn = item.is_exploration().then_some(&key.turn);
+            if turn.is_some()
+                && turn == exploration
+                && let Some(group) = rows.last_mut()
+            {
+                group.end = index + 1;
+            } else {
+                rows.push(index..index + 1);
+            }
+            exploration = turn;
+        }
+        let rows: Rc<[_]> = rows.into();
+        *cache = Some(RowLayout {
+            thread: thread.id().clone(),
+            revision,
+            rows: rows.clone(),
+        });
+        rows
+    }
+}
 
 impl StatefulWidget for TranscriptPane {
     type State = ViewportState;
 
     fn create_state(&self) -> Self::State {
-        ViewportState
+        ViewportState {
+            layout: RefCell::default(),
+        }
     }
 }
 
@@ -51,18 +101,45 @@ impl State for ViewportState {
         let agent_style = tokens.dim().attrs(Attrs::DIM);
         let table = chat_strings::of(cx);
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
+        let facts = select::<ScreenStates, _, _>(cx, |states| states.chat.status.clone());
+        let cwd = thread
+            .screen_slots()
+            .chat
+            .cwd
+            .as_deref()
+            .or(facts.cwd.as_deref());
+        let header = cwd.filter(|cwd| !cwd.is_empty()).map(|cwd| {
+            super::transcript_header::header(cwd, &facts, &tokens, table)
+                .with_key(Key::value("session header"))
+        });
+        let markdown = MarkdownTheme {
+            table_style: TableStyle::RowRules,
+            table_header: tokens.accent().attrs(Attrs::BOLD),
+            table_border: tokens.dim().attrs(Attrs::DIM),
+            ..MarkdownTheme::from_theme(&Theme::from_data(&WidgetTheme::of(cx)))
+        };
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
-        let count = thread.transcript().len();
-        // In the external-writer view, short history begins at the top.
-        let reverse = !thread.read_only();
+        let rows = self.rows(&thread);
+        let reverse = !thread.read_only() && header.is_none();
+        let header = header.filter(|_| !can_load);
+        let count = rows.len() + usize::from(header.is_some());
+        let detailed = widget.1;
         let list = ListView::builder(count, move |index| {
             let index = if reverse { count - 1 - index } else { index };
+            if index == 0
+                && let Some(header) = &header
+            {
+                return header.clone();
+            }
+            let range = &rows[index - usize::from(header.is_some())];
+            let index = range.start;
             let transcript = thread.transcript();
             let Some((key, item)) = transcript.get(index) else {
                 return AnyWidget::default();
             };
             let previous = index.checked_sub(1).and_then(|index| transcript.get(index));
+            let separator = previous.is_some() || header.is_some();
             let row: AnyWidget = match item {
                 Item::User(prompt) => {
                     let joins_prompt = matches!(previous, Some((_, Item::User(_))))
@@ -73,16 +150,17 @@ impl State for ViewportState {
                         &tokens,
                         table,
                         joins_prompt,
+                        &markdown,
                     );
                     // A separator belongs to the transcript, outside the prompt surface.
                     Padding::new(
-                        EdgeInsets::only(0, i32::from(previous.is_some() && !joins_prompt), 0, 0),
+                        EdgeInsets::only(0, i32::from(separator && !joins_prompt), 0, 0),
                         panel,
                     )
                     .into()
                 }
                 Item::Agent { text } => Padding::new(
-                    EdgeInsets::only(0, i32::from(previous.is_some()), 1, 0),
+                    EdgeInsets::only(0, i32::from(separator), 1, 0),
                     Row::new()
                         .cross_axis_alignment(CrossAxisAlignment::Start)
                         .spacing(1)
@@ -90,16 +168,28 @@ impl State for ViewportState {
                             Text::new(strings.agent_line("").to_string())
                                 .style(agent_style.clone()),
                         )
-                        .child(Expanded::new(1, MarkdownView::new(text.as_str()))),
+                        .child(Expanded::new(
+                            1,
+                            MarkdownView::new(text.as_str()).theme(markdown.clone()),
+                        )),
                 )
                 .into(),
                 Item::Tool(tool) => Padding::new(
-                    EdgeInsets::only(0, i32::from(previous.is_some()), 1, 0),
-                    super::transcript_activity::ToolRow(tool.clone()),
+                    EdgeInsets::only(0, i32::from(separator), 1, 0),
+                    super::transcript_activity::ToolRow {
+                        first: tool.clone(),
+                        rest: (index + 1..range.end)
+                            .filter_map(|index| match transcript.get(index) {
+                                Some((_, Item::Tool(tool))) => Some(tool.clone()),
+                                _ => None,
+                            })
+                            .collect(),
+                        detailed,
+                    },
                 )
                 .into(),
             };
-            let row = if let Some(timing) = transcript.timing_after(index) {
+            let row = if let Some(timing) = transcript.timing_after(range.end - 1) {
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)

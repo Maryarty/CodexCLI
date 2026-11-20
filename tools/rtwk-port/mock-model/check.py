@@ -19,6 +19,7 @@ that the turns end as the scenario says.
   mode and saves the terminal stream at matching checkpoints for both binaries.
 - `--capture-resume` also opens the same fixture saved by the oracle in both
   binaries and saves the resumed frames.
+- `--capture-details` records the transcript after Ctrl+T.
 - `--json FILE` writes the results (coverage.py reads it); `--dump` prints, per model
   request, the tool names it offered and the output items it carried (to see what the
   binary accepted).
@@ -81,6 +82,7 @@ class Result:
 class Terminal:
     size: tuple[int, int] = (120, 40)
     light: bool = False
+    details: bool = False
 
 
 def budget(sc: scenarios.Scenario) -> float:
@@ -176,9 +178,11 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
     if resume:
         argv.append("resume")
         if oracle:
-            argv += ["--no-daemon", resume]
+            argv.append(resume)
+    if capture is not None:
+        argv.append("--no-daemon")
     if oracle:
-        argv += ["-c", "analytics.enabled=false", "-C", str(work)]
+        argv += ["-C", str(work)]
     child, fd = spawn_pty(argv, work, env, width, height)
     out = bytearray()
     state = {"last": time.time(), "scan": 0, "answered": 0}
@@ -346,6 +350,12 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
             checkpoint(f"turn-{i + 1}")
         seen = sc.sentinel in re.sub(r"\s+", "", screen_text())
         notes.append(f"sentinel on screen: {'yes' if seen else 'no'}")
+        if capture is not None and terminal.details:
+            send(b"\x14")
+            pump(1.0)
+            checkpoint("resumed-detailed" if resume else "detailed")
+            send(b"\x14")
+            pump(0.3)
         if not seen and os.environ.get("MOCK_DUMP_SCREEN"):
             notes.append("screen: " + " | ".join(x.strip() for x in screen_text().splitlines() if x.strip())[-600:])
         send(b"\x03")
@@ -475,6 +485,7 @@ def main() -> int:
     ap.add_argument("--palette", choices=["dark", "light"], default="dark", help="default PTY colors")
     ap.add_argument("--capture-dir", type=Path, help="save named PTY checkpoints under DIR/scenario/binary")
     ap.add_argument("--capture-resume", action="store_true", help="add a shared saved-session checkpoint")
+    ap.add_argument("--capture-details", action="store_true", help="also capture after Ctrl+T")
     ap.add_argument("--list-bins", action="store_true")
     ap.add_argument("--json", help="write the results to this file")
     ap.add_argument("--dump", action="store_true", help="print the tools and tool outputs of every model request")
@@ -482,6 +493,8 @@ def main() -> int:
     found = {"rtwk": bins.rtwk_bin(), "oracle": bins.oracle_bin()}
     if args.capture_resume and (args.capture_dir is None or args.bin or not all(found.values())):
         ap.error("--capture-resume requires --capture-dir and both binaries")
+    if args.capture_details and args.capture_dir is None:
+        ap.error("--capture-details requires --capture-dir")
     for label, path in found.items():
         print(f"{label:7} {path or 'NOT BUILT (no binary found; nothing is built here)'}")
     if args.list_bins:
@@ -494,8 +507,9 @@ def main() -> int:
         orig = scenarios.load
         scenarios.load = lambda n: (lambda sc: dataclasses.replace(sc, turns=sc.turns[lo:hi]) if n in names else sc)(orig(n))
     results: list[Result] = []
-    terminal = Terminal(args.size, args.palette == "light")
-    for label in args.bin or ["oracle", "rtwk"]:
+    terminal = Terminal(args.size, args.palette == "light", args.capture_details)
+    order = ["rtwk", "oracle"] if args.capture_resume else ["oracle", "rtwk"]
+    for label in args.bin or order:
         path = found[label]
         if not path:
             continue

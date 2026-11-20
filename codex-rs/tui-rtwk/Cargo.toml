@@ -7,13 +7,13 @@ members = ["host", "core"]
 # workspace does not work: cargo makes path dependencies under the workspace
 # directory members, and rtwk's crates then inherit from this manifest.
 [workspace.dependencies]
-rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk" }
-rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-core" }
-rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-render" }
-rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-rich" }
-rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-term" }
-rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-test" }
-rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin/crates/rtwk-tokio" }
+rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk" }
+rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-core" }
+rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-render" }
+rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-rich" }
+rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-term" }
+rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-test" }
+rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-chat-pin/crates/rtwk-tokio" }
 
 [workspace.package]
 version = "0.0.0"
@@ -82,6 +82,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 codex-app-server-protocol = { path = "../app-server-protocol" }
 codex-shell-command = { path = "../shell-command" }
 codex-tui-core = { path = "core" }
+codex-utils-elapsed = { path = "../utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }

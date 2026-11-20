@@ -7,7 +7,7 @@ use rtwk::layout::{
 };
 use rtwk::style::{Span, Style};
 use rtwk::widgets::Text;
-use rtwk_rich::markdown::{MarkdownView, MdBlock, MdInline, parse_markdown};
+use rtwk_rich::markdown::{MarkdownTheme, MarkdownView, MdBlock, MdInline, parse_markdown};
 
 use crate::app::theme::Tokens;
 
@@ -19,6 +19,7 @@ pub(super) fn panel(
     tokens: &Tokens,
     strings: &Strings,
     joins_previous: bool,
+    markdown: &MarkdownTheme,
 ) -> BoxWidget {
     let text = prompt.text.trim_end();
     let mut content = Column::new()
@@ -39,7 +40,7 @@ pub(super) fn panel(
     }
     if !text.is_empty() {
         let body: AnyWidget = if prompt.elements.is_empty() && has_markup(text) {
-            MarkdownView::new(text).into()
+            MarkdownView::new(text).theme(markdown.clone()).into()
         } else if prompt.elements.is_empty() {
             Text::new(text.to_owned()).into()
         } else {

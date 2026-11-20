@@ -176,7 +176,7 @@ fn percent_remaining(limits: &status::RateLimits, duration: i64) -> Option<u64> 
     Some((100 - limit.used_percent.clamp(0, 100)) as u64)
 }
 
-fn display_dir(cwd: &str, home: Option<&str>) -> String {
+pub(super) fn display_dir(cwd: &str, home: Option<&str>) -> String {
     let cwd = std::path::Path::new(cwd);
     match home.and_then(|home| cwd.strip_prefix(home).ok()) {
         Some(path) if path.as_os_str().is_empty() => "~".to_string(),

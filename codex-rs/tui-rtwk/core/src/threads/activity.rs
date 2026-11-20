@@ -20,6 +20,7 @@ pub enum ToolKind {
         command: String,
         actions: Vec<ExplorationAction>,
         exit_code: Option<i32>,
+        duration_ms: Option<u64>,
         user_shell: bool,
     },
     Call {
@@ -40,7 +41,7 @@ pub enum ToolMedia {
 pub enum ExplorationAction {
     Read(Vec<String>),
     List(String),
-    Search(String),
+    Search { query: String, path: Option<String> },
 }
 
 fn exploration(actions: &[CommandAction]) -> Vec<ExplorationAction> {
@@ -62,9 +63,14 @@ fn exploration(actions: &[CommandAction]) -> Vec<ExplorationAction> {
             CommandAction::ListFiles { command, path } => result.push(ExplorationAction::List(
                 path.as_ref().unwrap_or(command).clone(),
             )),
-            CommandAction::Search { command, query, .. } => result.push(ExplorationAction::Search(
-                query.as_ref().unwrap_or(command).clone(),
-            )),
+            CommandAction::Search {
+                command,
+                query,
+                path,
+            } => result.push(ExplorationAction::Search {
+                query: query.as_ref().unwrap_or(command).clone(),
+                path: path.clone().filter(|_| query.is_some()),
+            }),
             CommandAction::Unknown { .. } => return Vec::new(),
         }
     }
@@ -89,6 +95,7 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
             aggregated_output,
             command_actions,
             exit_code,
+            duration_ms,
             source,
             ..
         } => (
@@ -101,6 +108,7 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                     exploration(command_actions)
                 },
                 exit_code: *exit_code,
+                duration_ms: duration_ms.and_then(|millis| u64::try_from(millis).ok()),
                 user_shell: *source == CommandExecutionSource::UserShell,
             },
             match status {

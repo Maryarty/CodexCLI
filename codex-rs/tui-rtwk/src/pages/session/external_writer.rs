@@ -4,8 +4,6 @@ use rtwk::gestures::GestureDetector;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row,
 };
-use rtwk::navigation::{Navigator, PageRoute};
-use rtwk::scroll::ListController;
 use rtwk::style::Span;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder};
@@ -85,12 +83,4 @@ pub(super) fn footer(strings: &Strings, tokens: &Tokens) -> AnyWidget {
         ),
     )
     .into()
-}
-
-pub(super) fn open_transcript(cx: &mut Cx<'_, ChatState>) {
-    let controller = ListController::new();
-    let route = PageRoute::<()>::new(move |_| {
-        super::transcript_pane::TranscriptPane(controller.clone()).into()
-    });
-    drop(Navigator::of(cx).push::<()>(route));
 }

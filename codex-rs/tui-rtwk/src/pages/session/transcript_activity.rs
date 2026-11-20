@@ -2,11 +2,13 @@
 
 use std::borrow::Cow;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{Datelike, Local, TimeZone};
+use codex_utils_elapsed::format_duration;
 use rtwk::controls::Pressable;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
-use rtwk::style::{Attrs, Span};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -24,7 +26,17 @@ const PREVIEW_LINES: usize = 3;
 const PREVIEW_LINE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, PartialEq)]
-pub(super) struct ToolRow(pub Arc<ToolActivity>);
+pub(super) struct ToolRow {
+    pub first: Arc<ToolActivity>,
+    pub rest: Vec<Arc<ToolActivity>>,
+    pub detailed: bool,
+}
+
+impl ToolRow {
+    fn calls(&self) -> impl Iterator<Item = &ToolActivity> {
+        std::iter::once(self.first.as_ref()).chain(self.rest.iter().map(Arc::as_ref))
+    }
+}
 
 #[derive(Default)]
 pub(super) struct ToolRowState {
@@ -49,11 +61,23 @@ impl State for ToolRowState {
     }
 
     fn build(&self, widget: &ToolRow, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let tool = widget.0.clone();
+        let tool = &widget.first;
+        let status = if widget
+            .rest
+            .iter()
+            .any(|call| call.status == ToolStatus::Running)
+        {
+            ToolStatus::Running
+        } else {
+            tool.status
+        };
         let tokens = Tokens::of(cx);
         let strings = strings::of(cx);
         let syntax = SyntaxTheme::of(cx);
-        let expanded = self.expanded;
+        if widget.detailed && matches!(tool.kind, ToolKind::Shell { .. }) {
+            return detailed_shells(widget, strings, &tokens, &syntax);
+        }
+        let expanded = widget.detailed || self.expanded;
         let toggle = cx.send(!expanded);
         let tap = cx.map(move |_| !expanded);
         let (title, command, actions, media) = match &tool.kind {
@@ -62,23 +86,24 @@ impl State for ToolRowState {
                 actions,
                 exit_code,
                 user_shell,
+                ..
             } => {
-                let title = if tool.status == ToolStatus::Running {
-                    Cow::Borrowed(if actions.is_empty() {
-                        strings.running_command
-                    } else {
+                let title = if !actions.is_empty() {
+                    Cow::Borrowed(if status == ToolStatus::Running {
                         strings.exploring
+                    } else {
+                        strings.explored
                     })
+                } else if status == ToolStatus::Running {
+                    Cow::Borrowed(strings.running_command)
                 } else if let Some(code) = exit_code.filter(|&code| code != 0) {
                     Cow::Owned(strings.transcript_label(strings.command_exited, &code.to_string()))
-                } else if actions.is_empty() {
+                } else {
                     Cow::Borrowed(if *user_shell {
                         strings.user_ran_command
                     } else {
                         strings.ran_command
                     })
-                } else {
-                    Cow::Borrowed(strings.explored)
                 };
                 (title, command_text(command), actions.as_slice(), &[][..])
             }
@@ -162,7 +187,11 @@ impl State for ToolRowState {
                 preview = preview.child(output_row(0, strings.tool_no_output, &tokens, false));
             }
         } else {
-            for (index, action) in actions.iter().take(PREVIEW_LINES).enumerate() {
+            for (index, action) in exploration_actions(widget)
+                .iter()
+                .take(PREVIEW_LINES)
+                .enumerate()
+            {
                 let line = match action {
                     ExplorationAction::Read(names) => {
                         strings.transcript_label(strings.explored_read, &names.join(", "))
@@ -170,11 +199,19 @@ impl State for ToolRowState {
                     ExplorationAction::List(path) => {
                         strings.transcript_label(strings.explored_list, path)
                     }
-                    ExplorationAction::Search(query) => {
+                    ExplorationAction::Search {
+                        query,
+                        path: Some(path),
+                    } => strings.search_in(query, path),
+                    ExplorationAction::Search { query, path: None } => {
                         strings.transcript_label(strings.explored_search, query)
                     }
                 };
-                preview = preview.child(output_row(index, &line, &tokens, false));
+                preview = preview.child(branch_row(
+                    index,
+                    Text::line(line).overflow(TextOverflow::Ellipsis),
+                    tokens.dim().attrs(Attrs::DIM),
+                ));
             }
         }
         let call_arguments = match &tool.kind {
@@ -182,7 +219,9 @@ impl State for ToolRowState {
             _ => None,
         };
         let has_details = is_shell || shown > 0 || call_arguments.is_some();
-        let disclose = if expanded {
+        let disclose = if widget.detailed {
+            None
+        } else if expanded {
             Some(strings.hide_tool_details.to_owned())
         } else if is_shell && hidden > 0 {
             Some(if hidden == 1 {
@@ -200,18 +239,8 @@ impl State for ToolRowState {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(header);
         if expanded {
-            let full = match call_arguments {
-                Some(args) => format!("{command}({args})"),
-                None => command.into_owned(),
-            };
-            content = content.child(Padding::new(EdgeInsets::only(2, 0, 0, 0), Text::new(full)));
-            if !output.is_empty() {
-                content = content.child(output_row(0, output, &tokens, true));
-            }
-            for (index, item) in media.iter().enumerate() {
-                let line = index + usize::from(!output.is_empty());
-                content =
-                    content.child(output_row(line, media_label(*item, strings), &tokens, true));
+            for call in widget.calls() {
+                content = content.child(call_details(call, strings, &tokens));
             }
         } else {
             content = content.child(preview);
@@ -222,7 +251,7 @@ impl State for ToolRowState {
                 Text::new(label).style(tokens.dim().attrs(Attrs::DIM)),
             ));
         }
-        let content: AnyWidget = if has_details || expanded {
+        let content: AnyWidget = if !widget.detailed && (has_details || expanded) {
             let content: AnyWidget = content.into();
             Pressable::new(move |_, _| content.clone())
                 .bindings([
@@ -234,8 +263,9 @@ impl State for ToolRowState {
         } else {
             content.into()
         };
-        let mark_style = match tool.status {
+        let mark_style = match status {
             ToolStatus::Running => tokens.accent(),
+            ToolStatus::Completed if !actions.is_empty() => tokens.dim().attrs(Attrs::DIM),
             ToolStatus::Completed => tokens.success(),
             ToolStatus::Failed | ToolStatus::Declined => tokens.error(),
         }
@@ -247,6 +277,146 @@ impl State for ToolRowState {
             .child(Expanded::new(1, content))
             .into()
     }
+}
+
+fn exploration_actions(widget: &ToolRow) -> Vec<ExplorationAction> {
+    let mut merged = Vec::new();
+    let mut previous_reads = false;
+    for call in widget.calls() {
+        let ToolKind::Shell {
+            actions, exit_code, ..
+        } = &call.kind
+        else {
+            break;
+        };
+        let mergeable = exit_code.is_none_or(|code| code == 0);
+        if mergeable
+            && previous_reads
+            && let [ExplorationAction::Read(next)] = actions.as_slice()
+            && let Some(ExplorationAction::Read(names)) = merged.last_mut()
+        {
+            for name in next {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        } else {
+            merged.extend(actions.iter().cloned());
+        }
+        previous_reads = mergeable && matches!(actions.as_slice(), [ExplorationAction::Read(_)]);
+    }
+    merged
+}
+
+fn detailed_shells(
+    widget: &ToolRow,
+    strings: &strings::Strings,
+    tokens: &Tokens,
+    syntax: &SyntaxTheme,
+) -> AnyWidget {
+    let mut rows = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .spacing(1);
+    for call in widget.calls() {
+        let ToolKind::Shell {
+            command,
+            exit_code,
+            duration_ms,
+            ..
+        } = &call.kind
+        else {
+            continue;
+        };
+        let source = command_text(command);
+        let code = Highlighter::new(language_named("bash"), &source);
+        let mut spans = Vec::new();
+        for index in 0..code.line_count() {
+            if index != 0 {
+                spans.push(Span::new(strings::LINE_BREAK));
+            }
+            spans.extend(
+                syntax
+                    .spans(code.line(index), code.tokens(index))
+                    .into_iter()
+                    .map(|span| Span::styled(span.text, span.style)),
+            );
+        }
+        let mut detail = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(
+                Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .spacing(1)
+                    .child(Text::line(strings.shell_prompt).style(tokens.accent()))
+                    .child(Expanded::new(1, Text::rich(spans))),
+            );
+        if let Some(output) = call.output.as_deref().filter(|output| !output.is_empty()) {
+            detail = detail.child(Text::new(output.trim_end_matches(['\r', '\n']).to_owned()));
+        }
+        if let Some(code) = *exit_code {
+            let mut result = if code == 0 {
+                vec![Span::styled(
+                    strings.exit_ok,
+                    tokens.success().attrs(Attrs::BOLD),
+                )]
+            } else {
+                vec![
+                    Span::styled(strings.exit_failed, tokens.error().attrs(Attrs::BOLD)),
+                    Span::new(strings.transcript_label(strings.exit_status, &code.to_string())),
+                ]
+            };
+            if let Some(millis) = *duration_ms {
+                result.push(Span::styled(
+                    format!(" • {}", format_duration(Duration::from_millis(millis))),
+                    tokens.dim().attrs(Attrs::DIM),
+                ));
+            }
+            detail = detail.child(Text::rich(result));
+        }
+        rows = rows.child(detail);
+    }
+    rows.into()
+}
+
+fn call_details(tool: &ToolActivity, strings: &strings::Strings, tokens: &Tokens) -> Column {
+    let (full, media) = match &tool.kind {
+        ToolKind::Shell { command, .. } => (command_text(command).into_owned(), &[][..]),
+        ToolKind::Call {
+            namespace,
+            name,
+            arguments,
+            media,
+        } => {
+            let name = namespace
+                .as_ref()
+                .map_or_else(|| name.clone(), |namespace| format!("{namespace}.{name}"));
+            let full = if arguments.is_null() {
+                name
+            } else {
+                format!("{name}({arguments})")
+            };
+            (full, media.as_slice())
+        }
+    };
+    let mut details = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Padding::new(EdgeInsets::only(2, 0, 0, 0), Text::new(full)));
+    let output = tool
+        .output
+        .as_deref()
+        .unwrap_or_default()
+        .trim_end_matches(['\r', '\n']);
+    if !output.is_empty() {
+        details = details.child(output_row(0, output, tokens, true));
+    }
+    for (index, item) in media.iter().enumerate() {
+        let line = index + usize::from(!output.is_empty());
+        details = details.child(output_row(line, media_label(*item, strings), tokens, true));
+    }
+    details
 }
 
 fn command_text(command: &str) -> Cow<'_, str> {
@@ -267,7 +437,6 @@ fn media_label(media: ToolMedia, strings: &strings::Strings) -> &'static str {
 }
 
 fn output_row(index: usize, line: &str, tokens: &Tokens, wrap: bool) -> Row {
-    let branch = if index == 0 { "└ " } else { "  " };
     let dim = tokens.dim().attrs(Attrs::DIM);
     let line = if !wrap && line.len() > PREVIEW_LINE_BYTES {
         let prefix = &line[..line.floor_char_boundary(PREVIEW_LINE_BYTES)];
@@ -276,17 +445,23 @@ fn output_row(index: usize, line: &str, tokens: &Tokens, wrap: bool) -> Row {
         line.to_owned()
     };
     let line = Text::new(line).style(dim.clone());
+    branch_row(
+        index,
+        if wrap {
+            line
+        } else {
+            line.max_lines(Some(1)).overflow(TextOverflow::Ellipsis)
+        },
+        dim,
+    )
+}
+
+fn branch_row(index: usize, body: Text, marker: Style) -> Row {
+    let branch = if index == 0 { "└ " } else { "  " };
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(Text::line(branch).style(dim))
-        .child(Expanded::new(
-            1,
-            if wrap {
-                line
-            } else {
-                line.max_lines(Some(1)).overflow(TextOverflow::Ellipsis)
-            },
-        ))
+        .child(Text::line(branch).style(marker))
+        .child(Expanded::new(1, body))
 }
 
 impl_widget!(stateful eq ToolRow);
