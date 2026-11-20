@@ -30,7 +30,7 @@ The existing sheets send command, file-change and permissions decisions, empty M
 | Scenario | Result |
 |---|---|
 | `exec-approval` | Pass. The PTY pressed `y`, the command ran and the second request included its output. |
-| `interrupted` | Pass with Escape sent as CSI-u (`ESC [ 27 u`. The second model request arrived 7.8 s after the first; the full stream takes over 30 s). With a lone ESC byte the requests were 34.9 s apart, after the full stream. The decoded-key test also asserts that Escape emits an interrupt for the visible turn. |
+| `interrupted` | Pass on the pinned rtwk binary and the cached oracle with a lone `0x1b` byte. The PTY driver starts the Escape delay when it observes the model request, then requires the mock's SSE connection to disconnect before it sends the second prompt. The follow-up answer must appear on screen. `host/tests/session_sse.rs::standalone_escape_disconnects_the_live_stream` runs this check against the embedded server. |
 | `error-context-window` | The cached oracle passed the original exec fixture. The embedded PTY reached the fatal error after one request and waited for the next submit. The original harness expects the compaction request before that submit. Moving the existing compaction response to the second turn's response sequence verified recovery on the same thread with three total requests and the final sentinel on screen. |
 | `multi-agent` | The v1 fixture failed on both binaries. The embedded server answered `unsupported call: multi_agent_v1spawn_agent` and made two requests. `MOCK_AGENT_API=v2` passed on both binaries with four requests, including child and wait. |
 
@@ -45,4 +45,4 @@ The existing sheets send command, file-change and permissions decisions, empty M
 
 ## rtwk needs
 
-The standalone legacy Escape byte needs a PTY reproduction at the rtwk terminal entry point while frames are driven by a stream. The terminal poll unit test for a lone Escape and the port's decoded-key test already exercise their respective boundaries. CSI-u reaches the existing binding and interrupts the same embedded-server workload. The port adds no input decoding or frame timer.
+The initial PTY report measured 34.9 s between requests with a lone Escape and 7.8 s with CSI-u. The old driver accepted either run once the expected request count arrived. The slow run did not recur on the committed binary. Three single-byte runs sent the follow-up request about 7.8 s after the first request. The HTTP handler observed a broken pipe during the first response. Suppressing the Escape write in the updated driver produces a failure when the complete response is sent, before the second prompt.
