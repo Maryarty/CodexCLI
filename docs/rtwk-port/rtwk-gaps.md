@@ -31,6 +31,8 @@ code and say so.
 
 Tally at `e3debfda`: 36 rows plus N1..N4; 17 closed in rtwk, 3 partly, 8 not a gap or ours, 10 open (G35, G36, N1, N2, N3, G1, G9, G24, G8, N4); see "Status at rtwk e3debfda".
 
+Tally at `90259c3b` (task rtwk-repin-3): G9 is closed (ADR-028); the other open rows are unchanged (G35, G36, N1, N2, N3, G1, G24, G8, N4 as listed above, minus those closed by the 2026-11-19 update).
+
 ## rtwk's answers (2026-11-18)
 
 rtwk's orchestrator answered rows G13–G28 with code checked on rtwk branch
@@ -69,7 +71,7 @@ G36 and four new rows, N1..N4 (below, with the report's section for each).
 Update 2026-11-19 (task gaps-fix, after the Flutter-way check
 `reports/gaps-flutter-check.md`): not a gap now: N1, N3, G24, G35, G36, G38,
 G39, G40, G42 (routes in each row); ours: G37, G11 (native copy), R-start-1.
-Still open: G9, G1, G8, G12 (style), N4, (G39b narrowed: see its row).
+Still open: G1, G8, G12 (style), N4 (G9 closed at `90259c3b`), (G39b narrowed: see its row).
 
 | id | gap (details: the report section of the same id) | status |
 |---|---|---|
@@ -101,7 +103,7 @@ transcript (S10, S16); W4 = inline mode.
 | G14 | A provider projection lags the model until the view reruns: no same-flush read (nav-proto gap 2) | presenters (W1) | `src/ui/presenter.rs:30-33,57-63` (last shown request id, never reopen it) | nav-proto q2 first test: a handler clears `pending`, a same-flush `read::<Slice>()` still returns the old value; inherent to an inherited widget's per-run snapshot | | by design; recipe: decide on the model in `closed` (checked at `e3debfda`) |
 | G15 | Changing the provider list silently drops an unkeyed Navigator's stack (nav-proto gap 3) | root (W1) | `src/app.rs:21,48` (`nav_key: GlobalKey`), `src/ui/view.rs:70` (`.with_key`), `tests/rules.rs:118` | nav-proto q5 `changing_the_provider_list_remounts..`; Flutter semantics (an element of another type at the position is remounted) | | by design (Flutter semantics); our side: `GlobalKey` in app state |
 | G12 | `TextArea` lacks: atomic elements (pasted blocks, mentions), kill ring and yank, vim mode, paste-burst detection, prompt-history recall (arch-review M1) | S10 composer (W2) | none yet (composer behaviour is carried in core, `core/src/screens/composer`) | `rtwk-editing/src`: no hit for kill ring, yank, vim, paste burst, element; the only "history" is undo (`text_editing.rs:400`) | | partly: recipes exist; atomic elements (pasted blocks, mentions) still open (`TextArea`) |
-| G9 | Selection, search and copy-source over a virtualized transcript: selection across items scrolled out of a `ListView` stays per widget; no `SelectionArea`-level mechanism | S10 transcript, S16 pager (W2) | none yet | `docs/design/transcript.md:80-86` in rtwk says so ("stays per widget ... until a third case justifies it, by an ADR") | | open |
+| G9 | Selection, search and copy-source over a virtualized transcript: selection across items scrolled out of a `ListView` stays per widget; no `SelectionArea`-level mechanism | S10 transcript, S16 pager (W2) | none yet | `docs/design/transcript.md:80-86` in rtwk says so ("stays per widget ... until a third case justifies it, by an ADR") | | closed in rtwk `90259c3b` (ADR-028, task selection-unified): `ListView::selection_text(ItemTexts)` makes the list one `Selectable` over all its items, those scrolled out too; `find_in_items` and `SelectionAreaController::select` for search; selection follows items by key. Probe against the oracle's transcript selection (`transcript_view/selection_tests.rs`): `codex-rs/tui-rtwk/tests/rtwk_g9.rs`, green; without `selection_text` the drag copies 0 bytes. The transcript screen (chat-screen) wires it: `ItemTexts` over the thread model's entries, keyed by cell id, entries joined by one line break. |
 | G10 | tmux probes: mouse option, pane-local graphics (only the `TMUX` / `STY` env test and DCS passthrough exist) | S10, S24 (W2/W3) | none yet | `rtwk-core/src/terminal/env.rs:183-193`, `sequences.rs:516`: no `show-options` / `display-message` query | | not a framework gap: spawning `tmux` is the app's (shell layer) |
 | G11 | Clipboard breadth: only OSC 52 (`Terminal::copy_to_clipboard`); no native (pbcopy, wl-copy, xclip, clip.exe), WSL, X11 PRIMARY | copy (W2) | none yet | `rtwk-core/src/terminal/mod.rs:1313-1323`, `sequences.rs:22-36` | | partly: OSC 52 `ClipboardSelection` + `AppView::on_copy` in rtwk (`06cf797e`, `fa4e1bb7`); native copy is ours by rtwk's decision |
 | G4 | Image placements inside a region, "if rtwk-rich `Image` falls short" | pets (S24), `view_image` (W3) | none yet | conditional: `rtwk-rich/src/image/widget.rs:144` exists and the presenter keeps images in a region (`docs/design/images.md`); re-test when the pets slice builds | | not a gap yet (conditional); recheck on the pets slice (`rtwk-rich` `Image`) |

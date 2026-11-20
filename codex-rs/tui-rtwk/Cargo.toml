@@ -128,6 +128,10 @@ name = "screens"
 path = "tests/screens.rs"
 
 [[test]]
+name = "rtwk_g9"
+path = "tests/rtwk_g9.rs"
+
+[[test]]
 name = "pin"
 path = "tests/rules/pin.rs"
 
