@@ -17,7 +17,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::Intent;
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::ids::{RequestKey, ThreadId};
+use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::view::Hs;
@@ -46,8 +46,10 @@ pub struct SeededScopeState {
 pub enum SeededMsg {
     Submit(String),
     Dismiss(RequestKey),
+    DismissBanner(BackendId, Ticket),
     Screen(ScreenIntent),
     OpenThread(ThreadId),
+    LoadHistory(ThreadId),
     Interrupt(ThreadId),
     Cycle,
     Quit,
@@ -85,8 +87,12 @@ impl State for SeededScopeState {
                 text,
             },
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
+            SeededMsg::DismissBanner(backend, ticket) => {
+                Intent::DismissBackendBanner { backend, ticket }
+            }
             SeededMsg::Screen(intent) => Intent::Screen(intent),
             SeededMsg::OpenThread(id) => Intent::OpenThread(id),
+            SeededMsg::LoadHistory(id) => Intent::LoadOlderHistory(id),
             SeededMsg::Interrupt(id) => Intent::Interrupt(id),
             SeededMsg::Cycle => Intent::CycleBackend,
             // The seeded screen is a page of the debug menu: leaving it is the
@@ -108,8 +114,10 @@ impl State for SeededScopeState {
         let hs = Hs {
             submit: cx.map(SeededMsg::Submit),
             dismiss: cx.map(SeededMsg::Dismiss),
+            dismiss_banner: cx.map(|(backend, ticket)| SeededMsg::DismissBanner(backend, ticket)),
             screen: cx.map(SeededMsg::Screen),
             open_thread: cx.map(SeededMsg::OpenThread),
+            load_history: cx.map(SeededMsg::LoadHistory),
             interrupt: cx.map(SeededMsg::Interrupt),
             quit: cx.map(|()| SeededMsg::Quit),
             cycle: cx.map(|()| SeededMsg::Cycle),

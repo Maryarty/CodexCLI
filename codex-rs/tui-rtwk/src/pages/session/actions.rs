@@ -1,6 +1,6 @@
 //! What a submitted line does: slash commands, the warnings opener, typed failures.
 
-use rtwk::layout::SizedBox;
+use rtwk::layout::{EdgeInsets, Padding};
 use rtwk::provider::read;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
@@ -29,8 +29,8 @@ pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Fai
 
 /// The composer's prompt, as wide as its text: a trailing blank is a cell.
 pub(super) fn prompt(text: &'static str) -> AnyWidget {
-    let width = i32::try_from(text.chars().count()).unwrap_or(2);
-    SizedBox::new(Some(width), None, Some(Text::new(text).into())).into()
+    let label = text.trim_end_matches(' ');
+    Padding::new(EdgeInsets::only(0, 0, 1, 0), Text::line(label)).into()
 }
 
 /// A line the user sent from the composer: a command opens its screen, asks

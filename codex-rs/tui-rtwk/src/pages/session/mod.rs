@@ -5,7 +5,9 @@
 //! directories (bar their test files) needs an edit when it grows.
 
 mod actions;
+mod activity;
 pub mod backtrack;
+mod blossom;
 pub mod cells;
 pub mod composer;
 mod keys;
@@ -14,7 +16,10 @@ pub mod popovers;
 mod popup;
 mod search_key;
 mod session_page;
+mod status_surfaces;
 pub mod transcript;
+mod transcript_pane;
+mod window_title;
 
 use rtwk::navigation::PageRoute;
 use rtwk::widgets::Text;

@@ -423,3 +423,108 @@ fn reconnect_reattaches_the_active_thread_and_ignores_the_lost_rpc() {
     assert_eq!(app.session().active, Some(ThreadId::new(A)));
     assert!(open(&mut app, A).commands().is_empty(), "writer reattached");
 }
+
+#[test]
+fn chat_plan_is_scoped_to_the_running_turn_and_resume_installs_metadata() {
+    let mut app = app_with_a_and_b();
+    let first = open(&mut app, B);
+    answer_resume(&mut app, resume_ticket(&first, B).expect("resume"), B);
+    assert_eq!(
+        app.active_thread().screen_slots().chat.name.as_deref(),
+        Some(B)
+    );
+    note(&mut app, turn_started(B, "new"));
+    for (turn, step) in [("new", "current step"), ("old", "stale step")] {
+        let notification = serde_json::from_value(json!({
+            "method": "turn/plan/updated",
+            "params": {"threadId": B, "turnId": turn, "explanation": null,
+                "plan": [{"step": step, "status": "inProgress"}]}
+        }))
+        .expect("plan notification");
+        note(&mut app, BackendEv::Notification(Box::new(notification)));
+    }
+    let model = app.active_thread();
+    let chat = &model.screen_slots().chat;
+    assert_eq!(chat.step.as_deref(), Some("current step"));
+    assert_eq!(chat.progress, Some((0, 1)));
+}
+
+#[test]
+fn a_duplicate_turn_completion_produces_no_second_desktop_notice() {
+    use codex_tui_core::screens::chat::{Ev, NoticeKind, NotificationPolicy, StatusFacts};
+
+    let mut app = app_with_a_and_b();
+    send(
+        &mut app,
+        AppEv::Screen(ScreenEv::Chat(Ev::Status(Box::new(StatusFacts {
+            notification_policy: NotificationPolicy {
+                enabled: true,
+                always: false,
+                kinds: Some(vec!["agent-turn-complete".to_string()]),
+            },
+            ..StatusFacts::default()
+        })))),
+    );
+    note(&mut app, turn_started(A, "live"));
+    let mut first = send(&mut app, AppEv::Backend(turn_completed(A, "live")));
+    assert_eq!(
+        first.take_desktop_notice().expect("notice").kind,
+        NoticeKind::TurnComplete
+    );
+    let mut duplicate = send(&mut app, AppEv::Backend(turn_completed(A, "live")));
+    assert!(duplicate.take_desktop_notice().is_none());
+}
+
+#[test]
+fn scrolling_older_history_uses_one_request_per_cursor() {
+    let mut app = app_with_a_and_b();
+    let first = open(&mut app, B);
+    let resumed = Reply::screen(ScreenReply::Agents(AgentsReply::Resumed(Box::new(thread(
+        B,
+    )))));
+    let first_page = send(
+        &mut app,
+        AppEv::Reply(resume_ticket(&first, B).expect("resume"), resumed),
+    );
+    let history = |fx: &AppFx| {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Screen {
+                    ticket,
+                    command:
+                        codex_tui_core::screens::ScreenCommand::Agents(
+                            codex_tui_core::screens::agents::Command::Thread(ThreadAsk::History {
+                                thread,
+                                cursor,
+                            }),
+                        ),
+                    ..
+                } if thread == B => Some((*ticket, cursor.clone())),
+                _ => None,
+            })
+            .expect("history request")
+    };
+    let page = |ticket, next| {
+        AppEv::Reply(
+            ticket,
+            Reply::screen(ScreenReply::Agents(AgentsReply::History {
+                turns: Vec::new(),
+                next: Some(next),
+            })),
+        )
+    };
+    let (ticket, cursor) = history(&first_page);
+    assert_eq!(cursor, None);
+    send(&mut app, page(ticket, "older".into()));
+
+    let scroll = || AppEv::Intent(Intent::LoadOlderHistory(ThreadId::new(B)));
+    let second_page = send(&mut app, scroll());
+    let (ticket, cursor) = history(&second_page);
+    assert_eq!(cursor.as_deref(), Some("older"));
+    assert!(send(&mut app, scroll()).commands().is_empty());
+
+    // A faulty backend repeating its cursor must not create an endless loop.
+    send(&mut app, page(ticket, "older".into()));
+    assert!(send(&mut app, scroll()).commands().is_empty());
+}

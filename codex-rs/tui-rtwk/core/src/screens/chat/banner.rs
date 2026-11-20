@@ -1,0 +1,207 @@
+//! Account usage banners as data. The account read is authoritative; sparse
+//! rate-limit notifications never replace a banner occurrence.
+
+use codex_protocol::account::PlanType;
+use serde::Deserialize;
+
+use crate::ids::Ticket;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct Banner {
+    banner_type: String,
+    title: String,
+    description: String,
+    ctas: Vec<Cta>,
+    reset_at: Option<i64>,
+    model_slug: Option<String>,
+    blocked_model_slug: Option<String>,
+    #[serde(default)]
+    fallback_model_slugs: Vec<String>,
+    #[serde(default)]
+    presentation: Presentation,
+    #[serde(skip)]
+    account_id: Option<String>,
+    #[serde(skip)]
+    plan_type: Option<PlanType>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum Presentation {
+    #[default]
+    Inline,
+    Dismissible,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+struct Cta {
+    action: String,
+    label: String,
+}
+
+impl Banner {
+    pub(crate) fn parse(
+        raw: serde_json::Value,
+        account_id: Option<String>,
+        plan_type: Option<PlanType>,
+    ) -> Option<Self> {
+        let mut banner: Self = serde_json::from_value(raw).ok()?;
+        let bounded_slug = |value: &str| {
+            !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+        };
+        if banner.title.trim().is_empty()
+            || banner.title.len() > 1024
+            || banner.description.len() > 4096
+            || banner.title.lines().count() > 3
+            || banner.description.lines().count() > 12
+            || banner.title.chars().chain(banner.description.chars())
+                .any(|ch| ch.is_control() && ch != '\n')
+            || banner.ctas.len() > 8
+            || banner.fallback_model_slugs.len() > 16
+            || !banner.fallback_model_slugs.iter().all(|slug| bounded_slug(slug))
+            || !banner.blocked_model_slug.as_deref().is_none_or(bounded_slug)
+            || !banner.model_slug.as_deref().is_none_or(bounded_slug)
+        {
+            return None;
+        }
+        banner.account_id = account_id;
+        banner.plan_type = plan_type;
+        Some(banner)
+    }
+
+    pub(crate) fn same_occurrence(&self, next: &Self) -> bool {
+        self.account_id == next.account_id
+            && self.banner_type == next.banner_type
+            && self.reset_at == next.reset_at
+            && self.presentation == next.presentation
+            && self.blocked_model_slug.as_ref().or(self.model_slug.as_ref())
+                == next.blocked_model_slug.as_ref().or(next.model_slug.as_ref())
+            && self.fallback_model_slugs == next.fallback_model_slugs
+    }
+
+    pub fn visible_for(&self, model: Option<&str>) -> bool {
+        if self.banner_type == "luna_reserve" {
+            return true;
+        }
+        match self.blocked_model_slug.as_deref() {
+            Some(blocked) if !self.fallback_model_slugs.is_empty() => model.is_some_and(|model| {
+                model != blocked && self.fallback_model_slugs.iter().any(|slug| slug == model)
+            }),
+            _ => self.model_slug.as_deref().is_none_or(|slug| Some(slug) == model),
+        }
+    }
+
+    pub fn reserve_pending(&self, model: Option<&str>) -> bool {
+        self.banner_type == "luna_reserve" && model != Some("gpt-reserve")
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn links(&self) -> impl Iterator<Item = (&str, String)> + '_ {
+        self.ctas.iter().filter_map(move |cta| {
+            let label = cta.label.trim();
+            if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) {
+                return None;
+            }
+            Some((label, self.destination(&cta.action)?))
+        })
+    }
+
+    fn destination(&self, action: &str) -> Option<String> {
+        let destination = match action {
+            "add_credits" | "buy_credits" if self.plan_type.is_some_and(PlanType::is_workspace_account) => {
+                "https://chatgpt.com/admin/billing?codex_credit_action=add_credits"
+            }
+            "add_credits" | "buy_credits" => "https://chatgpt.com/settings/usage?credits_modal=true",
+            "buy_reset" => "https://chatgpt.com/codex/purchase/reset",
+            "view_usage" | "request_increase_usage_settings" => "https://chatgpt.com/settings/usage",
+            "view_workspace_usage" | "increase_spend_cap" => "https://chatgpt.com/admin/usage-limits/workspace",
+            "open_plus_pricing_web" => "https://chatgpt.com/explore/plus",
+            "open_pro_pricing_web" => "https://chatgpt.com/explore/pro",
+            "open_pricing_dialog" => match self.plan_type {
+                Some(PlanType::ProLite) => "https://chatgpt.com/?cta_tab=personal&highlight_plan=pro&pro_variant=2x#pricing",
+                Some(PlanType::Plus) => "https://chatgpt.com/?cta_tab=personal&highlight_plan=pro#pricing",
+                _ => "https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing",
+            },
+            _ => return None,
+        };
+        if destination.starts_with("https://chatgpt.com/admin/") {
+            let id = self.account_id.as_deref().filter(|id| {
+                !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            })?;
+            let query = if destination.contains('?') { '&' } else { '?' };
+            Some([destination, &query.to_string(), "account_id=", id].concat())
+        } else {
+            Some(destination.to_string())
+        }
+    }
+}
+
+/// A generation minted by the reducer ties a dismissal to the shown occurrence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannerOccurrence {
+    pub banner: Banner,
+    pub ticket: Ticket,
+    dismissed: bool,
+}
+
+impl BannerOccurrence {
+    pub(crate) fn new(banner: Banner, ticket: Ticket) -> Self {
+        Self { banner, ticket, dismissed: false }
+    }
+
+    pub fn is_visible(&self, model: Option<&str>) -> bool {
+        !self.dismissed && self.banner.visible_for(model)
+    }
+
+    pub fn is_dismissible(&self) -> bool {
+        self.banner.presentation == Presentation::Dismissible
+    }
+
+    pub(crate) fn dismiss(&mut self, ticket: Ticket) {
+        if self.ticket == ticket && self.is_dismissible() {
+            self.dismissed = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::ids::TicketMint;
+
+    #[test]
+    fn banner_dismissal_is_bound_to_its_occurrence() {
+        let payload = json!({
+            "banner_type": "credits",
+            "title": "Usage limit",
+            "description": "Add credits.",
+            "ctas": [{"action": "view_usage", "label": "Usage"}],
+            "presentation": "dismissible",
+            "reset_at": 42
+        });
+        let Some(banner) = Banner::parse(payload.clone(), Some("account-A".to_string()), None) else {
+            panic!("valid banner");
+        };
+        let Some(other_account) = Banner::parse(payload, Some("account-B".to_string()), None) else {
+            panic!("valid banner");
+        };
+        assert!(!banner.same_occurrence(&other_account));
+        assert_eq!(banner.links().collect::<Vec<_>>(), [("Usage", "https://chatgpt.com/settings/usage".to_string())]);
+        let mut mint = TicketMint::default();
+        let ticket = mint.next();
+        let mut occurrence = BannerOccurrence::new(banner, ticket);
+        occurrence.dismiss(mint.next());
+        assert!(occurrence.is_visible(None));
+        occurrence.dismiss(ticket);
+        assert!(!occurrence.is_visible(None));
+    }
+}

@@ -22,7 +22,21 @@ pub struct Chat {
     pub placeholder: &'static str,
     pub starting: &'static str,
     pub working: &'static str,
+    pub reconnecting: &'static str,
+    pub thinking: &'static str,
+    pub action_required: &'static str,
+    pub compacting: &'static str,
+    pub interrupt_elapsed: Msg<1>,
+    pub backtrack_hint: &'static str,
+    pub queue_hint: &'static str,
     pub ready: &'static str,
+    pub model_fast: Msg<2>,
+    pub tasks_progress: Msg<2>,
+    pub context_remaining: Msg<1>,
+    pub context_used: Msg<1>,
+    pub quota_remaining: Msg<2>,
+    pub usage_limit_title: &'static str,
+    pub usage_limit_detail: &'static str,
     pub turn_failed: &'static str,
     /// The backend stopped (`Failure::Stopped`).
     pub server_stopped: &'static str,
@@ -33,6 +47,7 @@ pub struct Chat {
     pub error: Msg<1>,
     pub lagged: Msg<1>,
     pub queued: Msg<1>,
+    pub queued_more: Msg<1>,
     pub user_line: Msg<1>,
     pub agent_line: Msg<1>,
 }
@@ -93,7 +108,21 @@ pub const EN: Shared = Shared {
         placeholder: "Ask Codex to do anything",
         starting: "starting…",
         working: "working…",
+        reconnecting: "Reconnecting…",
+        thinking: "thinking…",
+        action_required: "[ ! ] Action Required",
+        compacting: "Compacting context",
+        interrupt_elapsed: msg!("({0} • Esc to interrupt)"),
+        backtrack_hint: "Esc again to edit the previous message",
+        queue_hint: "Tab to queue message",
         ready: "ready",
+        model_fast: msg!("{0} {1} fast"),
+        tasks_progress: msg!("Tasks {0}/{1}"),
+        context_remaining: msg!("Context {0}% left"),
+        context_used: msg!("Context {0}% used"),
+        quota_remaining: msg!("{0} {1}% left"),
+        usage_limit_title: "Usage limit reached",
+        usage_limit_detail: "Your included usage is exhausted. Choose an option below to continue.",
         turn_failed: "error: the turn failed",
         server_stopped: "error: the app-server stopped",
         reply_mismatch: "error: a reply of another screen",
@@ -101,6 +130,7 @@ pub const EN: Shared = Shared {
         error: msg!("error: {0}"),
         lagged: msg!("error: the backend dropped {0} events"),
         queued: msg!("(queued) {0}"),
+        queued_more: msg!("… and {0} more"),
         user_line: msg!("› {0}"),
         agent_line: msg!("• {0}"),
     },
@@ -133,7 +163,22 @@ pub const RU: Shared = Shared {
     chat: Chat {
         placeholder: "Спросите Codex о чём угодно",
         working: "работаю…",
+        reconnecting: "Переподключение…",
+        thinking: "размышляю…",
+        action_required: "[ ! ] Требуется действие",
+        compacting: "Сжатие контекста",
+        interrupt_elapsed: msg!("({0} • Esc — прервать)"),
+        backtrack_hint: "Нажмите Esc ещё раз, чтобы изменить предыдущее сообщение",
+        queue_hint: "Tab — поставить сообщение в очередь",
+        queued_more: msg!("… и ещё {0}"),
         ready: "готово",
+        model_fast: msg!("{0} {1} быстро"),
+        tasks_progress: msg!("Задачи {0}/{1}"),
+        context_remaining: msg!("Осталось {0}% контекста"),
+        context_used: msg!("Использовано {0}% контекста"),
+        quota_remaining: msg!("{0} осталось {1}%"),
+        usage_limit_title: "Достигнут лимит использования",
+        usage_limit_detail: "Доступный лимит исчерпан. Выберите действие ниже, чтобы продолжить.",
         ..EN.chat
     },
     ..EN
@@ -147,6 +192,10 @@ pub fn of(cx: &mut impl DependCx) -> &'static Shared {
 }
 
 impl Shared {
+    pub fn interrupt_elapsed<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.chat.interrupt_elapsed, [Arg::Text(elapsed)], &self.num)
+    }
+
     pub fn error<'a>(&'a self, message: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.chat.error, [Arg::Text(message)], &self.num)
     }
@@ -161,6 +210,10 @@ impl Shared {
 
     pub fn queued<'a>(&'a self, text: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.chat.queued, [Arg::Text(text)], &self.num)
+    }
+
+    pub(crate) fn more_queued(&self, count: usize) -> String {
+        Fmt::new(self.chat.queued_more, [Arg::Int(count as u64)], &self.num).to_string()
     }
 
     pub fn user_line<'a>(&'a self, text: &'a str) -> Fmt<'a, 1> {
@@ -191,4 +244,43 @@ impl Shared {
 /// The table of `lang` itself, for code with no tree (tests, the host).
 pub fn for_lang(lang: Lang) -> &'static Shared {
     TABLES.pick(lang)
+}
+
+impl Shared {
+    pub(crate) fn status_model_fast(&self, model: &str, effort: &str) -> String {
+        Fmt::new(
+            self.chat.model_fast,
+            [Arg::Text(model), Arg::Text(effort)],
+            &self.num,
+        )
+        .to_string()
+    }
+
+    pub(crate) fn status_progress(&self, done: usize, total: usize) -> String {
+        Fmt::new(
+            self.chat.tasks_progress,
+            [Arg::Int(done as u64), Arg::Int(total as u64)],
+            &self.num,
+        )
+        .to_string()
+    }
+
+    pub(crate) fn status_context(&self, left: i64, show_used: bool) -> String {
+        let left = left.clamp(0, 100) as u64;
+        let (message, percent) = if show_used {
+            (self.chat.context_used, 100 - left)
+        } else {
+            (self.chat.context_remaining, left)
+        };
+        Fmt::new(message, [Arg::Int(percent)], &self.num).to_string()
+    }
+
+    pub(crate) fn status_quota(&self, label: &str, percent: u64) -> String {
+        Fmt::new(
+            self.chat.quota_remaining,
+            [Arg::Text(label), Arg::Int(percent)],
+            &self.num,
+        )
+        .to_string()
+    }
 }

@@ -446,3 +446,86 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
             if thread.as_str() == FAKE_THREAD && turn.as_str() == "turn-1")
     }));
 }
+
+#[test]
+fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
+    let mut h = start_quittable(false);
+    h.wait_for("ready", |s| s.contains("ready"));
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
+    h.t.type_text("one");
+    h.press("enter");
+    h.wait_for("running indicator", |s| s.contains("Esc to interrupt"));
+    h.t.pump_for(crate::common::ms(1100));
+    assert!(h.t.screen().contains("1s"), "{}", h.t.screen());
+
+    h.t.type_text("two");
+    h.wait_for("queue hint", |s| s.contains("Tab to queue message"));
+    h.press("tab");
+    h.wait_for("queued message", |s| s.contains("(queued) two"));
+    h.press("ctrl+c");
+    let fake = h.fake.clone();
+    h.wait_for("interrupt request", |_| {
+        fake.commands().iter().any(|command| {
+        matches!(command, Command::InterruptTurn { turn, .. } if turn.as_str() == "turn-1")
+    })
+    });
+    assert!(h.t.is_running());
+}
+
+#[test]
+fn streaming_markdown_fits_inside_the_transcript_viewport() {
+    let mut h = start_sized(false, 48, 12);
+    h.wait_for("ready", |s| s.contains("ready"));
+    let body = "# Start\n\n".to_owned()
+        + &(1..=28)
+            .map(|n| format!("paragraph {n}\n\n"))
+            .collect::<String>();
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", &body)]);
+    h.t.type_text("make a list");
+    h.press("enter");
+    h.wait_for("last paragraph", |s| s.contains("paragraph 28"));
+    assert!(h.t.screen().contains("Ask Codex to do anything"));
+
+    // Scroll the transcript backwards and keep reading the same area as more
+    // Markdown arrives. The composer is outside that viewport.
+    for _ in 0..4 {
+        h.t.input(b"\x1b[<64;12;5M");
+        h.t.pump_for(crate::common::ms(40));
+    }
+    let screen = h.t.screen();
+    assert!(!screen.contains("paragraph 28"), "{screen}");
+    assert!(screen.contains("Ask Codex to do anything"), "{screen}");
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_delta(FAKE_THREAD, "turn-1", "msg-1", "paragraph 29")),
+    );
+    h.settle();
+    assert!(!h.t.screen().contains("paragraph 29"), "{}", h.t.screen());
+}
+
+#[test]
+fn empty_blossom_is_visible_only_without_a_draft() {
+    use codex_tui_core::screens::{ScreenEv, chat};
+
+    let mut h = start_sized(false, 80, 30);
+    h.wait_for("ready", |s| s.contains("ready"));
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                empty_state: true,
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    let blossom = |s: &str| s.chars().any(|ch| ('⠁'..='⣿').contains(&ch));
+    h.wait_for("blossom", blossom);
+    h.t.type_text("draft");
+    h.wait_for("draft without blossom", |s| {
+        s.contains("draft") && !blossom(s)
+    });
+}

@@ -54,12 +54,58 @@ impl Tokens {
         self.0.success.clone()
     }
 
+    pub(crate) fn shimmer_colors(&self) -> Option<(Color, Color)> {
+        let base = self.0.accent.fg.filter(|color| color.is_rgb())?;
+        let highlight = self.0.text.fg.filter(|color| color.is_rgb())?;
+        Some((base, highlight))
+    }
+
+    pub(crate) fn blossom_palette(&self) -> BlossomPalette {
+        let channels = |color: Color| (color.r(), color.g(), color.b());
+        BlossomPalette {
+            background: self
+                .0
+                .background
+                .bg
+                .filter(|color| color.is_rgb())
+                .map_or((15, 20, 37), channels),
+            foreground: self
+                .0
+                .text
+                .fg
+                .filter(|color| color.is_rgb())
+                .map_or((210, 221, 235), channels),
+        }
+    }
+
     pub fn selected(&self) -> Style {
         self.0.accent.clone().attrs(Attrs::BOLD)
     }
 
     pub fn error(&self) -> Style {
         self.0.error.clone()
+    }
+}
+
+pub(crate) fn shimmer_style(style: &Style, base: Color, highlight: Color, strength: f64) -> Style {
+    style.clone().fg(Color::lerp(base, highlight, strength))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BlossomPalette {
+    pub background: (u8, u8, u8),
+    pub foreground: (u8, u8, u8),
+}
+
+impl BlossomPalette {
+    pub(crate) fn style(self, pixel: (u8, u8, u8), opacity: f64) -> Style {
+        let (br, bg, bb) = self.background;
+        let (r, g, b) = pixel;
+        Style::new().fg(Color::lerp(
+            Color::rgb(br, bg, bb),
+            Color::rgb(r, g, b),
+            opacity,
+        ))
     }
 }
 

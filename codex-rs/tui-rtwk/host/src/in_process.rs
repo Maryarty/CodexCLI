@@ -283,7 +283,7 @@ async fn run(
     emit(
         &ingress,
         epoch,
-        AppEv::Screen(ScreenEv::Chat(ChatEv::Status(status))),
+        AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status)))),
     );
     if !warnings.is_empty() {
         emit(

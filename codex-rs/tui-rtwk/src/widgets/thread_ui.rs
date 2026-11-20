@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use rtwk::editing::TextEditingController;
+use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
 
@@ -13,6 +14,7 @@ use codex_tui_core::ids::ThreadId;
 #[derive(Clone, Default, PartialEq)]
 pub struct ThreadUi {
     pub composer: TextEditingController,
+    pub transcript: ListController,
 }
 
 /// The controllers of every thread, and of the blank "no thread yet" one.

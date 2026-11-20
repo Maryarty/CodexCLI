@@ -37,6 +37,7 @@ use crate::screens::ScreenEv;
 use crate::screens::ScreenIntent;
 use crate::screens::ScreenReply;
 use crate::screens::ScreenStates;
+use crate::screens::ScreenThreadEv;
 use crate::screens::ScreenThreadIntent;
 use crate::screens::agents;
 use crate::screens::approvals;
@@ -80,6 +81,7 @@ pub struct SessionSlice {
     pub rate_limits: BTreeMap<BackendId, status::RateLimits>,
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
+    pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +160,10 @@ pub enum Intent {
     },
     /// Reject an unanswered request.
     DismissRequest(RequestKey),
+    DismissBackendBanner {
+        backend: BackendId,
+        ticket: Ticket,
+    },
     AnswerRequest {
         key: RequestKey,
         answer: approvals::RequestAnswer,
@@ -174,6 +180,7 @@ pub enum Intent {
     /// thread (ADR-003). A thread this process holds is shown again as it
     /// is; any other is resumed once, by `apply_app` alone.
     OpenThread(ThreadId),
+    LoadOlderHistory(ThreadId),
     Screen(ScreenIntent),
 }
 
@@ -281,9 +288,14 @@ pub struct AppFx {
     /// The app cannot go on: the connection did not start (the oracle ends
     /// with the error, `run_main_inner` returning it).
     pub(crate) ends: bool,
+    pub(crate) desktop_notice: Option<chat::DesktopNotice>,
 }
 
 impl AppFx {
+    pub fn take_desktop_notice(&mut self) -> Option<chat::DesktopNotice> {
+        self.desktop_notice.take()
+    }
+
     /// The commands, taken: what the shell runs.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
@@ -367,6 +379,7 @@ impl CodexApp {
                 rate_limits: BTreeMap::new(),
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
+                backend_banners: BTreeMap::new(),
             }),
             threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
@@ -654,7 +667,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             .insert(origin, connection);
     }
     match ev {
-        AppEv::Connected if origin != BackendId::default() => {}
+        AppEv::Connected if origin != BackendId::default() => {
+            if app.screens.chat.status.account_usage {
+                refresh_rates(app, origin, fx);
+            }
+        }
         AppEv::Connected if !app.start_thread_on_connect => {
             Rc::make_mut(&mut app.session).status = Session::Ready;
         }
@@ -673,6 +690,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Disconnected => {
             app.reset_requests(origin);
+            Rc::make_mut(&mut app.session)
+                .backend_banners
+                .remove(&origin);
             detach_threads(app, origin, fx);
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
@@ -686,6 +706,13 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         |ctx| !matches!(ctx, AppCtx::RateLimits { backend } if *backend == origin),
                     );
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    if app.screens.chat.status.account_usage
+                        && (note.rate_limits.rate_limit_reached_type.is_some()
+                            || note.rate_limits.spend_control_reached == Some(true)
+                            || app.session.backend_banners.contains_key(&origin))
+                    {
+                        refresh_rates(app, origin, fx);
+                    }
                     return;
                 }
                 ServerNotification::Warning(note) if note.thread_id.is_none() => {
@@ -735,6 +762,22 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     }
                 }
             }
+            if let ServerNotification::TurnCompleted(note) = &*notification
+                && note.turn.status == codex_app_server_protocol::TurnStatus::Completed
+                && app.screens.chat.status.notification_policy.allows(chat::NoticeKind::TurnComplete.config_id())
+                && app.threads.get(&ThreadId::new(&note.thread_id)).is_some_and(|model| {
+                    matches!(model.turn(), TurnState::Running(running) if running.turn.as_str() == note.turn.id)
+                })
+            {
+                let preview = note.turn.item_payloads().rev().find_map(|item| {
+                    if let codex_app_server_protocol::ThreadItemPayload::AgentMessage { text, .. } = item {
+                        text.lines().find(|line| !line.trim().is_empty()).map(str::to_owned)
+                    } else {
+                        None
+                    }
+                });
+                fx.desktop_notice = Some(chat::DesktopNotice { kind: chat::NoticeKind::TurnComplete, preview });
+            }
             let listed = matches!(&*notification, ServerNotification::ReasoningSummaryTextDelta(delta)
                 if app.screens.agents.threads.iter().any(|thread| thread.id == delta.thread_id));
             app.threads.previews_mut().observe(&notification, listed);
@@ -761,12 +804,42 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             let (method, thread) = targets::request_target(&request);
             let key = targets::request_key(origin, app.request_epoch(origin), thread, request.id());
             if !app.requests.contains(&key) {
+                let preview = agents::request_preview(&request);
+                let kind = match &*request {
+                    ServerRequest::CommandExecutionRequestApproval { .. } => {
+                        Some(chat::NoticeKind::CommandApproval)
+                    }
+                    ServerRequest::FileChangeRequestApproval { .. } => {
+                        Some(chat::NoticeKind::EditApproval)
+                    }
+                    ServerRequest::PermissionsRequestApproval { .. } => {
+                        Some(chat::NoticeKind::CommandApproval)
+                    }
+                    ServerRequest::McpServerElicitationRequest { .. } => {
+                        Some(chat::NoticeKind::Elicitation)
+                    }
+                    ServerRequest::ToolRequestUserInput { .. } => Some(chat::NoticeKind::Question),
+                    _ => None,
+                };
+                if let Some(kind) = kind
+                    && app
+                        .screens
+                        .chat
+                        .status
+                        .notification_policy
+                        .allows(kind.config_id())
+                {
+                    fx.desktop_notice = Some(chat::DesktopNotice {
+                        kind,
+                        preview: preview.clone(),
+                    });
+                }
                 Rc::make_mut(&mut app.requests)
                     .entries
                     .push(PendingRequest {
                         key,
                         method,
-                        preview: agents::request_preview(&request),
+                        preview,
                         prompt: approvals::prompt_of(&request).map(|entry| Rc::new(entry.prompt)),
                         request: Rc::from(request),
                     });
@@ -798,6 +871,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Intent(intent) => apply_intent(app, intent, fx),
         AppEv::Screen(ev) => {
             match &ev {
+                ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
+                    refresh_rates(app, active_backend(app), fx);
+                }
                 ScreenEv::Agents(agents::Ev::Current(id)) => {
                     if let Some(id) = id {
                         app.threads.open(id, Origin::Resumed);
@@ -811,11 +887,23 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     app.threads.previews_mut().clear();
                     if matches!(ev, ScreenEv::Agents(agents::Ev::Reconnecting)) {
                         app.reset_requests(origin);
+                        Rc::make_mut(&mut app.session)
+                            .backend_banners
+                            .remove(&origin);
                         detach_threads(app, origin, fx);
                         app.attaching_events
                             .retain(|(backend, ..)| *backend != origin);
-                        app.outgoing.retain(|ctx| !matches!(ctx,
-                            AppCtx::Worktree { backend, .. } | AppCtx::OpenThread { backend, .. } | AppCtx::NewConversation { backend, .. } | AppCtx::RateLimits { backend } if *backend == origin));
+                        let owners = &app.screens.agents;
+                        app.outgoing.retain(|ctx| match ctx {
+                            AppCtx::Worktree { backend, .. }
+                            | AppCtx::OpenThread { backend, .. }
+                            | AppCtx::NewConversation { backend, .. }
+                            | AppCtx::RateLimits { backend } => *backend != origin,
+                            AppCtx::Agents(agents::Ctx::History { thread }) => {
+                                owners.owner_of(thread) != origin
+                            }
+                            _ => true,
+                        });
                         if !app.outgoing.any(|ctx| {
                             matches!(
                                 ctx,
@@ -834,6 +922,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
             if reconnected {
+                if app.screens.chat.status.account_usage {
+                    refresh_rates(app, origin, fx);
+                }
                 if let Some(id) = app.session.active.clone()
                     && app.screens.agents.owner_of(id.as_str()) == origin
                 {
@@ -880,8 +971,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             }
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
-                if let Answer::RateLimits(limits) = answer {
+                if let Answer::RateLimits { limits, banner } = answer {
                     install_rates(app, backend, limits);
+                    install_banner(app, backend, banner.map(|banner| *banner));
                 }
             }
             AppCtx::NewConversation {
@@ -890,16 +982,23 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 name,
             } => {
                 let result = match answer {
-                    Answer::ThreadStarted { thread } => Ok(thread),
+                    Answer::ThreadStarted { thread } => Ok((thread, None)),
                     Answer::Screen(ScreenReply::Agents(agents::Reply::Forked(thread))) => {
-                        Ok(ThreadId::new(thread.id))
+                        Ok((ThreadId::new(&thread.id), Some(thread)))
                     }
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };
                 match result {
-                    Ok(thread) => {
-                        attach_thread(app, &thread, backend, Origin::Started, fx);
+                    Ok((thread, details)) => {
+                        attach_thread_with_metadata(
+                            app,
+                            &thread,
+                            backend,
+                            Origin::Started,
+                            details.as_deref(),
+                            fx,
+                        );
                         if let Some(name) = name {
                             apply_thread(
                                 app,
@@ -939,7 +1038,14 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 if let Answer::Screen(ScreenReply::Agents(agents::Reply::Resumed(resumed))) = answer
                 {
                     let backend = app.screens.agents.owner_of(thread.as_str());
-                    attach_thread(app, &thread, backend, Origin::Resumed, fx);
+                    attach_thread_with_metadata(
+                        app,
+                        &thread,
+                        backend,
+                        Origin::Resumed,
+                        Some(&resumed),
+                        fx,
+                    );
                     apply_thread(
                         app,
                         &thread,
@@ -963,6 +1069,14 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
 
 fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
     match intent {
+        Intent::DismissBackendBanner { backend, ticket } => {
+            if let Some(banner) = Rc::make_mut(&mut app.session)
+                .backend_banners
+                .get_mut(&backend)
+            {
+                banner.dismiss(ticket);
+            }
+        }
         Intent::Submit { thread, text } => {
             let target = thread.or_else(|| app.session.active.clone());
             match target {
@@ -1039,6 +1153,19 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             let outs = agents::update(&mut screens.agents, intent);
             send_agents(app, outs, fx);
         }
+        Intent::LoadOlderHistory(id) => {
+            if let Some(cursor) = app
+                .threads
+                .get(&id)
+                .and_then(|thread| thread.history_cursor())
+                && !app.outgoing.any(|ctx| {
+                    matches!(ctx,
+                    AppCtx::Agents(agents::Ctx::History { thread }) if thread == id.as_str())
+                })
+            {
+                request_history(app, &id, Some(cursor.to_owned()), fx);
+            }
+        }
         Intent::OpenThread(id) => open_thread(app, &id, fx),
         Intent::Screen(ScreenIntent::Resume(intent)) => resume_picker(app, intent, fx),
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
@@ -1060,6 +1187,24 @@ fn install_rates(app: &mut CodexApp, backend: BackendId, limits: status::RateLim
     Rc::make_mut(&mut app.session)
         .rate_limits
         .insert(backend, limits);
+}
+
+fn install_banner(app: &mut CodexApp, backend: BackendId, banner: Option<chat::Banner>) {
+    let banners = &mut Rc::make_mut(&mut app.session).backend_banners;
+    let Some(banner) = banner else {
+        banners.remove(&backend);
+        return;
+    };
+    if let Some(current) = banners.get_mut(&backend)
+        && current.banner.same_occurrence(&banner)
+    {
+        current.banner = banner;
+    } else {
+        banners.insert(
+            backend,
+            chat::BannerOccurrence::new(banner, app.mint.next()),
+        );
+    }
 }
 
 fn remove_request(app: &mut CodexApp, key: &RequestKey) {
@@ -1167,12 +1312,16 @@ fn set_open_cancelled(app: &mut CodexApp, id: &ThreadId, value: bool) -> bool {
 }
 
 fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
+    request_history(app, id, None, fx);
+}
+
+fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx: &mut AppFx) {
     send_agents(
         app,
         vec![agents::Out {
             command: agents::Command::Thread(ThreadAsk::History {
                 thread: id.to_string(),
-                cursor: None,
+                cursor,
             }),
             ctx: agents::Ctx::History {
                 thread: id.to_string(),
@@ -1245,7 +1394,7 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     {
         let id = ThreadId::new(&thread.id);
         let backend = app.screens.agents.owner_of(id.as_str());
-        attach_thread(app, &id, backend, Origin::Resumed, fx);
+        attach_thread_with_metadata(app, &id, backend, Origin::Resumed, Some(thread), fx);
         show_held_thread(app, id.clone());
         apply_thread(app, &id, threads::history_page(&thread.turns, None), fx);
     }
@@ -1368,7 +1517,26 @@ fn attach_thread(
     origin: Origin,
     fx: &mut AppFx,
 ) {
+    attach_thread_with_metadata(app, thread, backend, origin, None, fx);
+}
+
+fn attach_thread_with_metadata(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    backend: BackendId,
+    origin: Origin,
+    details: Option<&codex_app_server_protocol::Thread>,
+    fx: &mut AppFx,
+) {
     app.threads.open(thread, origin);
+    if let Some(details) = details {
+        apply_thread(
+            app,
+            thread,
+            ThreadEv::Screen(ScreenThreadEv::Chat(chat::metadata(details))),
+            fx,
+        );
+    }
     Rc::make_mut(&mut app.screens)
         .agents
         .observe(backend, thread.as_str());

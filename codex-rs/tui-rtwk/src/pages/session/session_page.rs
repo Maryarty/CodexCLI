@@ -5,25 +5,26 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use rtwk::binding::TerminalTitle;
+use rtwk::controls::{Callout, Hyperlink, StatusKind};
 use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
-use rtwk::layout::SizedBox;
+use rtwk::layout::{Alignment, SizedBox, Stack};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::ListView;
 use rtwk::style::Theme;
+use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::MarkdownView;
+use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::{Session, SessionSlice};
+use codex_tui_core::app::{ConnectionState, RequestQueue, Session, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
-use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Failure, Item, ThreadModel};
+use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -39,7 +40,10 @@ use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::actions::*;
+use super::activity::Activity;
 use super::search_key::*;
+use super::status_surfaces::StatusContext;
+use super::transcript_pane::TranscriptPane;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]
@@ -63,6 +67,7 @@ pub struct ChatState {
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
+    draft_empty: bool,
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
@@ -70,10 +75,10 @@ pub struct ChatState {
     /// chords of `keymap/chords/leader_defaults.rs`).
     leader: Rc<Cell<bool>>,
     /// The backend control is visible, so its chord (`change_host`, `Ctrl+X
-    /// b`) is live; set by `build`, read by the key handler.
+    /// b`) is live; read by the key handler.
     control: Rc<Cell<bool>>,
     /// The composer of the thread the chat shows now (the page outlives a
-    /// switch of thread; `build` keeps this current for the key handler).
+    /// switch of thread; lifecycle updates keep the key handler current).
     composer: Rc<RefCell<TextEditingController>>,
 }
 
@@ -82,7 +87,10 @@ pub enum ChatMsg {
     /// `change_host`: the empty conversation moves to the next backend.
     Cycle,
     Submit(Rc<str>),
-    Quit,
+    QueueDraft,
+    CtrlC,
+    CtrlD,
+    DismissBanner(BackendId, Ticket),
     /// The hidden key: the debug menu over the chat.
     DebugMenu,
     /// A key action of the chat (`keys::defaults`).
@@ -108,6 +116,7 @@ impl StatefulWidget for Chat {
             seen: None,
             esc_primed: false,
             shortcuts: false,
+            draft_empty: self.ui.composer.text().is_empty(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
@@ -161,6 +170,15 @@ impl State for ChatState {
         })));
     }
 
+    fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
+        if old != w {
+            *self.composer.borrow_mut() = w.ui.composer.clone();
+            self.draft_empty = w.ui.composer.text().is_empty();
+            self.esc_primed = false;
+            self.leader.set(false);
+        }
+    }
+
     fn did_change_dependencies(&mut self, w: &Chat, cx: &mut Cx<'_, Self>) {
         // The composer clears when the model accepted (or queued) the
         // message, not when it was sent: a change of the last accepted
@@ -176,11 +194,31 @@ impl State for ChatState {
             w.ui.composer.clear();
         }
         self.seen = Some(now);
+        let states = watch::<ScreenStates, _>(cx);
+        let session = watch::<SessionSlice, _>(cx);
+        let thread = read::<ThreadModel, _>(cx);
+        select::<ThreadModel, _, _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread.turn().clone(),
+                thread.can_interrupt(),
+                thread.read_only(),
+                thread.transcript().is_empty(),
+                thread.queue().len(),
+                thread.last_error().cloned(),
+                thread.screen_slots().chat.clone(),
+                thread.screen_slots().status.clone(),
+            )
+        });
+        self.control.set(
+            session.cycle_label(&thread, &states.agents).is_some()
+                && states.popovers.search.is_none(),
+        );
     }
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
-        let overlay = self.shortcuts;
+        let previous = (self.shortcuts, self.esc_primed, self.draft_empty);
         if !matches!(msg, ChatMsg::Escape) {
             self.esc_primed = false;
         }
@@ -191,6 +229,12 @@ impl State for ChatState {
                     run_line(&text, w, cx, &hs);
                 }
             }
+            ChatMsg::QueueDraft => {
+                let draft = w.ui.composer.text();
+                if !draft.is_empty() {
+                    run_line(&draft, w, cx, &hs);
+                }
+            }
             ChatMsg::Picked(text) => {
                 // `Autocomplete::on_selected`: a command picked in the popup
                 // runs as the pick names it (the command clears the composer
@@ -199,14 +243,34 @@ impl State for ChatState {
                     run_line(&text, w, cx, &hs);
                 }
             }
-            ChatMsg::Quit => cx.emit(&hs.quit, ()),
+            ChatMsg::CtrlC => {
+                let thread = read::<ThreadModel, _>(cx);
+                if thread.can_interrupt() {
+                    cx.emit(&hs.interrupt, thread.id().clone());
+                } else {
+                    cx.emit(&hs.quit, ());
+                }
+            }
+            ChatMsg::CtrlD => {
+                if w.ui.composer.text().is_empty() {
+                    let thread = read::<ThreadModel, _>(cx);
+                    if !thread.is_running() {
+                        cx.emit(&hs.quit, ());
+                    }
+                }
+            }
             ChatMsg::Changed(text) => {
+                self.draft_empty = text.is_empty();
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
                 }
             }
-            ChatMsg::Cycle => cx.emit(&hs.cycle, ()),
+            ChatMsg::DismissBanner(backend, ticket) => {
+                cx.emit(&hs.dismiss_banner, (backend, ticket))
+            }
+            ChatMsg::Cycle if !self.shortcuts => cx.emit(&hs.cycle, ()),
+            ChatMsg::Cycle => {}
             ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
             ChatMsg::Agents => {
                 if w.ui.composer.text().is_empty() {
@@ -284,7 +348,7 @@ impl State for ChatState {
                 cx.emit(&hs.screen, ScreenIntent::from(intent));
             }
         }
-        if overlay == self.shortcuts {
+        if previous == (self.shortcuts, self.esc_primed, self.draft_empty) {
             Rebuild::No
         } else {
             Rebuild::Yes
@@ -293,32 +357,28 @@ impl State for ChatState {
 
     fn build(&self, w: &Chat, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let tokens = theme::Tokens::of(cx);
-        let thread = watch::<ThreadModel, _>(cx);
+        let thread = read::<ThreadModel, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
-        let rows = thread.clone();
         let strings = l10n::of(cx);
-        let row_tokens = tokens.clone();
-        let row_strings = strings;
-        let transcript = ListView::builder(thread.transcript().len(), move |index| {
-            match rows.transcript().get(index) {
-                Some((_, Item::User { text })) => {
-                    Text::new(row_strings.user_line(text).to_string())
-                        .style(row_tokens.bold())
-                        .into()
-                }
-                Some((_, Item::Agent { text })) => Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .spacing(1)
-                    .child(Text::new(row_strings.agent_line("").to_string()))
-                    .child(Expanded::new(
-                        1,
-                        MarkdownView::new(text.as_str()).hyperlinks(false),
-                    ))
-                    .into(),
-                None => AnyWidget::default(),
-            }
-        })
-        .stick_to_bottom(true);
+        let states = watch::<ScreenStates, _>(cx);
+        let backend = states.agents.owner_of(thread.id().as_str());
+        let connection = session.connections.get(&backend);
+        let slots = thread.screen_slots();
+        let facts = &states.chat.status;
+        let mut transcript = Stack::new()
+            .alignment(Alignment::CENTER)
+            .child(TranscriptPane(w.ui.transcript.clone()));
+        if facts.animations
+            && facts.empty_state
+            && self.draft_empty
+            && !self.shortcuts
+            && states.popovers.search.is_none()
+            && thread.transcript().is_empty()
+            && thread.last_submit().is_none()
+            && !thread.read_only()
+        {
+            transcript = transcript.child(super::blossom::welcome());
+        }
         // The session's failure first, then the thread's last one.
         let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
         let failure = match (
@@ -328,17 +388,52 @@ impl State for ChatState {
             (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
             _ => None,
         };
-        let status = match (failure, &session.status, thread.is_running()) {
-            (Some(failure), _, _) => {
-                Text::new(failure_text(strings, failure)).style(tokens.error())
-            }
-            (None, Session::Starting, _) => Text::new(strings.chat.starting).style(tokens.dim()),
-            (None, _, true) => Text::new(strings.chat.working).style(tokens.accent()),
-            (None, _, false) => Text::new(strings.chat.ready).style(tokens.dim()),
+        let running = match thread.turn() {
+            TurnState::Running(running) => Some(running),
+            TurnState::Idle => None,
+        };
+        let compacting = slots.chat.is_compacting();
+        let status: AnyWidget = if connection == Some(&ConnectionState::Reconnecting) {
+            Text::new(strings.chat.reconnecting)
+                .style(tokens.dim())
+                .into()
+        } else if let Some(failure) = failure {
+            Text::new(failure_text(strings, failure))
+                .style(tokens.error())
+                .into()
+        } else if session.status == Session::Starting {
+            Text::new(strings.chat.starting).style(tokens.dim()).into()
+        } else if running.is_some() || compacting {
+            let offset_seconds = running
+                .and_then(|running| running.started_at)
+                .filter(|started| *started > 0)
+                .map(|started| {
+                    u64::try_from(states.agents.now.saturating_sub(started)).unwrap_or(0)
+                })
+                .unwrap_or(0);
+            AnyWidget::from(Activity {
+                show_interrupt: thread.can_interrupt(),
+                spinner: facts.animations && facts.progress_effect,
+                shimmer: facts.animations && facts.shimmer_effect,
+                header: if compacting {
+                    strings.chat.compacting
+                } else if slots.chat.activity == chat::ActivityPhase::Thinking {
+                    strings.chat.thinking
+                } else {
+                    strings.chat.working
+                },
+                step: slots.chat.step.clone(),
+                offset_seconds,
+            })
+            .with_key(Key::value((
+                thread.id().clone(),
+                running.map(|running| running.turn.clone()),
+            )))
+        } else {
+            Text::new(strings.chat.ready).style(tokens.dim()).into()
         };
         let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
-        let states = watch::<ScreenStates, _>(cx);
         let search = states.popovers.search.clone();
         let (composer, footer): (AnyWidget, AnyWidget) = match &search {
             Some(search) => {
@@ -413,11 +508,23 @@ impl State for ChatState {
                     tokens.dim(),
                     " · ",
                 );
+                let hint = if self.esc_primed && !thread.transcript().is_empty() {
+                    Some(strings.chat.backtrack_hint)
+                } else if running.is_some() && !self.draft_empty {
+                    Some(strings.chat.queue_hint)
+                } else {
+                    None
+                };
                 let footer = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
                     Row::new()
                         .child(SizedBox::new(Some(2), None, None))
                         .child(Text::new(close).style(tokens.dim()))
+                        .into()
+                } else if let Some(hint) = hint {
+                    Row::new()
+                        .child(SizedBox::new(Some(2), None, None))
+                        .child(Text::line(hint).style(tokens.dim()))
                         .into()
                 } else {
                     Row::new()
@@ -453,8 +560,18 @@ impl State for ChatState {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
             .child(status);
-        for text in thread.queue() {
-            body = body.child(Text::new(strings.queued(text).to_string()).style(tokens.dim()));
+        const QUEUE_PREVIEW: usize = 3;
+        for text in thread.queue().iter().take(QUEUE_PREVIEW) {
+            body = body.child(
+                Text::new(strings.queued(text).to_string())
+                    .max_lines(Some(2))
+                    .overflow(TextOverflow::Ellipsis)
+                    .style(tokens.dim()),
+            );
+        }
+        let remaining = thread.queue().len().saturating_sub(QUEUE_PREVIEW);
+        if remaining > 0 {
+            body = body.child(Text::line(strings.more_queued(remaining)).style(tokens.dim()));
         }
         if let Some(notice) = &states.chat.notice {
             let notice = match notice {
@@ -474,19 +591,34 @@ impl State for ChatState {
         if self.shortcuts && search.is_none() {
             body = body.child(panel);
         }
-        // The configured status line, two cells in, under the composer.
-        // The items and their order are the config's, the texts the facts the
-        // host read (core `StatusFacts`); the ones that need the session
-        // (context, limits) have no value yet and are not drawn.
-        let facts = &states.chat.status;
-        let line = status_line(facts.items(), facts.colors, &tokens);
+        let run_state = if compacting {
+            "Compacting"
+        } else if running.is_some() {
+            match slots.chat.activity {
+                chat::ActivityPhase::Working => "Working",
+                chat::ActivityPhase::Thinking => "Thinking",
+            }
+        } else if connection == Some(&ConnectionState::Reconnecting) {
+            "Reconnecting"
+        } else if failure.is_some() {
+            "Error"
+        } else {
+            "Ready"
+        };
+        let context = StatusContext {
+            thread_id: session.active.as_ref(),
+            thread: Some(&slots.chat),
+            usage: Some(&slots.status),
+            rate_limits: session.rate_limits.get(&backend),
+            run_state: Some(run_state),
+            strings,
+        };
+        let line = status_line(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
             .cycle_label(&thread, &states.agents)
             .filter(|_| search.is_none() && !self.shortcuts);
-        self.control.set(control.is_some());
-        *self.composer.borrow_mut() = w.ui.composer.clone();
         let mut body = body;
         if let Some(label) = control {
             body = body.child(
@@ -498,7 +630,35 @@ impl State for ChatState {
                     .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
             );
         }
-        let backend = states.agents.owner_of(thread.id().as_str());
+        let active_model = slots.chat.model.as_deref().or(facts.model.as_deref());
+        if let Some(occurrence) = session
+            .backend_banners
+            .get(&backend)
+            .filter(|occurrence| occurrence.is_visible(active_model))
+        {
+            let banner = &occurrence.banner;
+            let (title, description) = if banner.reserve_pending(active_model) {
+                (
+                    strings.chat.usage_limit_title,
+                    strings.chat.usage_limit_detail,
+                )
+            } else {
+                (banner.title(), banner.description())
+            };
+            let mut callout = Callout::text(description.to_owned())
+                .title(title.to_owned())
+                .kind(StatusKind::Warning)
+                .actions(
+                    banner
+                        .links()
+                        .map(|(label, url)| Hyperlink::new(url).text(label.to_owned()).into()),
+                );
+            if occurrence.is_dismissible() {
+                let ticket = occurrence.ticket;
+                callout = callout.on_dismissed(cx.send(ChatMsg::DismissBanner(backend, ticket)));
+            }
+            body = body.child(AnyWidget::from(callout).with_key(Key::value(occurrence.ticket)));
+        }
         if let Some(notice) = session.backend_notices.get(&backend) {
             body = body.child(Text::new(notice.clone()).style(tokens.dim()));
         }
@@ -510,12 +670,53 @@ impl State for ChatState {
                     .child(Expanded::new(1, line)),
             );
         }
-        let body = body.child(footer);
-        let quit = KeyPress::char('c').with_mods(Mods::CTRL);
+        let mut body = body.child(footer);
+        let action_required =
+            select::<RequestQueue, bool, _>(cx, |queue| !queue.entries.is_empty());
+        let action = action_required.then_some(strings.chat.action_required);
+        if action.is_none()
+            && facts.animations
+            && facts.progress_effect
+            && (running.is_some() || compacting)
+            && StatusContext::title_has_activity(facts)
+        {
+            let mut parts = context.title_parts(facts, Some(""));
+            if let Some(index) = parts.iter().position(String::is_empty) {
+                let after = parts.split_off(index + 1);
+                parts.pop();
+                body = body.child(super::window_title::WindowTitle {
+                    before: parts,
+                    after,
+                });
+            }
+        } else {
+            let parts = context.title_parts(facts, action);
+            if !parts.is_empty()
+                || facts
+                    .terminal_title
+                    .as_ref()
+                    .is_some_and(|items| !items.is_empty())
+            {
+                body = body.child(TerminalTitle::new(
+                    parts.join(" · "),
+                    super::window_title::empty(),
+                ));
+            }
+        }
         let mut focus = Focus::new(body)
-            .bind(quit, cx.send(ChatMsg::Quit))
+            .bind(
+                KeyPress::char('c').with_mods(Mods::CTRL),
+                cx.send(ChatMsg::CtrlC),
+            )
+            .bind(
+                KeyPress::char('d').with_mods(Mods::CTRL),
+                cx.send(ChatMsg::CtrlD),
+            )
             .bind(KeyPress::code(KeyCode::F12), cx.send(ChatMsg::DebugMenu))
             .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
+        if running.is_some() && !self.draft_empty && search.is_none() {
+            focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
+        }
         for (action, key) in keys::defaults() {
             focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
         }

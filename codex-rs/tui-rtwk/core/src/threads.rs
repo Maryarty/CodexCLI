@@ -260,6 +260,7 @@ pub enum TurnState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunningTurn {
     pub turn: TurnId,
+    pub started_at: Option<i64>,
     interrupt_sent: bool,
 }
 
@@ -307,6 +308,7 @@ pub enum ThreadEv {
     },
     TurnStarted {
         turn: TurnId,
+        started_at: Option<i64>,
     },
     ItemStarted {
         key: ItemKey,
@@ -348,6 +350,7 @@ pub enum TurnSnapshot {
 pub struct HistoryTurn {
     turn: TurnId,
     end: Option<TurnEnd>,
+    started_at: Option<i64>,
     error: Option<String>,
     items: TurnSnapshot,
 }
@@ -542,6 +545,14 @@ impl ThreadModel {
 
     pub fn id(&self) -> &ThreadId {
         &self.id
+    }
+
+    pub(crate) fn history_cursor(&self) -> Option<&str> {
+        self.history_next.as_deref()
+    }
+
+    pub fn can_load_history(&self) -> bool {
+        self.history_next.is_some()
     }
 
     pub fn transcript(&self) -> &Transcript {
@@ -833,11 +844,12 @@ impl<'a> ThreadFx<'a> {
 /// The one projection from protocol notifications to thread events (R4).
 /// Everything the skeleton does not show maps to `None`.
 pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)> {
-    match notification {
+    let transcript = match notification {
         ServerNotification::TurnStarted(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::TurnStarted {
                 turn: TurnId::new(&n.turn.id),
+                started_at: n.turn.started_at,
             },
         )),
         ServerNotification::TurnCompleted(n) => Some((
@@ -876,10 +888,11 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 delta: n.delta.clone(),
             },
         )),
-        _ => {
-            screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
-        }
-    }
+        _ => None,
+    };
+    transcript.or_else(|| {
+        screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
+    })
 }
 
 fn turn_end(status: &TurnStatus) -> Option<TurnEnd> {
@@ -909,6 +922,7 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
             Some(HistoryTurn {
                 turn: TurnId::new(&turn.id),
                 end: turn_end(&turn.status),
+                started_at: turn.started_at,
                 error: turn.error.as_ref().map(|error| error.message.clone()),
                 items: turn_snapshot(turn)?,
             })
@@ -991,10 +1005,16 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     }
                 } else {
                     start_turn(model, snapshot.turn.clone());
+                    if let TurnState::Running(running) = &mut model.turn
+                        && running.turn == snapshot.turn
+                        && running.started_at.is_none()
+                    {
+                        running.started_at = snapshot.started_at;
+                    }
                 }
             }
             model.transcript.prepend_snapshots(turns);
-            model.history_next = next;
+            model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
         }
         ThreadEv::Submit { text } if model.has_writer() => {
             // The decision is here (R10): while a turn runs or starts the
@@ -1095,10 +1115,24 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);
         }
         ThreadEv::ScreenIntent(_) => {}
-        ThreadEv::Screen(ev) => screens::apply_thread_ev(&mut model.slots, ev, fx),
+        ThreadEv::Screen(ev) => {
+            if let ScreenThreadEv::Chat(ref ev) = ev
+                && let Some(turn) = ev.turn()
+                && !matches!(&model.turn, TurnState::Running(running) if &running.turn == turn)
+            {
+                return;
+            }
+            screens::apply_thread_ev(&mut model.slots, ev, fx);
+        }
         ThreadEv::TurnError { message } => model.last_error = Some(Failure::Message(message)),
-        ThreadEv::TurnStarted { turn } => {
-            start_turn(model, turn);
+        ThreadEv::TurnStarted { turn, started_at } => {
+            start_turn(model, turn.clone());
+            if let TurnState::Running(running) = &mut model.turn
+                && running.turn == turn
+                && started_at.is_some()
+            {
+                running.started_at = started_at;
+            }
             if model
                 .outgoing
                 .any(|ctx| matches!(ctx, ThreadCtx::StartTurn { interrupt: true }))
@@ -1175,6 +1209,7 @@ fn end_turn(
         .retain(|ctx| !matches!(ctx, ThreadCtx::Interrupt { turn: target, .. } if *target == turn));
     if ends_running {
         model.turn = TurnState::Idle;
+        model.slots.chat.end_turn();
         if let Some(message) = error {
             model.last_error = Some(Failure::Message(message));
         } else if end == TurnEnd::Failed && model.last_error.is_none() {
@@ -1206,8 +1241,10 @@ fn start_turn(model: &mut ThreadModel, turn: TurnId) {
     }
     match &model.turn {
         TurnState::Idle => {
+            model.slots.chat.begin_turn();
             model.turn = TurnState::Running(RunningTurn {
                 turn,
+                started_at: None,
                 interrupt_sent: false,
             })
         }
