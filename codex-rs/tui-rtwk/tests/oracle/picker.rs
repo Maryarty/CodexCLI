@@ -10,10 +10,6 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE bottom_pane/list_selection_view.rs:1982 secondary_action_respects_search_disabled_rows_and_dismissal kind=ui owner=ui-pane
 #[test]
 fn secondary_action_respects_search_disabled_rows_and_dismissal() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a row that has a secondary action (footer hint `s for secondary`) over a search line and a disabled row: the select screen registers model_picker and permissions_menu only",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 10)
         .entry("select", "secondary_action")
@@ -54,10 +50,6 @@ fn searchable_list_honors_configured_printable_accept_alternative() {
 // ORACLE bottom_pane/list_selection_view.rs:2169 renders_blank_line_between_title_and_items_without_subtitle kind=snap owner=ui-pane snap=list_selection_spacing_without_subtitle
 #[test]
 fn renders_blank_line_between_title_and_items_without_subtitle() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the approval-mode list (title `Select Approval Mode`, two items with descriptions, footer hint): the select screen registers model_picker and permissions_menu only",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 7)
         .entry("select", "approval_modes")
@@ -68,10 +60,6 @@ fn renders_blank_line_between_title_and_items_without_subtitle() {
 // ORACLE bottom_pane/list_selection_view.rs:2178 renders_blank_line_between_subtitle_and_items kind=snap owner=ui-pane snap=list_selection_spacing_with_subtitle
 #[test]
 fn renders_blank_line_between_subtitle_and_items() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the approval-mode list under a subtitle (`Switch between Codex approval presets`): the select screen has no subtitle line",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 8)
         .entry("select", "approval_modes_subtitle")
@@ -110,10 +98,6 @@ fn preserve_side_content_bg_keeps_rendered_background_colors() {
 // ORACLE bottom_pane/list_selection_view.rs:2257 snapshot_footer_note_wraps kind=snap owner=ui-pane snap=list_selection_footer_note_wraps
 #[test]
 fn snapshot_footer_note_wraps() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a footer note (`Note: Use /setup-default-sandbox to allow network access.`) under the approval-mode list: the select screen has no footer note",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 10)
         .entry("select", "footer_note")
@@ -124,10 +108,6 @@ fn snapshot_footer_note_wraps() {
 // ORACLE bottom_pane/list_selection_view.rs:2289 renders_search_query_line_when_enabled kind=ui owner=ui-pane
 #[test]
 fn renders_search_query_line_when_enabled() {
-    kit::pending(
-        Owner::UiPane,
-        "no searchable list entry: the select screen has no search line (is_searchable, placeholder `Type to search branches`)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(48, 8)
         .entry("select", "searchable_approval")
@@ -139,10 +119,6 @@ fn renders_search_query_line_when_enabled() {
 // ORACLE bottom_pane/list_selection_view.rs:2320 empty_searchable_list_keeps_search_and_no_matches_visible kind=snap owner=ui-pane snap=list_selection_empty_searchable
 #[test]
 fn empty_searchable_list_keeps_search_and_no_matches_visible() {
-    kit::pending(
-        Owner::UiPane,
-        "no empty searchable entry (title `Select a base branch`, no items): the select screen has no search line",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 7)
         .entry("select", "empty_searchable")
@@ -153,10 +129,6 @@ fn empty_searchable_list_keeps_search_and_no_matches_visible() {
 // ORACLE bottom_pane/list_selection_view.rs:2343 paste_appends_to_search_query_and_filters_items kind=ui owner=ui-pane
 #[test]
 fn paste_appends_to_search_query_and_filters_items() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the branch list (`main -> feature/other`, `main -> feature/paste-support`) under a search line: the select screen registers model_picker and permissions_menu only",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "branch_search")
@@ -170,10 +142,6 @@ fn paste_appends_to_search_query_and_filters_items() {
 // ORACLE bottom_pane/list_selection_view.rs:2375 whitespace_only_paste_is_ignored kind=ui owner=ui-pane
 #[test]
 fn whitespace_only_paste_is_ignored() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a searchable one-item list (`main`): the select screen has no search line",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "single_main_searchable")
@@ -186,10 +154,6 @@ fn whitespace_only_paste_is_ignored() {
 // ORACLE bottom_pane/list_selection_view.rs:2398 switching_tabs_changes_visible_items_and_clears_search kind=ui owner=ui-pane
 #[test]
 fn switching_tabs_changes_visible_items_and_clears_search() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with two tabs (Alpha, Beta) of one item each, opening on Beta with a search line: the select screen has no tabs",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "two_tabs_beta")
@@ -208,10 +172,6 @@ fn switching_tabs_changes_visible_items_and_clears_search() {
 // ORACLE bottom_pane/list_selection_view.rs:2450 tabbed_view_preserves_current_row_on_initial_selection_and_tab_switch kind=ui owner=ui-pane
 #[test]
 fn tabbed_view_preserves_current_row_on_initial_selection_and_tab_switch() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with two tabs whose items carry a current row (`Alpha Current`, `Beta Current`): the select screen has no tabs",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "two_tabs_current")
@@ -224,10 +184,6 @@ fn tabbed_view_preserves_current_row_on_initial_selection_and_tab_switch() {
 // ORACLE bottom_pane/list_selection_view.rs:2510 space_appends_to_active_search_instead_of_toggling_selected_item kind=ui owner=ui-pane
 #[test]
 fn space_appends_to_active_search_instead_of_toggling_selected_item() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a searchable row that carries a toggle (`Plugin`): the select screen has no toggle rows",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "plugin_toggle")
@@ -273,10 +229,6 @@ fn configured_cancel_binding_takes_precedence_over_space_toggle() {
 // ORACLE bottom_pane/list_selection_view.rs:2635 single_line_row_display_truncates_instead_of_wrapping kind=ui owner=ui-pane
 #[test]
 fn single_line_row_display_truncates_instead_of_wrapping() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a single-line row whose description is longer than the row (`A very long plugin name`): the select screen has no row display mode",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(36, 4)
         .entry("select", "single_line_long")
@@ -287,10 +239,6 @@ fn single_line_row_display_truncates_instead_of_wrapping() {
 // ORACLE bottom_pane/list_selection_view.rs:2690 name_column_width_override_moves_description_column_right kind=ui owner=ui-pane
 #[test]
 fn name_column_width_override_moves_description_column_right() {
-    kit::pending(
-        Owner::UiPane,
-        "no entries with an auto-visible single-line list (`Short`, `Longer`) and a name column width of 18: the select screen has no column width mode",
-    );
     let auto = Screen::build(Owner::UiPane)
         .size(48, 4)
         .entry("select", "auto_columns")
@@ -307,10 +255,6 @@ fn name_column_width_override_moves_description_column_right() {
 // ORACLE bottom_pane/list_selection_view.rs:2757 enter_with_no_matches_triggers_cancel_callback kind=ui owner=ui-pane
 #[test]
 fn enter_with_no_matches_triggers_cancel_callback() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a searchable one-item list (`Read Only`) that cancels when nothing matches: the select screen has no cancel callback",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "read_only_searchable")
@@ -332,10 +276,6 @@ fn move_down_without_selection_change_does_not_fire_callback() {
 // ORACLE bottom_pane/list_selection_view.rs:2817 disabled_current_rows_skip_default_selection_and_number_shortcuts kind=ui owner=ui-pane
 #[test]
 fn disabled_current_rows_skip_default_selection_and_number_shortcuts() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with disabled rows (`Unavailable` current, `Busy` with a reason): the select screen has no disabled rows",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 10)
         .entry("select", "disabled_current")
@@ -428,10 +368,6 @@ fn list_selection_view_page_and_jump_navigation_use_list_keymap() {
 // ORACLE bottom_pane/list_selection_view.rs:3008 page_and_jump_navigation_skip_trailing_disabled_rows_without_wrapping kind=ui owner=ui-pane
 #[test]
 fn page_and_jump_navigation_skip_trailing_disabled_rows_without_wrapping() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with twelve items whose last four are disabled: the select screen has no disabled rows",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "twelve_trailing_disabled")
@@ -445,10 +381,6 @@ fn page_and_jump_navigation_skip_trailing_disabled_rows_without_wrapping() {
 // ORACLE bottom_pane/list_selection_view.rs:3040 wraps_long_option_without_overflowing_columns kind=ui owner=ui-pane
 #[test]
 fn wraps_long_option_without_overflowing_columns() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the approval options (`Yes, proceed`, a long `python -mpre_commit run --files ...` command) under the title Approval: the select screen has no such list",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(60, 10)
         .entry("select", "approval_long_command")
@@ -461,10 +393,6 @@ fn wraps_long_option_without_overflowing_columns() {
 // ORACLE bottom_pane/list_selection_view.rs:3081 width_changes_do_not_hide_rows kind=ui owner=ui-pane
 #[test]
 fn width_changes_do_not_hide_rows() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the three models (gpt-5.1-codex, gpt-5.1-codex-mini, gpt-4.1-codex) under Select Model and Effort: the select screen registers model_picker with its own models",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 12)
         .entry("select", "three_models_effort")
@@ -478,10 +406,6 @@ fn width_changes_do_not_hide_rows() {
 // ORACLE bottom_pane/list_selection_view.rs:3135 narrow_width_keeps_all_rows_visible kind=ui owner=ui-pane
 #[test]
 fn narrow_width_keeps_all_rows_visible() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with three rows of ten-x descriptions under the title Debug: the select screen has no such list",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(24, 10)
         .entry("select", "three_long_descriptions")
@@ -492,10 +416,6 @@ fn narrow_width_keeps_all_rows_visible() {
 // ORACLE bottom_pane/list_selection_view.rs:3163 snapshot_model_picker_width_80 kind=snap owner=ui-pane snap=list_selection_model_picker_width_80
 #[test]
 fn snapshot_model_picker_width_80() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the three models under Select Model and Effort: the select screen registers model_picker with its own models",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(80, 9)
         .entry("select", "three_models_effort")
@@ -506,10 +426,6 @@ fn snapshot_model_picker_width_80() {
 // ORACLE bottom_pane/list_selection_view.rs:3210 snapshot_narrow_width_preserves_third_option kind=snap owner=ui-pane snap=list_selection_narrow_width_preserves_rows
 #[test]
 fn snapshot_narrow_width_preserves_third_option() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with three `Item N` rows whose description is ten x under the title Debug: the select screen has no such list",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(24, 6)
         .entry("select", "three_long_descriptions")
@@ -520,10 +436,6 @@ fn snapshot_narrow_width_preserves_third_option() {
 // ORACLE bottom_pane/list_selection_view.rs:3237 snapshot_narrow_width_counts_halfwidth_sound_marks kind=snap owner=ui-pane snap=list_selection_halfwidth_sound_marks_narrow
 #[test]
 fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the halfwidth sound-mark rows (`abｶﾞc`, `aﾊﾟc`) under the title Halfwidth sound marks; the kit cannot address the `width 20:` and `width 24:` frames (oracle_snap::frames reads only `width=`)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(20, 6)
         .entry("select", "halfwidth_marks")
@@ -536,10 +448,6 @@ fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
 // ORACLE bottom_pane/list_selection_view.rs:3272 snapshot_auto_visible_col_width_mode_scroll_behavior kind=snap owner=ui-pane snap=list_selection_col_width_mode_auto_visible_scroll
 #[test]
 fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the scrolling column list (Debug, nine items, AutoVisible column width): the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
         .entry("select", "col_width_auto_visible")
@@ -558,10 +466,6 @@ fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
 // ORACLE bottom_pane/list_selection_view.rs:3280 snapshot_auto_all_rows_col_width_mode_scroll_behavior kind=snap owner=ui-pane snap=list_selection_col_width_mode_auto_all_rows_scroll
 #[test]
 fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the scrolling column list (Debug, nine items, AutoAllRows column width): the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
         .entry("select", "col_width_auto_all_rows")
@@ -580,10 +484,6 @@ fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
 // ORACLE bottom_pane/list_selection_view.rs:3288 auto_all_rows_col_width_does_not_shift_when_scrolling kind=ui owner=ui-pane
 #[test]
 fn auto_all_rows_col_width_does_not_shift_when_scrolling() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the scrolling column list (Debug, nine items, one of them long) under AutoAllRows: the select screen has no column width mode",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
         .entry("select", "col_width_auto_all_rows")
