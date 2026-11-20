@@ -65,6 +65,8 @@ RULES = [
     (r'^transcript_view|^app/owned_transcript', 'S10', 'chat-live', 'transcript-view'),
     (r'^resume_picker', 'S18', 'routes-lists', 'resume'),
     (r'^status/', 'S19', 'dialogs-pane', 'status'),
+    # startup page: welcome, update prompt (S01), directory trust (S04)
+    (r'^onboarding/(welcome|trust_directory|onboarding_screen)\.rs$|^update_prompt\.rs$', 'S01-S04', 'startup-flow', 'onboarding'),
 ]
 RULES = [(re.compile(p), s, o, g) for p, s, o, g in RULES]
 

@@ -85,6 +85,8 @@ mod markdown_streaming_3;
 mod markdown_streaming_4;
 #[path = "oracle/markdown_streaming_5.rs"]
 mod markdown_streaming_5;
+#[path = "oracle/onboarding.rs"]
+mod onboarding;
 #[path = "oracle/pager.rs"]
 mod pager;
 #[path = "oracle/pane_footer_1.rs"]

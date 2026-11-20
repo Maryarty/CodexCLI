@@ -23,6 +23,7 @@ pub enum Owner {
     ChatLive,
     Mouse,
     ReuseCarry,
+    StartupFlow,
 }
 
 impl Owner {
@@ -36,6 +37,7 @@ impl Owner {
             Owner::ChatLive => "chat-live",
             Owner::Mouse => "mouse",
             Owner::ReuseCarry => "reuse-carry",
+            Owner::StartupFlow => "startup-flow",
         }
     }
 }
