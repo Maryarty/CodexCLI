@@ -5,6 +5,8 @@ description: Write, test and debug Rust terminal UI apps and command-line tools 
 
 # Terminal applications with rtwk
 
+<!-- not rtwk: TextStyle MediaQuery Counter Todo Slice Type -->
+
 rtwk is Flutter's widget model on a terminal, in Rust: elements, keys,
 constraints down and sizes up, `Focus`, `Overlay` and `Navigator` behave as
 in Flutter (and in twk, the Dart framework rtwk follows). The unit, the
@@ -144,13 +146,117 @@ tester.read_app(|app: &Counter| assert_eq!(app.count, 1));
 
 Use `rtwk_test::Tester` and `AppView::new(state, view)` for application tests. `pump_widget` mounts an isolated widget. Drive the app with `press`, `type_text`, `paste`, or `click_on` with a finder. Pump after input and use `pump_for(Duration)` to advance fake time for animations and timers. Assert visible output with `assert_line` or `assert_screen`. Use `read_app` to inspect domain state as needed. For interactive inspection run the gallery with `cargo run -p rtwk-gallery` in the RTWK checkout and press F2 on a relevant widget to see its source.
 
+## A complete app
+
+A to-do list: type a task and Enter adds it, Tab goes to the list, Space marks
+the task done there, Ctrl+Q quits (not `q`: the focused field would take it as
+text). The controllers are handles kept in the application, so they outlive
+every view. After the app comes its test, with the screen it shows; Space needs
+the row that Enter's frame builds, so pump between. `main` is
+`rtwk::run_app(Todo::default(), view)`. The code is
+`crates/rtwk-gallery/tests/skill_todo.rs` line for line, run there, and it
+fails where this fence and its source differ.
+
+```rust
+use std::rc::Rc;
+
+use rtwk::AnyWidget;
+use rtwk::app::{AppView, ViewCx};
+use rtwk::controls::{KeyHintsBar, SelectionList};
+use rtwk::data::SelectionController;
+use rtwk::editing::{TextEditingController, TextField};
+use rtwk::focus::KeyBindings;
+use rtwk::layout::{
+    Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment, Expanded,
+};
+use rtwk::style::Style;
+use rtwk::widgets::Text;
+use rtwk_test::{Options, Tester, find};
+
+/// A to-do list: Enter adds the task typed, Tab goes to the list, Space
+/// marks a task done there, Ctrl+Q quits.
+struct Todo {
+    tasks: Vec<String>,
+    // controllers are shared handles: kept in the model, they outlive every view
+    text: TextEditingController,
+    done: SelectionController<usize>,
+}
+
+impl Default for Todo {
+    fn default() -> Self {
+        Todo {
+            tasks: Vec::new(),
+            text: TextEditingController::new(""),
+            done: SelectionController::with(true, [], None),
+        }
+    }
+}
+
+fn view(app: &Todo, cx: &mut ViewCx<'_, '_, Todo>) -> AnyWidget {
+    let tasks: Rc<[String]> = app.tasks.clone().into();
+    let list = SelectionList::new(
+        tasks.len(),
+        |i| i,
+        move |i| Text::new(tasks[i].clone()).into(),
+    )
+    .controller(app.done.clone());
+    let add = cx.on_with(|app: &mut Todo, task: Rc<str>, _| {
+        if task.trim().is_empty() {
+            return;
+        }
+        app.tasks.push(task.trim().to_owned());
+        app.text.clear();
+    });
+    let body = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Expanded::new(
+            1,
+            BoxWidget::new()
+                .border(Border::all(Style::new()).kind(BorderType::Rounded))
+                .title(BorderTitle::new(" To do "))
+                .child(list),
+        ))
+        .child(
+            TextField::new()
+                .controller(app.text.clone())
+                .placeholder("a task, Enter adds it")
+                .on_submitted(add)
+                .autofocus(true),
+        )
+        .child(KeyHintsBar::new());
+    // not 'q': the focused field would take it as text
+    KeyBindings::new([("ctrl+q", cx.on(|_, cx| cx.quit()))], body)
+        .hints([("ctrl+q", "quit")])
+        .into()
+}
+
+let mut t = Tester::with(Options::new().size(30, 6));
+t.pump_app(AppView::new(Todo::default(), view));
+t.type_text("buy milk");
+t.press("enter");
+// pump: Space needs the row that Enter's frame builds
+t.pump();
+t.press("tab space");
+t.pump();
+t.assert_screen(
+    "╭ To do ─────────────────────╮\n\
+     │▎[x] buy milk               │\n\
+     │                            │\n\
+     ╰────────────────────────────╯\n\
+     a task, Enter adds it\n\
+     space toggle   ctrl+q quit",
+);
+assert_eq!(find::text("buy milk").count(&t), 1);
+t.read_app(|app: &Todo| assert_eq!(app.tasks, ["buy milk"]));
+```
+
 ## Layout, focus, and a form
 
 Use `column!` and `row!` to compose children. `Text::new` displays text and `rtwk::editing::TextField` edits it. Use `rtwk::controls::TextFormField` inside a `Form` when the field participates in validation and submission. `on_changed` receives `Rc<str>`. Let the field own the edit buffer or keep its controller in persistent state if you need to update it from elsewhere.
 
 Use one `autofocus(true)` field for initial input. Wrap a screen in `Focus` for bindings such as Ctrl+Q. Use a retained `FocusNode` or a stable `FocusId` with `AppCx::focus_node` or `AppCx::focus` when moving focus programmatically. A plain character such as `q` is text when an editor consumes it. Bind commands that should work during editing to a modified chord the field leaves available. `Focus::bind(key, handler)` consumes its key: Escape bound on a page never reaches the `Navigator`'s back key. To run a handler and let the key continue up (the page clears its draft and the navigator still pops it), use a passing key handler: `.on_key(cx.on_keys(|k| (k == KeyPress::ESC).then_some(()), |app, (), _| app.draft.clear()).passing())` in an application, `.on_key(cx.keys(|k| …).passing())` in a component.
 
-What the app copies (a `SelectionArea` selection, a text field's Ctrl+C, `rtwk::editing::copy_to_clipboard`) goes to the terminal as OSC 52, selection `c` by default. `AppView::clipboard_selection(ClipboardSelection::Primary | Both)` changes it. `AppView::on_copy(|text| …)` is also told each copied text so the app can copy natively where the terminal drops OSC 52, for example with the `arboard` crate or `pbcopy` on a thread. rtwk itself spawns no process. `Color` and `Attrs` for a `Style` come from `rtwk::style`.
+What the app copies (a `SelectionArea` selection, a text field's Ctrl+C, `rtwk::editing::copy_to_clipboard`) goes to the terminal as OSC 52, selection `c` by default. `AppView::clipboard_selection(ClipboardSelection::Primary)` (or `ClipboardSelection::Both`) changes it. `AppView::on_copy(|text| …)` is also told each copied text so the app can copy natively where the terminal drops OSC 52, for example with the `arboard` crate or `pbcopy` on a thread. rtwk itself spawns no process. `Color` and `Attrs` for a `Style` come from `rtwk::style`.
 
 Give a scrolling child a bounded viewport. Use `ListView::builder(count, builder)` for lazy rows, and use a stable identity for rows with retained state if their position can change.
 
@@ -241,7 +347,7 @@ let screen = tester.screen();
 assert!(screen.find("Alpha").unwrap() < screen.find("Gamma").unwrap());
 ```
 
-`run_app` supplies an overlay at the root. Mount `rtwk::overlay::Overlay` above a component that opens floating UI when building a standalone test or supplying the root yourself. From its component context use `show_toast(cx, message, ToastOptions::default())` for transient feedback. Use `show_dialog::<T, _>(cx, builder, DialogOptions::default())` for a typed modal result. Handle the returned future in `cx.spawn` so the update and task lifetime follow the caller component. Call `close_dialog` from the dialog content to deliver a result; a body built by a closure binds its buttons to `close_dialog_handler(cx, Some(value))`. From an `AppView` handler use `cx.show_dialog::<T>(builder, DialogOptions::default(), |app, result, cx| …)`: the `closed` closure gets the `Option<T>` as a change of the application, so a `ViewFn` app needs no `StatefulWidget` for dialogs. The dialog is shown from where the handler was bound: bind it in a memo node (`cx.memo(deps, f)`, rtwk's `Builder`) under the `App` or `Navigator` the view returns, since a `ViewCx` handler sees only what is above the root. For a dialog driven by state (a channel's request, a task's output) use `cx.show_dialog_from::<T>(view_root, builder, options, closed)` with a `ViewRoot` a memo node under the navigator handed on (`MemoCx::root()`, kept in an `Rc<Cell<Option<ViewRoot<A>>>>` the memo takes as input). A dialog whose origin is no longer in the tree is not shown: `closed` gets `None`, and a debug build reports a `DebugCheck`. A queue shows its next request from `closed` with `show_dialog_from` and the kept handle (not `show_dialog`, whose origin may be dead), and never shows the dialog again just because it got `None`. A `Navigator` can host dialog routes when the caller is in its route scope.
+`run_app` supplies an overlay at the root. Mount `rtwk::overlay::Overlay` above a component that opens floating UI when building a standalone test or supplying the root yourself. From its component context use `show_toast(cx, message, ToastOptions::default())` for transient feedback. Use `show_dialog::<T, _>(cx, builder, DialogOptions::default())` for a typed modal result. Handle the returned future in `cx.spawn` so the update and task lifetime follow the caller component. Call `close_dialog` from the dialog content to deliver a result; a body built by a closure binds its buttons to `close_dialog_handler(cx, Some(value))`. From an `AppView` handler use `cx.show_dialog::<T>(builder, DialogOptions::default(), |app, result, cx| …)`: the `closed` closure gets the `Option<T>` as a change of the application, so a `ViewFn` app needs no `StatefulWidget` for dialogs. The dialog is shown from where the handler was bound: bind it in a memo node (`cx.memo(deps, f)`, rtwk's `Builder`) under the `App` or `Navigator` the view returns, since a `ViewCx` handler sees only what is above the root. For a dialog driven by state (a channel's request, a task's output) use `cx.show_dialog_from::<T>(view_root, builder, options, closed)` with a `ViewRoot` a memo node under the navigator handed on (`MemoCx::root()`, kept in an `Rc<Cell<Option<ViewRoot<A>>>>` the memo takes as input). A dialog whose origin is no longer in the tree is not shown: `closed` gets `None`, and a debug build reports an `ErrorKind::DebugCheck`. A queue shows its next request from `closed` with `show_dialog_from` and the kept handle (not `show_dialog`, whose origin may be dead), and never shows the dialog again just because it got `None`. A `Navigator` can host dialog routes when the caller is in its route scope.
 
 Use `Provider::value(value).child(subtree)` for a typed value shared down the tree. Read it below that provider with `provider::watch::<T, _>(cx)` in a build, `provider::select` for a projection, or `provider::read` when no rebuild dependency is desired. If a shared controller uses interior mutability, use a notifying provider such as `ChangeNotifierProvider` to propagate changes. An `Obs<T>` is a separate tree-owned reactive value. Create it with the owning context's `observable`, subscribe in build with `cx.watch(obs)`, and return `true` from the closure passed to `cx.write(obs, ...)` when the value changed. Keep handles in the tree that created them. A provider built from the application (`Provider::value(Slice { pending: app.pending })`) is a snapshot of the view's last run: a read in the same flush as the change returns the old value until the view runs again. Decide on the model, not on the projection. In a dialog's `closed`, which gets `&mut App`, take the request it answers and move the next one in with the same change.
 
@@ -505,8 +611,14 @@ and the sources) and the guides (`docs/guide/`); do not edit it:
   options.
 - `references/guides/`: the guides (`cli.md`, `markdown.md`, `state.md`).
 
-`cargo run -p rtwk-gallery` in the rtwk checkout shows every widget live
-(F2 shows its source).
+Before writing a widget, look at a working one in the gallery. Its Code-tab
+snippet is under the widget's `### Code` in `references/widgets/<group>.md`; the
+whole page, with its state and controllers, is
+`crates/rtwk-gallery/src/pages/<page>.rs` in the rtwk checkout (grep the
+widget's name there); the Code-tab bodies, compiled, are in
+`crates/rtwk-gallery/tests/code/`. `cargo run -p rtwk-gallery` in the checkout
+shows every widget live: F2 shows the source of the one under the cursor, `c`
+its Code tab. rtwk's own apps are in `crates/rtwk/examples/`.
 
 If `references/` is not next to this file, the skill was copied short: copy
 `skills/rtwk/` of the checkout whole, `SKILL.md` and `references/`, into the
@@ -520,10 +632,16 @@ After editing this file run `cargo test -p rtwk --doc skill_doctests` and
 fences against the facade and companion crates (lines prefixed by `# ` are
 test setup or assertions and can be omitted in an application), the second
 compiles the pairs above. `cargo xtask skill-references --check` holds
-`references/` to the catalog and the guides.
+`references/` to the catalog and the guides, and fails where this file or a
+guide names an rtwk type or `Type::member` that the sources do not define
+(`<!-- not rtwk: Name Type::member -->` lists a name written on purpose: a
+Flutter or application name, or a method a macro writes). The to-do app above
+is `crates/rtwk-gallery/tests/skill_todo.rs`: edit the fence and that file
+together.
 
-<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk e3debfda); do not edit. -->
+<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 90259c3b); do not edit. -->
 
+<!-- not rtwk: MaterialApp AppBar Card TextStyle Colors FontWeight TextSpan MediaQuery BuildContext RawKeyboardListener ValueKey Layout Constraint Ratio Fill List Rect Margin Clear Block Paragraph Line ListState ScrollState ScrollbarState Tabs KeyCode KeyEvent UnicodeWidthStr FrameRequester Instant Buffer AppEvent CodexCLI RenderFlex Intent Msg Picker -->
 
 ## CodexCLI: porting codex-tui onto rtwk
 
@@ -572,7 +690,7 @@ row is what the oracle's code does, and what the port writes instead.
 | `"─".repeat(width)`, a `│` per row | `Divider`, `VerticalDivider`, or `Border::new().bottom(style)` / `left(style)` on a `BoxWidget` |
 | `Paragraph::new(..).wrap(..)`, `word_wrap_lines` | `Text::new(..)` (`TextWrap::Word` by default), `max_lines` |
 | `truncate_text`, `format!("{}…", ..)` | `Text::line(..)`, `.overflow(TextOverflow::Ellipsis)` |
-| `center_truncate_path`, keep-the-end cuts | `TextOverflow::EllipsisMiddle`, `TextOverflow::EllipsisStart`; the mark is `Glyphs::ellipsis` |
+| `center_truncate_path`, keep-the-end cuts | `TextOverflow::EllipsisMiddle`, `TextOverflow::EllipsisStart`; the mark is the `ellipsis` field of `Glyphs` |
 | `UnicodeWidthStr::width`, `chars().count()`, padding with spaces | none: `Row` with `SizedBox` widths and `Expanded`; a number only where unavoidable: `rtwk_core::unicode::string_width` |
 | `Line::from(vec![Span::styled(..)])`, `.cyan().dim()` | `Text::rich([Span::new(..).fg(..).dim()])`, colours from `Theme::of(cx)` tokens |
 | `List` + `ListState` + `ScrollState` (selected index, `scroll_top`, `ensure_visible`) | `SelectionList` + `SelectionController` (`cursor`, `set_cursor`, `selected`) |

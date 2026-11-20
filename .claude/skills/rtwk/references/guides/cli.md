@@ -1,6 +1,8 @@
 <!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # The `rtwk` command line
 
+<!-- not rtwk: Try Cargo -->
+
 `rtwk` is the developer tool of the framework: it starts projects, runs and
 watches apps, records and replays sessions and makes tests of them. Install
 it from a checkout with `cargo install --path crates/rtwk-dev --locked`.

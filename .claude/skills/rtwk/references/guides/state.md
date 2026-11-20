@@ -1,6 +1,8 @@
 <!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # State in rtwk
 
+<!-- not rtwk: ArcMemo ArcRwSignal BlocSelector BlocBuilder BlocProvider BlocListener ProviderScope ArcTrigger -->
+
 Keep ordinary application state in a Rust model. With `AppView`, the model
 lives outside individual widgets and a handler can call its methods through
 `AppCx`. Test the model's transitions without building a widget tree.
