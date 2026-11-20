@@ -125,23 +125,51 @@ pub enum TrustDecision {
 impl Model {
     /// The steps due, in order: what the startup page runs.
     pub fn steps(&self) -> Vec<Step> {
-        todo!()
+        let mut steps = Vec::new();
+        if self.update.is_some() {
+            steps.push(Step::Update);
+        }
+        if self.sign_in.is_some() {
+            steps.push(Step::SignIn);
+        }
+        if self.provider.is_some() {
+            steps.push(Step::Provider);
+        }
+        if self.trust.is_some() {
+            steps.push(Step::Trust);
+        }
+        steps
     }
 
     /// Whether `step` is finished.
     pub fn done(&self, step: Step) -> bool {
-        let _ = step;
-        todo!()
+        if self.exit {
+            return true;
+        }
+        match step {
+            Step::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
+            Step::SignIn => self.sign_in.is_none_or(|d| d.done),
+            Step::Provider => self.provider.is_none_or(|d| d.done),
+            Step::Trust => self.trust.as_ref().is_none_or(|t| {
+                matches!(
+                    t.decision,
+                    Some(TrustDecision::Trusted | TrustDecision::Opened | TrustDecision::Cancelled)
+                )
+            }),
+        }
     }
 
     /// Whether the app opens on the startup page: a step is not finished.
     pub fn due(&self) -> bool {
-        todo!()
+        self.steps().into_iter().any(|step| !self.done(step))
     }
 
     /// The write the trust step waits for: the folder to save as trusted.
     pub fn trust_write(&self) -> Option<&str> {
-        todo!()
+        self.trust
+            .as_ref()
+            .filter(|t| t.decision == Some(TrustDecision::Saving))
+            .map(|t| t.target.as_str())
     }
 }
 
@@ -179,13 +207,78 @@ pub enum Intent {
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, ev, fx);
-    todo!()
+    let _ = fx;
+    match ev {
+        Ev::Update {
+            current,
+            latest,
+            command,
+        } => {
+            model.update = Some(UpdateOffer {
+                current,
+                latest,
+                command,
+                choice: None,
+            });
+        }
+        Ev::Welcome(welcome) => model.welcome = Some(welcome),
+        Ev::SignInDue => model.sign_in = Some(Decided::default()),
+        Ev::ProviderDue => model.provider = Some(Decided::default()),
+        Ev::Trust(ask) => model.trust = Some(ask),
+        Ev::TrustSaved => {
+            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+                t.decision = Some(TrustDecision::Trusted);
+            }
+        }
+        // onboarding_screen.rs `persist_selected_trust`: the step stays, with
+        // the error, and no choice made.
+        Ev::TrustFailed(message) => {
+            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+                t.decision = None;
+                t.error = Some(format!("Failed to set trust for {}: {message}", t.target));
+            }
+        }
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, intent, fx);
-    todo!()
+    let _ = fx;
+    match intent {
+        Intent::ChooseUpdate(choice) => {
+            if let Some(u) = model.update.as_mut() {
+                u.choice = Some(choice);
+            }
+        }
+        Intent::Trust => {
+            if let Some(t) = model.trust.as_mut().filter(|t| t.decision.is_none()) {
+                t.error = None;
+                // A restricted folder opens as it is; trust is written and
+                // waited for (R9).
+                t.decision = Some(if t.restricted {
+                    TrustDecision::Opened
+                } else {
+                    TrustDecision::Saving
+                });
+            }
+        }
+        Intent::CancelTrust => {
+            if let Some(t) = model.trust.as_mut().filter(|t| t.decision != Some(TrustDecision::Saving)) {
+                t.decision = Some(TrustDecision::Cancelled);
+            }
+        }
+        Intent::SlotDone(Step::SignIn) => {
+            if let Some(d) = model.sign_in.as_mut() {
+                d.done = true;
+            }
+        }
+        Intent::SlotDone(Step::Provider) => {
+            if let Some(d) = model.provider.as_mut() {
+                d.done = true;
+            }
+        }
+        Intent::SlotDone(Step::Update | Step::Trust) => {}
+        Intent::Exit => model.exit = true,
+    }
 }
 
 /// Per-thread state of this screen: none (the page keeps no thread state,
@@ -275,8 +368,39 @@ struct SeedTrust {
 /// A script's `screen` step for this directory: the event `value` stands for
 /// (`fixtures::script`).
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    todo!()
+    let bad = |err: String| crate::screens::SeedError::Bad(err);
+    let seed: SeedEv = serde_json::from_value(value).map_err(|err| bad(err.to_string()))?;
+    Ok(match seed {
+        SeedEv::Update {
+            current,
+            latest,
+            command,
+        } => Ev::Update {
+            current,
+            latest,
+            command,
+        },
+        SeedEv::Welcome { animations } => Ev::Welcome(Welcome { animations }),
+        SeedEv::SignIn(()) => Ev::SignInDue,
+        SeedEv::Provider(()) => Ev::ProviderDue,
+        SeedEv::Trust(t) => Ev::Trust(TrustAsk {
+            target: t.target.unwrap_or_else(|| t.cwd.clone()),
+            cwd: t.cwd,
+            restricted: t.restricted,
+            existing_task: t.existing_task,
+            cancel: match t.cancel.as_deref() {
+                None | Some("quit") => TrustCancel::Quit,
+                Some("agents_overview") => TrustCancel::AgentsOverview,
+                Some("current_task") => TrustCancel::CurrentTask,
+                Some(other) => return Err(bad(format!("unknown trust cancel `{other}`"))),
+            },
+            sandbox_hint: t.sandbox_hint,
+            error: t.error,
+            decision: None,
+        }),
+        SeedEv::TrustSaved(()) => Ev::TrustSaved,
+        SeedEv::TrustFailed(message) => Ev::TrustFailed(message),
+    })
 }
 
 #[cfg(test)]
