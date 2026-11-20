@@ -383,7 +383,7 @@ def build(pin, ref_file=None):
     not_rtwk = set()
     def take_not_rtwk(mm):
         not_rtwk.update(mm.group(1).split())
-        return ""
+        return mm.group(0)  # kept: rtwk's own name check (cargo xtask skill-references) reads it in SKILL.md
     port = re.sub(r"<!-- not rtwk: (.*?) -->\n", take_not_rtwk, port, flags=re.S)
     problems.extend("skill.src.md: %s" % u for u in check_names(index, pin, port, not_rtwk))
     port = expand_directives(port, HERE, index, report, snippets_dir)

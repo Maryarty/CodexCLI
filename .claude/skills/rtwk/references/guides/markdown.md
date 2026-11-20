@@ -1,6 +1,8 @@
 <!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # Markdown documents
 
+<!-- not rtwk: TranscriptView -->
+
 Use `MarkdownView::new(source).into_viewport()` for a document pane.
 Give the pane bounded width and height, for example by placing it in
 an `Expanded` child of a bounded column. The viewport owns scrolling
