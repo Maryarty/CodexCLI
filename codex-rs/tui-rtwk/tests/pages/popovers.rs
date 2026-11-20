@@ -425,7 +425,7 @@ fn ctrl_c_in_a_search_restores_the_draft_and_does_not_quit() {
 #[test]
 fn ctrl_c_outside_a_search_still_quits() {
     let mut h = start_quittable(false);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("ctrl+c");
     h.t.pump_for(ms(400));
     assert!(!h.t.is_running(), "Ctrl+C outside a search did not quit");

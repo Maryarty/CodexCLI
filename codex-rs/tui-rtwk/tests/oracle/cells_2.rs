@@ -96,37 +96,48 @@ fn user_prompt_urls_keep_destinations_across_widths() {
 // ORACLE history_cell/messages_tests.rs:107 local_image_only_user_message_remains_visible kind=snap owner=chat-live snap=local_image_only_user_message_remains_visible
 #[test]
 fn local_image_only_user_message_remains_visible() {
-    kit::pending(
-        Owner::ChatLive,
-        "the transcript shows a user item's text only (src/screens/chat/home.rs:328): a local image input is not drawn as its [Image #n] label row",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(40, 4)
+        .size(40, 12)
         .script(include_str!(
             "fixtures/cells_2/local_image_only_user_message_remains_visible.jsonl"
         ))
         .open();
-    s.assert_snap_region("local_image_only_user_message_remains_visible", 0, 0);
+    let label = image_row(&s);
+    s.assert_snap_region(
+        "local_image_only_user_message_remains_visible",
+        label - 1,
+        0,
+    );
 }
 
 // ORACLE history_cell/messages_tests.rs:121 mixed_image_labels_preserve_existing_placeholders_without_duplicates kind=snap owner=chat-live snap=mixed_image_labels_preserve_existing_placeholders_without_duplicates
 #[test]
 fn mixed_image_labels_preserve_existing_placeholders_without_duplicates() {
-    kit::pending(
-        Owner::ChatLive,
-        "the transcript shows a user item's text only (src/screens/chat/home.rs:328): the local and remote image inputs are not drawn as [Image #n] labels, and the typed placeholder is not kept apart from them",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(40, 6)
+        .size(40, 16)
         .script(include_str!(
             "fixtures/cells_2/mixed_image_labels_preserve_existing_placeholders_without_duplicates.jsonl"
         ))
         .open();
     s.assert_snap_region(
         "mixed_image_labels_preserve_existing_placeholders_without_duplicates",
-        0,
+        image_row(&s) - 1,
         0,
     );
+}
+
+fn image_row(screen: &Screen) -> usize {
+    screen
+        .rows()
+        .iter()
+        .position(|row| row.contains("[Image #1]"))
+        .filter(|&row| row > 0)
+        .unwrap_or_else(|| {
+            panic!(
+                "no attachment with its top padding shown:\n{}",
+                screen.text()
+            )
+        })
 }
 
 // ORACLE history_cell/messages_tests.rs:196 spoken_user_messages_have_a_red_chevron_without_changing_raw_text kind=snap owner=chat-live snap=spoken_user_prompt

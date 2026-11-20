@@ -128,7 +128,7 @@ fn footer_mode_shortcut_overlay() {
 // reads `? / esc close`; `?` and Esc close it.
 fn session_overlay() -> Harness {
     let mut h = start_sized(false, 100, 24);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.t.type_text("?");
     h.t.pump_for(ms(600));
     h
@@ -158,7 +158,7 @@ fn session_question_mark_opens_the_footer_mode_shortcut_overlay() {
 fn session_shortcut_overlay_narrows_to_two_columns_and_to_one() {
     for (width, same_row) in [(80, true), (50, false)] {
         let mut h = start_sized(false, width, 40);
-        h.wait_for("ready", |s| s.contains("ready"));
+        h.wait_idle();
         h.t.type_text("?");
         h.t.pump_for(ms(600));
         let screen = h.t.screen();

@@ -286,6 +286,24 @@ impl Harness {
         panic!("never saw {what}; the screen:\n{}", self.t.screen());
     }
 
+    /// Waits for a ready session and a settled turn. Idle is silent in the chat frame.
+    pub fn wait_idle(&mut self) {
+        for _ in 0..400 {
+            self.t.pump_for(ms(20));
+            if self.t.read_app(|app: &UiApp| {
+                app.core.session().status == codex_tui_core::app::Session::Ready
+                    && !app.core.active_thread().can_interrupt()
+            }) {
+                return;
+            }
+            self.pause(ms(5));
+        }
+        panic!(
+            "session never reached idle; the screen:\n{}",
+            self.t.screen()
+        );
+    }
+
     /// Lets the backend thread run what the app sent it: commands travel
     /// to the fake on the runtime thread, so the app's screen can be ahead
     /// of what the fake has recorded.

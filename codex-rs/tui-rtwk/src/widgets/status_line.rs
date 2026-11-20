@@ -7,6 +7,7 @@
 
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::{Span, Style};
+use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::style::Attrs;
@@ -98,17 +99,20 @@ where
     I: IntoIterator<Item = (S, String)>,
     S: AsRef<str>,
 {
-    let mut row = Row::new();
-    let mut any = false;
+    let mut spans = Vec::new();
     for (id, text) in items {
-        if any {
-            row = row.child(Text::line(SEPARATOR).style(tokens.dim()));
+        if !spans.is_empty() {
+            spans.push(Span::styled(SEPARATOR, tokens.dim()));
         }
-        any = true;
         let text: String = text.chars().filter(|c| !c.is_control()).collect();
-        row = row.child(Text::line(text).style(item_style(id.as_ref(), colors, tokens)));
+        spans.push(Span::styled(text, item_style(id.as_ref(), colors, tokens)));
     }
-    any.then(|| row.into())
+    (!spans.is_empty()).then(|| {
+        Text::rich(spans)
+            .max_lines(Some(3))
+            .overflow(TextOverflow::Ellipsis)
+            .into()
+    })
 }
 
 /// What `warning_notice` is made of: the texts (the screen's string table)

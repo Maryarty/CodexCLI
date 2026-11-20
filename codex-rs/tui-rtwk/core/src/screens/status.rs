@@ -139,6 +139,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 /// only by `apply_thread` and `apply_reply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThreadPart {
+    pub received: bool,
     pub tokens: Tokens,
     pub context: Option<Context>,
 }
@@ -227,6 +228,7 @@ pub enum Ctx {}
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     let ThreadEv::TokenUsage { tokens, context } = ev;
+    part.received = true;
     part.tokens = tokens;
     part.context = context;
 }

@@ -152,11 +152,11 @@ fn slash_mention_inserts_an_at_sign() {
 #[test]
 fn a_command_is_disabled_while_a_task_runs() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     // A turn that never completes: the task is running.
     h.fake.script_turn(vec![]);
     send(&mut h, "work");
-    h.wait_for("working", |s| s.contains("working"));
+    h.wait_for("working", |s| s.contains("Working"));
     send(&mut h, "/clear");
     let message = "'/clear' is disabled while a task is in progress.";
     h.wait_for(message, |s| s.contains(message));

@@ -36,7 +36,11 @@ pub(crate) fn apply_thread_intent(
 pub(crate) fn project_thread(
     notification: &codex_app_server_protocol::ServerNotification,
 ) -> Option<(ThreadId, ScreenThreadEv)> {
-    status::project(notification).map(|(thread, ev)| (thread, ScreenThreadEv::Status(ev)))
+    chat::project(notification)
+        .map(|(thread, ev)| (thread, ScreenThreadEv::Chat(ev)))
+        .or_else(|| {
+            status::project(notification).map(|(thread, ev)| (thread, ScreenThreadEv::Status(ev)))
+        })
 }
 
 /// Where a slot shows up in the app.

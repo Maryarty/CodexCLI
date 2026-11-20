@@ -8,8 +8,10 @@
 
 use std::path::Path;
 
+use codex_config::ConfigLayerSource;
+use codex_config::types::{NotificationCondition, Notifications};
 use codex_core::config::Config;
-use codex_tui_core::screens::chat::StatusFacts;
+use codex_tui_core::screens::chat::{NotificationPolicy, StatusFacts};
 use codex_tui_core::screens::dialogs::Warning;
 
 /// `format_directory_display` without a width: `~` for the home, `~/x` below
@@ -36,6 +38,18 @@ pub fn project_root_name(cwd: &Path, home: Option<&Path>) -> Option<String> {
 pub async fn status(config: &Config) -> StatusFacts {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let cwd = config.cwd.as_path();
+    let notifications = &config.tui_notifications;
+    let (enabled, kinds) = match &notifications.notifications {
+        Notifications::Enabled(enabled) => (*enabled, None),
+        Notifications::Custom(kinds) => (true, Some(kinds.clone())),
+    };
+    let profile_name = config
+        .config_layer_stack
+        .get_active_user_layer()
+        .and_then(|layer| match &layer.name {
+            ConfigLayerSource::User { profile, .. } => profile.clone(),
+            _ => None,
+        });
     StatusFacts {
         model: config.model.clone(),
         effort: config
@@ -57,10 +71,27 @@ pub async fn status(config: &Config) -> StatusFacts {
             codex_config::types::ApprovalsReviewer::AutoReview
         ),
         cwd: Some(directory_display(cwd, home.as_deref())),
+        home_directory: home.as_deref().map(|path| path.display().to_string()),
+        service_tier: config.service_tier.clone(),
         project_root: project_root_name(cwd, home.as_deref()),
         branch: codex_git_utils::current_branch_name(cwd).await,
         items: config.tui_status_line.clone(),
         colors: config.tui_status_line_use_colors,
+        terminal_title: config.tui_terminal_title.clone(),
+        hostname: codex_config::os_host_name(),
+        profile_name,
+        provider: Some(config.model_provider_id.clone()),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        animations: config.animations,
+        progress_effect: config.tui_effects.progress,
+        shimmer_effect: config.tui_effects.shimmer,
+        account_usage: config.model_provider.requires_openai_auth,
+        empty_state: config.tui_effects.welcome,
+        notification_policy: NotificationPolicy {
+            enabled,
+            always: notifications.condition == NotificationCondition::Always,
+            kinds,
+        },
     }
 }
 

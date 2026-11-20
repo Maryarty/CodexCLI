@@ -14,7 +14,7 @@ use codex_tui_core::screens::chat::StatusFacts;
 use codex_tui_core::screens::dialogs::{Intent as DialogIntent, Open, PageIntent};
 use pretty_assertions::assert_eq;
 
-fn facts(json: &str) -> StatusFacts {
+fn facts(json: &str) -> std::rc::Rc<StatusFacts> {
     let line = format!(r#"{{"step":"screen","dir":"chat","ev":{{"status":{json}}}}}"#);
     let sandbox = Sandbox::play(&line).expect("plays");
     sandbox.app().screens().chat.status.clone()

@@ -8,12 +8,15 @@
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::Ingress;
+use codex_tui_core::screens::chat::DesktopNotice;
 use rtwk::GlobalKey;
 use rtwk::app::AppCx;
+use std::rc::Rc;
 
 pub mod debug;
 pub mod run;
 pub mod start_page;
+mod terminal_effects;
 pub mod theme;
 pub mod view;
 
@@ -43,6 +46,7 @@ pub struct UiState {
     pub presenter: Presenter,
     /// How many backend switches the composers followed.
     pub switches_seen: u32,
+    pub(super) desktop_notice: Option<Rc<DesktopNotice>>,
 }
 
 /// The model of the rtwk app.
@@ -71,6 +75,7 @@ impl UiApp {
                 start_resume: false,
                 presenter: Presenter::new(),
                 switches_seen: 0,
+                desktop_notice: None,
             },
             link: shell::Link::new(backend),
         }
@@ -102,10 +107,13 @@ impl UiApp {
     /// rest is applied, the UI's controllers follow the model, and the effects
     /// go to the shell.
     pub fn ingest(&mut self, ingress: Ingress, cx: &mut AppCx<'_, '_, UiApp>) {
-        let Some(fx) = self.core.ingest(ingress) else {
+        let Some(mut fx) = self.core.ingest(ingress) else {
             cx.unchanged();
             return;
         };
+        if let Some(notice) = fx.take_desktop_notice() {
+            self.ui.desktop_notice = Some(Rc::new(notice));
+        }
         self.follow_core();
         self.ui.presenter.event();
         presenter::present(self, cx);

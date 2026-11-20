@@ -19,6 +19,10 @@ use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
+pub(super) const INLINE_GAP: &str = " ";
+pub(super) const MORE: &str = " …";
+pub(super) const LINE_BREAK: &str = "\n";
+
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
 pub struct Strings {
@@ -66,8 +70,45 @@ pub struct Strings {
     /// Oracle: `chatwidget/rendering.rs` (the external writer view): the
     /// session is open in another process and shown read-only.
     pub read_only_title: &'static str,
+    pub header_prompt: &'static str,
+    pub header_title: &'static str,
+    pub header_version: Msg<1>,
+    pub header_permissions: &'static str,
+    pub header_yolo: &'static str,
     pub read_only_hint: &'static str,
-    pub read_only_footer: &'static str,
+    pub running_command: &'static str,
+    pub ran_command: &'static str,
+    pub user_ran_command: &'static str,
+    pub calling_tool: &'static str,
+    pub called_tool: &'static str,
+    pub failed_tool: &'static str,
+    pub tool_result_image: &'static str,
+    pub tool_result_audio: &'static str,
+    pub image_label: Msg<1>,
+    pub explored: &'static str,
+    pub exploring: &'static str,
+    pub explored_read: Msg<1>,
+    pub explored_list: Msg<1>,
+    pub explored_search: Msg<1>,
+    pub explored_search_in: Msg<2>,
+    pub tool_no_output: &'static str,
+    pub show_tool_details: &'static str,
+    pub hide_tool_details: &'static str,
+    pub hidden_output_lines: Msg<1>,
+    pub hidden_output_line: &'static str,
+    pub command_exited: Msg<1>,
+    pub shell_prompt: &'static str,
+    pub exit_ok: &'static str,
+    pub exit_failed: &'static str,
+    pub exit_status: Msg<1>,
+    pub worked_for: Msg<1>,
+    pub writer_retry_key: &'static str,
+    pub writer_retry_detail: &'static str,
+    pub writer_retry: &'static str,
+    pub writer_fork: &'static str,
+    pub writer_center: &'static str,
+    pub writer_exit: &'static str,
+    pub writer_transcript: &'static str,
     pub backend_cycle: &'static str,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
@@ -110,9 +151,46 @@ pub const EN: Strings = Strings {
     backend_cloud: "Cloud",
     backend_connection: msg!("Connection {0}"),
     backend_key: "\u{2303}x b",
-    read_only_title: "\u{1f512}  This conversation is open in another app",
-    read_only_hint: "    Close it there and press R to continue here.",
-    read_only_footer: "\u{2190}/esc command center",
+    read_only_title: "This conversation is open in another app",
+    header_prompt: ">_ ",
+    header_title: "OpenAI Codex",
+    header_version: msg!(" (v{0})"),
+    header_permissions: "permissions: ",
+    header_yolo: "YOLO mode",
+    read_only_hint: "Close it there and press R to continue here.",
+    running_command: "Running",
+    ran_command: "Ran",
+    user_ran_command: "You ran",
+    calling_tool: "Calling",
+    called_tool: "Called",
+    failed_tool: "Failed",
+    tool_result_image: "Returned image",
+    tool_result_audio: "Returned audio",
+    image_label: msg!("[Image #{0}]"),
+    explored: "Explored",
+    exploring: "Exploring",
+    explored_read: msg!("Read {0}"),
+    explored_list: msg!("List {0}"),
+    explored_search: msg!("Search {0}"),
+    explored_search_in: msg!("Search {0} in {1}"),
+    tool_no_output: "(no output)",
+    show_tool_details: "+ Show details",
+    hide_tool_details: "− Hide details",
+    hidden_output_lines: msg!("+ {0} lines (⌃t to expand)"),
+    hidden_output_line: "+ 1 line (⌃t to expand)",
+    command_exited: msg!("Exited (status {0})"),
+    shell_prompt: "$",
+    exit_ok: "✓",
+    exit_failed: "✗",
+    exit_status: msg!(" ({0})"),
+    worked_for: msg!("Worked for {0}"),
+    writer_retry_key: "r",
+    writer_retry_detail: " to retry",
+    writer_retry: "retry",
+    writer_fork: "fork",
+    writer_center: "command center",
+    writer_exit: "exit",
+    writer_transcript: "transcript",
     backend_cycle: " to cycle",
     warning_singular: "warning",
     warning_plural: "warnings",
@@ -140,6 +218,23 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
+    pub(super) fn search_in(&self, query: &str, path: &str) -> String {
+        Fmt::new(
+            self.explored_search_in,
+            [Arg::Text(query), Arg::Text(path)],
+            &self.num,
+        )
+        .to_string()
+    }
+
+    pub(super) fn transcript_label(&self, message: Msg<1>, arg: &str) -> String {
+        Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
+    }
+
+    pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
+    }
+
     /// The name of a backend on the control.
     pub fn backend(&self, label: codex_tui_core::app::BackendLabel) -> String {
         use codex_tui_core::app::BackendLabel;

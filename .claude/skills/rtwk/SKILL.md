@@ -639,7 +639,7 @@ Flutter or application name, or a method a macro writes). The to-do app above
 is `crates/rtwk-gallery/tests/skill_todo.rs`: edit the fence and that file
 together.
 
-<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 90259c3b); do not edit. -->
+<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 492ab738); do not edit. -->
 
 <!-- not rtwk: MaterialApp AppBar Card TextStyle Colors FontWeight TextSpan MediaQuery BuildContext RawKeyboardListener ValueKey Layout Constraint Ratio Fill List Rect Margin Clear Block Paragraph Line ListState ScrollState ScrollbarState Tabs KeyCode KeyEvent UnicodeWidthStr FrameRequester Instant Buffer AppEvent CodexCLI RenderFlex Intent Msg Picker -->
 
@@ -658,7 +658,7 @@ a screen test) and `widgets-by-need.md` (which widget for which codex-tui
 need). Read the one that matches the widget, not all of them.
 
 A working widget to copy the manner from: the gallery page under the pin,
-`~/.cache/codexcli/rtwk-pin/crates/rtwk-gallery/src/pages/<page>.rs` (grep the
+`crates/rtwk-gallery/src/pages/<page>.rs` in the pinned checkout named by the Cargo manifest (search for the
 widget's name there; `cargo run -p rtwk-gallery` in the pin shows every widget
 live, F2 shows the source of the one under the cursor), the pin's
 `crates/rtwk/examples/`, and `/Users/admin/Documents/dev_projects/rtwk-weather`.

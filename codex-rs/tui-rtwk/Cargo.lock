@@ -3878,8 +3878,11 @@ name = "codex-tui-rtwk"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "codex-app-server-protocol",
+ "codex-shell-command",
  "codex-tui-core",
+ "codex-utils-elapsed",
  "futures",
  "pretty_assertions",
  "rtwk",
@@ -3891,6 +3894,7 @@ dependencies = [
  "rtwk-tokio",
  "semver",
  "serde_json",
+ "shlex",
  "tokio",
 ]
 
@@ -3971,6 +3975,10 @@ dependencies = [
 
 [[package]]
 name = "codex-utils-critical-path"
+version = "0.170.0"
+
+[[package]]
+name = "codex-utils-elapsed"
 version = "0.170.0"
 
 [[package]]

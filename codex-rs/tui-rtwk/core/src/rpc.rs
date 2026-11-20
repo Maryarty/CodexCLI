@@ -78,7 +78,17 @@ impl Reply {
     }
 
     pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
-        Self(Answer::RateLimits(limits))
+        Self::account_rate_limits(limits, None)
+    }
+
+    pub(crate) fn account_rate_limits(
+        limits: crate::screens::status::RateLimits,
+        banner: Option<crate::screens::chat::Banner>,
+    ) -> Self {
+        Self(Answer::RateLimits {
+            limits,
+            banner: banner.map(Box::new),
+        })
     }
 
     pub(crate) fn interrupt_turn_changed(actual: TurnId) -> Self {
@@ -113,11 +123,19 @@ impl Reply {
 /// What a reply says. Obtained only from `Pending::resolve`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    ThreadStarted { thread: ThreadId },
-    TurnStarted { thread: ThreadId, turn: TurnId },
+    ThreadStarted {
+        thread: ThreadId,
+    },
+    TurnStarted {
+        thread: ThreadId,
+        turn: TurnId,
+    },
     TurnInterrupted,
     InterruptTurnChanged(TurnId),
-    RateLimits(crate::screens::status::RateLimits),
+    RateLimits {
+        limits: crate::screens::status::RateLimits,
+        banner: Option<Box<crate::screens::chat::Banner>>,
+    },
     Screen(ScreenReply),
     WorktreeCreated(Result<Checkout, String>),
     WorktreeBound(Result<(), BindFailure>),

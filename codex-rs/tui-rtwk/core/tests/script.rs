@@ -170,9 +170,10 @@ fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
     assert_eq!(
         items(&played.app),
         vec![
-            Item::User {
-                text: "hello".into()
-            },
+            Item::User(codex_tui_core::threads::UserPrompt {
+                text: "hello".into(),
+                ..Default::default()
+            }),
             Item::Agent {
                 text: "The transport kept this.\nAnd dropped this.".into()
             },

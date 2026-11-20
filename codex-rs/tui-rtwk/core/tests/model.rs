@@ -354,7 +354,10 @@ fn the_completed_item_replaces_the_streamed_text_in_place() {
     assert_eq!(
         items,
         vec![
-            Item::User { text: "hi".into() },
+            Item::User(codex_tui_core::threads::UserPrompt {
+                text: "hi".into(),
+                ..Default::default()
+            }),
             Item::Agent {
                 text: "Hello".into()
             },
@@ -428,6 +431,7 @@ fn the_projection_maps_what_the_skeleton_shows() {
     assert_eq!(
         ev,
         threads::ThreadEv::TurnCompleted {
+            timing: None,
             turn: TurnId::new("turn-3"),
             end: TurnEnd::Completed,
             snapshot: None,
@@ -642,6 +646,7 @@ fn streaming_commits_complete_utf8_lines_and_keeps_a_preview() {
         ("рая\nтретья", "первая\nвторая\n"),
     ] {
         notification(&mut app, agent_delta(T, "turn-1", "msg-1", delta));
+        assert!(thread(&app).transcript().is_agent_streaming(&key));
         assert_eq!(
             thread(&app).transcript().committed_agent_text(&key),
             Some(stable)
@@ -651,6 +656,7 @@ fn streaming_commits_complete_utf8_lines_and_keeps_a_preview() {
         &mut app,
         agent_completed(T, "turn-1", "msg-1", "первая\nвторая\nтретья"),
     );
+    assert!(!thread(&app).transcript().is_agent_streaming(&key));
     assert_eq!(
         thread(&app).transcript().committed_agent_text(&key),
         Some("первая\nвторая\nтретья")

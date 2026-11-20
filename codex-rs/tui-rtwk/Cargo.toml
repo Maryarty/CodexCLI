@@ -7,13 +7,13 @@ members = ["host", "core"]
 # workspace does not work: cargo makes path dependencies under the workspace
 # directory members, and rtwk's crates then inherit from this manifest.
 [workspace.dependencies]
-rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk" }
-rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-core" }
-rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-render" }
-rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-rich" }
-rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-term" }
-rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-test" }
-rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-pin-next/crates/rtwk-tokio" }
+rtwk = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk" }
+rtwk-core = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-core" }
+rtwk-render = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-render" }
+rtwk-rich = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-rich" }
+rtwk-term = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-term" }
+rtwk-test = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-test" }
+rtwk-tokio = { path = "/Users/admin/.cache/codexcli/rtwk-port-pin/crates/rtwk-tokio" }
 
 [workspace.package]
 version = "0.0.0"
@@ -78,8 +78,11 @@ workspace = true
 
 [dependencies]
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 codex-app-server-protocol = { path = "../app-server-protocol" }
+codex-shell-command = { path = "../shell-command" }
 codex-tui-core = { path = "core" }
+codex-utils-elapsed = { path = "../utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }
@@ -88,6 +91,7 @@ rtwk-tokio = { workspace = true }
 futures = { version = "0.3", default-features = false }
 semver = "1.0"
 serde_json = "1"
+shlex = "1.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]

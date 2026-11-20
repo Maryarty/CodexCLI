@@ -13,7 +13,7 @@ use rtwk::provider::{MultiProvider, Provider};
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
-use codex_tui_core::ids::{RequestKey, ThreadId};
+use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::UiApp;
@@ -29,9 +29,11 @@ pub struct Hs {
     pub submit: Handler<String>,
     /// Close a request without answering it.
     pub dismiss: Handler<RequestKey>,
+    pub dismiss_banner: Handler<(BackendId, Ticket)>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
     pub open_thread: Handler<ThreadId>,
+    pub load_history: Handler<ThreadId>,
     pub interrupt: Handler<ThreadId>,
     pub quit: Handler<()>,
     /// Move the empty conversation to the next connected backend.
@@ -48,11 +50,20 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         dismiss: cx.on_with(|app: &mut UiApp, key: RequestKey, _cx| {
             app.send(AppEv::Intent(Intent::DismissRequest(key)));
         }),
+        dismiss_banner: cx.on_with(|app: &mut UiApp, (backend, ticket), _cx| {
+            app.send(AppEv::Intent(Intent::DismissBackendBanner {
+                backend,
+                ticket,
+            }));
+        }),
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),
         open_thread: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
             app.send(AppEv::Intent(Intent::OpenThread(id)));
+        }),
+        load_history: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
+            app.send(AppEv::Intent(Intent::LoadOlderHistory(id)));
         }),
         interrupt: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
             app.send(AppEv::Intent(Intent::Interrupt(id)));
@@ -81,7 +92,7 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         pages::session::home(app)
     };
     let home = cx.memo((app.ui.presenter.place(), child), home_node);
-    MultiProvider::new()
+    let tree = MultiProvider::new()
         .with(Provider::value_shared(app.core.session().clone()))
         .with(Provider::value_shared(app.core.active_thread()))
         .with(Provider::value_shared(app.core.requests().clone()))
@@ -91,5 +102,11 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         )
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))
         .child(AnyWidget::from(Navigator::new().home(home)).with_key(app.ui.nav_key.clone()))
-        .into()
+        .into();
+    super::terminal_effects::TerminalEffects {
+        child: tree,
+        notice: app.ui.desktop_notice.clone(),
+        always: app.core.screens().chat.status.notification_policy.always,
+    }
+    .into()
 }

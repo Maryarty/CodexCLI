@@ -4,6 +4,12 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+mod banner;
+
+use std::rc::Rc;
+
+pub use banner::{Banner, BannerOccurrence};
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
@@ -13,7 +19,7 @@ use crate::commands::Notice;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
-use crate::ids::ThreadId;
+use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
@@ -37,12 +43,12 @@ pub struct Model {
     /// the next submit.
     pub notice: Option<ChatNotice>,
     /// What the status line shows, read by the host (config, cwd, git).
-    pub status: StatusFacts,
+    pub status: Rc<StatusFacts>,
 }
 
 /// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
 /// names none.
-const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
+pub const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 /// `LUNA_RESERVE_MODEL` (`model_catalog.rs`).
 const LUNA_RESERVE_MODEL: &str = "gpt-reserve";
@@ -66,6 +72,8 @@ pub struct StatusFacts {
     pub profile: super::status::Profile,
     /// The working directory as shown (`~/dev/app`).
     pub cwd: Option<String>,
+    pub home_directory: Option<String>,
+    pub service_tier: Option<String>,
     /// The name of the project root (the git root's directory).
     pub project_root: Option<String>,
     pub branch: Option<String>,
@@ -73,6 +81,17 @@ pub struct StatusFacts {
     pub items: Option<Vec<String>>,
     /// `tui.status_line_use_colors`.
     pub colors: bool,
+    pub terminal_title: Option<Vec<String>>,
+    pub hostname: Option<String>,
+    pub profile_name: Option<String>,
+    pub provider: Option<String>,
+    pub version: Option<String>,
+    pub animations: bool,
+    pub progress_effect: bool,
+    pub shimmer_effect: bool,
+    pub account_usage: bool,
+    pub empty_state: bool,
+    pub notification_policy: NotificationPolicy,
 }
 
 impl Default for StatusFacts {
@@ -84,32 +103,80 @@ impl Default for StatusFacts {
             auto_review: false,
             profile: super::status::Profile::Workspace,
             cwd: None,
+            home_directory: None,
+            service_tier: None,
             project_root: None,
             branch: None,
             items: None,
             colors: true,
+            terminal_title: None,
+            hostname: None,
+            profile_name: None,
+            provider: None,
+            version: None,
+            animations: true,
+            progress_effect: true,
+            shimmer_effect: true,
+            account_usage: false,
+            empty_state: false,
+            notification_policy: NotificationPolicy::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct NotificationPolicy {
+    pub enabled: bool,
+    pub always: bool,
+    pub kinds: Option<Vec<String>>,
+}
+
+impl NotificationPolicy {
+    pub fn allows(&self, kind: &str) -> bool {
+        self.enabled && self.kinds.as_ref().is_none_or(|kinds| kinds.iter().any(|name| name == kind))
+    }
+}
+
+/// A desktop notification emitted once for an accepted live event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesktopNotice {
+    pub kind: NoticeKind,
+    pub preview: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeKind {
+    TurnComplete,
+    CommandApproval,
+    EditApproval,
+    Elicitation,
+    Question,
+}
+
+impl NoticeKind {
+    pub fn config_id(self) -> &'static str {
+        match self {
+            Self::TurnComplete => "agent-turn-complete",
+            Self::CommandApproval | Self::EditApproval | Self::Elicitation => "approval-requested",
+            Self::Question => "async-question",
         }
     }
 }
 
 impl StatusFacts {
-    /// The items to draw, in the configured order, each as its id (as the
-    /// config wrote it) and text. An item without a value (it needs the
-    /// session, or the host found nothing) and an unknown id are left out.
+    /// Configured status items in their original order.
     pub fn items(&self) -> Vec<(String, String)> {
-        let ids: Vec<String> = match &self.items {
-            Some(items) => items.clone(),
-            None => DEFAULT_STATUS_LINE_ITEMS
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-        };
-        ids.into_iter()
-            .filter_map(|id| self.value(&id).map(|text| (id, text)))
-            .collect()
+        match &self.items {
+            Some(items) => items.iter().map(String::as_str).collect::<Vec<_>>(),
+            None => DEFAULT_STATUS_LINE_ITEMS.to_vec(),
+        }
+        .into_iter()
+        .filter_map(|id| self.value(id).map(|text| (id.to_string(), text)))
+        .collect()
     }
 
-    fn model_name(&self) -> Option<&str> {
+    pub fn model_name(&self) -> Option<&str> {
         let model = self.model.as_deref()?;
         Some(if model.eq_ignore_ascii_case(LUNA_RESERVE_MODEL) {
             "Luna Reserve"
@@ -119,7 +186,7 @@ impl StatusFacts {
     }
 
     /// `status_line_reasoning_effort_label`.
-    fn effort_label(&self) -> &str {
+    pub fn effort_label(&self) -> &str {
         match self.effort.as_deref() {
             None | Some("none") => "default",
             Some(effort) => effort,
@@ -138,7 +205,7 @@ impl StatusFacts {
 
     /// `status_line_value_for_item` for the items that need no session; the
     /// ids are `StatusLineItem`'s names and their serialize aliases.
-    fn value(&self, id: &str) -> Option<String> {
+    pub fn value(&self, id: &str) -> Option<String> {
         match id {
             "model" | "model-name" => self.model_name().map(ToString::to_string),
             "model-with-reasoning" => self
@@ -146,7 +213,7 @@ impl StatusFacts {
                 .map(|model| format!("{model} {}", self.effort_label())),
             "reasoning" => Some(self.effort_label().to_string()),
             "current-dir" => self.cwd.clone(),
-            "project" | "project-root" => self.project_root.clone(),
+            "project-name" | "project" | "project-root" => self.project_root.clone(),
             "git-branch" => self.branch.clone(),
             "approval-mode" | "approval" => self.approval(),
             _ => None,
@@ -179,7 +246,7 @@ impl Default for Model {
             service_tiers: Vec::new(),
             signed_in: true,
             notice: None,
-            status: StatusFacts::default(),
+            status: Rc::default(),
         }
     }
 }
@@ -192,7 +259,7 @@ pub enum Ev {
     ServiceTiers(Vec<ServiceTierCommand>),
     SignedIn(bool),
     /// The host read the config and the workspace.
-    Status(StatusFacts),
+    Status(Box<StatusFacts>),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -216,7 +283,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Flags(flags) => model.flags = flags,
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
-        Ev::Status(facts) => model.status = facts,
+        Ev::Status(facts) => model.status = Rc::from(facts),
     }
 }
 
@@ -236,11 +303,45 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 pub struct ThreadPart {
     compact_pending: bool,
     pub error: Option<RpcError>,
+    pub name: Option<String>,
+    pub cwd: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub provider: Option<String>,
+    pub service_tier: Option<Option<String>>,
+    pub daybreak: Option<bool>,
+    pub activity: ActivityPhase,
+    live_compaction: bool,
+    pub progress: Option<(usize, usize)>,
+    pub step: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ActivityPhase {
+    #[default]
+    Working,
+    Thinking,
 }
 
 impl ThreadPart {
+    pub(crate) fn begin_turn(&mut self) {
+        self.progress = None;
+        self.activity = ActivityPhase::Working;
+        self.live_compaction = false;
+        self.step = None;
+    }
+
+    pub(crate) fn end_turn(&mut self) {
+        self.live_compaction = false;
+    }
+
+    pub fn is_compacting(&self) -> bool {
+        self.compact_pending || self.live_compaction
+    }
+
     pub(crate) fn connection_lost(&mut self) {
         self.compact_pending = false;
+        self.live_compaction = false;
     }
 }
 
@@ -251,7 +352,88 @@ pub enum ThreadIntent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    Metadata {
+        name: Option<String>,
+        cwd: String,
+        model: Option<String>,
+        effort: Option<String>,
+        provider: String,
+        daybreak: Option<bool>,
+    },
+    Settings {
+        cwd: String,
+        model: String,
+        effort: Option<String>,
+        provider: String,
+        service_tier: Option<String>,
+    },
+    Phase { turn: TurnId, phase: ActivityPhase },
+    Compaction { turn: TurnId, running: bool },
+    Name(Option<String>),
+    Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
+}
+
+impl ThreadEv {
+    pub(crate) fn turn(&self) -> Option<&TurnId> {
+        match self {
+            Self::Plan { turn, .. } | Self::Phase { turn, .. } | Self::Compaction { turn, .. } => Some(turn),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
+    ThreadEv::Metadata {
+        name: thread.name.clone(),
+        cwd: thread.cwd.display().to_string(),
+        model: thread.model.clone(),
+        effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
+        provider: thread.model_provider.clone(),
+        daybreak: thread.daybreak_enabled,
+    }
+}
+
+pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotification) -> Option<(ThreadId, ThreadEv)> {
+    use codex_app_server_protocol::{ServerNotification, ThreadItemPayload, TurnPlanStepStatus};
+    let (id, event) = match notification {
+        ServerNotification::ThreadStarted(note) => (&note.thread.id, metadata(&note.thread)),
+        ServerNotification::ThreadNameUpdated(note) => (&note.thread_id, ThreadEv::Name(note.thread_name.clone())),
+        ServerNotification::ThreadSettingsUpdated(note) => {
+            let settings = &note.thread_settings;
+            (&note.thread_id, ThreadEv::Settings {
+                cwd: settings.cwd.display().to_string(),
+                model: settings.model.clone(),
+                effort: settings.effort.as_ref().map(|effort| effort.as_str().to_string()),
+                provider: settings.model_provider.clone(),
+                service_tier: settings.service_tier.clone(),
+            })
+        }
+        ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
+            turn: TurnId::new(&note.turn_id),
+            phase: ActivityPhase::Thinking,
+        }),
+        ServerNotification::ItemStarted(note) if matches!(note.item.payload, ThreadItemPayload::ContextCompaction { .. }) => {
+            (&note.thread_id, ThreadEv::Compaction { turn: TurnId::new(&note.turn_id), running: true })
+        }
+        ServerNotification::ItemCompleted(note) => {
+            let turn = TurnId::new(&note.turn_id);
+            let event = match &note.item.payload {
+                ThreadItemPayload::ContextCompaction { .. } => ThreadEv::Compaction { turn, running: false },
+                ThreadItemPayload::Reasoning { .. } => ThreadEv::Phase { turn, phase: ActivityPhase::Working },
+                _ => return None,
+            };
+            (&note.thread_id, event)
+        }
+        ServerNotification::TurnPlanUpdated(note) => {
+            let completed = note.plan.iter().filter(|step| step.status == TurnPlanStepStatus::Completed).count();
+            let step = note.plan.iter().find(|step| step.status == TurnPlanStepStatus::InProgress).map(|step| step.step.clone());
+            (&note.thread_id, ThreadEv::Plan { turn: TurnId::new(&note.turn_id), completed, total: note.plan.len(), step })
+        }
+        _ => return None,
+    };
+    Some((ThreadId::new(id), event))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -291,8 +473,31 @@ pub fn apply_thread_intent(
 }
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
-    let _ = (part, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        ThreadEv::Metadata { name, cwd, model, effort, provider, daybreak } => {
+            part.name = name;
+            part.daybreak = daybreak;
+            part.cwd = Some(cwd);
+            part.model = model;
+            part.effort = effort;
+            part.provider = (!provider.is_empty()).then_some(provider);
+        }
+        ThreadEv::Settings { cwd, model, effort, provider, service_tier } => {
+            part.cwd = Some(cwd);
+            part.model = Some(model);
+            part.effort = effort;
+            part.provider = Some(provider);
+            part.service_tier = Some(service_tier);
+        }
+        ThreadEv::Phase { phase, .. } => part.activity = phase,
+        ThreadEv::Compaction { running, .. } => part.live_compaction = running,
+        ThreadEv::Name(name) => part.name = name,
+        ThreadEv::Plan { completed, total, step, .. } => {
+            part.progress = (total > 0).then_some((completed, total));
+            part.step = step;
+        }
+    }
 }
 
 pub fn apply_reply(
@@ -338,7 +543,7 @@ enum SeedEv {
     Flags(SeedFlags),
     ServiceTiers(Vec<SeedTier>),
     SignedIn(bool),
-    Status(StatusFacts),
+    Status(Box<StatusFacts>),
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]

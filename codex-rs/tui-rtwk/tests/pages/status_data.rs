@@ -13,7 +13,7 @@ use codex_tui_core::screens::seed_ev;
 use crate::common::{Harness, start_sized};
 
 fn feed(h: &mut Harness, jsonl: &str) {
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("connected");
     for line in jsonl.lines().filter(|l| !l.trim().is_empty()) {
         let v: serde_json::Value = serde_json::from_str(line).expect("json");

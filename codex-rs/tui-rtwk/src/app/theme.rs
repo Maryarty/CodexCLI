@@ -1,16 +1,18 @@
-//! Styles of the skeleton, taken from the rtwk `ThemeData` of the root
-//! (`ui::run::root`), never from a literal colour: a theme of the app changes
-//! the look in this one place.
+//! Styles of the app. The chrome follows the root rtwk theme. Markdown
+//! typography uses the original's adaptive default palette.
 
 use std::rc::Rc;
 
 use rtwk::Cx;
 use rtwk::style::Style;
+use rtwk::style::TerminalBrightness;
 use rtwk::style::Theme;
 use rtwk::style::ThemeData;
 use rtwk_core::input::Brightness;
 use rtwk_core::style::Attrs;
 use rtwk_core::style::Color;
+use rtwk_rich::markdown::{BlockStyle, MarkdownTheme, TableStyle};
+use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
 /// The theme of the app's root: the terminal's own colours, dark until the
 /// terminal says otherwise.
@@ -32,6 +34,32 @@ impl Tokens {
         Self(Theme::of(cx))
     }
 
+    /// A shared terminal-derived surface for the draft and submitted prompts.
+    pub(crate) fn prompt_surface<S>(&self, cx: &mut Cx<'_, S>, history: bool) -> Style {
+        let bg = self.0.background.bg.filter(|bg| bg.is_rgb()).or_else(|| {
+            let [_, r, g, b] = TerminalBrightness::background_of(cx)?.to_be_bytes();
+            Some(Color::rgb(r, g, b))
+        });
+        let Some(bg) = bg else {
+            return if history {
+                self.0.surface.clone()
+            } else {
+                Style::new()
+            };
+        };
+        let (toward, strength) = match (self.0.brightness == Brightness::Dark, history) {
+            (true, true) => (Color::rgb(255, 255, 255), 0.16),
+            (true, false) => (Color::rgb(255, 255, 255), 0.12),
+            (false, true) => (Color::rgb(0, 0, 0), 0.02),
+            (false, false) => (Color::rgb(0, 0, 0), 0.04),
+        };
+        Style::new().bg(Color::lerp(bg, toward, strength))
+    }
+
+    pub(crate) fn history_prompt_mark(&self) -> Style {
+        self.0.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
+    }
+
     pub fn dim(&self) -> Style {
         self.0.dim()
     }
@@ -44,6 +72,47 @@ impl Tokens {
         self.0.accent.clone()
     }
 
+    pub(crate) fn transcript_markdown<S>(&self, cx: &mut Cx<'_, S>) -> MarkdownTheme {
+        // The original's built-in Mocha and Latte Markdown roles.
+        let brightness =
+            TerminalBrightness::background_of(cx).map_or(self.0.brightness, Brightness::of_rgb);
+        let (heading, strong, bullet, link) = match brightness {
+            Brightness::Dark => (
+                Color::rgb(0xf9, 0xe2, 0xaf),
+                Color::rgb(0xf3, 0x8b, 0xa8),
+                Color::rgb(0x94, 0xe2, 0xd5),
+                Color::rgb(0x89, 0xb4, 0xfa),
+            ),
+            Brightness::Light => (
+                Color::rgb(0xa1, 0x67, 0x15),
+                Color::rgb(0xd2, 0x0f, 0x39),
+                Color::rgb(0x14, 0x80, 0x87),
+                Color::rgb(0x1e, 0x66, 0xf5),
+            ),
+        };
+        let heading = MarkdownStyle::new().fg(heading);
+        let italic_heading = heading.clone().attrs(Attrs::ITALIC);
+        MarkdownTheme {
+            block_style: BlockStyle::SourceMarkers,
+            heading1: heading.clone().attrs(Attrs::BOLD | Attrs::UNDERLINE),
+            heading2: heading.clone().attrs(Attrs::BOLD),
+            heading3: heading.attrs(Attrs::BOLD | Attrs::ITALIC),
+            heading4: italic_heading.clone(),
+            heading5: italic_heading.clone(),
+            heading6: italic_heading,
+            strong: MarkdownStyle::new().fg(strong).attrs(Attrs::BOLD),
+            unordered_marker: Some(MarkdownStyle::new().fg(bullet)),
+            link: MarkdownStyle::new().fg(link).attrs(Attrs::UNDERLINE),
+            quote: MarkdownStyle::new(),
+            quote_bar: MarkdownStyle::new(),
+            code_block: MarkdownStyle::new(),
+            table_style: TableStyle::RowRules,
+            table_header: self.accent().attrs(Attrs::BOLD),
+            table_border: self.dim().attrs(Attrs::DIM),
+            ..MarkdownTheme::from_theme(&RichTheme::from_data(&self.0))
+        }
+    }
+
     /// The theme's info colour (the oracle's cyan accents).
     pub fn info(&self) -> Style {
         self.0.info.clone()
@@ -54,12 +123,58 @@ impl Tokens {
         self.0.success.clone()
     }
 
+    pub(crate) fn shimmer_colors(&self) -> Option<(Color, Color)> {
+        let base = self.0.accent.fg.filter(|color| color.is_rgb())?;
+        let highlight = self.0.text.fg.filter(|color| color.is_rgb())?;
+        Some((base, highlight))
+    }
+
+    pub(crate) fn blossom_palette(&self) -> BlossomPalette {
+        let channels = |color: Color| (color.r(), color.g(), color.b());
+        BlossomPalette {
+            background: self
+                .0
+                .background
+                .bg
+                .filter(|color| color.is_rgb())
+                .map_or((15, 20, 37), channels),
+            foreground: self
+                .0
+                .text
+                .fg
+                .filter(|color| color.is_rgb())
+                .map_or((210, 221, 235), channels),
+        }
+    }
+
     pub fn selected(&self) -> Style {
         self.0.accent.clone().attrs(Attrs::BOLD)
     }
 
     pub fn error(&self) -> Style {
         self.0.error.clone()
+    }
+}
+
+pub(crate) fn shimmer_style(style: &Style, base: Color, highlight: Color, strength: f64) -> Style {
+    style.clone().fg(Color::lerp(base, highlight, strength))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BlossomPalette {
+    pub background: (u8, u8, u8),
+    pub foreground: (u8, u8, u8),
+}
+
+impl BlossomPalette {
+    pub(crate) fn style(self, pixel: (u8, u8, u8), opacity: f64) -> Style {
+        let (br, bg, bb) = self.background;
+        let (r, g, b) = pixel;
+        Style::new().fg(Color::lerp(
+            Color::rgb(br, bg, bb),
+            Color::rgb(r, g, b),
+            opacity,
+        ))
     }
 }
 

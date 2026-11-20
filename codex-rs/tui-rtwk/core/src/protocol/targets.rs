@@ -29,6 +29,7 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ThreadTokenUsageUpdated(n) => &n.thread_id,
         N::TurnStarted(n) => &n.thread_id,
         N::TurnCompleted(n) => &n.thread_id,
+        N::TurnPlanUpdated(n) => &n.thread_id,
         N::ItemStarted(n) => &n.thread_id,
         N::ItemCompleted(n) => &n.thread_id,
         N::AgentMessageDelta(n) => &n.thread_id,

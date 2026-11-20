@@ -51,7 +51,7 @@ fn screen_map_registers_the_19_directories() {
 #[test]
 fn empty_chat_screen() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     assert!(h.t.screen().contains("Ask Codex to do anything"));
     assert_snapshot(&h.t, "chat", "empty");
 }
@@ -59,7 +59,7 @@ fn empty_chat_screen() {
 #[test]
 fn prompt_streams_the_answer_as_plain_text() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch_thread = FAKE_THREAD;
     h.fake.script_turn(vec![
         agent_delta(epoch_thread, "turn-1", "msg-1", "Hello, "),
@@ -70,7 +70,7 @@ fn prompt_streams_the_answer_as_plain_text() {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Hello, world"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
     assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
     let commands = h.fake.commands();
     assert!(
@@ -163,7 +163,7 @@ fn debug_menu_q_quits() {
 #[test]
 fn ctrl_c_quits() {
     let mut h = start_quittable(false);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("ctrl+c");
     assert!(!h.t.is_running());
 }
@@ -171,7 +171,7 @@ fn ctrl_c_quits() {
 #[test]
 fn an_event_of_an_older_connection_is_dropped() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     assert!(epoch.0 >= 1, "the first connection is epoch 1");
     let stale = ConnEpoch(epoch.0 - 1);
@@ -195,7 +195,7 @@ fn an_event_of_an_older_connection_is_dropped() {
 #[test]
 fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -240,7 +240,7 @@ fn debug_menu_scrolls_to_the_cursor() {
 #[test]
 fn f12_opens_the_debug_menu_from_chat() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("f12");
     assert!(
         h.t.screen().contains("codex-rtwk debug screens"),
@@ -268,7 +268,7 @@ fn a_request_opens_the_dialog_under_debug_screens_too() {
 #[test]
 fn a_second_request_waits_for_the_first_dialog() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     for id in [7, 8] {
         h.fake.inject(
@@ -291,7 +291,7 @@ fn a_second_request_waits_for_the_first_dialog() {
 #[test]
 fn server_request_resolved_closes_the_dialog_without_a_reject() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -318,7 +318,7 @@ fn rejected(h: &crate::common::Harness) -> usize {
 #[test]
 fn a_resize_mid_stream_keeps_the_answer() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello, "),
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "world"),
@@ -330,7 +330,7 @@ fn a_resize_mid_stream_keeps_the_answer() {
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     assert!(screen.contains("• Hello, world"), "{screen}");
-    assert!(screen.contains("working"), "{screen}");
+    assert!(screen.contains("Working"), "{screen}");
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -343,7 +343,7 @@ fn a_resize_mid_stream_keeps_the_answer() {
     );
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
 }
 
 fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
@@ -362,7 +362,7 @@ fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
 #[test]
 fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.t.type_text("one");
@@ -380,7 +380,7 @@ fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
 #[test]
 fn queued_messages_are_sent_in_order_one_per_turn_end() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.fake
@@ -414,7 +414,7 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
 #[test]
 fn a_queue_survives_a_second_submit() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.t.type_text("one");
@@ -433,7 +433,7 @@ fn a_queue_survives_a_second_submit() {
 #[test]
 fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "partial")]);
     h.t.type_text("hi");
@@ -445,4 +445,247 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
         matches!(command, Command::InterruptTurn { thread, turn, .. }
             if thread.as_str() == FAKE_THREAD && turn.as_str() == "turn-1")
     }));
+}
+
+#[test]
+fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
+    let mut h = start_quittable(false);
+    h.wait_idle();
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
+    h.t.type_text("one");
+    h.press("enter");
+    h.wait_for("running indicator", |s| s.contains("esc to interrupt"));
+    h.t.pump_for(crate::common::ms(1100));
+    assert!(h.t.screen().contains("1s"), "{}", h.t.screen());
+
+    h.t.type_text("two");
+    h.wait_for("queue hint", |s| s.contains("tab to queue message"));
+    h.press("tab");
+    h.wait_for("queued message", |s| s.contains("(queued) two"));
+    h.press("ctrl+c");
+    let fake = h.fake.clone();
+    h.wait_for("interrupt request", |_| {
+        fake.commands().iter().any(|command| {
+        matches!(command, Command::InterruptTurn { turn, .. } if turn.as_str() == "turn-1")
+    })
+    });
+    assert!(h.t.is_running());
+}
+
+#[test]
+fn streaming_markdown_fits_inside_the_transcript_viewport() {
+    let mut h = start_sized(false, 48, 12);
+    h.wait_idle();
+    let body = "# Start\n\n".to_owned()
+        + &(1..=28)
+            .map(|n| format!("paragraph {n}\n\n"))
+            .collect::<String>();
+    h.fake
+        .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", &body)]);
+    h.t.type_text("make a list");
+    h.press("enter");
+    h.wait_for("last paragraph", |s| s.contains("paragraph 28"));
+    assert!(h.t.screen().contains("Ask Codex to do anything"));
+
+    // Scroll the transcript backwards and keep reading the same area as more
+    // Markdown arrives. The composer is outside that viewport.
+    for _ in 0..4 {
+        h.t.input(b"\x1b[<64;12;5M");
+        h.t.pump_for(crate::common::ms(40));
+    }
+    let screen = h.t.screen();
+    assert!(!screen.contains("paragraph 28"), "{screen}");
+    assert!(screen.contains("Ask Codex to do anything"), "{screen}");
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(agent_delta(FAKE_THREAD, "turn-1", "msg-1", "paragraph 29")),
+    );
+    h.settle();
+    assert!(!h.t.screen().contains("paragraph 29"), "{}", h.t.screen());
+}
+
+#[test]
+fn empty_blossom_is_visible_only_without_a_draft() {
+    use codex_tui_core::screens::{ScreenEv, chat};
+
+    let mut h = start_sized(false, 80, 30);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                empty_state: true,
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    let blossom = |s: &str| s.chars().any(|ch| ('⠁'..='⣿').contains(&ch));
+    h.wait_for("blossom", blossom);
+    h.t.type_text("draft");
+    h.wait_for("draft without blossom", |s| {
+        s.contains("draft") && !blossom(s)
+    });
+}
+
+#[test]
+fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::fixtures::builders::turn_started;
+    use serde_json::json;
+
+    let mut h = start_sized(false, 56, 24);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_started(FAKE_THREAD, "turn-1")));
+    let command = |status: &str| {
+        json!({
+            "type": "commandExecution", "id": "cmd-1", "command": "/bin/zsh -lc 'printf test'",
+            "cwd": "/tmp", "source": "agent", "status": status, "commandActions": [],
+        })
+    };
+    let notify = |method, params| {
+        BackendEv::Notification(Box::new(
+            serde_json::from_value(json!({"method": method, "params": params}))
+                .expect("notification"),
+        ))
+    };
+    let context = |item| {
+        json!({
+            "item": item, "threadId": FAKE_THREAD, "turnId": "turn-1",
+            "startedAtMs": 1000, "completedAtMs": 2000,
+        })
+    };
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(notify("item/started", context(command("inProgress")))),
+    );
+    h.fake.inject(epoch, AppEv::Backend(notify("item/commandExecution/outputDelta", json!({
+        "threadId": FAKE_THREAD, "turnId": "turn-1", "itemId": "cmd-1", "delta": "tool output"
+    }))));
+    h.wait_for("running command with output", |s| {
+        s.contains("Running printf test") && s.contains("└ tool output")
+    });
+    h.fake.inject(
+        epoch,
+        AppEv::Backend(notify("item/completed", context(command("completed")))),
+    );
+    h.wait_for("completed command with preserved output", |s| {
+        s.contains("Ran printf test") && s.contains("└ tool output")
+    });
+    h.t.type_text("pending draft");
+    h.press("ctrl+t");
+    h.wait_for("full command and intact draft", |s| {
+        s.contains("$ printf test") && s.contains("tool output") && s.contains("pending draft")
+    });
+    h.press("escape");
+    h.wait_for("compact command and intact draft", |s| {
+        s.contains("Ran printf test") && s.contains("pending draft")
+    });
+}
+
+#[test]
+fn the_session_heading_scrolls_with_the_transcript() {
+    use codex_tui_core::screens::{ScreenEv, chat};
+    let mut h = start_sized(false, 56, 20);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                cwd: Some("/Users/example/project".into()),
+                home_directory: Some("/Users/example".into()),
+                version: Some("0.170.0".into()),
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    h.wait_for("session heading", |screen| {
+        screen.contains("OpenAI Codex (v0.170.0)")
+    });
+    assert_eq!(h.t.lines()[1].trim_end(), "  >_ OpenAI Codex (v0.170.0)");
+    assert_eq!(h.t.lines()[2].trim_end(), "     ~/project");
+    for index in 0..12 {
+        h.fake.inject(
+            epoch,
+            AppEv::Backend(agent_completed(
+                FAKE_THREAD,
+                "turn-1",
+                &format!("message-{index}"),
+                &format!("Reply {index}"),
+            )),
+        );
+    }
+    h.wait_for("latest reply", |screen| screen.contains("Reply 11"));
+    assert!(!h.t.screen().contains("OpenAI Codex"), "{}", h.t.screen());
+}
+
+#[test]
+fn transcript_prompt_surfaces_and_separators_keep_their_rows() {
+    use codex_tui_core::fixtures::builders::user_item;
+
+    for width in [56, 148] {
+        let mut h = start_sized(false, width, 26);
+        h.wait_idle();
+        let epoch = h.fake.epoch().expect("attached");
+        for item in [
+            agent_completed(
+                FAKE_THREAD,
+                "turn-1",
+                "prev",
+                "Предыдущий ответ.\n\n| Вариант | Количество |\n| --- | ---: |\n| Пример | 42 |\n\nКонец сравнения.",
+            ),
+            user_item(FAKE_THREAD, "turn-2", "prompt-1", "Первый запрос\r\n\n  \n"),
+            user_item(
+                FAKE_THREAD,
+                "turn-2",
+                "prompt-2",
+                "Второй запрос\nПродолжение",
+            ),
+            agent_completed(FAKE_THREAD, "turn-2", "last", "Следующий ответ."),
+        ] {
+            h.fake.inject(epoch, AppEv::Backend(item));
+        }
+        h.wait_for("follow-up response", |screen| {
+            screen.contains("Следующий ответ.")
+        });
+        let lines = h.t.lines();
+        let row = |needle: &str| {
+            lines
+                .iter()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("missing {needle} at width {width}\n{}", h.t.screen()))
+        };
+        assert!(lines[row("Вариант")].contains("Количество"));
+        let before = row("Конец сравнения.");
+        let first = row("Первый запрос");
+        let second = row("Второй запрос");
+        let after = row("Следующий ответ.");
+        assert_eq!(first, before + 3, "{}", h.t.screen());
+        assert_eq!(second, first + 2, "{}", h.t.screen());
+        assert_eq!(after, second + 4, "{}", h.t.screen());
+        assert!(
+            lines[second + 1].starts_with("  Продолжение"),
+            "{}",
+            h.t.screen()
+        );
+
+        let background = h.t.cell(0, before).bg;
+        let panel = h.t.cell(0, first).bg;
+        assert_ne!(panel, background);
+        assert_eq!(h.t.cell(0, before + 1).bg, background);
+        assert_eq!(h.t.cell(0, after - 1).bg, background);
+        for line in first - 1..after - 1 {
+            assert_eq!(h.t.cell(0, line).bg, panel, "row {line} at width {width}");
+            assert_eq!(
+                h.t.cell(usize::from(width - 1), line).bg,
+                panel,
+                "right edge at row {line}, width {width}"
+            );
+        }
+    }
 }
