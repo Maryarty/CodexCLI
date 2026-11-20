@@ -460,6 +460,41 @@ fn a_second_request_waits_behind_the_first() {
     );
 }
 
+#[test]
+fn request_keys_preserve_numeric_and_escaped_string_ids() {
+    use codex_app_server_protocol::{
+        RequestId, ServerNotification, ServerRequest, ServerRequestResolvedNotification,
+    };
+    use codex_tui_core::protocol::reject_target;
+
+    let mut app = ready();
+    let string_id = RequestId::String("7\"\n".to_owned());
+    let BackendEv::Request(mut request) = tool_input_request(T, "turn-1", 7) else {
+        panic!("expected a request");
+    };
+    let ServerRequest::ToolRequestUserInput { request_id, .. } = request.as_mut() else {
+        panic!("expected a user-input request");
+    };
+    *request_id = string_id.clone();
+    notification(&mut app, BackendEv::Request(request));
+    notification(&mut app, tool_input_request(T, "turn-1", 7));
+    assert_eq!(app.requests().entries.len(), 2);
+    assert_eq!(
+        app.requests()
+            .head()
+            .and_then(|req| reject_target(&req.key)),
+        Some(string_id.clone())
+    );
+    notification(&mut app, server_request_resolved(T, 7));
+    assert_eq!(app.requests().entries.len(), 1);
+    let resolved = ServerNotification::ServerRequestResolved(ServerRequestResolvedNotification {
+        thread_id: T.to_owned(),
+        request_id: string_id,
+    });
+    notification(&mut app, BackendEv::Notification(Box::new(resolved)));
+    assert!(app.requests().entries.is_empty());
+}
+
 /// A failed turn says why: the server's `error` notification carries the
 /// message, which the status line shows instead of a bare "the turn failed".
 #[test]

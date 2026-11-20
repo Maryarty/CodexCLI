@@ -6,6 +6,7 @@
 //! events in `threads::project` and `app::pending_request`.
 
 pub(crate) mod agents;
+pub(crate) mod targets;
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCErrorError;

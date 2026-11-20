@@ -18,10 +18,10 @@ use codex_app_server_protocol::ServerRequest;
 use crate::ids::BackendId;
 use crate::ids::ConnEpoch;
 use crate::ids::RequestKey;
-use crate::ids::ServerRequestId;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
 use crate::ids::TicketMint;
+use crate::protocol::targets;
 use crate::rpc::Answer;
 use crate::rpc::Pending;
 use crate::rpc::Reply;
@@ -87,7 +87,7 @@ pub enum BackendLabel {
 pub struct PendingRequest {
     pub key: RequestKey,
     /// The wire method, e.g. `item/commandExecution/requestApproval`.
-    pub method: String,
+    pub method: &'static str,
     pub preview: Option<String>,
 }
 
@@ -539,7 +539,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             // A thread another backend owns is not this backend's to speak
             // of (oracle: `BackendRegistry::observe`); an unowned one is
             // claimed by the backend that did.
-            if let Some(thread) = agents::notification_thread(&notification) {
+            if let Some(thread) = targets::notification_thread(&notification) {
                 match app.screens.agents.owners.get(thread) {
                     Some(owner) if *owner != origin => return,
                     Some(_) => {}
@@ -553,13 +553,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
-                let key = RequestKey {
-                    epoch: app.epoch_of(origin),
-                    thread: ThreadId::new(&resolved.thread_id),
-                    id: ServerRequestId::new(
-                        serde_json::to_string(&resolved.request_id).unwrap_or_default(),
-                    ),
-                };
+                let key = targets::request_key(
+                    app.epoch_of(origin),
+                    &resolved.thread_id,
+                    &resolved.request_id,
+                );
                 if app.requests.contains(&key) {
                     Rc::make_mut(&mut app.requests)
                         .entries
@@ -580,11 +578,16 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
         }
         AppEv::Backend(BackendEv::Request(request)) => {
-            if let Some(pending) = pending_request(app.epoch_of(origin), &request) {
-                let queue = Rc::make_mut(&mut app.requests);
-                if !queue.contains(&pending.key) {
-                    queue.entries.push(pending);
-                }
+            let (method, thread) = targets::request_target(&request);
+            let key = targets::request_key(app.epoch_of(origin), thread, request.id());
+            if !app.requests.contains(&key) {
+                Rc::make_mut(&mut app.requests)
+                    .entries
+                    .push(PendingRequest {
+                        key,
+                        method,
+                        preview: agents::request_preview(&request),
+                    });
             }
         }
         AppEv::Backend(BackendEv::Lagged(skipped)) => {
@@ -1051,51 +1054,4 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
     if let Some(model) = app.threads.get_mut(thread) {
         threads::apply(model, ev, &mut ThreadFx::new(thread, fx, &mut app.mint));
     }
-}
-
-/// The request a server request is, keyed by connection, thread and id (R3).
-/// Read through the wire form: the request carries its thread id in its
-/// params, whatever its kind.
-fn pending_request(epoch: ConnEpoch, request: &ServerRequest) -> Option<PendingRequest> {
-    let wire = serde_json::to_value(request).ok()?;
-    let method = wire.get("method")?.as_str()?.to_string();
-    let id = wire.get("id")?.to_string();
-    let thread = wire
-        .get("params")
-        .and_then(|params| params.get("threadId"))
-        .and_then(|thread| thread.as_str())
-        .unwrap_or_default();
-    Some(PendingRequest {
-        key: RequestKey {
-            epoch,
-            thread: ThreadId::new(thread),
-            id: ServerRequestId::new(id),
-        },
-        method,
-        preview: request_preview(request),
-    })
-}
-
-/// The first useful text on a pending request (oracle: `request_preview`).
-fn request_preview(request: &ServerRequest) -> Option<String> {
-    use codex_app_server_protocol::McpServerElicitationRequest as Mcp;
-    let text = match request {
-        ServerRequest::CommandExecutionRequestApproval { params, .. } => {
-            params.reason.as_deref().or(params.command.as_deref())
-        }
-        ServerRequest::FileChangeRequestApproval { params, .. } => params.reason.as_deref(),
-        ServerRequest::PermissionsRequestApproval { params, .. } => params.reason.as_deref(),
-        ServerRequest::McpServerElicitationRequest { params, .. } => match &params.request {
-            Mcp::Form { message, .. }
-            | Mcp::OpenAiForm { message, .. }
-            | Mcp::OpenAiElicitationForm { message, .. }
-            | Mcp::Url { message, .. } => Some(message.as_str()),
-            Mcp::UserVerification { .. } => None,
-        },
-        ServerRequest::ToolRequestUserInput { params, .. } => {
-            params.questions.first().map(|q| q.question.as_str())
-        }
-        _ => None,
-    }?;
-    Some(agents::preview_text(text))
 }

@@ -9,6 +9,7 @@ use crate::screens::agents::Page;
 use crate::screens::agents::Reply;
 use crate::screens::agents::UsageOutcome;
 use crate::screens::agents::carried::is_overview_thread;
+use crate::screens::agents::carried::listed_threads;
 use crate::screens::agents::carried::preview_markdown;
 use crate::threads::ThreadAsk;
 use codex_app_server_protocol::Account;
@@ -144,6 +145,29 @@ fn list_params(cursor: Option<String>) -> ThreadListParams {
 /// `codex_state::PINNED_THREAD_SECTION_ID`, which core does not link.
 pub(crate) const PINNED_SECTION: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 
+/// Keeps the read receipt with its row as the oracle does. Each accepted
+/// row moves out of the wire page into the model's page.
+pub(crate) fn listed_page(mut page: ThreadListResponse) -> Page {
+    let next_cursor = page.next_cursor.take();
+    let mut threads = Vec::with_capacity(page.data.len());
+    let mut unread = Vec::new();
+    for (thread, is_unread) in listed_threads(page) {
+        if is_overview_thread(&thread) {
+            if is_unread {
+                unread.push(thread.id.clone());
+            }
+            threads.push(thread);
+        }
+    }
+    Page {
+        threads,
+        unread,
+        next_cursor,
+        append: false,
+        pins: None,
+    }
+}
+
 pub(crate) fn decode_reply(
     command: &Command,
     result: serde_json::Value,
@@ -151,21 +175,8 @@ pub(crate) fn decode_reply(
     let malformed = |error: serde_json::Error| RpcError::Malformed(error.to_string());
     match command {
         Command::List { .. } | Command::Search { .. } => {
-            let page: ThreadListResponse = serde_json::from_value(result).map_err(malformed)?;
-            let unread = page
-                .read_states
-                .iter()
-                .flatten()
-                .filter(|(_, state)| state.first_unread.is_some())
-                .map(|(id, _)| id.clone())
-                .collect();
-            Ok(Reply::Listed(Page {
-                threads: page.data.into_iter().filter(is_overview_thread).collect(),
-                unread,
-                next_cursor: page.next_cursor,
-                append: false,
-                pins: None,
-            }))
+            let page = serde_json::from_value(result).map_err(malformed)?;
+            Ok(Reply::Listed(listed_page(page)))
         }
         Command::Thread(ThreadAsk::Resume { .. }) => {
             let response: ThreadResumeResponse =
