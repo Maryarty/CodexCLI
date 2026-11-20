@@ -10,7 +10,7 @@ use rtwk::controls::{Callout, Hyperlink, StatusKind};
 use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
@@ -89,6 +89,9 @@ pub enum ChatMsg {
     Submit(Rc<str>),
     QueueDraft,
     CtrlC,
+    RetryWriter,
+    ForkWriter,
+    QuitReadOnly,
     CtrlD,
     DismissBanner(BackendId, Ticket),
     /// The hidden key: the debug menu over the chat.
@@ -243,6 +246,21 @@ impl State for ChatState {
                     run_line(&text, w, cx, &hs);
                 }
             }
+            ChatMsg::RetryWriter => {
+                let thread = read::<ThreadModel, _>(cx);
+                if thread.read_only() {
+                    cx.emit(&hs.open_thread, thread.id().clone());
+                }
+            }
+            ChatMsg::ForkWriter => {
+                let thread = read::<ThreadModel, _>(cx);
+                if thread.read_only() {
+                    let intent =
+                        codex_tui_core::screens::agents::Intent::Fork(thread.id().to_string());
+                    cx.emit(&hs.screen, ScreenIntent::from(intent));
+                }
+            }
+            ChatMsg::QuitReadOnly => cx.emit(&hs.quit, ()),
             ChatMsg::CtrlC => {
                 let thread = read::<ThreadModel, _>(cx);
                 if thread.can_interrupt() {
@@ -273,7 +291,7 @@ impl State for ChatState {
             ChatMsg::Cycle => {}
             ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
             ChatMsg::Agents => {
-                if w.ui.composer.text().is_empty() {
+                if w.ui.composer.text().is_empty() || read::<ThreadModel, _>(cx).read_only() {
                     open(cx, Target::Agents);
                 }
             }
@@ -281,6 +299,9 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => match action {
+                Action::OpenTranscript if read::<ThreadModel, _>(cx).read_only() => {
+                    super::external_writer::open_transcript(cx);
+                }
                 Action::SearchPrevious => {
                     let draft = w.ui.composer.text().to_string();
                     let intent = popovers::Intent::SearchStart { draft };
@@ -309,6 +330,10 @@ impl State for ChatState {
                 if thread.can_interrupt() {
                     let hs = read::<Hs, _>(cx);
                     cx.emit(&hs.interrupt, thread.id().clone());
+                    return Rebuild::No;
+                }
+                if thread.read_only() {
+                    open(cx, Target::Agents);
                     return Rebuild::No;
                 }
                 // The chat as a page over another (a debug entry) goes back.
@@ -393,7 +418,9 @@ impl State for ChatState {
             TurnState::Idle => None,
         };
         let compacting = slots.chat.is_compacting();
-        let status: Option<AnyWidget> = if connection == Some(&ConnectionState::Reconnecting) {
+        let status: Option<AnyWidget> = if thread.read_only() {
+            None
+        } else if connection == Some(&ConnectionState::Reconnecting) {
             Some(
                 Text::new(strings.chat.reconnecting)
                     .style(tokens.dim())
@@ -469,19 +496,10 @@ impl State for ChatState {
                         .into(),
                 )
             }
-            None if thread.read_only() => {
-                // The external writer view: the composer is replaced by the
-                // notice, the footer by what the page can do.
-                let line = Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(Text::new(chat_strings.read_only_title).style(tokens.bold()))
-                    .child(Text::new(chat_strings.read_only_hint));
-                let footer = Row::new()
-                    .child(SizedBox::new(Some(2), None, None))
-                    .child(Text::new(chat_strings.read_only_footer).style(tokens.dim()));
-                (line.into(), footer.into())
-            }
+            None if thread.read_only() => (
+                super::external_writer::notice(cx, chat_strings, &tokens),
+                super::external_writer::footer(chat_strings, &tokens),
+            ),
             None => {
                 let area = TextArea::new()
                     .controller(w.ui.composer.clone())
@@ -685,7 +703,7 @@ impl State for ChatState {
                     .child(composer),
             )
         };
-        if let Some(line) = line {
+        if let Some(line) = line.filter(|_| !thread.read_only()) {
             body = body.child(
                 Row::new()
                     .child(SizedBox::new(Some(2), None, None))
@@ -739,12 +757,21 @@ impl State for ChatState {
         if running.is_some() && !self.draft_empty && search.is_none() {
             focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
         }
+        if thread.read_only() {
+            focus = focus
+                .can_request_focus(true)
+                .autofocus()
+                .bind(KeyPress::char('r'), cx.send(ChatMsg::RetryWriter))
+                .bind(KeyPress::char('f'), cx.send(ChatMsg::ForkWriter))
+                .bind(KeyPress::char('q'), cx.send(ChatMsg::QuitReadOnly));
+        }
         for (action, key) in keys::defaults() {
             focus = focus.bind(key, cx.send(ChatMsg::Action(action)));
         }
         // The footer's entries are these bindings' hints: every key it shows is
         // bound here.
         let pages = strings.pages;
+        let focus = AnyWidget::from(focus).with_key(Key::value(thread.read_only()));
         KeyBindings::new(
             [
                 ("left", cx.send(ChatMsg::Agents)),

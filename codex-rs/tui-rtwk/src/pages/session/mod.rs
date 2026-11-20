@@ -10,6 +10,7 @@ pub mod backtrack;
 mod blossom;
 pub mod cells;
 pub mod composer;
+mod external_writer;
 mod keys;
 pub mod open;
 pub mod popovers;
@@ -18,6 +19,7 @@ mod search_key;
 mod session_page;
 mod status_surfaces;
 pub mod transcript;
+mod transcript_activity;
 mod transcript_pane;
 mod window_title;
 

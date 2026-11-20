@@ -1433,37 +1433,74 @@ fn the_opened_session_shows_its_history() {
 /// says so where the composer would be.
 #[test]
 fn a_thread_with_another_writer_opens_read_only_with_its_history() {
-    let mut h = live::start(|request| match request["method"].as_str()? {
-        "thread/resume" => Some(Err(ServerError {
-            code: Some(-32600),
-            message: format!(
-                "thread {} already has an active writer",
-                request["params"]["threadId"].as_str()?
-            ),
-        })),
-        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => Some(Ok(json!({
-            "data": [turn_json("t1", "first question", "first answer")],
-            "nextCursor": null
-        }))),
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let replies = attempts.clone();
+    let mut h = live::start(move |request| match request["method"].as_str()? {
+        "thread/resume" => {
+            let thread = request["params"]["threadId"].as_str()?;
+            if replies.fetch_add(1, Ordering::SeqCst) == 0 {
+                Some(Err(ServerError {
+                    code: Some(-32600),
+                    message: format!("thread {thread} already has an active writer"),
+                }))
+            } else {
+                Some(Ok(resumed(thread)))
+            }
+        }
+        "thread/turns/list" if request["params"]["limit"].as_u64() != Some(1) => {
+            let mut turn = turn_json("t1", "first question", "first answer");
+            turn["durationMs"] = json!(8_500);
+            let items = turn["items"].as_array_mut().expect("fixture items");
+            items.insert(1, json!({
+                "type": "commandExecution", "id": "command-1", "command": "printf example",
+                "cwd": "/tmp", "processId": null, "source": "agent", "status": "completed",
+                "commandActions": [], "aggregatedOutput": "tool preview", "exitCode": 0, "durationMs": 8
+            }));
+            items.insert(
+                2,
+                json!({
+                    "type": "mcpToolCall", "id": "mcp-1", "server": "catalog", "tool": "lookup",
+                    "status": "completed", "arguments": {"query":"fixture"},
+                    "result": {"content":[{"type":"text","text":"lookup result"}]}, "durationMs": 10
+                }),
+            );
+            Some(Ok(json!({"data": [turn], "nextCursor": null})))
+        }
         _ => server(request),
     });
     h.wait_for("both tasks", |s| s.contains("Exec task"));
     h.t.press("enter");
-    h.wait_for("the history", |s| s.contains("first answer"));
+    h.wait_for("the history", |s| s.contains("Worked for 8s"));
     let screen = h.t.screen();
-    // Oracle: `agents_overview_attach_conflict.snap` (the notice stands
-    // where the composer is).
-    assert!(
-        screen.contains("This conversation is open in another app"),
-        "{screen}"
-    );
-    assert!(
-        screen.contains("Close it there and press R to continue here."),
-        "{screen}"
-    );
+    for needle in [
+        "This conversation is open in another app",
+        "Close it there and press R to continue here.",
+        "r to retry",
+        "Ran printf example",
+        "tool preview",
+        "Called catalog.lookup",
+        "lookup result",
+        "first answer",
+    ] {
+        assert!(screen.contains(needle), "{needle} missing:\n{screen}");
+    }
     assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
     assert!(!screen.contains("active writer"), "{screen}");
     assert!(!screen.contains("Agent command center"), "{screen}");
+
+    let first_prompt = screen
+        .lines()
+        .position(|line| line.contains("first question"));
+    assert!(first_prompt.is_some_and(|row| row < 4), "{screen}");
+
+    h.t.press("r");
+    h.wait_for("the writer attached on retry", |s| {
+        s.contains("Ask Codex to do anything")
+    });
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
 
 /// open-rest (ADR-003): several sessions stay attached to the process; opening

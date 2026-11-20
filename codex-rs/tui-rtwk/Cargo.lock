@@ -3878,6 +3878,7 @@ name = "codex-tui-rtwk"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "codex-app-server-protocol",
  "codex-tui-core",
  "futures",

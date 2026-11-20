@@ -428,6 +428,7 @@ fn the_projection_maps_what_the_skeleton_shows() {
     assert_eq!(
         ev,
         threads::ThreadEv::TurnCompleted {
+            timing: None,
             turn: TurnId::new("turn-3"),
             end: TurnEnd::Completed,
             snapshot: None,

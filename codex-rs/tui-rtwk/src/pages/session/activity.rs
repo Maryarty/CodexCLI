@@ -169,7 +169,7 @@ impl State for ActivityState {
 impl_widget!(stateful eq Activity);
 
 // Oracle: status_indicator_widget.rs::fmt_elapsed_compact.
-fn compact_elapsed(seconds: u64) -> String {
+pub(super) fn compact_elapsed(seconds: u64) -> String {
     match seconds {
         0..=59 => format!("{seconds}s"),
         60..=3599 => format!("{}m {:02}s", seconds / 60, seconds % 60),

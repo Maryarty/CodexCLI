@@ -19,6 +19,8 @@ use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
+pub(super) const INLINE_GAP: &str = " ";
+
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug)]
 pub struct Strings {
@@ -67,7 +69,18 @@ pub struct Strings {
     /// session is open in another process and shown read-only.
     pub read_only_title: &'static str,
     pub read_only_hint: &'static str,
-    pub read_only_footer: &'static str,
+    pub running_command: &'static str,
+    pub ran_command: &'static str,
+    pub calling_tool: &'static str,
+    pub called_tool: &'static str,
+    pub worked_for: Msg<1>,
+    pub writer_retry_key: &'static str,
+    pub writer_retry_detail: &'static str,
+    pub writer_retry: &'static str,
+    pub writer_fork: &'static str,
+    pub writer_center: &'static str,
+    pub writer_exit: &'static str,
+    pub writer_transcript: &'static str,
     pub backend_cycle: &'static str,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
@@ -110,9 +123,20 @@ pub const EN: Strings = Strings {
     backend_cloud: "Cloud",
     backend_connection: msg!("Connection {0}"),
     backend_key: "\u{2303}x b",
-    read_only_title: "\u{1f512}  This conversation is open in another app",
-    read_only_hint: "    Close it there and press R to continue here.",
-    read_only_footer: "\u{2190}/esc command center",
+    read_only_title: "This conversation is open in another app",
+    read_only_hint: "Close it there and press R to continue here.",
+    running_command: "Running",
+    ran_command: "Ran",
+    calling_tool: "Calling",
+    called_tool: "Called",
+    worked_for: msg!("Worked for {0}"),
+    writer_retry_key: "r",
+    writer_retry_detail: " to retry",
+    writer_retry: "retry",
+    writer_fork: "fork",
+    writer_center: "command center",
+    writer_exit: "exit",
+    writer_transcript: "transcript",
     backend_cycle: " to cycle",
     warning_singular: "warning",
     warning_plural: "warnings",
@@ -140,6 +164,10 @@ pub fn description(lang: Lang, command: SlashCommand) -> &'static str {
 }
 
 impl Strings {
+    pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
+    }
+
     /// The name of a backend on the control.
     pub fn backend(&self, label: codex_tui_core::app::BackendLabel) -> String {
         use codex_tui_core::app::BackendLabel;

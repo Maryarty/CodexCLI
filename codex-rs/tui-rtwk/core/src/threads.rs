@@ -6,6 +6,10 @@ mod previews;
 
 pub use previews::{ThreadPreview, ThreadPreviews};
 
+mod activity;
+
+pub use activity::{ToolActivity, ToolKind, ToolStatus};
+
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -54,11 +58,12 @@ pub struct ItemKey {
     pub item: ItemId,
 }
 
-/// A transcript entry. The skeleton shows plain text only.
+/// A transcript entry keyed by the server item ID.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     User { text: String },
     Agent { text: String },
+    Tool(std::sync::Arc<ToolActivity>),
 }
 
 /// The ordered transcript: entries keyed `(TurnId, ItemId)`, kept in the
@@ -67,6 +72,7 @@ pub enum Item {
 pub struct Transcript {
     order: Rc<Vec<ItemKey>>,
     items: Rc<HashMap<ItemKey, Rc<Item>>>,
+    timings: Rc<HashMap<TurnId, TimedTurn>>,
     // Keep streaming rows separate so updating a preview never copies history
     // held by the provider. There is still one ordered index for the transcript.
     streaming: HashMap<ItemKey, StreamingItem>,
@@ -76,6 +82,31 @@ pub struct Transcript {
 struct StreamingItem {
     item: Rc<Item>,
     committed: usize,
+}
+
+/// Timing data is separate from item IDs so a summary cannot collide with a server item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TurnTiming {
+    pub duration_ms: Option<i64>,
+    pub completed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TimedTurn {
+    last_item: ItemId,
+    timing: TurnTiming,
+}
+
+impl TurnTiming {
+    fn from_turn(turn: &codex_app_server_protocol::Turn) -> Option<Self> {
+        let duration_ms = turn.duration_ms.filter(|&millis| millis >= 0);
+        (turn.status == TurnStatus::Completed
+            && (duration_ms.is_some() || turn.completed_at.is_some()))
+        .then_some(Self {
+            duration_ms,
+            completed_at: turn.completed_at,
+        })
+    }
 }
 
 impl Transcript {
@@ -90,6 +121,48 @@ impl Transcript {
     pub fn get(&self, index: usize) -> Option<(&ItemKey, &Item)> {
         let key = self.order.get(index)?;
         self.item(key).map(|item| (key, item))
+    }
+
+    /// A finished turn's timing belongs after its last retained item.
+    pub fn timing_after(&self, index: usize) -> Option<TurnTiming> {
+        let key = self.order.get(index)?;
+        let entry = self.timings.get(&key.turn)?;
+        (entry.last_item == key.item).then_some(entry.timing)
+    }
+
+    fn remember_timings(&mut self, turns: impl IntoIterator<Item = (TurnId, Option<TurnTiming>)>) {
+        let mut pending: HashMap<_, _> = turns
+            .into_iter()
+            .filter_map(|(turn, update)| {
+                let old = self.timings.get(&turn).map(|entry| entry.timing);
+                let timing = match (update, old) {
+                    (Some(new), Some(old)) => TurnTiming {
+                        duration_ms: new.duration_ms.or(old.duration_ms),
+                        completed_at: new.completed_at.or(old.completed_at),
+                    },
+                    (Some(timing), None) | (None, Some(timing)) => timing,
+                    (None, None) => return None,
+                };
+                Some((turn, timing))
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        for key in self.order.iter().rev() {
+            if let Some(timing) = pending.remove(&key.turn) {
+                let entry = TimedTurn {
+                    last_item: key.item.clone(),
+                    timing,
+                };
+                if self.timings.get(&key.turn) != Some(&entry) {
+                    Rc::make_mut(&mut self.timings).insert(key.turn.clone(), entry);
+                }
+            }
+            if pending.is_empty() {
+                break;
+            }
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ItemKey, &Item)> {
@@ -140,7 +213,7 @@ impl Transcript {
                 let (item, committed) = match self.items.get(entry.key()) {
                     Some(item) => match item.as_ref() {
                         Item::Agent { text } => (item.clone(), text.len()),
-                        Item::User { .. } => return,
+                        Item::User { .. } | Item::Tool(_) => return,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
@@ -330,6 +403,7 @@ pub enum ThreadEv {
         turn: TurnId,
         end: TurnEnd,
         snapshot: Option<TurnSnapshot>,
+        timing: Option<TurnTiming>,
         error: Option<String>,
     },
     /// The server's `error` notification (not one it will retry): why a
@@ -351,6 +425,7 @@ pub struct HistoryTurn {
     turn: TurnId,
     end: Option<TurnEnd>,
     started_at: Option<i64>,
+    timing: Option<TurnTiming>,
     error: Option<String>,
     items: TurnSnapshot,
 }
@@ -862,6 +937,7 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                     TurnStatus::Completed | TurnStatus::InProgress => TurnEnd::Completed,
                 },
                 snapshot: turn_snapshot(&n.turn),
+                timing: TurnTiming::from_turn(&n.turn),
                 error: n.turn.error.as_ref().map(|error| error.message.clone()),
             },
         )),
@@ -923,6 +999,7 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
                 turn: TurnId::new(&turn.id),
                 end: turn_end(&turn.status),
                 started_at: turn.started_at,
+                timing: TurnTiming::from_turn(turn),
                 error: turn.error.as_ref().map(|error| error.message.clone()),
                 items: turn_snapshot(turn)?,
             })
@@ -947,7 +1024,10 @@ fn item_entry(payload: &ThreadItemPayload) -> Option<(ItemId, Item)> {
         ThreadItemPayload::AgentMessage { id, text, .. } => {
             (ItemId::new(id), Item::Agent { text: text.clone() })
         }
-        _ => return None,
+        _ => {
+            return activity::tool(payload)
+                .map(|(id, tool)| (id, Item::Tool(std::sync::Arc::new(tool))));
+        }
     })
 }
 
@@ -1013,7 +1093,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     }
                 }
             }
+            let timings: Vec<_> = turns
+                .iter()
+                .map(|entry| (entry.turn.clone(), entry.timing))
+                .collect();
             model.transcript.prepend_snapshots(turns);
+            model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
         }
         ThreadEv::Submit { text } if model.has_writer() => {
@@ -1163,6 +1248,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             turn,
             end,
             snapshot,
+            timing,
             error,
         } => {
             match snapshot {
@@ -1185,6 +1271,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 _ => {}
             }
+            model.transcript.remember_timings([(turn.clone(), timing)]);
             end_turn(model, turn, end, error, fx);
         }
     }

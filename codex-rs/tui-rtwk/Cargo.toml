@@ -78,6 +78,7 @@ workspace = true
 
 [dependencies]
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 codex-app-server-protocol = { path = "../app-server-protocol" }
 codex-tui-core = { path = "core" }
 rtwk = { workspace = true }

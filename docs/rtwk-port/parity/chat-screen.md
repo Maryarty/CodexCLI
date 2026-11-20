@@ -26,10 +26,18 @@ Both binaries ran the same mocked Markdown prompt in an 80×24 PTY. The port sna
 
 The multi-turn scenario also runs in both binaries at 148×34. Between ordinary transcript cells, the separator uses the terminal background. Adjacent user prompts share a surface, and display ignores trailing blank prompt lines. A headless comparison at widths 56 and 148 checks the prompt surface and its right edge, the separator colors, and multiline alignment after a Cyrillic Markdown table.
 
+## Restored chat comparison
+
+Both binaries opened the same saved mock conversation in the external-writer state at 148×30. The comparison now includes the restored user prompt, assistant messages, completion time and the lock notice. In the read-only view, short history starts at the top and the notice occupies the composer slot with its own key hints. The retry, fork and command center actions use the existing app intents. The read-only transcript opens the same provider-backed list on a separate route.
+
+The terminal capture placed the first prompt on row 6 in the oracle and row 2 in the port, with the oracle's startup header accounting for the extra rows. The completion summary appeared on rows 15 and 11 and had the same time and text. The lock title and shortcut footer appeared on rows 27 and 30 in both captures.
+
+The mock's saved rollout showed no retained command previews in either binary. A separate protocol fixture supplies command and MCP items in `thread/turns/list` alongside message data. It verifies the preview rows, completion timing and retry through the actual keyboard path. Tool details use rtwk's native expansion widget. The core carries the same activity types for live items and saved turns.
+
 ## Remaining differences
 
 - The footer and title use available thread settings, account limits and host data. Live PR and branch-change summaries, enterprise thread billing and workspace headline still need data sources.
 - Rich transcript cell types, composer steer/rejection states and sidebar, voice, and UI tree integration belong to their tracked slices. The session queue still uses its existing submit behavior for Enter.
 - Owner notification, reset-credit confirmation and the persisted Luna Reserve automatic switch and recovery are pending. Browser links are the supported banner actions in this slice.
 - Terminal notification delivery uses the framework's negotiated method. Explicit notification-method overrides, title action-required flashing and plan-mode-specific notifications still differ from the oracle.
-- Rich Markdown table and quote glyphs follow rtwk. The oracle also inserts a completed-work summary and offers a return-to-latest control while reading older history. The port follows the bottom when appropriate and preserves scroll position during streaming.
+- Rich Markdown table and quote glyphs follow rtwk. Tool previews use native rtwk expansion glyphs and styles. The oracle also has richer compact tool grouping and a return-to-latest control while reading older history. The port follows the bottom when appropriate and preserves scroll position during streaming.
