@@ -93,7 +93,7 @@ fn rtwks_own_widget_strings_follow_the_locale() {
 #[test]
 fn the_skeleton_shows_the_russian_strings_under_locale_ru() {
     let mut h = start_lang(Lang::Ru);
-    h.wait_for("the ready word", |s| s.contains("готово"));
+    h.wait_idle();
     let screen = h.t.screen();
     assert!(screen.contains("Спросите Codex"), "{screen}");
     assert!(!screen.contains("Ask Codex to do anything"), "{screen}");
@@ -102,7 +102,7 @@ fn the_skeleton_shows_the_russian_strings_under_locale_ru() {
 #[test]
 fn a_string_without_a_russian_entry_stays_english() {
     let mut h = start_lang(Lang::Ru);
-    h.wait_for("ready", |s| s.contains("готово"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,

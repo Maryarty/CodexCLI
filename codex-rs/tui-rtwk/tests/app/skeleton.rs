@@ -51,7 +51,7 @@ fn screen_map_registers_the_19_directories() {
 #[test]
 fn empty_chat_screen() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     assert!(h.t.screen().contains("Ask Codex to do anything"));
     assert_snapshot(&h.t, "chat", "empty");
 }
@@ -59,7 +59,7 @@ fn empty_chat_screen() {
 #[test]
 fn prompt_streams_the_answer_as_plain_text() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch_thread = FAKE_THREAD;
     h.fake.script_turn(vec![
         agent_delta(epoch_thread, "turn-1", "msg-1", "Hello, "),
@@ -70,7 +70,7 @@ fn prompt_streams_the_answer_as_plain_text() {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Hello, world"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
     assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
     let commands = h.fake.commands();
     assert!(
@@ -163,7 +163,7 @@ fn debug_menu_q_quits() {
 #[test]
 fn ctrl_c_quits() {
     let mut h = start_quittable(false);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("ctrl+c");
     assert!(!h.t.is_running());
 }
@@ -171,7 +171,7 @@ fn ctrl_c_quits() {
 #[test]
 fn an_event_of_an_older_connection_is_dropped() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     assert!(epoch.0 >= 1, "the first connection is epoch 1");
     let stale = ConnEpoch(epoch.0 - 1);
@@ -195,7 +195,7 @@ fn an_event_of_an_older_connection_is_dropped() {
 #[test]
 fn a_server_request_opens_the_dismiss_dialog_and_is_rejected_once() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -240,7 +240,7 @@ fn debug_menu_scrolls_to_the_cursor() {
 #[test]
 fn f12_opens_the_debug_menu_from_chat() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("f12");
     assert!(
         h.t.screen().contains("codex-rtwk debug screens"),
@@ -268,7 +268,7 @@ fn a_request_opens_the_dialog_under_debug_screens_too() {
 #[test]
 fn a_second_request_waits_for_the_first_dialog() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     for id in [7, 8] {
         h.fake.inject(
@@ -291,7 +291,7 @@ fn a_second_request_waits_for_the_first_dialog() {
 #[test]
 fn server_request_resolved_closes_the_dialog_without_a_reject() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -318,7 +318,7 @@ fn rejected(h: &crate::common::Harness) -> usize {
 #[test]
 fn a_resize_mid_stream_keeps_the_answer() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello, "),
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "world"),
@@ -330,7 +330,7 @@ fn a_resize_mid_stream_keeps_the_answer() {
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     assert!(screen.contains("• Hello, world"), "{screen}");
-    assert!(screen.contains("working"), "{screen}");
+    assert!(screen.contains("Working"), "{screen}");
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,
@@ -343,7 +343,7 @@ fn a_resize_mid_stream_keeps_the_answer() {
     );
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
 }
 
 fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
@@ -362,7 +362,7 @@ fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
 #[test]
 fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.t.type_text("one");
@@ -380,7 +380,7 @@ fn a_message_typed_while_a_turn_runs_is_queued_and_shown() {
 #[test]
 fn queued_messages_are_sent_in_order_one_per_turn_end() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.fake
@@ -414,7 +414,7 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
 #[test]
 fn a_queue_survives_a_second_submit() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.t.type_text("one");
@@ -433,7 +433,7 @@ fn a_queue_survives_a_second_submit() {
 #[test]
 fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "partial")]);
     h.t.type_text("hi");
@@ -450,17 +450,17 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
 #[test]
 fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     let mut h = start_quittable(false);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake
         .script_turn(vec![agent_delta(FAKE_THREAD, "turn-1", "msg-1", "so far")]);
     h.t.type_text("one");
     h.press("enter");
-    h.wait_for("running indicator", |s| s.contains("Esc to interrupt"));
+    h.wait_for("running indicator", |s| s.contains("esc to interrupt"));
     h.t.pump_for(crate::common::ms(1100));
     assert!(h.t.screen().contains("1s"), "{}", h.t.screen());
 
     h.t.type_text("two");
-    h.wait_for("queue hint", |s| s.contains("Tab to queue message"));
+    h.wait_for("queue hint", |s| s.contains("tab to queue message"));
     h.press("tab");
     h.wait_for("queued message", |s| s.contains("(queued) two"));
     h.press("ctrl+c");
@@ -476,7 +476,7 @@ fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
 #[test]
 fn streaming_markdown_fits_inside_the_transcript_viewport() {
     let mut h = start_sized(false, 48, 12);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let body = "# Start\n\n".to_owned()
         + &(1..=28)
             .map(|n| format!("paragraph {n}\n\n"))
@@ -511,7 +511,7 @@ fn empty_blossom_is_visible_only_without_a_draft() {
     use codex_tui_core::screens::{ScreenEv, chat};
 
     let mut h = start_sized(false, 80, 30);
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let epoch = h.fake.epoch().expect("attached");
     h.fake.inject(
         epoch,

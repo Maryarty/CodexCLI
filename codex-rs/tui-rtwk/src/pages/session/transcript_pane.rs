@@ -2,7 +2,7 @@
 //! position and preserves the parser for a row while its item key is mounted.
 
 use rtwk::gestures::SelectionArea;
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row};
+use rtwk::layout::{BoxWidget, CrossAxisAlignment, EdgeInsets, Expanded, Padding, Row};
 use rtwk::provider::{read, watch};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::widgets::Text;
@@ -15,6 +15,9 @@ use codex_tui_core::threads::{Item, ThreadModel};
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+
+use super::actions::prompt;
+use super::strings as chat_strings;
 
 #[derive(Clone, PartialEq)]
 pub(super) struct TranscriptPane(pub ListController);
@@ -42,32 +45,48 @@ impl State for ViewportState {
     fn build(&self, widget: &TranscriptPane, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let thread = watch::<ThreadModel, _>(cx);
         let strings = l10n::of(cx);
-        let tokens = theme::Tokens::of(cx);
+        let prompt_surface = theme::Tokens::of(cx).prompt_surface(cx, true);
+        let prompt_mark = chat_strings::of(cx).prompt;
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
-        let list = ListView::builder(thread.transcript().len(), move |index| {
-            let Some((key, item)) = thread.transcript().get(index) else {
+        let count = thread.transcript().len();
+        let list = ListView::builder(count, move |index| {
+            let Some((key, item)) = thread.transcript().get(count - 1 - index) else {
                 return AnyWidget::default();
             };
-            let row = match item {
-                Item::User { text } => AnyWidget::from(
-                    Text::new(strings.user_line(text).to_string()).style(tokens.bold()),
-                ),
-                Item::Agent { text } => Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .spacing(1)
-                    .child(Text::new(strings.agent_line("").to_string()))
-                    .child(Expanded::new(1, MarkdownView::new(text.as_str())))
+            let row: AnyWidget = match item {
+                Item::User { text } => BoxWidget::new()
+                    .style(prompt_surface.clone())
+                    .padding(EdgeInsets::only(0, 1, 1, 1))
+                    .child(
+                        Row::new()
+                            .cross_axis_alignment(CrossAxisAlignment::Start)
+                            .child(prompt(prompt_mark))
+                            .child(Expanded::new(1, Text::new(text.clone()))),
+                    )
                     .into(),
+                Item::Agent { text } => Padding::new(
+                    EdgeInsets::only(0, 1, 1, 0),
+                    Row::new()
+                        .cross_axis_alignment(CrossAxisAlignment::Start)
+                        .spacing(1)
+                        .child(Text::new(strings.agent_line("").to_string()))
+                        .child(Expanded::new(1, MarkdownView::new(text.as_str()))),
+                )
+                .into(),
             };
             row.with_key(Key::value(key.clone()))
         })
         .controller(widget.0.clone())
-        .stick_to_bottom(true);
+        .reverse(true);
         let send = cx.local_sender();
         SelectionArea::new(
             NotificationListener::<ScrollNotification>::new(list).on_notification(move |scroll| {
-                if can_load && scroll.depth() == 0 && scroll.metrics.pixels <= 3 {
+                let distance = scroll
+                    .metrics
+                    .max_scroll_extent
+                    .saturating_sub(scroll.metrics.pixels);
+                if can_load && scroll.depth() == 0 && distance <= 3 {
                     send(thread_id.clone());
                 }
                 false

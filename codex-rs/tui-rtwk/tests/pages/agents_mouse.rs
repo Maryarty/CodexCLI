@@ -71,7 +71,7 @@ fn a_click_selects_the_row_under_it() {
 #[test]
 fn a_click_on_the_selected_row_opens_it() {
     let mut h = common::start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
         agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
@@ -80,7 +80,7 @@ fn a_click_on_the_selected_row_opens_it() {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Hello"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
     h.t.type_text("/agents");
     h.press("enter");
     h.t.pump_for(common::ms(800));
@@ -277,7 +277,7 @@ fn usage_asks(h: &Harness) -> Vec<(Ticket, String)> {
 #[test]
 fn an_arrow_move_asks_for_the_new_tasks_usage() {
     let mut h = common::start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
         agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
@@ -286,7 +286,7 @@ fn an_arrow_move_asks_for_the_new_tasks_usage() {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("\u{2022} Hello"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
     h.t.type_text("/agents");
     h.press("enter");
     h.t.pump_for(common::ms(800));

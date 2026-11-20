@@ -36,6 +36,7 @@ fn the_chat_entry_shows_the_streamed_answer() {
     assert!(screen.contains("hello"), "{screen}");
     assert!(screen.contains("The transport kept this."), "{screen}");
     assert!(screen.contains("And dropped this."), "{screen}");
+    assert!(screen.contains("gpt-test high · /tmp/project"), "{screen}");
 }
 
 #[test]

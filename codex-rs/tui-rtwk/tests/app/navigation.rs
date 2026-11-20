@@ -13,7 +13,7 @@ const MENU_TITLE: &str = "codex-rtwk debug screens";
 
 /// A chat with one answered prompt and a draft in the composer.
 fn chat_with_history(h: &mut Harness) {
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
         agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
@@ -22,7 +22,7 @@ fn chat_with_history(h: &mut Harness) {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Hello"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
     h.t.type_text("a draft");
     h.t.pump_for(crate::common::ms(100));
 }
@@ -109,7 +109,7 @@ fn q_in_the_menu_as_home_quits() {
 #[test]
 fn the_menu_says_how_to_go_back_and_the_home_menu_says_q_quits() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.press("f12");
     let pushed = h.t.screen();
     assert!(pushed.contains("esc/q back"), "{pushed}");
@@ -228,7 +228,7 @@ fn ctrl_t_and_diff_open_the_not_implemented_popup() {
 #[test]
 fn the_session_page_footer_is_the_oracle_idle_footer() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let screen = h.t.screen();
     let last = screen.lines().last().unwrap_or_default().to_string();
     assert!(
@@ -256,7 +256,10 @@ fn assert_session_back(h: &Harness) {
     let screen = h.t.screen();
     assert!(screen.contains("› hi"), "transcript lost:\n{screen}");
     assert!(screen.contains("• Hello"), "transcript lost:\n{screen}");
-    assert!(screen.contains("ready"), "no session footer:\n{screen}");
+    assert!(
+        screen.contains("for shortcuts"),
+        "no session footer:\n{screen}"
+    );
 }
 
 /// `←` on an empty composer opens the agents page (the footer's hint,
@@ -267,7 +270,7 @@ fn left_on_an_empty_composer_opens_the_agents_page() {
     use rtwk_test::find;
 
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let page = find::by_type::<agents::Screen>();
     h.t.type_text("ab");
     h.press("left");
@@ -349,7 +352,11 @@ fn agents_to_session_when_a_task_opens() {
     h.press("enter");
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
-    assert!(h.t.screen().contains("ready"), "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("Ask Codex to do anything"),
+        "{}",
+        h.t.screen()
+    );
 }
 
 #[test]
@@ -506,7 +513,7 @@ fn resume_footer_keys_are_bound() {
 #[test]
 fn question_mark_is_the_shortcut_on_an_empty_composer_only() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.t.type_text("?");
     h.t.pump_for(crate::common::ms(600));
     let screen = h.t.screen();

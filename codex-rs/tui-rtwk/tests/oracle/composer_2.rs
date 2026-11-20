@@ -14,14 +14,13 @@ fn prompt(s: &Screen) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-/// The live chat once its session is ready: the status row shows `ready` (the session
-/// starts after the first frame; Enter and Tab before that are not the oracle's state).
+/// The live chat after the kit has started its session and drawn the composer.
 fn ready(width: u16, height: u16) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(width, height)
         .live()
         .open();
-    s.wait_for("ready");
+    s.wait_for("› Ask Codex to do anything");
     s
 }
 

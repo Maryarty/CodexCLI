@@ -88,7 +88,7 @@ fn shown(h: &Harness) -> Option<RequestKey> {
 #[test]
 fn a_queued_second_request_shows_after_the_first_closes() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     inject(&h, 7);
     inject(&h, 8);
     h.wait_for("the first dialog", |s| s.contains("7 needs an answer"));
@@ -108,7 +108,7 @@ fn a_queued_second_request_shows_after_the_first_closes() {
 #[test]
 fn a_request_resolved_by_the_server_closes_with_none_and_the_next_shows() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     inject(&h, 7);
     inject(&h, 8);
     h.wait_for("the first dialog", |s| s.contains("7 needs an answer"));
@@ -127,7 +127,7 @@ fn a_request_resolved_by_the_server_closes_with_none_and_the_next_shows() {
 #[test]
 fn a_replaced_home_closes_the_dialog_and_the_next_event_shows_it_again_from_the_new_home() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     inject(&h, 7);
     h.wait_for("the dialog", |s| s.contains("7 needs an answer"));
     h.t.update_app::<UiApp>(|app, _| app.ui.nav_key = GlobalKey::with_label("navigator-2"));
@@ -151,7 +151,7 @@ fn a_replaced_home_closes_the_dialog_and_the_next_event_shows_it_again_from_the_
 #[test]
 fn a_dead_origin_shows_nothing_and_its_none_is_not_retried() {
     let mut h = start();
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     let stale =
         h.t.read_app::<UiApp, _>(|app| app.ui.presenter.place().get());
     assert!(stale.is_some(), "the home left its handle");

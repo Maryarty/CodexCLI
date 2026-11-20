@@ -586,7 +586,7 @@ fn a_script_screen_shows_its_events_when_open_returns() {
         .script(include_str!("kit/fixtures/answered.jsonl"))
         .open();
     s.assert_contains("• Hello there");
-    s.assert_contains("ready");
+    s.assert_contains("› Ask Codex to do anything");
 }
 
 /// The events of a script reach a session that is already started: the first
@@ -608,11 +608,11 @@ fn a_script_is_fed_to_a_started_session() {
 #[test]
 fn a_key_that_asks_the_backend_shows_the_answer_when_it_returns() {
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    s.assert_contains("ready");
+    s.assert_contains("› Ask Codex to do anything");
     s.type_text("hello").keys("enter");
     // the echoed message and the started turn, the composer empty again
     s.assert_contains("› hello");
-    s.assert_contains("working…");
+    s.assert_contains("Working");
     s.assert_contains("› Ask Codex to do anything");
 }
 

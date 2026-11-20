@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use rtwk::Cx;
 use rtwk::style::Style;
+use rtwk::style::TerminalBrightness;
 use rtwk::style::Theme;
 use rtwk::style::ThemeData;
 use rtwk_core::input::Brightness;
@@ -30,6 +31,28 @@ impl Tokens {
     /// The tokens of the theme `cx` is under.
     pub fn of<S>(cx: &mut Cx<'_, S>) -> Self {
         Self(Theme::of(cx))
+    }
+
+    /// A shared terminal-derived surface for the draft and submitted prompts.
+    pub(crate) fn prompt_surface<S>(&self, cx: &mut Cx<'_, S>, history: bool) -> Style {
+        let bg = self.0.background.bg.filter(|bg| bg.is_rgb()).or_else(|| {
+            let [_, r, g, b] = TerminalBrightness::background_of(cx)?.to_be_bytes();
+            Some(Color::rgb(r, g, b))
+        });
+        let Some(bg) = bg else {
+            return if history {
+                self.0.surface.clone()
+            } else {
+                Style::new()
+            };
+        };
+        let (toward, strength) = match (self.0.brightness == Brightness::Dark, history) {
+            (true, true) => (Color::rgb(255, 255, 255), 0.16),
+            (true, false) => (Color::rgb(255, 255, 255), 0.12),
+            (false, true) => (Color::rgb(0, 0, 0), 0.02),
+            (false, false) => (Color::rgb(0, 0, 0), 0.04),
+        };
+        Style::new().bg(Color::lerp(bg, toward, strength))
     }
 
     pub fn dim(&self) -> Style {

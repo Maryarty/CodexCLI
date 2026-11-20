@@ -141,6 +141,8 @@ impl State for ActivityState {
         let mut header = Row::new().spacing(1);
         if w.spinner {
             header = header.child(Spinner::new().style(tokens.accent()));
+        } else {
+            header = header.child(Text::line("•").style(tokens.dim()));
         }
         let header = header.child(self.header(w, cx)).child(Expanded::new(
             1,

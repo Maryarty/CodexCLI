@@ -18,10 +18,16 @@ The pinned rtwk gallery exercises `ListView`, `KeyHintsBar`, `Spinner`, `CustomP
 | `chatwidget/notifications.rs` | Typed terminal effects for completed turns, approvals and questions. The terminal condition and configured notification types gate delivery. Duplicate and historical turn ends do not emit a second notification. |
 | `backend_banners.rs` | Inline and dismissible account usage notices and supported browser CTAs. A dismissal belongs to the backend and one occurrence. A newer occurrence cannot be dismissed by the old widget. |
 
+## Visual comparison
+
+The fullscreen oracle snapshots `owned_transcript_composer_gap`, `fresh_thread_header` and `renders_with_working_header` are the references for the chat frame. Short history aligns with the composer. Prompts and the draft sit on terminal-derived surfaces with one row of padding above and below. Idle has no separate status row. The footer status can wrap, and active work retains its own indicator.
+
+Both binaries ran the same mocked Markdown prompt in an 80×24 PTY. The port snapshots cover an empty chat and a short completed exchange. The seeded `streamed_answer` entry also shows the configured model and working directory.
+
 ## Remaining differences
 
 - The footer and title use available thread settings, account limits and host data. Live PR and branch-change summaries, enterprise thread billing and workspace headline still need data sources.
 - Rich transcript cell types, composer steer/rejection states and sidebar, voice, and UI tree integration belong to their tracked slices. The session queue still uses its existing submit behavior for Enter.
 - Owner notification, reset-credit confirmation and the persisted Luna Reserve automatic switch and recovery are pending. Browser links are the supported banner actions in this slice.
 - Terminal notification delivery uses the framework's negotiated method. Explicit notification-method overrides, title action-required flashing and plan-mode-specific notifications still differ from the oracle.
-- The port uses native rtwk spacing, styles and an adaptive viewport. The oracle's ratatui snapshots remain the case inventory and the port's headless tests check its own output and interactions.
+- Rich Markdown table and quote glyphs follow rtwk. The oracle also inserts a completed-work summary and offers a return-to-latest control while reading older history. The port follows the bottom when appropriate and preserves scroll position during streaming.

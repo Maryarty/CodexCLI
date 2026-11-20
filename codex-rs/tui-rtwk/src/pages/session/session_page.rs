@@ -9,7 +9,7 @@ use rtwk::binding::TerminalTitle;
 use rtwk::controls::{Callout, Hyperlink, StatusKind};
 use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
-use rtwk::layout::{Alignment, SizedBox, Stack};
+use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
@@ -393,16 +393,20 @@ impl State for ChatState {
             TurnState::Idle => None,
         };
         let compacting = slots.chat.is_compacting();
-        let status: AnyWidget = if connection == Some(&ConnectionState::Reconnecting) {
-            Text::new(strings.chat.reconnecting)
-                .style(tokens.dim())
-                .into()
+        let status: Option<AnyWidget> = if connection == Some(&ConnectionState::Reconnecting) {
+            Some(
+                Text::new(strings.chat.reconnecting)
+                    .style(tokens.dim())
+                    .into(),
+            )
         } else if let Some(failure) = failure {
-            Text::new(failure_text(strings, failure))
-                .style(tokens.error())
-                .into()
+            Some(
+                Text::new(failure_text(strings, failure))
+                    .style(tokens.error())
+                    .into(),
+            )
         } else if session.status == Session::Starting {
-            Text::new(strings.chat.starting).style(tokens.dim()).into()
+            Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
         } else if running.is_some() || compacting {
             let offset_seconds = running
                 .and_then(|running| running.started_at)
@@ -411,26 +415,28 @@ impl State for ChatState {
                     u64::try_from(states.agents.now.saturating_sub(started)).unwrap_or(0)
                 })
                 .unwrap_or(0);
-            AnyWidget::from(Activity {
-                show_interrupt: thread.can_interrupt(),
-                spinner: facts.animations && facts.progress_effect,
-                shimmer: facts.animations && facts.shimmer_effect,
-                header: if compacting {
-                    strings.chat.compacting
-                } else if slots.chat.activity == chat::ActivityPhase::Thinking {
-                    strings.chat.thinking
-                } else {
-                    strings.chat.working
-                },
-                step: slots.chat.step.clone(),
-                offset_seconds,
-            })
-            .with_key(Key::value((
-                thread.id().clone(),
-                running.map(|running| running.turn.clone()),
-            )))
+            Some(
+                AnyWidget::from(Activity {
+                    show_interrupt: thread.can_interrupt(),
+                    spinner: facts.animations && facts.progress_effect,
+                    shimmer: facts.animations && facts.shimmer_effect,
+                    header: if compacting {
+                        strings.chat.compacting
+                    } else if slots.chat.activity == chat::ActivityPhase::Thinking {
+                        strings.chat.thinking
+                    } else {
+                        strings.chat.working
+                    },
+                    step: slots.chat.step.clone(),
+                    offset_seconds,
+                })
+                .with_key(Key::value((
+                    thread.id().clone(),
+                    running.map(|running| running.turn.clone()),
+                ))),
+            )
         } else {
-            Text::new(strings.chat.ready).style(tokens.dim()).into()
+            None
         };
         let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
@@ -449,6 +455,7 @@ impl State for ChatState {
                     SearchStatus::NoMatch => chat_strings::Search::NoMatch,
                 };
                 let line = Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
                     .child(prompt(chat_strings.prompt))
                     .child(Expanded::new(1, Text::new(shown)));
                 let field = Focus::new(line)
@@ -495,6 +502,7 @@ impl State for ChatState {
                 .rows(popup::ROWS)
                 .on_selected(cx.map(|picked: Suggestion| ChatMsg::Picked(Rc::from(&*picked.text))));
                 let line = Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
                     .child(prompt(chat_strings.prompt))
                     .child(Expanded::new(1, field));
                 // The oracle's idle footer (`footer_shortcuts_default`): the hint of
@@ -558,8 +566,13 @@ impl State for ChatState {
         };
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(Expanded::new(1, transcript))
-            .child(status);
+            .child(Expanded::new(1, transcript));
+        if let Some(status) = status {
+            if !thread.transcript().is_empty() {
+                body = body.child(SizedBox::new(None, Some(1), None));
+            }
+            body = body.child(status);
+        }
         const QUEUE_PREVIEW: usize = 3;
         for text in thread.queue().iter().take(QUEUE_PREVIEW) {
             body = body.child(
@@ -662,7 +675,16 @@ impl State for ChatState {
         if let Some(notice) = session.backend_notices.get(&backend) {
             body = body.child(Text::new(notice.clone()).style(tokens.dim()));
         }
-        let mut body = body.child(composer);
+        let mut body = if thread.read_only() {
+            body.child(composer)
+        } else {
+            body.child(
+                BoxWidget::new()
+                    .style(tokens.prompt_surface(cx, false))
+                    .padding(EdgeInsets::only(0, 1, 1, 1))
+                    .child(composer),
+            )
+        };
         if let Some(line) = line {
             body = body.child(
                 Row::new()

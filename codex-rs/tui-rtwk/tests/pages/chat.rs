@@ -26,7 +26,7 @@ fn chat_slot_is_registered_and_empty() {
 
 /// A chat with one answered prompt and a draft in the composer.
 pub(crate) fn chat_with_history(h: &mut Harness) {
-    h.wait_for("ready", |s| s.contains("ready"));
+    h.wait_idle();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
         agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Hello"),
@@ -35,7 +35,7 @@ pub(crate) fn chat_with_history(h: &mut Harness) {
     h.t.type_text("hi");
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Hello"));
-    h.wait_for("the turn to end", |s| s.contains("ready"));
+    h.wait_idle();
 }
 
 /// The chat as the user left it: the transcript, the composer's text, and
