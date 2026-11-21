@@ -13,12 +13,13 @@ use std::rc::Rc;
 
 use rtwk::controls::SelectionController;
 use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::SizedBox;
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Flexible, Grid, GridPlacement, GridTrack, MainAxisSize,
     Padding,
 };
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
-use rtwk::style::Style;
+use rtwk::style::{Span, Style};
 use rtwk::text::{Text, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
 
@@ -29,6 +30,32 @@ use super::measure;
 pub struct OptionRow {
     pub label: String,
     pub description: Option<String>,
+}
+
+/// A row whose label hangs: the `prefix` (the number, `1. `, or blanks for a
+/// row that has none) stays at the left, the label (spans: an underlined
+/// hotkey, a coloured status) wraps to the right of it and its continuation
+/// lines start under the label's first cell (the oracle's `wrap_indent`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RichRow {
+    pub prefix: String,
+    pub label: Vec<Span>,
+    pub description: Option<String>,
+}
+
+/// What the grid draws: a row of either kind.
+struct Item {
+    /// `Some`: a hanging label (the mark and the prefix in a column of their
+    /// own); `None`: the mark and the label in one text.
+    prefix: Option<String>,
+    label: Vec<Span>,
+    description: Option<String>,
+}
+
+impl Item {
+    fn text(&self) -> String {
+        self.label.iter().map(|span| span.text.as_ref()).collect()
+    }
 }
 
 /// The styles of a row: the cursor row, the label and the description of
@@ -71,21 +98,35 @@ impl Options {
         self.selection.cursor().unwrap_or(0)
     }
 
-    /// The cursor goes to `row` and the rows scroll to show it.
+    /// The cursor goes to `row` and the rows scroll to show it. The window
+    /// moves by whole rows, as the oracle's list does: the first row shown
+    /// goes on one by one until the cursor row fits whole, so a short last
+    /// window leaves blank lines under it (the content is padded for it).
     pub fn set(&self, row: usize) {
         self.selection.set_cursor(Some(row));
         let heights = self.heights.borrow();
         if row >= heights.len() || !self.scroll.has_clients() {
             return;
         }
-        let top: i64 = heights[..row].iter().sum();
-        let bottom = top + heights[row];
         let position = self.scroll.position();
         let (pixels, view) = (position.pixels(), position.viewport_dimension());
-        if top < pixels {
-            self.scroll.jump_to(top);
-        } else if bottom > pixels + view {
-            self.scroll.jump_to(bottom - view);
+        let mut tops = Vec::with_capacity(heights.len());
+        let mut top = 0;
+        for height in heights.iter() {
+            tops.push(top);
+            top += height;
+        }
+        // The row at the top of the window now.
+        let mut first = tops.iter().position(|top| *top >= pixels).unwrap_or(row);
+        if row < first {
+            first = row;
+        } else {
+            while first < row && !fits(&heights[first..], row - first, view) {
+                first += 1;
+            }
+        }
+        if tops[first] != pixels {
+            self.scroll.jump_to(tops[first]);
         }
     }
 
@@ -112,6 +153,57 @@ impl Options {
     /// The rows: as tall as they are, scrolled by the room the dialog leaves
     /// (a `Flexible` for the `Column` of the dialog).
     pub fn view(&self, rows: Rc<Vec<OptionRow>>, styles: OptionStyles, indent: i32) -> AnyWidget {
+        let items = rows
+            .iter()
+            .map(|row| Item {
+                prefix: None,
+                label: vec![Span::new(row.label.clone())],
+                description: row.description.clone(),
+            })
+            .collect();
+        self.items_view(Rc::new(items), styles, indent)
+    }
+
+    /// The same with hanging, styled labels (`RichRow`).
+    pub fn view_rich(
+        &self,
+        rows: Rc<Vec<RichRow>>,
+        styles: OptionStyles,
+        indent: i32,
+    ) -> AnyWidget {
+        let items = rows
+            .iter()
+            .map(|row| Item {
+                prefix: Some(row.prefix.clone()),
+                label: row.label.clone(),
+                description: row.description.clone(),
+            })
+            .collect();
+        self.items_view(Rc::new(items), styles, indent)
+    }
+
+    /// A row high, `mark` where rows are scrolled out of view above (or
+    /// below), in `style`: the oracle's `↑` and `↓` of a picker. It follows
+    /// the scroll of the rows.
+    pub fn arrow(&self, above: bool, mark: &'static str, style: Style) -> AnyWidget {
+        let (scroll, heights) = (self.scroll.clone(), self.heights.clone());
+        SizedBox::new(
+            None,
+            Some(1),
+            Some(
+                ListenableBuilder::new(Rc::new(scroll.clone()), move |_, _| {
+                    let shown = hidden(&scroll, &heights.borrow(), above);
+                    Text::new(if shown { mark } else { "" })
+                        .style(style.clone())
+                        .into()
+                })
+                .into(),
+            ),
+        )
+        .into()
+    }
+
+    fn items_view(&self, items: Rc<Vec<Item>>, styles: OptionStyles, indent: i32) -> AnyWidget {
         let (selection, scroll, heights) = (
             self.selection.clone(),
             self.scroll.clone(),
@@ -121,14 +213,33 @@ impl Options {
             1,
             LayoutBuilder::new(move |cx, constraints| {
                 let seg = segmenter_of(cx);
-                let wide = |row: &OptionRow| seg.width(&format!("\u{203a} {}", row.label));
+                let hang = items.iter().any(|item| item.prefix.is_some());
+                // The mark and the prefix: the column of a hanging label.
+                let lead = |item: &Item| {
+                    seg.width(&format!(
+                        "\u{203a} {}",
+                        item.prefix.as_deref().unwrap_or("")
+                    ))
+                };
+                let lead_width = if hang {
+                    items.iter().map(lead).max().unwrap_or(0)
+                } else {
+                    0
+                };
+                let wide = |item: &Item| {
+                    if hang {
+                        seg.width(&item.text())
+                    } else {
+                        seg.width(&format!("\u{203a} {}", item.text()))
+                    }
+                };
                 let room = usize::try_from(constraints.max_width - 2 * indent).unwrap_or(0);
                 // The label column is the widest label, at most 70% of the
                 // room less the gap (the oracle's `compute_desc_col`) when
                 // there are descriptions: a longer label wraps inside it
                 // (`GridTrack::content().within(0, cap)`, G39b).
-                let described = rows.iter().any(|row| {
-                    row.description
+                let described = items.iter().any(|item| {
+                    item.description
                         .as_deref()
                         .is_some_and(|text| !text.is_empty())
                 });
@@ -137,71 +248,121 @@ impl Options {
                 } else {
                     room
                 }
+                .saturating_sub(lead_width)
                 .max(1);
-                let label_width = rows.iter().map(wide).max().unwrap_or(0).min(cap);
-                let description_width = room.saturating_sub(label_width + 2).max(1);
-                *heights.borrow_mut() =
-                    rows.iter()
-                        .map(|row| {
-                            let lines = row.description.as_deref().map_or(1, |text| {
-                                measure::rows(seg, text, description_width).len()
-                            });
-                            let label = measure::rows(
-                                seg,
-                                &["\u{203a} ", row.label.as_str()].concat(),
-                                label_width.max(1),
-                            )
-                            .len();
-                            i64::try_from(lines.max(label).max(1)).unwrap_or(1)
-                        })
-                        .collect();
-                let mut grid = Grid::new()
-                    .columns([
-                        GridTrack::content().within(0, i32::try_from(cap).unwrap_or(1)),
-                        GridTrack::fr(1),
-                    ])
+                let label_width = items.iter().map(wide).max().unwrap_or(0).min(cap);
+                let description_width = room.saturating_sub(lead_width + label_width + 2).max(1);
+                *heights.borrow_mut() = items
+                    .iter()
+                    .map(|item| {
+                        let lines = item
+                            .description
+                            .as_deref()
+                            .map_or(1, |text| measure::rows(seg, text, description_width).len());
+                        let text = if hang {
+                            item.text()
+                        } else {
+                            ["\u{203a} ", item.text().as_str()].concat()
+                        };
+                        let label = measure::rows(seg, &text, label_width.max(1)).len();
+                        i64::try_from(lines.max(label).max(1)).unwrap_or(1)
+                    })
+                    .collect();
+                // Windows go by whole rows, so the last row may stand at the
+                // top: room for it under the content, where it scrolls.
+                let total: i64 = heights.borrow().iter().sum();
+                let last = heights.borrow().last().copied().unwrap_or(0);
+                let max_height = i64::from(constraints.max_height);
+                let tail = if total > max_height {
+                    i32::try_from((max_height - last).max(0)).unwrap_or(0)
+                } else {
+                    0
+                };
+                let cap = i32::try_from(cap).unwrap_or(1);
+                let mut grid = if hang {
+                    Grid::new()
+                        .columns([
+                            // Fixed: a text's own width drops the blank the
+                            // prefix ends with.
+                            GridTrack::fixed(i32::try_from(lead_width).unwrap_or(0)),
+                            GridTrack::content().within(0, cap),
+                            GridTrack::fr(1),
+                        ])
+                        .column_gap(0)
+                } else {
                     // Rows without descriptions give the labels the whole
                     // room: no gap before an empty column.
-                    .column_gap(if described { 2 } else { 0 });
-                for (index, row) in rows.iter().enumerate() {
+                    Grid::new()
+                        .columns([GridTrack::content().within(0, cap), GridTrack::fr(1)])
+                        .column_gap(if described { 2 } else { 0 })
+                };
+                for (index, item) in items.iter().enumerate() {
                     let at = i32::try_from(index).unwrap_or(0);
-                    let (label, description) = (row.label.clone(), row.description.clone());
-                    let (watch, styles_a, styles_b) =
-                        (selection.clone(), styles.clone(), styles.clone());
-                    let (watch_b, text) = (selection.clone(), description.unwrap_or_default());
-                    grid = grid
-                        .child(
+                    let (lead_text, label, text) = (
+                        item.prefix.clone().unwrap_or_default(),
+                        item.label.clone(),
+                        item.description.clone().unwrap_or_default(),
+                    );
+                    let (watch, st) = (selection.clone(), styles.clone());
+                    let mark = move |on: bool| if on { "\u{203a} " } else { "  " };
+                    let hung = hang;
+                    // The mark (and the prefix of a hanging label) or the
+                    // whole label of a plain row.
+                    let first = {
+                        let (watch, st, label, lead_text) =
+                            (watch.clone(), st.clone(), label.clone(), lead_text.clone());
+                        ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
+                            let on = watch.cursor() == Some(index);
+                            let style = if on {
+                                st.cursor.clone()
+                            } else {
+                                st.label.clone()
+                            };
+                            let mut spans =
+                                vec![Span::new([mark(on), lead_text.as_str()].concat())];
+                            if !hung {
+                                spans.extend(label.iter().cloned());
+                            }
+                            Text::rich(spans).style(style).into()
+                        })
+                    };
+                    let column = if hang { 1 } else { 0 };
+                    grid = grid.child(GridPlacement::new(first).at(at, 0));
+                    if hang {
+                        let (watch, st, label) = (watch.clone(), st.clone(), label.clone());
+                        grid = grid.child(
                             GridPlacement::new(ListenableBuilder::new(
-                                watch.listenable(),
+                                watch.clone().listenable(),
                                 move |_, _| {
-                                    let on = watch.cursor() == Some(index);
-                                    let (mark, style) = if on {
-                                        ("\u{203a} ", styles_a.cursor.clone())
+                                    let style = if watch.cursor() == Some(index) {
+                                        st.cursor.clone()
                                     } else {
-                                        ("  ", styles_a.label.clone())
+                                        st.label.clone()
                                     };
-                                    Text::new([mark, label.as_str()].concat())
-                                        .style(style)
-                                        .into()
-                                },
-                            ))
-                            .at(at, 0),
-                        )
-                        .child(
-                            GridPlacement::new(ListenableBuilder::new(
-                                watch_b.listenable(),
-                                move |_, _| {
-                                    let on = watch_b.cursor() == Some(index);
-                                    let style = if on {
-                                        styles_b.cursor.clone()
-                                    } else {
-                                        styles_b.description.clone()
-                                    };
-                                    Text::new(text.clone()).style(style).into()
+                                    Text::rich(label.clone()).style(style).into()
                                 },
                             ))
                             .at(at, 1),
                         );
+                    }
+                    let (watch, st) = (watch, st);
+                    let description: AnyWidget =
+                        ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
+                            let style = if watch.cursor() == Some(index) {
+                                st.cursor.clone()
+                            } else {
+                                st.description.clone()
+                            };
+                            Text::new(text.clone()).style(style).into()
+                        })
+                        .into();
+                    // After the label column, `2` cells off it.
+                    let description = if hang && described {
+                        Padding::new(EdgeInsets::only(2, 0, 0, 0), description).into()
+                    } else {
+                        description
+                    };
+                    grid = grid.child(GridPlacement::new(description).at(at, column + 1));
                 }
                 Column::new()
                     .main_axis_size(MainAxisSize::Min)
@@ -209,7 +370,7 @@ impl Options {
                     .child(Flexible::new(
                         1,
                         SingleChildScrollView::new(Padding::new(
-                            EdgeInsets::symmetric(indent, 0),
+                            EdgeInsets::only(indent, 0, indent, tail),
                             grid,
                         ))
                         .controller(scroll.clone()),
@@ -218,5 +379,37 @@ impl Options {
             }),
         )
         .into()
+    }
+}
+
+/// Whether the row `at` of `heights` (the first of them the top of the
+/// window) is whole in a window `view` lines high (the oracle's
+/// `is_selected_visible_in_wrapped_viewport`).
+fn fits(heights: &[i64], at: usize, view: i64) -> bool {
+    let mut used = 0;
+    for (index, height) in heights.iter().enumerate() {
+        if used > 0 && used + height > view {
+            return false;
+        }
+        if index == at {
+            return true;
+        }
+        used += height;
+        if used >= view {
+            return false;
+        }
+    }
+    false
+}
+
+/// Whether rows are scrolled out of view above (or below).
+fn hidden(scroll: &ScrollController, heights: &[i64], above: bool) -> bool {
+    let Ok(position) = scroll.try_position() else {
+        return false;
+    };
+    if above {
+        position.pixels() > 0
+    } else {
+        position.pixels() + position.viewport_dimension() < heights.iter().sum::<i64>()
     }
 }

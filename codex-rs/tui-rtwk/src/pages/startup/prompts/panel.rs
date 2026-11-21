@@ -32,7 +32,7 @@ use codex_tui_core::screens::startup::{Action, Intent, Key, Prompt, Reaction, St
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
-use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 use super::strings::{self, Strings};
 
@@ -127,17 +127,21 @@ impl State for PanelState {
             dim: tokens.dim(),
             bold: tokens.bold(),
             accent: tokens.accent(),
+            success: tokens.success(),
             warning,
             error: tokens.error(),
             markdown: tokens.transcript_markdown(cx),
         };
         let parts = Parts::of(&prompt, strings, &num, &ink, self.options.cursor());
-        let rows: Rc<Vec<OptionRow>> = Rc::new(parts.rows);
+        let rows: Rc<Vec<RichRow>> = Rc::new(parts.rows);
         let picker = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(blank())
-            .child(self.options.view(
+            .child(
+                self.options
+                    .arrow(true, strings.more_above, ink.accent.clone()),
+            )
+            .child(self.options.view_rich(
                 rows,
                 OptionStyles {
                     cursor: tokens.selected(),
@@ -146,7 +150,7 @@ impl State for PanelState {
                 },
                 0,
             ))
-            .child(blank());
+            .child(self.options.arrow(false, strings.more_below, ink.accent));
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -252,6 +256,7 @@ struct Ink {
     dim: Style,
     bold: Style,
     accent: Style,
+    success: Style,
     warning: Style,
     error: Style,
     markdown: MarkdownTheme,
@@ -275,7 +280,7 @@ struct Parts {
     /// header gap).
     gap: bool,
     has_rows: bool,
-    rows: Vec<OptionRow>,
+    rows: Vec<RichRow>,
     after: Vec<AnyWidget>,
     hint: Option<AnyWidget>,
     /// The oracle's `FlexRenderable` shelf (OSS): the notes and the blanks
@@ -333,12 +338,13 @@ impl Parts {
         ink: &Ink,
         cursor: usize,
     ) -> Parts {
-        let numbered = |labels: Vec<String>| -> Vec<OptionRow> {
+        let numbered = |labels: Vec<String>| -> Vec<RichRow> {
             labels
                 .into_iter()
                 .enumerate()
-                .map(|(at, label)| OptionRow {
-                    label: s.numbered(at + 1, &label, num),
+                .map(|(at, label)| RichRow {
+                    prefix: s.numbered(at + 1, "", num),
+                    label: vec![Span::new(label)],
                     description: None,
                 })
                 .collect()
@@ -462,12 +468,13 @@ impl Parts {
                     .hooks_choices
                     .iter()
                     .enumerate()
-                    .map(|(at, label)| OptionRow {
-                        label: if trusting {
-                            format!("   {label}")
+                    .map(|(at, label)| RichRow {
+                        prefix: if trusting {
+                            "   ".to_owned()
                         } else {
-                            s.numbered(at + 1, label, num)
+                            s.numbered(at + 1, "", num)
                         },
+                        label: vec![Span::new(*label)],
                         description: None,
                     })
                     .collect();
@@ -497,32 +504,32 @@ impl Parts {
                 squeeze: Give::Fixed,
             },
             Prompt::Oss(p) => {
+                // The oracle: the first letter of the provider underlined (its
+                // key), then ` · ` dim and the status in green, red or yellow.
                 let label = |at: usize, status: Status| {
-                    let state = match status {
-                        Status::Running => 0,
-                        Status::NotRunning => 1,
-                        Status::Unknown => 2,
+                    let (state, colour) = match status {
+                        Status::Running => (0, &ink.success),
+                        Status::NotRunning => (1, &ink.error),
+                        Status::Unknown => (2, &ink.warning),
                     };
-                    s.numbered(
-                        at + 1,
-                        &[s.oss_providers[at], s.oss_separator, s.oss_statuses[state]].concat(),
-                        num,
-                    )
+                    let name = s.oss_providers[at];
+                    let first = name.chars().next().map_or(0, char::len_utf8);
+                    RichRow {
+                        prefix: s.numbered(at + 1, "", num),
+                        label: vec![
+                            Span::styled(&name[..first], Style::new().attrs(Attrs::UNDERLINE)),
+                            Span::new(&name[first..]),
+                            Span::styled(s.oss_separator, ink.dim.clone()),
+                            Span::styled(s.oss_statuses[state], colour.clone()),
+                        ],
+                        description: None,
+                    }
                 };
                 Parts {
                     top: vec![line(s.oss_title, &ink.bold), line(s.oss_subtitle, &ink.dim)],
                     gap: false,
                     has_rows: true,
-                    rows: vec![
-                        OptionRow {
-                            label: label(0, p.lmstudio),
-                            description: None,
-                        },
-                        OptionRow {
-                            label: label(1, p.ollama),
-                            description: None,
-                        },
-                    ],
+                    rows: vec![label(0, p.lmstudio), label(1, p.ollama)],
                     after: vec![line(s.oss_descriptions[cursor.min(1)], &ink.dim), blank()],
                     hint: Some(key_hint(&s.oss_hint, &ink.dim)),
                     squeeze: Give::Notes,
@@ -557,13 +564,14 @@ impl Parts {
                 let mut number = 0;
                 let mut row = |label: String, reason: Option<&'static str>| {
                     let disabled = reason.is_some();
-                    OptionRow {
-                        label: if disabled {
-                            format!("   {label}")
+                    RichRow {
+                        prefix: if disabled {
+                            "   ".to_owned()
                         } else {
                             number += 1;
-                            s.numbered(number, &label, num)
+                            s.numbered(number, "", num)
                         },
+                        label: vec![Span::new(label)],
                         description: reason.map(str::to_owned),
                     }
                 };

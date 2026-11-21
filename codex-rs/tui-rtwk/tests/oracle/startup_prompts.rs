@@ -82,7 +82,7 @@ fn narrow_picker_keeps_selected_choice_and_escape_uses_session() {
     s.assert_contains("esc use session");
     kit::pending(
         Owner::DialogsPane,
-        "the oracle's picker is a scrolled window (`↑` above the first visible row, rows 3 and 4 only) with the hanging indent of the wrapped label: needs `Options::scroll()` (startup-flow's branch of src/widgets/options.rs) and the hanging indent (see renders_prompt); this slice draws all four rows",
+        "G49: rtwk's `TextWrap::Word` never breaks after `/`; the oracle's picker rows do (`› 4. Always use current directory (/` / `     Users/example/current)`), ours moves `(/Users/example/current)` whole to the next row. The window (rows 3 and 4 only, `↑` above) and the hanging indent are drawn as the oracle's",
     );
     s.assert_snap("cwd_picker_selected_40x16");
     s.keys("esc");
@@ -252,10 +252,6 @@ fn renders_prompt() {
         .size(40, 24)
         .entry("startup", "hooks_review")
         .open();
-    kit::pending(
-        Owner::DialogsPane,
-        "src/widgets/options.rs draws a wrapped label without the oracle's hanging indent (the continuation of `3. Continue without trusting (hooks won't run)` sits under the number, 5 cells in; `Options` wraps `mark + label` in one Text): the shared widget needs an OptionRow indent (Row of the mark and an Expanded label); not this slice's file",
-    );
     s.assert_snap("startup_hooks_review_prompt");
 }
 
@@ -278,10 +274,6 @@ fn picker_progress_blocks_selection() {
         .open();
     s.keys("enter");
     s.assert_contains("Trusting hooks...");
-    kit::pending(
-        Owner::DialogsPane,
-        "src/widgets/options.rs draws a wrapped label without the oracle's hanging indent (the continuation of `3. Continue without trusting (hooks won't run)` sits under the number, 5 cells in; `Options` wraps `mark + label` in one Text): the shared widget needs an OptionRow indent (Row of the mark and an Expanded label); not this slice's file",
-    );
     s.assert_snap("startup_hooks_picker_progress_40");
 }
 
@@ -418,10 +410,21 @@ fn provider_picker_snapshots() {
         if !keys.is_empty() {
             s.keys(keys);
         }
+        // The oracle's labels (oss_selection.rs:216-228): the hotkey letter
+        // underlined, the status green, red or yellow.
+        match snap {
+            "oss_providers_stopped" => {
+                s.assert_text_style("L", "underlined");
+                s.assert_text_style("\u{25cb} Not running", "fg=Red");
+            }
+            "oss_providers_running" => s.assert_text_style("\u{25cf} Running", "fg=Green"),
+            "oss_providers_unknown_narrow" => s.assert_text_style("? Unknown", "fg=Yellow"),
+            _ => {}
+        }
         if snap == "oss_providers_mixed_short" {
             kit::pending(
                 Owner::DialogsPane,
-                "at 28x12 the label `1. LM Studio · ○ Not running` wraps: it needs the hanging indent of src/widgets/options.rs (see renders_prompt), and the oracle's FlexRenderable hands the slack of a short viewport to its LAST flex child (rtwk's Flexible loose hands it to the first), so the blank rows differ by one",
+                "G50: at 28x12 the free space is 2 rows for five flex children; the oracle's `FlexRenderable` gives it to its LAST flex child (no top blank row, no subtitle), rtwk's `Flexible` loose hands the remainder to the first ones (a blank row and `Choose a local AI server` stay). The label hanging indent is drawn as the oracle's",
             );
         }
         s.assert_snap(snap);
