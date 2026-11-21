@@ -91,9 +91,16 @@ All from `codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`, in your
 worktree's own target (`codex-rs/tui-rtwk/target`; never set
 CARGO_TARGET_DIR). Your binary is `<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk`;
 pass it as `RTWK_BIN` to the scenarios.
-- While iterating: `acargo nextest run --status-level fail
-  --final-status-level fail --hide-progress-bar -E 'test(<page>) | binary(rules)'`,
-  `acargo clippy -q --all-targets -- -D warnings`.
+- While iterating (build-speed-2: 10 to 15 s from edit to result instead of 25 to 110 s): type
+  errors first, `acargo check --tests --quiet` (2 to 7 s warm); then ONE test root, not all seven:
+  `acargo nextest run --test screens --status-level fail --final-status-level fail
+  --hide-progress-bar -E 'test(<page>)'`. The root is where the test file is registered
+  (docs/rtwk-port/build-speed.md): `screens` (tests/pages, sheets, app), `shell`, `rules`,
+  `pages` (probe files), `oracle`; core tests: `-p codex-tui-core`. Only that binary is
+  compiled and linked. Lints: `acargo clippy -q --all-targets -- -D warnings`.
+  The old all-roots form `-E 'test(<page>) | binary(rules)'` still works and is the slow one.
+  A new worktree's first build is ~1 to 2 min now (sccache hits across worktrees, acargo wires it);
+  never export CARGO_TARGET_DIR (it makes every crate miss).
 - Once, before `task_done`: rebase onto the integration tip (the orchestrator
   names it in tm notes), then `acargo fmt -- --check`, clippy `--workspace`,
   the whole nextest, your oracle shard(s) with `--profile oracle`,
