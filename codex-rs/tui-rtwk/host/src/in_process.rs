@@ -238,6 +238,7 @@ async fn run(
         Err(error) => return fail(format!("Error parsing -c overrides: {error}")),
     };
     // Loaded here, after the first frame: config, state DB, environment manager.
+    let startup_cwd = cwd.clone();
     let overrides = ConfigOverrides {
         cwd,
         ..Default::default()
@@ -293,7 +294,11 @@ async fn run(
     let startup = crate::startup::Startup {
         config: config.clone(),
         connected: !matches!(mode, Mode::Embedded),
-        check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
+        check_trust: !agents,
+        remote_cwd: match mode {
+            Mode::Remote { daemon: false, .. } => startup_cwd.clone(),
+            _ => None,
+        },
         update,
         failure: startup_failure,
         browser: crate::startup::system_browser(),

@@ -73,6 +73,10 @@ pub struct Startup {
     /// overview, not for a remote workspace (lib.rs: "The shared overview
     /// does not open a workspace").
     pub check_trust: bool,
+    /// `--cd` for a remote workspace (`remote_cwd_override`): the folder on
+    /// the remote host whose trust is asked. A remote workspace without one
+    /// is not asked.
+    pub remote_cwd: Option<PathBuf>,
     pub update: UpdateSlot,
     /// A launch fact that could not be read ends the launch with its error
     /// (`get_login_status(..)?`, `check_directory_trust(..)?`).
@@ -567,6 +571,7 @@ mod tests {
             config: Arc::new(config),
             connected: false,
             check_trust: true,
+            remote_cwd: None,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
             reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),
@@ -978,6 +983,126 @@ mod tests {
         assert_eq!(
             startup.failure.lock().unwrap().as_deref(),
             Some(message.as_str())
+        );
+    }
+
+    /// A server that answers `config/read` for the remote folder `projects`
+    /// (and the environment's cwd), recording the folders it was asked for.
+    fn remote_server(
+        projects: serde_json::Value,
+        layers: serde_json::Value,
+        asked: &Arc<Mutex<Vec<String>>>,
+    ) -> impl Fn(ClientRequest) -> std::future::Ready<Result<serde_json::Value, ServerError>> {
+        let asked = asked.clone();
+        move |request| {
+            std::future::ready(match request {
+                ClientRequest::GetAccount { .. } => Ok(signed_out()),
+                ClientRequest::ConfigRead { params, .. } => {
+                    asked
+                        .lock()
+                        .unwrap()
+                        .push(params.cwd.clone().unwrap_or_default());
+                    Ok(serde_json::json!({"config": {"projects": projects}, "layers": layers}))
+                }
+                ClientRequest::EnvironmentInfo { .. } => Ok(serde_json::json!({
+                    "shell": {"name": "bash", "path": "/bin/bash"},
+                    "cwd": "file:///srv"
+                })),
+                other => panic!("unexpected request {other:?}"),
+            })
+        }
+    }
+
+    async fn remote_facts(
+        cwd: Option<&str>,
+        projects: serde_json::Value,
+        layers: serde_json::Value,
+    ) -> (Option<AppEv>, Vec<String>, Startup) {
+        let (mut startup, _dir) = startup_with(Target::Remote, system_browser()).await;
+        startup.connected = true;
+        startup.remote_cwd = cwd.map(PathBuf::from);
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let ev = facts_ask(&startup, remote_server(projects, layers, &asked)).await;
+        let asked = asked.lock().unwrap().clone();
+        (ev, asked, startup)
+    }
+
+    fn trust_of(ev: Option<AppEv>) -> Option<TrustAsk> {
+        let Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { facts, .. }))) = ev else {
+            panic!("expected the facts, got {ev:?}");
+        };
+        facts.trust
+    }
+
+    // lib.rs: `(!uses_remote_workspace || remote_cwd_override.is_some())`,
+    // `check_directory_trust` with the remote cwd and `ProjectTrustHost::Remote`.
+    #[tokio::test]
+    async fn a_remote_workspace_with_a_cwd_asks_the_trust_of_that_folder() {
+        let (ev, asked, _) = remote_facts(
+            Some("/srv/app"),
+            serde_json::json!({}),
+            serde_json::json!([]),
+        )
+        .await;
+        assert_eq!(asked, ["/srv/app"]);
+        assert_eq!(
+            trust_of(ev),
+            Some(TrustAsk {
+                cwd: "/srv/app".into(),
+                target: "/srv/app".into(),
+                ..TrustAsk::default()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_remote_workspace_without_a_cwd_asks_no_trust() {
+        let (ev, asked, _) = remote_facts(None, serde_json::json!({}), serde_json::json!([])).await;
+        assert!(asked.is_empty());
+        assert_eq!(trust_of(ev), None);
+    }
+
+    // `check_directory_trust`: "Remote connections retain the existing
+    // behavior for saved untrusted folders": not asked.
+    #[tokio::test]
+    async fn a_remote_folder_saved_as_untrusted_or_trusted_is_not_asked() {
+        for level in ["untrusted", "trusted"] {
+            let projects = serde_json::json!({"/srv/app": {"trust_level": level}});
+            let (ev, _, _) = remote_facts(Some("/srv/app"), projects, serde_json::json!([])).await;
+            assert_eq!(trust_of(ev), None, "{level}");
+        }
+    }
+
+    // `read_remote_project_trust`: inside an untrusted project, with no
+    // project config loaded, is an error.
+    #[tokio::test]
+    async fn a_remote_folder_inside_an_untrusted_project_fails_the_launch() {
+        let projects = serde_json::json!({"/srv": {"trust_level": "untrusted"}});
+        let (ev, _, startup) =
+            remote_facts(Some("/srv/app"), projects, serde_json::json!([])).await;
+        let Some(AppEv::StartFailed(message)) = ev else {
+            panic!("expected StartFailed, got {ev:?}");
+        };
+        assert_eq!(
+            message,
+            "remote project directory is inside an explicitly untrusted project; pass the repository root explicitly with --cd"
+        );
+        assert_eq!(
+            startup.failure.lock().unwrap().as_deref(),
+            Some(message.as_str())
+        );
+    }
+
+    // `read_remote_project_trust`: a relative folder is joined to the
+    // environment's cwd (`environment/info`).
+    #[tokio::test]
+    async fn a_relative_remote_folder_resolves_against_the_environment_cwd() {
+        let (ev, asked, _) =
+            remote_facts(Some("app"), serde_json::json!({}), serde_json::json!([])).await;
+        assert_eq!(asked, ["/srv/app"]);
+        assert_eq!(
+            trust_of(ev).map(|trust| trust.cwd),
+            Some("/srv/app".to_owned())
         );
     }
 }
