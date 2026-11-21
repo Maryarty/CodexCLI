@@ -227,7 +227,7 @@ fn wraps_list_items_preserving_indent() {
 fn wraps_nested_lists() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no nested list layout: list layout is not built",
+        "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(20, 24)
