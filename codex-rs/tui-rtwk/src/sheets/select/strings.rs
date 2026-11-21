@@ -33,6 +33,11 @@ pub struct Strings {
     pub more_above: &'static str,
     pub more_below: &'static str,
     pub disabled_mark: &'static str,
+    /// A disabled row's reason after its description, or alone, and the
+    /// closing of the first.
+    pub reason_after: &'static str,
+    pub reason_alone: &'static str,
+    pub reason_close: &'static str,
 }
 
 /// English: the oracle's text.
@@ -50,6 +55,9 @@ pub const EN: Strings = Strings {
     more_above: "\u{2191}",
     more_below: "\u{2193}",
     disabled_mark: " (disabled)",
+    reason_after: " (disabled: ",
+    reason_alone: "disabled: ",
+    reason_close: ")",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

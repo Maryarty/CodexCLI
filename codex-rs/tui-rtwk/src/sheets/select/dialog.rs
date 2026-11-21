@@ -29,14 +29,14 @@ use codex_tui_core::screens::select::list::{Browse, List, normalize_paste, windo
 use codex_tui_core::screens::select::{Intent, Menu};
 
 use super::lists;
-use super::rows::{RowStyles, Rows};
+use super::rows::{RowStyles, Rows, Words};
 use super::side;
 use super::strings;
 use crate::app::theme;
 use crate::app::view::Hs;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SelectSheet;
+pub struct MenuDialog;
 
 /// What the key callback must know to tell a key for the list from one for the
 /// search field (it runs before the field sees the key).
@@ -49,7 +49,7 @@ struct Flags {
     secondary: Option<char>,
 }
 
-pub struct SelectSheetState {
+pub struct MenuDialogState {
     shown: bool,
     ready: bool,
     node: FocusNode,
@@ -88,11 +88,11 @@ pub enum Msg {
     Row(usize),
 }
 
-impl StatefulWidget for SelectSheet {
-    type State = SelectSheetState;
+impl StatefulWidget for MenuDialog {
+    type State = MenuDialogState;
 
-    fn create_state(&self) -> SelectSheetState {
-        SelectSheetState {
+    fn create_state(&self) -> MenuDialogState {
+        MenuDialogState {
             shown: false,
             ready: false,
             node: FocusNode::new(),
@@ -105,7 +105,7 @@ impl StatefulWidget for SelectSheet {
     }
 }
 
-impl_widget!(stateful eq SelectSheet);
+impl_widget!(stateful eq MenuDialog);
 
 /// The act a key means, with the default list keymap of the oracle
 /// (`keymap.rs`: `list.*`); none: the key is not the list's.
@@ -171,11 +171,11 @@ fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
     letter.map(Act::Shortcut)
 }
 
-impl State for SelectSheetState {
-    type Widget = SelectSheet;
+impl State for MenuDialogState {
+    type Widget = MenuDialog;
     type Msg = Msg;
 
-    fn init_state(&mut self, _: &SelectSheet, cx: &mut Cx<'_, Self>) {
+    fn init_state(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
         let flags = self.flags.clone();
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
@@ -194,7 +194,7 @@ impl State for SelectSheetState {
         self.query.dispose();
     }
 
-    fn did_change_dependencies(&mut self, _: &SelectSheet, cx: &mut Cx<'_, Self>) {
+    fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
         let present = select::<ScreenStates, bool, _>(cx, |states| states.select.menu.is_some());
         if !present && self.shown {
             close_dialog::<_, ()>(cx, None);
@@ -210,7 +210,7 @@ impl State for SelectSheetState {
         }
     }
 
-    fn update(&mut self, msg: Msg, _: &SelectSheet, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Some(list) = self.list(cx) else {
             return Rebuild::No;
         };
@@ -229,7 +229,7 @@ impl State for SelectSheetState {
         Rebuild::Yes
     }
 
-    fn build(&self, _: &SelectSheet, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let Some(list) = self.list(cx) else {
             return AnyWidget::default();
         };
@@ -356,7 +356,13 @@ impl State for SelectSheetState {
                     },
                     single_line: list.single_line,
                     name_width: list.name_column_width,
-                    disabled_mark: s.disabled_mark,
+                    words: Words {
+                        current: s.current,
+                        disabled: s.disabled_mark,
+                        reason_after: s.reason_after,
+                        reason_alone: s.reason_alone,
+                        reason_close: s.reason_close,
+                    },
                     taps: visible[top..end]
                         .iter()
                         .map(|item| {
@@ -401,7 +407,7 @@ impl State for SelectSheetState {
     }
 }
 
-impl SelectSheetState {
+impl MenuDialogState {
     /// The list the model holds as the dialog shows it (`lists::of`).
     fn list(&self, cx: &mut Cx<'_, Self>) -> Option<List> {
         let menu =

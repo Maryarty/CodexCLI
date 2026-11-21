@@ -25,6 +25,42 @@ pub struct RowStyles {
     pub disabled: Style,
 }
 
+/// The words a row adds to what the model holds (strings.rs).
+#[derive(Clone, Copy, Debug)]
+pub struct Words {
+    pub current: &'static str,
+    pub disabled: &'static str,
+    pub reason_after: &'static str,
+    pub reason_alone: &'static str,
+    pub reason_close: &'static str,
+}
+
+impl Words {
+    /// The name with its marks.
+    fn name(&self, row: &Row) -> String {
+        let mut name = row.name.clone();
+        if row.current {
+            name.push_str(self.current);
+        }
+        if row.reason.is_some() {
+            name.push_str(self.disabled);
+        }
+        name
+    }
+
+    /// The description, the reason of a disabled row in it.
+    fn description(&self, row: &Row) -> Option<String> {
+        let text = row.description.as_deref().filter(|text| !text.is_empty());
+        match (text, row.reason.as_deref()) {
+            (Some(text), Some(reason)) => {
+                Some([text, self.reason_after, reason, self.reason_close].concat())
+            }
+            (None, Some(reason)) => Some([self.reason_alone, reason].concat()),
+            (text, None) => text.map(str::to_string),
+        }
+    }
+}
+
 /// What the grid is made of.
 pub struct Rows {
     /// The rows of the window, in order (`Browse::rows` sliced).
@@ -39,8 +75,8 @@ pub struct Rows {
     pub single_line: bool,
     /// The label column is at least this many cells (`name_column_width`).
     pub name_width: Option<usize>,
-    /// The words after a disabled row's name.
-    pub disabled_mark: &'static str,
+    /// The words around the rows' names and descriptions.
+    pub words: Words,
     /// What a tap on each row of `window` sends (empty: rows do not react).
     pub taps: Vec<Handler<PointerEvent>>,
 }
@@ -67,9 +103,8 @@ impl Rows {
                 at += 1;
             }
             for row in self.measured.iter() {
-                grid = grid.child(
-                    GridPlacement::new(Text::new(format!("{}{}", row.prefix, row.name))).at(at, 0),
-                );
+                let label = [row.prefix.as_str(), self.words.name(row).as_str()].concat();
+                grid = grid.child(GridPlacement::new(Text::new(label)).at(at, 0));
                 at += 1;
             }
             let hidden = self.measured.len();
@@ -102,23 +137,16 @@ impl Rows {
         } else {
             (styles.label.clone(), styles.description.clone())
         };
-        let mark = if row.disabled_mark {
-            self.disabled_mark
-        } else {
-            ""
-        };
+        let name = self.words.name(row);
         // The gutter stays put; a name that wraps hangs after it.
         let label: AnyWidget = if self.single_line {
-            self.text(format!("{}{}{mark}", row.prefix, row.name), label_style)
+            self.text([row.prefix.as_str(), name.as_str()].concat(), label_style)
                 .into()
         } else {
             Line::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
                 .child(Text::line(row.prefix.clone()).style(label_style.clone()))
-                .child(Expanded::new(
-                    1,
-                    self.text(format!("{}{mark}", row.name), label_style),
-                ))
+                .child(Expanded::new(1, self.text(name, label_style)))
                 .into()
         };
         let tap = |child: AnyWidget| -> AnyWidget {
@@ -130,10 +158,9 @@ impl Rows {
                 None => child,
             }
         };
-        match row.description.as_deref().filter(|text| !text.is_empty()) {
+        match self.words.description(row) {
             Some(text) => grid.child(GridPlacement::new(tap(label)).at(at, 0)).child(
-                GridPlacement::new(tap(self.text(text.to_string(), description_style).into()))
-                    .at(at, 1),
+                GridPlacement::new(tap(self.text(text, description_style).into())).at(at, 1),
             ),
             None => grid.child(GridPlacement::new(tap(label)).at(at, 0).span(1, 2)),
         }

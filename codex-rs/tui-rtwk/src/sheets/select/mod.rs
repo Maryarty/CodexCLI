@@ -55,7 +55,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "approval_modes_subtitle",
-            "the approval-mode list under a title and a subtitle",
+            "approval modes under a title and a subtitle",
             include_str!("fixtures/approval_modes_subtitle.jsonl"),
         ),
         (
@@ -85,7 +85,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "two_tabs_beta",
-            "two tabs of one item, opening on Beta, with a search line",
+            "two tabs opening on Beta, with a search line",
             include_str!("fixtures/two_tabs_beta.jsonl"),
         ),
         (
@@ -105,7 +105,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "auto_columns",
-            "two single-line rows, the label column as wide as its widest",
+            "two single-line rows, label column as wide as needed",
             include_str!("fixtures/auto_columns.jsonl"),
         ),
         (
@@ -140,7 +140,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "three_long_descriptions",
-            "three rows with a ten-x description under Debug",
+            "three rows with a ten-x description",
             include_str!("fixtures/three_long_descriptions.jsonl"),
         ),
         (
@@ -150,7 +150,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "stacked_side_content",
-            "one item with a preview too wide to sit beside the rows: the stacked one shows",
+            "preview too wide to sit beside: the stacked one",
             include_str!("fixtures/stacked_side_content.jsonl"),
         ),
         (
@@ -175,7 +175,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "worktrees_conversation",
-            "the worktrees menu: where the conversation goes",
+            "where the conversation goes",
             include_str!("fixtures/worktrees_conversation.jsonl"),
         ),
         (
@@ -190,7 +190,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "col_width_auto_visible",
-            "nine rows, the label column from the rows in view",
+            "nine rows, label column from the rows in view",
             include_str!("fixtures/col_width_auto_visible.jsonl"),
         ),
         (
@@ -215,7 +215,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(|_| dialog::SelectSheet.into()),
+            open: EntryOpen::Dialog(|_| dialog::MenuDialog.into()),
         })
         .collect()
 }
@@ -225,7 +225,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
     show_dialog(
         cx,
-        move |_| dialog::SelectSheet.into(),
+        move |_| dialog::MenuDialog.into(),
         crate::sheets::sheet_options(),
     )
 }

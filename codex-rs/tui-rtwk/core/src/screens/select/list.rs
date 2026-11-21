@@ -195,8 +195,10 @@ pub struct Row {
     pub name: String,
     pub description: Option<String>,
     pub disabled: bool,
-    /// A disabled row's name is followed by ` (disabled)`.
-    pub disabled_mark: bool,
+    /// The row is the one in use: its name is followed by the view's mark.
+    pub current: bool,
+    /// Why a disabled row is: shown after its name and in its description.
+    pub reason: Option<String>,
 }
 
 impl List {
@@ -466,18 +468,13 @@ impl Browse<'_> {
                 } else {
                     item.description.clone()
                 };
-                let description = match (&description, &item.disabled_reason) {
-                    (Some(text), Some(reason)) => Some(format!("{text} (disabled: {reason})")),
-                    (None, Some(reason)) => Some(format!("disabled: {reason}")),
-                    _ => description,
-                };
-                let mark_current = if item.current { " (current)" } else { "" };
                 Row {
                     prefix: format!("{gutter}{toggle}"),
-                    name: format!("{}{mark_current}", item.name),
+                    name: item.name.clone(),
                     description,
                     disabled,
-                    disabled_mark: item.disabled_reason.is_some(),
+                    current: item.current,
+                    reason: item.disabled_reason.clone(),
                 }
             })
             .collect()
@@ -607,10 +604,11 @@ mod tests {
         let rows = view.rows(&view.visible(), Some(0));
         assert_eq!(rows[0].prefix, "\u{203a} 1. ");
         assert_eq!(rows[1].prefix, "     ");
-        assert!(rows[1].disabled && rows[1].disabled_mark);
-        assert_eq!(rows[1].description.as_deref(), Some("text (disabled: why)"));
+        assert!(rows[1].disabled);
+        assert_eq!(rows[1].reason.as_deref(), Some("why"));
+        assert_eq!(rows[1].description.as_deref(), Some("text"));
         assert_eq!(rows[2].prefix, "  2. ");
-        assert_eq!(rows[2].name, "Now (current)");
+        assert!(rows[2].current);
     }
 
     #[test]
