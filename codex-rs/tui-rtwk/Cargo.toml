@@ -196,6 +196,10 @@ name = "startup_mouse"
 path = "tests/pages/startup_mouse.rs"
 
 [[test]]
+name = "composer_mouse"
+path = "tests/pages/composer_mouse.rs"
+
+[[test]]
 name = "shell_agents"
 path = "tests/services/shell_agents.rs"
 
