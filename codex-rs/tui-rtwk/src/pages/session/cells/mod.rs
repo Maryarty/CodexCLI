@@ -13,11 +13,15 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod markdown;
+pub mod notice;
+pub mod one_row;
 pub mod patch;
 pub mod plan;
+pub mod reasoning;
 pub mod status;
 pub mod strings;
-pub mod summary;
+pub mod viewed_image;
+pub mod web;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
 /// one entry per state worth opening (a screen on made-up data).

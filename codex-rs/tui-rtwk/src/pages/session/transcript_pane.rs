@@ -214,15 +214,21 @@ impl State for ViewportState {
                 ),
                 Item::Web(activity) => cell(
                     separator,
-                    super::cells::summary::web(activity, &tokens, cells),
+                    super::cells::web::WebCell {
+                        activity: activity.clone(),
+                    }
+                    .into(),
                 ),
                 Item::ImageView { name, .. } => cell(
                     separator,
-                    super::cells::summary::viewed_image(name, &tokens, cells),
+                    super::cells::viewed_image::ViewedImageCell { name: name.clone() }.into(),
                 ),
                 Item::Notice(notice) => cell(
                     separator,
-                    super::cells::summary::notice(notice, &tokens, cells),
+                    super::cells::notice::NoticeCell {
+                        notice: notice.clone(),
+                    }
+                    .into(),
                 ),
                 Item::Plan { text } => cell(
                     separator,
@@ -236,21 +242,25 @@ impl State for ViewportState {
                 ),
                 Item::Reasoning { summary } => cell(
                     separator,
-                    super::cells::plan::reasoning(summary, &markdown, &tokens, cells),
+                    super::cells::reasoning::ReasoningCell {
+                        summary: summary.clone(),
+                    }
+                    .into(),
                 ),
             };
-            let row = if let Some(timing) = transcript.timing_after(range.end - 1) {
-                Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(row)
-                    .child(super::transcript_activity::completion(
-                        timing, now, table, &tokens,
-                    ))
-                    .into()
-            } else {
-                row
-            };
+            // The cell is always the first child of one column, so a timing row
+            // arriving below it does not rebuild the cell's state (the patch
+            // disclosure's `expanded`).
+            let mut column = Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(row);
+            if let Some(timing) = transcript.timing_after(range.end - 1) {
+                column = column.child(super::transcript_activity::completion(
+                    timing, now, table, &tokens,
+                ));
+            }
+            let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))
         })
         .controller(widget.0.clone())

@@ -1,15 +1,10 @@
-//! Markdown cells beside the agent's answer: the proposed plan (oracle
-//! history_cell/plans.rs `ProposedPlanCell`) and the reasoning summary of the
-//! detailed transcript (messages.rs `new_reasoning_summary_block`). Flutter: a
-//! `Column` of a header `Text.rich` and a `Container(color)` around the
-//! `MarkdownView`; the dim italic summary is a `DefaultTextStyle` over it.
+//! The proposed plan (oracle history_cell/plans.rs `ProposedPlanCell`).
+//! Flutter: a `Column` of a header `Text.rich` and a `Container(color)` around
+//! the `MarkdownView`.
 
 use rtwk::AnyWidget;
-use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Row,
-};
+use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize};
 use rtwk::style::{Attrs, Span, Style};
-use rtwk::text::DefaultTextStyle;
 use rtwk::widgets::Text;
 use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
 
@@ -49,26 +44,5 @@ pub fn proposed_plan(
                 .padding(EdgeInsets::only(2, 1, 2, 1))
                 .child(body),
         )
-        .into()
-}
-
-/// The reasoning summary as the detailed transcript shows it: `• ` and the
-/// Markdown, dim and italic.
-pub fn reasoning(
-    summary: &str,
-    markdown: &MarkdownTheme,
-    tokens: &Tokens,
-    strings: &Strings,
-) -> AnyWidget {
-    Row::new()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(Text::new(strings.bullet).style(tokens.dim()))
-        .child(Expanded::new(
-            1,
-            DefaultTextStyle::new(
-                Style::new().attrs(Attrs::DIM | Attrs::ITALIC),
-                MarkdownView::new(summary).theme(markdown.clone()),
-            ),
-        ))
         .into()
 }

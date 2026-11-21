@@ -12,12 +12,14 @@ use std::sync::Arc;
 
 use rtwk::controls::Pressable;
 use rtwk::layout::{
-    Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
+    Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
+    SizedBox,
 };
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextAlign, TextWrap};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk_render::{BoxConstraints, UNBOUNDED};
 use rtwk_rich::diff::{Diff, DiffLineKind};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
@@ -145,8 +147,8 @@ pub struct PatchStyles<'a> {
     pub cwd: Option<&'a str>,
 }
 
-/// The summary block; `preview` keeps that many changed lines a file and
-/// leaves the context out (oracle `create_diff_preview_with_links`).
+/// The summary block; `preview` keeps that many screen rows a file and leaves
+/// the context out (oracle `create_diff_preview_with_links`).
 pub fn patch(
     activity: &PatchActivity,
     styles: &PatchStyles<'_>,
@@ -201,12 +203,29 @@ pub fn patch(
             row.extend(count_spans(counts[index], styles));
             column = column.child(Text::rich(row));
         }
-        let mut lines = change_lines(change, styles, preview.is_some());
-        if let Some(limit) = preview {
-            lines.truncate(limit);
-        }
-        for line in lines {
-            column = column.child(line);
+        let lines = change_lines(change, styles, preview.is_some());
+        match preview {
+            // The oracle stops at `limit` screen rows a file, a wrapped line
+            // counting for each row it takes (`lines.truncate(limit)` after
+            // wrapping): a column under a maximum height whose clip is meant.
+            Some(limit) => {
+                let mut rows = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .overflow_intended(true);
+                for line in lines {
+                    rows = rows.child(line);
+                }
+                column = column.child(ConstrainedBox::new(
+                    BoxConstraints::new(0, UNBOUNDED, 0, limit as i32),
+                    rows,
+                ));
+            }
+            None => {
+                for line in lines {
+                    column = column.child(line);
+                }
+            }
         }
     }
     column.into()
@@ -299,7 +318,6 @@ fn change_lines(
                     hunks.push(
                         hunk.lines
                             .iter()
-                            .filter(|line| !changed_only || line.kind != DiffLineKind::Context)
                             .map(|line| Numbered {
                                 number: match line.kind {
                                     DiffLineKind::Removed => line.old_number,
@@ -354,6 +372,12 @@ fn change_lines(
                 .collect::<Vec<_>>()
         });
         for (row, line) in hunk.iter().enumerate() {
+            // The preview leaves the context out (diff_render.rs
+            // `render_change_with_preview`), after it measured and
+            // highlighted the whole hunk.
+            if changed_only && line.kind == DiffLineKind::Context {
+                continue;
+            }
             let (sign, sign_style) = match line.kind {
                 DiffLineKind::Added => (strings.plus, styles.tokens.success()),
                 DiffLineKind::Removed => (strings.minus, styles.tokens.error()),

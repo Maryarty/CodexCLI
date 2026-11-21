@@ -78,18 +78,41 @@ fn failed_file_change_keeps_its_status() {
     assert_eq!(patch.status, ToolStatus::Failed);
 }
 
+fn reasoning(summary: Value) -> String {
+    match completed(json!({"type": "reasoning", "id": "r", "content": [], "summary": summary})) {
+        Item::Reasoning { summary } => summary,
+        other => panic!("not a reasoning entry: {other:?}"),
+    }
+}
+
 #[test]
-fn reasoning_summary_drops_empty_html_comment_parts() {
-    // oracle messages.rs split_reasoning_summary_parts
-    let entry = completed(json!({
-        "type": "reasoning", "id": "r", "content": [],
-        "summary": ["**Header**\n\n<!-- -->", "  ", "**Plan**\n\nWe should test."]
-    }));
+fn reasoning_summary_drops_empty_html_comment_parts_and_the_header() {
+    // oracle messages.rs split_reasoning_summary_parts: the header that opens
+    // the content and ends its line is the status header, not the body.
     assert_eq!(
-        entry,
-        Item::Reasoning {
-            summary: "**Plan**\n\nWe should test.".into()
-        }
+        reasoning(json!([
+            "**Header**\n\n<!-- -->",
+            "  ",
+            "**Plan**\n\nWe should test."
+        ])),
+        "\n\nWe should test."
+    );
+}
+
+#[test]
+fn reasoning_summary_keeps_a_header_that_does_not_end_its_line() {
+    assert_eq!(
+        reasoning(json!(["**Important** conclusion"])),
+        "**Important** conclusion"
+    );
+    assert_eq!(
+        reasoning(json!(["no closing **header"])),
+        "no closing **header"
+    );
+    // A header with no body: the header is the whole summary.
+    assert_eq!(
+        reasoning(json!(["**Confirming backend JSONL source**"])),
+        "**Confirming backend JSONL source**"
     );
 }
 

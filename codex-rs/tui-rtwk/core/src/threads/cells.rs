@@ -176,11 +176,13 @@ fn file_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-/// The summary parts as one Markdown source (oracle messages.rs
-/// `split_reasoning_summary_parts`): blank parts and parts whose body is an
-/// empty HTML comment are left out, the rest joined by blank lines.
+/// The summary parts as the Markdown body the transcript shows (oracle
+/// messages.rs `split_reasoning_summary_parts`): blank parts and parts whose
+/// body is an empty HTML comment are left out, the rest joined by blank lines,
+/// and a `**Header**` that opens the result and ends its line is dropped (the
+/// oracle keeps it as the status header, which the transcript never shows).
 fn summary_text(parts: &[String]) -> String {
-    parts
+    let content = parts
         .iter()
         .map(|part| part.trim())
         .filter(|part| {
@@ -196,7 +198,16 @@ fn summary_text(parts: &[String]) -> String {
             body.trim() != "<!-- -->"
         })
         .collect::<Vec<_>>()
-        .join("\n\n")
+        .join("\n\n");
+    if let Some(after_open) = content.strip_prefix("**")
+        && let Some(close) = after_open.find("**")
+    {
+        let after_close = &content[2 + close + 2..];
+        if after_close.starts_with(['\n', '\r']) {
+            return after_close.to_owned();
+        }
+    }
+    content
 }
 
 fn web_activity(search: &codex_app_server_protocol::WebSearchItem, completed: bool) -> WebActivity {
