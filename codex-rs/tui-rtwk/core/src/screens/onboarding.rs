@@ -137,6 +137,10 @@ pub enum Ask {
         accepted: bool,
         effort: Option<String>,
     },
+    /// The GovCloud guidance was acknowledged: not shown again
+    /// (`notice.hide_gov_cloud_guidance`); not answered, a failed write is
+    /// only logged.
+    AcknowledgeGovCloud,
     /// Refresh the update cache over the network (`check_for_update`), asked
     /// once after the facts that found it stale; not answered, a failure is
     /// only logged.

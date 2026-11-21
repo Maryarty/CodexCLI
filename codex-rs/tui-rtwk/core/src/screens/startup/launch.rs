@@ -274,12 +274,18 @@ pub fn migration_prompt(facts: &MigrationFacts, models: &[Model]) -> Option<Migr
     })
 }
 
-/// The prompts due at launch, in the oracle's order: the hooks review
-/// (before the app runs), then the model migration (as the app starts).
-pub fn due(hooks: Option<HooksPrompt>, migration: Option<MigrationPrompt>) -> Vec<Prompt> {
-    hooks
-        .map(Prompt::Hooks)
+/// The prompts due at launch, in the oracle's order: the GovCloud guidance,
+/// the hooks review (both before the app runs), then the model migration
+/// (as the app starts).
+pub fn due(
+    gov_cloud: bool,
+    hooks: Option<HooksPrompt>,
+    migration: Option<MigrationPrompt>,
+) -> Vec<Prompt> {
+    gov_cloud
+        .then_some(Prompt::GovCloud)
         .into_iter()
+        .chain(hooks.map(Prompt::Hooks))
         .chain(migration.map(Prompt::Migration))
         .collect()
 }
@@ -525,9 +531,10 @@ mod tests {
         assert!(prompt.can_opt_out);
     }
 
-    // run_ratatui_app: the hooks review comes before the migration.
+    // run_ratatui_app: the GovCloud guidance, then the hooks review, then
+    // the migration.
     #[test]
-    fn the_hooks_review_is_asked_before_the_migration() {
+    fn the_prompts_are_asked_in_the_oracles_order() {
         let hooks = hooks_prompt(false, &entry());
         let facts = MigrationFacts {
             provider: "openai".into(),
@@ -535,9 +542,14 @@ mod tests {
             ..MigrationFacts::default()
         };
         let migration = migration_prompt(&facts, &test_catalog());
-        let due = due(hooks, migration);
+        let all = due(true, hooks.clone(), migration.clone());
         assert!(matches!(
-            due.as_slice(),
+            all.as_slice(),
+            [Prompt::GovCloud, Prompt::Hooks(_), Prompt::Migration(_)]
+        ));
+        let without = due(false, hooks, migration);
+        assert!(matches!(
+            without.as_slice(),
             [Prompt::Hooks(_), Prompt::Migration(_)]
         ));
     }

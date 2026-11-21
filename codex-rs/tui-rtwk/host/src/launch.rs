@@ -16,6 +16,9 @@ use codex_tui_core::screens::startup::launch::{self, MigrationFacts};
 use codex_tui_core::screens::startup::{HookTrust, Prompt};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 
+use crate::providers;
+use crate::startup::Target;
+
 /// The session's config as it stands: the launch's, replaced by the reload
 /// after the trust or the sign-in (`load_config_or_exit_with_fallback_cwd`).
 /// A reload holds the write lock while it loads, so what reads it after
@@ -25,6 +28,7 @@ pub type ConfigSlot = Arc<tokio::sync::RwLock<Arc<Config>>>;
 /// The startup prompts due now, in the oracle's order.
 pub async fn prompts<F, Fut>(
     config: &Config,
+    target: Target,
     cwd: String,
     bypass_hook_trust: bool,
     ids: &Ids,
@@ -34,18 +38,26 @@ where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
+    // The GovCloud check (`check_gov_cloud_guidance`), asked beside the
+    // hooks read as the oracle does.
+    let gov_cloud = async {
+        providers::gov_cloud_check_due(config, target) && providers::check_gov_cloud(ids, send).await
+    };
     // `load_startup_hooks_review_entry`: a failed read reviews nothing.
-    let hooks = match send(launch::hooks_list(&cwd, ids.next())).await {
-        Ok(result) => launch::hooks_entry(result),
-        Err(error) => {
-            tracing::warn!(
-                "failed to load startup hook review state: {}",
-                error.message
-            );
-            None
+    let hooks = async {
+        match send(launch::hooks_list(&cwd, ids.next())).await {
+            Ok(result) => launch::hooks_entry(result),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to load startup hook review state: {}",
+                    error.message
+                );
+                None
+            }
         }
-    }
-    .and_then(|entry| launch::hooks_prompt(bypass_hook_trust, &entry));
+        .and_then(|entry| launch::hooks_prompt(bypass_hook_trust, &entry))
+    };
+    let (gov_cloud, hooks) = tokio::join!(gov_cloud, hooks);
     let models = send(launch::model_list(ids.next()))
         .await
         .map(launch::models)
@@ -72,7 +84,7 @@ where
             &models,
         )
     });
-    launch::due(hooks, migration)
+    launch::due(gov_cloud, hooks, migration)
 }
 
 /// `write_hook_trusts`: the failure's text, if any.

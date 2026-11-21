@@ -26,11 +26,14 @@ use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::startup::{Action, Intent, Prompt, Reaction, Status, Trust};
+use codex_tui_core::screens::startup::{
+    Action, Answer, Intent, Prompt, Reaction, Status, Trust,
+};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
+use crate::pages::startup::onboarding::GovCloudGuidance;
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 use super::keys::{self, Cmd};
@@ -131,6 +134,14 @@ impl State for PanelState {
         let Some(prompt) = open(cx) else {
             return SizedBox::new(None, Some(0), None).into();
         };
+        // The GovCloud guidance is a view of its own (focus, scroll, the
+        // acknowledge row): Enter or a tap on the row answers it.
+        if matches!(prompt, Prompt::GovCloud) {
+            return GovCloudGuidance {
+                acknowledge: cx.map(|()| Msg::Cmd(Cmd::Answer(Answer::GovCloud))),
+            }
+            .into();
+        }
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let tokens = Tokens::of(cx);
@@ -349,6 +360,16 @@ impl Parts {
                 .collect()
         };
         match prompt {
+            // Drawn by `GovCloudGuidance` before the parts are asked for.
+            Prompt::GovCloud => Parts {
+                top: Vec::new(),
+                gap: false,
+                has_rows: false,
+                rows: Vec::new(),
+                after: Vec::new(),
+                hint: None,
+                squeeze: Give::Fixed,
+            },
             Prompt::Cwd(p) => {
                 let at = action_index(p.action);
                 let mut labels = vec![

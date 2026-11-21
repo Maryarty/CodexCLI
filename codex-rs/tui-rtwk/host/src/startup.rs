@@ -300,7 +300,7 @@ where
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| config.cwd.display().to_string());
-            let prompts = crate::launch::prompts(&config, cwd, false, &ids, &send).await;
+            let prompts = crate::launch::prompts(&config, startup.target, cwd, false, &ids, &send).await;
             Ev::Launched { request, prompts }
         }
         Ask::TrustHooks { request, updates } => {
@@ -317,6 +317,11 @@ where
         } => {
             let config = startup.current.read().await.clone();
             crate::launch::save_migration(&config, &from, &to, accepted, effort).await;
+            return None;
+        }
+        Ask::AcknowledgeGovCloud => {
+            let config = startup.current.read().await.clone();
+            crate::providers::acknowledge_gov_cloud(&config).await;
             return None;
         }
         Ask::CancelLogin { login_id } => {

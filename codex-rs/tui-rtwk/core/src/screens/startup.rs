@@ -229,6 +229,9 @@ pub enum DaemonChoice {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "prompt", rename_all = "snake_case")]
 pub enum Prompt {
+    /// The GovCloud guidance (`onboarding/bedrock.rs`, shown once before the
+    /// hooks review): no choice rows, Enter acknowledges.
+    GovCloud,
     Cwd(CwdPrompt),
     Migration(MigrationPrompt),
     Hooks(HooksPrompt),
@@ -240,6 +243,8 @@ pub enum Prompt {
 /// What a prompt returned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Answer {
+    /// The GovCloud guidance was acknowledged.
+    GovCloud,
     Cwd(CwdSelection),
     /// Ctrl-C on the cwd prompt (the oracle's `CwdPromptOutcome::Exit`).
     CwdExit,
@@ -259,7 +264,8 @@ impl Prompt {
     fn takes(&self, answer: Answer) -> bool {
         matches!(
             (self, answer),
-            (Prompt::Cwd(_), Answer::Cwd(_) | Answer::CwdExit)
+            (Prompt::GovCloud, Answer::GovCloud)
+                | (Prompt::Cwd(_), Answer::Cwd(_) | Answer::CwdExit)
                 | (Prompt::Migration(_), Answer::Migration(_))
                 | (Prompt::Hooks(_), Answer::Hooks(_))
                 | (Prompt::Unarchive(_), Answer::Unarchive(_))
@@ -302,6 +308,7 @@ impl Prompt {
     /// The choice rows, in order.
     pub fn rows(&self) -> Vec<Row> {
         match self {
+            Prompt::GovCloud => Vec::new(),
             Prompt::Cwd(p) => vec![PLAIN; p.choices().len()],
             Prompt::Migration(p) if p.can_opt_out => vec![PLAIN; 2],
             Prompt::Migration(_) => Vec::new(),
@@ -343,6 +350,7 @@ impl Prompt {
     /// What taking `row` returns (Enter on the cursor row, a hotkey).
     pub fn take(&self, row: usize) -> Reaction {
         let answer = match self {
+            Prompt::GovCloud => None,
             Prompt::Cwd(p) => p.choices().get(row).copied().map(Answer::Cwd),
             Prompt::Migration(_) => match row {
                 0 => Some(Answer::Migration(MigrationOutcome::Accepted)),
@@ -483,6 +491,12 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             // disables the rows).
             if matches!(prompt, Prompt::Hooks(h) if matches!(h.trust, Trust::Trusting(_))) {
                 return;
+            }
+            // The acknowledgment is saved (`notice.hide_gov_cloud_guidance`).
+            if answer == Answer::GovCloud {
+                fx.commands.push(AppCommand::Startup {
+                    ask: onboarding::Ask::AcknowledgeGovCloud,
+                });
             }
             // The migration's answer is saved (`PersistModelMigrationPromptAcknowledged`,
             // accepted: `PersistModelSelection` too); an exit saves nothing.
@@ -731,6 +745,26 @@ mod tests {
             asks_of(&mut migration(), answer(MigrationOutcome::Exit)),
             []
         );
+    }
+
+    // run_ratatui_app: the GovCloud guidance's acknowledgment is written
+    // once, when it is dismissed (`acknowledge_gov_cloud`).
+    #[test]
+    fn the_gov_cloud_acknowledgment_asks_for_its_write() {
+        let mut model = Model {
+            open: Some(Prompt::GovCloud),
+            ..Model::default()
+        };
+        assert_eq!(
+            asks_of(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Skip))),
+            []
+        );
+        assert_eq!(
+            asks_of(&mut model, Intent::Answer(Answer::GovCloud)),
+            [onboarding::Ask::AcknowledgeGovCloud]
+        );
+        assert_eq!(model.open, None);
+        assert_eq!(model.answers, vec![Answer::GovCloud]);
     }
 
     #[test]

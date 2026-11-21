@@ -38,8 +38,8 @@ mod trust;
 mod update_prompt;
 mod welcome;
 
-/// The GovCloud guidance step's view (S03; the launch step that shows it is
-/// the startup page's).
+/// The GovCloud guidance's view (S03): the launch's startup prompt
+/// `Prompt::GovCloud` draws it.
 pub use signin::provider::gov_cloud::GovCloudGuidance;
 
 /// What the debug menu lists for this directory: the startup page on each
@@ -102,6 +102,10 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         entry!("sign_in_gateway", "sign-in: every provider wizard offered"),
         entry!("sign_in_env_key", "sign-in: OPENAI_API_KEY set"),
+        entry!(
+            "bedrock_gov_cloud",
+            "the GovCloud guidance at launch (startup prompt)"
+        ),
         entry!("api_key_entry", "sign-in: the API key entry"),
         entry!(
             "browser_long_url",

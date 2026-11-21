@@ -85,6 +85,8 @@ pub fn bindings(prompt: &Prompt) -> Vec<(KeyPress, Cmd)> {
     ];
     let mut keys = Vec::new();
     match prompt {
+        // The guidance's own widget reads its keys.
+        Prompt::GovCloud => {}
         Prompt::Cwd(_) => {
             keys.extend(quit(Answer::CwdExit));
             keys.extend(up_down);

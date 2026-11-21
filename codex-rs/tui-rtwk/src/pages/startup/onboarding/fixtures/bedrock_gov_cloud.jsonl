@@ -1,0 +1,2 @@
+# The GovCloud guidance at launch (bedrock_tests.rs:6 gov_cloud_guidance_requires_acknowledgement).
+{"step": "screen", "dir": "startup", "ev": {"prompt": "gov_cloud"}}

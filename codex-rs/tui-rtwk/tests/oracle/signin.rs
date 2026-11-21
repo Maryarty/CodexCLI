@@ -195,10 +195,6 @@ fn held_enter_requires_a_fresh_confirmation_to_save_a_prefilled_api_key() {
 // ORACLE onboarding/bedrock_tests.rs:6 gov_cloud_guidance_requires_acknowledgement kind=snap owner=onboarding snap=gov_cloud_warning
 #[test]
 fn gov_cloud_guidance_requires_acknowledgement() {
-    kit::pending(
-        Owner::Onboarding,
-        "the GovCloud launch step (startup-finish: the Facts flag, the step, the fixture `bedrock_gov_cloud`) is not built; the view `GovCloudGuidance` is compared with these snapshots in tests/pages/signin_wizards.rs (gov_cloud)",
-    );
     let s = open("bedrock_gov_cloud", 80, 20);
     s.assert_snap("gov_cloud_warning");
 }
@@ -206,10 +202,6 @@ fn gov_cloud_guidance_requires_acknowledgement() {
 // ORACLE onboarding/bedrock_tests.rs:28 gov_cloud_guidance_scrolls_in_short_panes kind=snap owner=onboarding snap=gov_cloud_warning_short
 #[test]
 fn gov_cloud_guidance_scrolls_in_short_panes() {
-    kit::pending(
-        Owner::Onboarding,
-        "the GovCloud launch step (startup-finish: the Facts flag, the step, the fixture `bedrock_gov_cloud`) is not built; the view `GovCloudGuidance` is compared with these snapshots in tests/pages/signin_wizards.rs (gov_cloud)",
-    );
     let s = open("bedrock_gov_cloud", 80, 8);
     s.assert_snap("gov_cloud_warning_short");
 }

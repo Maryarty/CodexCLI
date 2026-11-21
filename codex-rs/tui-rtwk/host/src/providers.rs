@@ -4,17 +4,6 @@
 //! configuration. Oracle: `onboarding/bedrock.rs` (`check_gov_cloud`),
 //! `lib.rs` (`check_gov_cloud_guidance`, the acknowledgment write).
 
-// The launch step that runs these is the startup page's (startup-finish): the
-// expectation ends with its first call.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "called by the startup page's GovCloud launch step"
-    )
-)]
-#![cfg_attr(test, allow(dead_code))]
-
 use std::future::Future;
 use std::time::Duration;
 
