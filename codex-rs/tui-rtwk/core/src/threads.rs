@@ -108,9 +108,24 @@ pub enum Item {
     Delegated(Arc<DelegatedMessage>),
     /// A finished image generation call.
     Generated(Arc<GeneratedImage>),
+    /// Why a turn went wrong (oracle `new_error_event`).
+    Error {
+        message: String,
+    },
+    /// A warning of the server; shown only in the detailed transcript
+    /// (oracle `new_warning_event`: `visible_in_transcript: false`).
+    Warning {
+        message: String,
+    },
 }
 
 impl Item {
+    /// Entries only the detailed transcript (Ctrl+T) shows: the reasoning
+    /// summary and the server's warnings.
+    pub fn is_detailed_only(&self) -> bool {
+        matches!(self, Self::Reasoning { .. } | Self::Warning { .. })
+    }
+
     /// An exploration can share one visible section with its neighbors.
     pub fn is_exploration(&self) -> bool {
         matches!(self, Self::Tool(tool) if matches!(
@@ -284,6 +299,33 @@ impl Transcript {
         }
     }
 
+    /// An entry the server has no item for carries a key `mint` made.
+    fn is_minted(key: &ItemKey) -> bool {
+        key.item.as_str().starts_with('#')
+    }
+
+    /// Whether `turn` already shows this error (oracle `last_non_retry_error`: the
+    /// turn's own report of an error the `error` notification gave ends quietly).
+    fn holds_error(&self, turn: &TurnId, message: &str) -> bool {
+        self.order.iter().any(|key| {
+            &key.turn == turn
+                && matches!(self.item(key), Some(Item::Error { message: held }) if held == message)
+        })
+    }
+
+    /// The error row of a turn, once per message.
+    fn report_error(&mut self, turn: &TurnId, message: &str) {
+        if !self.holds_error(turn, message) {
+            let key = self.mint(turn.clone());
+            self.upsert(
+                key,
+                Item::Error {
+                    message: message.to_owned(),
+                },
+            );
+        }
+    }
+
     /// A partial answer still receiving text deltas.
     pub fn is_agent_streaming(&self, key: &ItemKey) -> bool {
         self.streaming.contains_key(key)
@@ -401,7 +443,10 @@ impl Transcript {
         });
         self.streaming.retain(|key, _| !full.contains(&key.turn));
         let mut older = Vec::new();
-        for HistoryTurn { turn, items, .. } in snapshots {
+        for HistoryTurn {
+            turn, items, error, ..
+        } in snapshots
+        {
             let items = match items {
                 TurnSnapshot::Full(items) | TurnSnapshot::Summary(items) => items,
             };
@@ -418,6 +463,22 @@ impl Transcript {
                     older.push(key);
                 }
             }
+            // The turn's own error follows its items (oracle `thread_transcript`).
+            if let Some(message) = error
+                && !order.iter().chain(older.iter()).any(|key| {
+                    key.turn == turn
+                        && matches!(stored.get(key).map(Rc::as_ref),
+                            Some(Item::Error { message: held }) if *held == message)
+                })
+            {
+                self.minted += 1;
+                let key = ItemKey {
+                    turn: turn.clone(),
+                    item: ItemId::new(format!("#{}", self.minted)),
+                };
+                stored.insert(key.clone(), Rc::new(Item::Error { message }));
+                older.push(key);
+            }
         }
         if !older.is_empty() {
             older.append(order);
@@ -425,7 +486,7 @@ impl Transcript {
         }
     }
 
-    /// Replaces every entry of `turn` with `items`, in their order; a
+    /// Replaces every server item of `turn` with `items`, in their order; a
     /// snapshot wins, it is never merged by id (R4).
     pub fn replace_turn(&mut self, turn: &TurnId, items: Vec<(ItemId, Item)>) {
         self.layout_revision += 1;
@@ -436,8 +497,9 @@ impl Transcript {
             .iter()
             .position(|key| &key.turn == turn)
             .unwrap_or(order.len());
+        // The server's items only: an entry it has no item for (an error, a hook run) is ours.
         order.retain(|key| {
-            if &key.turn == turn {
+            if &key.turn == turn && !Self::is_minted(key) {
                 history.remove(key);
                 false
             } else {
@@ -558,8 +620,9 @@ pub enum ThreadEv {
         error: Option<String>,
     },
     /// The server's `error` notification (not one it will retry): why a
-    /// turn goes wrong, kept for the status line.
+    /// turn goes wrong, a row of the turn.
     TurnError {
+        turn: TurnId,
         message: String,
     },
 }
@@ -1110,9 +1173,21 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         ServerNotification::Error(n) if !n.will_retry => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::TurnError {
+                turn: TurnId::new(&n.turn_id),
                 message: n.error.message.clone(),
             },
         )),
+        ServerNotification::Warning(n) => n.thread_id.as_deref().map(|thread| {
+            (
+                ThreadId::new(thread),
+                ThreadEv::Appended {
+                    turn: None,
+                    item: Item::Warning {
+                        message: n.message.clone(),
+                    },
+                },
+            )
+        }),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)
             .map(|(thread, ev)| match ev {
                 ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),
@@ -1263,16 +1338,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::Failure(error) => model.last_error = Some(error),
         ThreadEv::HistoryPage { turns, next } => {
             for snapshot in &turns {
-                if let Some(end) = snapshot.end {
+                if snapshot.end.is_some() {
                     if matches!(&model.turn, TurnState::Running(running) if running.turn == snapshot.turn)
                     {
-                        end_turn(
-                            model,
-                            snapshot.turn.clone(),
-                            end,
-                            snapshot.error.clone(),
-                            fx,
-                        );
+                        end_turn(model, snapshot.turn.clone(), fx);
                     } else {
                         Rc::make_mut(&mut model.finished_turns).insert(snapshot.turn.clone());
                     }
@@ -1405,7 +1474,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
         }
-        ThreadEv::TurnError { message } => model.last_error = Some(Failure::Message(message)),
+        ThreadEv::TurnError { turn, message } => model.transcript.report_error(&turn, &message),
         ThreadEv::TurnStarted { turn, started_at } => {
             start_turn(model, turn.clone());
             if let TurnState::Running(running) = &mut model.turn
@@ -1462,10 +1531,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 model.transcript.append_command_output(key, &delta);
             }
         }
-        ThreadEv::TurnEnded { turn, end } => end_turn(model, turn, end, None, fx),
+        ThreadEv::TurnEnded { turn, .. } => end_turn(model, turn, fx),
         ThreadEv::TurnCompleted {
             turn,
-            end,
+            end: _,
             snapshot,
             timing,
             error,
@@ -1491,18 +1560,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 _ => {}
             }
             model.transcript.remember_timings([(turn.clone(), timing)]);
-            end_turn(model, turn, end, error, fx);
+            if let Some(message) = &error {
+                model.transcript.report_error(&turn, message);
+            }
+            end_turn(model, turn, fx);
         }
     }
 }
 
-fn end_turn(
-    model: &mut ThreadModel,
-    turn: TurnId,
-    end: TurnEnd,
-    error: Option<String>,
-    fx: &mut ThreadFx<'_>,
-) {
+fn end_turn(model: &mut ThreadModel, turn: TurnId, fx: &mut ThreadFx<'_>) {
     Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
     model.transcript.finish_streams(&turn);
     model.completed_items.retain(|key| key.turn != turn);
@@ -1516,11 +1582,6 @@ fn end_turn(
     if ends_running {
         model.turn = TurnState::Idle;
         model.slots.chat.end_turn();
-        if let Some(message) = error {
-            model.last_error = Some(Failure::Message(message));
-        } else if end == TurnEnd::Failed && model.last_error.is_none() {
-            model.last_error = Some(Failure::TurnFailed);
-        }
         if !model.outgoing.any(is_start_turn) {
             send_next(model, fx);
         }

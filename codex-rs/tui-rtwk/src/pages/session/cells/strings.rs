@@ -76,6 +76,9 @@ pub struct Strings {
     pub hook_stopped: &'static str,
     pub hook_branch: &'static str,
     pub hook_body_indent: &'static str,
+    // history_cell/notices.rs
+    pub error_line: &'static str,
+    pub warning_mark: &'static str,
     // multi_agents.rs
     pub collab_bullet: &'static str,
     pub collab_spawned: &'static str,
@@ -173,6 +176,8 @@ pub const EN: Strings = Strings {
     hook_stopped: "Hook stopped",
     hook_branch: "  └ ",
     hook_body_indent: "    ",
+    error_line: "■ {}",
+    warning_mark: "⚠ ",
     collab_bullet: "• ",
     collab_spawned: "Spawned",
     collab_spawn_failed: "Agent spawn failed",

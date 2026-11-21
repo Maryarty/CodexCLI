@@ -1531,6 +1531,126 @@ mod delegated_and_generated {
     }
 }
 
+mod error_and_warning {
+    use codex_tui_rtwk::pages::session::cells::error::ErrorCell;
+    use codex_tui_rtwk::pages::session::cells::warning::WarningCell;
+    use rtwk::style::{Attrs, Color};
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn an_error_is_one_red_row_with_a_square_and_wraps_flush_left() {
+        // oracle notices.rs new_error_event: `format!("■ {message}").red()`, a plain cell.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 4));
+        t.pump_widget(ErrorCell {
+            message: "Quota exceeded. Check your plan and billing details.".into(),
+        });
+        assert_eq!(
+            rows(&t),
+            ["■ Quota exceeded. Check your plan and", "billing details."]
+        );
+        for (x, y) in [(0, 0), (2, 0), (0, 1)] {
+            assert_eq!(t.cell(x, y).fg, Color::RED, "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn a_warning_has_a_mark_and_its_rows_wait_two_columns_in() {
+        // oracle notices.rs new_warning_event: `PrefixedWrappedHistoryCell` of `⚠ ` and `  `.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(18, 4));
+        t.pump_widget(WarningCell {
+            message: "Heads up: the sandbox is locked now".into(),
+        });
+        assert_eq!(
+            rows(&t),
+            ["⚠ Heads up: the", "  sandbox is", "  locked now"]
+        );
+        let mark = t.cell(0, 0);
+        assert!(mark.attrs.intersects(Attrs::BOLD), "{mark:?}");
+        assert_ne!(mark.fg, Color::RED);
+        // The mark and the message share the Attention tone.
+        assert_eq!(t.cell(2, 0).fg, mark.fg);
+        assert!(t.cell(2, 0).attrs.intersects(Attrs::BOLD));
+        assert_eq!(t.cell(2, 2).fg, mark.fg);
+    }
+}
+
+mod errors_and_warnings_in_the_chat {
+    use codex_app_server_protocol::{ServerNotification, WarningNotification};
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::fixtures::builders::{turn_completed, turn_error, turn_failed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+
+    use crate::common::{Harness, start};
+
+    fn warning(message: &str) -> BackendEv {
+        BackendEv::Notification(Box::new(ServerNotification::Warning(WarningNotification {
+            thread_id: Some(FAKE_THREAD.to_string()),
+            message: message.to_string(),
+        })))
+    }
+
+    fn run_turn(h: &mut Harness, events: Vec<BackendEv>) {
+        h.wait_idle();
+        h.fake.script_turn(events);
+        h.t.type_text("hi");
+        h.press("enter");
+        h.wait_idle();
+    }
+
+    #[test]
+    fn a_warning_is_hidden_in_the_chat_and_shown_by_the_detailed_transcript() {
+        // oracle notices.rs new_warning_event: `visible_in_transcript: false`; its
+        // `transcript_lines` (the Ctrl+T view) is `⚠ ` and the message.
+        let mut h = start();
+        run_turn(
+            &mut h,
+            vec![
+                warning("Careful now."),
+                turn_completed(FAKE_THREAD, "turn-1"),
+            ],
+        );
+        assert!(!h.t.screen().contains("Careful now."), "{}", h.t.screen());
+        h.press("ctrl+t");
+        h.wait_for("the detailed transcript", |s| s.contains("⚠ Careful now."));
+        h.press("ctrl+t");
+        h.wait_for("the chat", |s| !s.contains("Careful now."));
+    }
+
+    #[test]
+    fn a_turn_error_is_a_row_of_the_chat_and_there_is_no_status_banner() {
+        // oracle turn_runtime.rs on_error: `add_to_history(new_error_event(message))`.
+        let mut h = start();
+        run_turn(
+            &mut h,
+            vec![
+                turn_error(FAKE_THREAD, "turn-1", "Quota exceeded.", false),
+                turn_failed(FAKE_THREAD, "turn-1"),
+            ],
+        );
+        let screen = h.t.screen();
+        assert_eq!(
+            screen
+                .lines()
+                .filter(|row| row.trim() == "■ Quota exceeded.")
+                .count(),
+            1,
+            "{screen}"
+        );
+        assert!(!screen.contains("error: Quota"), "{screen}");
+    }
+}
+
 mod plan_in_transcript {
     use codex_tui_core::fixtures::builders::turn_started;
     use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;

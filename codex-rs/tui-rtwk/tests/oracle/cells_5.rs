@@ -13,7 +13,7 @@ const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_line
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
 const NOTICE_CELL: &str = "no deprecation-notice cell in S11: deprecationNotice is not projected into a transcript cell with a warning mark and details";
-const WARNING_CELL: &str = "no warning cell in S11: the warning notifications are not projected into transcript cells, and the startup/MCP warning cells do not exist";
+const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
 // ORACLE history_cell/tests.rs:2205 multiline_command_without_wrap_uses_branch_then_eight_spaces kind=snap owner=chat-live snap=multiline_command_without_wrap_uses_branch_then_eight_spaces
@@ -678,7 +678,7 @@ fn usage_warnings_render_in_both_transcripts_including_composites() {
 fn warning_count_deduplicates_messages_mcp_summaries_and_composites() {
     kit::pending(
         Owner::ChatLive,
-        "no warning cell in S11 and no MCP startup-warning projection: the oracle's MCP alpha summary cell and the warning count are not drawn yet",
+        "the count is the footer's (`⚠ N warnings · f2 to view`) and the MCP alpha summary is the startup-warnings cell, neither drawn yet; the warning cells themselves are hidden in the chat (Ctrl+T only, WarningCell), so the kit's chat-screen assertions on their text cannot hold",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 24)

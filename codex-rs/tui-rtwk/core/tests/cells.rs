@@ -824,3 +824,189 @@ fn sleep_and_hook_prompt_items_leave_no_row() {
         None
     );
 }
+
+fn notified(app: &mut CodexApp, notification: Value) {
+    let notification: ServerNotification =
+        serde_json::from_value(notification).expect("notification");
+    apply_app(
+        app,
+        AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        &mut AppFx::default(),
+    );
+}
+
+fn turn_started(app: &mut CodexApp) {
+    notified(
+        app,
+        json!({"method": "turn/started", "params": {"threadId": "thread-1", "turn": {
+            "id": "turn-1", "items": [], "itemsView": "full", "status": "inProgress",
+            "error": null}}}),
+    );
+}
+
+fn error_notice(app: &mut CodexApp, message: &str, will_retry: bool) {
+    notified(
+        app,
+        json!({"method": "error", "params": {"threadId": "thread-1", "turnId": "turn-1",
+            "willRetry": will_retry, "error": {"message": message}}}),
+    );
+}
+
+fn turn_ended(app: &mut CodexApp, status: &str, error: Option<&str>) {
+    notified(
+        app,
+        json!({"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {
+            "id": "turn-1", "items": [], "itemsView": "full", "status": status,
+            "error": error.map(|message| json!({"message": message}))}}}),
+    );
+}
+
+fn error_rows(app: &CodexApp) -> Vec<String> {
+    app.active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Error { message } => Some(message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_error_notification_leaves_its_message_in_the_transcript() {
+    // oracle chatwidget/turn_runtime.rs on_error: `add_to_history(new_error_event(message))`.
+    let mut app = ready();
+    turn_started(&mut app);
+    error_notice(&mut app, "Quota exceeded.", false);
+    assert_eq!(error_rows(&app), ["Quota exceeded."]);
+    assert_eq!(app.active_thread().last_error(), None);
+}
+
+#[test]
+fn an_error_that_will_be_retried_leaves_no_row() {
+    // oracle protocol.rs: a retried error is the status header's, not a cell.
+    let mut app = ready();
+    turn_started(&mut app);
+    error_notice(&mut app, "Reconnecting... 1/5", true);
+    assert_eq!(error_rows(&app), Vec::<String>::new());
+}
+
+#[test]
+fn the_failed_turn_that_repeats_the_error_adds_no_second_row() {
+    // oracle protocol.rs: `last_non_retry_error == Some((turn, message))` ends the turn quietly.
+    let mut app = ready();
+    turn_started(&mut app);
+    error_notice(&mut app, "Quota exceeded.", false);
+    turn_ended(&mut app, "failed", Some("Quota exceeded."));
+    assert_eq!(error_rows(&app), ["Quota exceeded."]);
+}
+
+#[test]
+fn a_failed_turn_with_another_message_adds_it() {
+    let mut app = ready();
+    turn_started(&mut app);
+    error_notice(&mut app, "Quota exceeded.", false);
+    turn_ended(&mut app, "failed", Some("The turn failed."));
+    assert_eq!(error_rows(&app), ["Quota exceeded.", "The turn failed."]);
+}
+
+#[test]
+fn a_failed_turn_the_server_explains_only_at_its_end_shows_that_message() {
+    let mut app = ready();
+    turn_started(&mut app);
+    turn_ended(&mut app, "failed", Some("Quota exceeded."));
+    assert_eq!(error_rows(&app), ["Quota exceeded."]);
+}
+
+#[test]
+fn a_failed_turn_without_a_message_shows_nothing() {
+    // oracle protocol.rs: no error on the turn, `finalize_turn` only.
+    let mut app = ready();
+    turn_started(&mut app);
+    turn_ended(&mut app, "failed", None);
+    assert_eq!(error_rows(&app), Vec::<String>::new());
+    assert_eq!(app.active_thread().last_error(), None);
+}
+
+#[test]
+fn a_whole_turn_snapshot_keeps_the_rows_the_server_has_no_item_for() {
+    // The turn/completed payload of a turn lists the server's items only: the error row, a hook
+    // run and a plan report are ours and stay.
+    let mut app = ready();
+    turn_started(&mut app);
+    error_notice(&mut app, "Quota exceeded.", false);
+    hook_applied(
+        &mut app,
+        Some("turn-1"),
+        "stopped",
+        json!([{"kind": "stop", "text": "Halt"}]),
+    );
+    turn_ended(&mut app, "failed", Some("Quota exceeded."));
+    assert_eq!(error_rows(&app), ["Quota exceeded."]);
+    assert_eq!(hook_rows(&app).len(), 1);
+}
+
+#[test]
+fn a_warning_notification_is_a_detailed_transcript_row() {
+    // oracle history_cell/notices.rs new_warning_event: `visible_in_transcript: false`, its
+    // `transcript_lines` is the `⚠ ` message.
+    let mut app = ready();
+    turn_started(&mut app);
+    notified(
+        &mut app,
+        json!({"method": "warning", "params": {"threadId": "thread-1", "message": "Careful."}}),
+    );
+    let rows: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter(|(_, item)| matches!(item, Item::Warning { message } if message == "Careful."))
+        .map(|(_, item)| item.is_detailed_only())
+        .collect();
+    assert_eq!(rows, [true]);
+}
+
+#[test]
+fn a_warning_without_a_thread_is_the_backends_not_a_row() {
+    let mut app = ready();
+    notified(
+        &mut app,
+        json!({"method": "warning", "params": {"message": "Backend warning."}}),
+    );
+    assert!(
+        app.active_thread()
+            .transcript()
+            .iter()
+            .all(|(_, item)| !matches!(item, Item::Warning { .. }))
+    );
+}
+
+#[test]
+fn a_loaded_failed_turn_shows_its_error_after_its_items() {
+    // oracle thread_transcript.rs: `turn.error` is a cell after the turn's items.
+    let mut app = ready();
+    let turn: codex_app_server_protocol::Turn = serde_json::from_value(json!({
+        "id": "turn-old", "itemsView": "full", "status": "failed",
+        "error": {"message": "Quota exceeded."},
+        "items": [{"type": "agentMessage", "id": "agent-1", "text": "Before the failure",
+            "phase": "final_answer", "memoryCitation": null, "delivery": null}]
+    }))
+    .expect("turn");
+    codex_tui_core::app::apply_thread(
+        &mut app,
+        &ThreadId::new("thread-1"),
+        codex_tui_core::threads::history_page(&[turn], None),
+        &mut AppFx::default(),
+    );
+    let kinds: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .map(|(_, item)| match item {
+            Item::Agent { text } => text.clone(),
+            Item::Error { message } => format!("error: {message}"),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(kinds, ["Before the failure", "error: Quota exceeded."]);
+}

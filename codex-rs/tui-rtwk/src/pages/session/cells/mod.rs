@@ -16,6 +16,7 @@ pub mod citation;
 pub mod collab;
 pub mod delegated;
 pub mod disclosure;
+pub mod error;
 pub mod generated_image;
 pub mod hook;
 pub mod markdown;
@@ -28,6 +29,7 @@ pub mod reasoning;
 pub mod status;
 pub mod strings;
 pub mod viewed_image;
+pub mod warning;
 pub mod web;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds

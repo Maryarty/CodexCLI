@@ -41,8 +41,8 @@ struct RowLayout {
 
 impl ViewportState {
     /// The visible rows: runs of explorations share one, and the reasoning
-    /// summary shows only in the detailed transcript (oracle
-    /// `ReasoningSummaryCell::transcript_only`).
+    /// summary and the warnings show only in the detailed transcript (oracle
+    /// `ReasoningSummaryCell::transcript_only`, `WarningHistoryCell`).
     fn rows(&self, thread: &ThreadModel, detailed: bool) -> Rc<[Range<usize>]> {
         let mut cache = self.layout.borrow_mut();
         let transcript = thread.transcript();
@@ -57,7 +57,7 @@ impl ViewportState {
         let mut rows: Vec<Range<usize>> = Vec::new();
         let mut exploration = None;
         for (index, (key, item)) in transcript.iter().enumerate() {
-            if !detailed && matches!(item, Item::Reasoning { .. }) {
+            if !detailed && item.is_detailed_only() {
                 continue;
             }
             let turn = item.is_exploration().then_some(&key.turn);
@@ -276,6 +276,20 @@ impl State for ViewportState {
                     super::cells::plan_update::PlanUpdateCell {
                         update: update.clone(),
                         detailed,
+                    }
+                    .into(),
+                ),
+                Item::Error { message } => cell(
+                    separator,
+                    super::cells::error::ErrorCell {
+                        message: message.clone(),
+                    }
+                    .into(),
+                ),
+                Item::Warning { message } => cell(
+                    separator,
+                    super::cells::warning::WarningCell {
+                        message: message.clone(),
                     }
                     .into(),
                 ),

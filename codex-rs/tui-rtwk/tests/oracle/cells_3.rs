@@ -557,23 +557,47 @@ fn ps_output_chunk_leading_whitespace_snapshot() {
 // ORACLE history_cell/tests.rs:1022 error_event_oversized_input_snapshot kind=snap owner=chat-live snap=error_event_oversized_input_snapshot
 #[test]
 fn error_event_oversized_input_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no error cell on S11: the error notification (oversized input) is not drawn; the cells screen has no error item yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(120, 6).live().open();
-    s.assert_snap_region("error_event_oversized_input_snapshot", 0, 0);
+    let s = Screen::build(Owner::ChatLive)
+        .size(120, 24)
+        .script(include_str!(
+            "fixtures/cells_3/error_event_oversized_input.jsonl"
+        ))
+        .open();
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("■ Message exceeds"))
+        .expect("the error row");
+    s.assert_snap_region("error_event_oversized_input_snapshot", row, 0);
 }
 
 // ORACLE history_cell/tests.rs:1031 error_event_bedrock_expired_signature_snapshot kind=snap owner=chat-live snap=error_event_bedrock_expired_signature_snapshot
 #[test]
 fn error_event_bedrock_expired_signature_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no error cell on S11: the Bedrock expired-signature error notification (with its user message and URL) is not drawn; the cells screen has no error item yet",
+    let s = Screen::build(Owner::ChatLive)
+        .size(100, 24)
+        .script(include_str!(
+            "fixtures/cells_3/error_event_bedrock_expired_signature.jsonl"
+        ))
+        .open();
+    // The oracle's snapshot is the cell's `display_lines`, one unwrapped line; the chat wraps it
+    // by words at the terminal's width, so the rows of the cell read as that line.
+    let rows = s.rows();
+    let first = rows
+        .iter()
+        .position(|row| row.starts_with("■ Amazon Bedrock"))
+        .expect("the error row");
+    let cell: Vec<&str> = rows[first..]
+        .iter()
+        .take_while(|row| !row.is_empty())
+        .map(String::as_str)
+        .collect();
+    assert_eq!(cell.len(), 3, "{cell:#?}");
+    assert!(cell.iter().all(|row| row.chars().count() <= 100));
+    assert_eq!(
+        vec![cell.join(" ")],
+        kit::snap_rows("error_event_bedrock_expired_signature_snapshot", "")
     );
-    let s = Screen::build(Owner::ChatLive).size(100, 12).live().open();
-    s.assert_snap_region("error_event_bedrock_expired_signature_snapshot", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:1056 mcp_tools_output_masks_sensitive_values kind=snap owner=chat-live snap=mcp_tools_output_masks_sensitive_values

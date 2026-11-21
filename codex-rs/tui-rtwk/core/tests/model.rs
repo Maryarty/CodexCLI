@@ -557,7 +557,7 @@ fn request_keys_preserve_numeric_and_escaped_string_ids() {
 }
 
 /// A failed turn says why: the server's `error` notification carries the
-/// message, which the status line shows instead of a bare "the turn failed".
+/// message, which the transcript keeps as an error row (oracle `on_error`).
 #[test]
 fn a_failed_turn_keeps_the_servers_error_message() {
     let mut app = ready();
@@ -565,21 +565,29 @@ fn a_failed_turn_keeps_the_servers_error_message() {
     notification(&mut app, turn_error(T, "turn-1", "no network", false));
     notification(&mut app, turn_failed(T, "turn-1"));
     assert_eq!(
-        thread(&app).last_error().cloned(),
-        Some(Failure::Message("no network".into()))
+        thread(&app)
+            .transcript()
+            .iter()
+            .filter_map(|(_, item)| match item {
+                Item::Error { message } => Some(message.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        ["no network"]
     );
+    assert_eq!(thread(&app).last_error().cloned(), None);
     assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
+/// The oracle shows nothing for a failed turn that has no error (`finalize_turn` only).
 #[test]
-fn a_failed_turn_without_a_message_says_so_plainly() {
+fn a_failed_turn_without_a_message_shows_nothing() {
     let mut app = ready();
     notification(&mut app, turn_started(T, "turn-1"));
     notification(&mut app, turn_failed(T, "turn-1"));
-    assert_eq!(
-        thread(&app).last_error().cloned(),
-        Some(Failure::TurnFailed)
-    );
+    assert_eq!(thread(&app).last_error().cloned(), None);
+    assert!(thread(&app).transcript().is_empty());
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
 #[test]
