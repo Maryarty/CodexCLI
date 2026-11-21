@@ -7,7 +7,8 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::commands::{DispatchCx, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::commands::{DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
 use codex_tui_core::threads::{Failure, ThreadModel};
 
@@ -74,6 +75,39 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         let intent = popovers::Intent::Record(line.to_string());
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
+    // What the model takes whole: nothing over the backend's limit (Enter
+    // refuses it and the draft stays, `prepare_submission_text`).
+    if let Some(provided) = composer::too_large(line) {
+        let notice = Notice::InputTooLarge { provided };
+        screen(cx, chat::Intent::Notice(notice));
+        return;
+    }
+    // A draft in shell mode runs as the user's own shell command (`!cmd`,
+    // `submit_shell_command`), through the thread, a turn or none running.
+    if let Some(shell) = composer::shell_line(line, w.ui.draft.shell()) {
+        if !facts.thread_started {
+            return;
+        }
+        if states.chat.notice.is_some() {
+            screen(cx, chat::Intent::ClearNotice);
+        }
+        match shell {
+            ShellLine::Help => {
+                clear_sent(&w.ui);
+                screen(cx, chat::Intent::Notice(Notice::ShellHelp));
+            }
+            ShellLine::Run(command) => {
+                record(cx);
+                clear_sent(&w.ui);
+                let intent = chat::Intent::Shell {
+                    thread: session.active.clone(),
+                    command,
+                };
+                screen(cx, intent);
+            }
+        }
+        return;
+    }
     let outcome = dispatch(line, &facts);
     if states.chat.notice.is_some() && !matches!(outcome, Outcome::Notice(_)) {
         screen(cx, chat::Intent::ClearNotice);

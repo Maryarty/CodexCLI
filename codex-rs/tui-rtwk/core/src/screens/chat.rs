@@ -271,6 +271,11 @@ pub enum Intent {
         command: SlashCommand,
         intent: SessionIntent,
     },
+    /// A user shell command (`!cmd`) for the thread shown when it was submitted.
+    Shell {
+        thread: Option<ThreadId>,
+        command: String,
+    },
     /// A command dispatch refused.
     Notice(Notice),
     /// The next submit starts clean.
@@ -293,6 +298,8 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Session { command, .. } => {
             model.notice = Some(ChatNotice::NotAvailable(command));
         }
+        // the app routes it to the thread (`apply_app`); the screen keeps nothing
+        Intent::Shell { .. } => {}
         Intent::Notice(notice) => model.notice = Some(ChatNotice::Command(notice)),
         Intent::ClearNotice => model.notice = None,
     }
@@ -349,6 +356,9 @@ impl ThreadPart {
 pub enum ThreadIntent {
     Compact,
     Rename(String),
+    /// `!cmd` from the composer: a user shell command (the oracle's
+    /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
+    Shell(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -439,6 +449,7 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
 pub enum Command {
     Compact,
     Rename(String),
+    Shell(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -450,6 +461,7 @@ pub enum Reply {
 pub enum Ctx {
     Compact,
     Rename,
+    Shell,
 }
 
 pub fn apply_thread_intent(
@@ -467,6 +479,10 @@ pub fn apply_thread_intent(
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
+        }
+        ThreadIntent::Shell(command) if !command.trim().is_empty() => {
+            part.error = None;
+            fx.request(Ctx::Shell, Command::Shell(command));
         }
         _ => {}
     }
@@ -520,15 +536,22 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             thread: thread.to_string(),
             name: name.clone(),
         },
+        Command::Shell(command) => crate::threads::ThreadAsk::Shell {
+            thread: thread.to_string(),
+            command: command.clone(),
+        },
     };
     ask.wire(id)
 }
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    use codex_app_server_protocol::{ThreadCompactStartResponse, ThreadSetNameResponse};
+    use codex_app_server_protocol::{
+        ThreadCompactStartResponse, ThreadSetNameResponse, ThreadShellCommandResponse,
+    };
     let decoded = match command {
         Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
+        Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
     };
     decoded.map_err(|error| RpcError::Malformed(error.to_string()))
 }

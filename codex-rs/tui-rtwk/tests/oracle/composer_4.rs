@@ -255,7 +255,7 @@ fn paste_enter_retains_a_one_character_first_line() {
 fn embedded_composer_shows_validation_error_without_losing_draft() {
     kit::pending(
         Owner::ChatLive,
-        "no message-length validation on the chat composer: an over-long paste (1048577 characters) is not refused on Enter, and the footer draws no `Message too long` flash",
+        "the `Message too long` footer flash belongs to the plain-text embedded composer (ChatComposerConfig::plain_text, inside a question sheet), which has no entry here; the chat composer refuses an over-long draft with a notice (composer_2 oversized_submit_reports_error_and_restores_draft)",
     );
     let mut s = chat(80, 24);
     let text = "x".repeat(1_048_577);

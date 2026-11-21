@@ -336,15 +336,13 @@ fn submit_at_character_limit_succeeds() {
 // ORACLE bottom_pane/chat_composer.rs:9178 oversized_submit_reports_error_and_restores_draft kind=ui owner=chat-live
 #[test]
 fn oversized_submit_reports_error_and_restores_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no input-size limit on the chat composer: a message over 1 << 20 chars is sent, and the 'Message exceeds the maximum length' error cell is not built",
-    );
     let mut s = ready(100, 24);
     s.paste(&"x".repeat((1 << 20) + 1));
     s.keys("enter");
-    let p = prompt(&s);
-    s.assert_row_starts_with(p, "› xxxx");
+    // oracle: the draft is restored as it was (the test sets the text with
+    // `set_text_clearing_elements`, which the keys cannot reach: a paste of
+    // this size is a placeholder in the composer, and stays one)
+    s.assert_row(prompt(&s), "› [Pasted Content 1048577 chars]");
     s.assert_contains(
         "Message exceeds the maximum length of 1048576 characters (1048577 provided).",
     );
@@ -353,15 +351,12 @@ fn oversized_submit_reports_error_and_restores_draft() {
 // ORACLE bottom_pane/chat_composer.rs:9220 oversized_queued_submission_reports_error_and_restores_draft kind=ui owner=chat-live
 #[test]
 fn oversized_queued_submission_reports_error_and_restores_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no steer toggle (set_steer_enabled(false) has no seed) and no input-size limit on the chat composer: the queued over-size submission is not refused with the error cell",
-    );
+    // oracle: `set_steer_enabled` is a no-op (`_enabled`), so the queued twin is
+    // the same Enter; the port's queue key is Tab, the second route to the same refusal
     let mut s = ready(100, 24);
     s.paste(&"x".repeat((1 << 20) + 1));
-    s.keys("enter");
-    let p = prompt(&s);
-    s.assert_row_starts_with(p, "› xxxx");
+    s.keys("tab");
+    s.assert_row(prompt(&s), "› [Pasted Content 1048577 chars]");
     s.assert_contains(
         "Message exceeds the maximum length of 1048576 characters (1048577 provided).",
     );

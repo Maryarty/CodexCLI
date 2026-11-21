@@ -1226,6 +1226,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             command,
             intent,
         })) => session_intent(app, thread, command, intent, fx),
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Shell { thread, command })) => {
+            if let Some(thread) = thread.or_else(|| app.session.active.clone()) {
+                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Shell(command));
+                apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+            }
+        }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }
 }

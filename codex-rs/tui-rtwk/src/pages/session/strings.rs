@@ -14,6 +14,7 @@ use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
+use codex_tui_core::screens::composer;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -39,6 +40,10 @@ pub struct Strings {
     pub unavailable_in_review: Msg<1>,
     pub session_starting: Msg<1>,
     pub model_startup: &'static str,
+    /// `USER_SHELL_COMMAND_HELP_TITLE` and `_HINT` (`chatwidget.rs`): a bare `!`.
+    pub shell_help: &'static str,
+    /// `user_input_too_large_message` (`chat_composer.rs`): the limit and the size.
+    pub input_too_large: Msg<2>,
     pub usage_needs_login: &'static str,
     pub usage_pwd: &'static str,
     pub usage_usage: &'static str,
@@ -131,6 +136,8 @@ pub const EN: Strings = Strings {
     unavailable_in_review: msg!("'/{0}' is unavailable while code review is running."),
     session_starting: msg!("Session is still starting; try /{0} again in a moment."),
     model_startup: "Model selection is disabled until startup completes.",
+    shell_help: "Prefix a command with ! to run it locally\nExample: !ls",
+    input_too_large: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
     usage_needs_login: "Sign in with ChatGPT to use /usage.",
     usage_pwd: "Usage: /pwd",
     usage_usage: "Usage: /usage [daily|weekly|cumulative]",
@@ -262,6 +269,16 @@ impl Strings {
             Notice::SessionStarting(c) => text(self.session_starting, c.command()),
             Notice::NotAvailable(c) => text(self.not_available, c.command()),
             Notice::ModelStartup => self.model_startup.to_string(),
+            Notice::ShellHelp => self.shell_help.to_string(),
+            Notice::InputTooLarge { provided } => Fmt::new(
+                self.input_too_large,
+                [
+                    Arg::Text(&composer::MAX_INPUT_CHARS.to_string()),
+                    Arg::Text(&provided.to_string()),
+                ],
+                &self.num,
+            )
+            .to_string(),
             Notice::UsageNeedsLogin => self.usage_needs_login.to_string(),
             Notice::McpLoginNeedsSession => self.mcp_login_needs_session.to_string(),
             Notice::Usage(key) => match key {

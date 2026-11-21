@@ -21,6 +21,40 @@ pub const KIND: Kind = Kind::Part;
 /// placeholder (`chat_composer.rs`, `LARGE_PASTE_CHAR_THRESHOLD`).
 pub const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
 
+/// The longest message the backend takes, in characters
+/// (`MAX_USER_INPUT_TEXT_CHARS`, `chat_composer.rs`).
+pub const MAX_INPUT_CHARS: usize = codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
+
+/// The size of a message over the limit, or none for one the backend takes
+/// (`prepare_submission_text`: Enter refuses it and keeps the draft).
+pub fn too_large(text: &str) -> Option<usize> {
+    let chars = text.chars().count();
+    (chars > MAX_INPUT_CHARS).then_some(chars)
+}
+
+/// What a line submitted from a draft in shell mode asks of the shell
+/// (`submit_shell_command`, `chatwidget/input_submission.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShellLine {
+    /// Nothing after the `!`: the help line (`Prefix a command with ! to run it locally`).
+    Help,
+    /// The command to run, trimmed.
+    Run(String),
+}
+
+/// The shell command of `line` when the draft is in shell mode (the user
+/// typed or recalled the `!`). A line that merely starts with `!` (a large
+/// paste whose payload does, `hidden_shell_paste_submits_literal_prompt`)
+/// is a prompt for the model, whole.
+pub fn shell_line(line: &str, shell_mode: bool) -> Option<ShellLine> {
+    let command = line.strip_prefix('!').filter(|_| shell_mode)?.trim();
+    Some(if command.is_empty() {
+        ShellLine::Help
+    } else {
+        ShellLine::Run(command.to_string())
+    })
+}
+
 /// A paste as the draft takes it (`apply_paste`): line breaks folded to
 /// `\n`, then CSI sequences and control characters removed but for tabs
 /// and newlines (`sanitize_user_text`). A lone ESC is dropped on its own;
@@ -204,7 +238,30 @@ pub fn trigger(before_caret: &str) -> Option<Trigger> {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_paste;
+    use super::{MAX_INPUT_CHARS, ShellLine, sanitize_paste, shell_line, too_large};
+
+    #[test]
+    fn a_message_over_the_limit_is_too_large_by_its_characters() {
+        assert_eq!(too_large(&"x".repeat(MAX_INPUT_CHARS)), None);
+        assert_eq!(
+            too_large(&"x".repeat(MAX_INPUT_CHARS + 1)),
+            Some(MAX_INPUT_CHARS + 1)
+        );
+        // characters, not bytes
+        assert_eq!(too_large(&"é".repeat(MAX_INPUT_CHARS)), None);
+    }
+
+    #[test]
+    fn only_a_draft_in_shell_mode_runs_a_bang_line() {
+        assert_eq!(
+            shell_line("!  ls -la ", true),
+            Some(ShellLine::Run("ls -la".into()))
+        );
+        assert_eq!(shell_line("!   ", true), Some(ShellLine::Help));
+        // a paste whose payload starts with `!` is a literal prompt
+        assert_eq!(shell_line("!echo xxx", false), None);
+        assert_eq!(shell_line("ls", true), None);
+    }
 
     #[test]
     fn sanitize_paste_removes_control_sequences_keeping_tabs_and_newlines() {

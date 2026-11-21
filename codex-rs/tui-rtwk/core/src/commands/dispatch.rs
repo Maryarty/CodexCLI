@@ -123,13 +123,18 @@ pub enum Notice {
     McpLoginNeedsSession,
     /// The session's part of the command is not built yet (session-core).
     NotAvailable(SlashCommand),
+    /// `Prefix a command with ! to run it locally` / `Example: !ls`: a bare
+    /// `!` was submitted (`USER_SHELL_COMMAND_HELP_*`, an info line).
+    ShellHelp,
+    /// `Message exceeds the maximum length of N characters (M provided).`
+    InputTooLarge { provided: usize },
 }
 
 impl Notice {
     /// Whether the oracle shows the line as information
     /// (`add_info_message`) and not as an error (`add_error_message`).
     pub fn is_info(&self) -> bool {
-        matches!(self, Notice::ModelStartup)
+        matches!(self, Notice::ModelStartup | Notice::ShellHelp)
     }
 }
 

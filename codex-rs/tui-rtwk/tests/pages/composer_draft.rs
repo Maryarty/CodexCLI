@@ -46,22 +46,56 @@ fn a_shell_draft_the_thread_did_not_take_stays_a_shell_draft() {
     assert_eq!(prompt(&h), "! lsx");
 }
 
+/// The `thread/shellCommand` requests that went out, their `command`.
+fn shell_commands(h: &Harness) -> Vec<String> {
+    h.fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "thread/shellCommand")
+        .filter_map(|r| r["params"]["command"].as_str().map(str::to_owned))
+        .collect()
+}
+
 #[test]
 fn a_shell_draft_the_thread_took_clears_and_leaves_shell_mode() {
+    let mut h = chat();
+    h.fake.respond(|request| {
+        (request["method"] == "thread/shellCommand").then(|| Ok(serde_json::json!({})))
+    });
+    h.t.type_text("!ls");
+    h.press("enter");
+    h.wait_idle();
+    // the line went out as a user shell command, not as a turn
+    assert_eq!(shell_commands(&h), vec!["ls".to_string()]);
+    assert!(
+        !h.fake
+            .commands()
+            .iter()
+            .any(|c| matches!(c, codex_tui_core::app::Command::StartTurn { .. })),
+        "a shell line starts no turn"
+    );
+    // the prompt is the plain one again: the next text is not a shell line
+    h.t.type_text("x");
+    h.advance(100);
+    assert_eq!(prompt(&h), "› x");
+}
+
+#[test]
+fn a_bang_after_the_start_is_part_of_the_prompt() {
     let mut h = chat();
     h.fake.script_turn(vec![
         agent_delta(FAKE_THREAD, "turn-1", "msg-1", "Done"),
         agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Done"),
         turn_completed(FAKE_THREAD, "turn-1"),
     ]);
-    h.t.type_text("!ls");
+    h.t.paste("hello\n!ls");
+    h.advance(100);
     h.press("enter");
     h.wait_for("the answer", |s| s.contains("• Done"));
-    h.wait_idle();
-    // the prompt is the plain one again: the next text is not a shell line
-    h.t.type_text("x");
-    h.advance(100);
-    assert_eq!(prompt(&h), "› x");
+    assert!(
+        shell_commands(&h).is_empty(),
+        "text with a bang inside is a prompt"
+    );
 }
 
 /// Sends `text` and waits for the scripted answer `turn`.

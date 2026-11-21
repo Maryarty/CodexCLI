@@ -30,6 +30,7 @@ use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadSetNameParams;
+use codex_app_server_protocol::ThreadShellCommandParams;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
@@ -812,6 +813,12 @@ pub enum ThreadAsk {
     Compact {
         thread: String,
     },
+    /// `thread/shellCommand`: a user shell command (`!cmd` in the composer),
+    /// run by the thread's shell and shown as its own transcript item.
+    Shell {
+        thread: String,
+        command: String,
+    },
     Rename {
         thread: String,
         name: String,
@@ -837,6 +844,7 @@ impl ThreadAsk {
             | ThreadAsk::History { thread, .. }
             | ThreadAsk::Interrupt { thread, .. }
             | ThreadAsk::Compact { thread }
+            | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
@@ -916,6 +924,14 @@ impl ThreadAsk {
                 request_id,
                 params: ThreadCompactStartParams {
                     thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::Shell { thread, command } => ClientRequest::ThreadShellCommand {
+                request_id,
+                params: ThreadShellCommandParams {
+                    thread_id: thread.clone(),
+                    command: command.clone(),
+                    timeout_ms: None,
                 },
             },
             ThreadAsk::Rename { thread, name } => ClientRequest::ThreadSetName {

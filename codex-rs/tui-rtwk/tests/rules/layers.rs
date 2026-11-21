@@ -431,6 +431,7 @@ fn thread_rpcs_only_in_threads() {
             "ClientRequest::ThreadFork",
             "ClientRequest::ThreadCompactStart",
             "ClientRequest::ThreadSetName",
+            "ClientRequest::ThreadShellCommand",
             "ClientRequest::ThreadStart",
             "ClientRequest::ThreadRead",
             "ClientRequest::ThreadTurnsList",
@@ -441,6 +442,7 @@ fn thread_rpcs_only_in_threads() {
             "ThreadForkParams",
             "ThreadCompactStartParams",
             "ThreadSetNameParams",
+            "ThreadShellCommandParams",
             "ThreadStartParams",
             "ThreadUnsubscribeParams",
             "TurnInterruptParams",
@@ -529,7 +531,12 @@ fn widgets_never_import_pages() {
     assert!(!files.is_empty(), "src/widgets has no sources");
     let found = scan(
         &files,
-        &["crate::pages", "super::pages", "pages::session", "pages::agents"],
+        &[
+            "crate::pages",
+            "super::pages",
+            "pages::session",
+            "pages::agents",
+        ],
         |_| false,
     );
     assert!(found.is_empty(), "a widget imports a page: {found:#?}");
