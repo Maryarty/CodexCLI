@@ -199,3 +199,17 @@ page's and does not wait for the thread; the thread now starts one facts read an
 later (local host reads).
 Binary (`/tmp/gwdev` drive2.py, fake RFC 8628 gateway, 80x16): the device-code screen shows in 8
 of 8 runs (before: 1 of 8) and `01_device` is EQUAL with the oracle's.
+
+## Device-code tails (`startup-rest` item 2, partly)
+
+- Windows branch: `cargo check --target x86_64-pc-windows-msvc -p codex-rtwk` stops in `aws-lc-sys`
+  (a C build step: no Windows SDK headers on this macOS host), not in our code. The only
+  `cfg(windows)` code of the host, `gateway.rs` `has_http_handler`, was type-checked verbatim as a
+  one-function crate with the host's `windows-sys 0.61.2` features (`Win32_Foundation`,
+  `Win32_UI_Shell`) for `x86_64-pc-windows-msvc`: compiles clean (not run).
+- The provider read on resume and the `--oss` override are not done: both feed `start_if_needed`
+  (`explicit_provider`) from command-line surfaces the binary does not have yet (`resume <id>` /
+  `fork <id>` with a session selection, `--oss`; `Cli` in `src/lib.rs` has `resume` as the picker
+  only), and the device code runs before the resume picker here, while the oracle reads the
+  selection first. They come with item 3 (resume/fork by id), which needs `src/lib.rs` and
+  `src/pages/startup` (held by rtwk-repin-4).
