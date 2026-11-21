@@ -9,6 +9,7 @@
 
 use std::rc::Rc;
 
+use rtwk::binding::AppBinding;
 use rtwk::editing::{Autocomplete, EditingKeys, Suggestion, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
@@ -18,6 +19,7 @@ use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
+use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
 use crate::app::debug::seeded::Seeded;
@@ -30,10 +32,12 @@ use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::thread_ui::ThreadUi;
 
+pub mod burst;
 pub mod editing;
 pub mod footer;
 pub mod strings;
 
+use burst::BurstEnv;
 use editing::KeyData;
 
 /// What the debug menu lists for the composer: the bare text area, the
@@ -176,6 +180,9 @@ pub enum ComposerMsg {
     ClearForCtrlC,
     /// The draft entered or left shell mode.
     Shell,
+    /// The timer of the paste-burst detector: what it holds goes in if its
+    /// time is up.
+    BurstDue,
 }
 
 impl ComposerState {
@@ -191,6 +198,25 @@ impl ComposerState {
         if let Some((ui, snap)) = self.listener.take() {
             ui.composer.listenable().remove_listener(&snap);
         }
+    }
+}
+
+/// What the paste-burst detector reads of the app: its clock, a timer that
+/// comes back as `BurstDue`, and the large-paste placeholder's text.
+fn burst_env(
+    binding: &AppBinding,
+    cx: &mut Cx<'_, ComposerState>,
+    table: &'static strings::Strings,
+) -> BurstEnv {
+    let clock = binding.clock();
+    let timer = binding.clone();
+    let due = cx.map(|()| ComposerMsg::BurstDue);
+    BurstEnv {
+        now: Rc::new(move || clock.now()),
+        arm: Rc::new(move || {
+            timer.start_timer(burst::FLUSH_AFTER, due.clone());
+        }),
+        label: Rc::new(move |chars| table.pasted(chars)),
     }
 }
 
@@ -251,6 +277,21 @@ impl State for ComposerState {
                 }
                 return rtwk::Rebuild::Yes;
             }
+            ComposerMsg::BurstDue => {
+                let Some(binding) = AppBinding::maybe_of(cx) else {
+                    return rtwk::Rebuild::No;
+                };
+                let table = strings::of(cx);
+                let tell = cx.local_sender();
+                let env = burst_env(&binding, cx, table);
+                let skill = w.ui.draft.take_skill_space();
+                let now = binding.clock().now();
+                if burst::flush_due_with(&w.ui.draft, &*tell, &env, &w.ui.composer, now, skill) {
+                    return rtwk::Rebuild::Yes;
+                }
+                // a first char still held keeps its completion's space
+                w.ui.draft.keep_skill_space(skill);
+            }
             ComposerMsg::Picked(text) => {
                 w.ui.draft.completed(&w.ui.composer, &text);
                 if let Some(h) = &w.on_picked {
@@ -280,11 +321,14 @@ impl State for ComposerState {
             area = area.focus_node(node.clone());
         }
         let states = watch::<ScreenStates, _>(cx);
+        let table = strings::of(cx);
         let data = KeyData {
             draft: w.ui.draft.clone(),
             history: Rc::from(states.popovers.history.as_slice()),
             tell: cx.local_sender(),
+            burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
         };
+        let env = data.burst.clone();
         let keys = |child: AnyWidget| -> AnyWidget {
             EditingKeys::new(
                 move |c, key, kcx| editing::take_key(&data, c, key, kcx),
@@ -298,8 +342,13 @@ impl State for ComposerState {
         }
         let tell = cx.local_sender();
         let (draft, pasted_into) = (w.ui.draft.clone(), c.clone());
-        let table = strings::of(cx);
         let area = area.on_paste(move |text| {
+            // a real paste first lets what a burst holds go in, and ends the
+            // burst's window (`handle_paste`, `apply_paste`)
+            if let Some(env) = &env {
+                burst::flush_held_with(&draft, &*tell, env, &pasted_into);
+            }
+            draft.burst(PasteBurst::clear_after_explicit_paste);
             let took = draft.paste(&pasted_into, text, |chars| table.pasted(chars));
             if took {
                 tell(ComposerMsg::Pasted);

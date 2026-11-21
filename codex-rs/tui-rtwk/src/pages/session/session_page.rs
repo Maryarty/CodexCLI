@@ -37,6 +37,7 @@ use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
+use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
 
@@ -84,6 +85,8 @@ pub struct ChatState {
     /// The composer of the thread the chat shows now (the page outlives a
     /// switch of thread; lifecycle updates keep the key handler current).
     composer: Rc<RefCell<TextEditingController>>,
+    /// Its draft: the two shortcuts wait while keys are held as a paste.
+    draft: Rc<RefCell<ComposerDraft>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +133,7 @@ impl StatefulWidget for Chat {
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
             composer: Rc::new(RefCell::new(self.ui.composer.clone())),
+            draft: Rc::new(RefCell::new(self.ui.draft.clone())),
         }
     }
 }
@@ -155,6 +159,7 @@ impl State for ChatState {
         // belong to the page; with text they go to the field.
         let send = cx.local_sender();
         let composer = self.composer.clone();
+        let draft = self.draft.clone();
         let (leader, control) = (self.leader.clone(), self.control.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
             // `change_host` is the leader chord `Ctrl+X b`, live while the
@@ -173,7 +178,10 @@ impl State for ChatState {
             } else {
                 leader.set(false);
             }
+            // keys held as a paste are the paste's, not the shortcuts'
+            // (`is_in_paste_burst`)
             if !composer.borrow().text().is_empty()
+                || draft.borrow().in_burst()
                 || key.mods.contains(Mods::CTRL)
                 || key.mods.contains(Mods::ALT)
             {
@@ -191,6 +199,7 @@ impl State for ChatState {
     fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
         if old != w {
             *self.composer.borrow_mut() = w.ui.composer.clone();
+            *self.draft.borrow_mut() = w.ui.draft.clone();
             self.sync_draft(w);
             self.esc_primed = false;
             self.detailed_transcript = false;

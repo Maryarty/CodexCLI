@@ -240,12 +240,9 @@ fn buffered_typing_survives_vim_changes_and_cancellation() {
 // ORACLE bottom_pane/chat_composer/embedded_input_tests.rs:46 paste_enter_retains_a_one_character_first_line kind=ui owner=chat-live
 #[test]
 fn paste_enter_retains_a_one_character_first_line() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst Enter on the chat composer: an Enter right after a typed `x` submits it instead of keeping a newline",
-    );
     let mut s = chat(100, 24);
-    s.type_text("x");
+    // the Enter comes while the `x` is still held: it joins it as a newline
+    s.type_burst("x");
     s.keys("enter");
     draft_rows(&s, "x\n");
 }
@@ -272,7 +269,7 @@ fn embedded_composer_shows_validation_error_without_losing_draft() {
 fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     kit::pending(
         Owner::ChatLive,
-        "no paste-burst retro-grab on the chat composer; no image attachment (no kit seed); the click places the caret and the large paste is a placeholder (composer_mouse and the shards hold them)",
+        "no image attachment (no kit seed for attach_image): the double click on a placeholder and the attached image rows are not drawn (composer_mouse holds the click, the shards the large paste)",
     );
     let mut s = chat(80, 24);
     s.type_text("hello");
@@ -424,14 +421,11 @@ fn paste_burst_tabs_preserve_multiline_draft() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:84 paste_burst_tabs_refresh_idle_timeout kind=ui owner=chat-live
 #[test]
 fn paste_burst_tabs_refresh_idle_timeout() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst window on the chat composer: a Tab is a literal tab while a burst is open, and the idle timeout is not drawn",
-    );
     for first_char in ["x", "界"] {
         let mut s = chat(100, 24);
-        s.type_text(first_char);
-        s.keys("tab tab tab tab");
+        // the tabs come inside the burst's window: literal tabs, not a submit
+        s.type_burst(&format!("{first_char}\t\t\t\t"));
+        s.wait(50);
         s.assert_row_starts_with(prompt(&s), &format!("› {first_char}"));
     }
 }
@@ -441,7 +435,7 @@ fn paste_burst_tabs_refresh_idle_timeout() {
 fn paste_burst_tab_does_not_accept_a_completion() {
     kit::pending(
         Owner::ChatLive,
-        "no paste-burst state on the chat composer: the Tab after a pasted `review this` is not a literal tab, and a `/` popup accepts its completion",
+        "G69: the `/` popup (rtwk `Autocomplete`) takes the Tab before the composer's keys, so a Tab inside a burst completes the highlighted command instead of being a literal tab",
     );
     let mut s = chat(100, 24);
     s.type_text("/");
@@ -985,7 +979,7 @@ fn vim_editing_modes_use_the_same_large_and_image_paste_handling() {
 fn vim_replace_paste_bursts_preserve_overwritten_text_and_repeat() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim Replace mode and no paste burst on the chat composer: `XYZ` typed over `abc` is not drawn as overwritten text",
+        "no Vim Replace mode on the chat composer: `XYZ` typed over `abc` is not drawn as overwritten text",
     );
     for pasted in ["XYZ", "日\u{3000}語"] {
         let mut s = chat(100, 24);
@@ -1344,7 +1338,7 @@ fn empty_vim_normal_slash_opens_commands() {
 fn plain_enter_submits_expired_vim_insert_input() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim insert mode and no paste-burst expiry on the chat composer: Enter submits the typed `x` in the oracle's insert mode; the snapshot is the composer alone at 60 columns",
+        "no Vim insert mode on the chat composer: Enter submits the typed `x` in the oracle's insert mode; the snapshot is the composer alone at 60 columns",
     );
     let mut s = chat(60, 9);
     s.type_text("x");
@@ -1364,12 +1358,8 @@ fn ascii_two_fast_chars_start_buffer_from_pending_and_flush_as_paste() {
 // ORACLE bottom_pane/paste_burst.rs:587 newline_suppression_window_outlives_buffer_flush kind=ui owner=chat-live
 #[test]
 fn newline_suppression_window_outlives_buffer_flush() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no paste burst on the chat composer: an Enter a moment after a burst is not kept as a newline (the suppression window is not drawn)",
+        "a state test of the pure PasteBurst (the window and the flush are internal), carried to core: `screens::composer::paste_burst::tests::newline_suppression_window_outlives_buffer_flush`; the composer clears the window when a flushed burst is applied (`apply_paste`), as the oracle's does, so no screen shows it outliving the flush",
     );
-    let mut s = chat(100, 24);
-    s.type_text("ab");
-    s.keys("enter");
-    draft_rows(&s, "ab\n");
 }

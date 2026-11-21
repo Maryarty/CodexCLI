@@ -56,6 +56,12 @@ fn shell_commands(h: &Harness) -> Vec<String> {
         .collect()
 }
 
+/// Waits until the fake has the shell command (it travels to the runtime
+/// thread: an idle session does not say it arrived).
+fn sent(h: &mut Harness) {
+    common::wait::wait_until(h, "the shell command", |h| !shell_commands(h).is_empty());
+}
+
 #[test]
 fn a_shell_draft_the_thread_took_clears_and_leaves_shell_mode() {
     let mut h = chat();
@@ -64,7 +70,7 @@ fn a_shell_draft_the_thread_took_clears_and_leaves_shell_mode() {
     });
     h.t.type_text("!ls");
     h.press("enter");
-    h.wait_idle();
+    sent(&mut h);
     // the line went out as a user shell command, not as a turn
     assert_eq!(shell_commands(&h), vec!["ls".to_string()]);
     assert!(
@@ -88,7 +94,7 @@ fn a_bang_slash_line_is_a_shell_command_not_the_slash_command() {
     });
     h.t.type_text("!/diff");
     h.press("enter");
-    h.wait_idle();
+    sent(&mut h);
     assert_eq!(shell_commands(&h), vec!["/diff".to_string()]);
 }
 

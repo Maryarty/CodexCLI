@@ -87,6 +87,9 @@ fn empty_thread_backend_chord_preserves_draft_until_first_submission() {
     assert_eq!(started(&cloud_fake), 0);
 
     t.type_text("first draft");
+    // the chars arrived as one burst: the composer holds them until the
+    // typing stops (the page's chord does not flush them)
+    t.pump_for(Duration::from_millis(50));
     // `Ctrl+X` alone does nothing; `b` completes the chord.
     t.press("ctrl+x");
     t.press("b");

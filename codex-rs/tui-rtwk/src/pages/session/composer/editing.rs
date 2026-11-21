@@ -14,29 +14,80 @@ use rtwk::focus::KeyPress;
 use rtwk::prelude::{KeyCode, Mods};
 
 use super::ComposerMsg;
+use super::burst::{self, BurstEnv};
 use crate::widgets::composer_draft::ComposerDraft;
 
 /// What the handler reads besides the controller: the draft of the same
-/// thread, the prompts history (newest last) and the composer to tell of a
-/// key that is not an edit.
+/// thread, the prompts history (newest last), the composer to tell of a
+/// key that is not an edit, and what the paste-burst detector needs of the
+/// app (none outside an app: no burst).
 #[derive(Clone)]
 pub struct KeyData {
     pub draft: ComposerDraft,
     pub history: Rc<[String]>,
     pub tell: Rc<dyn Fn(ComposerMsg)>,
+    pub burst: Option<BurstEnv>,
 }
 
 fn only(key: &KeyPress, mods: Mods) -> bool {
     key.mods == mods
 }
 
-/// Whether the composer takes `key` for `c` before the field.
+/// Whether the composer takes `key` for `c` before the field: the paste-burst
+/// detector first (keys that arrive as fast as a paste are held), then the
+/// composer's own editing keys.
 pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: KeyCx) -> bool {
-    !kcx.read_only && edit_key(data, c, key)
+    if kcx.read_only {
+        return false;
+    }
+    // a `$skill` completion's space lasts for the next key only
+    let skill_space = data.draft.take_skill_space();
+    if let Some(env) = &data.burst
+        && burst::take(data, env, c, key, skill_space)
+    {
+        return true;
+    }
+    edit_key(data, c, key, skill_space)
+}
+
+/// A typed character the draft's rules take: punctuation right after a
+/// `$skill` completion takes the completion's space
+/// (`skill_completion_space_for_char`); a `!` typed at the draft's start
+/// becomes shell mode (`sync_bash_mode_from_text`). `false` leaves the
+/// character to the field.
+pub fn typed_char(
+    draft: &ComposerDraft,
+    tell: &dyn Fn(ComposerMsg),
+    c: &TextEditingController,
+    ch: char,
+    skill_space: Option<usize>,
+) -> bool {
+    let selection = c.selection();
+    let caret = selection.extent_offset;
+    if !selection.is_collapsed() {
+        return false;
+    }
+    if ",.;:!?)]}。，、！？》".contains(ch)
+        && skill_space.is_some_and(|at| caret == at + 1 && c.text().get(at..at + 1) == Some(" "))
+    {
+        c.replace(caret - 1, caret, &ch.to_string());
+        return true;
+    }
+    if ch == '!' && caret == 0 && !draft.shell() {
+        draft.set_shell(true);
+        tell(ComposerMsg::Shell);
+        return true;
+    }
+    false
 }
 
 /// Whether the composer takes `key` for the editable field of `c`.
-fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
+fn edit_key(
+    data: &KeyData,
+    c: &TextEditingController,
+    key: &KeyPress,
+    skill_space: Option<usize>,
+) -> bool {
     let draft = &data.draft;
     let selection = c.selection();
     let caret = selection.extent_offset;
@@ -44,32 +95,15 @@ fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let plain = only(key, Mods::NONE);
     let ctrl = only(key, Mods::CTRL);
     let alt = only(key, Mods::ALT);
-    // a `$skill` completion's space lasts for the next key only
-    let skill_space = draft.take_skill_space();
     match (key.code, key.ch) {
-        // typed punctuation right after a skill completion takes the
-        // completion's space (`skill_completion_space_for_char`)
         (KeyCode::Char, Some(ch))
             if (plain || only(key, Mods::SHIFT))
-                && collapsed
-                && ",.;:!?)]}。，、！？》".contains(ch)
-                && skill_space
-                    .is_some_and(|at| caret == at + 1 && c.text().get(at..at + 1) == Some(" ")) =>
+                && typed_char(draft, &*data.tell, c, ch, skill_space) =>
         {
-            let at = caret - 1;
-            c.replace(at, caret, &ch.to_string());
             true
         }
-        // Shell mode (`sync_bash_mode_from_text`): a `!` typed at the
-        // draft's start becomes the prompt; Backspace there and Esc on an
-        // empty draft leave it.
-        (KeyCode::Char, Some('!'))
-            if (plain || only(key, Mods::SHIFT)) && collapsed && caret == 0 && !draft.shell() =>
-        {
-            draft.set_shell(true);
-            (data.tell)(ComposerMsg::Shell);
-            true
-        }
+        // Shell mode: Backspace at the start and Esc on an empty draft
+        // leave it.
         (KeyCode::Backspace, _) if plain && collapsed && caret == 0 && draft.shell() => {
             draft.set_shell(false);
             (data.tell)(ComposerMsg::Shell);
@@ -227,6 +261,7 @@ mod tests {
             draft: ComposerDraft::default(),
             history: Rc::from(Vec::new()),
             tell: Rc::new(|_| {}),
+            burst: None,
         }
     }
 
@@ -237,7 +272,7 @@ mod tests {
     }
 
     fn press(d: &KeyData, c: &TextEditingController, key: KeyPress) {
-        assert!(edit_key(d, c, &key), "the composer takes {key:?}");
+        assert!(edit_key(d, c, &key, None), "the composer takes {key:?}");
     }
 
     fn ctrl(ch: char) -> KeyPress {

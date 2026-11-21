@@ -186,29 +186,25 @@ fn non_ascii_char_inserts_immediately_without_burst_state() {
 // ORACLE bottom_pane/chat_composer.rs:8741 non_ascii_burst_buffers_enter_and_flushes_multiline kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_buffers_enter_and_flushes_multiline() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste burst on the chat composer: Enter in a fast non-ASCII burst submits the draft, it does not insert a newline into the burst (the port has no burst state to buffer it)",
-    );
+    // the oracle forces the burst (`begin_with_retro_grabbed`); a screen test starts it the way a
+    // paste does: the detector takes a leading ideographic space for a paste
     let mut s = ready(100, 24);
-    s.type_text("你好").keys("enter");
-    s.type_text("hi");
+    s.type_burst("\u{3000}你好\nhi");
+    // (the oracle also asserts the draft is empty while the burst holds; the screen is one frame
+    // per 16.7 ms behind the keys, so that held state is a core unit test)
+    s.wait(50);
     // the flushed draft is two rows: `你好`, then `hi` on the next line
     let p = prompt(&s);
-    s.assert_row(p, "› 你好");
+    s.assert_row(p, "› \u{3000}你好");
     s.assert_row(p + 1, "  hi");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8775 non_ascii_burst_preserves_ideographic_space_and_ascii kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_preserves_ideographic_space_and_ascii() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste burst on the chat composer: Enter in the burst submits the draft instead of a newline (no burst state in the port)",
-    );
     let mut s = ready(100, 24);
-    s.type_text("你\u{3000}好").keys("enter");
-    s.type_text("hi");
+    s.type_burst("你\u{3000}好\nhi");
+    s.wait(50);
     let p = prompt(&s);
     s.assert_row(p, "› 你\u{3000}好");
     s.assert_row(p + 1, "  hi");
@@ -217,10 +213,6 @@ fn non_ascii_burst_preserves_ideographic_space_and_ascii() {
 // ORACLE bottom_pane/chat_composer.rs:8812 non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode kind=ui owner=chat-live
 #[test]
 fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste burst on the chat composer: each Enter of the payload submits, so the ten-line payload is not one draft",
-    );
     let lines = [
         "天地玄黄 宇宙洪荒",
         "日月盈昃 辰宿列张",
@@ -235,14 +227,23 @@ fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
         "程序员 与 Unicode 同行",
     ];
     let mut s = ready(100, 24);
-    for (i, line) in lines.iter().enumerate() {
-        if i > 0 {
-            s.keys("enter");
-        }
-        s.type_text(line);
-    }
-    // the first and the last line of the flushed payload
-    s.assert_in_order(&["天地玄黄 宇宙洪荒", "程序员 与 Unicode 同行"]);
+    s.type_burst(&lines.join("\n"));
+    s.wait(50);
+    // the text area shows six rows, at the caret: the tail of the flushed payload, then (the
+    // caret ten lines up) its head; the oracle compares the whole text
+    s.assert_in_order(&[
+        "汉字处理 UTF-8",
+        "终端显示 正确无误",
+        "风吹竹林 月照大江",
+        "程序员 与 Unicode 同行",
+    ]);
+    s.keys("up up up up up up up up up up").wait(50);
+    s.assert_in_order(&[
+        "天地玄黄 宇宙洪荒",
+        "日月盈昃 辰宿列张",
+        "寒来暑往 秋收冬藏",
+        "你好世界 编码测试",
+    ]);
 }
 
 // ORACLE bottom_pane/chat_composer.rs:8862 ascii_burst_treats_enter_as_newline_even_when_parent_owned kind=ui owner=chat-live
@@ -250,11 +251,11 @@ fn non_ascii_burst_buffers_large_multiline_mixed_ascii_and_unicode() {
 fn ascii_burst_treats_enter_as_newline_even_when_parent_owned() {
     kit::pending(
         Owner::ChatLive,
-        "no paste burst and no parent-owned thread seed (set_parent_owned_thread) on the chat composer: Enter submits `hi`",
+        "no parent-owned thread seed (set_parent_owned_thread) on the chat composer: the body holds the plain variant, which passes; the parent-owned one is not drawn differently, so a pass would be a half pass",
     );
     let mut s = ready(100, 24);
-    s.type_text("hi").keys("enter");
-    s.type_text("there");
+    s.type_burst("hi\nthere");
+    s.wait(50);
     let p = prompt(&s);
     s.assert_row(p, "› hi");
     s.assert_row(p + 1, "  there");

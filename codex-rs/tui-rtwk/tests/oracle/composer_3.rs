@@ -581,7 +581,7 @@ fn slash_with_leading_space_submits_as_text() {
 fn shortcut_modified_input_does_not_enter_paste_bursts() {
     kit::pending(
         Owner::ChatLive,
-        "no paste-burst state on the chat composer, and keys() has no SUPER modifier: 'a', SUPER+space, 'b' must render as 'ab' with no space, and SUPER/HYPER/META spaces must not start a burst",
+        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'a', SUPER+space, 'b' must render as 'ab' with no space, and SUPER/HYPER/META spaces must not start a burst",
     );
     // oracle snapshot shortcut_modified_space_is_not_rendered: 'a', SUPER+space, 'b' typed fast, then the flush
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
@@ -596,11 +596,12 @@ fn shortcut_modified_input_does_not_enter_paste_bursts() {
 fn plain_and_shift_spaces_insert_normally() {
     kit::pending(
         Owner::ChatLive,
-        "no paste-burst state on the chat composer: 'a', a plain space, 'b' typed fast flush to 'a b' (the snapshot plain_space_is_rendered)",
+        "the chat screen is not the composer alone: the oracle's snapshot is the composer's region with its own footer ('100% context left'); the typing itself ('a b' typed fast reads as typing, the space kept) is the page test paste_burst_typing_keeps_the_space",
     );
     // oracle snapshot plain_space_is_rendered: 'a', ' ', 'b' typed fast, then the flush
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
-    s.type_text("a b");
+    s.type_burst("a b");
+    s.wait(50);
     s.assert_snap("plain_space_is_rendered");
 }
 
@@ -609,7 +610,7 @@ fn plain_and_shift_spaces_insert_normally() {
 fn non_text_input_flushes_pending_paste_without_inserting_text() {
     kit::pending(
         Owner::ChatLive,
-        "no paste-burst state on the chat composer, and keys() has no SUPER modifier: 'ab' typed fast is held until a non-text key flushes it, with no space inserted",
+        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'ab' typed fast is held until a non-text key flushes it, with no space inserted",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'a', 'b' typed fast (the burst is pending), then SUPER+space, a non-text input
@@ -630,13 +631,9 @@ fn platform_specific_altgr_input_remains_text() {
 // ORACLE bottom_pane/chat_composer.rs:12044 pending_first_ascii_char_flushes_as_typed kind=ui owner=chat-live
 #[test]
 fn pending_first_ascii_char_flushes_as_typed() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst state on the chat composer: the first fast 'h' is held, then flushes as typed text after the 9 ms flush delay",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'h' pressed fast: the burst holds it, nothing shows yet
-    s.keys("h");
+    s.type_burst("h");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     // oracle: sleep for the recommended flush delay (9 ms), then the flush shows 'h'
     s.wait(50);
@@ -646,13 +643,9 @@ fn pending_first_ascii_char_flushes_as_typed() {
 // ORACLE bottom_pane/chat_composer.rs:12073 burst_paste_fast_small_buffers_and_flushes_on_stop kind=ui owner=chat-live
 #[test]
 fn burst_paste_fast_small_buffers_and_flushes_on_stop() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst state on the chat composer: 32 fast 'a' keys are held until the burst stops, then show as typed text with no placeholder",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 32 'a' keys 1 ms apart: nothing is drawn during the burst
-    s.type_text(&"a".repeat(32));
+    s.type_burst(&"a".repeat(32));
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     // oracle: the burst stops, the flush shows the 32 characters
     s.wait(50);
@@ -662,13 +655,9 @@ fn burst_paste_fast_small_buffers_and_flushes_on_stop() {
 // ORACLE bottom_pane/chat_composer.rs:12124 burst_paste_fast_large_inserts_placeholder_on_flush kind=ui owner=chat-live
 #[test]
 fn burst_paste_fast_large_inserts_placeholder_on_flush() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst state or large-paste placeholder on the chat composer: 1001 fast 'x' keys flush as '[Pasted Content 1001 chars]'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 1001 'x' keys 1 ms apart: nothing is drawn during the burst
-    s.type_text(&"x".repeat(1001));
+    s.type_burst(&"x".repeat(1001));
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     // oracle: the burst stops, the flush inserts the placeholder
     s.wait(50);

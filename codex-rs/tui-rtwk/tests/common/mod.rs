@@ -158,6 +158,9 @@ const DRIVE_TURNS: usize = 16;
 
 /// The most rounds `quiesce` runs before it gives the screen as it is.
 /// The slice of fake time between two runs of the driven runtime.
+/// The pause before a key a test presses: longer than the composer's 8 ms paste interval.
+pub const KEY_PACE_MS: u64 = 10;
+
 const SLICE_MS: u64 = 20;
 
 const QUIESCE_ROUNDS: usize = 200;
@@ -344,6 +347,10 @@ impl Harness {
     }
 
     pub fn press(&mut self, keys: &str) {
+        // a person's key comes later than a paste's chars (the composer
+        // reads keys under 8 ms apart as a paste): `type_text` then `press("enter")`
+        // submits
+        self.t.pump_for(ms(KEY_PACE_MS));
         self.t.press(keys);
         self.advance_driven(100);
     }

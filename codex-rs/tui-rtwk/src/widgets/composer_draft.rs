@@ -21,6 +21,7 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::screens::composer;
+use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 
 /// One atomic element of the text: the bytes `start..end` show `label`
 /// and stand for `payload` on submit.
@@ -54,6 +55,9 @@ struct Inner {
     /// key may still replace it with trailing punctuation
     /// (`skill_completion_space`).
     skill_space: Option<usize>,
+    /// The paste-burst detector (`draft.paste_burst`): keys that arrive as
+    /// fast as a paste are held and go in as one paste.
+    burst: PasteBurst,
 }
 
 /// A local history entry with its elements.
@@ -121,6 +125,24 @@ impl ComposerDraft {
     /// but a punctuation mark right after it forgets it).
     pub fn take_skill_space(&self) -> Option<usize> {
         self.0.borrow_mut().skill_space.take()
+    }
+
+    /// Keeps the completion's space for the next key (a held first
+    /// character of a burst does not use it up).
+    pub fn keep_skill_space(&self, at: Option<usize>) {
+        self.0.borrow_mut().skill_space = at;
+    }
+
+    /// Runs `f` on the draft's paste-burst detector (`f` must not call back
+    /// into the draft).
+    pub fn burst<R>(&self, f: impl FnOnce(&mut PasteBurst) -> R) -> R {
+        f(&mut self.0.borrow_mut().burst)
+    }
+
+    /// Whether keys are held as a paste right now (`is_in_paste_burst`):
+    /// the `?` and Left shortcuts of an empty prompt wait for it.
+    pub fn in_burst(&self) -> bool {
+        self.0.borrow().burst.is_active()
     }
 
     /// The elements as they stand in `c`'s text, start first.
@@ -304,12 +326,15 @@ impl ComposerDraft {
             return false;
         }
         let selection = c.selection();
+        // shell mode first: the command popup reads it when the text changes
+        // (a `!/diff` paste must not open it on `/diff`)
+        self.set_shell(true);
         c.replace(0, 1, "");
         c.set_selection(TextSelection::new(
             selection.base_offset.saturating_sub(1),
             selection.extent_offset.saturating_sub(1),
         ));
-        self.set_shell(true)
+        true
     }
 
     /// The element that holds `offset` strictly inside it.
@@ -513,7 +538,6 @@ fn changed(a: &str, b: &str) -> (usize, usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pages::session::composer::strings;
 
     #[test]
     fn changed_finds_the_edited_middle() {
@@ -526,14 +550,14 @@ mod tests {
     fn an_element_moves_with_an_edit_before_it_and_breaks_when_cut() {
         let c = TextEditingController::new("");
         let d = ComposerDraft::default();
-        assert!(d.paste(&c, &"x".repeat(1001), |n| strings::EN.pasted(n)));
-        assert_eq!(&*c.text(), "[Pasted Content 1001 chars]");
+        assert!(d.paste(&c, &"x".repeat(1001), |n| format!("[{n}]")));
+        assert_eq!(&*c.text(), "[1001]");
         c.set_selection(TextSelection::collapsed(0));
         c.insert("hi ");
         let e = d.elements(&c);
-        assert_eq!((e[0].start, e[0].end), (3, 30));
+        assert_eq!((e[0].start, e[0].end), (3, 9));
         assert_eq!(d.expanded(&c), format!("hi {}", "x".repeat(1001)));
-        c.replace(10, 11, "");
+        c.replace(5, 6, "");
         assert!(d.elements(&c).is_empty());
     }
 }

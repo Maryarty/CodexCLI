@@ -574,10 +574,6 @@ fn skill_completion_keeps_space_after_cursor_navigation() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:102 skill_completion_keeps_space_before_a_punctuation_paste_burst kind=ui owner=chat-nav-pane
 #[test]
 fn skill_completion_keeps_space_before_a_punctuation_paste_burst() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no paste burst on the chat composer: the punctuation typed after the skill completion is held with the following characters as one burst, so the completion's space stays before it (`$rustdoc ,x`); the kit's typed text is one instant but reaches the field as separate keys",
-    );
     for (typed, expected) in [(",", "› $rustdoc ,x"), ("。", "› $rustdoc 。x")] {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(80, 24)
@@ -586,8 +582,8 @@ fn skill_completion_keeps_space_before_a_punctuation_paste_burst() {
             ))
             .open();
         s.type_text("$ru").keys("tab");
-        s.type_text(typed);
-        s.type_text("x");
+        // the punctuation and the next key come as a burst
+        s.type_burst(&format!("{typed}x"));
         s.keys("enter");
         s.wait(100);
         let row = prompt(&s);

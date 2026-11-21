@@ -13,6 +13,8 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod paste_burst;
+
 pub const NAME: &str = "composer";
 pub const ID: &str = "S10";
 pub const KIND: Kind = Kind::Part;

@@ -35,6 +35,10 @@ use rtwk_core::input::{Mods, MouseKind};
 
 use crate::common::Harness;
 
+/// How far apart a typist's keys are (the composer's paste-burst detector
+/// takes keys under 8 ms apart for a paste).
+use crate::common::KEY_PACE_MS;
+
 fn to_u16(n: usize) -> u16 {
     u16::try_from(n).unwrap_or(u16::MAX)
 }
@@ -77,15 +81,42 @@ impl Screen {
 
     /// Presses keys named as bindings name them, apart by spaces: `down`,
     /// `enter`, `esc`, `ctrl+c`, `shift+tab`, `alt+b`, `A`, `down down enter`.
+    ///
+    /// The keys are a person's: `KEY_PACE_MS` apart, so the composer's paste
+    /// detector reads `a b enter` as typing (use `type_burst` for a paste).
     pub fn keys(&mut self, keys: &str) -> &mut Screen {
-        self.h.press(keys);
+        for key in keys.split_whitespace() {
+            self.h.t.press(key);
+            self.h.t.pump_for(crate::common::ms(KEY_PACE_MS));
+        }
+        self.h.advance(100);
         self
     }
 
-    /// Types text as a keyboard does (each char a key press).
+    /// Types text as a person does: a key press per char, `KEY_PACE_MS`
+    /// apart (slower than a paste burst), then a moment to settle.
     pub fn type_text(&mut self, text: &str) -> &mut Screen {
-        self.h.t.type_text(text);
+        let mut utf8 = [0u8; 4];
+        for ch in text.chars() {
+            self.h.t.type_text(ch.encode_utf8(&mut utf8));
+            self.h.t.pump_for(crate::common::ms(KEY_PACE_MS));
+        }
         self.h.advance(100);
+        self
+    }
+
+    /// Types text as a terminal without bracketed paste delivers a paste: a
+    /// key press per char, a millisecond apart, and nothing waits after the
+    /// last (a held key is flushed only when the test lets time pass). The
+    /// app draws one frame per `frame_gap` (16.7 ms), so what the screen
+    /// shows right after is the state at the first key, not the held one;
+    /// a test reads the screen after `wait`.
+    pub fn type_burst(&mut self, text: &str) -> &mut Screen {
+        let mut utf8 = [0u8; 4];
+        for ch in text.chars() {
+            self.h.t.type_text(ch.encode_utf8(&mut utf8));
+            self.h.t.pump_for(crate::common::ms(1));
+        }
         self
     }
 
