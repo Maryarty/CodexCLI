@@ -91,6 +91,17 @@ Each test below was seen failing on broken code, which was then restored:
   - the logo shown while frozen fails the logo check;
   - the quit not sent fails the cancel check.
 
+## Mouse (startup-mouse task, ADR-011)
+
+The oracle has no mouse; the port's contract is held by `tests/pages/startup_mouse.rs` (17 tests, own test binary, kit mouse events on the oracle's debug entries). With the mouse unused every screen equals the oracle (the signin, onboarding and startup_prompts shards stay green).
+
+- **`Options` takes the mouse itself** (`src/widgets/options.rs`): a tap selects the row, a tap on the selected row (so also a double tap) calls the caller's `on_accept(row)` (Enter's action), `on_move(row)` tells the caller where a tap moved the cursor (the OSS description follows it), the wheel scrolls through the `ScrollController`. Cursor and scroll stay in the controllers.
+- **Sign-in menu (S02) is Options rows** (`Options::view_stacked`, `StackedRow`, `Stacked`): description under the label, a gap after each row, compact (labels only) when the pane is short; the hand lines, `rows_of` re-measuring and the compact splice are gone. Disabled rows take no tap.
+- **Wired**: sign-in menus (`signin/mod.rs`, `Msg::Accept`), update prompt (`update_prompt.rs`, `Msg::Accept`), startup prompts panel (`prompts/panel.rs`, `Cmd::Take` / `Cmd::Cursor`).
+- **GCP wizard fields** take focus on a click natively (TextField); the test is a regression guard.
+- **Tests**: signin_a_click_selects_the_row_under_it, signin_a_click_on_the_description_selects_the_row, signin_a_click_on_the_selected_row_accepts_it, signin_a_double_click_accepts_the_row, signin_a_click_selects_in_the_second_menu_too, signin_a_click_in_the_compact_menu_selects, signin_a_click_on_a_disabled_row_does_nothing, gcp_a_click_on_the_field_focuses_it, update_prompt_a_click_selects_the_row, update_prompt_a_click_on_the_selected_row_accepts_it, update_prompt_a_double_click_accepts_the_row, update_prompt_the_wheel_scrolls_the_rows, cwd_prompt_a_click_selects_the_row, cwd_prompt_a_click_on_the_selected_row_accepts_it, cwd_prompt_a_double_click_accepts_the_row, migration_prompt_a_click_selects_and_a_second_accepts, oss_prompt_a_click_moves_the_description_with_the_cursor. Red then green for the tap and accept tests (commits 88ef89fc9, fc633bdac); the wheel and GCP tests passed from the start (rtwk owns both) and the GCP one bites through Tab.
+- **Caveat**: on a pane shorter than even the compact sign-in menu, the oracle cut the bottom (the hints); now the hints win and the rows scroll. No oracle test covers it.
+
 ## Deltas and gaps
 
 - **G48** (new, `rtwk-gaps.md`; G46 on the branch, renumbered at landing): `TextWrap::Word` breaks after a hyphen inside a word, but the oracle's `Paragraph` breaks only at blanks. Seen in the narrow API key entry; that snapshot is pending.
