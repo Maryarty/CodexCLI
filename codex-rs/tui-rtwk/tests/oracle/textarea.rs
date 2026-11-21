@@ -7,7 +7,7 @@
 use crate::kit::{self, Owner, Screen};
 
 // Reasons shared by several tests: what the port's chat composer does not have yet.
-const BARE: &str = "no bare-textarea seed: the port draws its TextArea only inside the chat composer, behind a prompt column and the key footer at the screen's own width; the seeds open the chat screen, and the oracle draws the TextArea alone at the rect of the test";
+const BARE: &str = "the bare seed is the debug entry composer/textarea, but at the oracle's small rects the debug menu under that route overflows (its title and hint wrap; src/app/debug/menu.rs, outside the composer area), and rtwk TextArea's wrap and caret rows are not yet compared against the oracle's rows one by one";
 const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) has no vim bindings and no seed turns them on";
 const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
 const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
@@ -126,7 +126,8 @@ fn cursor_wraps_after_filling_the_final_line() {
     // oracle: each text fills the first row of a 4x2 rect at (2, 3); the caret after it is at (2, 4).
     for text in ["abad", "界界", "abｶﾞ"] {
         let s = draft(4, 2, text);
-        s.assert_cursor(2, 4);
+        // the bare area sits at (0, 0): the oracle's (2, 4) less its rect's (2, 3)
+        s.assert_cursor(2 - 2, 4 - 3);
     }
 }
 
@@ -391,7 +392,8 @@ fn cursor_pos_with_state_basic_and_scroll_behaviors() {
     // oracle: case 1, "hello world" with the caret on byte 3 in a rect at (2, 5): the caret is at (5, 5) whatever the state's scroll. Cases 2 and 3 assert the row only (bottom row, then top row); the kit has no row-only caret form, so they are not written here.
     let mut s = draft(20, 3, "hello world");
     step(&mut s, 11, 3);
-    s.assert_cursor(5, 5);
+    // the bare area sits at (0, 0): the oracle's (5, 5) less its rect's (2, 5)
+    s.assert_cursor(5 - 2, 5 - 5);
 }
 
 // ORACLE bottom_pane/textarea.rs:4438 wrapped_navigation_across_visual_lines kind=ui owner=chat-live

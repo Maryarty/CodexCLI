@@ -32,9 +32,11 @@ fn only(key: &KeyPress, mods: Mods) -> bool {
 
 /// Whether the composer takes `key` for `c` before the field.
 pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: KeyCx) -> bool {
-    if kcx.read_only {
-        return false;
-    }
+    !kcx.read_only && edit_key(data, c, key)
+}
+
+/// Whether the composer takes `key` for the editable field of `c`.
+fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let draft = &data.draft;
     let selection = c.selection();
     let caret = selection.extent_offset;
@@ -163,4 +165,121 @@ fn kill(draft: &ComposerDraft, c: &TextEditingController, from: usize, to: usize
     draft.kill(c, from, to);
     c.replace(from, to, "");
     c.set_selection(TextSelection::collapsed(from));
+}
+
+#[cfg(test)]
+mod tests {
+    //! The oracle's `textarea.rs` state tests of the kill keys
+    //! (`delete_backward_word_and_kill_line_variants`, `yank_restores_last_kill`,
+    //! `kill_buffer_persists_across_set_text`), through the composer's keys.
+
+    use super::*;
+
+    fn data() -> KeyData {
+        KeyData {
+            draft: ComposerDraft::default(),
+            history: Rc::from(Vec::new()),
+            tell: Rc::new(|_| {}),
+        }
+    }
+
+    fn at(text: &str, caret: usize) -> TextEditingController {
+        let c = TextEditingController::new(text);
+        c.set_selection(TextSelection::collapsed(caret));
+        c
+    }
+
+    fn press(d: &KeyData, c: &TextEditingController, key: KeyPress) {
+        assert!(edit_key(d, c, &key), "the composer takes {key:?}");
+    }
+
+    fn ctrl(ch: char) -> KeyPress {
+        KeyPress::char(ch).with_mods(Mods::CTRL)
+    }
+
+    fn state(c: &TextEditingController) -> (String, usize) {
+        (c.text().to_string(), c.selection().extent_offset)
+    }
+
+    #[test]
+    fn delete_backward_word_and_kill_line_variants() {
+        let d = data();
+        let c = at("hello   world  ", 15);
+        press(&d, &c, ctrl('w'));
+        assert_eq!(state(&c), ("hello   ".into(), 8));
+        let c = at("foo bar", 6);
+        press(
+            &d,
+            &c,
+            KeyPress::code(KeyCode::Backspace).with_mods(Mods::ALT),
+        );
+        assert_eq!(state(&c), ("foo r".into(), 4));
+        let c = at("foo bar", 7);
+        press(&d, &c, ctrl('w'));
+        assert_eq!(state(&c), ("foo ".into(), 4));
+        let c = at("abc\ndef", 1);
+        press(&d, &c, ctrl('k'));
+        assert_eq!(state(&c), ("a\ndef".into(), 1));
+        let c = at("abc\ndef", 3);
+        press(&d, &c, ctrl('k'));
+        assert_eq!(state(&c), ("abcdef".into(), 3));
+        let c = at("abc\ndef", 5);
+        press(&d, &c, ctrl('u'));
+        assert_eq!(c.text().as_ref(), "abc\nef");
+        let c = at("abc\ndef", 4);
+        press(&d, &c, ctrl('u'));
+        assert_eq!(state(&c), ("abcdef".into(), 3));
+    }
+
+    #[test]
+    fn yank_restores_last_kill() {
+        let d = data();
+        let c = at("hello", 0);
+        press(&d, &c, ctrl('k'));
+        assert_eq!(state(&c), (String::new(), 0));
+        press(&d, &c, ctrl('y'));
+        assert_eq!(state(&c), ("hello".into(), 5));
+
+        let d = data();
+        let c = at("hello world", 11);
+        press(&d, &c, ctrl('w'));
+        assert_eq!(state(&c), ("hello ".into(), 6));
+        press(&d, &c, ctrl('y'));
+        assert_eq!(state(&c), ("hello world".into(), 11));
+
+        let d = data();
+        let c = at("hello", 5);
+        press(&d, &c, ctrl('u'));
+        assert_eq!(state(&c), (String::new(), 0));
+        press(&d, &c, ctrl('y'));
+        assert_eq!(state(&c), ("hello".into(), 5));
+    }
+
+    #[test]
+    fn kill_buffer_persists_across_set_text() {
+        let d = data();
+        let c = at("restore me", 0);
+        press(&d, &c, ctrl('k'));
+        assert!(c.text().is_empty());
+        c.set_text("/diff");
+        c.set_text("");
+        press(&d, &c, ctrl('y'));
+        assert_eq!(state(&c), ("restore me".into(), "restore me".len()));
+    }
+
+    #[test]
+    fn a_placeholder_goes_whole_under_left_right_and_backspace() {
+        let d = data();
+        let c = at("ab", 1);
+        d.draft.insert_element(&c, "[P]", "payload");
+        assert_eq!(state(&c), ("a[P]b".into(), 4));
+        assert_eq!(d.draft.expanded(&c), "apayloadb");
+        press(&d, &c, KeyPress::code(KeyCode::Left));
+        assert_eq!(c.selection().extent_offset, 1);
+        press(&d, &c, KeyPress::code(KeyCode::Right));
+        assert_eq!(c.selection().extent_offset, 4);
+        press(&d, &c, KeyPress::code(KeyCode::Backspace));
+        assert_eq!(state(&c), ("ab".into(), 1));
+        assert_eq!(d.draft.expanded(&c), "ab");
+    }
 }
