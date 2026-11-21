@@ -649,10 +649,6 @@ fn desired_height_keeps_spacers_and_preferred_options_visible() {
 // ORACLE bottom_pane/request_user_input/mod.rs:3521 request_user_input_wrapped_options_snapshot kind=snap owner=dialogs-pane snap=request_user_input_wrapped_options
 #[test]
 fn request_user_input_wrapped_options_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the oracle sizes the area to the overlay's computed height for a wrapped question (110 wide); the kit has no desired_height to size it, and the port does not wrap option rows yet",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(110, 9)
         .script(include_str!("fixtures/approvals_2/wrapped_options.jsonl"))
