@@ -10,9 +10,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use rtwk::controls::{TabBar, TabController};
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
-use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::foundation::Listenable;
+use rtwk::gestures::PointerEvent;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox,
 };
@@ -56,6 +58,9 @@ pub struct MenuDialogState {
     query: TextEditingController,
     flags: Rc<Cell<Flags>>,
     tab: Option<usize>,
+    /// The tabs' selection (`TabController`): the bar and the arrow keys both set it,
+    /// and the dialog follows (`Msg::Tab`).
+    tabs: Option<TabController>,
     /// The highlighted item (an index into the tab's items).
     item: Option<usize>,
     /// The first item of the window, a position among the visible items.
@@ -99,6 +104,7 @@ impl StatefulWidget for MenuDialog {
             query: TextEditingController::new(""),
             flags: Rc::new(Cell::new(Flags::default())),
             tab: None,
+            tabs: None,
             item: None,
             top: 0,
         }
@@ -206,6 +212,13 @@ impl State for MenuDialogState {
         {
             self.ready = true;
             self.tab = list.first_tab();
+            if let Some(first) = self.tab {
+                let tabs = TabController::with_initial_index(list.tabs.len(), first);
+                let send = cx.local_sender();
+                let seen = tabs.clone();
+                tabs.add_listener(Rc::new(move || send(Msg::Tab(seen.index()))));
+                self.tabs = Some(tabs);
+            }
             self.settle(&list, None);
         }
     }
@@ -219,7 +232,12 @@ impl State for MenuDialogState {
                 let before = self.item;
                 self.settle(&list, before);
             }
-            Msg::Tab(tab) => self.switch(&list, tab),
+            Msg::Tab(tab) => {
+                // The controller's own echo of a switch the dialog made is not one.
+                if self.tab != Some(tab) {
+                    self.switch(&list, tab);
+                }
+            }
             Msg::Row(item) => {
                 self.item = Some(item);
                 self.accept(&list, cx);
@@ -287,7 +305,7 @@ impl State for MenuDialogState {
             pane = pane.child(Text::new(String::new()));
         }
         if !list.tabs.is_empty() {
-            pane = pane.child(inset(self.tab_strip(&list, &tokens, cx)));
+            pane = pane.child(inset(self.tab_strip(&list, &tokens)));
             if list.searchable {
                 pane = pane.child(Text::new(String::new()));
             }
@@ -433,7 +451,11 @@ impl MenuDialogState {
         if list.tabs.is_empty() {
             return;
         }
-        self.tab = Some(tab % list.tabs.len());
+        let tab = tab % list.tabs.len();
+        self.tab = Some(tab);
+        if let Some(tabs) = &self.tabs {
+            tabs.set_index(tab);
+        }
         self.query.set_text("");
         self.settle(list, None);
     }
@@ -536,24 +558,16 @@ impl MenuDialogState {
         close_dialog::<_, ()>(cx, None);
     }
 
-    /// The tab labels, the active one marked (`render_filled_tab_bar`).
-    fn tab_strip(&self, list: &List, tokens: &theme::Tokens, cx: &mut Cx<'_, Self>) -> AnyWidget {
-        let mut row = Row::new();
-        for (index, tab) in list.tabs.iter().enumerate() {
-            let style = if Some(index) == self.tab {
-                tokens.bold().attrs(Attrs::UNDERLINE)
-            } else {
-                tokens.dim()
-            };
-            let tap = cx.map(move |_: PointerEvent| Msg::Tab(index));
-            row = row
-                .child(
-                    GestureDetector::new()
-                        .on_tap(tap)
-                        .child(Text::line(format!(" {} ", tab.label)).style(style)),
-                )
-                .child(SizedBox::new(Some(1), None, None));
-        }
-        row.into()
+    /// The tab labels, the active one marked: rtwk's `TabBar` over the
+    /// dialog's `TabController` (G45: it scrolls by columns and cuts a tab at
+    /// the edge where the oracle's `render_filled_tab_bar` shows whole tabs).
+    fn tab_strip(&self, list: &List, tokens: &theme::Tokens) -> AnyWidget {
+        let Some(tabs) = &self.tabs else {
+            return AnyWidget::default();
+        };
+        TabBar::new(tabs, list.tabs.iter().map(|tab| tab.label.clone()))
+            .tab_style(tokens.dim())
+            .selected_style(tokens.bold().attrs(Attrs::UNDERLINE))
+            .into()
     }
 }
