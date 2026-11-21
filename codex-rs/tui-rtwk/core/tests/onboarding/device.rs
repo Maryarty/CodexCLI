@@ -128,11 +128,7 @@ fn the_attempt_succeeding_goes_on_to_the_launch() {
 fn other_attempts_and_a_start_change_nothing() {
     let mut app = waiting();
     for event in [
-        changed(
-            Some("old"),
-            GatewayOAuthStatus::Failed,
-            Some("Cancelled"),
-        ),
+        changed(Some("old"), GatewayOAuthStatus::Failed, Some("Cancelled")),
         changed(Some("old"), GatewayOAuthStatus::Succeeded, None),
         changed(None, GatewayOAuthStatus::Succeeded, None),
         changed(Some("device"), GatewayOAuthStatus::Started, None),
@@ -199,7 +195,9 @@ fn quitting_cancels_the_attempt() {
     let mut app = waiting();
     let asks = asks_of(
         &mut app,
-        AppEv::Intent(Intent::Screen(ScreenIntent::Onboarding(StartupIntent::Exit))),
+        AppEv::Intent(Intent::Screen(ScreenIntent::Onboarding(
+            StartupIntent::Exit,
+        ))),
     );
     assert_eq!(asks, [Ask::CancelGatewayOAuth]);
     assert!(onboarding(&app).ends());

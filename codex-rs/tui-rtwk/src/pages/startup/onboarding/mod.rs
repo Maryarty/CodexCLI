@@ -126,10 +126,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         entry!("success_message", "sign-in: signed in with ChatGPT"),
         entry!("device_code", "sign-in: the device code shown"),
-        entry!(
-            "gateway_device_code",
-            "the gateway's device code at launch"
-        ),
+        entry!("gateway_device_code", "the gateway's device code at launch"),
         entry!(
             "device_code_requesting",
             "sign-in: the device code requested"

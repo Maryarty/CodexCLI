@@ -453,7 +453,10 @@ mod tests {
     #[tokio::test]
     async fn a_server_without_the_sign_in_goes_on() {
         for error in [
-            refusal(-32601, "account/gatewayOAuth/read failed: Method not found (code -32601)"),
+            refusal(
+                -32601,
+                "account/gatewayOAuth/read failed: Method not found (code -32601)",
+            ),
             refusal(
                 -32600,
                 "account/gatewayOAuth/read failed: Invalid request: unknown variant `account/gatewayOAuth/read` (code -32600)",

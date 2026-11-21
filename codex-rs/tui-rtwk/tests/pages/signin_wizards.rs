@@ -1574,7 +1574,8 @@ mod gateway_oauth {
         let all = asks(&h);
         assert!(all.contains(&Ask::ReloadConfig), "{all:?}");
         assert!(
-            all.iter().any(|ask| matches!(ask, Ask::GatewayDevice { .. })),
+            all.iter()
+                .any(|ask| matches!(ask, Ask::GatewayDevice { .. })),
             "{all:?}"
         );
         assert_eq!(cancelled(&h), 0);

@@ -201,7 +201,8 @@ fn gateway_read_source(error: &ServerError) -> &str {
         .strip_prefix(GATEWAY_READ)
         .and_then(|rest| rest.strip_prefix(" failed: "))
         .unwrap_or(&error.message);
-    text.rsplit_once(" (code ").map_or(text, |(source, _)| source)
+    text.rsplit_once(" (code ")
+        .map_or(text, |(source, _)| source)
 }
 
 /// `is_method_not_found` of `account/gatewayOAuth/read`: a server without the
