@@ -358,11 +358,17 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 let mut asks = Vec::new();
                 // The browser opens for the login the page took in, not for
                 // an answer it dropped.
-                let _browser = match &result.outcome {
+                let browser = match &result.outcome {
                     auth::Outcome::Browser { login_id, .. } => Some(login_id.clone()),
                     _ => None,
                 };
                 auth::apply_result(sign_in, result, &mut asks);
+                if let (Some(id), auth::State::Browser { login_id, url }) =
+                    (browser, &sign_in.state)
+                    && *login_id == id
+                {
+                    asks.push(Ask::OpenBrowser { url: url.clone() });
+                }
                 asks.into_iter().for_each(|a| ask(fx, a));
             }
         }

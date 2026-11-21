@@ -149,7 +149,21 @@ where
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }
-        Ask::OpenBrowser { url: _ } => return None,
+        Ask::OpenBrowser { url } => {
+            // `show_chatgpt_login_in_browser`: only for a local workspace; the
+            // open may start a process and wait, so it runs off the async
+            // workers, and a failure is logged, not answered.
+            if !startup.target.remote_workspace() {
+                let open = startup.browser.clone();
+                let opened = tokio::task::spawn_blocking(move || open(&url)).await;
+                match opened {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::warn!("failed to open the login URL: {error}"),
+                    Err(error) => tracing::warn!("the browser open did not finish: {error}"),
+                }
+            }
+            return None;
+        }
         Ask::CancelLogin { login_id } => {
             // `cancel_login_attempt`: the oracle ignores the answer.
             let _ = send(wire::login_cancel(&login_id, ids.next())).await;
