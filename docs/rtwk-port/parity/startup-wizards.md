@@ -20,7 +20,7 @@ words in `provider/strings.rs`; host `host/src/{providers,startup,launch}.rs`.
 | gateway.rs form (Name*, Base URL*, API key variable, Save, validation, suggestions, Ctrl+Space completion) | `gateway::Form` + form view (`TextField` per field, `Focus.on_focus_change` marks, `GestureDetector` Save, listener line for the suggestion, scroll to the marked row after a resize); `Setup::GatewayWrite(Patch)` | ported |
 | gateway.rs unconfirmed save (list read again, note) and refused selection (picker kept, message) | `Answer::{GatewayUnconfirmed, GatewaySelected}` -> stage + notice | ported |
 | gateway_login.rs states (starting, browser URL, failed) | `State::{GatewayOAuth, GatewayOAuthFailed, GatewayConfigured}`, seeds `GatewayOauth`/`GatewayOauthFailed`, view `gateway_login.rs`, fixtures `gateway_oauth_{starting,browser,failed}.jsonl` | ported (views and states) |
-| gateway_login.rs runtime (`authenticate_gateway`, `GatewayOAuthRead/Login`, device login, URL changes, Enter retry, cancel on exit) | - | not built: handover item below |
+| gateway_login.rs runtime: `authenticate_gateway` (server restart with the selected gateway, account read, primary login first, gateway OAuth), `GatewayOAuthRead/Login`, `needs_device_login` short circuit, URL changes (`GatewayOAuthChanged`), Enter retry, cancel on exit | core `onboarding/gateway.rs` (`Phase`: Idle, Starting, Reading, Primary, OAuth, Done; requests numbered, a stale answer dropped), `Ask::{SelectGateway, GatewayLogins, GatewayOAuth, CancelGatewayOAuth}`, `Ev::{GatewayStarted, GatewayLogins, GatewayOAuth, GatewayOAuthChanged}`, `Intent::RetryGatewayOAuth`; host `host/src/gateway.rs` (reads, login, `prefer_device_login`), `startup.rs` arms, `in_process.rs` restart with an ack; page: Enter and a tap of the retry line (`Msg::Retry`) | ported; the device-code screen (`start_if_needed`, `run_gateway_device_login`) is not built: see Handover |
 
 ## Tests
 
@@ -63,15 +63,66 @@ CODEX_HOME with the three wizard features on; the real embedded server answers
   `modelProvider/config/write failed: Enter an HTTP(S) base URL without` +
   `credentials, a query, or a fragment. (code -32600), data:` +
   `{"config_write_error_code":"configValidationError"}`. Cause: `host/src/in_process.rs`
-  `sender` maps a `TypedRequestError::Server` to `message: error.to_string()` ("the client's
-  own text"), the oracle reads `source.message`; core `wire.rs` already reads `message`.
-  Not mine: handover.
+  `sender` mapped a `TypedRequestError::Server` to `message: error.to_string()`, the oracle
+  reads `source.message`. FIXED by `startup-followup` (below): all 12 checkpoints are equal
+  again, 07 included.
 - Bedrock (discovery, Down+Enter to the next screen, Esc back, Esc to the menu): 4 of 4 equal.
 - Mouse (ours only: the oracle has none): a tap on the Create row opens the form; a tap on the
   Base URL / Name value focuses it and the paste lands there; a tap on Save marks it, the second
   saves; the picker shows the saved gateway with the cursor on it; a tap on that row selects
   it (`Custom provider configured`). A tap on a label (not the value) does nothing, as in
   Flutter where only the field takes the pointer.
+
+## Gateway OAuth runtime (`startup-followup`)
+
+Flow, as the oracle (`lib.rs` `selected_gateway` -> `authenticate_gateway` ->
+`start_gateway_oauth`), which runs after the onboarding screen (the trust step included), so
+ours runs after all steps are done and before `ReloadConfig`/`Launch`: `SelectGateway`
+(config read again, must select that gateway, embedded server restarted with it; the host
+answers only after the pump swapped its handle, `Restart.done`), `GatewayLogins` (account read,
+`gateway_oauth` of the provider), the primary login on the sign-in step's own states when
+due, `GatewayOAuth` (`GatewayOAuthRead`; a login unless signed in or a device code is the
+way), `GatewayOAuthChanged` shows the URL, a failure waits for Enter or a tap of the retry
+line, Ctrl+C sends `CancelGatewayOAuth`. `Model::done(SignIn)` is false while the phase is
+active, so the page stays and the launch waits.
+
+Server-refusal text, SCOPED: the oracle reads `source.message` only for the GCP setup and the
+gateway wizard (`gcp.rs`, `app/provider/rpc.rs`); Bedrock, archive, trust, account and the
+gateway OAuth show the client's `<method> failed: <message> (code n)`. The brief's global
+"Server errors use `source.message`" would have changed the latter, so core
+`provider/wire.rs::reads_message_only(&ClientRequest)` names the requests (GcpSetup,
+ModelProviderList, ModelProviderConfigWrite, ConfigValueWrite of `model_provider`) and
+`in_process.rs::error_text` applies it; the test shows both texts.
+
+Tests (new): core `core/tests/onboarding/gateway.rs` 11 (the sequence, the trust first,
+a stale answer dropped, a lost connection, the retry, the exit cancel, ...); `wire.rs`
+`reads_message_only` (1); host `gateway.rs` 8 (a fake `Server`: login due, signed in, device
+preferred, another provider, decode text, refusal text, environment), `startup.rs` 4 (restart
+acknowledged before the answer, provider mismatch ends the start, reload error, login +
+cancel), `in_process.rs` 2 (`error_text`); page `tests/pages/signin_wizards.rs`
+`mod gateway_oauth` 6 (starting, URL, Enter retry with a stale first answer, tap of the retry
+line (the message is no button), success asks the launch, Ctrl+C cancels) and
+`select_a_saved_gateway_during_sign_in` now also asks `SelectGateway` from the wizard's own
+answer. Bites shown: the Enter arm switched off -> `enter_retries_a_failed_sign_in` red; the
+`follow_provider` call after `Ev::Auth` removed -> `select_a_saved_gateway_during_sign_in`
+red (the binary run found it: with the wizard's answer the provider step stayed open and the
+launch never came; tests that set the state by `Ev::SignInState` did not show it).
+Behaviour found on the way: oracle `BedrockConfigured`/`GcpConfigured`/`GatewaySelected`
+are `StepState::Complete`, the screen ends at once; ours kept the provider step open for
+Bedrock/GCP after an answer (stuck on the configured line in the binary). Fixed by the same
+call; the two tests that waited for that line (`signin::gcp_setup_is_asked_of_the_host_...`,
+`signin_wizards::credential_entries_share_region_...`) wait for the launch ask instead.
+R1/layers: the blocking `webbrowser` check is the service `services::startup::browser_available`;
+core holds no prose (the decode-error frame is the host's).
+
+Binary run (`/tmp/sw/drive.py`, 80x24, own CODEX_HOME, the real embedded server): the
+12 checkpoints of the gateway keys script: 12 of 12 equal with the oracle, 07_server_refusal
+included. A second script (create `Team gateway`, select it): the picker (01) equal; after the
+selection ours restarts the server, reads the account and reaches the chat (`>_ OpenAI Codex`,
+the composer, `gpt-6.2-sol default`); the oracle does too. The chat rows differ (the
+chat page's own task: the oracle's release-notes box, the path of the temp dir, the model).
+A gateway with `gateway_oauth` was not driven in the binary (no server to sign in to): the
+sequence is the page and host tests'.
 
 ## Checks (final, after the last commit)
 
@@ -93,7 +144,9 @@ CODEX_HOME with the three wizard features on; the real embedded server answers
 
 ## Deltas
 
-- The server-refusal text above (host `sender`).
+- The server-refusal text: gone (scoped `source.message`, above).
+- Windows `prefer_device_login` (`has_http_handler` instead of `Browser::is_available`) is not
+  carried: this port targets macOS/Linux, the Windows branch is a `cfg(windows)` of the oracle.
 - The oracle's unreachable "Enter a base URL…" error after a trimmed save is skipped (the
   form never submits without the required fields; `save_names_the_field_that_is_missing`).
 - The vim-insert hint of the oracle's form is not ported.
@@ -103,9 +156,13 @@ CODEX_HOME with the three wizard features on; the real embedded server answers
 
 ## Handover
 
-- `host/src/in_process.rs` `sender`: for `TypedRequestError::Server { source, .. }` use
-  `source.message.clone()` as the message (removes the refusal-text delta).
-- Gateway OAuth runtime (the oracle's `authenticate_gateway`): primary sign-in first when
-  needed, `GatewayOAuthRead` / `GatewayOAuthLogin` asks, `needs_device_login` /
-  `prefer_device_login`, `GatewayOAuthChanged` URL updates, Enter retry on the failed state,
-  cancel on exit. The states, seeds, views and fixtures exist; nothing sets them from a login.
+- The oracle's device-code sign-in (`device_login.rs` `start_if_needed`, `lib.rs`
+  `run_gateway_device_login`, `onboarding_screen.rs`): when the launch's provider is a gateway
+  that needs sign-in and a device code is the way (`prefer_device_login`: SSH, Linux without a
+  display, no browser), the oracle asks `GatewayOAuthLogin{device_auth: true}`, draws the code
+  and the URL, waits for `GatewayOAuthChanged` of that `login_id` and cancels on exit. NOT
+  built: ours skips the browser login in that case (`authenticate`'s `needs_device_login`
+  short circuit, as the oracle's `start_gateway_oauth`), so on such a machine the gateway is
+  left unsigned and no code is shown. It needs a screen of its own (a startup state, an ask,
+  the event with the `login_id`, a cancel), and runs for any launch, not only after a wizard.
+- The page and the host are one step apart on the Windows branch above.
