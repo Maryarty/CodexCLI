@@ -154,7 +154,6 @@ fn inline_code_and_file_paths_follow_syntax_theme() {
 // ORACLE markdown_render_tests.rs:848 strong kind=ui owner=chat-live
 #[test]
 fn strong() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/markdown_streaming_3/strong.jsonl"))
@@ -165,7 +164,6 @@ fn strong() {
 // ORACLE markdown_render_tests.rs:857 emphasis kind=ui owner=chat-live
 #[test]
 fn emphasis() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/markdown_streaming_3/emphasis.jsonl"))
@@ -176,7 +174,6 @@ fn emphasis() {
 // ORACLE markdown_render_tests.rs:866 strikethrough kind=ui owner=chat-live
 #[test]
 fn strikethrough() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -189,7 +186,6 @@ fn strikethrough() {
 // ORACLE markdown_render_tests.rs:874 strong_emphasis kind=ui owner=chat-live
 #[test]
 fn strong_emphasis() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -233,7 +229,6 @@ fn web_link_labels_use_link_style_and_preserve_inline_formatting() {
 // ORACLE markdown_render_tests.rs:926 web_link_labels_keep_link_style_in_wrapped_prose_and_tables kind=ui owner=chat-live
 #[test]
 fn web_link_labels_keep_link_style_in_wrapped_prose_and_tables() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     // The oracle's two inputs (prose, table) at widths 32 and 80: one screen per input and width.
     for w in [32u16, 80] {
         let s = Screen::build(Owner::ChatLive).size(w, 24).script(include_str!("fixtures/markdown_streaming_3/web_link_labels_keep_link_style_in_wrapped_prose_and_tables_prose.jsonl")).open();

@@ -703,7 +703,6 @@ fn table_inside_blockquote_has_quote_prefix() {
 // ORACLE markdown_render_tests.rs:2129 escaped_pipes_render_in_table_cells kind=ui owner=chat-live
 #[test]
 fn escaped_pipes_render_in_table_cells() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "| Col |\n| --- |\n| a \\| b |\n");
     s.assert_contains("a | b");
 }
@@ -711,7 +710,6 @@ fn escaped_pipes_render_in_table_cells() {
 // ORACLE markdown_render_tests.rs:2142 table_falls_back_to_key_value_records_if_grid_cannot_fit kind=ui owner=chat-live
 #[test]
 fn table_falls_back_to_key_value_records_if_grid_cannot_fit() {
-    kit::pending(Owner::ChatLive, MD);
     let md = "| c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |\n";
     let s = chat(20, 40, md);
     // The first row holds c1; the last column's row holds c10 and 10.

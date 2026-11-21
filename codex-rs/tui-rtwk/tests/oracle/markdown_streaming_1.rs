@@ -12,10 +12,6 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE markdown.rs:618 citations_render_as_plain_text kind=ui owner=chat-live
 #[test]
 fn citations_render_as_plain_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws an agent message as plain lines (screens/chat/home.rs Item::Agent); citation directives are not rendered",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -28,10 +24,6 @@ fn citations_render_as_plain_text() {
 // ORACLE markdown.rs:643 append_markdown_preserves_full_text_line kind=ui owner=chat-live
 #[test]
 fn append_markdown_preserves_full_text_line() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no markdown renderer: an agent message is not laid out as markdown lines",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(120, 24)
         .script(include_str!(
@@ -46,10 +38,6 @@ fn append_markdown_preserves_full_text_line() {
 // ORACLE markdown.rs:678 append_markdown_keeps_ordered_list_line_unsplit_in_context kind=ui owner=chat-live
 #[test]
 fn append_markdown_keeps_ordered_list_line_unsplit_in_context() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no markdown renderer: an ordered list item is not laid out as a list",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -132,10 +120,6 @@ fn append_markdown_agent_unwraps_markdown_fences_for_single_column_table() {
 // ORACLE markdown.rs:750 append_markdown_agent_keeps_non_markdown_fences_as_code kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_keeps_non_markdown_fences_as_code() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws a code fence of a language other than markdown as code lines: the fenced block is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -164,10 +148,6 @@ fn append_markdown_agent_unwraps_blockquoted_markdown_fence_table() {
 // ORACLE markdown.rs:783 append_markdown_agent_keeps_markdown_fence_when_content_is_not_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_keeps_markdown_fence_when_content_is_not_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not render a markdown fence whose content is not a table: the content line is not drawn as plain text",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -181,10 +161,6 @@ fn append_markdown_agent_keeps_markdown_fence_when_content_is_not_table() {
 // ORACLE markdown.rs:799 append_markdown_agent_keeps_markdown_fence_with_blank_line_between_header_and_delimiter kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_keeps_markdown_fence_with_blank_line_between_header_and_delimiter() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not keep a markdown fence whose header and delimiter are split by a blank line: the content is not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -355,10 +331,6 @@ fn wraps_blockquotes_inside_lists() {
 // ORACLE markdown_render.rs:2786 wraps_list_items_containing_blockquotes kind=ui owner=chat-live
 #[test]
 fn wraps_list_items_containing_blockquotes() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no list item that contains a blockquote: nested block layout is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 24)
         .script(include_str!(

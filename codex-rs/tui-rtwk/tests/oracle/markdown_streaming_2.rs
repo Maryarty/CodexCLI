@@ -323,7 +323,6 @@ fn bare_urls_keep_link_style_when_wrapped_in_tables() {
 // ORACLE markdown_render/web_links_tests.rs:89 supporting_terminals_render_only_the_styled_label_and_keep_its_target kind=ui owner=chat-live
 #[test]
 fn supporting_terminals_render_only_the_styled_label_and_keep_its_target() {
-    kit::pending(Owner::ChatLive, TERM);
     // On a supporting terminal the label is the only text; the target is the link.
     let s = chat(80, 24, "[label](https://example.com)");
     s.assert_link("label", "https://example.com");
@@ -449,7 +448,6 @@ fn table_url_with_tilde_keeps_complete_hyperlink() {
 // ORACLE markdown_render_tests.rs:84 links_keep_their_columns_after_styled_fragments kind=ui owner=chat-live
 #[test]
 fn links_keep_their_columns_after_styled_fragments() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         80,
         24,
@@ -491,7 +489,6 @@ fn paragraph_single() {
 // ORACLE markdown_render_tests.rs:158 paragraph_soft_break kind=ui owner=chat-live
 #[test]
 fn paragraph_soft_break() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "Hello\nWorld");
     s.assert_in_order(&["Hello", "World"]);
 }
@@ -507,7 +504,6 @@ fn paragraph_multiple() {
 // ORACLE markdown_render_tests.rs:174 headings kind=ui owner=chat-live
 #[test]
 fn headings() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         80,
         24,
@@ -568,7 +564,6 @@ fn blockquote_three_paragraphs_short_lines() {
 // ORACLE markdown_render_tests.rs:253 blockquote_nested_two_levels kind=ui owner=chat-live
 #[test]
 fn blockquote_nested_two_levels() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> Level 1\n>> Level 2\n");
     s.assert_in_order(&["> Level 1", "> > Level 2"]);
 }
@@ -594,7 +589,6 @@ fn blockquote_with_ordered_list() {
 // ORACLE markdown_render_tests.rs:300 blockquote_list_then_nested_blockquote kind=ui owner=chat-live
 #[test]
 fn blockquote_list_then_nested_blockquote() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> - parent\n>   > child\n");
     s.assert_in_order(&["> • parent", ">   > child"]);
 }
@@ -642,7 +636,6 @@ fn blockquote_two_paragraphs_inside_ordered_list_has_blank_line() {
 // ORACLE markdown_render_tests.rs:413 blockquote_inside_nested_list kind=ui owner=chat-live
 #[test]
 fn blockquote_inside_nested_list() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1. A\n    - B\n      > inner\n");
     s.assert_in_order(&["1. A", "    • B", "      > inner"]);
 }
@@ -650,7 +643,6 @@ fn blockquote_inside_nested_list() {
 // ORACLE markdown_render_tests.rs:430 list_item_text_then_blockquote kind=ui owner=chat-live
 #[test]
 fn list_item_text_then_blockquote() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1. before\n   > quoted\n");
     s.assert_in_order(&["1. before", "   > quoted"]);
 }
@@ -674,7 +666,6 @@ fn list_item_text_blockquote_text() {
 // ORACLE markdown_render_tests.rs:481 blockquote_with_heading_and_paragraph kind=ui owner=chat-live
 #[test]
 fn blockquote_with_heading_and_paragraph() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> # Heading\n> paragraph text\n");
     s.assert_in_order(&["> # Heading", "> paragraph text"]);
 }
@@ -700,7 +691,6 @@ fn blockquote_with_code_block() {
 // ORACLE markdown_render_tests.rs:542 blockquote_with_multiline_code_block kind=ui owner=chat-live
 #[test]
 fn blockquote_with_multiline_code_block() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> ```\n> first\n> second\n> ```\n");
     s.assert_in_order(&["> first", "> second"]);
 }
@@ -708,7 +698,6 @@ fn blockquote_with_multiline_code_block() {
 // ORACLE markdown_render_tests.rs:559 nested_blockquote_with_inline_and_fenced_code kind=ui owner=chat-live
 #[test]
 fn nested_blockquote_with_inline_and_fenced_code() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         80,
         24,
@@ -740,7 +729,6 @@ fn list_unordered_single() {
 // ORACLE markdown_render_tests.rs:610 list_unordered_multiple kind=ui owner=chat-live
 #[test]
 fn list_unordered_multiple() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- List item 1\n- List item 2\n");
     s.assert_in_order(&["• List item 1", "• List item 2"]);
 }
@@ -770,7 +758,6 @@ fn empty_list_items_keep_their_markers() {
 // ORACLE markdown_render_tests.rs:638 list_nested kind=ui owner=chat-live
 #[test]
 fn list_nested() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- List item 1\n  - Nested list item 1\n");
     s.assert_in_order(&["• List item 1", "    • Nested list item 1"]);
 }
@@ -803,7 +790,6 @@ fn list_ordered_custom_start() {
 // ORACLE markdown_render_tests.rs:667 nested_unordered_in_ordered kind=ui owner=chat-live
 #[test]
 fn nested_unordered_in_ordered() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1. Outer\n    - Inner A\n    - Inner B\n2. Next\n");
     s.assert_in_order(&["1. Outer", "    • Inner A", "    • Inner B", "2. Next"]);
 }
@@ -811,7 +797,6 @@ fn nested_unordered_in_ordered() {
 // ORACLE markdown_render_tests.rs:682 nested_ordered_in_unordered kind=ui owner=chat-live
 #[test]
 fn nested_ordered_in_unordered() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- Outer\n    1. One\n    2. Two\n- Last\n");
     s.assert_in_order(&["• Outer", "    1. One", "    2. Two", "• Last"]);
 }

@@ -8,8 +8,6 @@ use crate::kit::{self, Owner, Screen};
 
 /// The live chat draws an agent message as its plain text: no markdown renderer yet.
 const MD: &str = "the live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet";
-/// The chat has no streaming controller: the answer lands as deltas and is drawn whole at completion.
-const STREAM: &str = "the live chat has no streaming controller: the answer lands as the transport's deltas and is drawn whole at completion; the queued lines, commit ticks, the live tail and the width rebuild of queued lines are not built";
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
 const TABLE: &str = "the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
 /// The plan stream has no view of its own in the chat.
@@ -86,7 +84,6 @@ fn assert_matches_whole(s: &Screen, width: u16, height: u16, chunks: &[&str]) {
 // ORACLE streaming/controller.rs:1025 controller_set_width_rebuilds_queued_lines kind=ui owner=chat-live
 #[test]
 fn controller_set_width_rebuilds_queued_lines() {
-    kit::pending(Owner::ChatLive, STREAM);
     // The oracle: a 120-column stream queues one long line; resized to 24 columns before its
     // commit, the line is drawn over several rows.
     let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
@@ -132,7 +129,6 @@ fn controller_live_tail_rerenders_table_tail_after_resize() {
 // ORACLE streaming/controller.rs:1211 controller_set_width_preserves_in_flight_tail kind=ui owner=chat-live
 #[test]
 fn controller_set_width_preserves_in_flight_tail() {
-    kit::pending(Owner::ChatLive, STREAM);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&answer_chunks(&["tail without newline"]));
     s.resize(24, 24);
@@ -154,7 +150,6 @@ fn plan_controller_set_width_preserves_in_flight_tail() {
 // ORACLE streaming/controller.rs:1294 controller_loose_vs_tight_with_commit_ticks_matches_full kind=ui owner=chat-live
 #[test]
 fn controller_loose_vs_tight_with_commit_ticks_matches_full() {
-    kit::pending(Owner::ChatLive, MD);
     // The oracle's deltas (no width in the oracle test: 100 x 40 here).
     let deltas = [
         "\n\n",
@@ -292,7 +287,6 @@ fn controller_keeps_pre_table_lines_queued_when_table_is_confirmed() {
 // ORACLE streaming/controller.rs:1538 controller_set_width_during_confirmed_table_stream_matches_finalize_render kind=ui owner=chat-live
 #[test]
 fn controller_set_width_during_confirmed_table_stream_matches_finalize_render() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "| Key | Description |\n",
         "| --- | --- |\n",
@@ -322,7 +316,6 @@ fn controller_handles_table_immediately_after_heading() {
 // ORACLE streaming/controller.rs:1633 controller_renders_separators_for_multi_table_response_shape kind=ui owner=chat-live
 #[test]
 fn controller_renders_separators_for_multi_table_response_shape() {
-    kit::pending(Owner::ChatLive, TABLE);
     let source = "Absolutely. Here are several different Markdown table patterns you can use for rendering tests.\n\n| Name  | Role      |
   Location |\n|-------|-----------|----------|\n| Ava   | Engineer  | NYC      |\n| Malik | Designer  | Berlin   |\n| Priya | PM        | Remote
   |\n\n| Item        | Qty | Price | In Stock |\n|:------------|----:|------:|:--------:|\n| Keyboard    |   2 | 49.99 |    Yes   |\n| Mouse       |  10
@@ -339,7 +332,6 @@ fn controller_renders_separators_for_multi_table_response_shape() {
 // ORACLE streaming/controller.rs:1655 controller_renders_separators_for_no_outer_pipes_table_shape kind=ui owner=chat-live
 #[test]
 fn controller_renders_separators_for_no_outer_pipes_table_shape() {
-    kit::pending(Owner::ChatLive, TABLE);
     let source = "### 1) Basic\n\n| Name | Role | Active |\n|---|---|---|\n| Alice | Engineer | Yes |\n| Bob | Designer | No |\n\n### 2) No outer
   pipes\n\nCol A | Col B | Col C\n--- | --- | ---\nx | y | z\n10 | 20 | 30\n\n### 3) Another table\n\n| Key | Value |\n|---|---|\n| a | b |\n";
     let chunks: Vec<&str> = source.split_inclusive('\n').collect();
@@ -352,7 +344,6 @@ fn controller_renders_separators_for_no_outer_pipes_table_shape() {
 // ORACLE streaming/controller.rs:1685 controller_stabilizes_first_no_outer_pipes_table_in_response kind=ui owner=chat-live
 #[test]
 fn controller_stabilizes_first_no_outer_pipes_table_in_response() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "### No outer pipes first\n\n",
         "Col A | Col B | Col C\n",
@@ -371,7 +362,6 @@ fn controller_stabilizes_first_no_outer_pipes_table_in_response() {
 // ORACLE streaming/controller.rs:1716 controller_stabilizes_two_column_no_outer_table_in_response kind=ui owner=chat-live
 #[test]
 fn controller_stabilizes_two_column_no_outer_table_in_response() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "A | B\n",
         "--- | ---\n",
@@ -435,7 +425,6 @@ fn controller_live_view_matches_render_during_interleaved_table_streaming() {
 // ORACLE streaming/controller.rs:1903 controller_keeps_non_markdown_fenced_tables_as_code kind=ui owner=chat-live
 #[test]
 fn controller_keeps_non_markdown_fenced_tables_as_code() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "```sh\n",
         "| A | B |\n",
