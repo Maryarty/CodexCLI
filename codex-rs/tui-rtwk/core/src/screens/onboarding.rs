@@ -87,7 +87,10 @@ pub enum Ask {
     /// Start a login (`account/login/start`), answered with
     /// `Ev::Auth(AuthResult { request, .. })`; ChatGPT's opens the browser
     /// on a local server.
-    Login { request: Request, login: auth::Login },
+    Login {
+        request: Request,
+        login: auth::Login,
+    },
     /// Cancel a login started (`account/login/cancel`); not answered.
     CancelLogin { login_id: String },
     /// Show the ChatGPT login's `url` in the browser: asked only for the
@@ -95,6 +98,11 @@ pub enum Ask {
     /// it), and the host skips it for a remote workspace
     /// (`show_chatgpt_login_in_browser`); not answered.
     OpenBrowser { url: String },
+    /// Reload the session's config now that the folder is trusted (the
+    /// project's config and hooks apply); the host skips it for a remote
+    /// workspace (`consent.directory_trust_persisted && !uses_remote_workspace`).
+    /// Its answer, if any, is an event of the app.
+    ReloadConfig,
 }
 
 /// The launch facts the host read, all at once.
@@ -253,13 +261,23 @@ pub enum Ev {
         error: Option<String>,
     },
     /// `account/updated`: the account is a ChatGPT one.
-    AccountUpdated { chatgpt_account: bool },
+    AccountUpdated {
+        chatgpt_account: bool,
+    },
     /// The answer to `Ask::Facts { request }`.
-    Facts { request: Request, facts: Facts },
+    Facts {
+        request: Request,
+        facts: Facts,
+    },
     /// The trust write `request` is confirmed.
-    TrustSaved { request: Request },
+    TrustSaved {
+        request: Request,
+    },
     /// The trust write `request` failed with this message.
-    TrustFailed { request: Request, message: String },
+    TrustFailed {
+        request: Request,
+        message: String,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -291,7 +309,9 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
         ServerNotification::AccountUpdated(update) => Ev::AccountUpdated {
             chatgpt_account: matches!(
                 update.auth_mode,
-                Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::PersonalAccessToken)
+                Some(
+                    AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::PersonalAccessToken
+                )
             ),
         },
         _ => return,
@@ -392,7 +412,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             model.writing = None;
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision == Some(TrustDecision::Saving))
+            {
                 t.decision = Some(TrustDecision::Trusted);
             }
         }
@@ -403,7 +427,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             model.writing = None;
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision == Some(TrustDecision::Saving))
+            {
                 t.decision = None;
                 t.error = Some(message);
             }
@@ -448,7 +476,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             ask(fx, Ask::WriteTrust { request, target });
         }
         Intent::CancelTrust => {
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision != Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision != Some(TrustDecision::Saving))
+            {
                 t.decision = Some(TrustDecision::Cancelled);
             }
         }
@@ -590,7 +622,10 @@ fn yes() -> bool {
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 enum SeedSignInState {
-    Browser { login_id: String, url: String },
+    Browser {
+        login_id: String,
+        url: String,
+    },
     DeviceCode {
         #[serde(default)]
         url: Option<String>,
@@ -871,10 +906,7 @@ mod tests {
         );
         let t = m.trust.as_ref().expect("trust");
         assert_eq!(t.decision, None);
-        assert_eq!(
-            t.error.as_deref(),
-            Some("config/batchWrite failed")
-        );
+        assert_eq!(t.error.as_deref(), Some("config/batchWrite failed"));
         assert!(!m.done(Stage::Trust));
         intent(&mut m, Intent::Trust);
         assert_eq!(m.trust.as_ref().and_then(|t| t.error.clone()), None);
@@ -925,7 +957,10 @@ mod tests {
     fn update_choices_ask_the_host() {
         let mut m = model(vec![update()]);
         assert_eq!(
-            intent(&mut m, Intent::ChooseUpdate(UpdateChoice::SkipUntilNextVersion)),
+            intent(
+                &mut m,
+                Intent::ChooseUpdate(UpdateChoice::SkipUntilNextVersion)
+            ),
             [Ask::DismissUpdate {
                 version: "9.9.9".into()
             }]
@@ -1007,6 +1042,36 @@ mod tests {
         );
     }
 
+    // lib.rs: `consent.directory_trust_persisted && !uses_remote_workspace`
+    // reloads the config: only a trust that was written and confirmed asks.
+    #[test]
+    fn a_confirmed_trust_write_asks_for_the_config_reload() {
+        let mut m = model(vec![trust(false)]);
+        intent(&mut m, Intent::Trust);
+        assert_eq!(
+            answered(&mut m, Ev::TrustSaved { request: 1 }),
+            [Ask::ReloadConfig]
+        );
+        // A repeated or stale answer asks nothing more.
+        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 1 }), []);
+    }
+
+    #[test]
+    fn a_trust_that_was_not_written_asks_no_config_reload() {
+        let mut m = model(vec![trust(false)]);
+        intent(&mut m, Intent::Trust);
+        let failed = Ev::TrustFailed {
+            request: 1,
+            message: "no".into(),
+        };
+        assert_eq!(answered(&mut m, failed), []);
+        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 1 }), []);
+        let mut m = model(vec![trust(true)]);
+        assert_eq!(intent(&mut m, Intent::Trust), []);
+        let mut m = model(vec![trust(false)]);
+        assert_eq!(intent(&mut m, Intent::CancelTrust), []);
+    }
+
     // A quit from a step ends the page and the app (`should_exit`).
     // onboarding_screen.rs `handle_key_event`: a quit while a login runs
     // cancels it on the way out (`cancel_auth_if_active`).
@@ -1052,7 +1117,9 @@ mod tests {
 
     #[test]
     fn seeds_read_the_fixture_forms() {
-        let ev = seed(serde_json::json!({"trust": {"cwd": "/a/b", "target": "/a", "cancel": "current_task"}}));
+        let ev = seed(
+            serde_json::json!({"trust": {"cwd": "/a/b", "target": "/a", "cancel": "current_task"}}),
+        );
         assert_eq!(
             ev,
             Ok(Ev::Trust(TrustAsk {

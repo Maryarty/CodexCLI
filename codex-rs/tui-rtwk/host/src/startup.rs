@@ -85,7 +85,18 @@ pub struct Startup {
     /// The update check: whether it runs, which version is running, and how
     /// the latest release is fetched.
     pub updates: Updates,
+    /// Loads the session's config again, with the launch's overrides: the
+    /// folder is trusted, so its project config applies
+    /// (`load_config_or_exit_with_fallback_cwd`).
+    pub reload: Reload,
 }
+
+/// Loads the config as the launch did; the text of the error when it fails.
+pub type Reload = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<Config, String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// `updates.rs`: the update check of a launch.
 #[derive(Clone)]
@@ -217,6 +228,7 @@ where
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }
+        Ask::ReloadConfig => return None,
         Ask::OpenBrowser { url } => {
             // `show_chatgpt_login_in_browser`: only for a local workspace; the
             // open may start a process and wait, so it runs off the async
@@ -522,6 +534,7 @@ fn update_action(context: &InstallContext) -> Option<UpdateAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_tui_core::screens::chat::Ev as ChatEv;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -539,6 +552,7 @@ mod tests {
             check_trust: true,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
+            reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),
             updates: Updates {
                 enabled: false,
                 version: "1.0.0".to_owned(),
@@ -881,5 +895,72 @@ mod tests {
         launch_with(&mut startup, fetching(&calls, Ok("2.1.0")), None, "0.0.0").await;
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    fn reloading(calls: &Arc<AtomicUsize>, model: Result<&str, &str>) -> Reload {
+        let calls = calls.clone();
+        let model = model.map(str::to_owned).map_err(str::to_owned);
+        Arc::new(move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let model = model.clone();
+            Box::pin(async move {
+                let model = model?;
+                let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
+                codex_core::config::ConfigBuilder::default()
+                    .codex_home(dir.path().to_path_buf())
+                    .fallback_cwd(Some(dir.path().to_path_buf()))
+                    .harness_overrides(codex_core::config::ConfigOverrides {
+                        model: Some(model),
+                        ..Default::default()
+                    })
+                    .build()
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+    }
+
+    // lib.rs: after the trust is persisted the config is loaded again; what
+    // the status shows (model, sandbox) follows the project's config.
+    #[tokio::test]
+    async fn the_config_is_reloaded_and_its_status_shown_after_trust() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        startup.reload = reloading(&calls, Ok("reloaded-model"));
+        let ev = run(startup, Ask::ReloadConfig, Ids::default(), nothing).await;
+        let Some(AppEv::Screen(ScreenEv::Chat(ChatEv::Status(status)))) = ev else {
+            panic!("expected the status, got {ev:?}");
+        };
+        assert_eq!(status.model.as_deref(), Some("reloaded-model"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    // `!uses_remote_workspace`: the remote workspace's config is not ours.
+    #[tokio::test]
+    async fn a_remote_workspace_reloads_no_config() {
+        let (mut startup, _dir) = startup_with(Target::Remote, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        startup.reload = reloading(&calls, Ok("reloaded-model"));
+        let ev = run(startup, Ask::ReloadConfig, Ids::default(), nothing).await;
+        assert!(ev.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    // `load_config_or_exit`: `Error loading configuration: <error>` ends the
+    // launch.
+    #[tokio::test]
+    async fn a_config_that_does_not_load_again_fails_the_launch() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        startup.reload = reloading(&calls, Err("bad toml"));
+        let ev = run(startup.clone(), Ask::ReloadConfig, Ids::default(), nothing).await;
+        let Some(AppEv::StartFailed(message)) = ev else {
+            panic!("expected StartFailed, got {ev:?}");
+        };
+        assert_eq!(message, "Error loading configuration: bad toml");
+        assert_eq!(
+            startup.failure.lock().unwrap().as_deref(),
+            Some(message.as_str())
+        );
     }
 }
