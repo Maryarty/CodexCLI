@@ -429,6 +429,8 @@ async fn run_as(
             Command::RejectRequest { .. }
             | Command::ResolveRequest { .. }
             | Command::InterruptTurn { .. } => {}
+            // The scripted server has no launch facts: nothing is due.
+            Command::Startup { .. } => {}
             Command::Directories { cwds, .. } => {
                 let workspace = server.workspace.clone();
                 let ingress = ingress.clone();

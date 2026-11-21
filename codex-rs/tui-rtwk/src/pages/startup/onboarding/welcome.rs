@@ -1,4 +1,4 @@
-//! The welcome header above the sign-in, provider and trust steps. Oracle:
+//! The welcome header above the sign-in and provider steps. Oracle:
 //! `onboarding/welcome.rs`: the logo on a fixed 60 by 21 stage (the session's
 //! blossom, its `AnimationController`), a blank row, the welcome line and
 //! the blank row every step ends with. The logo shows only with animations

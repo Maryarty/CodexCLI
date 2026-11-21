@@ -33,7 +33,7 @@ const DIRS: [(&str, &str, Kind); 19] = [
     ("dialogs", "S23", Kind::Dialog),
     ("pets", "S24", Kind::Sheet),
     ("voice", "S25", Kind::Sheet),
-    ("onboarding", "S02-S04", Kind::Route),
+    ("onboarding", "S01-S04", Kind::Route),
     ("startup", "S05", Kind::Dialog),
     ("import", "S06", Kind::Route),
 ];
@@ -75,7 +75,7 @@ fn prompt_streams_the_answer_as_plain_text() {
     let commands = h.fake.commands();
     assert!(
         matches!(commands.as_slice(),
-            [Command::StartThread { .. }, Command::StartTurn { thread, text, .. }]
+            [Command::Startup { .. }, Command::StartThread { .. }, Command::StartTurn { thread, text, .. }]
                 if *thread == ThreadId::new(FAKE_THREAD) && text == "hi"),
         "{commands:?}"
     );

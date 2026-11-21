@@ -16,6 +16,6 @@
  dialogs     S23      dialog small dialogs
  pets        S24      sheet  pets overlay
  voice       S25      sheet  voice and realtime strip
- onboarding  S02-S04  route  onboarding routes
+ onboarding  S01-S04  route  startup page
  startup     S05      dialog startup prompts
  import      S06      route  import from other agents

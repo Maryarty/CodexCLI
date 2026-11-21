@@ -40,6 +40,9 @@ pub struct Strings {
     pub release_notes: &'static str,
     pub release_notes_url: &'static str,
     update_now: Msg<1>,
+    /// Oracle: `onboarding_screen.rs` `persist_selected_trust`: the failed
+    /// write, the folder and the server's message.
+    trust_failed: Msg<2>,
     pub skip: &'static str,
     pub skip_version: &'static str,
     /// The key hint: `enter`, ` continue · `, `esc`, ` skip`.
@@ -82,6 +85,16 @@ impl Strings {
         .to_string()
     }
 
+    /// `Failed to set trust for <folder>: <message>`.
+    pub fn trust_failed(&self, target: &str, message: &str, num: &NumSyms) -> String {
+        Fmt::new(
+            self.trust_failed,
+            [Arg::Text(target), Arg::Text(message)],
+            num,
+        )
+        .to_string()
+    }
+
     /// `Update now (runs `<command>`)`.
     pub fn update_now(&self, command: &str, num: &NumSyms) -> String {
         Fmt::new(self.update_now, [Arg::Text(command)], num).to_string()
@@ -107,6 +120,7 @@ pub const EN: Strings = Strings {
     release_notes: "Release notes: ",
     release_notes_url: "https://github.com/openai/codex/releases/latest",
     update_now: msg!("Update now (runs `{0}`)"),
+    trust_failed: msg!("Failed to set trust for {0}: {1}"),
     skip: "Skip",
     skip_version: "Skip until next version",
     update_hint: ["enter", " continue \u{b7} ", "esc", " skip"],

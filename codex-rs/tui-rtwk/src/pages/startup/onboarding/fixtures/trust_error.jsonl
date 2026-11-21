@@ -1,2 +1,2 @@
 # trust_directory.rs:424: the trust write failed.
-{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project", "error": "Failed to set trust for /workspace/project: config/batchWrite failed in TUI: Invalid configuration: features.fast_mode=true is not supported; allowed set [fast_mode=false]"}}}
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project", "error": "config/batchWrite failed in TUI: Invalid configuration: features.fast_mode=true is not supported; allowed set [fast_mode=false]"}}}

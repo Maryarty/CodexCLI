@@ -38,7 +38,7 @@ pub struct Trust {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Choice {
+enum Highlight {
     Trust,
     Cancel,
 }
@@ -56,7 +56,7 @@ pub enum Msg {
 
 /// Widget state: the highlighted choice (R14).
 pub struct TrustState {
-    highlighted: Choice,
+    highlighted: Highlight,
 }
 
 impl StatefulWidget for Trust {
@@ -64,7 +64,7 @@ impl StatefulWidget for Trust {
 
     fn create_state(&self) -> TrustState {
         TrustState {
-            highlighted: Choice::Trust,
+            highlighted: Highlight::Trust,
         }
     }
 }
@@ -78,20 +78,20 @@ impl State for TrustState {
     fn update(&mut self, msg: Msg, _: &Trust, cx: &mut Cx<'_, Self>) -> Rebuild {
         let intent = match msg {
             Msg::Up | Msg::First => {
-                self.highlighted = Choice::Trust;
+                self.highlighted = Highlight::Trust;
                 None
             }
             Msg::Down => {
-                self.highlighted = Choice::Cancel;
+                self.highlighted = Highlight::Cancel;
                 None
             }
             Msg::Cancel => {
-                self.highlighted = Choice::Cancel;
+                self.highlighted = Highlight::Cancel;
                 Some(Intent::CancelTrust)
             }
             Msg::Confirm => Some(match self.highlighted {
-                Choice::Trust => Intent::Trust,
-                Choice::Cancel => Intent::CancelTrust,
+                Highlight::Trust => Intent::Trust,
+                Highlight::Cancel => Intent::CancelTrust,
             }),
         };
         if let Some(intent) = intent {
@@ -118,6 +118,10 @@ impl State for TrustState {
             strings.numbered(1, first_choice(strings, &ask), &num),
             strings.numbered(2, cancel_choice(strings, ask.cancel), &num),
         ];
+        let error = ask
+            .error
+            .as_deref()
+            .map(|message| strings.trust_failed(&ask.target, message, &num));
         let highlighted = self.highlighted;
         let panel = LayoutBuilder::new(move |cx, constraints| {
             panel(
@@ -126,6 +130,7 @@ impl State for TrustState {
                 &look,
                 &ask,
                 &options,
+                error.as_deref(),
                 highlighted,
                 constraints.max_width,
                 constraints.max_height,
@@ -212,7 +217,8 @@ fn panel(
     look: &Look,
     ask: &TrustAsk,
     options: &[String; 2],
-    highlighted: Choice,
+    error: Option<&str>,
+    highlighted: Highlight,
     width: i32,
     height: i32,
 ) -> AnyWidget {
@@ -240,7 +246,7 @@ fn panel(
     let reserved = 1
         + rows(disclosure(strings, ask))
         + 2
-        + ask.error.as_deref().map_or(0, rows)
+        + error.map_or(0, rows)
         + rows(&hint.concat())
         + note.map_or(0, rows);
     let path_height = usize::try_from(height)
@@ -287,7 +293,7 @@ fn panel(
     column = column
         .child(inset(Text::new(disclosure(strings, ask))))
         .child(gap());
-    for (option, choice) in options.iter().zip([Choice::Trust, Choice::Cancel]) {
+    for (option, choice) in options.iter().zip([Highlight::Trust, Highlight::Cancel]) {
         let (mark, style) = if choice == highlighted {
             (strings.cursor_mark, look.selected.clone())
         } else {
@@ -296,9 +302,9 @@ fn panel(
         column = column.child(Text::new([mark, option.as_str()].concat()).style(style));
     }
     column = column.child(gap());
-    if let Some(error) = &ask.error {
+    if let Some(error) = error {
         column = column
-            .child(inset(Text::new(error.clone()).style(look.error.clone())))
+            .child(inset(Text::new(error.to_owned()).style(look.error.clone())))
             .child(gap());
     }
     let spans: Vec<Span> = hint

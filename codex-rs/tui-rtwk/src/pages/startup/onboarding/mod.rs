@@ -1,7 +1,7 @@
 //! `onboarding` (S01-S04): the startup page (architecture §1, amendment
 //! 2026-11-19b). One page whose body is the step its controller is on: the
-//! update prompt, then sign-in, provider and trust under the welcome
-//! header; model migration and import are steps of it too. Oracle:
+//! update prompt, sign-in and provider under the welcome header, then
+//! trust; model migration and import are steps of it too. Oracle:
 //! `onboarding/onboarding_screen.rs`, `update_prompt.rs`, `welcome.rs`,
 //! `onboarding/trust_directory.rs`.
 //!
@@ -115,22 +115,22 @@ impl Step {
     }
 
     /// The model's step this one is; none for a step the model does not run.
-    fn model(self) -> Option<core::Step> {
+    fn model(self) -> Option<core::Stage> {
         match self {
-            Step::Update => Some(core::Step::Update),
-            Step::SignIn => Some(core::Step::SignIn),
-            Step::Provider => Some(core::Step::Provider),
-            Step::Trust => Some(core::Step::Trust),
+            Step::Update => Some(core::Stage::Update),
+            Step::SignIn => Some(core::Stage::SignIn),
+            Step::Provider => Some(core::Stage::Provider),
+            Step::Trust => Some(core::Stage::Trust),
             Step::Migration | Step::Import => None,
         }
     }
 
-    fn of(step: core::Step) -> Step {
+    fn of(step: core::Stage) -> Step {
         match step {
-            core::Step::Update => Step::Update,
-            core::Step::SignIn => Step::SignIn,
-            core::Step::Provider => Step::Provider,
-            core::Step::Trust => Step::Trust,
+            core::Stage::Update => Step::Update,
+            core::Stage::SignIn => Step::SignIn,
+            core::Stage::Provider => Step::Provider,
+            core::Stage::Trust => Step::Trust,
         }
     }
 }
@@ -162,6 +162,14 @@ fn quits(model: &Model) -> bool {
         || model.trust.as_ref().is_some_and(|t| {
             t.decision == Some(TrustDecision::Cancelled) && t.cancel == TrustCancel::Quit
         })
+}
+
+/// Whether leaving the page opens the agents overview: the trust prompt was
+/// cancelled with that as its cancel.
+fn overview(model: &Model) -> bool {
+    model.trust.as_ref().is_some_and(|t| {
+        t.decision == Some(TrustDecision::Cancelled) && t.cancel == TrustCancel::AgentsOverview
+    })
 }
 
 /// The startup page, opened at `step`.
@@ -223,8 +231,18 @@ impl State for StartupPageState {
     fn update(&mut self, msg: Msg, _: &StartupPage, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Leave => {
-                let quit = quits(&watch::<ScreenStates, _>(cx).onboarding);
-                Navigator::maybe_pop(cx);
+                let model = &watch::<ScreenStates, _>(cx).onboarding;
+                let quit = quits(model);
+                // The trust prompt cancelled at launch opens the agents
+                // overview instead of the folder (lib.rs: `should_exit`).
+                if overview(model) {
+                    drop(Navigator::push_replacement::<(), _>(
+                        cx,
+                        crate::pages::agents::start_route(),
+                    ));
+                } else {
+                    Navigator::maybe_pop(cx);
+                }
                 if quit {
                     let hs = read::<Hs, _>(cx);
                     cx.emit(&hs.quit, ());
@@ -260,15 +278,17 @@ impl State for StartupPageState {
                 None => AnyWidget::default(),
             },
             Some(step @ (Step::SignIn | Step::Provider)) => Slot {
-                step: step.model().unwrap_or(core::Step::SignIn),
+                step: step.model().unwrap_or(core::Stage::SignIn),
             }
             .into(),
             Some(Step::Import) => crate::pages::startup::import::Screen.into(),
             Some(Step::Migration) => Screen.into(),
         };
+        // The welcome heads the sign-in screen only: the trust prompt at
+        // launch is a screen of its own (`check_directory_trust`).
         let welcome = model
             .welcome
-            .filter(|_| matches!(self.at, Some(Step::SignIn | Step::Provider | Step::Trust)));
+            .filter(|_| matches!(self.at, Some(Step::SignIn | Step::Provider)));
         let Some(welcome_model) = welcome else {
             return body;
         };
@@ -304,7 +324,7 @@ impl State for StartupPageState {
 /// draws nothing yet, and Enter marks it done.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Slot {
-    pub step: core::Step,
+    pub step: core::Stage,
 }
 
 /// Widget state of a slot step: none.

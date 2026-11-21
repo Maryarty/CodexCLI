@@ -11,6 +11,7 @@ use codex_app_server_protocol::RequestId;
 use serde::Deserialize;
 
 use crate::app::AppFx;
+use crate::app::Command as AppCommand;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -23,7 +24,7 @@ pub const KIND: Kind = Kind::Route;
 /// The steps of the startup page, in the order they run
 /// (`run_update_prompt_if_needed` before `OnboardingScreen::new`'s steps).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Step {
+pub enum Stage {
     /// S01: a newer version is available.
     Update,
     /// S02: sign in (the `onboarding` task's slot).
@@ -50,6 +51,44 @@ pub struct Model {
     pub trust: Option<TrustAsk>,
     /// The user asked to leave the app from a step (quit, Ctrl+C).
     pub exit: bool,
+    /// The launch facts were read (`Ev::Facts`): they are asked once.
+    read: bool,
+    /// The facts ask awaited: an answer under another number is stale.
+    asked: Option<Request>,
+    /// The trust write awaited: an answer under another number is stale.
+    writing: Option<Request>,
+    /// The last request number minted.
+    minted: Request,
+}
+
+/// The number of an ask of this page to the host (`Ask`): its answer carries
+/// it back, and one the page no longer waits for is dropped.
+pub type Request = u64;
+
+/// What the startup page asks the host for (the root `Command::Startup`):
+/// IO the host runs, answered with this page's events under the ask's number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// The launch facts (`Ev::Facts`): the update offered, the sign-in due,
+    /// the folder trust to ask, the welcome's animation.
+    Facts { request: Request },
+    /// Save `target` as a trusted project (`config/batchWrite`), answered
+    /// with `Ev::TrustSaved` or `Ev::TrustFailed`.
+    WriteTrust { request: Request, target: String },
+    /// Do not offer `version` again (`updates::dismiss_version`); not answered.
+    DismissUpdate { version: String },
+    /// Run the offered update once the app has ended (`UpdateAction`).
+    RunUpdate,
+}
+
+/// The launch facts the host read, all at once.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Facts {
+    pub update: Option<UpdateOffer>,
+    pub welcome: Option<Welcome>,
+    pub sign_in: bool,
+    pub provider: bool,
+    pub trust: Option<TrustAsk>,
 }
 
 /// A slot step's state: due, or done.
@@ -104,7 +143,8 @@ pub struct TrustAsk {
     pub cancel: TrustCancel,
     /// Windows: continuing creates the sandbox.
     pub sandbox_hint: bool,
-    /// The last trust write failed.
+    /// The last trust write failed: the server's message (the view says
+    /// for which folder).
     pub error: Option<String>,
     pub decision: Option<TrustDecision>,
 }
@@ -124,33 +164,33 @@ pub enum TrustDecision {
 
 impl Model {
     /// The steps due, in order: what the startup page runs.
-    pub fn steps(&self) -> Vec<Step> {
+    pub fn steps(&self) -> Vec<Stage> {
         let mut steps = Vec::new();
         if self.update.is_some() {
-            steps.push(Step::Update);
+            steps.push(Stage::Update);
         }
         if self.sign_in.is_some() {
-            steps.push(Step::SignIn);
+            steps.push(Stage::SignIn);
         }
         if self.provider.is_some() {
-            steps.push(Step::Provider);
+            steps.push(Stage::Provider);
         }
         if self.trust.is_some() {
-            steps.push(Step::Trust);
+            steps.push(Stage::Trust);
         }
         steps
     }
 
     /// Whether `step` is finished.
-    pub fn done(&self, step: Step) -> bool {
+    pub fn done(&self, step: Stage) -> bool {
         if self.exit {
             return true;
         }
         match step {
-            Step::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
-            Step::SignIn => self.sign_in.is_none_or(|d| d.done),
-            Step::Provider => self.provider.is_none_or(|d| d.done),
-            Step::Trust => self.trust.as_ref().is_none_or(|t| {
+            Stage::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
+            Stage::SignIn => self.sign_in.is_none_or(|d| d.done),
+            Stage::Provider => self.provider.is_none_or(|d| d.done),
+            Stage::Trust => self.trust.as_ref().is_none_or(|t| {
                 matches!(
                     t.decision,
                     Some(TrustDecision::Trusted | TrustDecision::Opened | TrustDecision::Cancelled)
@@ -186,10 +226,12 @@ pub enum Ev {
     SignInDue,
     ProviderDue,
     Trust(TrustAsk),
-    /// The trust write is confirmed.
-    TrustSaved,
-    /// The trust write failed with this message.
-    TrustFailed(String),
+    /// The answer to `Ask::Facts { request }`.
+    Facts { request: Request, facts: Facts },
+    /// The trust write `request` is confirmed.
+    TrustSaved { request: Request },
+    /// The trust write `request` failed with this message.
+    TrustFailed { request: Request, message: String },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -201,14 +243,46 @@ pub enum Intent {
     /// The cancel choice of the trust step.
     CancelTrust,
     /// A slot step finished.
-    SlotDone(Step),
+    SlotDone(Stage),
     /// Quit from a step.
     Exit,
+}
+
+/// Asks the host for the launch facts once the first backend is up; a new
+/// ask replaces one still awaited.
+pub fn connected(model: &mut Model, fx: &mut AppFx) {
+    if model.read {
+        return;
+    }
+    let request = mint(model);
+    model.asked = Some(request);
+    ask(fx, Ask::Facts { request });
+}
+
+fn mint(model: &mut Model) -> Request {
+    model.minted += 1;
+    model.minted
+}
+
+fn ask(fx: &mut AppFx, ask: Ask) {
+    fx.commands.push(AppCommand::Startup { ask });
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
+        Ev::Facts { request, facts } => {
+            if model.asked != Some(request) {
+                return;
+            }
+            model.asked = None;
+            model.read = true;
+            model.update = facts.update;
+            model.welcome = facts.welcome;
+            model.sign_in = facts.sign_in.then(Decided::default);
+            model.provider = facts.provider.then(Decided::default);
+            model.trust = facts.trust;
+        }
         Ev::Update {
             current,
             latest,
@@ -225,60 +299,82 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::SignInDue => model.sign_in = Some(Decided::default()),
         Ev::ProviderDue => model.provider = Some(Decided::default()),
         Ev::Trust(ask) => model.trust = Some(ask),
-        Ev::TrustSaved => {
+        Ev::TrustSaved { request } => {
+            if model.writing != Some(request) {
+                return;
+            }
+            model.writing = None;
             if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
                 t.decision = Some(TrustDecision::Trusted);
             }
         }
         // onboarding_screen.rs `persist_selected_trust`: the step stays, with
         // the error, and no choice made.
-        Ev::TrustFailed(message) => {
+        Ev::TrustFailed { request, message } => {
+            if model.writing != Some(request) {
+                return;
+            }
+            model.writing = None;
             if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
                 t.decision = None;
-                t.error = Some(format!("Failed to set trust for {}: {message}", t.target));
+                t.error = Some(message);
             }
         }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
     match intent {
         // The first choice ends the prompt: a key still buffered for it (an
         // Enter after Esc) chooses nothing (onboarding_screen.rs:1064).
         Intent::ChooseUpdate(choice) => {
             if let Some(u) = model.update.as_mut().filter(|u| u.choice.is_none()) {
                 u.choice = Some(choice);
+                match choice {
+                    UpdateChoice::UpdateNow => ask(fx, Ask::RunUpdate),
+                    UpdateChoice::Skip => {}
+                    UpdateChoice::SkipUntilNextVersion => ask(
+                        fx,
+                        Ask::DismissUpdate {
+                            version: u.latest.clone(),
+                        },
+                    ),
+                }
             }
         }
         Intent::Trust => {
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision.is_none()) {
-                t.error = None;
-                // A restricted folder opens as it is; trust is written and
-                // waited for (R9).
-                t.decision = Some(if t.restricted {
-                    TrustDecision::Opened
-                } else {
-                    TrustDecision::Saving
-                });
+            let Some(t) = model.trust.as_mut().filter(|t| t.decision.is_none()) else {
+                return;
+            };
+            t.error = None;
+            // A restricted folder opens as it is; trust is written and
+            // waited for (R9).
+            if t.restricted {
+                t.decision = Some(TrustDecision::Opened);
+                return;
             }
+            t.decision = Some(TrustDecision::Saving);
+            let target = t.target.clone();
+            let request = mint(model);
+            model.writing = Some(request);
+            ask(fx, Ask::WriteTrust { request, target });
         }
         Intent::CancelTrust => {
             if let Some(t) = model.trust.as_mut().filter(|t| t.decision != Some(TrustDecision::Saving)) {
                 t.decision = Some(TrustDecision::Cancelled);
             }
         }
-        Intent::SlotDone(Step::SignIn) => {
+        Intent::SlotDone(Stage::SignIn) => {
             if let Some(d) = model.sign_in.as_mut() {
                 d.done = true;
             }
         }
-        Intent::SlotDone(Step::Provider) => {
+        Intent::SlotDone(Stage::Provider) => {
             if let Some(d) = model.provider.as_mut() {
                 d.done = true;
             }
         }
-        Intent::SlotDone(Step::Update | Step::Trust) => {}
+        Intent::SlotDone(Stage::Update | Stage::Trust) => {}
         Intent::Exit => model.exit = true,
     }
 }
@@ -346,8 +442,6 @@ enum SeedEv {
     SignIn(()),
     Provider(()),
     Trust(SeedTrust),
-    TrustSaved(()),
-    TrustFailed(String),
 }
 
 #[derive(Deserialize)]
@@ -394,14 +488,12 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 None | Some("quit") => TrustCancel::Quit,
                 Some("agents_overview") => TrustCancel::AgentsOverview,
                 Some("current_task") => TrustCancel::CurrentTask,
-                Some(other) => return Err(bad(format!("unknown trust cancel `{other}`"))),
+                Some(other) => return Err(bad(other.to_owned())),
             },
             sandbox_hint: t.sandbox_hint,
             error: t.error,
             decision: None,
         }),
-        SeedEv::TrustSaved(()) => Ev::TrustSaved,
-        SeedEv::TrustFailed(message) => Ev::TrustFailed(message),
     })
 }
 
@@ -434,8 +526,24 @@ mod tests {
         model
     }
 
-    fn intent(model: &mut Model, intent: Intent) {
-        apply_intent(model, intent, &mut AppFx::default());
+    fn intent(model: &mut Model, intent: Intent) -> Vec<Ask> {
+        let mut fx = AppFx::default();
+        apply_intent(model, intent, &mut fx);
+        asks(fx)
+    }
+
+    fn asks(fx: AppFx) -> Vec<Ask> {
+        fx.into_commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                AppCommand::Startup { ask } => Some(ask),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn ev(model: &mut Model, ev: Ev) {
+        apply(model, ev, &mut AppFx::default());
     }
 
     // The order of `run_update_prompt_if_needed` then `OnboardingScreen::new`:
@@ -446,7 +554,7 @@ mod tests {
         let m = model(vec![trust(false), Ev::SignInDue, update(), Ev::ProviderDue]);
         assert_eq!(
             m.steps(),
-            [Step::Update, Step::SignIn, Step::Provider, Step::Trust]
+            [Stage::Update, Stage::SignIn, Stage::Provider, Stage::Trust]
         );
         assert!(m.due());
     }
@@ -456,7 +564,7 @@ mod tests {
     fn update_prompt_confirm_selects_update() {
         let mut m = model(vec![update()]);
         intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
-        assert!(m.done(Step::Update));
+        assert!(m.done(Stage::Update));
         assert_eq!(
             m.update.as_ref().and_then(|u| u.choice),
             Some(UpdateChoice::UpdateNow)
@@ -495,8 +603,8 @@ mod tests {
     fn update_prompt_ctrl_c_skips_update() {
         let mut m = model(vec![update(), trust(false)]);
         intent(&mut m, Intent::ChooseUpdate(UpdateChoice::Skip));
-        assert!(m.done(Step::Update));
-        assert!(!m.done(Step::Trust));
+        assert!(m.done(Stage::Update));
+        assert!(!m.done(Stage::Trust));
         assert!(!m.exit);
     }
 
@@ -513,7 +621,7 @@ mod tests {
             Some(UpdateChoice::Skip)
         );
         assert_eq!(m.trust_write(), None);
-        assert!(!m.done(Step::Trust));
+        assert!(!m.done(Stage::Trust));
     }
 
     // onboarding_screen.rs:1130 restricted_acceptance_and_cancellation_do_not_persist_trust
@@ -526,37 +634,102 @@ mod tests {
             Some(TrustDecision::Opened)
         );
         assert_eq!(m.trust_write(), None);
-        assert!(m.done(Step::Trust));
+        assert!(m.done(Stage::Trust));
         let mut m = model(vec![trust(false)]);
         intent(&mut m, Intent::CancelTrust);
         assert_eq!(m.trust_write(), None);
-        assert!(m.done(Step::Trust));
+        assert!(m.done(Stage::Trust));
     }
 
     // onboarding_screen.rs:1162 trust_persistence_failure_keeps_trust_step_in_progress
     #[test]
     fn trust_persistence_failure_keeps_trust_step_in_progress() {
         let mut m = model(vec![trust(false)]);
-        intent(&mut m, Intent::Trust);
+        let write = intent(&mut m, Intent::Trust);
+        assert_eq!(
+            write,
+            [Ask::WriteTrust {
+                request: 1,
+                target: "/workspace/project".into()
+            }]
+        );
         assert_eq!(m.trust_write(), Some("/workspace/project"));
-        assert!(!m.done(Step::Trust));
-        apply(
+        assert!(!m.done(Stage::Trust));
+        ev(
             &mut m,
-            Ev::TrustFailed("config/batchWrite failed".into()),
-            &mut AppFx::default(),
+            Ev::TrustFailed {
+                request: 1,
+                message: "config/batchWrite failed".into(),
+            },
         );
         let t = m.trust.as_ref().expect("trust");
         assert_eq!(t.decision, None);
         assert_eq!(
             t.error.as_deref(),
-            Some("Failed to set trust for /workspace/project: config/batchWrite failed")
+            Some("config/batchWrite failed")
         );
-        assert!(!m.done(Step::Trust));
+        assert!(!m.done(Stage::Trust));
         intent(&mut m, Intent::Trust);
         assert_eq!(m.trust.as_ref().and_then(|t| t.error.clone()), None);
-        apply(&mut m, Ev::TrustSaved, &mut AppFx::default());
-        assert!(m.done(Step::Trust));
+        // The first write's answer is stale now: the second one is awaited.
+        ev(&mut m, Ev::TrustSaved { request: 1 });
+        assert!(!m.done(Stage::Trust));
+        ev(&mut m, Ev::TrustSaved { request: 2 });
+        assert!(m.done(Stage::Trust));
         assert!(!m.due());
+    }
+
+    // The facts are asked once the first backend is up; only the answer to
+    // the ask awaited is applied, and a read model asks no more.
+    #[test]
+    fn launch_facts_are_asked_once_and_stale_answers_dropped() {
+        let mut m = Model::default();
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        connected(&mut m, &mut fx);
+        assert_eq!(
+            asks(fx),
+            [Ask::Facts { request: 1 }, Ask::Facts { request: 2 }]
+        );
+        let facts = Facts {
+            sign_in: true,
+            welcome: Some(Welcome { animations: true }),
+            ..Facts::default()
+        };
+        ev(
+            &mut m,
+            Ev::Facts {
+                request: 1,
+                facts: facts.clone(),
+            },
+        );
+        assert!(!m.due(), "the replaced ask's answer is dropped");
+        ev(&mut m, Ev::Facts { request: 2, facts });
+        assert_eq!(m.steps(), [Stage::SignIn]);
+        assert!(m.due());
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        assert_eq!(asks(fx), []);
+    }
+
+    // update_prompt.rs:96: "not now" persists nothing, "don't remind me"
+    // dismisses the version, "update now" runs it after the app ends.
+    #[test]
+    fn update_choices_ask_the_host() {
+        let mut m = model(vec![update()]);
+        assert_eq!(
+            intent(&mut m, Intent::ChooseUpdate(UpdateChoice::SkipUntilNextVersion)),
+            [Ask::DismissUpdate {
+                version: "9.9.9".into()
+            }]
+        );
+        let mut m = model(vec![update()]);
+        assert_eq!(intent(&mut m, Intent::ChooseUpdate(UpdateChoice::Skip)), []);
+        let mut m = model(vec![update()]);
+        assert_eq!(
+            intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow)),
+            [Ask::RunUpdate]
+        );
     }
 
     // A quit from a step ends the page and the app (`should_exit`).

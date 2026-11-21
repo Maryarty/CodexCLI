@@ -104,7 +104,15 @@ fn submit(app: &mut CodexApp, text: &str) -> AppFx {
 fn connected_starts_the_first_thread() {
     let mut app = app();
     let fx = run(&mut app, AppEv::Connected);
-    assert_eq!(fx.commands().len(), 1);
+    // The thread start, and the startup page's launch facts (startup-flow).
+    assert_eq!(fx.commands().len(), 2);
+    assert!(
+        fx.commands()
+            .iter()
+            .any(|c| matches!(c, Command::Startup { .. })),
+        "{:?}",
+        fx.commands()
+    );
     start_thread_ticket(&fx);
     assert_eq!(app.session().status, Session::Starting);
 }
