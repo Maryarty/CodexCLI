@@ -10,6 +10,8 @@ use codex_tui_core::screens::onboarding::{
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 
+mod gateway;
+
 fn send(app: &mut CodexApp, ev: AppEv) {
     let mut fx = AppFx::default();
     apply_app(app, ev, &mut fx);

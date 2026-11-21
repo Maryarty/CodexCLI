@@ -38,6 +38,7 @@ use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::protocol;
 use codex_tui_core::rpc::ServerError;
+use codex_tui_core::screens::onboarding::auth::provider::wire;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_core::screens::agents::Grouping as AgentsGrouping;
@@ -297,7 +298,7 @@ async fn run(
     }));
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
     // The startup page's asks: the trust is a local folder's question.
-    let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<Arc<Config>>();
+    let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<crate::startup::Restart>();
     let startup = crate::startup::Startup {
         current: Arc::new(tokio::sync::RwLock::new(config.clone())),
         restart,
@@ -370,7 +371,7 @@ async fn run(
         let mut lost = false;
         // The provider changed with the reload: the server is started again
         // after the select, when the client is no longer borrowed.
-        let mut restart: Option<Arc<Config>> = None;
+        let mut restart: Option<crate::startup::Restart> = None;
         tokio::select! {
             event = client.next_event() => match event {
                 None | Some(AppServerEvent::Disconnected { .. }) => lost = true,
@@ -416,19 +417,23 @@ async fn run(
             },
             // The reloaded config changed the provider: the embedded server
             // starts again with it (lib.rs:2079-2110).
-            Some(config) = restarts.recv() => restart = Some(config),
+            Some(next) = restarts.recv() => restart = Some(next),
             Some(done) = inflight.next(), if !inflight.is_empty() => {
                 if let Some(ev) = done {
                     emit(&ingress, epoch, ev);
                 }
             }
         }
-        if let Some(config) = restart.take() {
+        if let Some(crate::startup::Restart { config, done }) = restart.take() {
             match connect_first(&mode, &config, arg0_paths.clone()).await {
                 Ok((restarted, _)) => {
                     handle = restarted.request_handle();
                     if let Some(old) = held.replace(restarted) {
                         let _ = old.shutdown().await;
+                    }
+                    // The commands after this one talk to the new server.
+                    if let Some(done) = done {
+                        let _ = done.send(());
                     }
                 }
                 Err(error) => emit(&ingress, epoch, AppEv::StartFailed(error)),
@@ -623,12 +628,14 @@ pub(crate) fn work(
 
 /// The client of the shell's effects: one request over the handle. A
 /// server's refusal keeps its JSON-RPC code (the pin read tells "no pins" by
-/// it); the message is the client's own text.
+/// it); the message is the client's own text, but for the requests whose
+/// refusal the oracle shows as the server's message ([`error_text`]).
 pub(crate) fn sender(
     handle: AppServerRequestHandle,
 ) -> impl Fn(ClientRequest) -> Boxed<Result<serde_json::Value, ServerError>> {
     move |request: ClientRequest| {
         let handle = handle.clone();
+        let own_message = wire::reads_message_only(&request);
         Box::pin(async move {
             handle
                 .request_typed::<serde_json::Value>(request)
@@ -638,9 +645,21 @@ pub(crate) fn sender(
                         TypedRequestError::Server { source, .. } => Some(source.code),
                         _ => None,
                     },
-                    message: error.to_string(),
+                    message: error_text(own_message, &error),
                 })
         })
+    }
+}
+
+/// The text of a failed request. The oracle's GCP setup and gateway wizard
+/// (`own_message`) read `source.message` of a server's refusal, so the
+/// message is the server's own, without `<method> failed: ... (code n)`;
+/// everything else (and every other kind of failure) is the client's text
+/// (`error.to_string()`), which core's callers wrap as the oracle does.
+fn error_text(own_message: bool, error: &TypedRequestError) -> String {
+    match error {
+        TypedRequestError::Server { source, .. } if own_message => source.message.clone(),
+        _ => error.to_string(),
     }
 }
 
@@ -697,5 +716,45 @@ mod tests {
         assert!(rx.try_recv().is_err(), "still held");
         drop(future);
         assert_eq!(rx.try_recv().ok(), Some(7));
+    }
+
+    fn refusal(method: &str, message: &str) -> TypedRequestError {
+        TypedRequestError::Server {
+            method: method.to_owned(),
+            source: codex_app_server_protocol::JSONRPCErrorError {
+                code: -32600,
+                message: message.to_owned(),
+                data: None,
+            },
+        }
+    }
+
+    // The gateway wizard's error text is the oracle's `source.message`, so a
+    // refusal reads as the server wrote it; every other request keeps the
+    // client's `<method> failed: ... (code n)`.
+    #[test]
+    fn a_wizards_refusal_is_the_servers_message_and_the_rest_keep_the_client_text() {
+        let error = refusal(
+            "modelProvider/list",
+            "Enter an HTTP(S) base URL without credentials, a query, or a fragment.",
+        );
+        assert_eq!(
+            error_text(true, &error),
+            "Enter an HTTP(S) base URL without credentials, a query, or a fragment."
+        );
+        assert_eq!(
+            error_text(false, &error),
+            "modelProvider/list failed: Enter an HTTP(S) base URL without credentials, a query, or a fragment. (code -32600)"
+        );
+    }
+
+    // Only a server's refusal has a message of its own to read.
+    #[test]
+    fn a_failure_that_is_not_a_refusal_keeps_the_client_text() {
+        let error = TypedRequestError::Transport {
+            method: "modelProvider/list".to_owned(),
+            source: std::io::Error::other("closed"),
+        };
+        assert_eq!(error_text(true, &error), error.to_string());
     }
 }

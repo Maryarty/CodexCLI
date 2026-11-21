@@ -120,6 +120,21 @@ pub fn request(setup: &Setup, request_id: RequestId) -> ClientRequest {
     }
 }
 
+/// Whether a server's refusal of this request is shown as the server's own
+/// message, without the client's `<method> failed: ... (code n)` frame: the
+/// oracle reads `source.message` for the GCP setup and the gateway wizard's
+/// requests (`gcp.rs`, `app/provider/rpc.rs`); the Bedrock ones and every
+/// other request show the client's text (`error.to_string()`).
+pub fn reads_message_only(request: &ClientRequest) -> bool {
+    match request {
+        ClientRequest::GcpSetup { .. }
+        | ClientRequest::ModelProviderList { .. }
+        | ClientRequest::ModelProviderConfigWrite { .. } => true,
+        ClientRequest::ConfigValueWrite { params, .. } => params.key_path == "model_provider",
+        _ => false,
+    }
+}
+
 fn read<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, String> {
     serde_json::from_value(value).map_err(|err| err.to_string())
 }
@@ -320,6 +335,24 @@ mod tests {
         ));
     }
 
+    // The oracle's GCP and gateway requests show `source.message`; Bedrock's
+    // show the client's whole text, as does any other request.
+    #[test]
+    fn only_the_gcp_and_gateway_requests_read_the_servers_message() {
+        let id = || RequestId::Integer(1);
+        for setup in [Setup::GatewayList, Setup::GatewaySelect("office".into())] {
+            assert!(reads_message_only(&request(&setup, id())), "{setup:?}");
+        }
+        for setup in [
+            Setup::BedrockDiscover,
+            bedrock(Credential::ApiKey("k".into())),
+            bedrock(Credential::Profile("p".into())),
+        ] {
+            assert!(!reads_message_only(&request(&setup, id())), "{setup:?}");
+        }
+        assert!(!reads_message_only(&crate::protocol::onboarding::account_read(id())));
+    }
+
     #[test]
     fn answers_are_read_by_their_setup() {
         let discovered = outcome(
@@ -458,6 +491,7 @@ mod tests {
             Err("Managed.".into())
         );
         let request = request(&setup, RequestId::Integer(1));
+        assert!(reads_message_only(&request));
         assert!(matches!(
             request,
             ClientRequest::ConfigValueWrite { params, .. } if params.key_path == "model_provider"

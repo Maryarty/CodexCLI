@@ -12,6 +12,10 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::ConfigReadParams;
+use codex_app_server_protocol::GatewayOAuthLoginParams;
+use codex_app_server_protocol::GatewayOAuthReadParams;
+use codex_app_server_protocol::GatewayOAuthReadResponse;
+use codex_app_server_protocol::GatewayOAuthStatus;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::LoginAccountParams;
@@ -153,6 +157,62 @@ pub fn login_outcome(login: &Login, result: Result<Value, ServerError>) -> Outco
         (_, Ok(other)) => Outcome::Failed(Error::Unexpected(format!("{other:?}"))),
         (_, Err(error)) => Outcome::Failed(Error::Server(error.to_string())),
     }
+}
+
+/// `account/gatewayOAuth/read` for the provider (`start_gateway_oauth`).
+pub fn gateway_oauth_read(provider_id: &str, request_id: RequestId) -> ClientRequest {
+    ClientRequest::GatewayOAuthRead {
+        request_id,
+        params: Some(GatewayOAuthReadParams {
+            model_provider: Some(provider_id.to_owned()),
+        }),
+    }
+}
+
+/// `account/gatewayOAuth/login` for the provider: the browser way (the
+/// device code is the startup's own, `device_login::start_if_needed`).
+pub fn gateway_oauth_login(provider_id: &str, request_id: RequestId) -> ClientRequest {
+    ClientRequest::GatewayOAuthLogin {
+        request_id,
+        params: Some(GatewayOAuthLoginParams {
+            model_provider: Some(provider_id.to_owned()),
+            ..GatewayOAuthLoginParams::default()
+        }),
+    }
+}
+
+/// `account/gatewayOAuth/cancel` (`GatewayOAuthCancel`).
+pub fn gateway_oauth_cancel(request_id: RequestId) -> ClientRequest {
+    ClientRequest::GatewayOAuthCancel {
+        request_id,
+        params: None,
+    }
+}
+
+/// Where the provider's sign-in stands, out of `account/gatewayOAuth/read`'s
+/// result; the text of the error as the oracle shows it.
+pub fn gateway_oauth_state(value: Value) -> Result<GatewayOAuthReadResponse, String> {
+    serde_json::from_value(value)
+        .map_err(|error| format!("account/gatewayOAuth/read response decode error: {error}"))
+}
+
+/// `needs_device_login` but for the preference, which is asked of the
+/// machine only when this holds: the provider uses OAuth, the server has a
+/// device endpoint and the credential is missing or failed.
+pub fn device_login_possible(state: &GatewayOAuthReadResponse) -> bool {
+    state.required
+        && state.supports_device_auth
+        && matches!(
+            state.status,
+            Some(GatewayOAuthStatus::NotReady | GatewayOAuthStatus::Failed)
+        )
+}
+
+/// Whether `start_gateway_oauth` asks the server to log in: the provider
+/// uses OAuth, is not signed in yet, and the device code is not the way
+/// (`device` is `needs_device_login`).
+pub fn gateway_oauth_login_due(state: &GatewayOAuthReadResponse, device: bool) -> bool {
+    state.required && state.status != Some(GatewayOAuthStatus::Succeeded) && !device
 }
 
 /// `config/read` with the layers for `cwd`: what the folder trust is read from.

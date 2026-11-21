@@ -8,6 +8,7 @@
 //! the sign-in step (S02) is `auth`.
 
 pub mod auth;
+pub mod gateway;
 
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
@@ -77,6 +78,9 @@ pub struct Model {
     /// The startup prompts due at launch not asked yet, in order (S05:
     /// the hooks review, the model migration).
     pub prompts: Vec<startup::Prompt>,
+    /// The selected gateway's own sign-in, run after the steps
+    /// (`authenticate_gateway`).
+    gateway: gateway::Phase,
 }
 
 /// The number of an ask of this page to the host (`Ask`): its answer carries
@@ -141,6 +145,31 @@ pub enum Ask {
     /// (`notice.hide_gov_cloud_guidance`); not answered, a failed write is
     /// only logged.
     AcknowledgeGovCloud,
+    /// The gateway `provider_id` was selected: read the configuration again,
+    /// check it selects that gateway and start the embedded server with it
+    /// (`lib.rs`' `selected_gateway`), answered with `Ev::GatewayStarted`. A
+    /// configuration that cannot be read, or selects another provider, ends
+    /// the launch with its message.
+    SelectGateway {
+        request: Request,
+        provider_id: String,
+    },
+    /// Read the account and the provider on the server of the selected
+    /// gateway (`authenticate_gateway`), answered with `Ev::GatewayLogins`.
+    GatewayLogins {
+        request: Request,
+        provider_id: String,
+    },
+    /// Sign in to the gateway (`start_gateway_oauth`: read the status,
+    /// log in unless the device code is the way), answered with
+    /// `Ev::GatewayOAuth`.
+    GatewayOAuth {
+        request: Request,
+        provider_id: String,
+    },
+    /// Cancel the gateway sign-in on the way out
+    /// (`GatewayOAuthCancel`); not answered.
+    CancelGatewayOAuth,
     /// Refresh the update cache over the network (`check_for_update`), asked
     /// once after the facts that found it stale; not answered, a failure is
     /// only logged.
@@ -262,7 +291,11 @@ impl Model {
                 Some(UpdateChoice::UpdateNow) => self.update_queued,
                 Some(UpdateChoice::Skip | UpdateChoice::SkipUntilNextVersion) => true,
             }),
-            Stage::SignIn => self.sign_in.as_ref().is_none_or(auth::SignIn::done),
+            // A selected gateway still has to sign in on its own server.
+            Stage::SignIn => self
+                .sign_in
+                .as_ref()
+                .is_none_or(|s| s.done() && !self.gateway.active()),
             Stage::Provider => self.provider.is_none_or(|d| d.done),
             Stage::Trust => self.trust.as_ref().is_none_or(|t| {
                 matches!(
@@ -271,6 +304,12 @@ impl Model {
                 )
             }),
         }
+    }
+
+    /// Where the selected gateway's own sign-in stands (it runs after the
+    /// steps).
+    pub fn gateway(&self) -> &gateway::Phase {
+        &self.gateway
     }
 
     /// Whether the app opens on the startup page: a step is not finished,
@@ -374,6 +413,25 @@ pub enum Ev {
         request: Request,
         prompts: Vec<startup::Prompt>,
     },
+    /// The answer to `Ask::SelectGateway { request, .. }`: the server runs
+    /// with the selected gateway.
+    GatewayStarted { request: Request },
+    /// The answer to `Ask::GatewayLogins { request, .. }`.
+    GatewayLogins {
+        request: Request,
+        logins: gateway::Logins,
+    },
+    /// The answer to `Ask::GatewayOAuth { request, .. }`: signed in, or the
+    /// message the sign-in failed with.
+    GatewayOAuth {
+        request: Request,
+        result: Result<(), String>,
+    },
+    /// `account/gatewayOAuth/changed`: the page to finish the sign-in in.
+    GatewayOAuthChanged {
+        provider_id: String,
+        auth_url: Option<String>,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -388,6 +446,8 @@ pub enum Intent {
     SlotDone(Stage),
     /// The sign-in step's.
     SignIn(auth::Intent),
+    /// Enter on the gateway's failed sign-in: try again.
+    RetryGatewayOAuth,
     /// Quit from a step.
     Exit,
     /// The first startup prompt due was put on screen (the page asked it
@@ -413,6 +473,10 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
                 )
             ),
         },
+        ServerNotification::GatewayOAuthChanged(change) => Ev::GatewayOAuthChanged {
+            provider_id: change.provider_id.clone(),
+            auth_url: change.auth_url.clone(),
+        },
         _ => return,
     };
     apply(model, ev, fx);
@@ -423,7 +487,7 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
 pub fn connected(model: &mut Model, fx: &mut AppFx) {
     if model.read {
         // A launch ask lost with the connection is asked again.
-        follow_launch(model, fx);
+        follow(model, fx);
         return;
     }
     let request = mint(model);
@@ -438,6 +502,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 /// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
     model.launching = None;
+    gateway::lost(model);
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -464,6 +529,13 @@ fn ask(fx: &mut AppFx, ask: Ask) {
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     apply_ev(model, ev, fx);
+    follow(model, fx);
+}
+
+/// What follows a change: the selected gateway's sign-in once the steps are
+/// over, then the launch.
+fn follow(model: &mut Model, fx: &mut AppFx) {
+    gateway::follow(model, fx);
     follow_launch(model, fx);
 }
 
@@ -477,6 +549,13 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.launched = true;
             model.prompts = prompts;
         }
+        Ev::GatewayStarted { request } => gateway::started(model, request, fx),
+        Ev::GatewayLogins { request, logins } => gateway::logins(model, request, logins, fx),
+        Ev::GatewayOAuth { request, result } => gateway::oauth(model, request, result),
+        Ev::GatewayOAuthChanged {
+            provider_id,
+            auth_url,
+        } => gateway::changed(model, &provider_id, auth_url, fx),
         Ev::Facts { request, facts } => {
             if model.asked != Some(request) {
                 return;
@@ -594,7 +673,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     apply_intent_inner(model, intent, fx);
-    follow_launch(model, fx);
+    follow(model, fx);
 }
 
 fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
@@ -672,7 +751,9 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::SlotDone(Stage::SignIn | Stage::Update | Stage::Trust) => {}
+        Intent::RetryGatewayOAuth => gateway::retry(model, fx),
         Intent::Exit => {
+            gateway::exit(model, fx);
             // `cancel_auth_if_active`: a login started is cancelled on the
             // way out.
             if let Some(sign_in) = model.sign_in.as_mut().filter(|s| !s.done()) {

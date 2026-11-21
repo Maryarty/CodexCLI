@@ -5,6 +5,7 @@
 
 mod cloud;
 mod facts;
+mod gateway;
 mod import;
 mod in_process;
 mod launch;

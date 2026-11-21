@@ -43,7 +43,8 @@ use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::chat::Ev as ChatEv;
-use codex_tui_core::screens::onboarding::auth::{AuthResult, Providers};
+use codex_tui_core::screens::onboarding::auth::{AuthResult, Offer, Providers};
+use codex_tui_core::screens::onboarding::gateway::Logins;
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 pub use codex_tui_rtwk::services::startup::Browser;
@@ -105,7 +106,15 @@ pub struct Startup {
     pub current: crate::launch::ConfigSlot,
     /// Restarts the embedded server with a reloaded config whose provider
     /// changed (lib.rs: `config.model_provider_id != previous_provider`).
-    pub restart: tokio::sync::mpsc::UnboundedSender<Arc<Config>>,
+    pub restart: tokio::sync::mpsc::UnboundedSender<Restart>,
+}
+
+/// A restart of the embedded server with a config. `done` answers once the
+/// new server is the one the app talks to (the gateway's sign-in reads its
+/// account next); a reload that only changed the provider does not wait.
+pub struct Restart {
+    pub config: Arc<Config>,
+    pub done: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 /// Loads the config as the launch did; the text of the error when it fails.
@@ -270,7 +279,10 @@ where
                     *slot = config.clone();
                     drop(slot);
                     if config.model_provider_id != previous && startup.target == Target::Embedded {
-                        let _ = startup.restart.send(config.clone());
+                        let _ = startup.restart.send(Restart {
+                            config: config.clone(),
+                            done: None,
+                        });
                     }
                     let status = crate::facts::status(&config).await;
                     AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status))))
@@ -321,6 +333,102 @@ where
         Ask::AcknowledgeGovCloud => {
             let config = startup.current.read().await.clone();
             crate::providers::acknowledge_gov_cloud(&config).await;
+            return None;
+        }
+        Ask::SelectGateway {
+            request,
+            provider_id,
+        } => {
+            // `lib.rs` after `selected_gateway`: the config is read again
+            // and must select that gateway, then the embedded server starts
+            // with it.
+            let mut slot = startup.current.write().await;
+            let selected = match (startup.reload)().await {
+                Ok(config) => config,
+                Err(error) => {
+                    return Some(fail_launch(
+                        &startup,
+                        format!("Error loading configuration: {error}"),
+                    ));
+                }
+            };
+            if selected.model_provider_id != provider_id {
+                return Some(fail_launch(
+                    &startup,
+                    format!(
+                        "The current configuration selects {} instead of {provider_id}.",
+                        selected.model_provider_id
+                    ),
+                ));
+            }
+            let config = Arc::new(selected);
+            *slot = config.clone();
+            drop(slot);
+            let (done, started) = tokio::sync::oneshot::channel();
+            let restart = Restart {
+                config,
+                done: Some(done),
+            };
+            // A server that did not start has already ended the app
+            // (`StartFailed`): nothing to answer.
+            if startup.restart.send(restart).is_err() || started.await.is_err() {
+                return None;
+            }
+            Ev::GatewayStarted { request }
+        }
+        Ask::GatewayLogins { request, .. } => {
+            // `authenticate_gateway`: `get_login_status` on the new server,
+            // and whether the provider has a gateway OAuth.
+            let config = startup.current.read().await.clone();
+            let account = match send(wire::account_read(ids.next())).await {
+                Ok(account) => account,
+                Err(error) => {
+                    return Some(fail_launch(
+                        &startup,
+                        format!("account/read failed: {error}"),
+                    ));
+                }
+            };
+            let primary = match wire::sign_in_due(account) {
+                Ok(due) => due,
+                Err(error) => {
+                    let (RpcError::Remote(text) | RpcError::Malformed(text)) = &error else {
+                        return Some(fail_launch(&startup, "account/read failed".to_owned()));
+                    };
+                    return Some(fail_launch(&startup, format!("account/read failed: {text}")));
+                }
+            };
+            let auth = config.auth_config();
+            Ev::GatewayLogins {
+                request,
+                logins: Logins {
+                    primary,
+                    oauth: config.model_provider.gateway_oauth.is_some(),
+                    offer: Offer {
+                        chatgpt: auth.is_login_method_allowed(ForcedLoginMethod::Chatgpt),
+                        api_key: auth.is_login_method_allowed(ForcedLoginMethod::Api),
+                        providers: Providers::default(),
+                        env_api_key: read_openai_api_key_from_env(),
+                    },
+                },
+            }
+        }
+        Ask::GatewayOAuth {
+            request,
+            provider_id,
+        } => {
+            let result = crate::gateway::authenticate(
+                &provider_id,
+                &ids,
+                &send,
+                crate::gateway::prefer_device_login(),
+            )
+            .await;
+            Ev::GatewayOAuth { request, result }
+        }
+        Ask::CancelGatewayOAuth => {
+            // `authenticate_gateway`: the oracle ignores the answer.
+            let _ = send(wire::gateway_oauth_cancel(ids.next())).await;
             return None;
         }
         Ask::CancelLogin { login_id } => {
