@@ -19,7 +19,9 @@ Failed(Failure)}`, `Group { kind }`, `Finished { by_type }`, `Model::error` is t
 text); every word (group and item labels, nouns, detail lines, the notices of the history, the
 errors, the source names) is told in the view from that data (ADR-010). The review's navigation
 (summary or checklist, the cursor, the highlighted action) is the view's own state (widget
-state of `Screen`; focus is two `FocusNode`s, the checklist and the actions, with `KeyBindings`
+state of `Screen`; focus is two `FocusNode`s, the checklist and the actions, with `KeyBindings`,
+the cursor of each region a `SelectionController<usize>`, the checklist's scroll a `ListController`:
+the controllers are the only holders of cursor and scroll
 layers), never a field of the model; `Model::review_id` counts the reviews opened so the state
 is for the review it opened on. ADR-003: one model, changed only by `apply`; the view emits intents
 (`Open`, `Source(id)`, `Toggle(index)`, `SetAll`, `Proceed`, `Cancel`); answers carry the
@@ -71,7 +73,24 @@ the oracle's names.
   with the checkbox part of the highlighted text; the `Panel` indents its titles and is bound
   to the startup model's prompts.
 * Focus keys (I3): Up/Down move in the checklist and walk into the actions past its ends (and
-  back), Tab is rtwk's own; Enter toggles in the checklist and runs in the actions.
+  back), Tab is rtwk's own; Enter toggles in the checklist and runs in the actions. The step is
+  `session_list::target(.., Move::Step, ..)` over the region's `SelectionController`; a step that
+  wrapped hands the focus to the other region (summary actions just go round).
+* import-review-ctrl: the rows read their cursor in a `ListenableBuilder` over the region's
+  controller (as `widgets/session_list.rs`); the list is the `Flexible` (loose) of the review's
+  `Column`, so the room comes from the layout, not from counting the other lines. `ListView`
+  has no shrink-wrap (a loose `Flexible` around it fills the room: probe, blank rows under a
+  short summary at 80x18), so its box is `SizedBox(height = number of rows)` (one cell per
+  row, `item_extent(1)`) that the `Flexible` clamps to the room. Test:
+  `tests/pages/import.rs::flow::the_checklist_scrolls_to_the_cursor_in_the_room_the_other_lines_leave`
+  (80x13: the room is three rows, the window follows the cursor).
+* `source.rs` stays as it is, not the startup prompts' `Panel` (import-review-ctrl, checked): the
+  `Panel` reads `ScreenStates.startup.open` (a `Prompt` of the startup model) and its keys, rows
+  and answers are that model's `Cmd`/`Reaction`; the import's source rows and answers
+  (`Source(id)`, `Cancel`) are the import model's, and the oracle's title is not indented. Using
+  it would need a startup `Prompt` variant for the import (core change in the startup model) or a
+  generic panel extracted from `Panel`; neither is inside this task's area. What the two share
+  is already shared: `Options` (cursor and scroll) and `Tokens::prompt_surface`.
 * Behaviour added beyond the oracle: Escape and Ctrl+C during the detection and in the source
   prompt cancel the flow (the oracle has no key while it asks the server).
 

@@ -537,6 +537,33 @@ mod flow {
         );
     }
 
+    /// A short terminal: the checklist is the room the other lines leave.
+    fn short_review() -> Harness {
+        let mut h = crate::common::start_sized(false, 80, 13);
+        h.fake.respond(answer_two);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        h
+    }
+
+    #[test]
+    fn the_checklist_scrolls_to_the_cursor_in_the_room_the_other_lines_leave() {
+        // oracle: `render_ref` gives the list what is left, down to one row,
+        // and the window follows the highlighted item
+        let mut h = short_review();
+        h.press("c");
+        h.wait_for("the checklist", |s| s.contains("› [x] Settings"));
+        assert!(!shows(&h, "Memory"), "{}", h.t.screen());
+        assert!(shows(&h, "Selected 2 of 2 items."), "{}", h.t.screen());
+        h.press("down");
+        assert!(shows(&h, "› [x] Memory"), "{}", h.t.screen());
+        assert!(!shows(&h, "Home"), "{}", h.t.screen());
+        assert!(shows(&h, "1. Review selection"), "{}", h.t.screen());
+        h.press("up");
+        assert!(shows(&h, "› [x] Settings"), "{}", h.t.screen());
+    }
+
     #[test]
     fn enter_on_the_back_action_returns_to_the_summary() {
         let mut h = review();

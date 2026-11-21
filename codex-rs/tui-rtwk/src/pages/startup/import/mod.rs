@@ -8,14 +8,18 @@
 
 use std::rc::Rc;
 
+use rtwk::controls::SelectionController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings};
-use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, SizedBox};
+use rtwk::foundation::ListenableBuilder;
+use rtwk::layout::{
+    Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, MainAxisSize, Padding, SizedBox,
+};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
 use rtwk::scroll::{ListController, ListView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
-use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::import::{self as import, Intent as ImportIntent, Mark, Phase};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
@@ -27,6 +31,7 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
+use crate::widgets::session_list::{Move, target};
 
 pub mod labels;
 pub mod notices;
@@ -133,10 +138,11 @@ pub struct Screen;
 
 /// Widget state. The review is two regions, as a Flutter form of a checkbox
 /// list over a button row would be: the checklist and the actions under it,
-/// each a `Focus` node with its own keys; what has the focus is the nodes'
-/// (`has_focus`), the cursor of a region is the row its keys moved to, and the
-/// checklist scrolls with rtwk's controller. Nothing of the model is kept
-/// here (R14: the page, two cursors, the nodes, the review they are for).
+/// each a `Focus` node with its own keys and a `SelectionController` for its
+/// cursor; what has the focus is the nodes' (`has_focus`), the checklist
+/// scrolls with rtwk's `ListController`. The controllers are the only holders
+/// of cursor and scroll; nothing of the model is kept here (R14: the page, the
+/// controllers, the nodes, the review they are for).
 #[derive(Debug)]
 pub struct ScreenState {
     list: ListController,
@@ -146,9 +152,9 @@ pub struct ScreenState {
     items: FocusNode,
     actions: FocusNode,
     /// The checklist's cursor (an index of the model's `items`, or of its
-    /// `groups` in the summary) and the action's (an index of `actions`).
-    item: usize,
-    action: usize,
+    /// `groups` in the summary) and the actions' (an index of `actions`).
+    item: SelectionController<usize>,
+    action: SelectionController<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,8 +195,8 @@ impl StatefulWidget for Screen {
             review_for: 0,
             items: FocusNode::new(),
             actions: FocusNode::new(),
-            item: 0,
-            action: 0,
+            item: SelectionController::new(),
+            action: SelectionController::new(),
         }
     }
 }
@@ -235,37 +241,18 @@ impl State for ScreenState {
         match msg {
             Msg::Focus(_) => {}
             Msg::Intent(it) => intent = Some(it),
-            Msg::ItemUp => match self.item.checked_sub(1) {
-                Some(at) => self.item = at,
-                None => self.go_to_actions(model, false),
-            },
-            Msg::ItemDown => {
-                if self.item + 1 < self.item_count(model) {
-                    self.item += 1;
-                } else {
-                    self.go_to_actions(model, true);
-                }
+            Msg::ItemUp => self.walk(Region::Items, false, model),
+            Msg::ItemDown => self.walk(Region::Items, true, model),
+            Msg::ActionUp => self.walk(Region::Actions, false, model),
+            Msg::ActionDown => self.walk(Region::Actions, true, model),
+            Msg::Toggle => {
+                intent = customize.then_some(ImportIntent::Toggle(self.item.cursor().unwrap_or(0)))
             }
-            Msg::ActionUp => match self.action.checked_sub(1) {
-                Some(at) => self.action = at,
-                None if customize => self.go_to_items(model, false),
-                None => self.action = actions(self.view, model).len().saturating_sub(1),
-            },
-            Msg::ActionDown => {
-                if self.action + 1 < actions(self.view, model).len() {
-                    self.action += 1;
-                } else if customize {
-                    self.go_to_items(model, true);
-                } else {
-                    self.action = 0;
-                }
-            }
-            Msg::Toggle => intent = customize.then_some(ImportIntent::Toggle(self.item)),
             Msg::Run => intent = self.run(model),
             Msg::Number(number) => {
                 let at = usize::from(number).checked_sub(1);
                 if let Some(at) = at.filter(|at| *at < actions(self.view, model).len()) {
-                    self.action = at;
+                    self.action.set_cursor(Some(at));
                     self.actions.request_focus();
                     intent = self.run(model);
                 }
@@ -301,6 +288,8 @@ impl State for ScreenState {
     fn dispose(&mut self) {
         self.items.dispose();
         self.actions.dispose();
+        self.item.dispose();
+        self.action.dispose();
     }
 
     fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -353,18 +342,18 @@ impl State for ScreenState {
             list: self.list.clone(),
             items: self.items.clone(),
             actions: self.actions.clone(),
+            item: self.item.clone(),
+            action: self.action.clone(),
             checklist,
             buttons,
             focus: (cx.map(Msg::Focus), cx.map(Msg::Focus)),
         };
-        let cursors = (self.item, self.action);
         let body = review(
             &look,
             strings::of(cx),
             shared::of(cx).num,
             screens,
             self.view,
-            cursors,
             regions,
         );
         KeyBindings::new(page, body).into()
@@ -372,6 +361,13 @@ impl State for ScreenState {
 }
 
 const DIGITS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+/// The two regions of the review.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Region {
+    Items,
+    Actions,
+}
 
 impl ScreenState {
     /// How many entries the checklist has in the view: the groups of the
@@ -388,8 +384,8 @@ impl ScreenState {
     /// actions otherwise.
     fn show(&mut self, view: View, model: &import::Model) {
         self.view = view;
-        self.item = 0;
-        self.action = 0;
+        self.item.set_cursor(Some(0));
+        self.action.set_cursor(Some(0));
         self.list.jump_to_index(0);
         let customize = view == View::Customize && !model.items.is_empty();
         self.items.set_can_request_focus(customize);
@@ -400,27 +396,46 @@ impl ScreenState {
         }
     }
 
-    /// Past the end of the checklist: the focus goes to the actions, at their
-    /// first or their last.
-    fn go_to_actions(&mut self, model: &import::Model, first: bool) {
-        let count = actions(self.view, model).len();
-        self.action = if first { 0 } else { count.saturating_sub(1) };
-        self.actions.request_focus();
-    }
-
-    /// Past the end of the actions of the checklist's page: back into the
-    /// checklist, at its first entry or its last.
-    fn go_to_items(&mut self, model: &import::Model, first: bool) {
-        if model.items.is_empty() {
+    /// Up or Down in `region`: the cursor goes to the next entry; past the end
+    /// of the actions of the summary it goes round, past the end of either
+    /// region of the checklist page the focus goes to the other one, at its
+    /// first entry (forward) or its last (back).
+    fn walk(&mut self, region: Region, forward: bool, model: &import::Model) {
+        let (sel, len) = match region {
+            Region::Items => (&self.item, self.item_count(model)),
+            Region::Actions => (&self.action, actions(self.view, model).len()),
+        };
+        let from = sel.cursor().unwrap_or(0);
+        let Some(to) = target(len, Some(from), &|_| true, Move::Step(forward), 1) else {
+            return;
+        };
+        let wrapped = if forward { to <= from } else { to >= from };
+        let ring = region == Region::Items || self.view == View::Customize;
+        if !wrapped || !ring {
+            sel.set_cursor(Some(to));
             return;
         }
-        self.item = if first { 0 } else { model.items.len() - 1 };
-        self.items.request_focus();
+        match region {
+            Region::Items => {
+                let count = actions(self.view, model).len();
+                self.action
+                    .set_cursor(Some(if forward { 0 } else { count.saturating_sub(1) }));
+                self.actions.request_focus();
+            }
+            Region::Actions => {
+                if model.items.is_empty() {
+                    return;
+                }
+                let at = if forward { 0 } else { model.items.len() - 1 };
+                self.item.set_cursor(Some(at));
+                self.items.request_focus();
+            }
+        }
     }
 
     /// What the action under the cursor does.
     fn run(&mut self, model: &import::Model) -> Option<ImportIntent> {
-        match actions(self.view, model).get(self.action)? {
+        match actions(self.view, model).get(self.action.cursor().unwrap_or(0))? {
             Act::Proceed => Some(ImportIntent::Proceed),
             Act::Skip => Some(ImportIntent::Cancel),
             Act::Customize => {
@@ -437,10 +452,13 @@ impl ScreenState {
     /// The cursors are on rows that exist (a toggle can take the first action
     /// away).
     fn settle(&mut self, model: &import::Model) {
-        self.action = self
-            .action
-            .min(actions(self.view, model).len().saturating_sub(1));
-        self.item = self.item.min(self.item_count(model).saturating_sub(1));
+        let last = |len: usize| len.saturating_sub(1);
+        let action = self.action.cursor().unwrap_or(0);
+        self.action
+            .set_cursor(Some(action.min(last(actions(self.view, model).len()))));
+        let item = self.item.cursor().unwrap_or(0);
+        self.item
+            .set_cursor(Some(item.min(last(self.item_count(model)))));
     }
 
     /// The checklist's scroll follows the cursor while the checklist has the
@@ -450,18 +468,20 @@ impl ScreenState {
             return;
         }
         let rows = rows::of(self.view, model, strings, num);
-        if let Some(row) = rows::cursor_row(&rows, Some(self.item)) {
+        if let Some(row) = rows::cursor_row(&rows, self.item.cursor()) {
             self.list.ensure_index_visible(row);
         }
     }
 }
 
 /// What the review is made of beside the model: the regions' nodes, their
-/// keys, the checklist's scroll.
+/// cursors, their keys, the checklist's scroll.
 struct Regions {
     list: ListController,
     items: FocusNode,
     actions: FocusNode,
+    item: SelectionController<usize>,
+    action: SelectionController<usize>,
     checklist: Vec<(&'static str, Handler<()>)>,
     buttons: Vec<(&'static str, Handler<()>)>,
     focus: (Handler<bool>, Handler<bool>),
@@ -479,146 +499,141 @@ struct Look {
 }
 
 /// The oracle's `render_ref`: the heading, the intro, the error, the list,
-/// a blank row, the actions and the footer, one under the other. The list
-/// takes what the screen has left, down to one row.
+/// a blank row, the actions and the footer, one under the other. The list is
+/// the `Flexible` of the column: the room the other lines leave, down to
+/// nothing, and no more than its rows need.
 fn review(
     look: &Look,
     strings: &'static Strings,
     num: rtwk::l10n::NumSyms,
     screens: Rc<ScreenStates>,
     view: View,
-    (item, action): (usize, usize),
     regions: Regions,
 ) -> AnyWidget {
-    let look = look.clone();
-    let body = LayoutBuilder::new(move |_, constraints| {
-        let model = &screens.import;
-        let customize = view == View::Customize;
-        let acts = actions(view, model);
-        let rows = rows::of(view, model, strings, &num);
-        let intro = if customize {
-            strings.intro_customize
-        } else {
-            strings.intro_summary
-        };
-        let error = usize::from(model.error.is_some());
-        let actions_height = acts.len() + 1;
-        let fixed = 1 + intro.len() + error + 1 + actions_height + 1;
-        let room = usize::try_from(constraints.max_height)
-            .unwrap_or(0)
-            .saturating_sub(fixed);
-        let list_height = rows.len().max(1).min(room);
-        let items_focus = regions.items.has_focus();
-        let actions_focus = regions.actions.has_focus();
+    let model = &screens.import;
+    let customize = view == View::Customize;
+    let acts = actions(view, model);
+    let rows = rows::of(view, model, strings, &num);
+    let intro = if customize {
+        strings.intro_customize
+    } else {
+        strings.intro_summary
+    };
+    let items_focus = regions.items.has_focus();
+    let actions_focus = regions.actions.has_focus();
 
-        let line = |text: String, style: Style| -> AnyWidget {
-            Text::new(text)
-                .style(style)
-                .wrap(TextWrap::None)
-                .max_lines(1)
-                .overflow(TextOverflow::Ellipsis)
-                .into()
-        };
-        let heading = Text::rich([
-            Span::styled(strings.heading_marker, Style::new()),
-            Span::styled(
-                if customize {
-                    strings.heading_customize
-                } else {
-                    strings.heading_summary
-                },
-                look.bold.clone(),
-            ),
-        ]);
-        let mut column = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(heading);
-        // a wrapping paragraph in an area of one row per line: what wraps
-        // below the area is cut (the oracle's `Paragraph` in a fixed area)
-        let wrapped = |text: String, style: Style| -> AnyWidget {
-            SizedBox::new(None, Some(1), Some(Text::new(text).style(style).into())).into()
-        };
-        for text in intro {
-            column = column.child(wrapped((*text).to_string(), Style::new()));
-        }
-        if let Some(message) = &model.error {
-            column = column.child(wrapped(
-                strings.import_failed(message, &num),
-                look.error.clone(),
-            ));
-        }
-        let cursor = Some(item);
-        let rows = Rc::new(rows);
-        let builder = {
-            let (rows, look) = (rows.clone(), look.clone());
-            move |at: usize| -> AnyWidget {
-                row(&look, strings, &num, &rows[at], items_focus, cursor)
-            }
-        };
-        let list = ListView::builder(rows.len(), builder)
-            .item_extent(1)
-            .controller(regions.list.clone());
-        let checklist = KeyBindings::new(
-            regions.checklist.clone(),
-            Focus::new(list)
-                .focus_node(regions.items.clone())
-                .on_focus_change(regions.focus.0.clone()),
-        );
-        column = column.child(SizedBox::new(
-            None,
-            Some(i32::try_from(list_height).unwrap_or(0)),
-            Some(checklist.into()),
-        ));
-        column = column.child(SizedBox::new(None, Some(1), None));
-        column = column.child(wrapped(
-            strings.selected(model.selected_count(), model.items.len(), &num),
-            Style::new(),
-        ));
-        let mut buttons = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for (at, act) in acts.iter().enumerate() {
-            let chosen = actions_focus && action == at;
-            let marker = if chosen { "›" } else { " " };
-            let label = match act {
-                Act::Proceed => strings.action_proceed,
-                Act::Customize => strings.action_customize,
-                Act::Skip => strings.action_skip,
-                Act::Back => strings.action_back,
-            };
-            let style = if chosen {
-                look.selected.clone()
-            } else if actions_focus {
-                Style::new()
+    let heading = Text::rich([
+        Span::styled(strings.heading_marker, Style::new()),
+        Span::styled(
+            if customize {
+                strings.heading_customize
             } else {
-                look.dim.clone()
-            };
-            buttons = buttons.child(line(format!("{marker} {}. {label}", at + 1), style));
-        }
-        let buttons = KeyBindings::new(
-            regions.buttons.clone(),
-            Focus::new(buttons)
-                .focus_node(regions.actions.clone())
-                .on_focus_change(regions.focus.1.clone())
-                .autofocus(),
-        );
-        column = column.child(buttons);
-        column = column.child(footer(&look, strings, customize, actions_focus));
-        column.into()
+                strings.heading_summary
+            },
+            look.bold.clone(),
+        ),
+    ]);
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(heading);
+    // a wrapping paragraph in an area of one row per line: what wraps
+    // below the area is cut (the oracle's `Paragraph` in a fixed area)
+    let wrapped = |text: String, style: Style| -> AnyWidget {
+        SizedBox::new(None, Some(1), Some(Text::new(text).style(style).into())).into()
+    };
+    for text in intro {
+        column = column.child(wrapped((*text).to_string(), Style::new()));
+    }
+    if let Some(message) = &model.error {
+        column = column.child(wrapped(
+            strings.import_failed(message, &num),
+            look.error.clone(),
+        ));
+    }
+    let rows = Rc::new(rows);
+    let builder = {
+        let (rows, look, item) = (rows.clone(), look.clone(), regions.item.clone());
+        move |at: usize| -> AnyWidget { row(&look, strings, &num, &rows[at], items_focus, &item) }
+    };
+    let list = ListView::builder(rows.len(), builder)
+        .item_extent(1)
+        .controller(regions.list.clone());
+    let checklist = KeyBindings::new(
+        regions.checklist.clone(),
+        Focus::new(list)
+            .focus_node(regions.items.clone())
+            .on_focus_change(regions.focus.0.clone()),
+    );
+    // The list is as tall as its rows (one cell each: `ListView` has no
+    // shrink-wrap) and no taller than the room the `Flexible` gets.
+    let content = i32::try_from(rows.len()).unwrap_or(i32::MAX);
+    column = column.child(Flexible {
+        fit: FlexFit::Loose,
+        ..Flexible::new(
+            1,
+            SizedBox::new(None, Some(content), Some(checklist.into())),
+        )
     });
-    Padding::new(EdgeInsets::only(2, 1, 2, 1), body).into()
+    column = column.child(SizedBox::new(None, Some(1), None));
+    column = column.child(wrapped(
+        strings.selected(model.selected_count(), model.items.len(), &num),
+        Style::new(),
+    ));
+    let mut buttons = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for (at, act) in acts.iter().enumerate() {
+        let (look, action) = (look.clone(), regions.action.clone());
+        let label = match act {
+            Act::Proceed => strings.action_proceed,
+            Act::Customize => strings.action_customize,
+            Act::Skip => strings.action_skip,
+            Act::Back => strings.action_back,
+        };
+        buttons = buttons.child(ListenableBuilder::new(
+            regions.action.listenable(),
+            move |_, _| {
+                let chosen = actions_focus && action.cursor() == Some(at);
+                let marker = if chosen { "›" } else { " " };
+                let style = if chosen {
+                    look.selected.clone()
+                } else if actions_focus {
+                    Style::new()
+                } else {
+                    look.dim.clone()
+                };
+                let text = format!("{marker} {}. {label}", at + 1);
+                Text::new(text)
+                    .style(style)
+                    .wrap(TextWrap::None)
+                    .max_lines(1)
+                    .overflow(TextOverflow::Ellipsis)
+                    .into()
+            },
+        ));
+    }
+    let buttons = KeyBindings::new(
+        regions.buttons.clone(),
+        Focus::new(buttons)
+            .focus_node(regions.actions.clone())
+            .on_focus_change(regions.focus.1.clone())
+            .autofocus(),
+    );
+    column = column.child(buttons);
+    column = column.child(footer(look, strings, customize, actions_focus));
+    Padding::new(EdgeInsets::only(2, 1, 2, 1), column).into()
 }
 
 /// One row of the list: the checkbox lines carry the cursor when the items
 /// have the focus; the detail and section lines are dim.
 fn row(
     look: &Look,
-    strings: &Strings,
+    strings: &'static Strings,
     num: &rtwk::l10n::NumSyms,
     row: &ReviewRow,
     items_focus: bool,
-    cursor: Option<usize>,
+    item: &SelectionController<usize>,
 ) -> AnyWidget {
     let line = |text: String, style: Style| -> AnyWidget {
         Text::new(text)
@@ -633,12 +648,25 @@ fn row(
         Mark::Some => strings.check_some,
         Mark::None => strings.check_none,
     };
+    // A row the cursor may rest on reads the controller (Flutter's
+    // `ListenableBuilder` over `SelectionController.isSelected`).
     let entry = |index: usize, body: String| -> AnyWidget {
-        if items_focus && cursor == Some(index) {
-            line(format!("{}{body}", strings.cursor), look.selected.clone())
-        } else {
-            line(format!("{}{body}", strings.no_cursor), Style::new())
-        }
+        let (look, strings, item) = (look.clone(), strings, item.clone());
+        ListenableBuilder::new(item.listenable(), move |_, _| {
+            let text = |mark: &str| format!("{mark}{body}");
+            let (text, style) = if items_focus && item.cursor() == Some(index) {
+                (text(strings.cursor), look.selected.clone())
+            } else {
+                (text(strings.no_cursor), Style::new())
+            };
+            Text::new(text)
+                .style(style)
+                .wrap(TextWrap::None)
+                .max_lines(1)
+                .overflow(TextOverflow::Ellipsis)
+                .into()
+        })
+        .into()
     };
     match row {
         ReviewRow::Group { index, mark, label } => {
