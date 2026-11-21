@@ -454,7 +454,7 @@ fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
 fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
     kit::pending(
         Owner::UiPane,
-        "the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs",
+        "G39b: AutoVisible measures the label column over the rows in the list's window and rtwk's ListView has no layout-time hook for it; the kit also cannot address the `before scroll:` and `after scroll:` frames; the probe is tests/sheets/select.rs probe_g39b_auto_visible_measures_the_column_over_every_row",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
@@ -955,6 +955,10 @@ fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
 // ORACLE bottom_pane/selection_tabs_tests.rs:69 filled_tab_unknown_palette_uses_readable_underlined_defaults kind=ui owner=ui-pane
 #[test]
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
+    kit::pending(
+        Owner::UiPane,
+        "G-clear (select-dialog.md): the oracle's `Style::default().fg(Reset).bg(Reset)` resets the cells under the tab; rtwk's `Style` has no explicit reset (a Text with no colour blends the cell beneath, `ColoredBox(Color::DEFAULT)` resets only the bg), so the blank of the tab keeps the fg (and underline colour) of what the dialog covers; the sheet's strip is bold and underlined as the oracle's fallback",
+    );
     let s = Screen::build(Owner::UiPane)
         .size(20, 6)
         .entry("select", "filled_tab_all")

@@ -1,11 +1,11 @@
 //! The generic list of the selection dialog (S14): the oracle's
 //! `SelectionViewParams` and `SelectionItem` as plain data, and the pure rules
 //! of the list (which rows a search leaves, where the cursor may stand, what
-//! the number shortcuts pick, which items a window shows). No rtwk: the view
-//! keeps the cursor, the query and the tab in rtwk controllers and asks these
-//! functions. Oracle: `bottom_pane/list_selection_view.rs` (`apply_filter`,
-//! `build_rows`, `move_up`, `page_down`, `actual_idx_for_enabled_number`) and
-//! `bottom_pane/scroll_state.rs`.
+//! the number shortcuts pick). No rtwk: the view keeps the cursor, the scroll,
+//! the query and the tab in rtwk controllers and asks these functions; the
+//! scroll window is `ListView`'s own, not ours. Oracle:
+//! `bottom_pane/list_selection_view.rs` (`apply_filter`, `build_rows`,
+//! `move_up`, `page_down`, `actual_idx_for_enabled_number`).
 
 use serde::Deserialize;
 
@@ -192,13 +192,18 @@ impl Default for List {
     }
 }
 
-/// A row ready to draw: the gutter, the name, the description.
+/// A row ready to draw: the gutter, the name, the description. Nothing in it
+/// depends on where the cursor is: the view puts the cursor's mark before the
+/// prefix and picks the description the cursor row shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
-    /// Marker, number or letter, toggle box: everything before the name.
+    /// Number or letter, toggle box: everything between the cursor's mark (one
+    /// cell, the view's) and the name.
     pub prefix: String,
     pub name: String,
     pub description: Option<String>,
+    /// Shown instead of `description` while the cursor is on the row.
+    pub selected_description: Option<String>,
     pub disabled: bool,
     /// The row is the one in use: its name is followed by the view's mark.
     pub current: bool,
@@ -434,9 +439,8 @@ impl Browse<'_> {
             .map(|(index, _)| index)
     }
 
-    /// The rows to draw, one per visible item, `cursor` a position in
-    /// `visible`.
-    pub fn rows(&self, visible: &[usize], cursor: Option<usize>) -> Vec<Row> {
+    /// The rows to draw, one per visible item (`visible`, from `visible()`).
+    pub fn rows(&self, visible: &[usize]) -> Vec<Row> {
         let items = self.items();
         let number_width = visible
             .iter()
@@ -452,24 +456,21 @@ impl Browse<'_> {
         let mut number = 0usize;
         visible
             .iter()
-            .enumerate()
-            .filter_map(|(pos, index)| items.get(*index).map(|item| (pos, item)))
-            .map(|(pos, item)| {
-                let selected = cursor == Some(pos);
-                let mark = if selected { '\u{203a}' } else { ' ' };
+            .filter_map(|index| items.get(*index))
+            .map(|item| {
                 let disabled = item.is_disabled();
                 let gutter = if self.list.searchable {
-                    format!("{mark} ")
+                    " ".to_string()
                 } else if !self.list.numbered {
                     item.shortcut
-                        .map_or_else(|| format!("{mark} "), |key| format!("{mark} {key}. "))
+                        .map_or_else(|| " ".to_string(), |key| format!(" {key}. "))
                 } else if disabled {
-                    format!("{mark} {}", " ".repeat(number_width + 2))
+                    format!(" {}", " ".repeat(number_width + 2))
                 } else if let Some(label) = item.child_label {
-                    format!("{mark}    {label}. ")
+                    format!("    {label}. ")
                 } else {
                     number += 1;
-                    format!("{mark} {number}. ")
+                    format!(" {number}. ")
                 };
                 let toggle = match item.toggle {
                     Some(true) if item.checkbox => "[x] ",
@@ -477,15 +478,11 @@ impl Browse<'_> {
                     Some(false) => "[ ] ",
                     None => "",
                 };
-                let description = if selected {
-                    item.selected_description.clone().or_else(|| item.description.clone())
-                } else {
-                    item.description.clone()
-                };
                 Row {
                     prefix: format!("{gutter}{toggle}"),
                     name: item.name.clone(),
-                    description,
+                    description: item.description.clone(),
+                    selected_description: item.selected_description.clone(),
                     disabled,
                     current: item.current,
                     reason: item.disabled_reason.clone(),
@@ -493,20 +490,6 @@ impl Browse<'_> {
             })
             .collect()
     }
-}
-
-/// The first item of the window after the cursor moved to `cursor`: the window
-/// stays where it is while the cursor is inside it (`ScrollState::ensure_visible`).
-pub fn window_top(top: usize, cursor: Option<usize>, len: usize, rows: usize) -> usize {
-    let mut top = top.min(len.saturating_sub(1));
-    if let Some(cursor) = cursor {
-        if cursor < top {
-            top = cursor;
-        } else if cursor >= top + rows {
-            top = cursor + 1 - rows;
-        }
-    }
-    top
 }
 
 /// A pasted search query: its words joined by one blank; none: nothing to
@@ -607,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_number_the_enabled_rows_and_mark_the_cursor_and_current() {
+    fn rows_number_the_enabled_rows_and_mark_the_current() {
         let mut off = item("Off");
         off.disabled_reason = Some("why".to_string());
         off.description = Some("text".to_string());
@@ -615,22 +598,14 @@ mod tests {
         now.current = true;
         let list = list(vec![item("A"), off, now]);
         let view = browse(&list, "");
-        let rows = view.rows(&view.visible(), Some(0));
-        assert_eq!(rows[0].prefix, "\u{203a} 1. ");
-        assert_eq!(rows[1].prefix, "     ");
+        let rows = view.rows(&view.visible());
+        assert_eq!(rows[0].prefix, " 1. ");
+        assert_eq!(rows[1].prefix, "    ");
         assert!(rows[1].disabled);
         assert_eq!(rows[1].reason.as_deref(), Some("why"));
         assert_eq!(rows[1].description.as_deref(), Some("text"));
-        assert_eq!(rows[2].prefix, "  2. ");
+        assert_eq!(rows[2].prefix, " 2. ");
         assert!(rows[2].current);
-    }
-
-    #[test]
-    fn the_window_follows_the_cursor_only_when_it_leaves() {
-        assert_eq!(window_top(0, Some(7), 20, 8), 0);
-        assert_eq!(window_top(0, Some(8), 20, 8), 1);
-        assert_eq!(window_top(5, Some(2), 20, 8), 2);
-        assert_eq!(window_top(30, None, 20, 8), 19);
     }
 
     #[test]
