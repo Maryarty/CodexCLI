@@ -10,7 +10,7 @@ use crate::kit::{self, Owner, Screen};
 fn prompt(s: &Screen) -> usize {
     s.rows()
         .iter()
-        .rposition(|r| r.starts_with('›'))
+        .rposition(|r| r.starts_with('›') || r.starts_with("! ") || r == "!")
         .unwrap_or(usize::MAX)
 }
 
@@ -680,8 +680,9 @@ fn tab_submits_when_no_task_running() {
 fn tab_does_not_submit_for_bang_shell_command() {
     let mut s = ready(100, 24);
     s.type_text("!ls").keys("tab");
-    // Tab neither submits nor clears a `!` command: the draft stays
-    s.assert_row(prompt(&s), "› !ls");
+    // Tab neither submits nor clears a `!` command: the draft stays, its
+    // `!` the prompt (shell mode)
+    s.assert_row(prompt(&s), "! ls");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10260 bang_prefixed_slash_text_submits_literal_shell_command kind=ui owner=chat-live

@@ -130,9 +130,18 @@ impl Composer {
 }
 
 /// The text the composer of `ui` would submit now: its draft with every
-/// paste placeholder expanded (Tab's queue takes it so).
+/// paste placeholder expanded and shell mode's `!` in front.
 pub fn submission(ui: &ThreadUi) -> Rc<str> {
     Rc::from(ui.draft.expanded(&ui.composer))
+}
+
+/// The draft as it is sent (Enter, or Tab's queue): its `submission`, kept
+/// for the history's placeholders, and shell mode left
+/// (`record_local_submission`).
+pub fn take_submission(ui: &ThreadUi) -> Rc<str> {
+    let text = submission(ui);
+    ui.draft.record_local(&ui.composer);
+    text
 }
 
 impl StatefulWidget for Composer {
@@ -160,6 +169,8 @@ pub enum ComposerMsg {
     Picked(Rc<str>),
     /// Ctrl+C on a draft: it is cleared and kept in history.
     ClearForCtrlC,
+    /// The draft entered or left shell mode.
+    Shell,
 }
 
 impl ComposerState {
@@ -209,16 +220,21 @@ impl State for ComposerState {
                 }
             }
             ComposerMsg::Submitted(_) => {
-                let text = submission(&w.ui);
                 // `record_local_submission`: the next Up starts at the newest.
-                w.ui.draft.record_local(&w.ui.composer);
+                let text = take_submission(&w.ui);
                 if let Some(h) = &w.on_submitted {
                     cx.emit(h, text);
                 }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Shell => {
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
             }
             ComposerMsg::ClearForCtrlC => {
-                let text = submission(&w.ui);
-                w.ui.draft.record_local(&w.ui.composer);
+                let text = take_submission(&w.ui);
                 w.ui.composer.clear();
                 let hs = read::<Hs, _>(cx);
                 cx.emit(
@@ -228,6 +244,7 @@ impl State for ComposerState {
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
                 }
+                return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Picked(text) => {
                 if let Some(h) = &w.on_picked {
@@ -282,21 +299,37 @@ impl State for ComposerState {
             took
         });
         let strings = l10n::of(cx);
-        let area = area
-            .placeholder(strings.chat.placeholder)
+        let mut area = area
             .placeholder_style(tokens.dim().attrs(Attrs::DIM))
             .max_lines(6);
+        // shell mode shows its `!` and no placeholder
+        if !w.ui.draft.shell() {
+            area = area.placeholder(strings.chat.placeholder);
+        }
         let table = chat_strings::of(cx);
+        let shell = w.ui.draft.clone();
         let field = Autocomplete::new(
             c.clone(),
-            move |before: &str| popup::suggestions(&states, table, before),
+            // no command popup in shell mode (`allow_command_popup`)
+            move |before: &str| {
+                if shell.shell() {
+                    Vec::new()
+                } else {
+                    popup::suggestions(&states, table, before)
+                }
+            },
             keys(area.into()),
         )
         .rows(popup::ROWS)
         .on_selected(cx.map(|picked: Suggestion| ComposerMsg::Picked(Rc::from(&*picked.text))));
+        let mark = if w.ui.draft.shell() {
+            prompt(strings::of(cx).shell_prompt, tokens.shell())
+        } else {
+            prompt(table.prompt, tokens.bold())
+        };
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(prompt(table.prompt, tokens.bold()))
+            .child(mark)
             .child(Expanded::new(1, field))
             .into()
     }

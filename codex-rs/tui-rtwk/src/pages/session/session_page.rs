@@ -31,7 +31,8 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::footer::{FooterLine, footer};
-use crate::pages::session::composer::{Composer, submission};
+use crate::pages::session::composer::footer::with_shell_mode;
+use crate::pages::session::composer::{Composer, take_submission};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
@@ -69,6 +70,8 @@ pub struct ChatState {
     shortcuts: bool,
     detailed_transcript: bool,
     draft_empty: bool,
+    /// The composer is in shell mode: the footer label, no submit by the queue key.
+    draft_shell: bool,
     /// The composer's focus node: the page sees `?` and `←` before the field
     /// does (`FocusNode::on_key_event`, the primary focus gets a key first).
     node: FocusNode,
@@ -122,6 +125,7 @@ impl StatefulWidget for Chat {
             shortcuts: false,
             detailed_transcript: false,
             draft_empty: self.ui.composer.text().is_empty(),
+            draft_shell: self.ui.draft.shell(),
             node: FocusNode::new(),
             leader: Rc::new(Cell::new(false)),
             control: Rc::new(Cell::new(false)),
@@ -179,6 +183,7 @@ impl State for ChatState {
         if old != w {
             *self.composer.borrow_mut() = w.ui.composer.clone();
             self.draft_empty = w.ui.composer.text().is_empty();
+            self.draft_shell = w.ui.draft.shell();
             self.esc_primed = false;
             self.detailed_transcript = false;
             self.leader.set(false);
@@ -228,6 +233,7 @@ impl State for ChatState {
             self.shortcuts,
             self.esc_primed,
             self.draft_empty,
+            self.draft_shell,
             self.detailed_transcript,
         );
         if !matches!(msg, ChatMsg::Escape) {
@@ -241,7 +247,7 @@ impl State for ChatState {
                 }
             }
             ChatMsg::QueueDraft => {
-                let draft = submission(&w.ui);
+                let draft = take_submission(&w.ui);
                 if !draft.is_empty() {
                     run_line(&draft, w, cx, &hs);
                 }
@@ -286,7 +292,9 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Changed(text) => {
-                self.draft_empty = text.is_empty();
+                self.draft_shell = w.ui.draft.shell();
+                // `is_empty`: shell mode's `!` is content
+                self.draft_empty = text.is_empty() && !self.draft_shell;
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
@@ -388,6 +396,7 @@ impl State for ChatState {
                 self.shortcuts,
                 self.esc_primed,
                 self.draft_empty,
+                self.draft_shell,
                 self.detailed_transcript,
             )
         {
@@ -535,7 +544,13 @@ impl State for ChatState {
                 } else {
                     FooterLine::Keys
                 };
-                (composer.into(), footer(cx, line))
+                let footer = footer(cx, line);
+                let footer = if self.draft_shell {
+                    with_shell_mode(cx, footer)
+                } else {
+                    footer
+                };
+                (composer.into(), footer)
             }
         };
         // `⚠ N warnings · f2 to view` at the footer's right (not while history
@@ -731,7 +746,9 @@ impl State for ChatState {
             )
             .bind(KeyPress::code(KeyCode::F12), cx.send(ChatMsg::DebugMenu))
             .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
-        if running.is_some() && !self.draft_empty && search.is_none() {
+        // Tab queues while a turn runs and submits otherwise, but not a
+        // shell command (`queue_keys` in `handle_key_event_without_popup`).
+        if (running.is_some() || !self.draft_shell) && !self.draft_empty && search.is_none() {
             focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
         }
         if thread.read_only() {

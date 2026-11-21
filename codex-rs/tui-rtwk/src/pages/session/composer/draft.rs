@@ -47,6 +47,9 @@ struct Inner {
     /// them, by the text they sent: Up brings an entry back with its
     /// placeholders (`HistoryEntry::pending_pastes`).
     local: Vec<Local>,
+    /// Shell mode (`is_bash_mode`): a `!` typed at the draft's start left
+    /// the text and became the prompt; a submit sends it back in front.
+    shell: bool,
 }
 
 /// A local history entry with its elements.
@@ -197,7 +200,10 @@ impl ComposerDraft {
     pub fn expanded(&self, c: &TextEditingController) -> String {
         let elements = self.elements(c);
         let text = c.text();
-        let mut out = String::with_capacity(text.len());
+        let mut out = String::with_capacity(text.len() + 1);
+        if self.shell() {
+            out.push('!');
+        }
         let mut at = 0;
         for e in &elements {
             out.push_str(&text[at..e.start]);
@@ -206,6 +212,19 @@ impl ComposerDraft {
         }
         out.push_str(&text[at..]);
         out
+    }
+
+    /// Whether the draft is in shell mode.
+    pub fn shell(&self) -> bool {
+        self.0.borrow().shell
+    }
+
+    /// Enters or leaves shell mode; `true` when that changed it.
+    pub fn set_shell(&self, on: bool) -> bool {
+        let mut inner = self.0.borrow_mut();
+        let changed = inner.shell != on;
+        inner.shell = on;
+        changed
     }
 
     /// The element that holds `offset` strictly inside it.
@@ -332,7 +351,11 @@ impl ComposerDraft {
         if i + 1 < history.len() {
             self.recall(c, i + 1, &history[i + 1]);
         } else {
-            self.0.borrow_mut().recalled = None;
+            {
+                let mut inner = self.0.borrow_mut();
+                inner.recalled = None;
+                inner.shell = false;
+            }
             self.clear();
             c.set_text("");
         }
@@ -344,11 +367,15 @@ impl ComposerDraft {
             let inner = self.0.borrow();
             inner.local.iter().rev().find(|l| l.sent == entry).cloned()
         };
+        // `imported_text_for_textarea`: a leading `!` is shell mode again.
+        let shell = entry.starts_with('!');
         let (text, elements) = match local {
             Some(l) => (l.text, l.elements),
+            None if shell => (entry[1..].to_string(), Vec::new()),
             None => (entry.to_string(), Vec::new()),
         };
         self.clear();
+        self.set_shell(shell);
         c.set_text(&text);
         {
             let mut inner = self.0.borrow_mut();
@@ -366,6 +393,7 @@ impl ComposerDraft {
         let sent = self.expanded(c);
         let mut inner = self.0.borrow_mut();
         inner.recalled = None;
+        inner.shell = false;
         if !elements.is_empty() {
             inner.local.push(Local {
                 sent,

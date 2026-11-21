@@ -47,3 +47,15 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, line: FooterLine) -> AnyWidget {
         .child(body)
         .into()
 }
+
+/// `footer` with shell mode's label at its right, one cell in
+/// (`shell_mode_footer_line`).
+pub fn with_shell_mode<S>(cx: &mut Cx<'_, S>, footer: AnyWidget) -> AnyWidget {
+    let tokens = theme::Tokens::of(cx);
+    let label = super::strings::of(cx).shell_mode;
+    Row::new()
+        .child(Expanded::new(1, footer))
+        .child(Text::new(label).style(tokens.shell()))
+        .child(SizedBox::new(Some(1), None, None))
+        .into()
+}

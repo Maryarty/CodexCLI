@@ -45,6 +45,26 @@ fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let ctrl = only(key, Mods::CTRL);
     let alt = only(key, Mods::ALT);
     match (key.code, key.ch) {
+        // Shell mode (`sync_bash_mode_from_text`): a `!` typed at the
+        // draft's start becomes the prompt; Backspace there and Esc on an
+        // empty draft leave it.
+        (KeyCode::Char, Some('!'))
+            if (plain || only(key, Mods::SHIFT)) && collapsed && caret == 0 && !draft.shell() =>
+        {
+            draft.set_shell(true);
+            (data.tell)(ComposerMsg::Shell);
+            true
+        }
+        (KeyCode::Backspace, _) if plain && collapsed && caret == 0 && draft.shell() => {
+            draft.set_shell(false);
+            (data.tell)(ComposerMsg::Shell);
+            true
+        }
+        (KeyCode::Escape, _) if draft.shell() && c.text().is_empty() => {
+            draft.set_shell(false);
+            (data.tell)(ComposerMsg::Shell);
+            true
+        }
         (KeyCode::Backspace, _) if plain && collapsed => {
             let Some(e) = draft.ending_at(c, caret) else {
                 return false;
@@ -79,13 +99,20 @@ fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
             c.move_caret(e.end, !plain);
             true
         }
-        (KeyCode::Up, _) if plain => {
+        (KeyCode::Up | KeyCode::Down, _) if plain => {
             let history = &data.history;
-            draft.walks_history(c, history.len()) && draft.history_up(c, history)
-        }
-        (KeyCode::Down, _) if plain => {
-            let history = &data.history;
-            draft.walks_history(c, history.len()) && draft.history_down(c, history)
+            let shell = draft.shell();
+            let took = draft.walks_history(c, history.len())
+                && if key.code == KeyCode::Up {
+                    draft.history_up(c, history)
+                } else {
+                    draft.history_down(c, history)
+                };
+            // an entry's leading `!` is shell mode again
+            if draft.shell() != shell {
+                (data.tell)(ComposerMsg::Shell);
+            }
+            took
         }
         (KeyCode::Char, Some('k')) if ctrl && collapsed => {
             let text = c.buffer();

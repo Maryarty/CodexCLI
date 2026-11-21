@@ -10,7 +10,7 @@ use crate::kit::{self, Owner, Screen};
 fn prompt(s: &Screen) -> usize {
     s.rows()
         .iter()
-        .rposition(|r| r.starts_with('›'))
+        .rposition(|r| r.starts_with('›') || r.starts_with("! ") || r == "!")
         .unwrap_or(usize::MAX)
 }
 
@@ -336,7 +336,8 @@ fn history_navigation_from_start_of_bang_command_recalls_older_entry() {
     s.type_text("first").keys("enter");
     s.type_text("!git").keys("enter");
     s.keys("up");
-    s.assert_row(prompt(&s), "› !git");
+    // the recalled `!git` is shell mode again: `!` is the prompt
+    s.assert_row(prompt(&s), "! git");
     // oracle: the cursor to the start of the line, Up recalls the older entry
     s.keys("home");
     s.keys("up");

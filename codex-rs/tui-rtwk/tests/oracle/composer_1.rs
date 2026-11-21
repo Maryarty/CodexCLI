@@ -10,13 +10,21 @@ const NO_PARENT: &str = "no seed for a parent-owned thread: the chat screen has 
 const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed sets the esc backtrack hint, the quit shortcut hint, queue submissions, the status line or the shortcut overlay, and the footer draws none of them";
 const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
-const NO_SHELL: &str = "shell mode is not built: a leading `!` does not switch the composer to shell mode, so the `Shell mode` footer label and the shell prompt are not drawn";
 const NO_SKILLS: &str = "no seed for skill mentions: the chat screen has no skill catalog (set_skill_mentions), so no `$` skill popup, no bound skill mentions and no skill rows are drawn";
 const NO_PLUGINS: &str = "no seed for plugin mentions: the chat screen has no plugin catalog (set_plugin_mentions with mentions v2), so no `@` plugin popup and no plugin accent are drawn";
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
 const NO_LAYOUT: &str = "the composer footer collapse by width, the collaboration-mode indicator (Plan), the context-window percent and a running task with a queued draft are not built";
 
 /// Types `text`, then moves the cursor left `back` chars (the oracle's `set_cursor`).
+/// The composer's prompt row, `›` or shell mode's `!` (the oracle's
+/// composer rect sits there on the chat screen).
+fn prompt_row(s: &Screen) -> usize {
+    s.rows()
+        .iter()
+        .rposition(|r| r.starts_with('›') || r.starts_with("! ") || r == "!")
+        .unwrap_or(usize::MAX)
+}
+
 fn type_then_back(s: &mut Screen, text: &str, back: usize) {
     s.type_text(text);
     if back > 0 {
@@ -140,11 +148,12 @@ fn footer_mode_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:5457 shell_command_uses_shell_accent_style kind=ui owner=chat-live
 #[test]
 fn shell_command_uses_shell_accent_style() {
-    kit::pending(Owner::ChatLive, NO_SHELL);
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.type_text("!git status");
-    s.assert_style(0, 1, "fg=LightRed");
-    s.assert_text_at(0, 1, "!");
+    // the oracle's composer row 1 is the chat screen's prompt row here
+    let row = prompt_row(&s);
+    s.assert_style(0, row, "fg=LightRed");
+    s.assert_text_at(0, row, "!");
     s.assert_text_style("Shell mode", "fg=LightRed");
 }
 
@@ -185,7 +194,6 @@ fn status_line_hyperlink_marks_pr_number_cells() {
 // ORACLE bottom_pane/chat_composer.rs:5668 deleting_prefix_keeps_bang_literal_on_submission kind=ui owner=chat-live
 #[test]
 fn deleting_prefix_keeps_bang_literal_on_submission() {
-    kit::pending(Owner::ChatLive, NO_SHELL);
     // The oracle deletes the leading `Y` of `Yes! I agree.`, so the `!` is no shell prefix;
     // the draft is submitted (Enter) or queued (Tab while a turn runs) as `! I agree.!`.
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
@@ -201,7 +209,7 @@ fn deleting_prefix_keeps_bang_literal_on_submission() {
 // ORACLE bottom_pane/chat_composer.rs:5708 deleting_prefix_keeps_bang_editable_snapshot kind=snap owner=chat-live snap=deleting_prefix_keeps_bang_literal
 #[test]
 fn deleting_prefix_keeps_bang_editable_snapshot() {
-    kit::pending(Owner::ChatLive, NO_SHELL);
+    kit::pending(Owner::ChatLive, NO_LAYOUT);
     let mut s = Screen::build(Owner::ChatLive).size(60, 9).live().open();
     s.paste("Yes! I agree.").keys("home delete delete delete");
     s.assert_snap("deleting_prefix_keeps_bang_literal");
@@ -210,10 +218,9 @@ fn deleting_prefix_keeps_bang_editable_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:5733 esc_exits_empty_shell_mode kind=ui owner=chat-live
 #[test]
 fn esc_exits_empty_shell_mode() {
-    kit::pending(Owner::ChatLive, NO_SHELL);
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.type_text("!");
-    s.assert_text_at(0, 1, "!");
+    s.assert_text_at(0, prompt_row(&s), "!");
     s.assert_contains("Shell mode");
     s.keys("esc");
     s.assert_absent("Shell mode");
@@ -223,12 +230,12 @@ fn esc_exits_empty_shell_mode() {
 // ORACLE bottom_pane/chat_composer.rs:5762 esc_keeps_shell_mode_when_paste_burst_flushes_pending_text kind=ui owner=chat-live
 #[test]
 fn esc_keeps_shell_mode_when_paste_burst_flushes_pending_text() {
-    kit::pending(Owner::ChatLive, NO_SHELL);
     // `g` right after `!` is held as a paste burst; Esc flushes it and keeps the shell mode.
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.type_text("!g");
     s.keys("esc");
-    s.assert_has_row("!g");
+    // the oracle's `current_text` is `!g`: the `!` is the prompt
+    s.assert_has_row("! g");
     s.assert_contains("Shell mode");
 }
 

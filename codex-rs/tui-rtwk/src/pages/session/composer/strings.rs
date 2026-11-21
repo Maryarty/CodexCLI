@@ -20,6 +20,10 @@ pub struct Strings {
     /// What a large paste shows in the draft (`chat_composer.rs`,
     /// `next_large_paste_placeholder`).
     pub pasted_content: Msg<1>,
+    /// Shell mode's prompt and footer label (`chat_composer.rs`
+    /// `shell_mode_footer_line`).
+    pub shell_prompt: &'static str,
+    pub shell_mode: &'static str,
     pub num: NumSyms,
 }
 
@@ -40,6 +44,8 @@ impl Strings {
 pub const EN: Strings = Strings {
     title: "composer",
     pasted_content: msg!("[Pasted Content {0} chars]"),
+    shell_prompt: "!",
+    shell_mode: "Shell mode",
     num: NumSyms::ENGLISH,
 };
 

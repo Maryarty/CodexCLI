@@ -152,6 +152,12 @@ impl Tokens {
         }
     }
 
+    /// The composer's shell mode: its `!` prompt and footer label (the
+    /// oracle's light red).
+    pub fn shell(&self) -> Style {
+        Style::new().fg(Color::indexed(9))
+    }
+
     pub fn selected(&self) -> Style {
         self.0.accent.clone().attrs(Attrs::BOLD)
     }
