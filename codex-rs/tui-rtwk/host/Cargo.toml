@@ -25,6 +25,7 @@ codex-exec-server = { path = "../../exec-server" }
 codex-feedback = { path = "../../feedback" }
 codex-features = { path = "../../features" }
 codex-git-utils = { path = "../../git-utils" }
+codex-http-client = { path = "../../http-client" }
 codex-install-context = { path = "../../install-context" }
 codex-login = { path = "../../login" }
 codex-protocol = { path = "../../protocol" }
@@ -36,11 +37,13 @@ codex-tui-rtwk = { path = ".." }
 codex-tui-core = { path = "../core" }
 rtwk = { workspace = true }
 rtwk-tokio = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 dunce = "1.0.4"
 futures = { version = "0.3", default-features = false }
 serde_json = "1"
 url = "2"
 webbrowser = "1.2.2"
+tracing = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
