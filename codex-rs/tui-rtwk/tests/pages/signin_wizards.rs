@@ -1761,6 +1761,8 @@ person gave you this code, cancel.
         for key in ["esc", "ctrl+c", "ctrl+d", "q"] {
             let (mut h, _) = showing();
             h.press(key);
+            // the ask travels to the fake on the runtime thread
+            h.settle();
             assert_eq!(cancelled(&h), 1, "{key}");
         }
     }
