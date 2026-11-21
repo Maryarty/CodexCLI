@@ -31,7 +31,7 @@ pub fn proposed_plan(
             .style(tokens.dim().attrs(Attrs::DIM | Attrs::ITALIC))
             .into()
     } else {
-        MarkdownView::new(super::markdown::unwrap_markdown_fences(text).as_ref())
+        MarkdownView::new(super::markdown::lift_markdown_fences(text).as_ref())
             .theme(markdown.clone())
             .into()
     };

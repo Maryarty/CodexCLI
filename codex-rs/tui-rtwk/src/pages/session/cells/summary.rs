@@ -79,10 +79,14 @@ pub fn viewed_image(name: &str, tokens: &Tokens, strings: &Strings) -> AnyWidget
 
 /// oracle `new_info_event` and `new_review_status_line`.
 pub fn notice(notice: &Notice, tokens: &Tokens, strings: &Strings) -> AnyWidget {
-    let review = |(open, close): (&str, &str), review: &str| {
-        Text::new(format!("{open}{review}{close}"))
-            .style(tokens.accent())
-            .into()
+    let review = |(open, close): (&'static str, &'static str), review: &str| {
+        Text::rich(vec![
+            Span::new(open),
+            Span::new(review.to_owned()),
+            Span::new(close),
+        ])
+        .style(tokens.accent())
+        .into()
     };
     match notice {
         Notice::ContextCompacted => Text::rich(vec![

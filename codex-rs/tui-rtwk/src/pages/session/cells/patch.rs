@@ -14,8 +14,8 @@ use rtwk::controls::Pressable;
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
 };
-use rtwk::style::{Attrs, Color, Span, Style};
-use rtwk::text::TextWrap;
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::{TextAlign, TextWrap};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::diff::{Diff, DiffLineKind};
@@ -110,8 +110,8 @@ impl State for PatchCellState {
             }
             column = column
                 .child(
-                    Text::new(strings.patch_failed)
-                        .style(Style::new().fg(Color::MAGENTA).attrs(Attrs::BOLD)),
+                    // The oracle's magenta, the theme's accent (status_line.rs).
+                    Text::new(strings.patch_failed).style(tokens.accent().attrs(Attrs::BOLD)),
                 )
                 .child(Text::rich(vec![
                     Span::styled(strings.file_branch, tokens.dim()),
@@ -180,7 +180,7 @@ pub fn patch(
     let single = activity.changes.len() == 1;
     for (index, change) in activity.changes.iter().enumerate() {
         if index > 0 {
-            column = column.child(Text::new(""));
+            column = column.child(SizedBox::new(None, Some(1), None));
         }
         if !single {
             let mut row = vec![Span::styled(strings.file_branch, tokens.dim())];
@@ -227,19 +227,13 @@ fn count_spans((added, removed): (usize, usize), styles: &PatchStyles<'_>) -> Ve
     let strings = styles.strings;
     vec![
         Span::new(strings.count_open),
-        Span::styled(format!("{}{added}", strings.plus), add_style()),
+        Span::styled(strings.plus, styles.tokens.success()),
+        Span::styled(added.to_string(), styles.tokens.success()),
         Span::new(strings.gap),
-        Span::styled(format!("{}{removed}", strings.minus), delete_style()),
+        Span::styled(strings.minus, styles.tokens.error()),
+        Span::styled(removed.to_string(), styles.tokens.error()),
         Span::new(strings.count_close),
     ]
-}
-
-fn add_style() -> Style {
-    Style::new().fg(Color::GREEN)
-}
-
-fn delete_style() -> Style {
-    Style::new().fg(Color::RED)
 }
 
 /// One numbered line in the oracle's order: number, sign, text.
@@ -319,12 +313,12 @@ fn change_lines(
     let strings = styles.strings;
     for (index, hunk) in hunks.iter().enumerate() {
         if index > 0 {
+            let left = (strings.diff_indent.len() + gutter + 1) as i32;
             out.push(
-                Text::rich(vec![
-                    Span::new(strings.diff_indent),
-                    Span::new(strings.gap.repeat(gutter + 1)),
-                    Span::styled(strings.hunk_gap, styles.tokens.dim()),
-                ])
+                Padding::new(
+                    EdgeInsets::only(left, 0, 0, 0),
+                    Text::new(strings.hunk_gap).style(styles.tokens.dim()),
+                )
                 .into(),
             );
         }
@@ -349,30 +343,40 @@ fn change_lines(
         });
         for (row, line) in hunk.iter().enumerate() {
             let (sign, sign_style) = match line.kind {
-                DiffLineKind::Added => (strings.plus, add_style()),
-                DiffLineKind::Removed => (strings.minus, delete_style()),
+                DiffLineKind::Added => (strings.plus, styles.tokens.success()),
+                DiffLineKind::Removed => (strings.minus, styles.tokens.error()),
                 DiffLineKind::Context => (strings.gap, Style::new()),
             };
             let body = match highlighted.as_ref().and_then(|rows| rows.get(row)) {
                 Some(spans) if !spans.is_empty() => spans.clone(),
                 _ => vec![Span::styled(line.text.to_owned(), sign_style.clone())],
             };
-            // The number, its blank and the sign keep their columns even where
-            // the sign is a blank (a line's trailing blanks take no room).
-            let gutter_text = Text::rich(vec![
-                Span::new(strings.diff_indent),
-                Span::styled(format!("{:>gutter$}", line.number), styles.tokens.dim()),
-                Span::new(strings.gap),
-                Span::styled(sign, sign_style.clone()),
-            ]);
-            let gutter_width = strings.diff_indent.len() + gutter + 2;
+            // Fixed columns: the indent, the number aligned right, its blank
+            // and the sign (a line's trailing blanks take no room).
+            let width = |columns: usize, child: AnyWidget| {
+                SizedBox::new(Some(columns as i32), None, Some(child))
+            };
             out.push(
                 Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(
-                        Some(gutter_width as i32),
-                        None,
-                        Some(gutter_text.into()),
+                    .child(width(
+                        strings.diff_indent.len(),
+                        Text::new(strings.gap).into(),
+                    ))
+                    .child(width(
+                        gutter,
+                        Text::new(line.number.to_string())
+                            .style(styles.tokens.dim())
+                            .text_align(TextAlign::Right)
+                            .into(),
+                    ))
+                    .child(width(
+                        2,
+                        Text::rich(vec![
+                            Span::new(strings.gap),
+                            Span::styled(sign, sign_style.clone()),
+                        ])
+                        .into(),
                     ))
                     .child(Expanded::new(1, Text::rich(body).wrap(TextWrap::Grapheme)))
                     .into(),

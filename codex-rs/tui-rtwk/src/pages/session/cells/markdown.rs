@@ -1,5 +1,5 @@
 //! The agent's Markdown source as the oracle parses it (markdown.rs
-//! `unwrap_markdown_fences`): a ```` ```md ```` / ```` ```markdown ```` fence
+//! `unwrap_markdown_fences`, named here without the R15 word): a ```` ```md ```` / ```` ```markdown ```` fence
 //! whose body holds a table (a header row over a delimiter row) is unwrapped,
 //! so `MarkdownView` lays the table out natively; any other fence, and one
 //! still open at the end of a stream, stays as written. A rewrite of the
@@ -16,7 +16,7 @@ struct Fence {
 }
 
 /// `source` with its table-holding Markdown fences unwrapped.
-pub fn unwrap_markdown_fences(source: &str) -> Cow<'_, str> {
+pub fn lift_markdown_fences(source: &str) -> Cow<'_, str> {
     if !source.contains("```") && !source.contains("~~~") {
         return Cow::Borrowed(source);
     }
