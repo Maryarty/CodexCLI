@@ -1,0 +1,3 @@
+# Signed in with ChatGPT: the message (chatgpt_success_message_renders_osc8_hyperlinks).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"api_key": false}}}
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in_state": {"success_message": null}}}

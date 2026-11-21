@@ -67,6 +67,8 @@ RULES = [
     (r'^status/', 'S19', 'dialogs-pane', 'status'),
     # startup page: welcome, update prompt (S01), directory trust (S04)
     (r'^onboarding/(welcome|trust_directory|onboarding_screen)\.rs$|^update_prompt\.rs$', 'S01-S04', 'startup-flow', 'onboarding'),
+    # startup page: sign-in (S02) and provider setup (S03)
+    (r'^onboarding/(auth(/\w+)?|provider_setup|gateway(_login|_tests)?|bedrock(_tests)?|gcp(_tests)?)\.rs$', 'S02-S03', 'onboarding', 'signin'),
 ]
 RULES = [(re.compile(p), s, o, g) for p, s, o, g in RULES]
 

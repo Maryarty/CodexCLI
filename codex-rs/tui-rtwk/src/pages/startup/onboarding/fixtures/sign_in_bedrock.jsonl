@@ -1,0 +1,2 @@
+# The sign-in menu with the Bedrock wizard offered (bedrock_option_requires_feature_and_api_login_permission).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"bedrock": true}}}

@@ -87,6 +87,26 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "trust_long_root",
             "trust: a subdirectory of a long repository root"
         ),
+        entry!("sign_in_menu", "sign-in: ChatGPT and an API key"),
+        entry!("sign_in_forced_chatgpt", "sign-in: ChatGPT login forced"),
+        entry!("sign_in_bedrock", "sign-in: the Bedrock wizard offered"),
+        entry!(
+            "sign_in_cloud",
+            "sign-in: the Bedrock and Google Cloud wizards offered"
+        ),
+        entry!("sign_in_gateway", "sign-in: every provider wizard offered"),
+        entry!("sign_in_env_key", "sign-in: OPENAI_API_KEY set"),
+        entry!("api_key_entry", "sign-in: the API key entry"),
+        entry!(
+            "browser_long_url",
+            "sign-in: ChatGPT in the browser, a long link"
+        ),
+        entry!("success_message", "sign-in: signed in with ChatGPT"),
+        entry!("device_code", "sign-in: the device code shown"),
+        entry!(
+            "device_code_requesting",
+            "sign-in: the device code requested"
+        ),
     ]
 }
 

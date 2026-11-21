@@ -1,0 +1,3 @@
+# The device code login while the code is requested.
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {}}}
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in_state": {"device_code": {}}}}

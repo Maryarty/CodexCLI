@@ -1,0 +1,2 @@
+# The sign-in menu: ChatGPT and an API key allowed, no provider (auth.rs tests).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {}}}
