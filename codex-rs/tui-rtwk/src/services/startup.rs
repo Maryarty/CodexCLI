@@ -1,7 +1,7 @@
 //! The startup page's file and process effects (R12: IO lives in services):
 //! the update cache (`version.json`: what is offered, what was dismissed)
-//! and the update run once the terminal is restored. The host reads the
-//! config and the install method and calls these. Oracle:
+//! (the update run itself is the host's, `host/src/update.rs`). The host
+//! reads the config and the install method and calls these. Oracle:
 //! `updates_cache.rs`, `update_action.rs`, the CLI's `run_update_action`.
 
 use std::path::Path;
@@ -171,25 +171,6 @@ impl UpdateAction {
         shlex::try_join(std::iter::once(command).chain(args.iter().copied()))
             .unwrap_or_else(|_| format!("{command} {}", args.join(" ")))
     }
-}
-
-/// The CLI's `run_update_action` (non-Windows): after the terminal is
-/// restored, the update runs from `/` so no project config steers it.
-pub fn run_update(action: UpdateAction) -> Result<(), String> {
-    println!();
-    let command = action.command_str();
-    println!("Updating Codex via `{command}`...");
-    let (program, args) = action.command_args();
-    let status = std::process::Command::new(program)
-        .args(args)
-        .current_dir("/")
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("`{command}` failed with status {status}"));
-    }
-    println!("\n🎉 Update ran successfully! Please restart Codex.");
-    Ok(())
 }
 
 #[cfg(test)]

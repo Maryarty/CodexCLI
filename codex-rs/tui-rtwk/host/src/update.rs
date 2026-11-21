@@ -24,12 +24,101 @@ pub struct UpdateCommand {
     pub cwd: UpdateCwd,
 }
 
+/// The CLI's `run_update_action` builds the command per platform: on
+/// Windows the program is found on the absolute `PATH` entries only
+/// (`resolve_windows_update_command_from_path`), the standalone installer
+/// goes through `powershell.exe`, and the update runs in a fresh directory;
+/// elsewhere it runs from `/` with WSL-mapped paths.
 pub fn update_command(
-    _action: UpdateAction,
-    _windows: bool,
-    _path_env: Option<&OsStr>,
+    action: UpdateAction,
+    windows: bool,
+    path_env: Option<&OsStr>,
 ) -> Result<UpdateCommand, String> {
-    Err("not built".to_owned())
+    let (program, args) = action.command_args();
+    if !windows {
+        return Ok(UpdateCommand {
+            program: normalize_for_wsl(program).into(),
+            args: args.iter().map(|arg| normalize_for_wsl(arg)).collect(),
+            cwd: UpdateCwd::Root,
+        });
+    }
+    let program = if action == UpdateAction::StandaloneWindows {
+        // The arguments hold PowerShell metacharacters: PATHEXT must not
+        // pick a batch shim for this action.
+        "powershell.exe"
+    } else {
+        program
+    };
+    let path_env = path_env.ok_or_else(|| "PATH is not set".to_owned())?;
+    let absolute =
+        std::env::join_paths(std::env::split_paths(path_env).filter(|path| path.is_absolute()))
+            .map_err(|error| error.to_string())?;
+    if absolute.is_empty() {
+        return Err(format!(
+            "Could not find an absolute update command `{program}` on PATH. Please update manually: https://developers.openai.com/codex/cli/"
+        ));
+    }
+    let found = which::which_in_global(program, Some(&absolute))
+        .map_err(|error| error.to_string())?
+        .next()
+        .ok_or_else(|| format!("could not find update command `{program}` on PATH"))?;
+    Ok(UpdateCommand {
+        program: found,
+        args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+        cwd: UpdateCwd::Fresh,
+    })
+}
+
+/// The CLI's `wsl_paths::normalize_for_wsl`: under WSL a Windows drive path
+/// becomes its `/mnt/<drive>/...` mount; anything else is unchanged.
+fn normalize_for_wsl(value: &str) -> String {
+    if !codex_utils_path::is_wsl() {
+        return value.to_owned();
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() < 3
+        || bytes[1] != b':'
+        || !(bytes[2] == b'\\' || bytes[2] == b'/')
+        || !bytes[0].is_ascii_alphabetic()
+    {
+        return value.to_owned();
+    }
+    let drive = (bytes[0] as char).to_ascii_lowercase();
+    let tail = value[3..].replace('\\', "/");
+    if tail.is_empty() {
+        format!("/mnt/{drive}")
+    } else {
+        format!("/mnt/{drive}/{tail}")
+    }
+}
+
+/// The CLI's `run_update_action`: after the terminal is restored, the update
+/// runs where no project config steers it.
+pub fn run_update(action: UpdateAction) -> Result<(), String> {
+    println!();
+    let command = action.command_str();
+    println!("Updating Codex via `{command}`...");
+    let path_env = std::env::var_os("PATH");
+    let plan = update_command(action, cfg!(windows), path_env.as_deref())?;
+    // Kept alive until the update ends.
+    let fresh = match plan.cwd {
+        UpdateCwd::Root => None,
+        UpdateCwd::Fresh => Some(tempfile::tempdir().map_err(|error| error.to_string())?),
+    };
+    let status = std::process::Command::new(&plan.program)
+        .args(&plan.args)
+        .current_dir(
+            fresh
+                .as_ref()
+                .map_or(std::path::Path::new("/"), |dir| dir.path()),
+        )
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("`{command}` failed with status {status}"));
+    }
+    println!("\n🎉 Update ran successfully! Please restart Codex.");
+    Ok(())
 }
 
 #[cfg(test)]

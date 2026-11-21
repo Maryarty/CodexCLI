@@ -121,7 +121,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     }
     let chosen = update.lock().ok().and_then(|mut slot| slot.take());
     if let Some(action) = chosen {
-        codex_tui_rtwk::services::startup::run_update(action).map_err(anyhow::Error::msg)?;
+        update::run_update(action).map_err(anyhow::Error::msg)?;
     }
     Ok(())
 }
