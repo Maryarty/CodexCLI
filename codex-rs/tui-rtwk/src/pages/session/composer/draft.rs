@@ -50,6 +50,10 @@ struct Inner {
     /// Shell mode (`is_bash_mode`): a `!` typed at the draft's start left
     /// the text and became the prompt; a submit sends it back in front.
     shell: bool,
+    /// The separator space a `$skill` completion inserted, while the next
+    /// key may still replace it with trailing punctuation
+    /// (`skill_completion_space`).
+    skill_space: Option<usize>,
 }
 
 /// A local history entry with its elements.
@@ -80,6 +84,45 @@ impl std::fmt::Debug for ComposerDraft {
 }
 
 impl ComposerDraft {
+    /// A mention completion `text` (`… $skill `, `… @file `) was put in
+    /// before the caret with a separator space of its own. As the oracle's
+    /// `advance_past_completion_separator`: a plain space already after the
+    /// caret, with nothing but blanks behind it, is the separator (the
+    /// caret steps over it); otherwise the new space stays, and for a skill
+    /// the next key may swap it for punctuation.
+    pub fn completed(&self, c: &TextEditingController, text: &str) {
+        let word = text.trim_end().rsplit(' ').next().unwrap_or_default();
+        if !text.ends_with(' ') || !word.starts_with(['$', '@']) {
+            return;
+        }
+        let caret = c.selection().extent_offset;
+        let Some(added) = caret
+            .checked_sub(1)
+            .filter(|at| c.text().get(*at..caret) == Some(" "))
+        else {
+            return;
+        };
+        let rest = &c.text()[caret..];
+        let mut chars = rest.chars();
+        let existing = chars.next().filter(|ch| {
+            ch.is_whitespace() && !"\n\r\u{b}\u{c}\u{85}\u{2028}\u{2029}".contains(*ch)
+        });
+        if let Some(sep) = existing
+            && chars.next().is_none_or(char::is_whitespace)
+        {
+            c.replace(added, caret, "");
+            c.set_selection(TextSelection::collapsed(added + sep.len_utf8()));
+        } else if word.starts_with('$') {
+            self.0.borrow_mut().skill_space = Some(added);
+        }
+    }
+
+    /// The completion's space, kept only for the key that asks (every key
+    /// but a punctuation mark right after it forgets it).
+    pub fn take_skill_space(&self) -> Option<usize> {
+        self.0.borrow_mut().skill_space.take()
+    }
+
     /// The elements as they stand in `c`'s text, start first.
     pub fn elements(&self, c: &TextEditingController) -> Vec<Element> {
         self.sync(c);

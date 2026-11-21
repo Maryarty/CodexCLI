@@ -11,6 +11,14 @@ fn chat(w: u16, h: u16) -> Screen {
     Screen::build(Owner::ChatLive).size(w, h).live().open()
 }
 
+/// A chat screen with a turn running (Tab queues the draft), the composer live.
+fn chat_running(w: u16, h: u16) -> Screen {
+    Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .script(include_str!("fixtures/composer_2/running.jsonl"))
+        .open()
+}
+
 /// The composer's prompt row (`›`), the last one: a popup sits above the composer.
 fn prompt(s: &Screen) -> usize {
     s.rows()
@@ -395,13 +403,17 @@ fn pasting_fifo_path_keeps_it_editable() {
 fn paste_burst_tabs_preserve_multiline_draft() {
     kit::pending(
         Owner::ChatLive,
-        "no running task on the chat composer (Tab queues the draft while a task runs) and no paste-burst tab: a Tab inside a paste is a literal tab; the snapshot is the composer alone at 60 columns",
+        "footer modes (pane-footer): the oracle snapshot is the composer widget alone at 60 columns, with `tab to queue message` and `100% context left` in its footer; ours is the chat screen with the Working row and no context line",
     );
     for running in [false, true] {
         for first_line in ["x", "界", "first line\n"] {
             let snapshot_case = running && first_line == "first line\n";
             let (w, h) = if snapshot_case { (60, 8) } else { (100, 24) };
-            let mut s = chat(w, h);
+            let mut s = if running {
+                chat_running(w, h)
+            } else {
+                chat(w, h)
+            };
             let payload = format!("{first_line}\t\tsecond line\n\tthird line\n");
             s.paste(&payload);
             if snapshot_case {
@@ -446,13 +458,10 @@ fn paste_burst_tab_does_not_accept_a_completion() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:128 paste_burst_expired_before_tab_still_queues kind=ui owner=chat-live
 #[test]
 fn paste_burst_expired_before_tab_still_queues() {
-    kit::pending(
-        Owner::ChatLive,
-        "no running task on the chat composer: Tab queues the draft `x` while a task runs, and the composer is empty again",
-    );
-    let mut s = chat(100, 24);
+    let mut s = chat_running(100, 24);
     s.type_text("x");
     s.keys("tab");
+    // queued, not typed: the composer is empty again
     s.assert_row(prompt(&s), PLACEHOLDER);
 }
 
@@ -461,9 +470,9 @@ fn paste_burst_expired_before_tab_still_queues() {
 fn paste_burst_modified_queue_binding_still_dispatches() {
     kit::pending(
         Owner::ChatLive,
-        "no running task on the chat composer and no queue binding: Ctrl+Q queues the draft `x` while a task runs",
+        "no rebindable queue key: the default keymap queues on Tab only; Ctrl+Q (`queue_keys` override) is the keymap task's",
     );
-    let mut s = chat(100, 24);
+    let mut s = chat_running(100, 24);
     s.type_text("x");
     s.keys("ctrl+q");
     s.assert_row(prompt(&s), PLACEHOLDER);
@@ -1017,7 +1026,7 @@ fn vim_replace_completion_preserves_suffix() {
 fn external_editor_import_preserves_replace_backspace_recovery() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim Replace mode and no external-editor import on the chat composer (apply_external_edit has no seed): the imported `abc` is not drawn",
+        "G67: a composer handler cannot suspend the terminal for $EDITOR (no Ctrl+G external editor); no Vim Replace mode and no external-editor import on the chat composer (apply_external_edit has no seed): the imported `abc` is not drawn",
     );
     let mut s = chat(100, 24);
     s.type_text("old");

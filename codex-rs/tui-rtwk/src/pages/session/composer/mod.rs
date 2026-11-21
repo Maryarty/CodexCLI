@@ -247,6 +247,7 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Picked(text) => {
+                w.ui.draft.completed(&w.ui.composer, &text);
                 if let Some(h) = &w.on_picked {
                     cx.emit(h, text);
                 }

@@ -73,7 +73,8 @@ pub struct Candidate {
 
 impl Model {
     /// The rows of a popup for `query`: best match first, ties in the data's
-    /// order. `$` lists skills and apps; `@` files, plugins and apps.
+    /// order. `$` lists skills and apps; `@` files, skills, plugins and apps
+    /// (a skill picked from `@` is inserted as `$name`).
     pub fn candidates(&self, sigil: Sigil, query: &str) -> Vec<Candidate> {
         let mut scored: Vec<(i32, Candidate)> = Vec::new();
         let mut push = |name: &str, candidate: Candidate| {
@@ -100,7 +101,7 @@ impl Model {
             let wanted = matches!(
                 (sigil, mention.kind),
                 (Sigil::Dollar, MentionKind::Skill | MentionKind::App)
-                    | (Sigil::At, MentionKind::Plugin | MentionKind::App)
+                    | (Sigil::At, MentionKind::Skill | MentionKind::Plugin | MentionKind::App)
             );
             if !wanted {
                 continue;
@@ -129,7 +130,7 @@ impl Model {
 pub enum Sigil {
     /// `$`: skills.
     Dollar,
-    /// `@`: files and plugins.
+    /// `@`: files, skills, plugins and apps.
     At,
 }
 

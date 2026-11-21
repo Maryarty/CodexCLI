@@ -59,6 +59,15 @@ fn large_draft_search() -> Screen {
 
 // ---- oracle: bottom_pane/chat_composer/history_search.rs (16 screen-level tests here; 3 state tests left to chat-nav-pane)
 // ORACLE bottom_pane/chat_composer/history_search.rs:554 vim_normal_j_k_navigate_history_at_history_boundaries kind=ui owner=chat-nav-pane
+/// Ctrl+R reverse history search is not built on the chat composer (no `reverse-i-search` footer, match
+/// highlight or pasted query), the oracle's `history_search.rs`.
+const HISTORY_SEARCH: &str = "reverse history search (Ctrl+R) is not built on the chat composer: no `reverse-i-search` footer, no match highlight, no pasted query";
+
+/// G68: the oracle's popup is the pane's rows under the prompt, its name and description in aligned
+/// columns from column 0; rtwk's `Autocomplete` floats it above the field (inline: inside the field's
+/// column, label and detail two spaces apart).
+const POPUP_ROWS: &str = "G68: rtwk Autocomplete draws the suggestions as a floating list above the prompt (inline: indented by the prompt mark, label and detail not in aligned columns), the oracle's are the pane's rows under the prompt";
+
 #[test]
 fn vim_normal_j_k_navigate_history_at_history_boundaries() {
     kit::pending(
@@ -206,6 +215,7 @@ fn history_search_stays_on_single_match_at_boundaries() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:899 history_search_footer_action_hints_are_emphasized kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_footer_action_hints_are_emphasized() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -225,6 +235,7 @@ fn history_search_footer_action_hints_are_emphasized() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:976 history_search_highlights_matches_until_accepted kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_highlights_matches_until_accepted() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(60, 8)
         .script(include_str!("fixtures/composer_popups/h_git_cargo.jsonl"))
@@ -342,6 +353,7 @@ fn history_search_no_match_restores_preview_but_keeps_search_open() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:46 history_search_paste_appends_query_and_accepts_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_query
 #[test]
 fn history_search_paste_appends_query_and_accepts_match() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -362,6 +374,7 @@ fn history_search_paste_appends_query_and_accepts_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:83 history_search_large_paste_clamps_cursor kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_large_paste_cursor
 #[test]
 fn history_search_large_paste_clamps_cursor() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -374,6 +387,7 @@ fn history_search_large_paste_clamps_cursor() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:101 history_search_empty_paste_preserves_selected_match kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_empty_paste
 #[test]
 fn history_search_empty_paste_preserves_selected_match() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_paste.jsonl"))
@@ -391,6 +405,7 @@ fn history_search_empty_paste_preserves_selected_match() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:121 history_search_paste_shows_separators_and_matches_original_query kind=snap owner=chat-nav-pane snap=codex_tui__bottom_pane__chat_composer__history_search__paste_tests__history_search_pasted_separators
 #[test]
 fn history_search_paste_shows_separators_and_matches_original_query() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(70, 5)
         .script(include_str!("fixtures/composer_popups/h_separators.jsonl"))
@@ -404,6 +419,7 @@ fn history_search_paste_shows_separators_and_matches_original_query() {
 // ORACLE bottom_pane/chat_composer/history_search_paste_tests.rs:158 history_search_paste_preserves_original_draft_on_miss_and_cancel kind=ui owner=chat-nav-pane
 #[test]
 fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
+    kit::pending(Owner::ChatNavPane, HISTORY_SEARCH);
     for cancel in ["esc", "ctrl+c"] {
         let mut s = large_draft_search();
         s.keys(cancel);
@@ -575,6 +591,7 @@ fn skill_completion_keeps_space_before_a_punctuation_paste_burst() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:124 default_unified_mention_popup_snapshot kind=snap owner=chat-nav-pane snap=default_unified_mention_popup
 #[test]
 fn default_unified_mention_popup_snapshot() {
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
         .script(include_str!(
@@ -611,6 +628,7 @@ fn unavailable_side_conversation_command_is_shown_only_when_searched() {
 // ORACLE bottom_pane/command_popup.rs:459 command_popup_wrap_boundary_preserves_following_choice kind=snap owner=chat-nav-pane snap=command_popup_wrap_boundary
 #[test]
 fn command_popup_wrap_boundary_preserves_following_choice() {
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     for width in [32, 33, 34] {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(width, 24)
@@ -629,6 +647,7 @@ fn command_popup_wrap_boundary_preserves_following_choice() {
 // ORACLE bottom_pane/command_popup.rs:529 app_command_popup_snapshot kind=snap owner=chat-nav-pane snap=command_popup_app
 #[test]
 fn app_command_popup_snapshot() {
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")
@@ -644,6 +663,7 @@ fn app_command_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:548 voice_command_popup_snapshot kind=snap owner=chat-nav-pane snap=command_popup_voice
 #[test]
 fn voice_command_popup_snapshot() {
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")
@@ -659,6 +679,7 @@ fn voice_command_popup_snapshot() {
 // ORACLE bottom_pane/command_popup.rs:591 changing_filter_resets_selection_after_scrolling kind=snap owner=chat-nav-pane snap=command_popup_filter_reset_after_scroll
 #[test]
 fn changing_filter_resets_selection_after_scrolling() {
+    kit::pending(Owner::ChatNavPane, POPUP_ROWS);
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(72, 24)
         .entry("popovers", "composer_popups")

@@ -69,6 +69,12 @@ fn mention(strings: &Strings, head: &str, sigil: char, candidate: &Candidate) ->
         CandidateKind::App => format!("{} {}", strings.tag_app, candidate.description),
         CandidateKind::Plugin => format!("{} {}", candidate.description, strings.tag_plugin),
     };
+    // a skill is a `$` mention wherever it was found (`@` lists skills too)
+    let sigil = if candidate.kind == CandidateKind::Skill {
+        '$'
+    } else {
+        sigil
+    };
     let suggestion = Suggestion::new(format!("{head}{sigil}{} ", candidate.insert))
         .label(candidate.label.clone());
     if detail.is_empty() {

@@ -44,7 +44,22 @@ fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let plain = only(key, Mods::NONE);
     let ctrl = only(key, Mods::CTRL);
     let alt = only(key, Mods::ALT);
+    // a `$skill` completion's space lasts for the next key only
+    let skill_space = draft.take_skill_space();
     match (key.code, key.ch) {
+        // typed punctuation right after a skill completion takes the
+        // completion's space (`skill_completion_space_for_char`)
+        (KeyCode::Char, Some(ch))
+            if (plain || only(key, Mods::SHIFT))
+                && collapsed
+                && ",.;:!?)]}。，、！？》".contains(ch)
+                && skill_space
+                    .is_some_and(|at| caret == at + 1 && c.text().get(at..at + 1) == Some(" ")) =>
+        {
+            let at = caret - 1;
+            c.replace(at, caret, &ch.to_string());
+            true
+        }
         // Shell mode (`sync_bash_mode_from_text`): a `!` typed at the
         // draft's start becomes the prompt; Backspace there and Esc on an
         // empty draft leave it.
