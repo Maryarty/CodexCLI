@@ -40,8 +40,12 @@ const PASTE_BURST_ACTIVE_IDLE_TIMEOUT: Duration = Duration::from_millis(8);
 #[cfg(windows)]
 const PASTE_BURST_ACTIVE_IDLE_TIMEOUT: Duration = Duration::from_millis(60);
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PasteBurst {
+    /// Idle time after which an active burst is flushed
+    /// (`PASTE_BURST_ACTIVE_IDLE_TIMEOUT`; a field so a test can run the
+    /// slower Windows timing on any platform).
+    active_idle_timeout: Duration,
     last_plain_char_time: Option<Moment>,
     consecutive_plain_char_burst: u16,
     burst_window_until: Option<Moment>,
@@ -49,6 +53,12 @@ pub struct PasteBurst {
     active: bool,
     // Hold first fast char briefly to avoid rendering flicker
     pending_first_char: Option<(char, Moment)>,
+}
+
+impl Default for PasteBurst {
+    fn default() -> Self {
+        Self::with_active_idle_timeout(PASTE_BURST_ACTIVE_IDLE_TIMEOUT)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -78,6 +88,19 @@ pub enum FlushResult {
 }
 
 impl PasteBurst {
+    /// A detector whose active burst flushes after `timeout` of idle.
+    pub fn with_active_idle_timeout(timeout: Duration) -> Self {
+        Self {
+            active_idle_timeout: timeout,
+            last_plain_char_time: None,
+            consecutive_plain_char_burst: 0,
+            burst_window_until: None,
+            buffer: String::new(),
+            active: false,
+            pending_first_char: None,
+        }
+    }
+
     /// Recommended delay to wait between simulated keypresses (or before
     /// scheduling a UI tick) so that a pending fast keystroke is flushed
     /// out of the burst detector as normal typed input.
@@ -171,7 +194,7 @@ impl PasteBurst {
     /// - [`FlushResult::None`] when the timeout has not elapsed, or there is nothing to flush.
     pub fn flush_if_due(&mut self, now: Moment) -> FlushResult {
         let timeout = if self.is_active_internal() {
-            PASTE_BURST_ACTIVE_IDLE_TIMEOUT
+            self.active_idle_timeout
         } else {
             PASTE_BURST_CHAR_INTERVAL
         };

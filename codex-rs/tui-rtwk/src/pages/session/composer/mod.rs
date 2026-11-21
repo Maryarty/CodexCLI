@@ -286,7 +286,7 @@ impl State for ComposerState {
                 let env = burst_env(&binding, cx, table);
                 let skill = w.ui.draft.take_skill_space();
                 let now = binding.clock().now();
-                if burst::flush_due_with(&w.ui.draft, &*tell, &env, &w.ui.composer, now, skill) {
+                if burst::on_timer(&w.ui.draft, &*tell, &env, &w.ui.composer, now, skill) {
                     return rtwk::Rebuild::Yes;
                 }
                 // a first char still held keeps its completion's space

@@ -80,6 +80,27 @@ pub fn flush_due(
     flush_due_with(&data.draft, &*data.tell, env, c, now, skill_space)
 }
 
+/// The app timer's turn (`BurstDue`): a due flush goes in (`true`); when
+/// nothing was due and the draft is still in a burst (an active burst waits
+/// longer than the first char, 60 ms on Windows), the timer is armed again,
+/// as the oracle's `request_redraw_in` is while `is_in_paste_burst()`.
+pub fn on_timer(
+    draft: &ComposerDraft,
+    tell: &dyn Fn(ComposerMsg),
+    env: &BurstEnv,
+    c: &TextEditingController,
+    now: Duration,
+    skill_space: Option<usize>,
+) -> bool {
+    if flush_due_with(draft, tell, env, c, now, skill_space) {
+        return true;
+    }
+    if draft.in_burst() {
+        (env.arm)();
+    }
+    false
+}
+
 /// [`flush_due`] for a caller with no key (the timer).
 pub fn flush_due_with(
     draft: &ComposerDraft,

@@ -105,3 +105,52 @@ fn a_large_burst_goes_in_as_one_placeholder_once_it_stops() {
     s.wait(50);
     s.assert_row(prompt(&s), "› [Pasted Content 1005 chars]");
 }
+
+/// The timer's turn with a slow active-idle timeout (Windows' 60 ms): the
+/// first due check, 9 ms after the last char, finds nothing due and must
+/// arm the timer again, or a non-bracketed paste stays invisible until the
+/// next key (the oracle re-arms while `is_in_paste_burst()`).
+mod timer {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+    use codex_tui_rtwk::pages::session::composer::burst::{BurstEnv, on_timer};
+    use codex_tui_rtwk::widgets::composer_draft::ComposerDraft;
+    use rtwk::editing::TextEditingController;
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    #[test]
+    fn a_burst_not_yet_due_arms_the_timer_again_until_it_flushes() {
+        let draft = ComposerDraft::default();
+        draft.burst(|b| *b = PasteBurst::with_active_idle_timeout(ms(60)));
+        let c = TextEditingController::new("");
+        let armed = Rc::new(Cell::new(0u32));
+        let counter = armed.clone();
+        let env = BurstEnv {
+            now: Rc::new(|| Duration::ZERO),
+            arm: Rc::new(move || counter.set(counter.get() + 1)),
+            label: Rc::new(|n| format!("[Pasted Content {n} chars]")),
+        };
+        // two fast chars: the burst begins and holds both
+        draft.burst(|b| {
+            b.on_plain_char('a', ms(0));
+            b.on_plain_char('b', ms(1));
+            b.append_char_to_buffer('b', ms(1));
+        });
+        assert!(draft.in_burst());
+        let tell = |_| {};
+        // 10 ms after the last char: past the first char's 9 ms, not the 60
+        assert!(!on_timer(&draft, &tell, &env, &c, ms(11), None));
+        assert_eq!(armed.get(), 1, "nothing due, still in a burst: armed again");
+        assert_eq!(&*c.text(), "", "nothing went in yet");
+        // 61 ms after the last char: due, the paste goes in, no more arming
+        assert!(on_timer(&draft, &tell, &env, &c, ms(62), None));
+        assert_eq!(armed.get(), 1);
+        assert_eq!(&*c.text(), "ab");
+    }
+}
