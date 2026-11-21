@@ -91,7 +91,13 @@ Checks: fmt clean, clippy `--workspace --all-targets -D warnings` clean, whole n
   expanded the full path under a two-column hanging indent and `− Hide details`, detailed transcript the path and no control; tap, Enter, Space.
   The oracle's path-in-details test now clicks the control. NOT done (named for the lander): the image link (`TerminalHyperlink::viewed_image`,
   needs canonicalize and is_file) and the image preview (`TranscriptImage::load`) read the file system; a views-without-IO design needs a
-  services effect that answers "is this a local image, its bytes" into the model. No debt task was created by this run.
+  services effect that answers "is this a local image, its bytes" into the model. Debt (chat-cells-2 phase 1): the session had no
+  `task_create`, so the orchestrator creates it under the parent of chat-cells-2 (text in the handover): it owns the services effect
+  (canonicalize / is_file / the oracle's workspace-locality gate, image load) answering through `apply`, then the link span and image widget.
+Phase 1 rebase (onto 629c4cd84, composer-2's paste burst landed): `core/tests/all.rs` got `mod citations;` and `mod directives;`;
+tests/pages/cells.rs types through `h.press` (which waits one key pace) so the raw `type_text("go")` + Enter is no burst; whole nextest
+1198 pass / 15 skipped; oracle shards cells_1-5, markdown_streaming_1-5, renderer_internals 163 pass / 12 n/a / 315 pending / 0 red / 0 stale;
+web-search and view-image PASS on both binaries again.
 Binary (mock-model check.py, pty): web-search and view-image on both binaries PASS; a VT replay with scroll regions of the captures
 (scratch /tmp/chat-cells-vt.py) gives, rtwk vs oracle, equal transcript rows: web-search `• Browsing the web` / `• Searched the web for rtwk
 terminal ui framework` / `• Search done: …`, view-image `• Viewed image example.png` / `    + Show details`. Footer chrome differs (model name
