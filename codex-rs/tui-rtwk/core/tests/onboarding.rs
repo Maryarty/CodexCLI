@@ -102,7 +102,10 @@ fn update_running() -> CodexApp {
         &mut app,
         AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { request: 1, facts })),
     );
-    choose(&mut app, StartupIntent::ChooseUpdate(UpdateChoice::UpdateNow));
+    choose(
+        &mut app,
+        StartupIntent::ChooseUpdate(UpdateChoice::UpdateNow),
+    );
     assert!(!app.screens().onboarding.done(Stage::Update));
     app
 }
