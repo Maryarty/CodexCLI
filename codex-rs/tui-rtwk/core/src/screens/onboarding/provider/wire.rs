@@ -122,17 +122,15 @@ pub fn request(setup: &Setup, request_id: RequestId) -> ClientRequest {
 
 /// Whether a server's refusal of this request is shown as the server's own
 /// message, without the client's `<method> failed: ... (code n)` frame: the
-/// oracle reads `source.message` for the GCP setup and the gateway wizard's
-/// requests (`gcp.rs`, `app/provider/rpc.rs`); the Bedrock ones and every
-/// other request show the client's text (`error.to_string()`).
+/// oracle reads `source.message` for the GCP setup (`gcp.rs`) and the gateway
+/// write (`app/provider/rpc.rs` `write_provider`); the list, the selection
+/// (`set_default_provider`), Bedrock's and every other request show the
+/// client's text (`error.to_string()`).
 pub fn reads_message_only(request: &ClientRequest) -> bool {
-    match request {
-        ClientRequest::GcpSetup { .. }
-        | ClientRequest::ModelProviderList { .. }
-        | ClientRequest::ModelProviderConfigWrite { .. } => true,
-        ClientRequest::ConfigValueWrite { params, .. } => params.key_path == "model_provider",
-        _ => false,
-    }
+    matches!(
+        request,
+        ClientRequest::GcpSetup { .. } | ClientRequest::ModelProviderConfigWrite { .. }
+    )
 }
 
 fn read<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, String> {
@@ -162,10 +160,12 @@ const LIST_FAILED: &str = "Could not load model providers: ";
 
 /// `rpc::request_error`.
 fn list_failure(error: &ServerError) -> String {
+    // The message is the client's text: `<method> failed: <source.message>
+    // (code n)`.
     let unknown = error.code == Some(-32600)
-        && error
-            .message
-            .starts_with("Invalid request: unknown variant `model/provider/list`");
+        && error.message.starts_with(
+            "modelProvider/list failed: Invalid request: unknown variant `modelProvider/list`",
+        );
     if error.code == Some(-32601) || unknown {
         "Update the connected app server to browse model providers.".into()
     } else {
@@ -335,15 +335,21 @@ mod tests {
         ));
     }
 
-    // The oracle's GCP and gateway requests show `source.message`; Bedrock's
-    // show the client's whole text, as does any other request.
+    // The oracle's GCP setup and gateway write show `source.message`; the
+    // list, the selection, Bedrock's and any other request show the client's
+    // whole text (`rpc::request_error`, `set_default_provider`).
     #[test]
-    fn only_the_gcp_and_gateway_requests_read_the_servers_message() {
+    fn only_the_gcp_setup_and_the_gateway_write_read_the_servers_message() {
         let id = || RequestId::Integer(1);
-        for setup in [Setup::GatewayList, Setup::GatewaySelect("office".into())] {
-            assert!(reads_message_only(&request(&setup, id())), "{setup:?}");
-        }
+        let write = Setup::GatewayWrite(super::super::gateway::Patch {
+            name: "Team".into(),
+            url: "https://t/v1".into(),
+            variable: None,
+        });
+        assert!(reads_message_only(&request(&write, id())));
         for setup in [
+            Setup::GatewayList,
+            Setup::GatewaySelect("office".into()),
             Setup::BedrockDiscover,
             bedrock(Credential::ApiKey("k".into())),
             bedrock(Credential::Profile("p".into())),
@@ -436,6 +442,26 @@ mod tests {
             outcome(&Setup::GatewayList, Err("down".into())),
             Err("Could not load model providers: down".into())
         );
+        // The client's frame stays: the refusal of the list is not the bare
+        // server message.
+        let refused = ServerError {
+            code: Some(-32602),
+            message: "modelProvider/list failed: Bad cursor (code -32602)".into(),
+        };
+        assert_eq!(
+            outcome(&Setup::GatewayList, Err(refused)),
+            Err("Could not load model providers: modelProvider/list failed: Bad cursor (code -32602)".into())
+        );
+        // An older server rejects the method as an unknown variant of the
+        // request, under the method's real name.
+        let unknown = ServerError {
+            code: Some(-32600),
+            message: "modelProvider/list failed: Invalid request: unknown variant `modelProvider/list`, expected one of `initialize` (code -32600)".into(),
+        };
+        assert_eq!(
+            outcome(&Setup::GatewayList, Err(unknown)),
+            Err("Update the connected app server to browse model providers.".into())
+        );
     }
 
     // rpc.rs `write_provider`
@@ -490,8 +516,10 @@ mod tests {
             ),
             Err("Managed.".into())
         );
+        // The selection is a refusal with the client's frame
+        // (`set_default_provider`: `err.to_string()`).
         let request = request(&setup, RequestId::Integer(1));
-        assert!(reads_message_only(&request));
+        assert!(!reads_message_only(&request));
         assert!(matches!(
             request,
             ClientRequest::ConfigValueWrite { params, .. } if params.key_path == "model_provider"

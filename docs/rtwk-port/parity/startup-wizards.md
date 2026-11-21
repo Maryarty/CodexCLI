@@ -86,13 +86,17 @@ way), `GatewayOAuthChanged` shows the URL, a failure waits for Enter or a tap of
 line, Ctrl+C sends `CancelGatewayOAuth`. `Model::done(SignIn)` is false while the phase is
 active, so the page stays and the launch waits.
 
-Server-refusal text, SCOPED: the oracle reads `source.message` only for the GCP setup and the
-gateway wizard (`gcp.rs`, `app/provider/rpc.rs`); Bedrock, archive, trust, account and the
-gateway OAuth show the client's `<method> failed: <message> (code n)`. The brief's global
+Server-refusal text, SCOPED: the oracle reads `source.message` only for the GCP setup
+(`gcp.rs`) and the gateway write (`app/provider/rpc.rs` `write_provider`); the provider list
+(`rpc::request_error`: `Could not load model providers: {err}`), the default-provider
+selection (`set_default_provider`: `err.to_string()`), Bedrock, archive, trust, account and
+the gateway OAuth show the client's `<method> failed: <message> (code n)`. The brief's global
 "Server errors use `source.message`" would have changed the latter, so core
-`provider/wire.rs::reads_message_only(&ClientRequest)` names the requests (GcpSetup,
-ModelProviderList, ModelProviderConfigWrite, ConfigValueWrite of `model_provider`) and
-`in_process.rs::error_text` applies it; the test shows both texts.
+`provider/wire.rs::reads_message_only(&ClientRequest)` names the two requests (GcpSetup,
+ModelProviderConfigWrite) and `in_process.rs::error_text` applies it; the test shows both
+texts. (Fixed after the startup-followup review: the list and the selection were wrongly in
+the set, and the list's "unknown variant" check named `model/provider/list` instead of
+`modelProvider/list`.)
 
 Tests (new): core `core/tests/onboarding/gateway.rs` 11 (the sequence, the trust first,
 a stale answer dropped, a lost connection, the retry, the exit cancel, ...); `wire.rs`
