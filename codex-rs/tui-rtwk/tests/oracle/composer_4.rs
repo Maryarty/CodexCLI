@@ -357,10 +357,6 @@ fn right_click_copy_uses_the_refreshed_editor_bounds() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:244 selection_release_copies_and_keeps_the_editable_selection kind=ui owner=chat-live
 #[test]
 fn selection_release_copies_and_keeps_the_editable_selection() {
-    kit::pending(
-        Owner::ChatLive,
-        "the drag selects and the typed `X` replaces it (composer_mouse), but the selected `hello` is not drawn REVERSED: the first selected cell has no modifier (not diagnosed: the TextArea draws its own selection style)",
-    );
     let mut s = chat(40, 24);
     s.type_text("hello world");
     let p = prompt(&s);
@@ -376,9 +372,9 @@ fn selection_release_copies_and_keeps_the_editable_selection() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:302 selection_release_reports_only_clipboard_result kind=ui owner=chat-live
 #[test]
 fn selection_release_reports_only_clipboard_result() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the drag selects (composer_mouse), but the selection is not drawn REVERSED (the first selected cell has no modifier; not diagnosed), and the copy status is not on the screen",
+        "state test: the oracle's `copy_selection_on_release` and `finish_copy` with a mocked clipboard closure and a `CopyStatus`; no screen shows the result, so the screen half is the highlight (as the test above)",
     );
     let mut s = chat(40, 24);
     s.type_text("hello world");

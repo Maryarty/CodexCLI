@@ -14,7 +14,7 @@ use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row};
 use rtwk::provider::{read, watch};
-use rtwk::style::Attrs;
+use rtwk::style::{Attrs, Style};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
@@ -269,6 +269,8 @@ impl State for ComposerState {
             .cursor_shape(CursorShape::TerminalDefault)
             .min_lines(1)
             .autofocus(true)
+            // the oracle draws the selection REVERSED (`textarea.rs`)
+            .selection_style(Style::new().attrs(Attrs::REVERSE))
             .on_changed(cx.map(ComposerMsg::Changed));
         if !w.bare {
             // the bare area breaks the line on Enter, as the oracle's does

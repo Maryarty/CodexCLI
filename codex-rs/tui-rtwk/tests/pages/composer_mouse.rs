@@ -49,6 +49,31 @@ fn a_drag_selects_and_typing_replaces_the_selection() {
     s.assert_row(prompt(&s), "› hello X");
 }
 
+#[test]
+fn a_double_click_selects_the_word_and_typing_replaces_it() {
+    let mut s = chat();
+    s.type_text("hello world");
+    let row = cell(prompt(&s));
+    // `world` starts at x 8 (the prompt takes two cells, `hello ` six)
+    s.double_click(10, row);
+    s.assert_style(8, usize::from(row), "reversed");
+    s.assert_style(12, usize::from(row), "reversed");
+    s.assert_style(7, usize::from(row), "!reversed");
+    s.type_text("X");
+    s.assert_row(prompt(&s), "› hello X");
+}
+
+#[test]
+fn the_drag_is_drawn_reversed_as_the_oracles_textarea_does() {
+    let mut s = chat();
+    s.type_text("hello world");
+    let row = usize::from(cell(prompt(&s)));
+    s.drag(2, cell(row), 7, cell(row));
+    s.assert_style(2, row, "reversed");
+    s.assert_style(6, row, "reversed");
+    s.assert_style(7, row, "!reversed");
+}
+
 // pending(G70): rtwk's `Autocomplete` rows take no pointer (a click does nothing)
 #[test]
 #[ignore = "pending(G70): the Autocomplete popup rows take no mouse"]

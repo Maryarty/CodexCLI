@@ -709,8 +709,13 @@ fn tab_does_not_submit_for_bang_shell_command() {
 fn bang_prefixed_slash_text_submits_literal_shell_command() {
     let mut s = ready(100, 24);
     s.type_text("!/diff").keys("enter");
-    s.assert_contains("!/diff");
+    // oracle: `Submitted { text: "!/diff" }`, a shell command, not the `/diff`
+    // command. The line goes out as the user's shell command and the result
+    // comes back from the server (nothing is echoed locally, `submit_shell_command`);
+    // what the screen shows is the composer cleared and no pager opened
+    // (tests/pages/composer_draft.rs holds the request: `thread/shellCommand` `/diff`).
     s.assert_row(prompt(&s), PLACEHOLDER);
+    s.assert_absent("Not implemented yet");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10287 slash_mention_dispatches_command_and_inserts_at kind=ui owner=chat-live

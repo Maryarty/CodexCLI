@@ -81,6 +81,18 @@ fn a_shell_draft_the_thread_took_clears_and_leaves_shell_mode() {
 }
 
 #[test]
+fn a_bang_slash_line_is_a_shell_command_not_the_slash_command() {
+    let mut h = chat();
+    h.fake.respond(|request| {
+        (request["method"] == "thread/shellCommand").then(|| Ok(serde_json::json!({})))
+    });
+    h.t.type_text("!/diff");
+    h.press("enter");
+    h.wait_idle();
+    assert_eq!(shell_commands(&h), vec!["/diff".to_string()]);
+}
+
+#[test]
 fn a_bang_after_the_start_is_part_of_the_prompt() {
     let mut h = chat();
     h.fake.script_turn(vec![
