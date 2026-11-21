@@ -8,6 +8,7 @@ mod facts;
 mod in_process;
 mod startup;
 mod target;
+mod update;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;
