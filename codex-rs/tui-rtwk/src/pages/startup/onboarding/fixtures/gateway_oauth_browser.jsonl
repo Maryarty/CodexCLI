@@ -1,0 +1,3 @@
+# The gateway's own sign-in waits in the browser (gateway_oauth_displays_the_browser_link_and_retry_action).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"api_key": false}}}
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in_state": {"gateway_oauth": {"provider_id": "office", "url": "https://office.example.test/authorize"}}}}

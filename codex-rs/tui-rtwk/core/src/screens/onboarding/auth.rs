@@ -105,6 +105,20 @@ pub enum State {
     /// The gateway with this id is the default provider
     /// (`SignInState::GatewaySelected`): what the host signs in to next.
     GatewaySelected(String),
+    /// The gateway `provider_id`'s own sign-in runs on the app server of
+    /// the selected provider (`SignInState::GatewayOAuth`): `url` is the
+    /// page it opens in the browser, once known.
+    GatewayOAuth {
+        provider_id: String,
+        url: Option<String>,
+    },
+    /// The gateway's sign-in failed; Enter retries it.
+    GatewayOAuthFailed {
+        provider_id: String,
+        message: String,
+    },
+    /// The gateway is signed in (`SignInState::GatewayConfigured`).
+    GatewayConfigured,
 }
 
 /// A device code to enter (`ContinueWithDeviceCodeState::ready`).
@@ -229,6 +243,7 @@ impl SignIn {
                 | State::Provider(_)
                 | State::ProviderConfigured(_)
                 | State::GatewaySelected(_)
+                | State::GatewayConfigured
         )
     }
 

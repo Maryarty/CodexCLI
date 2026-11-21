@@ -87,6 +87,45 @@ pub struct Strings {
     pub gov_cloud_scroll: [&'static str; 5],
     /// The masked character of a secret field.
     pub secret: &'static str,
+    /// The gateway wizard (`onboarding/gateway.rs`, `app/provider/editor.rs`):
+    /// the picker's title (indented), the row and form title that create
+    /// one, the waiting texts and the load error's only row.
+    pub gateway_title: &'static str,
+    pub gateway_create: &'static str,
+    pub gateway_loading: &'static str,
+    pub gateway_saving: &'static str,
+    pub gateway_back_row: &'static str,
+    /// The picker's hint after `  Press enter`: to use a gateway, to
+    /// create one, the ` or ` before `esc`.
+    pub gateway_to_use: &'static str,
+    pub gateway_to_create: &'static str,
+    pub gateway_or: &'static str,
+    /// The marks before a saved gateway's name: the default's, and the others'.
+    pub gateway_dots: [&'static str; 2],
+    /// The form's fields: marked and not, the labels, the examples shown
+    /// while empty, and the `$` before the variable's name.
+    pub gateway_marks: [&'static str; 2],
+    pub gateway_labels: [&'static str; 3],
+    pub gateway_examples: [&'static str; 3],
+    pub gateway_dollar: &'static str,
+    pub gateway_required_mark: &'static str,
+    /// `› Save` and `  Save`.
+    pub gateway_save: [&'static str; 2],
+    pub gateway_errors: [&'static str; 3],
+    pub gateway_required: &'static str,
+    pub gateway_variable_hint: &'static str,
+    /// `⌃space` and ` complete ` before the variable it completes.
+    pub gateway_complete: [&'static str; 2],
+    /// The form's keys: `tab`, ` move · `, ` next/save · `.
+    pub gateway_tab: &'static str,
+    pub gateway_move: &'static str,
+    pub gateway_next_save: &'static str,
+    pub gateway_selected: &'static str,
+    /// The gateway's own sign-in (`gateway_login.rs`).
+    pub gateway_oauth_starting: &'static str,
+    pub gateway_oauth_browser: &'static str,
+    pub gateway_oauth_quit: &'static str,
+    pub gateway_oauth_retry: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -169,6 +208,37 @@ pub static EN: Strings = Strings {
     acknowledge: "> Acknowledge",
     gov_cloud_scroll: ["\u{2191}", "/", "\u{2193}", " scroll \u{b7} ", "enter"],
     secret: "\u{2022}",
+    gateway_title: "  Use a custom provider or gateway",
+    gateway_create: "Create a custom provider or gateway",
+    gateway_loading: "Loading gateways\u{2026}",
+    gateway_saving: "Saving gateway settings\u{2026}",
+    gateway_back_row: "1. Back",
+    gateway_to_use: " to use as default",
+    gateway_to_create: " to create",
+    gateway_or: " or ",
+    gateway_dots: ["\u{25cf} ", "\u{25cb} "],
+    gateway_marks: ["\u{203a} ", "  "],
+    gateway_labels: ["Name", "Base URL", "API key variable"],
+    gateway_examples: ["Team gateway", "https://gateway.example/v1", "TEAM_API_KEY"],
+    gateway_dollar: "$",
+    gateway_required_mark: "*",
+    gateway_save: ["\u{203a} Save", "  Save"],
+    gateway_errors: [
+        "Enter a provider name.",
+        "Enter a base URL.",
+        "Enter an environment variable name such as TEAM_API_KEY.",
+    ],
+    gateway_required: "* Required",
+    gateway_variable_hint: "Enter the environment variable name on the app server.",
+    gateway_complete: ["\u{2303}space", " complete "],
+    gateway_tab: "tab",
+    gateway_move: " move \u{b7} ",
+    gateway_next_save: " next/save \u{b7} ",
+    gateway_selected: "\u{2713} Custom provider configured",
+    gateway_oauth_starting: "Starting gateway sign-in\u{2026}",
+    gateway_oauth_browser: "Finish signing in to your gateway in the browser.",
+    gateway_oauth_quit: "Press Ctrl+C to quit.",
+    gateway_oauth_retry: "Press Enter to retry or Ctrl+C to quit.",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

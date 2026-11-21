@@ -537,6 +537,17 @@ impl State for SignInState {
             auth::State::ProviderConfigured(chosen) => {
                 provider::configured(*chosen, &look, provider::strings::of(cx))
             }
+            // The gateway is the default provider (`GatewaySelected`) and
+            // signed in to (`GatewayConfigured`): the same line.
+            auth::State::GatewaySelected(_) | auth::State::GatewayConfigured => {
+                provider::configured(Provider::Gateway, &look, provider::strings::of(cx))
+            }
+            auth::State::GatewayOAuth { url, .. } => {
+                provider::gateway_login::browser(provider::strings::of(cx), &look, url.as_deref())
+            }
+            auth::State::GatewayOAuthFailed { message, .. } => {
+                provider::gateway_login::failed(provider::strings::of(cx), &look, message)
+            }
         };
         focus.child = body;
         for (key, msg) in [

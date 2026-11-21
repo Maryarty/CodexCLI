@@ -101,6 +101,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "sign-in: the Bedrock and Google Cloud wizards offered"
         ),
         entry!("sign_in_gateway", "sign-in: every provider wizard offered"),
+        entry!(
+            "gateway_oauth_starting",
+            "sign-in: the gateway's own sign-in starting"
+        ),
+        entry!(
+            "gateway_oauth_browser",
+            "sign-in: the gateway's own sign-in in the browser"
+        ),
+        entry!(
+            "gateway_oauth_failed",
+            "sign-in: the gateway's own sign-in failed"
+        ),
         entry!("sign_in_env_key", "sign-in: OPENAI_API_KEY set"),
         entry!(
             "bedrock_gov_cloud",

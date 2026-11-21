@@ -19,6 +19,8 @@ use codex_tui_core::screens::onboarding::auth::{Provider, provider::Wizard};
 use super::{Look, paragraph, rows_of};
 
 pub mod bedrock;
+pub mod gateway;
+pub mod gateway_login;
 pub mod gcp;
 pub mod gov_cloud;
 pub mod strings;
@@ -36,6 +38,11 @@ pub(super) fn body(wizard: &Wizard, guard: &crate::widgets::key_guard::KeyGuard)
             guard: guard.clone(),
         }
         .into(),
+        Wizard::Gateway(model) => gateway::GatewayWizard {
+            gateway: model.clone(),
+            guard: guard.clone(),
+        }
+        .into(),
     }
 }
 
@@ -48,7 +55,7 @@ pub(super) fn configured(
     let text = match provider {
         Provider::Gcp => strings.gcp_configured,
         Provider::Bedrock => strings.bedrock_configured,
-        Provider::Gateway => return SizedBox::shrink().into(),
+        Provider::Gateway => strings.gateway_selected,
     };
     Text::rich([Span::styled(text, look.green.clone())]).into()
 }

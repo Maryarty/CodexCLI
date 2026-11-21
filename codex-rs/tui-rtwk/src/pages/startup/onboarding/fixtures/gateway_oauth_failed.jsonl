@@ -1,0 +1,3 @@
+# The gateway's own sign-in failed (gateway_oauth_displays_the_browser_link_and_retry_action).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"api_key": false}}}
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in_state": {"gateway_oauth_failed": {"provider_id": "office", "message": "Gateway sign-in expired."}}}}

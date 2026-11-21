@@ -298,7 +298,8 @@ where
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| config.cwd.display().to_string());
-            let prompts = crate::launch::prompts(&config, startup.target, cwd, false, &ids, &send).await;
+            let prompts =
+                crate::launch::prompts(&config, startup.target, cwd, false, &ids, &send).await;
             Ev::Launched { request, prompts }
         }
         Ask::TrustHooks { request, updates } => {
@@ -472,7 +473,7 @@ async fn fetch_latest(
 fn wizard_built(feature: Feature) -> bool {
     matches!(
         feature,
-        Feature::BedrockSetupWizard | Feature::GcpSetupWizard
+        Feature::BedrockSetupWizard | Feature::GcpSetupWizard | Feature::GatewaySetupWizard
     )
 }
 
@@ -859,11 +860,10 @@ mod tests {
         );
     }
 
-    // The S03 wizards (`providers` task) are not built yet: the host offers
-    // none, whatever the configuration and the server allow, so no sign-in
-    // choice leads to a screen that does not exist.
+    // The S03 wizards are all built: the host offers each the configuration
+    // and the server allow (`wizard_built` keeps a future one back).
     #[tokio::test]
-    async fn only_the_built_provider_wizards_are_offered() {
+    async fn the_built_provider_wizards_are_offered() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let config = Arc::get_mut(&mut startup.config).expect("one owner");
         for feature in [
@@ -878,7 +878,7 @@ mod tests {
             Providers {
                 bedrock: true,
                 gcp: true,
-                gateway: false,
+                gateway: true,
             }
         );
     }

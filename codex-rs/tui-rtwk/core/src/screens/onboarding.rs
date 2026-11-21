@@ -830,6 +830,15 @@ enum SeedSignInState {
         #[serde(default)]
         prefill: Option<String>,
     },
+    GatewayOauth {
+        provider_id: String,
+        #[serde(default)]
+        url: Option<String>,
+    },
+    GatewayOauthFailed {
+        provider_id: String,
+        message: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -894,6 +903,16 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             },
             SeedSignInState::SuccessMessage(()) => auth::State::SuccessMessage,
             SeedSignInState::ApiKey { prefill } => auth::State::ApiKey { prefill },
+            SeedSignInState::GatewayOauth { provider_id, url } => {
+                auth::State::GatewayOAuth { provider_id, url }
+            }
+            SeedSignInState::GatewayOauthFailed {
+                provider_id,
+                message,
+            } => auth::State::GatewayOAuthFailed {
+                provider_id,
+                message,
+            },
         }),
         SeedEv::Trust(t) => Ev::Trust(TrustAsk {
             target: t.target.unwrap_or_else(|| t.cwd.clone()),

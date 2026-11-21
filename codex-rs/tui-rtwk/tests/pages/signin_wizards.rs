@@ -41,6 +41,14 @@ fn logins(h: &Harness) -> Vec<(u64, Login)> {
 /// The app launched on a sign-in due offering Amazon Bedrock, at the
 /// oracle's 72x24.
 fn launch() -> (Harness, ConnEpoch) {
+    launch_offering(Providers {
+        bedrock: true,
+        ..Providers::default()
+    })
+}
+
+/// The same, offering these wizards.
+fn launch_offering(providers: Providers) -> (Harness, ConnEpoch) {
     let mut h = crate::common::start();
     h.settle();
     let Some(epoch) = h.fake.epoch() else {
@@ -54,10 +62,7 @@ fn launch() -> (Harness, ConnEpoch) {
                 sign_in: Some(Offer {
                     chatgpt: true,
                     api_key: true,
-                    providers: Providers {
-                        bedrock: true,
-                        ..Providers::default()
-                    },
+                    providers,
                     ..Offer::default()
                 }),
                 ..Facts::default()
@@ -730,5 +735,295 @@ You are using Codex with
         t.mouse(MouseKind::WheelUp, 3, 1, 0, Mods::NONE);
         t.pump();
         assert!(visible(&t).starts_with("Using Codex with AWS"));
+    }
+}
+
+/// The gateway wizard (`onboarding/gateway_tests.rs`): the picker, the form
+/// and the states after an answer of the server, drawn as the oracle's
+/// snapshots are (72 wide, the screen from its top row).
+mod gateway {
+    use super::*;
+    use codex_tui_core::screens::onboarding::auth::provider::gateway::{Page, Patch, Saved};
+
+    const POLICY: &str =
+        "The default provider is set by configuration policy or a launch override.";
+
+    fn launch() -> (Harness, ConnEpoch) {
+        let (mut h, epoch) = super::launch_offering(Providers {
+            bedrock: true,
+            gcp: true,
+            gateway: true,
+        });
+        h.t.resize(72, 8);
+        h.settle();
+        (h, epoch)
+    }
+
+    /// "Sign in another way" (unless the menu of the other ways is shown,
+    /// where Esc from the wizard comes back to), "Use a custom provider or
+    /// gateway": the wizard asks the host for the saved gateways; the
+    /// request's number.
+    fn open(h: &mut Harness) -> u64 {
+        if h.t.screen().contains("Sign in with ChatGPT") {
+            step(h, "3");
+        }
+        step(h, "4");
+        h.wait_for("the loading line", |s| s.contains("Loading gateways"));
+        asked_request(h)
+    }
+
+    /// The last ask of the host, a gateway one.
+    fn asked_request(h: &Harness) -> u64 {
+        match logins(h).last() {
+            Some((request, Login::Provider(_))) => *request,
+            other => panic!("no gateway request asked: {other:?}"),
+        }
+    }
+
+    fn setup(h: &Harness) -> Setup {
+        match logins(h).last() {
+            Some((_, Login::Provider(setup))) => setup.clone(),
+            other => panic!("no gateway request asked: {other:?}"),
+        }
+    }
+
+    fn saved(id: &str, name: &str, variable: Option<&str>) -> Saved {
+        Saved {
+            id: id.into(),
+            name: name.into(),
+            variable: variable.map(str::to_owned),
+        }
+    }
+
+    fn page(gateways: Vec<Saved>) -> Page {
+        Page {
+            gateways,
+            default_id: "openai".into(),
+        }
+    }
+
+    /// The picker over these saved gateways.
+    fn picker(h: &mut Harness, epoch: ConnEpoch, gateways: Vec<Saved>) {
+        let request = open(h);
+        answer(h, epoch, request, Ok(Answer::Gateways(page(gateways))));
+    }
+
+    #[test]
+    fn select_a_saved_gateway_during_sign_in() {
+        let (mut h, epoch) = launch();
+        let request = open(&mut h);
+        assert_eq!(setup(&h), Setup::GatewayList);
+        answer(&mut h, epoch, request, Ok(Answer::Gateways(page(vec![]))));
+        assert_visible(
+            &h,
+            "  Use a custom provider or gateway
+
+
+› Create a custom provider or gateway
+
+
+
+  Press enter to create or esc to go back",
+        );
+        step(&mut h, "esc");
+
+        // A refusal of the server: the message wrapped, "Back".
+        let request = open(&mut h);
+        answer(&mut h, epoch, request, Err(POLICY.into()));
+        assert_visible(
+            &h,
+            "  Use a custom provider or gateway
+  The default provider is set by configuration policy or a launch
+  override.
+
+
+› 1. Back",
+        );
+        step(&mut h, "esc");
+
+        // A saved gateway: Enter makes it the default.
+        picker(
+            &mut h,
+            epoch,
+            vec![saved("office", "Office", Some("office"))],
+        );
+        assert_visible(
+            &h,
+            "  Use a custom provider or gateway
+
+
+› ○ Office                             office
+  Create a custom provider or gateway
+
+
+  Press enter to use as default or esc to go back",
+        );
+        step(&mut h, "enter");
+        assert_eq!(setup(&h), Setup::GatewaySelect("office".into()));
+        let request = asked_request(&h);
+        answer(&mut h, epoch, request, Ok(Answer::GatewaySelected));
+        h.wait_for("the configured line", |s| {
+            s.contains("\u{2713} Custom provider configured")
+        });
+        assert_visible(&h, "✓ Custom provider configured");
+    }
+
+    /// The screen drawn at `height` rows (the oracle draws at the height it
+    /// names), from its top row.
+    fn at(h: &mut Harness, height: u16) -> String {
+        h.t.resize(72, height);
+        h.settle();
+        visible(h)
+    }
+
+    const REPEAT_ENTER: &[u8] = b"\x1b[13;1:2u";
+    const RELEASE_ENTER: &[u8] = b"\x1b[13;1:3u";
+
+    fn input(h: &mut Harness, bytes: &[u8]) {
+        h.t.input(bytes);
+        h.t.pump_for(Duration::from_millis(20));
+    }
+
+    fn paste(h: &mut Harness, text: &str) {
+        h.t.paste(text);
+        h.settle();
+    }
+
+    /// The picker over `Office`, the create row opened: the form.
+    fn form(h: &mut Harness, epoch: ConnEpoch) {
+        picker(
+            h,
+            epoch,
+            vec![saved("office", "Office", Some("OFFICE_KEY"))],
+        );
+        step(h, "down");
+        step(h, "enter");
+    }
+
+    #[test]
+    fn create_highlights_the_saved_gateway_until_explicitly_selected() {
+        let (mut h, epoch) = launch();
+        form(&mut h, epoch);
+        assert_eq!(
+            at(&mut h, 12),
+            "Create a custom provider or gateway
+
+\u{203a} Name*  Team gateway
+  Base URL*  https://gateway.example/v1
+  API key variable  $TEAM_API_KEY
+  Save
+
+* Required
+Enter the environment variable name on the app server.
+tab move \u{b7} enter next/save \u{b7} esc back"
+        );
+        paste(&mut h, "Team gateway");
+        h.press("down");
+        paste(&mut h, "https://team.example.test/v1?");
+        h.press("down");
+        paste(&mut h, "TEAM_KEY-");
+        h.press("down");
+        // Save marked, the pane four rows: the feedback follows it.
+        assert_eq!(
+            at(&mut h, 4),
+            "\u{203a} Save
+
+* Required
+Enter the environment variable name on the app server."
+        );
+        // A variable that is not one: the form says so and sends nothing.
+        let asked = logins(&h).len();
+        step(&mut h, "enter");
+        assert_eq!(logins(&h).len(), asked);
+        assert_eq!(
+            visible(&h),
+            "\u{203a} Save
+Enter an environment variable name such as TEAM_API_KEY.
+
+* Required"
+        );
+        h.press("up");
+        h.press("backspace");
+        h.press("down");
+        step(&mut h, "enter");
+        assert_eq!(
+            setup(&h),
+            Setup::GatewayWrite(Patch {
+                name: "Team gateway".into(),
+                url: "https://team.example.test/v1?".into(),
+                variable: Some("TEAM_KEY".into()),
+            })
+        );
+        // The server's refusal: the form again, the fields kept, the
+        // message under Save.
+        let request = asked_request(&h);
+        answer(
+            &mut h,
+            epoch,
+            request,
+            Err("Enter an HTTP(S) base URL without credentials, a query, or a fragment.".into()),
+        );
+        assert_eq!(
+            at(&mut h, 8),
+            "  Base URL*  https://team.example.test/v1?
+  API key variable  $TEAM_KEY
+\u{203a} Save
+Enter an HTTP(S) base URL without credentials, a query, or a fragment.
+
+* Required
+Enter the environment variable name on the app server.
+tab move \u{b7} enter next/save \u{b7} esc back"
+        );
+
+        // Correct the URL, keep the other fields.
+        h.press("up");
+        h.press("up");
+        h.press("backspace");
+        h.press("down");
+        h.press("down");
+        step(&mut h, "enter");
+        assert_eq!(
+            setup(&h),
+            Setup::GatewayWrite(Patch {
+                name: "Team gateway".into(),
+                url: "https://team.example.test/v1".into(),
+                variable: Some("TEAM_KEY".into()),
+            })
+        );
+        let request = asked_request(&h);
+        answer(
+            &mut h,
+            epoch,
+            request,
+            Ok(Answer::GatewaySaved(saved(
+                "team-gateway",
+                "Team gateway",
+                Some("TEAM_KEY"),
+            ))),
+        );
+        // The created gateway is marked, not the default: Enter on a held
+        // key selects nothing.
+        let asked = logins(&h).len();
+        input(&mut h, REPEAT_ENTER);
+        assert_eq!(logins(&h).len(), asked);
+        assert_eq!(
+            visible(&h),
+            "  Use a custom provider or gateway
+
+
+  \u{25cb} Office                             office
+\u{203a} \u{25cb} Team gateway                       team-gateway
+  Create a custom provider or gateway
+
+  Press enter to use as default or esc to go back"
+        );
+        input(&mut h, RELEASE_ENTER);
+        step(&mut h, "enter");
+        assert_eq!(setup(&h), Setup::GatewaySelect("team-gateway".into()));
+        let request = asked_request(&h);
+        answer(&mut h, epoch, request, Ok(Answer::GatewaySelected));
+        h.wait_for("the configured line", |s| {
+            s.contains("\u{2713} Custom provider configured")
+        });
     }
 }
