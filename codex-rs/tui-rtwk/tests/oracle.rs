@@ -75,6 +75,8 @@ mod composer_3;
 mod composer_4;
 #[path = "oracle/composer_popups.rs"]
 mod composer_popups;
+#[path = "oracle/import.rs"]
+mod import;
 #[path = "oracle/markdown_streaming_1.rs"]
 mod markdown_streaming_1;
 #[path = "oracle/markdown_streaming_2.rs"]
