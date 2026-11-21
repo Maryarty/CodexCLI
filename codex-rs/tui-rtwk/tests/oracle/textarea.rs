@@ -12,7 +12,7 @@ const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-edi
 const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
 const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
 const LINK: &str = "the port's composer draws no OSC 8 links for URLs (rtwk-editing has no hyperlink annotation) and keeps no link cache to reuse";
-const MOUSE: &str = "no mouse seed for the oracle's bare TextArea rect: the port's composer sits at the foot of the chat screen behind its prompt, so the oracle's click and drag cells are not where the composer's text is";
+const MOUSE: &str = "the bare text area takes the mouse (a drag selects, a tap places the caret), but these rows are the oracle's wrap of the rect (G55), and its rect offsets (a 1-row rect at y 1, a resize mid-test) have no kit seed yet";
 
 const URL_PR: &str = "https://github.com/openai/codex/pull/20252";
 const URL_LONG: &str = "https://example.test/alpha/beta/gamma/delta/epsilon";
@@ -466,7 +466,6 @@ fn fuzz_textarea_randomized() {
 // ORACLE bottom_pane/textarea/editing_tests.rs:8 target_replaces_forward_and_backward_selections kind=ui owner=chat-live
 #[test]
 fn target_replaces_forward_and_backward_selections() {
-    kit::pending(Owner::ChatLive, MOUSE);
     // oracle: "abcdef" in a 20x2 rect; a drag from byte 1 to byte 4 (and back) selects "bcd", and inserting "界" there gives "a界ef". The coordinates are the oracle's rect origin; the composer's text origin differs (prompt column).
     for (anchor, cursor) in [(1, 4), (4, 1)] {
         let mut s = draft(20, 2, "abcdef");

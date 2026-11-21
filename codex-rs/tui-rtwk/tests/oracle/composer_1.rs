@@ -313,7 +313,6 @@ fn footer_collapse_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:6031 esc_hint_stays_hidden_with_draft_content kind=ui owner=chat-live
 #[test]
 fn esc_hint_stays_hidden_with_draft_content() {
-    kit::pending(Owner::ChatLive, NO_FOOTER);
     // With a draft, Esc does not raise the `esc again to edit previous message` hint.
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.type_text("d");
@@ -516,7 +515,6 @@ fn shift_question_mark_toggles_shortcut_overlay_when_empty() {
 // ORACLE bottom_pane/chat_composer.rs:6822 question_mark_does_not_toggle_during_paste_burst kind=ui owner=chat-live
 #[test]
 fn question_mark_does_not_toggle_during_paste_burst() {
-    kit::pending(Owner::ChatLive, NO_FOOTER);
     // The keys arrive as one burst, so the `?` is pasted text, not the overlay key.
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.type_text("hi?there");

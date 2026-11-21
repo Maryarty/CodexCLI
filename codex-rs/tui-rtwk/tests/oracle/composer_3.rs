@@ -621,10 +621,6 @@ fn non_text_input_flushes_pending_paste_without_inserting_text() {
 // ORACLE bottom_pane/chat_composer.rs:12014 platform_specific_altgr_input_remains_text kind=ui owner=chat-live
 #[test]
 fn platform_specific_altgr_input_remains_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst state on the chat composer: Ctrl+Alt+'@' is not a burst and inserts nothing on this platform (the oracle's non-Windows branch)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle, non-Windows branch: Ctrl+Alt+'@' starts no paste burst and inserts no text
     s.keys("ctrl+alt+@");
@@ -682,10 +678,6 @@ fn burst_paste_fast_large_inserts_placeholder_on_flush() {
 // ORACLE bottom_pane/chat_composer.rs:12163 humanlike_typing_1000_chars_appears_live_no_placeholder kind=ui owner=chat-live
 #[test]
 fn humanlike_typing_1000_chars_appears_live_no_placeholder() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste-burst state on the chat composer: 1000 human-paced 'z' keys appear live with no placeholder",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 1000 'z' keys 9 ms apart: each one shows at once
     s.type_text(&"z".repeat(1000));
@@ -695,10 +687,6 @@ fn humanlike_typing_1000_chars_appears_live_no_placeholder() {
 // ORACLE bottom_pane/chat_composer.rs:12191 slash_popup_not_activated_for_slash_space_text_history_like_input kind=ui owner=chat-live
 #[test]
 fn slash_popup_not_activated_for_slash_space_text_history_like_input() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash popup and no prompt history on the chat composer: '/ test' opens no command popup, and Up goes to history, not the popup",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the draft '/ test' (history-like input): no slash popup
     s.type_text("/ test");
@@ -846,10 +834,6 @@ fn left_navigates_only_from_an_empty_prompt() {
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:82 left_respects_attachments_pastes_and_other_input_surfaces kind=ui owner=chat-live
 #[test]
 fn left_respects_attachments_pastes_and_other_input_surfaces() {
-    kit::pending(
-        Owner::ChatLive,
-        "no agents command center on the chat composer: Left with text, a paste or a remote image does not open the agents overview, and the rows do not change",
-    );
     // oracle: Left with a typed 'x' in the draft: no agents overview, the rows stay
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("x");

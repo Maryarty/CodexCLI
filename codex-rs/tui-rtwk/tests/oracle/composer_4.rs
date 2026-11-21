@@ -15,7 +15,7 @@ fn chat(w: u16, h: u16) -> Screen {
 fn prompt(s: &Screen) -> usize {
     s.rows()
         .iter()
-        .rposition(|r| r.starts_with('›'))
+        .rposition(|r| r.starts_with('›') || r.starts_with("! ") || r == "!")
         .unwrap_or(usize::MAX)
 }
 
@@ -161,10 +161,6 @@ fn blockquote_paste_rendered() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:94 blockquote_paste_replacing_selected_prefix_stays_literal kind=ui owner=chat-live
 #[test]
 fn blockquote_paste_replacing_selected_prefix_stays_literal() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mouse selection on the chat composer: the drag does not select `> selected`, so the paste does not replace it",
-    );
     let mut s = chat(100, 24);
     s.type_text("> selected");
     let p = prompt(&s);
@@ -308,17 +304,15 @@ fn recovery_keeps_unselected_text_after_a_held_replace_key() {
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:92 backspace_deletes_a_body_selection_before_an_absorbed_prefix kind=ui owner=chat-live
 #[test]
 fn backspace_deletes_a_body_selection_before_an_absorbed_prefix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mouse selection on the chat composer and no `!` shell prefix absorbed into the prompt: the drag does not select `review text`, so Backspace deletes nothing",
-    );
     let mut s = chat(80, 24);
     s.type_text("!review text");
     let p = prompt(&s);
-    // the body `review text` runs from column 3 to the end (column 14)
-    s.drag(14, cell(p), 3, cell(p));
+    // the `!` is the prompt: the body `review text` runs from column 2 to
+    // the caret's column 13 (the oracle drags from the caret leftwards)
+    s.drag(13, cell(p), 2, cell(p));
     s.keys("backspace");
-    draft_rows(&s, "!");
+    // the oracle's `current_text` is `!`: the prompt alone
+    s.assert_row(prompt(&s), "!");
 }
 
 // ORACLE bottom_pane/chat_composer/mouse_tests.rs:115 selected_text_navigation_does_not_recall_history_or_select_images kind=ui owner=chat-live
@@ -393,10 +387,6 @@ fn selection_release_reports_only_clipboard_result() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:11 pasting_fifo_path_keeps_it_editable kind=snap owner=chat-live
 #[test]
 fn pasting_fifo_path_keeps_it_editable() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit cannot make the FIFO the oracle pastes (no std::fs in tests): the path is pasted as text here, with the same suffix kept after Backspace",
-    );
     let mut s = chat(100, 24);
     s.paste("/tmp/fifo-dir/tty.usbserial-110");
     s.keys("backspace");
@@ -1044,10 +1034,6 @@ fn external_editor_import_preserves_replace_backspace_recovery() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:829 cancelled_history_search_preserves_literal_bang_draft kind=ui owner=chat-live
 #[test]
 fn cancelled_history_search_preserves_literal_bang_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no reverse history search (Ctrl+R) on the chat composer: the literal `!echo hello` draft and its cancel are not drawn; Enter queues it while a task runs",
-    );
     let mut s = chat(100, 24);
     s.type_text("x!echo hello");
     s.keys("home delete");
@@ -1069,7 +1055,8 @@ fn editor_actions_insert_shell_prefixes() {
     let mut s = chat(100, 24);
     s.type_text("x!echo hi");
     s.keys("home right ctrl+k backspace ctrl+y");
-    s.assert_row(prompt(&s), "› !echo hi");
+    // the yank at the start enters shell mode: `!` is the prompt
+    s.assert_row(prompt(&s), "! echo hi");
 }
 
 // ---- oracle: bottom_pane/chat_composer/vim_register_tests.rs (11 screen-level tests here; 4 state tests left to chat-live)
@@ -1367,10 +1354,6 @@ fn plain_enter_submits_expired_vim_insert_input() {
 // ORACLE bottom_pane/paste_burst.rs:525 ascii_two_fast_chars_start_buffer_from_pending_and_flush_as_paste kind=ui owner=chat-live
 #[test]
 fn ascii_two_fast_chars_start_buffer_from_pending_and_flush_as_paste() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste burst on the chat composer: the fast `a` and `b` are not held back and flushed as one paste",
-    );
     let mut s = chat(100, 24);
     s.type_text("ab");
     s.assert_row(prompt(&s), "› ab");

@@ -280,10 +280,6 @@ fn non_char_key_flushes_active_burst_before_input() {
 // ORACLE bottom_pane/chat_composer.rs:9023 disable_paste_burst_flushes_pending_first_char_and_inserts_immediately kind=ui owner=chat-live
 #[test]
 fn disable_paste_burst_flushes_pending_first_char_and_inserts_immediately() {
-    kit::pending(
-        Owner::ChatLive,
-        "no paste burst to disable on the chat composer: set_disable_paste_burst has no kit seed, and the port types the first char at once",
-    );
     let mut s = ready(100, 24);
     s.type_text("a");
     s.assert_row(prompt(&s), "› a");
