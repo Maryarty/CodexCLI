@@ -111,9 +111,26 @@ debug = false
 # No incremental cache: worktree targets reached 40 GB (2026-11-18) and
 # sccache cannot cache incremental builds anyway.
 incremental = false
+# `rust-objcopy` aborts on every link (broken libLLVM.dylib in the toolchain
+# component); nothing to strip with debug off, so skip the subprocess
+# (build-speed.md "Proposals" 2, the person 2026-11-22).
+strip = "none"
 
 [profile.dev.package."*"]
 debug = false
+
+# Incremental for the workspace's own crates only: they are what an edit
+# rebuilds, and sccache does not cache them across edits anyway; every
+# dependency stays non-incremental and cached by sccache (build-speed.md
+# "Proposals" 2, the person 2026-11-22).
+[profile.dev.package.codex-tui-rtwk]
+incremental = true
+
+[profile.dev.package.codex-tui-core]
+incremental = true
+
+[profile.dev.package.codex-rtwk]
+incremental = true
 
 [patch.crates-io]
 # Uncomment to debug local changes.

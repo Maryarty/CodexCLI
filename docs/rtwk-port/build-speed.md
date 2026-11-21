@@ -319,3 +319,8 @@ cache (200 to 300 s, see the table above).
   (`quiet_for(1.5, 30)`): the process is stuck, not late. Outside this task's area. The land-check
   reruns a failed scenario once and nextest has `--retries 1`.
 - `rust-objcopy` SIGABRT warning on every link (proposal 2).
+
+### Applied 2026-11-22 (the person's yes)
+
+- Proposal 1: sccache cap 16 GiB (`~/.cache/rtwk/sccache-main/config` `size`, `sccache-config.sh` default 16); takes effect at the next start of the sccache server.
+- Proposal 2: `[profile.dev] strip = "none"`; `incremental = true` for `codex-tui-rtwk`, `codex-tui-core`, `codex-rtwk` only. `acargo check --tests` and the rules root green.
