@@ -132,22 +132,6 @@ pub(crate) fn answer(
                 meta,
             },
         ) => elicitation(decision, content, meta),
-        (R::ToolRequestUserInput { params, .. }, A::Choice(D::Choose(index))) => {
-            let [question] = params.questions.as_slice() else {
-                return None;
-            };
-            let selected = question.options.as_ref()?.get(index)?;
-            serde_json::to_value(ToolRequestUserInputResponse {
-                answers: [(
-                    question.id.clone(),
-                    ToolRequestUserInputAnswer {
-                        answers: vec![selected.label.clone()],
-                    },
-                )]
-                .into(),
-            })
-            .ok()
-        }
         (R::ToolRequestUserInput { params, .. }, A::UserInput(answers)) => {
             if params.questions.len() != answers.len()
                 || params

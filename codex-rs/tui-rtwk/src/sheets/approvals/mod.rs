@@ -8,6 +8,8 @@ mod dialog;
 mod dismiss;
 mod form;
 mod present;
+mod tips;
+mod user_input;
 
 use rtwk::layout::SizedBox;
 use rtwk::overlay::{Dialog, DialogResult, show_dialog};

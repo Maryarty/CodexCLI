@@ -404,3 +404,35 @@ fn form_text_over_the_limit_flashes_the_length_error_until_the_field_changes() {
     assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
     assert!(!shows(&h, "Message exceeds"), "{}", h.t.screen());
 }
+
+/// Family C (`request_user_input`): Tab opens the notes of an option question, Backspace on
+/// empty notes closes them again (the oracle's `backspace_on_empty_notes_closes_notes_ui`).
+#[test]
+fn user_input_backspace_on_empty_notes_closes_them() {
+    let mut h = open(120, 16, "user_input");
+    assert!(shows(&h, "tab to add notes"), "{}", h.t.screen());
+    h.press("tab");
+    assert!(shows(&h, "tab or esc to clear notes"), "{}", h.t.screen());
+    h.press("backspace");
+    assert!(shows(&h, "tab to add notes"), "{}", h.t.screen());
+    assert!(!shows(&h, "clear notes"), "{}", h.t.screen());
+}
+
+/// A text field the user comes to from a list field takes the keys: what is typed shows.
+#[test]
+fn form_a_text_field_reached_from_a_list_takes_the_typed_text() {
+    let mut h = open(100, 20, "mcp_select");
+    // the properties come alphabetically (dry, note, region, tier: a `BTreeMap` of the protocol)
+    h.press("ctrl+n");
+    assert!(shows(&h, "Field 2/4"), "{}", h.t.screen());
+    h.t.type_text("hello");
+    h.t.pump_for(ms(100));
+    assert!(shows(&h, "hello"), "{}", h.t.screen());
+    h.press("ctrl+n");
+    assert!(shows(&h, "Field 3/4"), "{}", h.t.screen());
+    // back on the text field from a list field: it takes the keys again
+    h.press("ctrl+p");
+    h.t.type_text("!");
+    h.t.pump_for(ms(100));
+    assert!(shows(&h, "hello!"), "{}", h.t.screen());
+}

@@ -119,10 +119,28 @@ pub struct Strings {
     pub bool_false: &'static str,
     pub param_line: Msg<2>,
     // bottom_pane/request_user_input: the options form.
-    pub question_progress: Msg<3>,
+    pub question_progress: Msg<2>,
+    pub question_unanswered: Msg<1>,
     pub none_of_the_above: &'static str,
     pub none_description: &'static str,
-    pub user_input_hint: &'static str,
+    pub notes_placeholder: &'static str,
+    pub select_option_placeholder: &'static str,
+    pub key_tab: &'static str,
+    pub tip_add_notes: &'static str,
+    pub tip_clear_notes: &'static str,
+    pub tip_navigate_questions: &'static str,
+    pub tip_change_question: &'static str,
+    pub tip_interrupt: &'static str,
+    /// The confirmation of a submit with unanswered questions.
+    pub confirm_title: &'static str,
+    pub confirm_subtitle_one: &'static str,
+    pub confirm_subtitle: Msg<1>,
+    pub confirm_proceed: &'static str,
+    pub confirm_proceed_one: &'static str,
+    pub confirm_proceed_many: Msg<1>,
+    pub confirm_go_back: &'static str,
+    pub confirm_go_back_desc: &'static str,
+    pub hint_go_back: &'static str,
 }
 
 /// English: the oracle's text.
@@ -210,10 +228,27 @@ pub const EN: Strings = Strings {
     bool_true: "True",
     bool_false: "False",
     param_line: msg!("{0}: {1}"),
-    question_progress: msg!("Question {0}/{1} ({2} unanswered)"),
+    question_progress: msg!("Question {0}/{1}"),
+    question_unanswered: msg!(" ({0} unanswered)"),
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
-    user_input_hint: "tab to add notes | enter to submit answer | esc to interrupt",
+    notes_placeholder: "Add notes",
+    select_option_placeholder: "Select an option to add notes",
+    key_tab: "tab",
+    tip_add_notes: "to add notes",
+    tip_clear_notes: "to clear notes",
+    tip_navigate_questions: "to navigate questions",
+    tip_change_question: "change question",
+    tip_interrupt: "to interrupt",
+    confirm_title: "Submit with unanswered questions?",
+    confirm_subtitle_one: "1 unanswered question",
+    confirm_subtitle: msg!("{0} unanswered questions"),
+    confirm_proceed: "Proceed",
+    confirm_proceed_one: "Submit with 1 unanswered question",
+    confirm_proceed_many: msg!("Submit with {0} unanswered questions"),
+    confirm_go_back: "Go back",
+    confirm_go_back_desc: "Return to the first unanswered question",
+    hint_go_back: " to go back",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -265,12 +300,23 @@ impl Strings {
         )
     }
 
-    pub fn question_progress(&self, index: usize, total: usize, unanswered: usize) -> Fmt<'_, 3> {
+    pub fn question_progress(&self, index: usize, total: usize) -> Fmt<'_, 2> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
-        Fmt::new(
-            self.question_progress,
-            [int(index), int(total), int(unanswered)],
-            &self.num,
-        )
+        Fmt::new(self.question_progress, [int(index), int(total)], &self.num)
+    }
+
+    pub fn question_unanswered(&self, count: usize) -> Fmt<'_, 1> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.question_unanswered, [int(count)], &self.num)
+    }
+
+    pub fn confirm_subtitle(&self, count: usize) -> Fmt<'_, 1> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.confirm_subtitle, [int(count)], &self.num)
+    }
+
+    pub fn confirm_proceed_many(&self, count: usize) -> Fmt<'_, 1> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.confirm_proceed_many, [int(count)], &self.num)
     }
 }

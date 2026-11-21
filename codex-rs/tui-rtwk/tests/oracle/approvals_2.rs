@@ -604,8 +604,10 @@ fn request_user_input_options_snapshot() {
         .size(120, 16)
         .entry("approvals", "user_input")
         .open();
-    // The oracle's screen is the pane alone; ours has the debug menu above it.
-    s.assert_snap_region("request_user_input_options", 6, 0);
+    // The oracle's screen is the pane alone; ours has the debug menu above it. The pane is eleven
+    // rows with the menu surface's blank row at the foot (`menu_surface_padding_height`), which the
+    // oracle's snapshot trims.
+    s.assert_snap_region("request_user_input_options", 5, 0);
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:3387 request_user_input_options_notes_visible_snapshot kind=snap owner=dialogs-pane snap=request_user_input_options_notes_visible
@@ -650,7 +652,7 @@ fn desired_height_keeps_spacers_and_preferred_options_visible() {
 #[test]
 fn request_user_input_wrapped_options_snapshot() {
     let s = Screen::build(Owner::DialogsPane)
-        .size(110, 9)
+        .size(110, 10)
         .script(include_str!("fixtures/approvals_2/wrapped_options.jsonl"))
         .open();
     s.assert_snap("request_user_input_wrapped_options");
@@ -699,7 +701,7 @@ fn request_user_input_footer_wrap_snapshot() {
 #[test]
 fn request_user_input_scroll_options_snapshot() {
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(120, 11)
+        .size(120, 12)
         .script(include_str!("fixtures/approvals_2/what_next.jsonl"))
         .open();
     s.keys("down down down");

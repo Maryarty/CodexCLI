@@ -10,7 +10,9 @@
 //! answer returns to the app as one `Respond` intent.
 
 use std::rc::Rc;
+use std::time::Duration;
 
+use rtwk::binding::AppBinding;
 use rtwk::editing::{TextArea, TextEditingController};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
@@ -99,6 +101,8 @@ pub enum Msg {
     Submitted(Rc<str>),
     /// The text changed under the user's hands.
     Edited,
+    /// The frame that built a text field is done: it takes the keys.
+    FocusText,
 }
 
 impl StatefulWidget for FormView {
@@ -155,9 +159,12 @@ fn msg_of(key: &KeyPress) -> Option<Msg> {
         (KeyCode::Right, _) if plain => Some(Msg::Field(true)),
         (KeyCode::Char, Some('l')) if plain || ctrl && !alt => Some(Msg::Field(true)),
         (KeyCode::Up, _) if plain => Some(Msg::Cursor(-1)),
-        (KeyCode::Char, Some('k')) if plain => Some(Msg::Cursor(-1)),
+        (KeyCode::Char, Some('k')) if plain || ctrl && !alt => Some(Msg::Cursor(-1)),
         (KeyCode::Down, _) if plain => Some(Msg::Cursor(1)),
-        (KeyCode::Char, Some('j')) if plain => Some(Msg::Cursor(1)),
+        (KeyCode::Char, Some('j')) if plain || ctrl && !alt => Some(Msg::Cursor(1)),
+        // `^H` (0x08) is Backspace with Ctrl to rtwk's parser, ctrl+h to the oracle's crossterm:
+        // the list keymap's MoveLeft
+        (KeyCode::Backspace, _) if key.mods == Mods::CTRL => Some(Msg::Field(false)),
         (KeyCode::Backspace | KeyCode::Delete, _) if plain => Some(Msg::Uncommit),
         (KeyCode::Char, Some(' ')) if plain => Some(Msg::Pick),
         (KeyCode::Enter, _) if plain => Some(Msg::Accept),
@@ -355,7 +362,21 @@ impl State for FormViewState {
                 self.fields[self.current].committed = false;
                 self.fail = None;
             }
+            Msg::FocusText => {
+                if self.is_text(form) {
+                    self.fields[self.current].node.request_focus();
+                }
+                return Rebuild::No;
+            }
             _ => return Rebuild::No,
+        }
+        if self.is_text(form) {
+            // A text area that mounts takes the focus (autofocus) only where its scope holds
+            // none, so a field the user comes to from a list is asked once the frame that built
+            // it is done (Flutter: `addPostFrameCallback(requestFocus)`).
+            if let Some(binding) = AppBinding::maybe_of(cx) {
+                binding.add_post_frame_callback(cx.map(|_: Duration| Msg::FocusText));
+            }
         }
         Rebuild::Yes
     }

@@ -55,8 +55,6 @@ pub struct Body {
     /// The key that opens the thread the request came from (`o`), when the
     /// request is from another thread.
     pub open_thread: bool,
-    /// Whether the rows are `1. label (key)` (an approval) or `1. label  description` (a form).
-    pub form: bool,
 }
 
 fn piece(text: &str, tone: Tone) -> Piece {
@@ -64,10 +62,6 @@ fn piece(text: &str, tone: Tone) -> Piece {
         text: text.to_string(),
         tone,
     }
-}
-
-fn dim(text: &str) -> Vec<Piece> {
-    vec![piece(text, Tone::Dim)]
 }
 
 /// `Press enter to confirm or esc to cancel`, and ` or o to open thread` for
@@ -134,17 +128,17 @@ fn lead(
     }
 }
 
-pub fn body(prompt: &Prompt, s: &Strings) -> Body {
-    let mut body = build(prompt, s);
-    if !body.form {
-        // The oracle leaves two blank rows between the header and the options.
-        body.header.extend([Line::Blank, Line::Blank]);
-    }
-    body
+/// The plain rows of an approval; None for a prompt with a view of its own (the form of an
+/// elicitation, the questions of a `request_user_input`).
+pub fn body(prompt: &Prompt, s: &Strings) -> Option<Body> {
+    let mut body = build(prompt, s)?;
+    // The oracle leaves two blank rows between the header and the options.
+    body.header.extend([Line::Blank, Line::Blank]);
+    Some(body)
 }
 
-fn build(prompt: &Prompt, s: &Strings) -> Body {
-    match prompt {
+fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
+    Some(match prompt {
         Prompt::Exec(exec) => {
             let mut header = Vec::new();
             lead(
@@ -192,7 +186,6 @@ fn build(prompt: &Prompt, s: &Strings) -> Body {
                 options,
                 hint: approval_hint(s, exec.thread_label.is_some()),
                 open_thread: exec.thread_label.is_some(),
-                form: false,
             }
         }
         Prompt::Patch(patch) => {
@@ -228,7 +221,6 @@ fn build(prompt: &Prompt, s: &Strings) -> Body {
                     .collect(),
                 hint: approval_hint(s, patch.thread_label.is_some()),
                 open_thread: patch.thread_label.is_some(),
-                form: false,
             }
         }
         Prompt::Permissions(permissions) => {
@@ -257,7 +249,6 @@ fn build(prompt: &Prompt, s: &Strings) -> Body {
                     .collect(),
                 hint: approval_hint(s, permissions.thread_label.is_some()),
                 open_thread: permissions.thread_label.is_some(),
-                form: false,
             }
         }
         Prompt::Elicitation(elicitation) => {
@@ -281,52 +272,10 @@ fn build(prompt: &Prompt, s: &Strings) -> Body {
                     .collect(),
                 hint: approval_hint(s, elicitation.thread_label.is_some()),
                 open_thread: elicitation.thread_label.is_some(),
-                form: false,
             }
         }
-        Prompt::UserInput(input) => {
-            let question = input.questions.first();
-            let mut options: Vec<Choice> = question
-                .map(|q| {
-                    q.options
-                        .iter()
-                        .enumerate()
-                        .map(|(index, option)| Choice {
-                            decision: Decision::Choose(index),
-                            label: option.label.clone(),
-                            key: None,
-                            key_label: None,
-                            description: Some(option.description.clone()),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            if question.is_some_and(|q| q.is_other) {
-                options.push(Choice {
-                    decision: Decision::Choose(options.len()),
-                    label: s.none_of_the_above.to_string(),
-                    key: None,
-                    key_label: None,
-                    description: Some(s.none_description.to_string()),
-                });
-            }
-            Body {
-                title: None,
-                header: vec![
-                    plain(
-                        s.question_progress(1, input.questions.len(), input.questions.len())
-                            .to_string(),
-                    ),
-                    plain(question.map(|q| q.text.clone()).unwrap_or_default()),
-                    Line::Blank,
-                ],
-                options,
-                hint: dim(s.user_input_hint),
-                open_thread: false,
-                form: true,
-            }
-        }
-    }
+        Prompt::UserInput(_) => return None,
+    })
 }
 
 fn rule_line(rule: &[Rule], s: &Strings) -> String {
@@ -402,7 +351,6 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
         Decision::GrantForTurnStrict => (s.grant_turn_strict.to_string(), Some('r')),
         Decision::GrantForSession => (s.grant_session.to_string(), Some('a')),
         Decision::DenyPermissions => (s.deny_permissions.to_string(), Some('d')),
-        Decision::Choose(_) => (String::new(), None),
     };
     let escape = matches!(decision, Decision::Cancel);
     Some(Choice {

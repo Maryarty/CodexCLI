@@ -25,9 +25,10 @@ use super::dismiss::DismissDialog;
 use super::form::FormView;
 use super::present::{self, Body, Line, Piece, Tone};
 use super::strings;
+use super::user_input::UserInputView;
 use crate::app::theme;
 use crate::app::view::Hs;
-use crate::widgets::options::{OptionRow, OptionStyles, Options, RichRow};
+use crate::widgets::options::{OptionStyles, Options, RichRow};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestDialog {
@@ -88,7 +89,10 @@ impl State for RequestDialogState {
             return Rebuild::No;
         };
         let s = strings::of(cx);
-        let body = present::body(&prompt, s);
+        // A prompt with a view of its own sends its messages to that view.
+        let Some(body) = present::body(&prompt, s) else {
+            return Rebuild::No;
+        };
         let hs = read::<Hs, _>(cx);
         let decision = match msg {
             Msg::Move(delta) => {
@@ -146,10 +150,20 @@ impl State for RequestDialogState {
             }
             .into();
         }
+        // The questions of a `request_user_input` are the dialog of their own.
+        if matches!(&*prompt, Prompt::UserInput(_)) {
+            return UserInputView {
+                key: w.key.clone(),
+                prompt,
+            }
+            .into();
+        }
         let tokens = theme::Tokens::of(cx);
         let syntax = SyntaxTheme::of(cx);
         let s = strings::of(cx);
-        let body = present::body(&prompt, s);
+        let Some(body) = present::body(&prompt, s) else {
+            return DismissDialog { key: w.key.clone() }.into();
+        };
         let tone = |tone: Tone| match tone {
             Tone::Plain => Style::new(),
             Tone::Dim => tokens.dim(),
@@ -208,14 +222,9 @@ impl State for RequestDialogState {
             label: Style::new(),
             description: Style::new(),
         };
-        // An approval's rows start at the edge; a form's are inset like its text.
         // A tap moves the cursor, a tap on the cursor's row answers (ADR-011).
         let rows = self.options.on_accept(cx.map(Msg::Answer));
-        let options = if body.form {
-            rows.view(Rc::new(form_rows(&body)), styles, 2)
-        } else {
-            rows.view_rich(Rc::new(approval_rows(&body, s, &tokens)), styles, 0)
-        };
+        let options = rows.view_rich(Rc::new(approval_rows(&body, s, &tokens)), styles, 0);
         pane = pane
             .child(options)
             .child(Text::new(String::new()))
@@ -265,18 +274,6 @@ fn approval_rows(body: &Body, s: &strings::Strings, tokens: &theme::Tokens) -> V
                 label,
                 description: option.description.clone(),
             }
-        })
-        .collect()
-}
-
-/// The form's rows: number and label, and the description column.
-fn form_rows(body: &Body) -> Vec<OptionRow> {
-    body.options
-        .iter()
-        .enumerate()
-        .map(|(index, option)| OptionRow {
-            label: format!("{}. {}", index + 1, option.label),
-            description: option.description.clone(),
         })
         .collect()
 }

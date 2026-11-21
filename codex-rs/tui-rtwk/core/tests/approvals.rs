@@ -642,3 +642,207 @@ mod forms {
         assert_eq!(fx.commands().len(), 1);
     }
 }
+
+// ---- family C: the answers of a request_user_input request (`screens::approvals::input`) ----
+
+mod inputs {
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::approvals::input::{self, Draft, OTHER_ANSWER};
+    use codex_tui_core::screens::approvals::{
+        Intent as ApprovalIntent, Question, QuestionOption, RequestAnswer,
+    };
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+    use std::collections::BTreeMap;
+
+    fn option(label: &str) -> QuestionOption {
+        QuestionOption {
+            label: label.to_string(),
+            description: String::new(),
+        }
+    }
+
+    fn choose(id: &str, is_other: bool) -> Question {
+        Question {
+            id: id.to_string(),
+            header: String::new(),
+            text: "Choose.".to_string(),
+            is_other,
+            is_secret: false,
+            options: vec![option("Option 1"), option("Option 2")],
+        }
+    }
+
+    fn freeform(id: &str) -> Question {
+        Question {
+            options: Vec::new(),
+            ..choose(id, false)
+        }
+    }
+
+    fn draft(selected: Option<usize>, committed: bool, notes: &str) -> Draft {
+        Draft {
+            selected,
+            committed,
+            notes: notes.to_string(),
+        }
+    }
+
+    fn answers(answer: RequestAnswer) -> BTreeMap<String, Vec<String>> {
+        match answer {
+            RequestAnswer::UserInput(answers) => answers,
+            other => panic!("not a user-input answer: {other:?}"),
+        }
+    }
+
+    /// `options_can_submit_empty_when_unanswered`: a question nobody committed sends an empty
+    /// list, and every question id is in the answer.
+    #[test]
+    fn an_unanswered_question_sends_an_empty_list() {
+        let questions = [choose("q1", false), freeform("q2")];
+        let drafts = [draft(Some(0), false, ""), draft(None, false, "typed")];
+        assert_eq!(
+            answers(input::answer(&questions, &drafts)),
+            BTreeMap::from([
+                ("q1".to_string(), Vec::new()),
+                ("q2".to_string(), Vec::new())
+            ])
+        );
+    }
+
+    /// `skipped_option_questions_count_as_unanswered`, `highlighted_option_questions_are_unanswered`,
+    /// `freeform_requires_enter_with_text_to_mark_answered`: only a committed answer counts.
+    #[test]
+    fn only_a_committed_answer_counts() {
+        let questions = [choose("q1", false), choose("q2", false), freeform("q3")];
+        let drafts = [
+            draft(None, false, ""),
+            draft(Some(1), false, ""),
+            draft(None, false, "Draft"),
+        ];
+        assert_eq!(input::unanswered(&questions, &drafts), 3);
+        assert_eq!(input::first_unanswered(&questions, &drafts), Some(0));
+        let drafts = [
+            draft(Some(0), true, ""),
+            draft(Some(1), true, ""),
+            draft(None, true, "Draft"),
+        ];
+        assert_eq!(input::unanswered(&questions, &drafts), 0);
+        assert_eq!(input::first_unanswered(&questions, &drafts), None);
+        // an option question committed with no selection is not answered
+        assert!(!input::answered(&questions[0], &draft(None, true, "")));
+    }
+
+    /// The option's text, then the notes as `user_note: ...` (trimmed); the other row sends its
+    /// own text; a freeform answer is the note alone.
+    #[test]
+    fn a_committed_answer_sends_the_option_and_its_notes() {
+        let questions = [choose("q1", true), choose("q2", true), freeform("q3")];
+        let drafts = [
+            draft(Some(1), true, "  because  "),
+            draft(Some(2), true, ""),
+            draft(None, true, "free text"),
+        ];
+        assert_eq!(
+            answers(input::answer(&questions, &drafts)),
+            BTreeMap::from([
+                (
+                    "q1".to_string(),
+                    vec!["Option 2".to_string(), "user_note: because".to_string()]
+                ),
+                ("q2".to_string(), vec![OTHER_ANSWER.to_string()]),
+                ("q3".to_string(), vec!["user_note: free text".to_string()]),
+            ])
+        );
+        assert_eq!(input::choices(&questions[0]), 3);
+        assert_eq!(input::choices(&choose("q", false)), 2);
+        assert_eq!(input::choices(&freeform("q")), 0);
+        // the other row exists only on a question that has options
+        let other_freeform = Question {
+            is_other: true,
+            ..freeform("q")
+        };
+        assert_eq!(input::choices(&other_freeform), 0);
+        assert_eq!(input::label(&questions[0], 3), None);
+    }
+
+    fn request(id: u64, questions: Value) -> AppEv {
+        let request = serde_json::from_value(json!({
+            "method": "item/tool/requestUserInput",
+            "id": id,
+            "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": format!("call-{id}"),
+                "isBlocking": true, "autoResolutionMs": null, "questions": questions
+            }
+        }))
+        .expect("request");
+        AppEv::Backend(BackendEv::Request(Box::new(request)))
+    }
+
+    fn two_questions() -> Value {
+        json!([
+            { "id": "q1", "header": "A", "question": "Choose.", "isOther": false, "isSecret": false,
+              "options": [{ "label": "Option 1", "description": "" }] },
+            { "id": "q2", "header": "B", "question": "Say.", "isOther": false, "isSecret": true,
+              "options": null }
+        ])
+    }
+
+    /// The prompt keeps what the answer needs: the secret flag too.
+    #[test]
+    fn the_prompt_holds_the_questions_with_their_secret_flag() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(1, two_questions()), &mut fx);
+        let entry = app.requests().head().expect("queued");
+        let Some(codex_tui_core::screens::approvals::Prompt::UserInput(prompt)) =
+            entry.prompt.as_deref()
+        else {
+            panic!("no user-input prompt: {:?}", entry.prompt);
+        };
+        assert_eq!(prompt.questions.len(), 2);
+        assert!(!prompt.questions[0].is_secret);
+        assert!(prompt.questions[1].is_secret);
+    }
+
+    fn respond(app: &CodexApp, answer: RequestAnswer) -> AppEv {
+        let key = app.requests().head().expect("a request").key.clone();
+        AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
+            ApprovalIntent::Respond { key, answer },
+        )))
+    }
+
+    /// The submit resolves the request on the wire once; an answer that misses a question id is
+    /// stale and sends nothing, the request stays.
+    #[test]
+    fn a_submit_goes_out_once_and_an_answer_missing_a_question_sends_nothing() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(1, two_questions()), &mut fx);
+        let partial = RequestAnswer::UserInput(BTreeMap::from([("q1".to_string(), Vec::new())]));
+        let ev = respond(&app, partial);
+        apply_app(&mut app, ev, &mut fx);
+        assert_eq!(app.requests().entries.len(), 1);
+        assert!(fx.commands().is_empty());
+
+        let whole = input::answer(
+            &[choose("q1", false), freeform("q2")],
+            &[draft(Some(0), true, "n"), draft(None, true, "x")],
+        );
+        let ev = respond(&app, whole);
+        apply_app(&mut app, ev.clone(), &mut fx);
+        apply_app(&mut app, ev, &mut fx);
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(
+            *result,
+            json!({ "answers": {
+                "q1": { "answers": ["Option 1", "user_note: n"] },
+                "q2": { "answers": ["user_note: x"] }
+            } })
+        );
+    }
+}

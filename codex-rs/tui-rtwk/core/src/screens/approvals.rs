@@ -15,6 +15,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod form;
+pub mod input;
 
 pub use form::{Entered, Form};
 
@@ -29,6 +30,8 @@ pub struct Question {
     pub header: String,
     pub text: String,
     pub is_other: bool,
+    /// The answer is a secret: the notes are drawn masked.
+    pub is_secret: bool,
     pub options: Vec<QuestionOption>,
 }
 
@@ -116,8 +119,6 @@ pub enum Decision {
     DenyPermissions,
     /// A persistent network policy rule for a host: allow or block it.
     NetworkRule { host: String, allow: bool },
-    /// A user-input answer: the index of the chosen option.
-    Choose(usize),
 }
 
 /// Input from the request sheet. The app validates it against the pending request.
@@ -179,13 +180,8 @@ impl Prompt {
                 Decision::DenyPermissions,
             ],
             Prompt::Elicitation(_) => vec![Decision::Accept, Decision::Decline, Decision::Cancel],
-            Prompt::UserInput(input) => {
-                let count = input
-                    .questions
-                    .first()
-                    .map_or(0, |q| q.options.len() + usize::from(q.is_other));
-                (0..count).map(Decision::Choose).collect()
-            }
+            // The questions are answered as a whole (`Intent::Respond`), not by a decision.
+            Prompt::UserInput(_) => Vec::new(),
         }
     }
 }
@@ -600,6 +596,7 @@ fn question_of(value: &serde_json::Value) -> Question {
         header: text("header"),
         text: text("question"),
         is_other: value.get("isOther").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        is_secret: value.get("isSecret").and_then(serde_json::Value::as_bool).unwrap_or(false),
         options: value
             .get("options")
             .and_then(|o| o.as_array())
