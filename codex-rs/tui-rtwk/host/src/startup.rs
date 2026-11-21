@@ -457,4 +457,25 @@ mod tests {
             "another task ran while the browser opened"
         );
     }
+
+    // The S03 wizards (`providers` task) are not built yet: the host offers
+    // none, whatever the configuration and the server allow, so no sign-in
+    // choice leads to a screen that does not exist.
+    #[tokio::test]
+    async fn no_provider_wizard_is_offered_until_they_are_built() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let config = Arc::get_mut(&mut startup.config).expect("one owner");
+        for feature in [
+            Feature::BedrockSetupWizard,
+            Feature::GcpSetupWizard,
+            Feature::GatewaySetupWizard,
+        ] {
+            config.features.enable(feature).expect("a feature");
+        }
+        assert!(
+            !login_policy(&startup).wizards.any(),
+            "wizards offered: {:?}",
+            login_policy(&startup).wizards
+        );
+    }
 }
