@@ -13,6 +13,7 @@ mod agents_followups;
 mod agents_live;
 mod agents_reconnect;
 mod agents_shared;
+mod app;
 mod approvals;
 mod backend_switch;
 mod cells;

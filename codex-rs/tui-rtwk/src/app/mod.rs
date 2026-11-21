@@ -104,9 +104,11 @@ impl UiApp {
     }
 
     /// The host answers the startup facts (`Ask::Facts`): the home waits for
-    /// them (`StartupGate`).
+    /// them (`StartupGate`) and the first thread starts after the startup
+    /// screens (`Ev::Launched`), not on connect.
     pub fn with_awaited_facts(mut self, on: bool) -> Self {
         self.ui.awaits_facts = on;
+        self.core = self.core.with_start_after_launch(on);
         self
     }
 

@@ -383,6 +383,14 @@ pub struct CodexApp {
     /// overview instead (oracle: `agents_overview`), and a task starts when
     /// the user asks for one.
     start_thread_on_connect: bool,
+    /// The host answers the startup facts (`Ask::Facts`): the first thread
+    /// starts after the startup screens, once the launch is known
+    /// (`Ev::Launched`), as the oracle's `App::run` creates the session after
+    /// onboarding, trust and the prompts. Not before: the server's own
+    /// sign-in (the browser login) would pre-empt the device-code screen.
+    start_after_launch: bool,
+    /// The first thread's start waits for the launch.
+    start_held: bool,
 }
 
 impl Default for CodexApp {
@@ -415,11 +423,21 @@ impl CodexApp {
             queued_submits: Vec::new(),
             attaching_events: VecDeque::new(),
             start_thread_on_connect: true,
+            start_after_launch: false,
+            start_held: false,
         }
     }
 
     pub fn with_start_thread_on_connect(mut self, enabled: bool) -> Self {
         self.start_thread_on_connect = enabled;
+        self
+    }
+
+    /// The first thread starts once the startup screens are done and the
+    /// launch is known (`Ev::Launched`), not on connect; for a host that
+    /// answers the startup facts.
+    pub fn with_start_after_launch(mut self, enabled: bool) -> Self {
+        self.start_after_launch = enabled;
         self
     }
 
@@ -711,13 +729,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 &mut Rc::make_mut(&mut app.screens).onboarding,
                 fx,
             );
-            let ticket = app.mint.next();
-            app.outgoing
-                .insert(ticket, AppCtx::StartThread { switch: None });
-            fx.commands.push(Command::StartThread {
-                ticket,
-                backend: BackendId::default(),
-            });
+            if app.start_after_launch && !app.screens.onboarding.launched() {
+                app.start_held = true;
+            } else {
+                start_first_thread(app, fx);
+            }
         }
         AppEv::StartFailed(message) => {
             fx.ends = true;
@@ -999,6 +1015,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
             let reconnected = matches!(ev, ScreenEv::Agents(agents::Ev::Reconnected));
             screens::apply_ev(Rc::make_mut(&mut app.screens), ev, fx);
+            if app.start_held && app.screens.onboarding.launched() {
+                app.start_held = false;
+                start_first_thread(app, fx);
+            }
             if reconnected {
                 if app.screens.chat.status.account_usage {
                     refresh_rates(app, origin, fx);
@@ -1018,6 +1038,17 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             }
         }
     }
+}
+
+/// The first thread of the process, on the default backend.
+fn start_first_thread(app: &mut CodexApp, fx: &mut AppFx) {
+    let ticket = app.mint.next();
+    app.outgoing
+        .insert(ticket, AppCtx::StartThread { switch: None });
+    fx.commands.push(Command::StartThread {
+        ticket,
+        backend: BackendId::default(),
+    });
 }
 
 fn set_status(app: &mut CodexApp, status: Session) {

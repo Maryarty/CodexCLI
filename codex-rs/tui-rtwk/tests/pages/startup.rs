@@ -106,6 +106,60 @@ mod gate {
         h.wait_for("the chat", |s| s.contains(CHAT));
     }
 
+    fn thread_starts(h: &Harness) -> usize {
+        h.fake
+            .commands()
+            .iter()
+            .filter(|c| matches!(c, codex_tui_core::app::Command::StartThread { .. }))
+            .count()
+    }
+
+    // The oracle creates its session after the startup screens: the server
+    // is not asked for a thread (its own sign-in would pre-empt the
+    // device-code screen) until the launch is known.
+    #[test]
+    fn the_thread_starts_after_the_startup_screens() {
+        let mut h = awaiting();
+        h.settle();
+        answer(&h, trust());
+        h.wait_for("the trust prompt", |s| s.contains("trust"));
+        assert_eq!(thread_starts(&h), 0, "{}", h.t.screen());
+        h.press("enter");
+        inject(&h, Ev::TrustSaved { request: 2 });
+        h.settle();
+        assert_eq!(thread_starts(&h), 0, "the prompts are still to be read");
+        // The device code is asked under 3 and the launch under 4 now.
+        inject(
+            &h,
+            Ev::GatewayDevice {
+                request: 3,
+                code: None,
+            },
+        );
+        inject(
+            &h,
+            Ev::Launched {
+                request: 4,
+                prompts: Vec::new(),
+            },
+        );
+        h.wait_for("the chat", |s| s.contains(CHAT));
+        assert_eq!(thread_starts(&h), 1);
+    }
+
+    // The same with nothing due: the thread starts when the launch is known.
+    #[test]
+    fn with_nothing_due_the_thread_starts_when_the_launch_is_known() {
+        let mut h = awaiting();
+        h.settle();
+        answer(&h, Facts::default());
+        h.settle();
+        assert_eq!(thread_starts(&h), 0);
+        launched(&h, Vec::new());
+        h.wait_for("the chat", |s| s.contains(CHAT));
+        assert_eq!(thread_starts(&h), 1);
+    }
+
     // R-F5 on a start page of the command line (`resume`): the resume
     // picker mounts only once the startup page popped, so the prompt goes
     // first and the picker is not drawn over it.
