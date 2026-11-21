@@ -639,7 +639,7 @@ Flutter or application name, or a method a macro writes). The to-do app above
 is `crates/rtwk-gallery/tests/skill_todo.rs`: edit the fence and that file
 together.
 
-<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 492ab738); do not edit. -->
+<!-- The part below is CodexCLI's: written by tools/rtwk-port/skill/generate.py from tools/rtwk-port/skill/skill.src.md (rtwk 5583c142); do not edit. -->
 
 <!-- not rtwk: MaterialApp AppBar Card TextStyle Colors FontWeight TextSpan MediaQuery BuildContext RawKeyboardListener ValueKey Layout Constraint Ratio Fill List Rect Margin Clear Block Paragraph Line ListState ScrollState ScrollbarState Tabs KeyCode KeyEvent UnicodeWidthStr FrameRequester Instant Buffer AppEvent CodexCLI RenderFlex Intent Msg Picker Gxx -->
 

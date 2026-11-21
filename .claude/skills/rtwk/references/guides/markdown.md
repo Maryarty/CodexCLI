@@ -1,29 +1,33 @@
 <!-- Written by `cargo xtask skill-references` from docs/guide; do not edit. -->
 # Markdown documents
 
-<!-- not rtwk: TranscriptView -->
+<!-- not rtwk: TranscriptView Markdown RenderMarkdown -->
 
-Use `MarkdownView::new(source).into_viewport()` for a document pane.
-Give the pane bounded width and height, for example by placing it in
-an `Expanded` child of a bounded column. The viewport owns scrolling
-and selection. It mounts visible list items on demand and preserves
-the visible source fragment when the width changes.
+Show a document with `MarkdownView::new(source)` in a
+`SelectionArea(SingleChildScrollView(..))`, as twk shows its `Markdown`. The
+view is a column of `Text`s and `CodeView`s as tall as its content: the app
+scrolls it and selects in it as with any other text, and gives it the width it
+has. It builds every block, so a document of a few thousand blocks is what it
+is for (see "Very large documents" below for the rest).
 
 ```rust
-use rtwk::gestures::SelectionAreaController;
-use rtwk::scroll::ScrollController;
+use rtwk::gestures::{SelectionArea, SelectionAreaController};
+use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk_rich::markdown::{MarkdownController, MarkdownView};
 
 let headings = MarkdownController::new();
 let scroll = ScrollController::with(0, true);
 let selection = SelectionAreaController::new();
 
-let view = MarkdownView::new("# Report\n\nReady to review.")
-    .controller(headings.clone())
-    .tab_width(8)
-    .into_viewport()
-    .scroll_controller(scroll.clone())
-    .selection_controller(selection.clone());
+let pane = SelectionArea::new(
+    SingleChildScrollView::new(
+        MarkdownView::new("# Report\n\nReady to review.")
+            .controller(headings.clone())
+            .tab_width(8),
+    )
+    .controller(scroll.clone()),
+)
+.controller(selection.clone());
 ```
 
 Keep the controllers across builds. For a stream, keep a
@@ -37,39 +41,49 @@ use rtwk_rich::markdown::{MarkdownStream, MarkdownView};
 let mut stream = MarkdownStream::new("# Report\n\n");
 stream.add("Ready to review.");
 let view = MarkdownView::from_snapshot(stream.snapshot())
-    .controller(headings.clone())
-    .scroll_controller(scroll.clone())
-    .selection_controller(selection.clone());
+    .controller(headings.clone());
+// shown in the same SelectionArea(SingleChildScrollView(..)) as above
 ```
 
 Mount each revision at the same position. If the application already owns
 the complete source, use `.appended(piece)` when the suffix is known.
-Use `MarkdownView::blocks(blocks, definitions).into_viewport()` for an
-existing parsed document. The viewport accepts theme, hyperlink and code
-settings, whether it comes from a source, blocks or a snapshot.
+Use `MarkdownView::blocks(blocks, definitions)` for an existing parsed
+document. The view accepts theme, hyperlink and code settings, whether it
+comes from a source, blocks or a snapshot. Its tables follow twk: one-line
+cells, cut with an ellipsis where they do not fit.
 
 ## Migrating an existing pane
 
-Replace the enclosing vertical scroll view with the composed viewport
-and attach the former scroll controller directly. Use the viewport's
-selection controller for copy and selection across unmounted blocks.
-The default table view uses single-line cells with ellipsis.
-Call `.wrap_table_cells(true)` on the viewport for multiline cells.
-Scrollbar metrics may be estimates while offscreen items await layout.
-Use `.surrounding(before, after)` to place neighboring widgets in the
-same virtualized scroll view.
+A pane made with `.into_viewport()` (`ComposedMarkdownView`, now
+`#[deprecated]`) moves to the view above:
 
-Keep the inline `MarkdownView` in an existing outer scroll container
-when Markdown is one item in a larger scrolling transcript or exact
-content-height metrics are part of the enclosing view's contract. The
-inline view is selectable under a `SelectionArea` (see
-[Selecting and copying](#selecting-and-copying)); use the viewport when
-one document is too long to lay out whole, or its selection must reach
-blocks that are not mounted.
+* Replace `.into_viewport()` by the `SelectionArea(SingleChildScrollView(..))`
+  around the view. The former scroll controller goes on the
+  `SingleChildScrollView` and the former selection controller on the
+  `SelectionArea`.
+* Replace `.surrounding(before, after)` by a `Column` of the neighbours and
+  the view in the same scroll view (see "Markdown alongside other widgets").
+* `.wrap_table_cells(true)` has no counterpart: the view's cells are one line,
+  as twk's.
+* The scrollbar's metrics are exact, the view being laid out whole, and a
+  selection reaches the whole document, not the blocks that are built.
+
+## Very large documents
+
+The viewport mounts the blocks in view and nothing else, which is what a
+document of some 20 000 blocks needs: the one view builds all of them (about
+`16 kB` for each block, and every paragraph wraps again when the width
+changes). `ComposedMarkdownView`, reached through `into_viewport()` or
+`ComposedMarkdownView::snapshot`, stays for that case alone, until the lazy
+region of the one view replaces it, and is then removed. It is deprecated: its
+selection is a plain `SelectionArea` over the blocks that are built, so what
+was scrolled out of its list is not selected or copied, and a selection does
+not outlive the block it began in once that is unmounted; its texts are joined
+as the area joins them. Do not start new panes with it.
 
 ## Selecting and copying
 
-As in twk, a `SelectionArea` around an inline `MarkdownView` selects and
+As in twk, a `SelectionArea` around a `MarkdownView` selects and
 copies the text of its blocks: paragraphs, headings, lines of code and
 the cells of tables. Bullets, numbers, the boxes of tasks, the bars of
 quotes, rules and the padding of tables and of code are not text; they are
@@ -152,10 +166,11 @@ transcript-composition benchmark, release build, a shared machine): appending
 a token to the newest answer takes about 24 µs at 10, 100 and 1,000 turns,
 and mounting 1,000 turns 0.4 ms. One shape is expensive: a single message
 with a very large live table lays all its rows out again for every token
-(4.7 ms per token at 2,000 rows). For such a message make that one entry a
-`ComposedMarkdownView` (a bounded item of the list, 86 µs per token in the
-same benchmark, scrolling inside its item, with no selection across it and its
-neighbours) or give it a pane of its own with `MarkdownView::from_snapshot`.
+(4.7 ms per token at 2,000 rows). For such a message, until the lazy region replaces it, make that one entry a
+`ComposedMarkdownView` (deprecated; a bounded item of the list, 86 µs per
+token in the same benchmark, scrolling inside its item, with no selection
+across it and its neighbours) or give it a pane of its own with
+`ComposedMarkdownView::snapshot`.
 There is no transcript widget: `TranscriptView`, shipped in v0.1.1 to v0.1.3,
 was removed because in a chat of messages it lost to this composition at
 every size (a token on the newest answer: 24 µs against 67 µs, 329 µs and
@@ -172,43 +187,42 @@ a drag that stays within the entries in view selects across them as above
 
 ## Markdown alongside other widgets
 
-Use `surrounding` when one streaming Markdown document and adjacent
-widgets should scroll together. The viewport lazily mounts Markdown
-rows and treats each adjacent widget as one list item.
+Put the neighbours and the view in one `Column` inside the scroll view, so
+that they scroll and select together; the area joins their texts as it joins
+any.
 
 ```rust
-use rtwk::scroll::ScrollController;
+use rtwk::gestures::SelectionArea;
+use rtwk::layout::Column;
+use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::widgets::Text;
 use rtwk_rich::markdown::{MarkdownStream, MarkdownView};
 
 let mut answer = MarkdownStream::new("## Answer\n\n");
 let scroll = ScrollController::with(0, true);
 answer.add("Here is the result.");
-let transcript = MarkdownView::from_snapshot(answer.snapshot())
-    .surrounding(
-        Some(Text::new("Earlier message").into()),
-        Some(Text::new("Tool finished").into()),
+let transcript = SelectionArea::new(
+    SingleChildScrollView::new(
+        Column::new()
+            .child(Text::new("Earlier message"))
+            .child(MarkdownView::from_snapshot(answer.snapshot()))
+            .child(Text::new("Tool finished")),
     )
-    .scroll_controller(scroll.clone());
+    .controller(scroll.clone()),
+);
 ```
 
-Keep the stream and scroll controller across updates. This API covers
-one Markdown document with an optional item on each side. Markdown
-selection covers that document. For a conversation of independent
-messages, see [Chat transcripts](#chat-transcripts).
+Keep the stream and scroll controller across updates. Every neighbour is
+built with the document, and one selection covers all of them. For a
+conversation of independent messages, see
+[Chat transcripts](#chat-transcripts).
 
-## Renderer decision
+## One view
 
-Composition is the primary path for new bounded document panes. Its
-native widgets supply theme inheritance, pointer interaction and
-cross-block selection. On matched workloads it also improves large
-table appends, while the direct renderer uses less RSS in the measured workloads. See the measurements and parity matrix.
-
-The direct renderer remains a public compatibility path during migration.
-Moving it behind an internal interface would leave callers that need
-inline height and parent-owned scrolling without an equivalent widget.
-Removing it would also discard a measured fast path for streaming
-without a replacement for those callers. Both options can be revisited
-after an inline composition contract is demonstrated and benchmarked.
-Viewport selection is explicit so existing struct literals and outer
-scroll layouts retain their semantics.
+`MarkdownView` is composition, as twk's `Markdown` is: native `Text`s and
+`CodeView`s, so that it inherits the theme, takes the pointer and selects
+across blocks as any other widgets do. The direct renderer (`RenderMarkdown`)
+has been removed. The composed viewport, which mounts only the blocks in view,
+is deprecated and stays for documents of some 20 000 blocks until the lazy
+region replaces it (see
+the design).

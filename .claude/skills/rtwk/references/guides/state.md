@@ -21,6 +21,8 @@ lives outside individual widgets and a handler can call its methods through
   Key your rows (`memo_keyed` with the row's id, an integer if you can):
   unkeyed rows are matched by place, so one inserted or removed rebuilds
   every row after it.
+  `ViewCx::memo_keyed` keeps a row's subtree by key as the list reorders
+  (design: `docs/design/app.md`, "Kept subtrees").
 
 ## Follow a store that already exists
 

@@ -11,7 +11,7 @@ A Code is the body of the gallery's preview: it names widgets by the last segmen
 
 A Markdown document as widgets, a blank row between the blocks; its links the app's with onLinkTap, a MarkdownController scrolling to a heading.
 
-- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:448`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are markdown_blocks_lines's: see there for how each block looks).
+- `rtwk_rich::markdown::MarkdownView` (struct) in `crates/rtwk-rich/src/markdown/view.rs:438`: The Markdown document `data` as widgets, its blocks one under another with a blank row between them, in the styles of theme, by default `MarkdownTheme::from_theme` the app's theme (the lines are super::markdown_blocks_lines's: see there for how each block looks).
 
 ### Code
 
@@ -114,10 +114,10 @@ pub(crate) fn answer(
                     Expanded::new(
                         1,
                         Scrollbar::new(
-                            MarkdownView::new(&source[..shown])
-                                .appended(&source[from..shown])
-                                .into_viewport()
-                                .scroll_controller(scroll.clone()),
+                            SingleChildScrollView::new(
+                                MarkdownView::new(&source[..shown]).appended(&source[from..shown]),
+                            )
+                            .controller(scroll.clone()),
                         )
                         .style(theme.border.clone()),
                     ),
