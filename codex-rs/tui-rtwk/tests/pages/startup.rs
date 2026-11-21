@@ -38,10 +38,13 @@ mod gate {
     /// The host's answer to the launch's ask (`Ask::Launch`, request 2:
     /// the first after the facts').
     fn launched(h: &Harness, prompts: Vec<startup::Prompt>) {
-        inject(h, Ev::Launched {
-            request: 2,
-            prompts,
-        });
+        inject(
+            h,
+            Ev::Launched {
+                request: 2,
+                prompts,
+            },
+        );
     }
 
     fn hooks_due() -> startup::Prompt {
@@ -56,7 +59,8 @@ mod gate {
         let Some(epoch) = h.fake.epoch() else {
             panic!("the app is not attached to the scripted server");
         };
-        h.fake.inject(epoch, AppEv::Screen(ScreenEv::Onboarding(ev)));
+        h.fake
+            .inject(epoch, AppEv::Screen(ScreenEv::Onboarding(ev)));
     }
 
     fn trust() -> Facts {
