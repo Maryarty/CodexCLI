@@ -31,7 +31,7 @@ use rtwk_core::input::KeyCode;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::onboarding::Intent;
 use codex_tui_core::screens::onboarding::auth::{self, provider};
-use provider::bedrock::{Bedrock, CredentialKind, Error, List, Method, View};
+use provider::bedrock::{Bedrock, CredentialKind, Error, List, Method, Stage};
 
 use super::super::{Line, Look, guarded_keys, rows_of, width_of};
 use super::{sized, strings};
@@ -108,27 +108,27 @@ impl StatefulWidget for BedrockWizard {
 impl_widget!(stateful eq BedrockWizard);
 
 /// Which field a view types in.
-fn field_of(view: &View) -> Option<usize> {
+fn field_of(view: &Stage) -> Option<usize> {
     match view {
-        View::ProfileEntry => Some(PROFILE),
-        View::ApiKeyEntry => Some(API_KEY),
-        View::RegionEntry { .. } => Some(REGION),
-        View::AccessKeyEntry { field } => Some(KEYS + field),
+        Stage::ProfileEntry => Some(PROFILE),
+        Stage::ApiKeyEntry => Some(API_KEY),
+        Stage::RegionEntry { .. } => Some(REGION),
+        Stage::AccessKeyEntry { field } => Some(KEYS + field),
         _ => None,
     }
 }
 
 /// The views a list shows in.
-fn lists(view: &View) -> bool {
-    matches!(view, View::Methods(_) | View::EnvironmentInstructions)
+fn lists(view: &Stage) -> bool {
+    matches!(view, Stage::Methods(_) | Stage::EnvironmentInstructions)
 }
 
 /// Two views are the same screen (their fields keep their text).
-fn same_screen(a: &View, b: &View) -> bool {
+fn same_screen(a: &Stage, b: &Stage) -> bool {
     a == b
         || matches!(
             (a, b),
-            (View::AccessKeyEntry { .. }, View::AccessKeyEntry { .. })
+            (Stage::AccessKeyEntry { .. }, Stage::AccessKeyEntry { .. })
         )
 }
 
@@ -168,12 +168,12 @@ impl BedrockState {
 
     /// A new screen: its fields start empty (the region from what was
     /// tried), the list on its first row.
-    fn enter(&mut self, view: &View) {
+    fn enter(&mut self, view: &Stage) {
         match view {
-            View::ProfileEntry => self.fields[PROFILE].set_text(""),
-            View::ApiKeyEntry => self.fields[API_KEY].set_text(""),
-            View::RegionEntry { prefill, .. } => self.fields[REGION].set_text(prefill),
-            View::AccessKeyEntry { .. } => {
+            Stage::ProfileEntry => self.fields[PROFILE].set_text(""),
+            Stage::ApiKeyEntry => self.fields[API_KEY].set_text(""),
+            Stage::RegionEntry { prefill, .. } => self.fields[REGION].set_text(prefill),
+            Stage::AccessKeyEntry { .. } => {
                 for field in &self.fields[KEYS..] {
                     field.set_text("");
                 }
@@ -257,16 +257,16 @@ impl State for BedrockState {
     fn init_state(&mut self, w: &BedrockWizard, cx: &mut Cx<'_, Self>) {
         self.keys(w, cx);
         Self::after_frame(cx);
-        if w.bedrock.view == View::Start {
+        if w.bedrock.stage == Stage::Start {
             Self::emit(cx, provider::bedrock::Intent::Discover);
         }
     }
 
     fn did_update_widget(&mut self, old: &BedrockWizard, w: &BedrockWizard, cx: &mut Cx<'_, Self>) {
-        if !same_screen(&old.bedrock.view, &w.bedrock.view) {
-            self.enter(&w.bedrock.view);
+        if !same_screen(&old.bedrock.stage, &w.bedrock.stage) {
+            self.enter(&w.bedrock.stage);
         }
-        if old.bedrock.view != w.bedrock.view {
+        if old.bedrock.stage != w.bedrock.stage {
             Self::after_frame(cx);
         }
     }
@@ -281,7 +281,7 @@ impl State for BedrockState {
     fn update(&mut self, msg: Msg, w: &BedrockWizard, cx: &mut Cx<'_, Self>) -> Rebuild {
         let len = w.bedrock.methods().len();
         match msg {
-            Msg::Up | Msg::Down if lists(&w.bedrock.view) => {
+            Msg::Up | Msg::Down if lists(&w.bedrock.stage) => {
                 self.options
                     .step(if matches!(msg, Msg::Up) { -1 } else { 1 }, len);
                 Self::after_frame(cx);
@@ -289,9 +289,9 @@ impl State for BedrockState {
                 return Rebuild::Yes;
             }
             Msg::Up | Msg::Down => {}
-            Msg::Confirm if lists(&w.bedrock.view) => Self::choose(cx, w, self.options.cursor()),
+            Msg::Confirm if lists(&w.bedrock.stage) => Self::choose(cx, w, self.options.cursor()),
             Msg::Confirm => {}
-            Msg::Digit(index) if lists(&w.bedrock.view) && index < len => {
+            Msg::Digit(index) if lists(&w.bedrock.stage) && index < len => {
                 Self::choose(cx, w, index);
             }
             Msg::Digit(_) => {}
@@ -305,8 +305,8 @@ impl State for BedrockState {
                 }
             }
             Msg::Submit => {
-                let intent = match &w.bedrock.view {
-                    View::AccessKeyEntry { .. } => {
+                let intent = match &w.bedrock.stage {
+                    Stage::AccessKeyEntry { .. } => {
                         provider::bedrock::Intent::SubmitKeys(std::array::from_fn(|field| {
                             self.text(KEYS + field)
                         }))
@@ -320,7 +320,7 @@ impl State for BedrockState {
             }
             Msg::Edited => Self::edited(cx, w),
             Msg::Focused(field, true) => {
-                if matches!(w.bedrock.view, View::AccessKeyEntry { field: f } if f != field) {
+                if matches!(w.bedrock.stage, Stage::AccessKeyEntry { field: f } if f != field) {
                     Self::emit(cx, provider::bedrock::Intent::Field(field));
                 }
             }
@@ -329,7 +329,7 @@ impl State for BedrockState {
             // handler); its change marks the field in the model.
             Msg::Field(field) => self.nodes[KEYS + field].request_focus(),
             Msg::Settle => {
-                let node = field_of(&w.bedrock.view).unwrap_or(IDLE);
+                let node = field_of(&w.bedrock.stage).unwrap_or(IDLE);
                 if !self.nodes[node].has_focus() {
                     self.nodes[node].request_focus();
                 }
@@ -362,10 +362,10 @@ impl State for BedrockState {
         let dim = |text: &str| vec![Span::styled(text.to_owned(), look.dim.clone())];
         let plain = |text: &str| vec![Span::new(text.to_owned())];
         let found = &bedrock.discovery;
-        match &bedrock.view {
-            View::Start | View::Discovering(_) => top.push(dim(strings.bedrock_discovering)),
-            View::Configuring { .. } => top.push(dim(strings.bedrock_configuring)),
-            View::Methods(list) => {
+        match &bedrock.stage {
+            Stage::Start | Stage::Discovering(_) => top.push(dim(strings.bedrock_discovering)),
+            Stage::Configuring { .. } => top.push(dim(strings.bedrock_configuring)),
+            Stage::Methods(list) => {
                 let detected = *list == List::Detected;
                 if detected && found.profiles.len() == 1 {
                     let profile = &found.profiles[0];
@@ -387,15 +387,17 @@ impl State for BedrockState {
                 }
                 top.push(Vec::new());
             }
-            View::ProfileEntry => top.extend([plain(strings.bedrock_profile_guidance), Vec::new()]),
-            View::ApiKeyEntry => top.extend([plain(strings.bedrock_api_key_guidance), Vec::new()]),
-            View::RegionEntry { .. } => {
+            Stage::ProfileEntry => {
+                top.extend([plain(strings.bedrock_profile_guidance), Vec::new()])
+            }
+            Stage::ApiKeyEntry => top.extend([plain(strings.bedrock_api_key_guidance), Vec::new()]),
+            Stage::RegionEntry { .. } => {
                 top.extend([plain(strings.bedrock_region_guidance), Vec::new()]);
             }
-            View::AccessKeyEntry { .. } => {
+            Stage::AccessKeyEntry { .. } => {
                 top.extend([plain(strings.bedrock_access_keys_guidance), Vec::new()]);
             }
-            View::EnvironmentInstructions => top.extend([
+            Stage::EnvironmentInstructions => top.extend([
                 plain(strings.bedrock_environment_guidance),
                 Vec::new(),
                 vec![
@@ -411,7 +413,7 @@ impl State for BedrockState {
         }
         // The method list: `> 1. title` (cyan on the cursor), the dim
         // description under it, a blank line after each.
-        let rows: Vec<(Line, Option<Line>)> = if lists(&bedrock.view) {
+        let rows: Vec<(Line, Option<Line>)> = if lists(&bedrock.stage) {
             bedrock
                 .methods()
                 .into_iter()
@@ -467,26 +469,26 @@ impl State for BedrockState {
                 .child(Expanded::new(1, input))
                 .into()
         };
-        let fields: Vec<AnyWidget> = match &bedrock.view {
-            View::ProfileEntry => vec![field(
+        let fields: Vec<AnyWidget> = match &bedrock.stage {
+            Stage::ProfileEntry => vec![field(
                 PROFILE,
                 strings.bedrock_profile_label.into(),
                 false,
                 false,
             )],
-            View::ApiKeyEntry => vec![field(
+            Stage::ApiKeyEntry => vec![field(
                 API_KEY,
                 strings.bedrock_api_key_label.into(),
                 true,
                 false,
             )],
-            View::RegionEntry { .. } => vec![field(
+            Stage::RegionEntry { .. } => vec![field(
                 REGION,
                 strings.bedrock_region_label.into(),
                 false,
                 false,
             )],
-            View::AccessKeyEntry { field: marked } => strings
+            Stage::AccessKeyEntry { field: marked } => strings
                 .bedrock_access_key_labels
                 .iter()
                 .enumerate()
@@ -498,12 +500,12 @@ impl State for BedrockState {
                 .collect(),
             _ => Vec::new(),
         };
-        let marked_field = match &bedrock.view {
-            View::AccessKeyEntry { field } => Some(*field),
+        let marked_field = match &bedrock.stage {
+            Stage::AccessKeyEntry { field } => Some(*field),
             _ => None,
         };
         let mut footer: Vec<Line> = Vec::new();
-        if !matches!(bedrock.view, View::Start | View::Discovering(_)) {
+        if !matches!(bedrock.stage, Stage::Start | Stage::Discovering(_)) {
             footer.push(Vec::new());
             let press = |what: &'static str, key: &'static str| {
                 vec![
@@ -512,7 +514,7 @@ impl State for BedrockState {
                     Span::styled(what, look.dim.clone()),
                 ]
             };
-            if !matches!(bedrock.view, View::Configuring { .. }) {
+            if !matches!(bedrock.stage, Stage::Configuring { .. }) {
                 footer.push(press(strings.press_to_continue, strings.enter));
             }
             footer.push(press(strings.press_to_go_back, strings.esc));
@@ -618,7 +620,7 @@ fn method_text(
                 },
             ])
         }
-        Method::OtherMethods if bedrock.view == View::EnvironmentInstructions => {
+        Method::OtherMethods if bedrock.stage == Stage::EnvironmentInstructions => {
             pair([strings.bedrock_another_method, ""])
         }
         Method::OtherMethods => pair([

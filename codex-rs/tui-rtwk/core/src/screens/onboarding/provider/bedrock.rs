@@ -74,7 +74,7 @@ pub enum Method {
 
 /// Where the setup stands (`BedrockView`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum View {
+pub enum Stage {
     /// Shown, not asked yet: the view asks for the discovery once it is up
     /// (`start_bedrock_discovery`).
     #[default]
@@ -114,7 +114,7 @@ pub enum Error {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Bedrock {
-    pub view: View,
+    pub stage: Stage,
     pub discovery: Discovery,
     pub error: Option<Error>,
 }
@@ -150,7 +150,7 @@ impl Bedrock {
     /// The wizard over what discovery found (`BedrockState::discovered`).
     pub fn discovered(discovery: Discovery) -> Bedrock {
         Bedrock {
-            view: View::Methods(List::Detected),
+            stage: Stage::Methods(List::Detected),
             discovery,
             error: None,
         }
@@ -158,10 +158,10 @@ impl Bedrock {
 
     /// The rows of the list shown (`methods`).
     pub fn methods(&self) -> Vec<Method> {
-        if self.view == View::EnvironmentInstructions {
+        if self.stage == Stage::EnvironmentInstructions {
             return vec![Method::OtherMethods];
         }
-        let detected = self.view == View::Methods(List::Detected);
+        let detected = self.stage == Stage::Methods(List::Detected);
         let Discovery {
             profiles,
             environment,
@@ -188,24 +188,24 @@ impl Bedrock {
     /// A row's description shows (`render_methods`): not on the list of the
     /// server environment's credentials alone.
     pub fn describes(&self) -> bool {
-        self.view != View::Methods(List::Detected)
+        self.stage != Stage::Methods(List::Detected)
             || !self.discovery.profiles.is_empty()
             || self.discovery.environment.is_empty()
     }
 
     pub fn is_text_entry(&self) -> bool {
         matches!(
-            self.view,
-            View::ProfileEntry
-                | View::AccessKeyEntry { .. }
-                | View::ApiKeyEntry
-                | View::RegionEntry { .. }
+            self.stage,
+            Stage::ProfileEntry
+                | Stage::AccessKeyEntry { .. }
+                | Stage::ApiKeyEntry
+                | Stage::RegionEntry { .. }
         )
     }
 
     /// `enter_region`.
     fn enter_region(&mut self, credential: Credential, prefill: &str) {
-        self.view = View::RegionEntry {
+        self.stage = Stage::RegionEntry {
             credential,
             prefill: prefill.to_owned(),
         };
@@ -219,7 +219,7 @@ impl Bedrock {
         request: &mut dyn FnMut() -> Request,
     ) -> Effect {
         let request = request();
-        self.view = View::Configuring {
+        self.stage = Stage::Configuring {
             request,
             credential: credential.clone(),
             region: region.clone(),
@@ -233,12 +233,12 @@ impl Bedrock {
     pub fn back(&mut self) -> Effect {
         self.error = None;
         if matches!(
-            self.view,
-            View::Start | View::Discovering(_) | View::Methods(List::Detected)
+            self.stage,
+            Stage::Start | Stage::Discovering(_) | Stage::Methods(List::Detected)
         ) {
             return Effect::Leave;
         }
-        self.view = View::Methods(List::Detected);
+        self.stage = Stage::Methods(List::Detected);
         Effect::None
     }
 
@@ -266,11 +266,11 @@ impl Bedrock {
                     None => self.enter_region(Credential::Environment, ""),
                 }
             }
-            Method::OtherMethods => self.view = View::Methods(List::All),
-            Method::ManualProfile => self.view = View::ProfileEntry,
-            Method::AccessKeys => self.view = View::AccessKeyEntry { field: 0 },
-            Method::EnvironmentInstructions => self.view = View::EnvironmentInstructions,
-            Method::ApiKey => self.view = View::ApiKeyEntry,
+            Method::OtherMethods => self.stage = Stage::Methods(List::All),
+            Method::ManualProfile => self.stage = Stage::ProfileEntry,
+            Method::AccessKeys => self.stage = Stage::AccessKeyEntry { field: 0 },
+            Method::EnvironmentInstructions => self.stage = Stage::EnvironmentInstructions,
+            Method::ApiKey => self.stage = Stage::ApiKeyEntry,
         }
         Effect::None
     }
@@ -280,10 +280,10 @@ impl Bedrock {
         let Some(text) = value(text) else {
             return Effect::None;
         };
-        let credential = match &self.view {
-            View::ProfileEntry => Credential::Profile(text),
-            View::ApiKeyEntry => Credential::ApiKey(text),
-            View::RegionEntry { credential, .. } => {
+        let credential = match &self.stage {
+            Stage::ProfileEntry => Credential::Profile(text),
+            Stage::ApiKeyEntry => Credential::ApiKey(text),
+            Stage::RegionEntry { credential, .. } => {
                 return self.configure(credential.clone(), text, request);
             }
             _ => return Effect::None,
@@ -294,7 +294,7 @@ impl Bedrock {
     /// `confirm_input` for the access keys: Enter moves on from a field
     /// with a value; on the last, a missing required field takes the keys.
     fn submit_keys(&mut self, texts: &[String; 3], request: &mut dyn FnMut() -> Request) -> Effect {
-        let View::AccessKeyEntry { field } = &mut self.view else {
+        let Stage::AccessKeyEntry { field } = &mut self.stage else {
             return Effect::None;
         };
         if *field < 2 {
@@ -341,22 +341,22 @@ impl Bedrock {
 
     pub fn apply(&mut self, intent: Intent, request: &mut dyn FnMut() -> Request) -> Effect {
         self.error = None;
-        if matches!(self.view, View::Configuring { .. }) {
+        if matches!(self.stage, Stage::Configuring { .. }) {
             return Effect::None;
         }
         match intent {
             Intent::Discover => {
-                if self.view != View::Start {
+                if self.stage != Stage::Start {
                     return Effect::None;
                 }
                 let request = request();
-                self.view = View::Discovering(request);
+                self.stage = Stage::Discovering(request);
                 Effect::Ask(request, Setup::BedrockDiscover)
             }
             Intent::Choose(method) => {
                 if !matches!(
-                    self.view,
-                    View::Methods(_) | View::EnvironmentInstructions
+                    self.stage,
+                    Stage::Methods(_) | Stage::EnvironmentInstructions
                 ) || !self.methods().contains(&method)
                 {
                     return Effect::None;
@@ -366,7 +366,7 @@ impl Bedrock {
             Intent::Submit(text) => self.submit(&text, request),
             Intent::SubmitKeys(texts) => self.submit_keys(&texts, request),
             Intent::Field(index) => {
-                if let View::AccessKeyEntry { field } = &mut self.view
+                if let Stage::AccessKeyEntry { field } = &mut self.stage
                     && index < 3
                 {
                     *field = index;
@@ -380,8 +380,8 @@ impl Bedrock {
     /// whether Bedrock is configured. A failed discovery shows every method
     /// with its message; a refused setup returns to the region entry.
     pub fn answer(&mut self, request: Request, outcome: super::Outcome) -> bool {
-        match (&self.view, outcome) {
-            (View::Discovering(r), outcome) if *r == request => {
+        match (&self.stage, outcome) {
+            (Stage::Discovering(r), outcome) if *r == request => {
                 match outcome {
                     Ok(Answer::Discovered(discovery)) => *self = Bedrock::discovered(discovery),
                     Ok(Answer::Written) => *self = Bedrock::discovered(Discovery::default()),
@@ -393,7 +393,7 @@ impl Bedrock {
                 false
             }
             (
-                View::Configuring {
+                Stage::Configuring {
                     request: r,
                     credential,
                     region,
@@ -457,15 +457,15 @@ mod tests {
             run(&mut bedrock, Intent::Discover),
             Effect::Ask(7, Setup::BedrockDiscover)
         );
-        assert_eq!(bedrock.view, View::Discovering(7));
+        assert_eq!(bedrock.stage, Stage::Discovering(7));
         // Esc while setting up returns to the first list.
-        bedrock.view = View::Configuring {
+        bedrock.stage = Stage::Configuring {
             request: 2,
             credential: Credential::Environment,
             region: "us-east-1".into(),
         };
         assert_eq!(bedrock.back(), Effect::None);
-        assert_eq!(bedrock.view, View::Methods(List::Detected));
+        assert_eq!(bedrock.stage, Stage::Methods(List::Detected));
 
         let engineering = profile("engineering", Some("us-east-2"));
         let keys = env(CredentialKind::AccessKeys, Some("us-west-2"));
@@ -525,20 +525,20 @@ mod tests {
         ] {
             let mut bedrock = found(profiles, environment);
             run(&mut bedrock, Intent::Choose(method));
-            assert!(matches!(bedrock.view, View::RegionEntry { .. }));
+            assert!(matches!(bedrock.stage, Stage::RegionEntry { .. }));
             assert!(bedrock.is_text_entry());
         }
-        for view in [
-            View::ProfileEntry,
-            View::ApiKeyEntry,
-            View::AccessKeyEntry { field: 0 },
-            View::RegionEntry {
+        for stage in [
+            Stage::ProfileEntry,
+            Stage::ApiKeyEntry,
+            Stage::AccessKeyEntry { field: 0 },
+            Stage::RegionEntry {
                 credential: Credential::Environment,
                 prefill: String::new(),
             },
         ] {
             let bedrock = Bedrock {
-                view,
+                stage,
                 ..Bedrock::default()
             };
             assert!(bedrock.is_text_entry());
@@ -565,8 +565,8 @@ mod tests {
         assert!(!bedrock.answer(6, Ok(Answer::Written)));
         assert!(!bedrock.answer(7, Err("denied".into())));
         assert_eq!(
-            bedrock.view,
-            View::RegionEntry {
+            bedrock.stage,
+            Stage::RegionEntry {
                 credential,
                 prefill: "us-east-2".into(),
             }
@@ -579,22 +579,22 @@ mod tests {
     #[test]
     fn access_keys_move_on_and_go_back_to_a_missing_field() {
         let mut bedrock = Bedrock {
-            view: View::AccessKeyEntry { field: 0 },
+            stage: Stage::AccessKeyEntry { field: 0 },
             ..Bedrock::default()
         };
         let keys = |a: &str, b: &str, c: &str| [a.to_owned(), b.to_owned(), c.to_owned()];
         run(&mut bedrock, Intent::SubmitKeys(keys("", "", "")));
-        assert_eq!(bedrock.view, View::AccessKeyEntry { field: 0 });
+        assert_eq!(bedrock.stage, Stage::AccessKeyEntry { field: 0 });
         run(&mut bedrock, Intent::SubmitKeys(keys("AKIA", "", "")));
-        assert_eq!(bedrock.view, View::AccessKeyEntry { field: 1 });
+        assert_eq!(bedrock.stage, Stage::AccessKeyEntry { field: 1 });
         run(&mut bedrock, Intent::Field(2));
         run(&mut bedrock, Intent::SubmitKeys(keys("AKIA", " ", "")));
-        assert_eq!(bedrock.view, View::AccessKeyEntry { field: 1 });
+        assert_eq!(bedrock.stage, Stage::AccessKeyEntry { field: 1 });
         run(&mut bedrock, Intent::Field(2));
         run(&mut bedrock, Intent::SubmitKeys(keys("AKIA", "secret", "")));
         assert_eq!(
-            bedrock.view,
-            View::RegionEntry {
+            bedrock.stage,
+            Stage::RegionEntry {
                 credential: Credential::AccessKeys {
                     access_key_id: "AKIA".into(),
                     secret_access_key: "secret".into(),
@@ -608,7 +608,7 @@ mod tests {
     #[test]
     fn a_failed_discovery_offers_every_method_with_its_message() {
         let mut bedrock = Bedrock {
-            view: View::Discovering(3),
+            stage: Stage::Discovering(3),
             ..Bedrock::default()
         };
         assert!(!bedrock.answer(3, Err("no daemon".into())));
