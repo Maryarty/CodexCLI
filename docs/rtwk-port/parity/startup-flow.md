@@ -35,7 +35,7 @@ Shard `onboarding`: `tests/oracle/onboarding.rs`, run with `--profile oracle -E
 | welcome.rs:184 welcome_skips_animation_below_height_breakpoint | shard, same name | yes | | |
 | welcome.rs:199 welcome_logo_layout (160x48) | shard, pending | pending | the test kit reads entries 100 ms in, but the oracle reads the logo's first frame; a kit seed is needed (kit owner) | |
 | update_prompt.rs:294 update_prompt_snapshot | snap update_prompt_modal | yes | | |
-| update_prompt.rs:305 update_prompt_confirm_selects_update | core test, same name; shard closes the prompt | yes | screen part na: the choice is an outcome | |
+| update_prompt.rs:305 update_prompt_confirm_selects_update | core test, same name; the shard keeps the prompt up until the host stores the update | yes | screen part na: the choice is an outcome; the page leaves only after `UpdateQueued` (delta 5) | |
 | update_prompt.rs:313 update_prompt_dismiss_option_leaves_prompt_in_normal_state | core test, same name | yes | same | |
 | update_prompt.rs:322 update_prompt_dont_remind_selects_dismissal | core test, same name | yes | same | |
 | update_prompt.rs:332 update_prompt_ctrl_c_skips_update | core test, same name | yes | same | |

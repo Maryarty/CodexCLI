@@ -179,11 +179,11 @@ fn update_prompt_snapshot() {
 fn update_prompt_confirm_selects_update() {
     kit::na(
         Owner::StartupFlow,
-        "the choice is an outcome, not drawn: core's state test of the same name holds `Update now`; here the prompt closes",
+        "the choice is an outcome, not drawn: core's state test of the same name holds `Update now`; here the prompt stays until the host has stored the update (`UpdateQueued`, no host in a debug entry)",
     );
     let mut s = open("update_prompt", 80, 12);
     s.keys("enter");
-    s.assert_absent("Update available");
+    s.assert_contains("Update available");
 }
 
 // ORACLE update_prompt.rs:313 update_prompt_dismiss_option_leaves_prompt_in_normal_state kind=ui owner=startup-flow
