@@ -615,6 +615,9 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 }
                 asks.into_iter().for_each(|a| ask(fx, a));
             }
+            // The wizard's answer ends the provider step (a gateway
+            // selected, a provider configured): the page is not asked to.
+            follow_provider(model);
         }
         Ev::LoginCompleted {
             login_id,

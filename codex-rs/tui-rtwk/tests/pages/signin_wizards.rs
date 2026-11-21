@@ -540,8 +540,18 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
         panic!("no setup asked");
     };
     answer(&mut h, epoch, request, Ok(Answer::Written));
-    h.wait_for("the configured line", |s| {
-        s.contains("\u{2713} Amazon Bedrock configured")
+    // The oracle's `{Bedrock,Gcp}Configured` completes the step: the screen
+    // ends and the launch is asked (its configured line is not kept).
+    h.wait_until("the launch is asked", |h| {
+        h.fake.commands().iter().any(|command| {
+            matches!(
+                command,
+                Command::Startup {
+                    ask: Ask::Launch { .. },
+                    ..
+                }
+            )
+        })
     });
 
     let (mut h, epoch) = launch();
@@ -866,6 +876,19 @@ mod gateway {
             s.contains("\u{2713} Custom provider configured")
         });
         assert_visible(&h, "✓ Custom provider configured");
+        // The wizard's answer ends the steps: the gateway's server is asked
+        // for (the answer of the wizard, not a state set by the test).
+        assert!(
+            h.fake.commands().iter().any(|command| matches!(
+                command,
+                Command::Startup {
+                    ask: Ask::SelectGateway { provider_id, .. },
+                    ..
+                } if provider_id == "office"
+            )),
+            "{:?}",
+            h.fake.commands()
+        );
     }
 
     /// The screen drawn at `height` rows (the oracle draws at the height it

@@ -414,7 +414,17 @@ absolute path";
     h.settle();
     assert!(!h.t.screen().contains("configured"), "stale");
     h.fake.inject(epoch, answer(3, Ok(Answer::Written)));
-    h.wait_for("the configured line", |s| {
-        s.contains("\u{2713} Google Cloud Vertex AI configured")
+    // The oracle's `{Bedrock,Gcp}Configured` completes the step: the screen
+    // ends and the launch is asked (its configured line is not kept).
+    h.wait_until("the launch is asked", |h| {
+        h.fake.commands().iter().any(|command| {
+            matches!(
+                command,
+                Command::Startup {
+                    ask: Ask::Launch { .. },
+                    ..
+                }
+            )
+        })
     });
 }
