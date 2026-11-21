@@ -444,7 +444,7 @@ fn blank_table_continuations_do_not_repeat_the_first_cell() {
 fn annotates_explicit_web_link_label_and_visible_destination() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws an agent link as plain text: no OSC 8 link to the destination is set",
+        "the oracle also writes the destination on screen (`assert_contains(\"https://example.com/reference\")`): its display for a terminal not known to support OSC 8 (tui web_links.rs WebLinkDisplay::for_terminal); the port has no terminal detection and draws a web label alone with its OSC 8 link (`LinkDestinations::Auto`; the `assert_link` half holds)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
