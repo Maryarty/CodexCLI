@@ -207,6 +207,10 @@ where
     }
 }
 
+/// The S03 provider wizards exist (the `providers` task builds them). Until
+/// then none is offered: a sign-in choice must not lead to a missing screen.
+const WIZARDS_BUILT: bool = false;
+
 /// The login methods allowed and the provider wizards the configuration
 /// and the server offer (`OnboardingScreenArgs` in `run_ratatui_app`,
 /// `should_show_provider_setup_wizard`).
@@ -214,7 +218,8 @@ fn login_policy(startup: &Startup) -> wire::LoginPolicy {
     let config = &startup.config;
     let auth = config.auth_config();
     let wizard = |feature| {
-        startup.target.supports(feature)
+        WIZARDS_BUILT
+            && startup.target.supports(feature)
             && config.features.enabled(feature)
             && (feature != Feature::GatewaySetupWizard
                 || config
