@@ -328,6 +328,12 @@ impl State for StartupPageState {
             .sign_in
             .as_ref()
             .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::freezes_animations);
+        // A text entry open (`text_entry_context().active`) fades it
+        // (`Presentation::Faded`).
+        let faded = model
+            .sign_in
+            .as_ref()
+            .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::is_text_entry);
         let page = LayoutBuilder::new(move |_, constraints| {
             let logo = welcome::shows_logo(
                 welcome_model.animations && !frozen,
@@ -337,7 +343,7 @@ impl State for StartupPageState {
             Column::new()
                 .main_axis_size(MainAxisSize::Min)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(welcome::header(strings, bold.clone(), logo, replay))
+                .child(welcome::header(strings, bold.clone(), logo, replay, faded))
                 .child(Flexible {
                     fit: FlexFit::Loose,
                     ..Flexible::new(1, body.clone())

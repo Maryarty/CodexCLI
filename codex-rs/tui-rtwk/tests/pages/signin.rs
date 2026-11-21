@@ -246,3 +246,60 @@ fn a_login_link_hides_the_logo_and_a_quit_cancels_the_login() {
         }]
     );
 }
+
+/// The logo rows of the screen (the stage above the welcome line).
+fn logo_rows(screen: &str) -> String {
+    screen.lines().take(21).collect::<Vec<_>>().join("\n")
+}
+
+/// While the API key is typed the welcome logo stops and fades
+/// (`Presentation::Faded`, `text_entry_context().active`): it no longer
+/// moves, and leaving the entry lets it play on. Review O3.
+#[test]
+fn the_welcome_logo_stops_and_fades_while_the_api_key_is_typed() {
+    let mut h = crate::common::start_sized(false, 80, 44);
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        ev(Ev::Facts {
+            request: 1,
+            facts: Facts {
+                welcome: Some(Welcome { animations: true }),
+                sign_in: Some(offer()),
+                ..Facts::default()
+            },
+        }),
+    );
+    h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
+    // The menu: the logo plays.
+    h.t.pump_for(Duration::from_millis(500));
+    let (before, after) = (logo_rows(&h.t.screen()), {
+        h.t.pump_for(Duration::from_millis(500));
+        logo_rows(&h.t.screen())
+    });
+    assert_ne!(before, after, "the logo spins on the menu");
+    // The key entry: it fades (400 ms) and stops.
+    h.press("3");
+    h.settle();
+    h.press("1");
+    h.wait_for("the key entry", |s| s.contains("Press enter to save"));
+    h.t.pump_for(Duration::from_millis(600));
+    let (before, after) = (logo_rows(&h.t.screen()), {
+        h.t.pump_for(Duration::from_millis(500));
+        logo_rows(&h.t.screen())
+    });
+    assert_eq!(
+        before, after,
+        "the logo stands still while the key is typed"
+    );
+    // Esc: back on the menu, the logo plays on.
+    h.press("esc");
+    h.wait_for("the menu", |s| s.contains("Sign in another way"));
+    h.t.pump_for(Duration::from_millis(600));
+    let (before, after) = (logo_rows(&h.t.screen()), {
+        h.t.pump_for(Duration::from_millis(500));
+        logo_rows(&h.t.screen())
+    });
+    assert_ne!(before, after, "the logo plays again");
+}
