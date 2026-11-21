@@ -385,9 +385,12 @@ pub struct CodexApp {
     start_thread_on_connect: bool,
     /// The host answers the startup facts (`Ask::Facts`): the first thread
     /// starts after the startup screens, once the launch is known
-    /// (`Ev::Launched`), as the oracle's `App::run` creates the session after
-    /// onboarding, trust and the prompts. Not before: the server's own
-    /// sign-in (the browser login) would pre-empt the device-code screen.
+    /// (`Ev::Launched`). Not before: the server's own sign-in (the browser
+    /// login) would pre-empt the device-code screen. DEPARTURE (startup-rest):
+    /// the oracle starts the session only after the launch prompts (GovCloud,
+    /// hooks review, model migration) are answered; ours releases the start at
+    /// `Ev::Launched`, when they are known but not yet answered, so an accepted
+    /// model migration applies from the next thread.
     start_after_launch: bool,
     /// The first thread's start waits for the launch.
     start_held: bool,

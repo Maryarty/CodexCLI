@@ -1708,6 +1708,8 @@ mod errors_and_warnings_in_the_chat {
                 turn_failed(FAKE_THREAD, "turn-1"),
             ],
         );
+        // The turn's events reach the app from the fake's thread: wait for the row.
+        h.wait_for("the error row", |s| s.contains("■ Quota exceeded."));
         let screen = h.t.screen();
         assert_eq!(
             screen

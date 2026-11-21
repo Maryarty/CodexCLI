@@ -183,6 +183,14 @@ host `gateway.rs` / `startup.rs`).
 
 ## Thread order (`startup-rest` item 1)
 
+**Departure (FULL review 2026-11-22, open in startup-rest):** the start is released at
+`Ev::Launched`, when the launch prompts (GovCloud, hooks review, model migration) are known
+but not yet answered; the oracle answers them first (tui/src/lib.rs:2298-2322,
+app/startup.rs:486 before spawn_startup_thread_start). An accepted model migration therefore
+applies from the next thread, and trusted hooks may miss the first one. It was so before item 1
+too (start on connect). Fix in startup-rest: hold until onboarding is not due and no startup
+prompt is open, and `StartThread` carries the accepted model.
+
 The oracle creates its session after onboarding, trust and the launch prompts; ours started the
 thread on `AppEv::Connected`. `UiApp::with_awaited_facts(true)` (the host answers the startup
 facts) now also sets `CodexApp::with_start_after_launch(true)`: `Connected` asks the facts and
