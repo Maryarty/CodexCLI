@@ -330,6 +330,22 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
     ask(fx, Ask::Facts { request });
 }
 
+/// The connection was lost: a trust write still awaited will not be
+/// answered, so the step is open again (`CancelTrust` is not held back by
+/// `Saving`) and a late answer to that write is dropped.
+pub fn disconnected(model: &mut Model) {
+    if model.writing.take().is_none() {
+        return;
+    }
+    if let Some(t) = model
+        .trust
+        .as_mut()
+        .filter(|t| t.decision == Some(TrustDecision::Saving))
+    {
+        t.decision = None;
+    }
+}
+
 fn mint(model: &mut Model) -> Request {
     model.minted += 1;
     model.minted
