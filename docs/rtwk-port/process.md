@@ -90,19 +90,20 @@ architecture.md §0 over it:
   markdown_render, diff_render, wrapping, the textarea): rtwk-rich and
   `TextArea` replace them.
 
-**3. Write the tests, red** (first commit). Each oracle test of the slice's
-files by its method (reuse-map.md Summary: snapshot replay is the bulk, then
-logic tests, vt100 scenarios, cell diffs):
-- snapshot test → a screen test at the oracle's size against the oracle
-  `.snap` (D1);
+**3. Turn the oracle's tests on.** The slice's oracle shard
+(`tests/oracle/<shard>.rs`, `kit::pending` markers, expected values = the
+oracle's `.snap` text and assertions) already holds the parity tests: the
+slice turns them on as it builds and the shard's counts are the evidence.
+Each oracle test of the slice's files is mapped by `shards.py --check`:
+- snapshot test → green in the shard, or `pending(Gxx)` on an open gap row;
 - logic test → a state test: events into `apply`, model and effects out; a
   test of carried logic is carried nearly verbatim;
-- vt100 scenario → a pty scenario, both binaries, compared at checkpoints
-  (D3);
-- cell diff → a cell and style diff (D2);
-- a test of a replaced renderer's internals (wrap points, line building) →
-  n/a with the reason "renderer replaced, ADR-004"; what the user sees of it
-  is covered by a screen test, a difference by a delta.
+- vt100 scenario → the page's pty scenario, both binaries (D3);
+- a test of a replaced renderer's internals → n/a "renderer replaced,
+  ADR-004"; what the user sees of it is covered by a screen test.
+Tests that are not in the shard (state tests, mouse tests) are written before
+the code they cover; each is shown biting once (red before green, or the code
+broken and restored), named in the handover.
 
 **4. Place the state.** Every field found in step 1 goes by the first three
 rows of §2: model (changed in `apply`), `ThreadUi`, or rtwk widget state;
@@ -259,170 +260,109 @@ What carried over and why is said where it applies.
   (release, into `~/.cache/codexcli/oracle-bin/`) and used by every pty
   scenario and perf run; no worktree builds codex-tui.
 
-## A3. A slice, from tm to landed
+## A3. A page, from tm to landed
 
 ```
-pending ─ brief in tm (§A4) ─ porter claims in a worktree
-  ─ commit 1: parity tests, red (§A4.2) ─ commits: the slice, green
-  ─ parity pack (§A4.3) ─ scoped + full checks ─ task_done → in_review
-  ─ orchestrator sanity check (crate tree, codex-rs untouched, layer and
-    rules tests green) ─ candidate on the integration tip (§A6) ─ land
-  ─ batch review after the hand-out round's tasks have landed:
-    codex-reviewer over the batch diff: MERGE | MERGE-WITH-NOTES | FIX
-       FIX → a fix task per finding group (fix forward on the integration
-             branch; ≤ 2 fix rounds per batch)
-  ─ registry row `built` ─ the person accepts in tm (now or at wave end)
-  ─ deltas decided → registry row `parity-accepted`
+pending ─ page plan + brief in tm (§A4.1) ─ porter claims in a worktree
+  ─ oracle shard turned on, state and mouse tests first, the page green
+  ─ rebase onto the integration tip ─ full check once (§A4.2)
+  ─ the binary driven beside the oracle (§A4.3) ─ task_done → in_review
+  ─ landing (§A6): fast-forward when the tip has not moved, else one candidate
+  ─ review per tier (§A5): LIGHT after landing, FULL before
+       FIX → the same task, re-granted in the same worktree
+  ─ the person accepts in tm (now or at wave end)
 ```
 
-**Review per batch, not per slice** (the person, 2026-11-18): the skeleton
-took four review rounds; at that density 20+ slices cost more in review than
-in work. A slice lands on green checks and the orchestrator's sanity check;
-one review covers a batch, normally the tasks of one hand-out round (§A7).
+**One page or feature, one porter, end to end** (the person, 2026-11-21):
+core state, views, host/services, mouse, the oracle shard and the pty
+scenario of a page are one task, and its review findings come back to the
+same task. No "-rest", "-deltas" or "-fix" tasks cut by finding type.
 
-**Landing does not wait for the person's acceptance**, except for the
-skeleton (§A7). Successor slices need their predecessors' code on the
-integration branch (a porter never merges another branch), so waiting for the
-person on every slice would stall the critical path. The person's gate is the
-wave end: a wave fans out only after the person has accepted the previous
-wave's tasks. A slice the person rejects after it landed is fixed forward (a
-fix porter on the same task), never reverted unless the integration branch is
-broken.
-
-tm mechanics: slices use `triggerRule: allSubmitted`, so a successor is on the
-front once its predecessors are in review. **The orchestrator hands a
-successor out only after its predecessors have landed**, not merely been
-submitted.
+**Landing does not wait for the person's acceptance.** The person's gate is
+the wave end. A page the person rejects after it landed is fixed forward in
+the same task, never reverted unless the integration branch is broken.
 
 ### Size
-
-A porter run fits ~100 turns / ~250k context. Target ≤ ~1.5k lines of new
-code and ≤ ~60 oracle tests to re-express per run (rtwk's cheapest slices
-were ~0.8k lines). A larger slice (chat-cells: ~48 cell kinds; settings: ten
-dialogs; agents; sidebar) is split by the orchestrator into child tasks before
-hand-out (`tm-plan` replan), each with its own area and brief — never left to
-`HANDOFF:` chains, which cost a fresh start and a re-read each time.
+A porter run fits ~100 turns / ~250k context. A page larger than that is
+continued from its `task_checkpoint` by a fresh porter on the same task
+(the same worktree, the same brief). A feature too large for one porter at
+a time (chat cells, settings) is split at planning time by disjoint files
+(§A7 area map), never by finding type.
 
 ## A4. What a slice carries in and out
 
 ### A4.1 Brief (the task's description in tm)
 
 The prompt of a porter is only: task alias, worktree, "read your task". The
-brief lives in tm (`task_update` description) so a fix porter or a
-continuation reads the same text. Every name and path in it is grepped first.
+brief lives in tm. Every name and path in it is grepped first.
 
 ```
-Goal: <screen id(s)> — <one sentence of behaviour>.
-Oracle: registry rows <ids> (docs/rtwk-port/refs/codex-registry.csv);
-        beyond them: <file:line ranges> (behaviour the registry does not list).
-        Tests to re-express: <oracle test names or globs>; snapshots: <globs>.
-Architecture: <sections by heading> (ADR-002 routes/dialogs, ADR-003 rows R…).
-State: model parts read; events/intents added (in the screen's own sub-enum);
-       mandatory tables extended (R2/R4/R5/R8/R9/R10, §A4.4).
-Layers: core files (model, apply, protocol mapping; no rtwk) and view files
-        (widgets, strings.rs; no protocol, shell, tokio, IO) named separately;
-        mock state = a fixture script applied through core, never data handed
-        to a widget (§A4.4 Layers).
-rtwk: widgets and refs entries (docs/rtwk-port/refs/…); gaps that apply (G…) →
-      listed as deltas, not worked around.
-Carry: reuse-map rows copied (REUSE/ADAPT) with their dependency closure.
-rtwk: per mechanism the widget/controller to use (named API) and its
-      reference or gallery page; never "copy <landed screen>".
-Area: <paths>. Out of scope: <…>.
-Evidence: screen tests, oracle map, deltas, pty scenario <name> | n/a until
-          scenario-harness lands.
-Review: Sonnet | Opus (why).
-ADR departures: none | ADR-xxx: <what is simplified> → debt task <alias> (the
-      person, 2026-11-19: a departure not named here with its debt task
-      makes the brief invalid; the porter stops and reports).
+Goal: <page / feature> — <screens S..> — <one sentence of behaviour>.
+Oracle: shard(s) <names> (tests/oracle/…); registry rows <ids>; beyond them
+        <file:line ranges>.
+Architecture: <sections by heading>. ADR departures: none | ADR-xxx: <what>
+        → debt task <alias> (a departure not named here makes the brief
+        invalid; the porter stops and reports).
+State: core parts read and added; events/intents in the page's own sub-enum.
+rtwk: per mechanism the widget/controller (named API); shared widgets to use
+      (`widgets/options.rs`, `widgets/session_list.rs`, …).
+Area: <paths>. Shared files and their owner: <file → this task | task X
+      (read only) | append via pack section>. Out of scope: <…>.
+Done: shard <counts expected>; mouse tests for every selectable view; pty
+      scenario <alias>-<name> run on both binaries; review tier
+      TRIVIAL | LIGHT | FULL (why).
+Known reds: ~/.cache/codexcli/known-red.txt (do not re-verify them).
 ```
-
-Briefs of a wave are drafted by one `codex-reviewer` (Sonnet) from the
-registry, the features CSV and the oracle into a scratch file; the
-orchestrator checks them and writes them into tm. That keeps 18 briefs off the
-Opus context.
 
 Before a brief goes into tm the orchestrator re-reads it for wording that
-invites what the architecture forbids: "state, Msg and view in mod.rs", "data
-from mock.rs into the widget", "store the controller in the app model". An
-agent builds what the brief says; a boundary the brief leaves implicit is not
-built and the review, reading against the brief, misses it too (2026-11-18:
-the skeleton mixed UI into the model for exactly this reason).
+invites what the architecture forbids ("state in the widget", "data from
+mock.rs into the widget", "store the controller in the app model"). It also
+checks that no running task owns a file in the brief's area. An agent builds
+what the brief says; a boundary the brief leaves implicit is not built.
 
-### A4.2 Tests first — the porter writes them, the oracle supplies the answers
+### A4.2 Tests and checks — scoped while working, full once
 
-The porter of the slice writes the parity tests first, as its first commit
-(`<alias>: parity tests (red)`), then the code. A separate test-writing agent
-is not used: the expected values come from the oracle (its `.snap` text, its
-test assertions, captures of the oracle binary), not from the implementer, so
-there is nothing for the implementer to fit; a second agent would only add a
-fresh start and a re-read of the same oracle files (rtwk measured 42 % fixed
-overhead on small agents). The review checks the order and the source of the
-expected values.
+- Expected values come from the oracle (shard, `.snap`, assertions, captures
+  of the oracle binary), never from the new code's output.
+- While working: `acargo nextest run -E 'test(<page>) | binary(rules)'
+  --status-level fail --final-status-level fail --hide-progress-bar` and
+  `acargo clippy -q --all-targets -- -D warnings`. The rules tests run every
+  time: they are where the architecture and the review checklist live.
+- Once, before `task_done`, after rebasing onto the integration tip:
+  `acargo fmt -- --check`, `acargo clippy -q --workspace --all-targets --
+  -D warnings`, the full `acargo nextest run --workspace`, the page's oracle
+  shard(s) under `--profile oracle`, `shards.py --check`, the page's pty
+  scenario (§A4.3).
+- Known reds live in `~/.cache/codexcli/known-red.txt` (test or scenario
+  name, tm bug). A red on that list is not investigated again; a red not on
+  it is the porter's, unless the porter shows it red on the tip without its
+  change (one run, named in the handover).
+- Foundation tasks without snapshots (session-core) write the ADR-003
+  acceptance tests first: late reply dropped, switch mid-stream, resize
+  mid-stream, approval during a dialog.
 
-- Screen tests (rtwk-weather `tests/screens.rs` manner): a `Tester` at the
-  oracle's size over the app on the fake backend; keys and server
-  notifications scripted; the screen compared with the oracle snapshot through
-  the replay helper (test-infra.md D1), differences only as listed deltas.
-- State tests: events in, model and effects out, no UI (ADR-003).
-- The red commit may stub the screen's types (`todo!()`); it is never landed
-  alone. Tests that go red-then-green across the commits count as shown
-  biting; a test added later is shown biting by breaking the code once.
-- Foundation tasks without snapshots (skeleton, session-core) write the
-  ADR-003 acceptance tests first: late reply dropped, switch mid-stream,
-  resize mid-stream, approval during a dialog.
+### A4.3 Evidence — the parity pack and the binary
 
-### A4.3 Parity pack — `docs/rtwk-port/parity/<alias>.md`
-
-In the slice's area, committed with it; the reviewer and the person read it.
-
+`docs/rtwk-port/parity/<alias>.md`, at most ~40 lines:
 ```
 # <alias> — parity
-## Oracle tests            every test of the slice's oracle files
-| oracle (file::name) | ours (file::name) | ported | n/a: reason | delta Dn |
-## Snapshots
-| snapshot | size | equal | delta Dn |
-## Visual deltas
-### Dn — <screen>: <what differs>
-kind: K<nn> from parity/delta-kinds.md, or NEW
-cause: rtwk-rich renderer | gap G<n> | layout | other: …
-oracle / ours: two fenced blocks, only the differing rows ± 2
-rtwk widget tried (the Flutter way, then its rtwk counterpart) and what differs
-gap: the docs/rtwk-port/rtwk-gaps.md row (the person hands gaps to rtwk)
-proposal: fixed here | blocked on gap G<n> (closest exact workaround named)
-## Scenarios (pty)
-| scenario | checkpoints | result |       or: n/a until scenario-harness
-## Rules
-R-rule tables and tests extended: …; ADR-002 conditions: how each is met
-## rtwk needs
+Shard counts: <shard>: green n / pending n (Gxx…) / n/a n   (from shards.py)
+Decisions: departures with their debt task; n/a reasons; gap rows added
+           (one line each: Flutter way, rtwk widget tried, what differs)
+Binary: scenario <alias>-<name>, both binaries, checkpoint <name>:
+        the differing rows of the two captures, or "equal"
+Mouse: the views and their mouse tests
+Rows for the lander: shard registration, gap rows (when another task owns
+                     rtwk-gaps.md / shards.py)
 ```
-
-- **No delta is accepted by default** (the person, 2026-11-18, rejecting
-  N01/N02, D1/D2, N1, N2, N5, N7, N8: "you did not figure out how rtwk is
-  built"). The oracle's look and behaviour are the spec. A porter never
-  proposes "accept": the nearest ready widget (`Dialog`, `Autocomplete`, …)
-  that looks different is not a reason, rtwk's primitives (`Stack`,
-  `Positioned`, `ColoredBox`, `RichText` spans, a custom render object) are
-  composed until the rows and styles equal the oracle's. Only what rtwk truly
-  cannot do is a delta, and then only with the route tried and a
-  `rtwk-gaps.md` row; the orchestrator researches such a delta before it
-  reaches the person. rtwk gaps are handed to rtwk by the person, never filed
-  into rtwk's tm by the fleet.
-- **Delta kinds** (`docs/rtwk-port/parity/delta-kinds.md`, the orchestrator's
-  file): one entry per kind of difference (markdown table borders, wrap
-  points, highlight palette, braille → rtwk-data chart, …) with the person's
-  decision. A delta of a decided kind needs no new decision; a NEW kind goes
-  to the person (§A9), batched per wave unless it blocks a slice. This is risk
-  1's "decide once per kind".
-- **pty checkpoint**: each screen slice adds at least one scenario script
-  under the harness scenario-harness creates, run against both binaries
-  (oracle from `oracle-bin`), compared at named checkpoints after
-  normalisation (test-infra.md D3). The porter runs its own scenarios once
-  before handover (`bgrun`); the whole suite runs at wave end.
-- **Registry**: `codex-registry.csv` is rebuilt by the orchestrator after a
-  landing (status `built`) and after the person's decisions
-  (`parity-accepted`); porters never commit it (rtwk's rule for its registry:
-  a shared file every slice touches is a merge conflict every time).
+- No delta is accepted (the person, 2026-11-18). A difference is fixed, or
+  is an open gap row with `pending(Gxx)`.
+- The porter drives the page in the real binary before handover: its own
+  build (`codex-rs/tui-rtwk/target/debug/codex-rtwk` in its worktree) in the
+  page's pty scenario against the oracle binary
+  (`~/.cache/codexcli/oracle-bin/`), with `CODEX_HOME=$(mktemp -d)` for
+  first-run pages, keys and the mouse on the main path.
+- The registry is rebuilt by the orchestrator at wave end.
 
 ### A4.4 Rules every slice is held to
 
@@ -466,47 +406,30 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 
 ## A5. Review
 
-| what | reviewer | blocks (the next batch's hand-out; a landed defect is fixed forward) |
-|---|---|---|
-| landing a slice | the orchestrator: sanity check only (crate tree, codex-rs untouched, layer and rules tests, the porter's checks) | a red check, a layer or rules test failing, codex-rs touched |
-| each batch (one hand-out round) | `codex-reviewer`, Sonnet, over the batch diff | a defect; a missing pack item; ADR conformance (per ADR: kept / departure with its debt task / violation = FIX — mandatory, the person 2026-11-19); an ADR-002 condition or R-rule broken; a layer crossed (UI type in core, protocol/shell/IO in a view, widget in shell, mock data handed to a widget) even where no rule catches it yet — then the missing rule is a finding too; work outside the area; codex-tui or the codex-rs workspace touched |
-| a batch with a risky slice: skeleton, session-core, chat-nav, chat-cells (streaming tail), chat-composer, chat-transcript, approvals (security, typeahead G8), pager (live tail), inline-mode, perf-chat and perf-report (claims) | `codex-reviewer` with `model: opus` | as above, plus a doubtful performance or concurrency claim |
-| the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or from rtwk's standard means; a rule enforced only on paper |
-| the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |
+| tier | what | review | landing |
+|---|---|---|---|
+| TRIVIAL | markers, docs, packs, gap rows, renames | none: the orchestrator checks the diff scope (no `src/`, `core/`, `host/`, manifest change) | fast-forward or the next candidate |
+| LIGHT (default for pages, sheets, dialogs, StartupPage, settings, pickers) | one page's views, core state and host/services | one Sonnet `codex-reviewer` pass over the page's diff, after it lands | does not wait |
+| FULL | the risky list: session-core, chat-cells' streaming tail, composer, transcript, approvals, pager, inline mode, perf claims | `codex-reviewer` with `model: opus`, before landing | waits for the verdict |
+| wave | the wave's diff on the integration branch | Opus: drift from the architecture or rtwk's standard means; the R-rule audit | the next wave |
 
-> **Review tiers (the person, 2026-11-21: "для малорисковых срезов делать
-> ревью легче").** The orchestrator names the tier in the brief; the batch
-> rows above apply to FULL only.
->
-> | tier | what | review | landing |
-> |---|---|---|---|
-> | TRIVIAL | test markers only (kit::pending), docs, parity packs, gap rows, renames | none: the orchestrator checks the diff scope (`git diff --name-only` inside the area; no `src/`, `core/`, `host/`, manifest change) and the porter's green checks | fast-forward or in the next candidate |
-> | LIGHT | one screen's view over existing core state, a fix round of findings already reviewed, strengthening oracle bodies, a kit helper | one Sonnet `codex-reviewer` pass over the slice's own diff: ADR conformance (ADR-003 state, layers, R15/rtwk-first, ADR-010 strings) + defects | does not wait for the review; findings go to the next round |
-> | FULL | new core state, protocol, services/host IO, a new shared widget, anything on the risky list above | the batch review as in the table (Opus where listed) | as today |
->
-> The ADR guard (every review checks ADR conformance) holds for LIGHT and
-> FULL; the ADR check at landing (§A6) holds for every tier. When unsure,
-> the higher tier. Examples: stale-pending TRIVIAL, composer-asserts LIGHT,
-> startup-deltas FULL (before the rule below).
->
-> **StartupPage is LIGHT (the person, 2026-11-21: "Да, переведи стартовые
-> экраны на LIGHT").** StartupPage screens, their sheets/lists and dialogs
-> are LIGHT whatever they touch: one Sonnet pass, landing does not wait, and
-> a fix round opens only on a real defect ("doesn't work", an ADR broken).
-> Wording and 1-2 cell differences go to notes or a small later task. FULL
-> stays only for the risky list above (streaming, composer, transcript,
-> approvals, pager, inline mode: most of the chat).
+A review returns FIX only for:
+1. a defect, with its failing input;
+2. an ADR violation without a debt task: ADR-003 state, a layer crossed
+   (where no rule catches the crossing, the missing rule is a finding too);
+3. a user-visible difference from the oracle with no open gap row;
+4. work outside the area, or codex-tui / the codex-rs workspace touched.
 
-What does **not** block landing: visual deltas of a decided kind, deltas
-proposed as accepted (they stay `built`, not `parity-accepted`), rtwk gaps
-listed as deltas, review notes.
+Everything else is a note: structure no rule catches yet, pack or gap-row
+wording, style. A note goes to the page's next task or to the wave's
+follow-up. A structural finding a rules test could catch also goes to the
+wave's rules task. Gap rows are one line, and a reviewer never asks for
+probes or routes.
 
-Verdicts: **MERGE**, **MERGE-WITH-NOTES** (notes go into a batched follow-up
-task, §A10), **FIX** (defects with `path:line` and the failing input). On FIX
-the orchestrator rejects in tm with the findings as comments; a fix porter
-takes the task (`task_start` re-grants it) in the same worktree. Two fix
-rounds at most; a third is a stop (§A9). A fix round's re-review reads only the
-fix commits and the open findings.
+On FIX the orchestrator rejects in tm with the findings. The same task is
+re-granted in the same worktree, and the porter answers each finding by
+`path:line` and commit. A re-review reads only the fix commits. A second
+FIX on the same page is a stop (§A9).
 
 ## A6. Landing on the integration branch
 
@@ -516,46 +439,47 @@ fix commits and the open findings.
 > screen-owned copy of thread state or its own RPC path around it). A departure
 > without a named debt task in tm blocks the landing.
 
-One lander: the orchestrator. Order: the tm dependency graph first, then
-readiness. Several reviewed slices are combined in one candidate (rtwk:
-"combine in dependency order on a temporary branch and check once").
+One lander: the orchestrator; long checks by a `codex-waiter`.
 
-1. In `.claude/worktrees/land`: a temporary branch at the integration tip;
-   merge the slice branches `--no-ff` in dependency order (the merge commit
-   names the alias). A conflict in the slice's own files → back to a fix
-   porter (rebase onto the tip, allowed only then); a lockfile conflict → the
-   orchestrator regenerates it.
-2. The candidate check, run by a `codex-waiter` from `codex-rs/tui-rtwk`:
-   `acargo fmt -- --check`; `acargo clippy -q --all-targets -- -D warnings`
-   (the R-rule lists); `acargo nextest run` (whole crate: screen, state,
-   `tests/pin.rs`, the rules test); `python3
-   .github/scripts/verify_cargo_workspace_manifests.py`; `git diff --quiet
-   <tip> -- codex-rs/tui codex-rs/Cargo.toml codex-rs/Cargo.lock`. The pty
-   scenarios of the slices in the candidate run too; the whole suite only at
-   wave end.
-3. A failing test is retried once in the same run; a pass on retry lands,
-   logged as FLAKY with a tm bug. A second failure blocks. A red candidate is
-   split to find the slice. A check that covered the exact tree is reused.
-4. Green: fast-forward `claude/tui-rtwk` to the candidate; rebuild the
-   registry; remove landed worktrees.
+1. **Tip unchanged since the porter's rebase**: the porter's full check
+   covered this exact tree. The orchestrator checks the diff scope (area,
+   codex-tui untouched) and the ADRs, then fast-forwards `claude/tui-rtwk`.
+2. **Tip moved**: in `.claude/worktrees/land`, a branch at the tip; merge
+   the page branches that are ready (`--no-ff`, the merge names the alias).
+   A conflict in the page's own files goes back to its porter (rebase).
+   A lockfile conflict: the orchestrator regenerates it.
+3. Candidate check by the waiter: `~/.cache/codexcli/land-check.sh <worktree>
+   <tip>`. It compares failures with `~/.cache/codexcli/known-red.txt`:
+   green = no new red. A new red is retried once; a pass on retry lands and
+   goes on the list with a tm bug; a second failure splits the candidate.
+4. Green: fast-forward; remove the landed worktrees.
+
+Landing is continuous: a page lands when it is handed over and its check is
+green, never held for a round. FULL pages land after their review.
 
 The skeleton asks one thing more of itself for this: the CI-grep parts of R1,
 R14 and the `unchanged()` ban as a test (`tests/rules.rs`), so nextest
 enforces them in every worktree and candidate without a separate script.
 
-## A7. Waves: agents in parallel
+## A7. Pages in parallel
 
-Limits: the machine (each porter builds; `acargo` caps memory and jobs), the
-orchestrator's review and landing throughput, the person's acceptance.
+Limits: **at most 3 concurrent cargo builders** on this machine (a
+land-check counts as one; load beyond that made every build and timing test
+slower, 2026-11-21: load 139 on 10 cores), the orchestrator's landing
+throughput, the person's acceptance.
 
-| wave | in parallel | order |
-|---|---|---|
-| W1 | **skeleton alone** (Opus review, then the person accepts it: every slice copies its manner); beside it `codex-perf-baseline` (measures the oracle only) and `port-refs`; then session-core, keymap, scenario-harness (3); slash-commands after session-core. rtwk-gaps: coordination by the orchestrator with rtwk's orchestrator, no porter | ≤ 3 porters |
-| W2 | chat-screen, chat-cells (split), chat-composer (3); then chat-popovers, chat-transcript, select-dialog; perf-chat after them | ≤ 3 porters |
-| W3 | 18 slices: **4 porters**, 5 when ≥ 5 are ready and no more than 2 reviewed slices wait for landing. Risky and large first: approvals, settings (split), pager, resume, agents, sidebar; then the rest. Small ones (status-card, import, pets, small-dialogs) go two to one porter in sequence (one claim at a time) | 4–5 porters |
-| W4 | inline-mode (Opus review) with the rtwk gaps it needs; parity-sweep as read-only Sonnet reviewers per screen group; perf-report by a waiter plus one porter | ≤ 3 |
+Before a page or wave fans out, the orchestrator writes an **area map** into
+the parent task: each running task's files, and each shared file with one
+owner (`widgets/options.rs`, `core/src/screens/<page>.rs`, `host/src/<page>.rs`,
+`rtwk-gaps.md`, `shards.py`, `Cargo.lock`). A shared widget two pages need is
+built first by its owner, or the second page starts after it lands. Two
+porters never share a page. Append-only files are written through the pack's
+"Rows for the lander".
 
-The front decides what is free; the table caps how much runs at once.
+Process changes the person decides apply to tasks handed out after them;
+running tasks finish under their brief unless the person says otherwise.
+The orchestrator batches them into one TRIVIAL docs commit at a page
+boundary.
 
 ## A8. Every wave end: the checklist
 
@@ -629,10 +553,9 @@ rounds 1–2, batching follow-ups.
 From the economy rules (memory `codex-economy-rules`, task `token-economy`)
 and rtwk's measurement:
 
-- **Models.** Porters on Sonnet (a hook refuses an override; rtwk: Opus
-  implementers cost 4.7× per kLOC). Opus only in §A5's risky reviews and the
-  wave reviews. Haiku waiters for every wait over ~4 min (0.06 M per wait vs
-  ~1.4 M to re-write a Sonnet context).
+- **Models.** Porters on Sonnet by default; the orchestrator may pass Opus
+  for a large page (no hook refuses it since 2026-11-18). Opus reviewers only
+  for FULL and wave reviews. Haiku waiters for every wait over ~4 min.
 - **Agent size.** ~100 turns / ~250k context, then `task_checkpoint` +
   `HANDOFF:`; rtwk: turns past 100 were 59 % of implementation cost, so
   slices are sized to fit (§A3) instead of chained.

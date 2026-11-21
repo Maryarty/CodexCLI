@@ -86,13 +86,18 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
   messages starting with `<alias>: `. Never push, never merge.
 
 ## Cargo
-- Use `~/.cache/rtwk/acargo <args>` (memory cap, 3 jobs, shared sccache),
-  from `codex-rs/tui-rtwk` (its own workspace).
-- Scoped while iterating: `acargo nextest run --status-level fail
-  --final-status-level fail --hide-progress-bar -E 'test(<filter>)'`,
-  `acargo clippy -q --all-targets -- -D warnings`, `acargo fmt`.
+- `~/.cache/rtwk/acargo <args>` from `codex-rs/tui-rtwk`, in your worktree's
+  own target (never set CARGO_TARGET_DIR).
+- While iterating: `acargo nextest run --status-level fail
+  --final-status-level fail --hide-progress-bar -E 'test(<page>) | binary(rules)'`,
+  `acargo clippy -q --all-targets -- -D warnings`.
+- Once at the end, after rebasing onto the tip: fmt, clippy `--workspace`,
+  the whole nextest, the oracle shard(s) under `--profile oracle`,
+  `shards.py --check`.
 - No call longer than ~4 min: `~/.cache/rtwk/bgrun.sh start <name> -- <cmd>`
-  then `bgrun.sh wait <name>` (a cold build of codex-rs is long).
+  then `bgrun.sh wait <name>`.
+- Known reds: `~/.cache/codexcli/known-red.txt`. Do not prove them again.
+
 
 ## Tokens: keep the context small
 - Look-ups that do not depend on each other go out as parallel calls in ONE
@@ -107,24 +112,27 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
   `.claude/worktrees/`.
 
 ## Quality bar
-- Tests first, from the oracle: the first commit holds the parity tests
-  (red); the expected values are the oracle's (its `.snap` text, its
-  assertions), never what your code prints. Each codex-tui behaviour your
-  slice covers has a test that renders the rtwk view headlessly at the
-  oracle's size and compares it with the oracle through the replay helper.
-  Port the codex-tui tests of your files, named after theirs; map every one
-  in the parity pack.
-- The oracle's look and behaviour are the spec; no visual delta is accepted
-  (the person, 2026-11-18). Compose rtwk primitives until rows and styles
-  equal the oracle's; never settle for the nearest ready widget that looks
-  different. Only what rtwk truly cannot do is a delta: both renderings, the
-  rtwk widget you tried, a one-line `docs/rtwk-port/rtwk-gaps.md` row, and
-  you report it to the orchestrator; never propose "accept", never loosen a
-  test to hide it.
-- Red then green across your commits is the bite; a test added later is
-  shown biting: break the code, see it fail, restore.
-- Report what the checks actually said; claim nothing you did not run. Name
-  anything that was red when you arrived.
+- The oracle's tests are the spec. Turn the page's oracle shard on; its
+  expected values are the oracle's. Tests the shard lacks (state tests,
+  mouse tests) come before the code they cover and are shown biting once.
+- No visual delta (the person, 2026-11-18). Compose rtwk until rows and
+  styles equal the oracle's. What rtwk truly cannot do is a one-line gap
+  row + `pending(Gxx)`, never a workaround or a loosened test.
+- Mouse on every selectable view (ADR-011), with rtwk_test mouse tests.
+- Report what the checks actually said. Claim nothing you did not run.
+
+
+## Run it
+Before `task_done`, drive the page in the real binary:
+1. `acargo build -q -p codex-rtwk --bin codex-rtwk`;
+2. `cd tools/rtwk-port/mock-model && RTWK_BIN=<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk
+   python3 -I check.py --bin rtwk --bin oracle --only <your scenario>
+   --capture-dir /tmp/<alias>-cap` (`CODEX_HOME=$(mktemp -d)` for first-run
+   pages);
+3. walk the main path with keys and the mouse;
+4. put the differing rows of one checkpoint (or "equal") in the pack.
+A page that does not work in the binary is not done, whatever the tests say.
+
 
 ## Size: hand off before your context gets heavy
 Turns after the first ~100 cost about twice as much. Around 100 turns, or
@@ -133,9 +141,9 @@ write a `task_checkpoint` (done / left / files / next step) and finish with a
 final reply starting `HANDOFF:`. A fresh agent continues from it.
 
 ## Handover
-- Nothing running in the background when you finish. No subagents of your
-  own.
-- `task_done` with deliverables: the commits, the parity pack path and a
-  result summary (ported / missing and why, tests and their bites, deltas and
-  NEW kinds, rtwk gaps, risks, what others must change).
+- Nothing running in the background, no subagents of your own.
+- `task_done` with the commits, the pack path and a summary of at most 15
+  lines (fleet brief "Handover").
+- A fix run (your task re-granted with review findings): fix in the same
+  worktree, answer each finding by `path:line` and commit.
 - Your final reply: at most 15 lines.

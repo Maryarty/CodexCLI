@@ -71,44 +71,38 @@ read only the subsection this file points to.
   scenarios: `~/.cache/codexcli/oracle-bin/` (never build codex-tui yourself).
 - Never edit `codex-rs/tui/**`, `codex-rs/Cargo.toml` or `codex-rs/Cargo.lock`.
 
-## A slice is done when (process.md §3, §A4)
-1. **Tests first**: your first commit is `<alias>: parity tests (red)` —
-   screen tests at the oracle's size with expected values from the oracle
-   (its `.snap` text, its assertions), state tests (events in, model and
-   effects out). Stubs with `todo!()` are fine in it. Then the code.
-2. **Every oracle test** of your oracle files is mapped: ported (named after
-   it) / n/a with a reason / delta.
-3. **Parity pack** `docs/rtwk-port/parity/<alias>.md` (format: process.md
-   §A4.3): oracle-test map, snapshots, visual deltas (kind from
-   `parity/delta-kinds.md` or NEW, cause, the differing rows of both sides,
-   proposal), pty scenarios `<alias>-<name>` and their result (or "n/a until
-   scenario-harness"), rules extended, rtwk needs.
-4. **ADR-002 conditions** hold: screen/dialog widgets
-   `impl_widget!(stateful eq …)`; `show_dialog` callers and the request
-   presenter under the `Navigator`; providers fixed, `Navigator` keyed; no
-   decision from a same-flush `read`; routes and dialogs take ids, not data.
-5. **ADR-003 R1–R14** hold: no `#[allow(clippy::disallowed_…)]` outside the
-   allowlisted modules; new events, intents or lifecycle states extend the
-   mandatory tests (R2 switch round-trip, R4 snapshot, R5 end-path matrix, R7
-   `assert_consistent`, R8 lifecycle × intent, R9/R10 permutations).
-6. Checks green (below); copied oracle code keeps a comment naming its file.
+## A page is done when (process.md §A3, §A4)
+1. **The oracle shard is on**: every test of the page's shard green, or
+   `pending(Gxx)` on an open gap row; `shards.py --check` clean. Tests the
+   shard lacks (state, mouse) are written before the code and shown biting.
+2. **Mouse** (ADR-011): every view with selectable rows, tabs or buttons
+   takes tap/double-tap/wheel, with rtwk_test mouse tests.
+3. **ADR-002 conditions and ADR-003 R1–R14 hold**; the rules tests are green
+   (they also hold the review checklist: one list mechanism, no hand
+   windowing, no hand width math, pending only on open rows).
+4. **You ran it**: your own `codex-rtwk` in the page's pty scenario beside
+   the oracle binary, keys and mouse on the main path; the differing rows of
+   one checkpoint in the pack (process.md §A4.3).
+5. Checks green (below); copied oracle code keeps a comment naming its file.
+
 
 ## Checks: scoped while you work, full once at the end
-All from `codex-rs/tui-rtwk` (its own workspace), through `~/.cache/rtwk/acargo`.
-Your worktree builds in its own target (`codex-rs/tui-rtwk/target`; the backend
-comes from `~/.cache/codexcli/backend-pin` and sccache serves it across
-worktrees): never set CARGO_TARGET_DIR. Your binary is
-`codex-rs/tui-rtwk/target/debug/codex-rtwk`; pass it as `RTWK_BIN` to the pty
-scenarios.
+All from `codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`, in your
+worktree's own target (`codex-rs/tui-rtwk/target`; never set
+CARGO_TARGET_DIR). Your binary is `<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk`;
+pass it as `RTWK_BIN` to the scenarios.
 - While iterating: `acargo nextest run --status-level fail
-  --final-status-level fail --hide-progress-bar -E 'test(<filter>)'`,
+  --final-status-level fail --hide-progress-bar -E 'test(<page>) | binary(rules)'`,
   `acargo clippy -q --all-targets -- -D warnings`.
-- Before `task_done`, once: `acargo fmt -- --check`, the crate's whole nextest
-  run, clippy as above, your own pty scenarios. Anything long through
+- Once, before `task_done`: rebase onto the integration tip (the orchestrator
+  names it in tm notes), then `acargo fmt -- --check`, clippy `--workspace`,
+  the whole nextest, your oracle shard(s) with `--profile oracle`,
+  `shards.py --check`, your pty scenario on both binaries. Long runs through
   `~/.cache/rtwk/bgrun.sh`.
-- nextest `FLAKY`: name the test and its log in the handover; investigate
-  when it covers what you changed.
-- Name anything that was red when you arrived, separately from your results.
+- Known reds: `~/.cache/codexcli/known-red.txt`. Do not re-verify them. A
+  red not on the list is yours, unless one run on the tip without your
+  change shows it red: name it in the handover.
+
 
 ## Layers (process.md §A4.4)
 - Core (`codex-tui-core`, no rtwk): models, `apply`, tickets, protocol
@@ -122,27 +116,26 @@ scenarios.
   handover; do not build it.
 
 ## Where your work lives
-- Stay inside your task's area; widen it with `task_update` (listing the
-  existing entries) only for files no live claim covers. Never edit `lib.rs`,
-  a parent `mod.rs` or a root event/intent enum: add variants to your
-  screen's own sub-enum; a change needed elsewhere goes into the handover.
+- Stay inside your task's area. The brief names each shared file's owner;
+  a shared file owned by another task is read only, and what you need from
+  it goes into your handover. Never edit `lib.rs`, a parent `mod.rs` or a
+  root event/intent enum outside your area.
+
 - A new dependency: a separate commit with `Cargo.toml` + `Cargo.lock`, named
   in the handover.
 - Do not commit `docs/rtwk-port/refs/codex-registry.csv` or
   `parity/delta-kinds.md`: the orchestrator rebuilds them.
 - Commit on your worktree branch, staging by path, messages `<alias>: …`.
   Never merge (not the integration branch, not a sibling's branch); rebase
-  onto the integration tip only when the orchestrator asks. Never push.
+  onto the integration tip before your full check and when the orchestrator
+  asks. Never push.
 - Never accept or reject in tm, your own work included.
 - Read the `notes` tm hands you on each call before your next edit.
 
 ## Handover
 `task_done` with deliverables: the commits, the parity pack path, and a
-result summary (what was done vs the task, oracle behaviours covered and the
-ones left with reasons, tests and their bites, deltas and NEW kinds, rtwk
-gaps, risks, what others must change). A fix round answers each review
-finding by `path:line` and commit.
-Your brief names the review tier (process.md §A5 "Review tiers"): TRIVIAL
-(markers, docs: no review), LIGHT (one reviewer pass, landing does not wait)
-or FULL (batch review). Stay inside what the tier allows: a TRIVIAL task that
-needs a `src/` change stops and says so.
+summary of at most 15 lines: shard counts, what is left and why, gap rows
+added, departures with their debt task, new reds (not known ones), the
+binary run's result, what others must change. A fix run answers each review
+finding by `path:line` and commit. Your brief names the review tier
+(process.md §A5): stay inside what it allows.

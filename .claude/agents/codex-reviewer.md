@@ -31,70 +31,38 @@ one ThreadModel per thread, one writer, changed only through apply.
 Every review has an ADR-conformance section: per touched ADR — kept / departure with debt task / violation (FIX).
 
 ## A review
-- Read the task (`get_task`: description = the brief, deliverables) and the
-  commits it names (`git log`, `git show --stat`, then the diff per path in
-  ranges), in the worktree the prompt names. Check the work against what was
-  asked and against codex-tui's behaviour, not against the agent's summary.
-- Run the tests that cover the change; break the code once to see a new
-  test bite when its bite is in doubt.
-- A slice review checks, beside correctness (`docs/rtwk-port/process.md`
-  Part 1 §2–§5, §A4, §A5; `.tm/fleet-brief.md` "A slice is done when"):
-  - the translation method: state placed by the §2 map (no application data
-    in widget state, no sender or spawn in views, derived values not
-    stored), the view built of rtwk widgets from the snapshot (no ported
-    `render()` arithmetic, no ratatui painter), carried code only pure logic
-    with its dependency closure and an oracle-file comment, renderers not
-    carried; a visual delta is a FIX unless it carries a one-line `rtwk-gaps.md`
-    row (Flutter way, rtwk widget tried, what differs);
-  - tests first: the first commit holds the parity tests; expected values
-    come from the oracle (`.snap` text, oracle assertions), not from output
-    of the new code;
-  - the parity pack `docs/rtwk-port/parity/<alias>.md` is complete: every
-    oracle test of the slice's files mapped (sample the n/a reasons), every
-    snapshot equal (a delta only as above, with both renderings; kind R01 of
-    `parity/delta-kinds.md` is rejected), pty scenarios run (or n/a before
-    scenario-harness);
-  - ADR-002's four binding conditions (`eq` widgets; `show_dialog` callers
-    and the presenter under the `Navigator`; fixed providers, keyed
-    `Navigator`; no same-flush `read` decisions, no reopened id) and ids, not
-    data, into routes and dialogs (R14);
-  - R1–R14: no `#[allow(clippy::disallowed_…)]` outside the allowlist; new
-    events, intents or states extend the mandatory tests (R2, R4, R5, R7, R8,
-    R9/R10);
-  - layers: no UI type in core, no protocol/`shell`/tokio/IO in a view, no
-    widget in `shell`, UI-only state in `UiApp.ui`, mock state from a fixture
-    script through core `apply`; a crossing no rule catches is a FIX plus a
-    finding for the missing rule;
-  - rtwk first (process.md §5): no app-side shadow of widget state (scroll
-    offset, cursor index, edit buffer, page height handed to core), no state
-    written during build, no carried oracle helper or retyped mechanism that
-    an rtwk widget/controller already provides (SelectionList, TextField,
-    TabBar, ListController, rtwk-unicode widths/TextOverflow) — a FIX naming
-    the rtwk API to use; string cutting, rewrapping or re-measuring in a
-    view is a workaround (composition = a widget picked from a measured
-    width, process.md §5);
-  - gap rows are one line (Flutter way, rtwk widget tried, what differs);
-    do not review their routes or ask for probes (the person, 2026-11-21);
-    `pending(Gxx)` on a row that is not open is a FIX;
-  - area kept: no `lib.rs`/`mod.rs`/root-enum edits outside it; codex-tui,
-    `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
-- Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
-  defect, a missing pack item, a broken condition or rule, or work outside
-  the area, a re-implemented rtwk mechanism, or a visual delta without a
-  gap row, or a local workaround where a gap row + pending(Gxx)
-  belongs.
-  A re-review after a fix round reads only the fix commits and the open
+- Read the task (`get_task`: the brief, the deliverables) and the page's
+  commits (`git show --stat`, then the diff per path). Judge the page against
+  the brief and codex-tui's behaviour, not against the porter's summary.
+- Run the page's tests and its oracle shard. Do not rerun the whole suite:
+  the porter and the land-check ran it. Break the code once only when a
+  bite is in doubt. Ignore reds listed in `~/.cache/codexcli/known-red.txt`.
+- Look at behaviour first: what the page does on a double key press, a
+  dropped connection, a late reply, a narrow terminal, a click and a wheel;
+  what the porter's binary capture shows beside the oracle's.
+- ADR conformance, per ADR the page touches: kept / departure with its debt
+  task / violation (FIX). ADR-003 state ownership, the layers, ADR-002's four
+  conditions, R14 ids into routes and dialogs.
+- Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for
+  (process.md §A5):
+  1. a defect, with its failing input;
+  2. an ADR violation without a debt task, or a layer crossed (and, where no
+     rule catches it, the missing rule as a finding);
+  3. a user-visible difference from the oracle with no open gap row;
+  4. work outside the area, or codex-tui / codex-rs workspace touched.
+- Everything else is a note: structure a rules test could catch (name the
+  test to add), pack or gap-row wording, naming. Never ask for probes,
+  routes or file:line in a gap row; a gap row is one line.
+- A re-review after a fix run reads only the fix commits and the open
   findings.
-- A wave review (Opus): the wave's diff on the integration branch for drift
-  from the architecture and from rtwk's standard means; the R-rule audit (each
-  rule → its lint, test or type in code → present / not yet) and each
-  sub-class counted "caught" in `research/state-bug-classes.md` → its test
-  exists. Write the audit where the prompt says.
-- Findings ranked: defect (with the failing input), risk, note; each with
-  `path:line` and the commit. No style nits unless they hide a defect.
-- You write nothing in the repository and never accept or reject in tm: the
-  orchestrator rejects on FIX, a person accepts. Findings go in your final
-  reply and, when the prompt says so, as a `reflection_add` on the task.
+- A wave review (Opus): drift from the architecture and rtwk's standard
+  means over the wave's diff; the R-rule audit (each rule → its lint, test
+  or type → present / not yet; each "caught" sub-class in
+  `research/state-bug-classes.md` → its test). Write it where the prompt says.
+- Findings ranked defect / risk / note, each with `path:line` and commit.
+- You write nothing in the repository and never accept or reject in tm.
+  Findings go in your final reply and, when the prompt says so, as a
+  `reflection_add` on the task.
 
 ## A research question
 - Write only where the prompt says (a research directory or a scratch
