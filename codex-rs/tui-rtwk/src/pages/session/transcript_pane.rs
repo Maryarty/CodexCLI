@@ -246,6 +246,14 @@ impl State for ViewportState {
                         cells,
                     ),
                 ),
+                Item::PlanUpdate(update) => cell(
+                    separator,
+                    super::cells::plan_update::PlanUpdateCell {
+                        update: update.clone(),
+                        detailed,
+                    }
+                    .into(),
+                ),
                 Item::Reasoning { summary } => cell(
                     separator,
                     super::cells::reasoning::ReasoningCell {

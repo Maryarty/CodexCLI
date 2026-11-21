@@ -59,6 +59,13 @@ pub struct Strings {
     // history_cell/plans.rs ProposedPlanCell
     pub proposed_plan: &'static str,
     pub empty_plan: &'static str,
+    // history_cell/plans.rs PlanUpdateCell
+    pub updated_plan: &'static str,
+    /// Before the steps done and the steps in all: ` · `, `/`, ` complete`.
+    pub plan_progress: (&'static str, &'static str, &'static str),
+    pub plan_branch: &'static str,
+    pub plan_indent: &'static str,
+    pub no_steps: &'static str,
     // thread_transcript/other_items.rs
     pub context_compacted: &'static str,
     pub review_started: (&'static str, &'static str),
@@ -103,6 +110,11 @@ pub const EN: Strings = Strings {
     count_close: ")",
     proposed_plan: "Proposed Plan",
     empty_plan: "(empty)",
+    updated_plan: "Updated Plan",
+    plan_progress: (" · ", "/", " complete"),
+    plan_branch: "  └ ",
+    plan_indent: "    ",
+    no_steps: "(no steps provided)",
     context_compacted: "Context compacted",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),

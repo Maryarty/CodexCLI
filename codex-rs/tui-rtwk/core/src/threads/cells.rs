@@ -4,7 +4,10 @@
 //! never the protocol. Oracle: `codex-rs/tui/src/history_cell/` (messages.rs
 //! reasoning, patches.rs, plans.rs, search.rs, notices.rs).
 
-use codex_app_server_protocol::{PatchApplyStatus, PatchChangeKind, ThreadItemPayload};
+use codex_app_server_protocol::{
+    PatchApplyStatus, PatchChangeKind, ThreadItemPayload, TurnPlanStepStatus,
+    TurnPlanUpdatedNotification,
+};
 
 use super::ToolStatus;
 use crate::ids::ItemId;
@@ -79,6 +82,63 @@ pub enum WebAction {
     FindInPage {
         pattern: bool,
     },
+}
+
+/// The plan the model reports with `update_plan` (oracle `PlanUpdateCell`):
+/// the note and the steps, one entry of the transcript per notification.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanUpdate {
+    pub explanation: Option<String>,
+    pub steps: Vec<PlanStep>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanStep {
+    pub text: String,
+    pub status: StepStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StepStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+impl PlanUpdate {
+    pub(super) fn from_notification(note: &TurnPlanUpdatedNotification) -> Self {
+        Self {
+            explanation: note.explanation.clone(),
+            steps: note
+                .plan
+                .iter()
+                .map(|step| PlanStep {
+                    text: step.step.clone(),
+                    status: match step.status {
+                        TurnPlanStepStatus::Pending => StepStatus::Pending,
+                        TurnPlanStepStatus::InProgress => StepStatus::InProgress,
+                        TurnPlanStepStatus::Completed => StepStatus::Completed,
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    /// The note, trimmed; a blank one is none.
+    pub fn note(&self) -> Option<&str> {
+        self.explanation
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+    }
+
+    /// The steps done.
+    pub fn completed(&self) -> usize {
+        self.steps
+            .iter()
+            .filter(|step| step.status == StepStatus::Completed)
+            .count()
+    }
 }
 
 /// A notice the session leaves in the transcript.

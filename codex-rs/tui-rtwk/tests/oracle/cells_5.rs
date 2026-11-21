@@ -9,7 +9,9 @@ use crate::kit::{self, Owner, Screen};
 const EXEC_CELL: &str = "no exec cell in S11: the cells slot is an empty form and the transcript draws a command as plain text (no branch, gutter, wrap or stderr preview of the ran cell)";
 const USER_CELL: &str = "no user-message cell in S11: the transcript draws the message as plain text (no gutter, wrap, [Image #n] labels or trimmed trailing blanks of the user cell)";
 const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript does not split the summary header from its body, drop the HTML-comment parts or show the transcript-only variant (Ctrl+T)";
-const PLAN_CELL: &str = "no plan-update cell in S11: turn/plan/updated is not projected into a history cell (no note, checkbox steps or wrap of the plan cell)";
+const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
+const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
+const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
 const NOTICE_CELL: &str = "no deprecation-notice cell in S11: deprecationNotice is not projected into a transcript cell with a warning mark and details";
 const WARNING_CELL: &str = "no warning cell in S11: the warning notifications are not projected into transcript cells, and the startup/MCP warning cells do not exist";
 
@@ -246,22 +248,23 @@ fn render_uses_wrapping_for_long_url_like_line() {
 // ORACLE history_cell/tests.rs:2647 plan_update_with_note_and_wrapping_snapshot kind=snap owner=chat-live snap=plan_update_with_note_and_wrapping_snapshot
 #[test]
 fn plan_update_with_note_and_wrapping_snapshot() {
-    kit::pending(Owner::ChatLive, PLAN_CELL);
-    let s = Screen::build(Owner::ChatLive)
+    kit::pending(Owner::ChatLive, PLAN_FRAMES);
+    // The chat shows the snapshot's `Compact` rendering; its control reveals the `Full` one.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(32, 24)
         .script(include_str!(
             "fixtures/cells_5/plan_update_with_note_and_wrapping_snapshot.jsonl"
         ))
         .open();
-    // The snapshot joins a `Compact` rendering and a `Full` one under bare labels; the kit frames
-    // only dashed headers, `N columns:`, `width=` and labels above `Buffer {`. Kit gap: a bare-label frame.
+    s.assert_snap_section("plan_update_with_note_and_wrapping_snapshot", "Compact");
+    s.click_text("+ Show details");
     s.assert_snap_section("plan_update_with_note_and_wrapping_snapshot", "Full");
 }
 
 // ORACLE history_cell/tests.rs:2684 plan_update_without_note_snapshot kind=snap owner=chat-live snap=plan_update_without_note_snapshot
 #[test]
 fn plan_update_without_note_snapshot() {
-    kit::pending(Owner::ChatLive, PLAN_CELL);
+    kit::pending(Owner::ChatLive, PLAN_DISPLAY);
     let s = Screen::build(Owner::ChatLive)
         .size(40, 24)
         .script(include_str!(
@@ -274,7 +277,7 @@ fn plan_update_without_note_snapshot() {
 // ORACLE history_cell/tests.rs:2706 plan_update_does_not_split_url_like_tokens_in_note_or_step kind=ui owner=chat-live
 #[test]
 fn plan_update_does_not_split_url_like_tokens_in_note_or_step() {
-    kit::pending(Owner::ChatLive, PLAN_CELL);
+    kit::pending(Owner::ChatLive, PLAN_URL_TOKENS);
     let s = Screen::build(Owner::ChatLive)
         .size(30, 24)
         .script(include_str!(

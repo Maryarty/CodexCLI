@@ -10,7 +10,8 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app}
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
-    Item, Notice, PatchChange, PatchKind, ThreadEv, ToolStatus, WebAction, WebActivity, project,
+    Item, Notice, PatchChange, PatchKind, PlanUpdate, StepStatus, ThreadEv, ToolStatus, WebAction,
+    WebActivity, project,
 };
 use serde_json::{Value, json};
 
@@ -274,4 +275,97 @@ fn a_completed_web_search_without_a_start_is_one_row() {
             "action": {"type": "search", "query": "rust"}}),
     );
     assert_eq!(web_rows(&app).len(), 1);
+}
+
+fn plan_update(app: &mut CodexApp, turn: &str, explanation: Option<&str>, steps: &[(&str, &str)]) {
+    let plan: Vec<Value> = steps
+        .iter()
+        .map(|(step, status)| json!({"step": step, "status": status}))
+        .collect();
+    let notification: ServerNotification = serde_json::from_value(json!({
+        "method": "turn/plan/updated",
+        "params": {"threadId": "thread-1", "turnId": turn, "explanation": explanation,
+            "plan": plan}
+    }))
+    .expect("plan notification");
+    apply_app(
+        app,
+        AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        &mut AppFx::default(),
+    );
+}
+
+fn plan_rows(app: &CodexApp) -> Vec<(String, std::sync::Arc<PlanUpdate>)> {
+    app.active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(key, item)| match item {
+            Item::PlanUpdate(update) => Some((key.turn.to_string(), update.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn every_plan_update_is_an_entry_after_the_rows_before_it() {
+    // oracle `on_plan_update`: each `turn/plan/updated` adds a `PlanUpdateCell`; two updates
+    // are two cells, the later one never replaces the earlier.
+    let mut app = ready();
+    send(
+        &mut app,
+        "item/completed",
+        json!({"type": "agentMessage", "id": "a1", "text": "Starting."}),
+    );
+    plan_update(
+        &mut app,
+        "turn-1",
+        Some("Three small steps"),
+        &[("Inspect", "inProgress"), ("Write", "pending")],
+    );
+    plan_update(
+        &mut app,
+        "turn-1",
+        None,
+        &[("Inspect", "completed"), ("Write", "inProgress")],
+    );
+    let kinds: Vec<&str> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .map(|(_, item)| match item {
+            Item::Agent { .. } => "agent",
+            Item::PlanUpdate(_) => "plan",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["agent", "plan", "plan"]);
+    let rows = plan_rows(&app);
+    assert_eq!(rows[0].1.explanation.as_deref(), Some("Three small steps"));
+    assert_eq!(rows[0].1.steps[0].status, StepStatus::InProgress);
+    assert_eq!(rows[0].1.steps[1].status, StepStatus::Pending);
+    assert_eq!(rows[1].1.explanation, None);
+    assert_eq!(rows[1].1.steps[0].status, StepStatus::Completed);
+    assert_eq!(rows[1].1.steps[1].text, "Write");
+    assert_eq!(rows[1].1.completed(), 1);
+}
+
+#[test]
+fn a_plan_update_note_is_kept_only_when_it_has_text() {
+    // oracle `display_hyperlink_lines`: the note is trimmed and an empty one is no note.
+    let mut app = ready();
+    plan_update(&mut app, "turn-1", Some("  \n "), &[("Only", "pending")]);
+    plan_update(&mut app, "turn-1", Some(" Why \n"), &[]);
+    let rows = plan_rows(&app);
+    assert_eq!(rows[0].1.note(), None);
+    assert_eq!(rows[1].1.note(), Some("Why"));
+    assert!(rows[1].1.steps.is_empty());
+}
+
+#[test]
+fn a_plan_update_of_another_turn_is_an_entry_of_that_turn() {
+    let mut app = ready();
+    plan_update(&mut app, "turn-1", None, &[("A", "pending")]);
+    plan_update(&mut app, "turn-2", None, &[("B", "pending")]);
+    let turns: Vec<String> = plan_rows(&app).into_iter().map(|(turn, _)| turn).collect();
+    assert_eq!(turns, ["turn-1", "turn-2"]);
 }

@@ -393,6 +393,21 @@ impl ThreadEv {
     }
 }
 
+/// The status line's view of a plan report (`threads` applies it with the
+/// transcript entry the same report makes): done of total, the step running.
+pub(crate) fn plan_progress(turn: &TurnId, update: &crate::threads::PlanUpdate) -> ThreadEv {
+    ThreadEv::Plan {
+        turn: turn.clone(),
+        completed: update.completed(),
+        total: update.steps.len(),
+        step: update
+            .steps
+            .iter()
+            .find(|step| step.status == crate::threads::StepStatus::InProgress)
+            .map(|step| step.text.clone()),
+    }
+}
+
 pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     ThreadEv::Metadata {
         name: thread.name.clone(),
@@ -405,7 +420,7 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
 }
 
 pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotification) -> Option<(ThreadId, ThreadEv)> {
-    use codex_app_server_protocol::{ServerNotification, ThreadItemPayload, TurnPlanStepStatus};
+    use codex_app_server_protocol::{ServerNotification, ThreadItemPayload};
     let (id, event) = match notification {
         ServerNotification::ThreadStarted(note) => (&note.thread.id, metadata(&note.thread)),
         ServerNotification::ThreadNameUpdated(note) => (&note.thread_id, ThreadEv::Name(note.thread_name.clone())),
@@ -434,11 +449,6 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 _ => return None,
             };
             (&note.thread_id, event)
-        }
-        ServerNotification::TurnPlanUpdated(note) => {
-            let completed = note.plan.iter().filter(|step| step.status == TurnPlanStepStatus::Completed).count();
-            let step = note.plan.iter().find(|step| step.status == TurnPlanStepStatus::InProgress).map(|step| step.step.clone());
-            (&note.thread_id, ThreadEv::Plan { turn: TurnId::new(&note.turn_id), completed, total: note.plan.len(), step })
         }
         _ => return None,
     };

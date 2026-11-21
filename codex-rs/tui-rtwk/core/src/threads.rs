@@ -14,7 +14,10 @@ mod message;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
-pub use cells::{Notice, PatchActivity, PatchChange, PatchKind, WebAction, WebActivity};
+pub use cells::{
+    Notice, PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
+    WebActivity,
+};
 pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
 
@@ -91,6 +94,9 @@ pub enum Item {
         name: String,
     },
     Notice(Notice),
+    /// An `update_plan` report: the server has no item for it, so the
+    /// transcript mints its key (`Transcript::mint`).
+    PlanUpdate(Arc<PlanUpdate>),
 }
 
 impl Item {
@@ -113,6 +119,8 @@ pub struct Transcript {
     // Keep streaming rows separate so updating a preview never copies history
     // held by the provider. There is still one ordered index for the transcript.
     streaming: HashMap<ItemKey, StreamingItem>,
+    /// Entries the transcript keyed itself (`mint`): the server sent no item.
+    minted: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,6 +255,16 @@ impl Transcript {
         let before = Rc::make_mut(&mut self.items).insert(key.clone(), Rc::new(item));
         if !was_live && before.is_none() {
             Rc::make_mut(&mut self.order).push(key);
+        }
+    }
+
+    /// The key of an entry the server has no item for (a plan update): the
+    /// next number, which no server item id (`item-…`, a UUID) can equal.
+    fn mint(&mut self, turn: TurnId) -> ItemKey {
+        self.minted += 1;
+        ItemKey {
+            turn,
+            item: ItemId::new(format!("#{}", self.minted)),
         }
     }
 
@@ -492,6 +510,11 @@ pub enum ThreadEv {
     ItemUpsert {
         key: ItemKey,
         item: Item,
+    },
+    /// An `update_plan` report: a new entry of the turn, whatever came before.
+    PlanUpdated {
+        turn: TurnId,
+        update: Arc<PlanUpdate>,
     },
     AgentDelta {
         key: ItemKey,
@@ -1076,6 +1099,13 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         ServerNotification::ItemCompleted(n) => {
             item_upsert(&n.thread_id, &n.turn_id, &n.item, true)
         }
+        ServerNotification::TurnPlanUpdated(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::PlanUpdated {
+                turn: TurnId::new(&n.turn_id),
+                update: Arc::new(PlanUpdate::from_notification(n)),
+            },
+        )),
         ServerNotification::AgentMessageDelta(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::AgentDelta {
@@ -1371,6 +1401,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 }
                 model.transcript.upsert(key, item);
             }
+        }
+        ThreadEv::PlanUpdated { turn, update } => {
+            // The status line follows the same report, for the running turn only.
+            let status = ScreenThreadEv::Chat(screens::chat::plan_progress(&turn, &update));
+            let key = model.transcript.mint(turn);
+            model.transcript.upsert(key, Item::PlanUpdate(update));
+            apply_ev(model, ThreadEv::Screen(status), fx);
         }
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {

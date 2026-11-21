@@ -19,6 +19,7 @@ pub mod notice;
 pub mod one_row;
 pub mod patch;
 pub mod plan;
+pub mod plan_update;
 pub mod reasoning;
 pub mod status;
 pub mod strings;

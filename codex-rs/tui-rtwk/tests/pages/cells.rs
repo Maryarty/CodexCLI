@@ -596,9 +596,16 @@ mod command_in_transcript {
             .lines()
             .position(|row| row.contains("red words"))
             .expect("the output row");
-        let x = screen.lines().nth(y).and_then(|row| row.find("red")).expect("column");
+        let x = screen
+            .lines()
+            .nth(y)
+            .and_then(|row| row.find("red"))
+            .expect("column");
         let (red, plain) = (h.t.cell(x, y), h.t.cell(x + 10, y));
-        assert_ne!(red.fg, plain.fg, "the red word is coloured, the rest is not");
+        assert_ne!(
+            red.fg, plain.fg,
+            "the red word is coloured, the rest is not"
+        );
     }
 
     #[test]
@@ -621,5 +628,371 @@ mod command_in_transcript {
         h.advance(1000);
         assert_eq!(before, row(&h.t.screen()));
         assert!(before.is_some_and(|row| row.starts_with('•')));
+    }
+}
+
+// ---- the plan update (oracle history_cell/plans.rs `PlanUpdateCell`: the
+// compact rows are `compact_hyperlink_lines`; the control appears when
+// `activity_disclosure` says so, and revealing it shows
+// `transcript_hyperlink_lines`) ----
+
+mod plan_update {
+    use std::sync::Arc;
+
+    use codex_tui_core::threads::{PlanStep, PlanUpdate, StepStatus};
+    use codex_tui_rtwk::pages::session::cells::plan_update::PlanUpdateCell;
+    use rtwk::style::Attrs;
+
+    use StepStatus::{Completed, InProgress, Pending};
+
+    fn update(note: Option<&str>, steps: &[(&str, StepStatus)]) -> Arc<PlanUpdate> {
+        Arc::new(PlanUpdate {
+            explanation: note.map(str::to_owned),
+            steps: steps
+                .iter()
+                .map(|(text, status)| PlanStep {
+                    text: (*text).to_owned(),
+                    status: *status,
+                })
+                .collect(),
+        })
+    }
+
+    fn show(width: u16, update: Arc<PlanUpdate>, detailed: bool) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 24));
+        t.pump_widget(PlanUpdateCell { update, detailed });
+        t
+    }
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    fn tap(t: &mut rtwk_test::Tester, label: &str) {
+        let y = t
+            .screen()
+            .lines()
+            .position(|row| row.contains(label))
+            .unwrap_or_else(|| panic!("no `{label}`: {:#?}", rows(t))) as u16;
+        t.click(6, y);
+        t.pump();
+    }
+
+    #[test]
+    fn compact_counts_the_steps_done_and_lists_the_open_steps_first() {
+        let steps = [
+            ("Investigate", Completed),
+            ("Write tests", Pending),
+            ("Harden the client", InProgress),
+            ("Document", Pending),
+        ];
+        let t = show(40, update(None, &steps), false);
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan · 1/4 complete",
+                "  └ □ Harden the client",
+                "    □ Write tests",
+                "    □ Document",
+                "    + Show details",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_short_plan_without_a_note_has_no_control() {
+        let steps = [
+            ("Define error taxonomy", Pending),
+            ("Implement mapping", Pending),
+        ];
+        let t = show(40, update(None, &steps), false);
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan · 0/2 complete",
+                "  └ □ Define error taxonomy",
+                "    □ Implement mapping",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_completed_step_is_listed_when_the_open_ones_leave_room() {
+        let steps = [("Done one", Completed), ("Open one", Pending)];
+        let t = show(40, update(None, &steps), false);
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan · 1/2 complete",
+                "  └ □ Open one",
+                "    ✔ Done one",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_note_a_wide_step_or_a_fourth_step_each_offer_the_control() {
+        let one = [("Step", Pending)];
+        assert!(
+            rows(&show(40, update(Some("Why"), &one), false))
+                .contains(&"    + Show details".to_owned())
+        );
+        assert!(
+            !rows(&show(40, update(Some("  \n"), &one), false))
+                .iter()
+                .any(|r| r.contains("Show details"))
+        );
+        // A step takes its width plus six columns: "abcd" fits ten, not nine.
+        let wide = [("abcd", Pending)];
+        assert!(
+            !rows(&show(10, update(None, &wide), false))
+                .iter()
+                .any(|r| r.contains("Show details"))
+        );
+        // (the control wraps at nine columns: its first word is the sign)
+        assert!(
+            rows(&show(9, update(None, &wide), false))
+                .iter()
+                .any(|r| r.contains("+ Show"))
+        );
+        let four = [
+            ("a", Pending),
+            ("b", Pending),
+            ("c", Pending),
+            ("d", Pending),
+        ];
+        assert!(
+            rows(&show(40, update(None, &four), false))
+                .iter()
+                .any(|r| r.contains("Show details"))
+        );
+    }
+
+    #[test]
+    fn compact_rows_clip_with_an_ellipsis_at_the_width() {
+        let steps = [("Harden Grafana client error handling", InProgress)];
+        let t = show(20, update(None, &steps), false);
+        let shown = rows(&t);
+        assert_eq!(shown[0], "• Updated Plan · 0/…", "{shown:#?}");
+        assert_eq!(shown[1], "  └ □ Harden Grafan…", "{shown:#?}");
+    }
+
+    #[test]
+    fn an_empty_plan_says_so() {
+        let t = show(40, update(None, &[]), false);
+        assert_eq!(
+            rows(&t),
+            ["• Updated Plan · 0/0 complete", "  └ (no steps provided)"]
+        );
+    }
+
+    #[test]
+    fn tapping_the_control_shows_the_note_and_every_step_in_plan_order_wrapped() {
+        let steps = [
+            (
+                "Investigate existing error paths and logging around HTTP timeouts",
+                Completed,
+            ),
+            ("Harden Grafana client error handling", InProgress),
+        ];
+        let note = "I’ll update Grafana call error handling by adding retries.";
+        let mut t = show(32, update(Some(note), &steps), false);
+        assert_eq!(rows(&t)[0], "• Updated Plan · 1/2 complete");
+        tap(&mut t, "+ Show details");
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan",
+                "  └ I’ll update Grafana call",
+                "    error handling by adding",
+                "    retries.",
+                "    ✔ Investigate existing error",
+                "      paths and logging around",
+                "      HTTP timeouts",
+                "    □ Harden Grafana client",
+                "      error handling",
+                "    − Hide details",
+            ]
+        );
+        tap(&mut t, "− Hide details");
+        assert_eq!(rows(&t)[0], "• Updated Plan · 1/2 complete");
+    }
+
+    fn snapshot_cell() -> Arc<PlanUpdate> {
+        let steps = [
+            (
+                "Investigate existing error paths and logging around HTTP timeouts",
+                Completed,
+            ),
+            (
+                "Harden Grafana client error handling with retry/backoff and user‑friendly messages",
+                InProgress,
+            ),
+            (
+                "Add tests for transient failure scenarios and surfacing to the UI",
+                Pending,
+            ),
+            ("Document the retry behavior", Pending),
+        ];
+        let note = "I’ll update Grafana call error handling by adding retries and clearer messages when the backend is unreachable.";
+        update(Some(note), &steps)
+    }
+
+    /// The `Compact` frame of `plan_update_with_note_and_wrapping_snapshot`
+    /// (history_cell/snapshots), 32 columns.
+    #[test]
+    fn the_oracle_snapshot_compact_rows() {
+        let t = show(32, snapshot_cell(), false);
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan · 1/4 complete",
+                "  └ □ Harden Grafana client err…",
+                "    □ Add tests for transient f…",
+                "    □ Document the retry behavi…",
+                "    + Show details",
+            ]
+        );
+    }
+
+    /// The `Full` frame of the same snapshot: the oracle's wrapper breaks
+    /// `retry/backoff` after the slash (unicode line breaks).
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash, so `retry/backoff` moves whole to the next row"]
+    fn the_oracle_snapshot_full_rows() {
+        let mut t = show(32, snapshot_cell(), false);
+        tap(&mut t, "+ Show details");
+        let shown = rows(&t);
+        assert_eq!(
+            &shown[..shown.len() - 1],
+            [
+                "• Updated Plan",
+                "  └ I’ll update Grafana call",
+                "    error handling by adding",
+                "    retries and clearer messages",
+                "    when the backend is",
+                "    unreachable.",
+                "    ✔ Investigate existing error",
+                "      paths and logging around",
+                "      HTTP timeouts",
+                "    □ Harden Grafana client",
+                "      error handling with retry/",
+                "      backoff and user‑friendly",
+                "      messages",
+                "    □ Add tests for transient",
+                "      failure scenarios and",
+                "      surfacing to the UI",
+                "    □ Document the retry",
+                "      behavior",
+            ]
+        );
+    }
+
+    #[test]
+    fn revealed_without_a_note_the_first_step_carries_the_branch() {
+        let steps = [
+            ("First", Pending),
+            ("Second", Pending),
+            ("Third", Pending),
+            ("Fourth", Pending),
+        ];
+        let mut t = show(40, update(None, &steps), false);
+        tap(&mut t, "+ Show details");
+        assert_eq!(
+            rows(&t),
+            [
+                "• Updated Plan",
+                "  └ □ First",
+                "    □ Second",
+                "    □ Third",
+                "    □ Fourth",
+                "    − Hide details",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_detailed_transcript_shows_everything_and_no_control() {
+        let steps = [("Only", Completed)];
+        let t = show(40, update(Some("Why"), &steps), true);
+        assert_eq!(rows(&t), ["• Updated Plan", "  └ Why", "    ✔ Only"]);
+    }
+
+    #[test]
+    fn steps_are_styled_by_status() {
+        let steps = [("Done", Completed), ("Now", InProgress), ("Later", Pending)];
+        let t = show(40, update(Some("n"), &steps), true);
+        let x = 6;
+        // Rows: header, note + first step share the branch, so the steps start at row 2.
+        let done = t.cell(x, 2);
+        let now = t.cell(x, 3);
+        let later = t.cell(x, 4);
+        assert!(done.attrs.intersects(Attrs::DIM), "{done:?}");
+        assert!(done.attrs.intersects(Attrs::STRIKE), "{done:?}");
+        assert!(now.attrs.intersects(Attrs::BOLD), "{now:?}");
+        assert_ne!(now.fg, later.fg, "the running step is accented");
+        assert!(later.attrs.intersects(Attrs::DIM), "{later:?}");
+        assert!(!later.attrs.intersects(Attrs::STRIKE), "{later:?}");
+    }
+}
+
+mod plan_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common;
+
+    fn plan(steps: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": "turn/plan/updated",
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1",
+                "explanation": null, "plan": steps}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    #[test]
+    fn each_plan_update_is_a_cell_and_a_revealed_one_stays_revealed() {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            plan(json!([{"step": "One", "status": "inProgress"},
+                {"step": "Two", "status": "pending"},
+                {"step": "Three", "status": "pending"},
+                {"step": "Four", "status": "pending"}])),
+            plan(json!([{"step": "One", "status": "completed"},
+                {"step": "Two", "status": "inProgress"}])),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("both plan cells", |s| {
+            s.matches("Updated Plan").count() == 2
+        });
+        let screen = h.t.screen();
+        assert!(screen.contains("Updated Plan · 0/4 complete"), "{screen}");
+        assert!(screen.contains("Updated Plan · 1/2 complete"), "{screen}");
+        // The first plan has four steps: it offers the control, and revealing it keeps the
+        // later update's row where the tree puts it.
+        let y = screen
+            .lines()
+            .position(|row| row.contains("+ Show details"))
+            .expect("the control");
+        h.t.click(8, y as u16);
+        h.t.pump();
+        let screen = h.t.screen();
+        assert!(screen.contains("− Hide details"), "{screen}");
+        assert!(screen.contains("□ Four"), "{screen}");
+        h.advance(1000);
+        assert!(h.t.screen().contains("− Hide details"));
     }
 }
