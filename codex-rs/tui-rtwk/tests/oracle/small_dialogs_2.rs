@@ -546,7 +546,7 @@ fn footer_hint_uses_list_keymap_accept_and_cancel() {
 fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
     kit::pending(
         Owner::DialogsPane,
-        "no status line picker entries settings/status_line_pr_plain and settings/status_line_pr_theme (the setting's core seed exists; no debug entry)",
+        "no entries settings/status_line_pr_plain and settings/status_line_pr_theme, and the setup model holds no link for the preview item (core Setup.values are text); the preview would need a hyperlink on the PR item",
     );
     let plain = Screen::build(Owner::DialogsPane)
         .size(80, 12)
@@ -565,10 +565,6 @@ fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
 // ORACLE bottom_pane/status_line_setup.rs:728 setup_view_snapshot_uses_runtime_preview_values kind=snap owner=dialogs-pane snap=setup_view_snapshot_uses_runtime_preview_values
 #[test]
 fn setup_view_snapshot_uses_runtime_preview_values() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_preview: the status line seed exists in core but settings registers no debug entries (the fixture status_line.jsonl is not registered)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 17)
         .entry("settings", "status_line_preview")
@@ -579,10 +575,6 @@ fn setup_view_snapshot_uses_runtime_preview_values() {
 // ORACLE bottom_pane/status_line_setup.rs:763 setup_view_snapshot_includes_thread_usage_items kind=snap owner=dialogs-pane snap=setup_view_snapshot_includes_thread_usage_items
 #[test]
 fn setup_view_snapshot_includes_thread_usage_items() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_thread_usage (thread credits and estimated cost preview items)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 17)
         .entry("settings", "status_line_thread_usage")
@@ -593,10 +585,6 @@ fn setup_view_snapshot_includes_thread_usage_items() {
 // ORACLE bottom_pane/status_line_setup.rs:789 setup_view_snapshot_includes_hostname kind=snap owner=dialogs-pane snap=setup_view_snapshot_includes_hostname
 #[test]
 fn setup_view_snapshot_includes_hostname() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_hostname (hostname and current dir preview items)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 17)
         .entry("settings", "status_line_hostname")
@@ -608,10 +596,6 @@ fn setup_view_snapshot_includes_hostname() {
 // ORACLE bottom_pane/title_setup.rs:433 renders_title_setup_popup kind=snap owner=dialogs-pane snap=terminal_title_setup_basic
 #[test]
 fn renders_title_setup_popup() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no terminal title setup in the port: no core seed for it (settings' SeedEv has no title) and no entry settings/terminal_title",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(84, 17)
         .entry("settings", "terminal_title")
