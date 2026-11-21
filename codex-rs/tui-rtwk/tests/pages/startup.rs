@@ -136,7 +136,10 @@ mod gate {
         h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
         h.press("ctrl+c");
         let screen = h.t.screen();
-        assert!(!screen.contains(CHAT), "a chat frame before the exit:\n{screen}");
+        assert!(
+            !screen.contains(CHAT),
+            "a chat frame before the exit:\n{screen}"
+        );
         assert!(!h.t.is_running(), "the app runs on:\n{screen}");
     }
 
