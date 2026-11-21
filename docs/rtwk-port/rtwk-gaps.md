@@ -71,7 +71,7 @@ G36 and four new rows, N1..N4 (below, with the report's section for each).
 Update 2026-11-19 (task gaps-fix, after the Flutter-way check
 `reports/gaps-flutter-check.md`): not a gap now: N1, N3, G24, G35, G36, G38,
 G39, G40, G42 (routes in each row); ours: G37, G11 (native copy), R-start-1.
-Still open: G1, G8, G12 (style), N4, G46 (onboarding) (G9 closed at `90259c3b`), (G39b narrowed: see its row).
+Still open: G1, G8, G12 (style), N4, G44, G45 (select), G46 (import), G48 (onboarding) (G9 closed at `90259c3b`), (G39b narrowed: see its row); G47 is not an rtwk limit (import's source prompt, task import-rest).
 
 | id | gap (details: the report section of the same id) | status |
 |---|---|---|
