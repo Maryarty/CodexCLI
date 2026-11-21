@@ -64,17 +64,40 @@ Findings of the FULL review of chat-cells:
    23 kept with the probe note, 99 false reasons replaced by the probe's first difference (or the theme colours, below), four
    nested-list tests pend on G64. One test whose oracle rows hold the bullet (controller_set_width_preserves_in_flight_tail) is read whole.
 10. One widget per file: cells/{reasoning,web,notice,viewed_image,one_row}.rs; summary.rs is gone.
-Rows for the lander (item 11, src/app/theme.rs is startup-finish's area): `transcript_markdown` needs the ordered-list marker
-colour LightBlue (10 markdown_streaming tests name it) and the blockquote bar Green (5 tests).
+Item 11 (theme colours) is done in round 2 below.
 Gap rows: G71 (MarkdownView paragraphs take no inherited text style). Renumbered from G65 (composer took G65-G70 on the tip);
 the commit message of fb9220a1 still says G65.
 Pin: link destinations need rtwk baccefc2 (`MarkdownView::link_destinations`); the pin (492ab738) is older.
-Left (in order): 7 `:codex-file-citation` rewrite (oracle markdown_render/inline_directives.rs: an offset-preserving scan of
-the source outside code, HTML, links and reference definitions; rtwk way: parse with rtwk-rich `parse_markdown` and turn the
-directive inside `Inline::Text` into a link node, or a source rewrite with a literal-range scan; then close or reword G60);
-8 view-image "+ Show details" (stateful ViewedImageCell, Pressable, the disclosure indent of the patch cell; the image bytes need a
-services effect: debt task); 9 web search: the oracle commits `• Browsing the web` when another item flushes the active cell before
-`on_web_search_end` (trace the mock scenario's event order); the exec cell off `ToolRow` (~14 cells_1 tests: reasons say core ignores
-commandExecution items; check that they still do), hook-prompt, collab-agent, sub-agent, sleep, image-generation items, warning/error,
-deprecation, plan-update and session-info cells (core `Item` variants plus one widget per file); the 330 pending tests carry
-reasons that are the probe's first difference: trace them cell kind by cell kind; mock-model check.py run and the pack's rows.
+
+### Round 2 (same day, after startup-finish landed; items 11, 7, 9, 8 done)
+Shard counts (oracle profile, rebased on 1171555ad = tip, nothing to rebase at the end): cells_1 9/0/51 · cells_2 10/1/22 · cells_3 1/0/38 ·
+cells_4 5/0/34 · cells_5 16/1/24 · markdown_streaming_1 27/4/27 · _2 29/1/30 · _3 12/0/28 · _4 20/0/23 · _5 22/3/33 · renderer_internals 12/2/5 —
+total 163 pass / 12 n/a / 315 pending / 0 red / 0 stale of 490 (on arrival 57 / 12 / 420 / 1; after round 1 144 / 12 / 334 / 0).
+Checks: fmt clean, clippy `--workspace --all-targets -D warnings` clean, whole nextest (not the oracle binary) 1124 pass / 15 skipped,
+`shards.py --check` 55 shards, 0 stale. Core adds core/tests/{directives,citations}.rs (area widened for them) and two web tests in core/tests/cells.rs.
+- 11 `src/app/theme.rs` `transcript_markdown`: ordered marker ANSI light blue (`marker`), quote text and bar green (`quote`, `quote_bar`);
+  14 tests un-pended. `blockquote_with_list_items` stays pending: the oracle test runs with an empty syntax theme (the bullet takes the quote's
+  green); the app's theme gives bullets the Mocha/Latte teal like the oracle's default and the kit cannot choose the syntax theme.
+- 7 file citations: core/src/threads/{directives,citations}.rs (the oracle's directive scan, carried; destination encoding, file:// and drive paths,
+  cwd-relative label) and cells/citation.rs (`view(source, cwd) -> MarkdownView`: the source is parsed with the directives masked, the way the
+  oracle masks them, and the node that stands for one becomes a code node; code, HTML, link text and destinations, reference definitions stay
+  literal). Agent and plan cells read citations, the reasoning summary does not (the oracle's generic renderer). G60 is solved for these two:
+  the lander closes the row (rtwk-gaps.md is composer-2's file this run). Two link-suffix tests and the soft-break test wait for rtwk baccefc2
+  (`MarkdownView::link_destinations`, the pin 492ab738 lacks it), the adjacent-entities test pends on G61.
+- 9 web search: oracle `handle_thread_item` runs `on_web_search_begin` then `on_web_search_end` for an item/completed; begin commits the cell
+  item/started left (`• Browsing the web`), so the pty shows both rows. `Transcript::upsert` keeps the started web entry and appends the
+  completed one under the id `<id>#2` (a stored thread without a start stays one row). Core and page tests (red with the rule off).
+- 8 viewed image: cells/disclosure.rs (the control, shared with the patch cell), `ViewedImageCell` stateful: compact row, `+ Show details`,
+  expanded the full path under a two-column hanging indent and `− Hide details`, detailed transcript the path and no control; tap, Enter, Space.
+  The oracle's path-in-details test now clicks the control. NOT done (named for the lander): the image link (`TerminalHyperlink::viewed_image`,
+  needs canonicalize and is_file) and the image preview (`TranscriptImage::load`) read the file system; a views-without-IO design needs a
+  services effect that answers "is this a local image, its bytes" into the model. No debt task was created by this run.
+Binary (mock-model check.py, pty): web-search and view-image on both binaries PASS; a VT replay with scroll regions of the captures
+(scratch /tmp/chat-cells-vt.py) gives, rtwk vs oracle, equal transcript rows: web-search `• Browsing the web` / `• Searched the web for rtwk
+terminal ui framework` / `• Search done: …`, view-image `• Viewed image example.png` / `    + Show details`. Footer chrome differs (model name
+line, the `scenario` title row, `⚠ 1 warning`): other areas.
+Mouse: tests/pages/cells.rs viewed_image_disclosure (tap reveals, tap again hides).
+Left (in order): the exec cell off `ToolRow` (~14 cells_1 tests, reasons say core ignores commandExecution items; check), hook-prompt, collab-agent,
+sub-agent, sleep, image-generation (cells_3: "draws no imageGeneration item yet"), warning/error (cells_5), deprecation, plan-update and
+session-info cells (core `Item` variants projected in core/src/threads/cells.rs, one widget per file, tests first); the 315 pending tests carry
+the probe's first difference or a named kit reason: trace them cell kind by cell kind; the image link and preview (services effect, above).
