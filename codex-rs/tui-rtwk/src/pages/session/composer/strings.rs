@@ -6,7 +6,7 @@
 //! for it. Nothing else in this directory holds user-visible text (the rules
 //! test `adr010_no_user_visible_literal_outside_the_string_tables`).
 
-use rtwk::l10n::DependCx;
+use rtwk::l10n::{Arg, DependCx, Fmt, Msg, NumSyms, msg};
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -17,10 +17,31 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    /// What a large paste shows in the draft (`chat_composer.rs`,
+    /// `next_large_paste_placeholder`).
+    pub pasted_content: Msg<1>,
+    pub num: NumSyms,
+}
+
+impl Strings {
+    /// The placeholder of a paste of `chars` characters, the count in
+    /// plain digits as the oracle prints it.
+    pub fn pasted(&self, chars: usize) -> String {
+        Fmt::new(
+            self.pasted_content,
+            [Arg::Text(&chars.to_string())],
+            &self.num,
+        )
+        .to_string()
+    }
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
-pub const EN: Strings = Strings { title: "composer" };
+pub const EN: Strings = Strings {
+    title: "composer",
+    pasted_content: msg!("[Pasted Content {0} chars]"),
+    num: NumSyms::ENGLISH,
+};
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
 

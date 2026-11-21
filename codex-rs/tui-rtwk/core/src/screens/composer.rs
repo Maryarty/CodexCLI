@@ -17,6 +17,17 @@ pub const NAME: &str = "composer";
 pub const ID: &str = "S10";
 pub const KIND: Kind = Kind::Part;
 
+/// A paste longer than this many characters goes into the draft as a
+/// placeholder (`chat_composer.rs`, `LARGE_PASTE_CHAR_THRESHOLD`).
+pub const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
+
+/// The size in characters of a paste the composer puts in as a placeholder,
+/// or none for one it puts in as text (`handle_paste`).
+pub fn large_paste(pasted: &str) -> Option<usize> {
+    let chars = pasted.chars().count();
+    (chars > LARGE_PASTE_CHAR_THRESHOLD).then_some(chars)
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {}

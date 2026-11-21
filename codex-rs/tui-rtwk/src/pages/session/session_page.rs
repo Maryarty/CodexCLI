@@ -7,19 +7,17 @@ use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
 use rtwk::controls::{Callout, Hyperlink, StatusKind};
-use rtwk::editing::{Autocomplete, Suggestion, TextArea, TextEditingController};
+use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
-use rtwk::style::{Attrs, Theme};
+use rtwk::style::Theme;
 use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
-
-use rtwk_core::presenter::CursorShape;
 
 use codex_tui_core::app::{ConnectionState, RequestQueue, Session, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
@@ -32,12 +30,12 @@ use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+use crate::pages::session::composer::footer::{FooterLine, footer};
+use crate::pages::session::composer::{Composer, submission};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
-use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
-use crate::widgets::page_keys;
 use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
 
@@ -243,7 +241,7 @@ impl State for ChatState {
                 }
             }
             ChatMsg::QueueDraft => {
-                let draft = w.ui.composer.text();
+                let draft = submission(&w.ui);
                 if !draft.is_empty() {
                     run_line(&draft, w, cx, &hs);
                 }
@@ -523,64 +521,21 @@ impl State for ChatState {
                 super::external_writer::footer(chat_strings, &tokens),
             ),
             None => {
-                let area = TextArea::new()
-                    .controller(w.ui.composer.clone())
-                    .placeholder(strings.chat.placeholder)
-                    .placeholder_style(tokens.dim().attrs(Attrs::DIM))
-                    .cursor_shape(CursorShape::TerminalDefault)
-                    .min_lines(1)
-                    .max_lines(6)
-                    .autofocus(true)
-                    .focus_node(self.node.clone())
+                let composer = Composer::new(w.ui.clone(), self.node.clone())
                     .on_changed(cx.map(ChatMsg::Changed))
-                    .on_submitted(cx.map(ChatMsg::Submit));
-                let data = states.clone();
-                let table = chat_strings;
-                let field = Autocomplete::new(
-                    w.ui.composer.clone(),
-                    move |before: &str| popup::suggestions(&data, table, before),
-                    area,
-                )
-                .rows(popup::ROWS)
-                .on_selected(cx.map(|picked: Suggestion| ChatMsg::Picked(Rc::from(&*picked.text))));
-                let line = Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(prompt(chat_strings.prompt, tokens.bold()))
-                    .child(Expanded::new(1, field));
-                let bar = page_keys::footer_with(
-                    [
-                        (strings.pages.key_agents, strings.pages.hint_agents),
-                        (strings.pages.key_shortcuts, strings.pages.hint_shortcuts),
-                    ],
-                    tokens.bold(),
-                    tokens.dim(),
-                    " · ",
-                );
-                let hint = if self.esc_primed && !thread.transcript().is_empty() {
-                    Some(strings.chat.backtrack_hint)
-                } else if running.is_some() && !self.draft_empty {
-                    Some(strings.chat.queue_hint)
-                } else {
-                    None
-                };
-                let footer = if self.shortcuts {
+                    .on_submitted(cx.map(ChatMsg::Submit))
+                    .on_picked(cx.map(ChatMsg::Picked));
+                let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    Row::new()
-                        .child(SizedBox::new(Some(2), None, None))
-                        .child(Text::new(close).style(tokens.dim()))
-                        .into()
-                } else if let Some(hint) = hint {
-                    Row::new()
-                        .child(SizedBox::new(Some(2), None, None))
-                        .child(Text::line(hint).style(tokens.dim()))
-                        .into()
+                    FooterLine::Close(close)
+                } else if self.esc_primed && !thread.transcript().is_empty() {
+                    FooterLine::Hint(strings.chat.backtrack_hint)
+                } else if running.is_some() && !self.draft_empty {
+                    FooterLine::Hint(strings.chat.queue_hint)
                 } else {
-                    Row::new()
-                        .child(SizedBox::new(Some(2), None, None))
-                        .child(Expanded::new(1, bar))
-                        .into()
+                    FooterLine::Keys
                 };
-                (line.into(), footer)
+                (composer.into(), footer(cx, line))
             }
         };
         // `⚠ N warnings · f2 to view` at the footer's right (not while history

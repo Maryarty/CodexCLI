@@ -1,0 +1,3 @@
+# The composer's text area alone on a blank draft of one thread.
+# Oracle data: bottom_pane/textarea.rs (its tests draw a bare TextArea at the test's rect)
+{"step":"seed","seed":"session","thread":"thread-1"}
