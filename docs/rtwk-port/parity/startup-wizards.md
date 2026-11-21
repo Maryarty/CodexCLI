@@ -20,7 +20,8 @@ words in `provider/strings.rs`; host `host/src/{providers,startup,launch}.rs`.
 | gateway.rs form (Name*, Base URL*, API key variable, Save, validation, suggestions, Ctrl+Space completion) | `gateway::Form` + form view (`TextField` per field, `Focus.on_focus_change` marks, `GestureDetector` Save, listener line for the suggestion, scroll to the marked row after a resize); `Setup::GatewayWrite(Patch)` | ported |
 | gateway.rs unconfirmed save (list read again, note) and refused selection (picker kept, message) | `Answer::{GatewayUnconfirmed, GatewaySelected}` -> stage + notice | ported |
 | gateway_login.rs states (starting, browser URL, failed) | `State::{GatewayOAuth, GatewayOAuthFailed, GatewayConfigured}`, seeds `GatewayOauth`/`GatewayOauthFailed`, view `gateway_login.rs`, fixtures `gateway_oauth_{starting,browser,failed}.jsonl` | ported (views and states) |
-| gateway_login.rs runtime: `authenticate_gateway` (server restart with the selected gateway, account read, primary login first, gateway OAuth), `GatewayOAuthRead/Login`, `needs_device_login` short circuit, URL changes (`GatewayOAuthChanged`), Enter retry, cancel on exit | core `onboarding/gateway.rs` (`Phase`: Idle, Starting, Reading, Primary, OAuth, Done; requests numbered, a stale answer dropped), `Ask::{SelectGateway, GatewayLogins, GatewayOAuth, CancelGatewayOAuth}`, `Ev::{GatewayStarted, GatewayLogins, GatewayOAuth, GatewayOAuthChanged}`, `Intent::RetryGatewayOAuth`; host `host/src/gateway.rs` (reads, login, `prefer_device_login`), `startup.rs` arms, `in_process.rs` restart with an ack; page: Enter and a tap of the retry line (`Msg::Retry`) | ported; the device-code screen (`start_if_needed`, `run_gateway_device_login`) is not built: see Handover |
+| gateway_login.rs runtime: `authenticate_gateway` (server restart with the selected gateway, account read, primary login first, gateway OAuth), `GatewayOAuthRead/Login`, `needs_device_login` short circuit, URL changes (`GatewayOAuthChanged`), Enter retry, cancel on exit | core `onboarding/gateway.rs` (`Phase`: Idle, Starting, Reading, Primary, OAuth, Done; requests numbered, a stale answer dropped), `Ask::{SelectGateway, GatewayLogins, GatewayOAuth, CancelGatewayOAuth}`, `Ev::{GatewayStarted, GatewayLogins, GatewayOAuth, GatewayOAuthChanged}`, `Intent::RetryGatewayOAuth`; host `host/src/gateway.rs` (reads, login, `prefer_device_login`), `startup.rs` arms, `in_process.rs` restart with an ack; page: Enter and a tap of the retry line (`Msg::Retry`) | ported; the device-code screen: next row |
+| device_login.rs `start_if_needed`, `prefer_device_login` (with the Windows `has_http_handler`), `needs_device_login`, `handle_event_during_device_login`, `cancel`; lib.rs `run_gateway_device_login`; onboarding_screen.rs `Step::GatewayDevice`, `render_gateway_device_prompt`, the cancel keys (Esc, q, Ctrl+C, Ctrl+D) | core `onboarding/device.rs` (`Phase`: Idle, Asking, Waiting, Failed, Done; asked once after the steps and before `Ask::Launch`), `Ask::{GatewayDevice, FailLaunch, CancelGatewayOAuth}`, `Ev::{GatewayDevice, GatewayDeviceChanged}`, `Intent::Exit` cancels the attempt; `GatewayOAuthChanged` is routed to the startup page (`core/src/app.rs`, it was not before: the gateway URL change was lost too); host `gateway.rs` `start_device`, `startup.rs` arms (`explicit_provider`, `fail_launch`); page `onboarding/device.rs` (`Focus` + `bind`, the cancel line a `GestureDetector`), `Step::Device`, fixture `gateway_device_code.jsonl` | ported (the screen, the keys, the tap on the cancel line, the host effect, the Windows branch: written, not compiled here); see Deltas and Handover for what differs |
 
 ## Tests
 
@@ -125,15 +126,22 @@ included. A second script (create `Team gateway`, select it): the picker (01) eq
 selection ours restarts the server, reads the account and reaches the chat (`>_ OpenAI Codex`,
 the composer, `gpt-6.2-sol default`); the oracle does too. The chat rows differ (the
 chat page's own task: the oracle's release-notes box, the path of the temp dir, the model).
-A gateway with `gateway_oauth` was not driven in the binary (no server to sign in to): the
-sequence is the page and host tests'.
+Device code, binary run (`/tmp/gwdev`: a fake RFC 8628 server on 127.0.0.1, `SSH_CONNECTION` set,
+80x16): the oracle shows the screen every time and Esc/Ctrl+C leave it; ours reached it in one
+of 8 runs (the race above): `01_device` EQUAL with the oracle row for row, Ctrl+C leaves. Esc, q,
+the tap on the cancel line, and the success path are therefore the page, core and host tests'
+only (`tests/pages/signin_wizards.rs` `mod gateway_device`, core `tests/onboarding/device.rs`,
+host `gateway.rs` / `startup.rs`).
 
 ## Checks (final, after the last commit)
 
 - fmt; `clippy -q --workspace --all-targets -D warnings`: clean.
-- Whole `nextest run --workspace`: 1134 of 1135 pass; the one red is
-  `shell_agents::typing_a_word_asks_the_server_once` (the agents debounce on the real clock,
-  tm task `fake-loop-barrier`; fails alone too, passes sometimes; not this area).
+- Whole `nextest run --workspace`: 1272 of 1272 pass (startup-device-code run).
+- startup-device-code tests (new): core `tests/onboarding/device.rs` 8, `protocol/onboarding.rs`
+  unit tests for the device reads, host `gateway.rs` 8 and `startup.rs` 5, page
+  `signin_wizards.rs` `mod gateway_device` 7; three expectations of `onboarding/gateway.rs` and
+  the `launched()` helper of `startup.rs` follow the new ask (`GatewayDevice` is request 2,
+  `Launch` is 3).
 - Oracle shards signin, onboarding, startup_prompts under `--profile oracle`: 71 run, 62 pass,
   9 pending by design: G48 (`api_key_entry_snapshots`, startup_prompts `prompt_snapshot`),
   G49 (`narrow_picker_keeps_selected_choice_and_escape_uses_session`), G50
@@ -149,8 +157,17 @@ sequence is the page and host tests'.
 ## Deltas
 
 - The server-refusal text: gone (scoped `source.message`, above).
-- Windows `prefer_device_login` (`has_http_handler` instead of `Browser::is_available`) is not
-  carried: this port targets macOS/Linux, the Windows branch is a `cfg(windows)` of the oracle.
+- Windows `prefer_device_login` (`has_http_handler` instead of `Browser::is_available`) is
+  carried (`host/src/gateway.rs`, `windows-sys` as a Windows-only dependency of the host); it was
+  not compiled or run here (macOS host).
+- Device code, what the oracle does and ours does not: (1) `start_if_needed` for a resumed
+  thread reads that thread's provider (`thread_read`) first; the page has no resume selection
+  there, so the launch's provider is used. (2) The `--oss` `model_provider_override` is not
+  read. (3) `ServerError` carries no `data`, so the oracle's `source.data.is_none()` test of
+  the named-read refusal is the code alone. (4) A lost connection while the code is on screen
+  is asked again with the next connection (`device::lost`); the oracle ends the launch with
+  "Codex lost its connection during setup. Restart Codex to continue.". (5) A remote
+  workspace skips the sign-in (`!uses_remote_workspace`) as the oracle does.
 - The oracle's unreachable "Enter a base URL…" error after a trimmed save is skipped (the
   form never submits without the required fields; `save_names_the_field_that_is_missing`).
 - The vim-insert hint of the oracle's form is not ported.
@@ -160,13 +177,14 @@ sequence is the page and host tests'.
 
 ## Handover
 
-- The oracle's device-code sign-in (`device_login.rs` `start_if_needed`, `lib.rs`
-  `run_gateway_device_login`, `onboarding_screen.rs`): when the launch's provider is a gateway
-  that needs sign-in and a device code is the way (`prefer_device_login`: SSH, Linux without a
-  display, no browser), the oracle asks `GatewayOAuthLogin{device_auth: true}`, draws the code
-  and the URL, waits for `GatewayOAuthChanged` of that `login_id` and cancels on exit. NOT
-  built: ours skips the browser login in that case (`authenticate`'s `needs_device_login`
-  short circuit, as the oracle's `start_gateway_oauth`), so on such a machine the gateway is
-  left unsigned and no code is shown. It needs a screen of its own (a startup state, an ask,
-  the event with the `login_id`, a cancel), and runs for any launch, not only after a wizard.
-- The page and the host are one step apart on the Windows branch above.
+- The device-code sign-in is built (core, host, page; rows above). One finding for the
+  orchestrator, outside this task's area: `AppEv::Connected` starts the chat thread at once
+  (`core/src/app.rs`, `start_thread_on_connect`), while the oracle starts it after the startup
+  screens. With a gateway that needs sign-in the server's thread start opens the BROWSER login
+  (stderr "Authorize the model provider by opening this URL", the browser) before our host's
+  `GatewayOAuthLogin{device_auth}` is asked, and the device screen is then not reached. Seen in
+  the binary: of 8 runs one reached the device screen (equal to the oracle's), the others went
+  to the browser login. The fix is a gate: the thread start waits for `Ev::Launched` when the
+  host answers the startup facts (`with_awaited_facts`), one line in `src/app/mod.rs` plus a
+  deferred `Command::StartThread` in `core/src/app.rs`. Not done here: it changes when every
+  thread starts.
