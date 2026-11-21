@@ -98,3 +98,39 @@ fn the_startup_page_opens_on_the_launch_facts_and_writes_the_trust() {
     );
     h.wait_for("the chat", |s| !s.contains("Folder access"));
 }
+
+/// Oracle `trust_directory.rs` `handle_key_event`: Up goes to the first
+/// choice and Down to the last, and neither wraps. The cursor is the shared
+/// `Options` controller's, moved by `set`, not by its wrapping `step`.
+#[test]
+fn the_trust_cursor_stays_at_the_ends() {
+    let mut h = crate::common::start();
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request: 1,
+            facts: trust_facts(),
+        })),
+    );
+    h.wait_for("the trust prompt", |s| s.contains("Folder access"));
+    h.press("up");
+    h.settle();
+    assert!(h.t.screen().contains("› 1. Trust and continue"));
+    h.press("down");
+    h.press("down");
+    h.settle();
+    assert!(h.t.screen().contains("› 2. Back to Agent Command Center"));
+    h.press("down");
+    h.settle();
+    assert!(
+        h.t.screen().contains("› 2. Back to Agent Command Center"),
+        "Down on the last choice stays:\n{}",
+        h.t.screen()
+    );
+    h.press("up");
+    h.press("up");
+    h.settle();
+    assert!(h.t.screen().contains("› 1. Trust and continue"));
+}

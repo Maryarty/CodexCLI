@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, MainAxisSize, Padding,
-    SizedBox,
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, IntrinsicHeight,
+    MainAxisSize, Padding, SizedBox,
 };
 use rtwk::prelude::Mods;
 use rtwk::provider::read;
@@ -28,8 +28,12 @@ use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 use crate::pages::agents::path::center_truncate_path;
 use crate::widgets::measure;
+use crate::widgets::options::{OptionRow, OptionStyles, Options};
 
 use super::strings::{self, Strings};
+
+/// The two choices: trust, and cancel.
+const CHOICES: usize = 2;
 
 /// The trust step over the model's question.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,14 +41,10 @@ pub struct Trust {
     pub ask: TrustAsk,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Highlight {
-    Trust,
-    Cancel,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Msg {
+    /// Up and down: the cursor goes to the first or the last choice and
+    /// stays there (the oracle's `MOVE_UP` / `MOVE_DOWN` do not wrap).
     Up,
     Down,
     /// `1` or `y`: the highlight goes to trust, nothing is chosen (a
@@ -54,9 +54,10 @@ pub enum Msg {
     Confirm,
 }
 
-/// Widget state: the highlighted choice (R14).
+/// Widget state: the cursor of the two choices, the shared `Options`
+/// controller (R14).
 pub struct TrustState {
-    highlighted: Highlight,
+    options: Options,
 }
 
 impl StatefulWidget for Trust {
@@ -64,7 +65,7 @@ impl StatefulWidget for Trust {
 
     fn create_state(&self) -> TrustState {
         TrustState {
-            highlighted: Highlight::Trust,
+            options: Options::new(),
         }
     }
 }
@@ -75,30 +76,35 @@ impl State for TrustState {
     type Widget = Trust;
     type Msg = Msg;
 
+    fn dispose(&mut self) {
+        self.options.dispose();
+    }
+
     fn update(&mut self, msg: Msg, _: &Trust, cx: &mut Cx<'_, Self>) -> Rebuild {
         let intent = match msg {
             Msg::Up | Msg::First => {
-                self.highlighted = Highlight::Trust;
+                self.options.set(0);
                 None
             }
             Msg::Down => {
-                self.highlighted = Highlight::Cancel;
+                self.options.set(CHOICES - 1);
                 None
             }
             Msg::Cancel => {
-                self.highlighted = Highlight::Cancel;
+                self.options.set(CHOICES - 1);
                 Some(Intent::CancelTrust)
             }
-            Msg::Confirm => Some(match self.highlighted {
-                Highlight::Trust => Intent::Trust,
-                Highlight::Cancel => Intent::CancelTrust,
+            Msg::Confirm => Some(if self.options.cursor() == 0 {
+                Intent::Trust
+            } else {
+                Intent::CancelTrust
             }),
         };
         if let Some(intent) = intent {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Onboarding(intent));
         }
-        Rebuild::Yes
+        Rebuild::No
     }
 
     fn build(&self, w: &Trust, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -114,24 +120,31 @@ impl State for TrustState {
             error: tokens.error(),
         };
         let ask = Rc::new(w.ask.clone());
-        let options: [String; 2] = [
-            strings.numbered(1, first_choice(strings, &ask), &num),
-            strings.numbered(2, cancel_choice(strings, ask.cancel), &num),
-        ];
+        let rows: Rc<Vec<OptionRow>> = Rc::new(
+            [
+                strings.numbered(1, first_choice(strings, &ask), &num),
+                strings.numbered(2, cancel_choice(strings, ask.cancel), &num),
+            ]
+            .into_iter()
+            .map(|label| OptionRow {
+                label,
+                description: None,
+            })
+            .collect(),
+        );
+        let options = self.options.clone();
         let error = ask
             .error
             .as_deref()
             .map(|message| strings.trust_failed(&ask.target, message, &num));
-        let highlighted = self.highlighted;
         let panel = LayoutBuilder::new(move |cx, constraints| {
             panel(
                 cx,
                 strings,
                 &look,
                 &ask,
-                &options,
+                choices(&options, &rows, &look),
                 error.as_deref(),
-                highlighted,
                 constraints.max_width,
                 constraints.max_height,
             )
@@ -205,6 +218,26 @@ fn gap() -> AnyWidget {
     .into()
 }
 
+/// The two choices, as tall as they are (`IntrinsicHeight` over the
+/// `Options` rows, which would take all the room they are given).
+fn choices(options: &Options, rows: &Rc<Vec<OptionRow>>, look: &Look) -> AnyWidget {
+    IntrinsicHeight::new(
+        Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(options.view(
+                rows.clone(),
+                OptionStyles {
+                    cursor: look.selected.clone(),
+                    label: Style::new(),
+                    description: Style::new(),
+                },
+                0,
+            )),
+    )
+    .into()
+}
+
 /// A paragraph two cells in from each side.
 fn inset(child: impl Into<AnyWidget>) -> AnyWidget {
     Padding::new(EdgeInsets::symmetric(2, 0), child.into()).into()
@@ -216,9 +249,8 @@ fn panel(
     strings: &'static Strings,
     look: &Look,
     ask: &TrustAsk,
-    options: &[String; 2],
+    choices: AnyWidget,
     error: Option<&str>,
-    highlighted: Highlight,
     width: i32,
     height: i32,
 ) -> AnyWidget {
@@ -293,14 +325,7 @@ fn panel(
     column = column
         .child(inset(Text::new(disclosure(strings, ask))))
         .child(gap());
-    for (option, choice) in options.iter().zip([Highlight::Trust, Highlight::Cancel]) {
-        let (mark, style) = if choice == highlighted {
-            (strings.cursor_mark, look.selected.clone())
-        } else {
-            (strings.other_mark, Style::new())
-        };
-        column = column.child(Text::new([mark, option.as_str()].concat()).style(style));
-    }
+    column = column.child(choices);
     column = column.child(gap());
     if let Some(error) = error {
         column = column
