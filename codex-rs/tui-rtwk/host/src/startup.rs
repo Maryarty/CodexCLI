@@ -1230,4 +1230,155 @@ mod tests {
             Some(UpdateAction::NpmGlobalLatest)
         );
     }
+
+    /// Answers every restart of the server as the pump does once the new
+    /// handle is the app's: the provider it was started for, then the ack.
+    fn restarting() -> (
+        tokio::sync::mpsc::UnboundedSender<Restart>,
+        tokio::task::JoinHandle<Vec<String>>,
+    ) {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Restart>();
+        let seen = tokio::spawn(async move {
+            let mut providers = Vec::new();
+            while let Some(restart) = rx.recv().await {
+                providers.push(restart.config.model_provider_id.clone());
+                if let Some(done) = restart.done {
+                    let _ = done.send(());
+                }
+            }
+            providers
+        });
+        (tx, seen)
+    }
+
+    // `lib.rs` after `selected_gateway`: the config is read again, it must
+    // select the gateway, the server restarts with it, and the page learns of
+    // it only after the restart is acknowledged.
+    #[tokio::test]
+    async fn a_selected_gateway_restarts_the_server_and_is_answered_after_the_ack() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let config = (*startup.config).clone();
+        let id = config.model_provider_id.clone();
+        startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
+        let (restart, seen) = restarting();
+        startup.restart = restart;
+        let ev = run(
+            startup,
+            Ask::SelectGateway {
+                request: 4,
+                provider_id: id.clone(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayStarted {
+                request: 4
+            })))
+        ));
+        assert_eq!(seen.await.expect("the receiver"), [id]);
+    }
+
+    // The reloaded config must select that gateway: another provider ends
+    // the start (the oracle's `bail!`), and no server is restarted.
+    #[tokio::test]
+    async fn a_reload_that_selects_another_provider_fails_the_start() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let config = (*startup.config).clone();
+        startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
+        let failure = startup.failure.clone();
+        let (restart, seen) = restarting();
+        startup.restart = restart;
+        let ev = run(
+            startup,
+            Ask::SelectGateway {
+                request: 1,
+                provider_id: "office".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        let Some(AppEv::StartFailed(text)) = ev else {
+            panic!("the start fails: {ev:?}");
+        };
+        assert!(text.ends_with("instead of office."), "{text}");
+        assert_eq!(failure.lock().unwrap().as_deref(), Some(text.as_str()));
+        assert!(seen.await.expect("the receiver").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_reload_that_fails_ends_the_gateway_start_with_its_error() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = run(
+            startup,
+            Ask::SelectGateway {
+                request: 1,
+                provider_id: "office".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(
+            matches!(ev, Some(AppEv::StartFailed(ref text)) if text == "Error loading configuration: no reload"),
+            "{ev:?}"
+        );
+    }
+
+    // `start_gateway_oauth`'s answer reaches the page as its result, and the
+    // cancel on exit asks the server and answers nothing.
+    #[tokio::test]
+    async fn the_gateway_login_is_answered_and_its_cancel_answers_nothing() {
+        let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = {
+            let asked = asked.clone();
+            move |request: ClientRequest| {
+                let asked = asked.clone();
+                async move {
+                    asked.lock().unwrap().push(request.method_name());
+                    Ok::<_, ServerError>(serde_json::json!({
+                        "providerId": "office",
+                        "providerName": "Office",
+                        "required": false,
+                        "supportsDeviceAuth": false,
+                        "status": null,
+                        "error": null,
+                    }))
+                }
+            }
+        };
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = run(
+            startup.clone(),
+            Ask::GatewayOAuth {
+                request: 5,
+                provider_id: "office".into(),
+            },
+            Ids::default(),
+            record.clone(),
+        )
+        .await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayOAuth {
+                request: 5,
+                result: Ok(())
+            })))
+        ));
+        let ev = run(
+            startup,
+            Ask::CancelGatewayOAuth,
+            Ids::default(),
+            record,
+        )
+        .await;
+        assert!(ev.is_none());
+        assert_eq!(
+            *asked.lock().unwrap(),
+            ["account/gatewayOAuth/read", "account/gatewayOAuth/cancel"]
+        );
+    }
 }
