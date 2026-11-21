@@ -114,6 +114,10 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     if let Ok(message) = failed_rx.try_recv() {
         anyhow::bail!(message);
     }
+    // A launch fact that could not be read ends the process the same way.
+    if let Some(message) = startup_failure.lock().ok().and_then(|mut slot| slot.take()) {
+        anyhow::bail!(message);
+    }
     let chosen = update.lock().ok().and_then(|mut slot| slot.take());
     if let Some(action) = chosen {
         codex_tui_rtwk::services::startup::run_update(action).map_err(anyhow::Error::msg)?;

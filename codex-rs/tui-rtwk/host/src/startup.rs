@@ -33,6 +33,7 @@ use codex_login::read_openai_api_key_from_env;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::protocol::onboarding as wire;
+use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Providers};
@@ -115,9 +116,16 @@ where
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     let ev = match ask {
-        Ask::Facts { request } => Ev::Facts {
-            request,
-            facts: facts(&startup, &ids, &send).await,
+        Ask::Facts { request } => match facts(&startup, &ids, &send).await {
+            Ok(facts) => Ev::Facts { request, facts },
+            Err(message) => {
+                // The launch ends with the error, as the oracle's does: the
+                // slot first, so `main` finds it once the app has ended.
+                if let Ok(mut slot) = startup.failure.lock() {
+                    *slot = Some(message.clone());
+                }
+                return Some(AppEv::StartFailed(message));
+            }
         },
         Ask::WriteTrust { request, target } => {
             let (key, context) = if startup.connected {
@@ -181,8 +189,8 @@ where
     Some(AppEv::Screen(ScreenEv::Onboarding(ev)))
 }
 
-/// The launch facts.
-async fn facts<F, Fut>(startup: &Startup, ids: &Ids, send: &F) -> Facts
+/// The launch facts; the error text of one that could not be read.
+async fn facts<F, Fut>(startup: &Startup, ids: &Ids, send: &F) -> Result<Facts, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
@@ -196,23 +204,29 @@ where
         let command = update_action(InstallContext::current()).map(UpdateAction::command_str);
         wire::update_offer(env!("CARGO_PKG_VERSION"), cache.as_ref(), command)
     };
-    let sign_in = match send(wire::account_read(ids.next())).await {
-        Ok(result) => wire::sign_in_offer(result, login_policy(startup)).unwrap_or(None),
-        Err(_) => None,
-    };
+    // `get_login_status`: a failed read ends the launch.
+    let account = send(wire::account_read(ids.next()))
+        .await
+        .map_err(|error| format!("account/read failed: {error}"))?;
+    let sign_in = wire::sign_in_offer(account, login_policy(startup)).map_err(|error| {
+        let (RpcError::Remote(text) | RpcError::Malformed(text)) = &error else {
+            return "account/read failed".to_owned();
+        };
+        format!("account/read failed: {text}")
+    })?;
     let trust = if startup.check_trust {
-        trust(config, ids, send).await
+        trust(config, ids, send).await?
     } else {
         None
     };
-    Facts {
+    Ok(Facts {
         update,
         welcome: Some(Welcome {
             animations: config.animations && config.tui_effects.welcome,
         }),
         sign_in,
         trust,
-    }
+    })
 }
 
 /// The S03 provider wizards exist (the `providers` task builds them). Until
@@ -266,23 +280,32 @@ fn provider_flag(startup: &Startup) -> bool {
 
 /// The folder trust to ask at launch (`check_directory_trust` with its
 /// defaults: no resumed task, the agents overview as the cancel).
-async fn trust<F, Fut>(config: &Config, ids: &Ids, send: &F) -> Option<TrustAsk>
+async fn trust<F, Fut>(config: &Config, ids: &Ids, send: &F) -> Result<Option<TrustAsk>, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
 {
     let cwd = config.cwd.as_path();
-    let cwd_text = cwd.to_str()?.to_owned();
-    let response = send(wire::trust_read(&cwd_text, ids.next())).await.ok()?;
-    let roots = local_roots(&config.cwd, &response).await;
-    let lookup = wire::trust_lookup(
+    let cwd_text = cwd
+        .to_str()
+        .ok_or("Cannot check folder trust: directory path is not valid UTF-8")?
+        .to_owned();
+    let response = send(wire::trust_read(&cwd_text, ids.next()))
+        .await
+        .map_err(|error| {
+            format!("config/read failed while checking remote project trust: {error}")
+        })?;
+    let roots = local_roots(&config.cwd, &response).await?;
+    let Some(lookup) = wire::trust_lookup(
         &response,
         &cwd_text,
         &normalized_project_trust_keys(cwd),
         roots.as_ref(),
         cfg!(windows),
-    )?;
-    Some(TrustAsk {
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(TrustAsk {
         cwd: lookup.cwd,
         target: lookup.target,
         restricted: lookup.restricted,
@@ -291,33 +314,44 @@ where
         sandbox_hint: false,
         error: None,
         decision: None,
-    })
+    }))
 }
 
-/// The project and repository roots of `cwd` on this machine.
+/// The project and repository roots of `cwd` on this machine: read only
+/// where `config/read` found no project layer, as the oracle does, and a
+/// read that fails is an error.
 async fn local_roots(
     cwd: &AbsolutePathBuf,
     response: &serde_json::Value,
-) -> Option<wire::LocalRoots> {
+) -> Result<Option<wire::LocalRoots>, String> {
+    let has_project_layer = response["layers"].as_array().is_some_and(|layers| {
+        layers
+            .iter()
+            .any(|layer| layer["name"]["type"] == "project")
+    });
+    if has_project_layer {
+        return Ok(None);
+    }
     let markers = serde_json::from_value::<Option<Vec<String>>>(
         response["config"]["project_root_markers"].clone(),
     )
-    .ok()
-    .flatten()
+    .map_err(|error| error.to_string())?
     .unwrap_or_else(default_project_root_markers);
     let fs = LOCAL_FS.as_ref();
-    let project_root = discover_project_root(fs, cwd, &markers).await.ok()?;
+    let project_root = discover_project_root(fs, cwd, &markers)
+        .await
+        .map_err(|error| error.to_string())?;
     let git_root = resolve_root_git_project_for_trust(fs, cwd).await;
     let projectless = project_root.is_none()
         && discover_project_root(fs, cwd, &default_project_root_markers())
             .await
-            .ok()?
+            .map_err(|error| error.to_string())?
             .is_none();
-    Some(wire::LocalRoots {
+    Ok(Some(wire::LocalRoots {
         project_root: normalized_project_trust_keys(project_root.as_ref().unwrap_or(cwd).as_path()),
         git_root: git_root.map(|root| normalized_project_trust_keys(root.as_path())),
         projectless,
-    })
+    }))
 }
 
 /// `updates_cache.rs::version_filepath`.
