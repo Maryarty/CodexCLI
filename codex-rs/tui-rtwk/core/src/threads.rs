@@ -7,9 +7,11 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
+mod cells;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
+pub use cells::{Notice, PatchActivity, PatchChange, PatchKind, WebAction, WebActivity};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
@@ -64,8 +66,26 @@ pub struct ItemKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     User(UserPrompt),
-    Agent { text: String },
+    Agent {
+        text: String,
+    },
     Tool(Arc<ToolActivity>),
+    /// The model's reasoning summary; shown only in the detailed transcript
+    /// (oracle `ReasoningSummaryCell::transcript_only`).
+    Reasoning {
+        summary: String,
+    },
+    Patch(Arc<PatchActivity>),
+    Plan {
+        text: String,
+    },
+    Web(WebActivity),
+    /// A viewed image: its path and the file name the main view shows.
+    ImageView {
+        path: String,
+        name: String,
+    },
+    Notice(Notice),
 }
 
 impl Item {
@@ -246,7 +266,7 @@ impl Transcript {
                 let (item, committed) = match self.items.get(entry.key()) {
                     Some(item) => match item.as_ref() {
                         Item::Agent { text } => (item.clone(), text.len()),
-                        Item::User(_) | Item::Tool(_) => return,
+                        _ => return,
                     },
                     None => {
                         Rc::make_mut(&mut self.order).push(entry.key().clone());
@@ -1018,13 +1038,14 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 message: n.error.message.clone(),
             },
         )),
-        ServerNotification::ItemStarted(n) => {
-            item_upsert(&n.thread_id, &n.turn_id, &n.item).map(|(thread, ev)| match ev {
+        ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)
+            .map(|(thread, ev)| match ev {
                 ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),
                 _ => (thread, ev),
-            })
+            }),
+        ServerNotification::ItemCompleted(n) => {
+            item_upsert(&n.thread_id, &n.turn_id, &n.item, true)
         }
-        ServerNotification::ItemCompleted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item),
         ServerNotification::AgentMessageDelta(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::AgentDelta {
@@ -1062,7 +1083,11 @@ fn turn_end(status: &TurnStatus) -> Option<TurnEnd> {
 }
 
 fn turn_snapshot(turn: &codex_app_server_protocol::Turn) -> Option<TurnSnapshot> {
-    let items = || turn.item_payloads().filter_map(item_entry).collect();
+    let items = || {
+        turn.item_payloads()
+            .filter_map(|payload| item_entry(payload, true))
+            .collect()
+    };
     match turn.items_view {
         TurnItemsView::Full => Some(TurnSnapshot::Full(items())),
         TurnItemsView::Summary => Some(TurnSnapshot::Summary(items())),
@@ -1089,7 +1114,7 @@ pub fn history_page(turns: &[codex_app_server_protocol::Turn], next: Option<Stri
     ThreadEv::HistoryPage { turns, next }
 }
 
-fn item_entry(payload: &ThreadItemPayload) -> Option<(ItemId, Item)> {
+fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, Item)> {
     Some(match payload {
         ThreadItemPayload::UserMessage { id, content, .. } => {
             (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
@@ -1098,13 +1123,20 @@ fn item_entry(payload: &ThreadItemPayload) -> Option<(ItemId, Item)> {
             (ItemId::new(id), Item::Agent { text: text.clone() })
         }
         _ => {
-            return activity::tool(payload).map(|(id, tool)| (id, Item::Tool(Arc::new(tool))));
+            return activity::tool(payload)
+                .map(|(id, tool)| (id, Item::Tool(Arc::new(tool))))
+                .or_else(|| cells::entry(payload, completed));
         }
     })
 }
 
-fn item_upsert(thread: &str, turn: &str, item: &ThreadItem) -> Option<(ThreadId, ThreadEv)> {
-    let (id, entry) = item_entry(&item.payload)?;
+fn item_upsert(
+    thread: &str,
+    turn: &str,
+    item: &ThreadItem,
+    completed: bool,
+) -> Option<(ThreadId, ThreadEv)> {
+    let (id, entry) = item_entry(&item.payload, completed)?;
     Some((
         ThreadId::new(thread),
         ThreadEv::ItemUpsert {

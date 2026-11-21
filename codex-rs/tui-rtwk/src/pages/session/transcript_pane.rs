@@ -22,6 +22,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 
+use super::cells::strings as cells_strings;
 use super::strings as chat_strings;
 
 #[derive(Clone, PartialEq)]
@@ -34,23 +35,31 @@ pub(super) struct ViewportState {
 struct RowLayout {
     thread: ThreadId,
     revision: u64,
+    detailed: bool,
     rows: Rc<[Range<usize>]>,
 }
 
 impl ViewportState {
-    fn rows(&self, thread: &ThreadModel) -> Rc<[Range<usize>]> {
+    /// The visible rows: runs of explorations share one, and the reasoning
+    /// summary shows only in the detailed transcript (oracle
+    /// `ReasoningSummaryCell::transcript_only`).
+    fn rows(&self, thread: &ThreadModel, detailed: bool) -> Rc<[Range<usize>]> {
         let mut cache = self.layout.borrow_mut();
         let transcript = thread.transcript();
         let revision = transcript.layout_revision();
         if let Some(layout) = cache.as_ref()
             && layout.thread == *thread.id()
             && layout.revision == revision
+            && layout.detailed == detailed
         {
             return layout.rows.clone();
         }
         let mut rows: Vec<Range<usize>> = Vec::new();
         let mut exploration = None;
         for (index, (key, item)) in transcript.iter().enumerate() {
+            if !detailed && matches!(item, Item::Reasoning { .. }) {
+                continue;
+            }
             let turn = item.is_exploration().then_some(&key.turn);
             if turn.is_some()
                 && turn == exploration
@@ -66,6 +75,7 @@ impl ViewportState {
         *cache = Some(RowLayout {
             thread: thread.id().clone(),
             revision,
+            detailed,
             rows: rows.clone(),
         });
         rows
@@ -114,11 +124,13 @@ impl State for ViewportState {
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
-        let rows = self.rows(&thread);
+        let detailed = widget.1;
+        let rows = self.rows(&thread, detailed);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
-        let detailed = widget.1;
+        let cells = cells_strings::of(cx);
+        let cwd = cwd.map(str::to_owned);
         let list = ListView::builder(count, move |index| {
             let index = if reverse { count - 1 - index } else { index };
             if index == 0
@@ -190,6 +202,41 @@ impl State for ViewportState {
                     },
                 )
                 .into(),
+                Item::Patch(activity) => cell(
+                    separator,
+                    super::cells::patch::PatchCell {
+                        activity: activity.clone(),
+                        cwd: cwd.clone(),
+                        detailed,
+                    }
+                    .into(),
+                ),
+                Item::Web(activity) => cell(
+                    separator,
+                    super::cells::summary::web(activity, &tokens, cells),
+                ),
+                Item::ImageView { name, .. } => cell(
+                    separator,
+                    super::cells::summary::viewed_image(name, &tokens, cells),
+                ),
+                Item::Notice(notice) => cell(
+                    separator,
+                    super::cells::summary::notice(notice, &tokens, cells),
+                ),
+                Item::Plan { text } => cell(
+                    separator,
+                    super::cells::plan::proposed_plan(
+                        text,
+                        prompt_surface.clone(),
+                        &markdown,
+                        &tokens,
+                        cells,
+                    ),
+                ),
+                Item::Reasoning { summary } => cell(
+                    separator,
+                    super::cells::plan::reasoning(summary, &markdown, &tokens, cells),
+                ),
             };
             let row = if let Some(timing) = transcript.timing_after(range.end - 1) {
                 Column::new()
@@ -228,3 +275,10 @@ impl State for ViewportState {
 }
 
 impl_widget!(stateful eq TranscriptPane);
+
+/// A cell below the one before it, a blank row between them; it takes the
+/// whole width (only the agent's answer keeps a column free, oracle
+/// messages.rs `right_reserve = 1`).
+fn cell(separator: bool, child: AnyWidget) -> AnyWidget {
+    Padding::new(EdgeInsets::only(0, i32::from(separator), 0, 0), child).into()
+}
