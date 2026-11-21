@@ -33,7 +33,7 @@ Shard `onboarding`: `tests/oracle/onboarding.rs`, run with `--profile oracle -E
 | trust_directory.rs:456 long_paths_keep_disclosure_and_choices_visible | shard, pending(G51): snaps long_checkout_40x13, long_repository_root_40x17, only_repository_root_fits_40x16 | pending | rtwk `RenderFlex` hands the remainder to the first flexible children, the oracle's `FlexRenderable` shortens the paths first (gap G51, `rtwk-gaps.md`) | |
 | welcome.rs:166 welcome_renders_animation_on_first_draw | shard, same name | yes | | |
 | welcome.rs:184 welcome_skips_animation_below_height_breakpoint | shard, same name | yes | | |
-| welcome.rs:199 welcome_logo_layout (160x48) | shard, pending | pending | the test kit reads entries 100 ms in, but the oracle reads the logo's first frame; a kit seed is needed (kit owner) | |
+| welcome.rs:199 welcome_logo_layout (160x48) | shard, `Open::first_frame()` (the Enter that opens the entry runs one frame) | yes | | |
 | update_prompt.rs:294 update_prompt_snapshot | snap update_prompt_modal | yes | | |
 | update_prompt.rs:305 update_prompt_confirm_selects_update | core test, same name; the shard keeps the prompt up until the host stores the update | yes | screen part na: the choice is an outcome; the page leaves only after `UpdateQueued` (delta 5) | |
 | update_prompt.rs:313 update_prompt_dismiss_option_leaves_prompt_in_normal_state | core test, same name | yes | same | |
@@ -42,7 +42,19 @@ Shard `onboarding`: `tests/oracle/onboarding.rs`, run with `--profile oracle -E
 | update_prompt.rs:340 update_prompt_navigation_wraps_between_entries | shard, same name | yes | | |
 | update_prompt.rs:349 long_update_command_keeps_selected_skip_visible_in_a_short_viewport | snap update_picker_selected_28x12 | yes | | |
 
-Snapshots: 9 green, 2 pending (welcome_logo_layout, long_paths_keep_disclosure_and_choices_visible: G51).
+Snapshots: 10 green, 1 pending (long_paths_keep_disclosure_and_choices_visible: G51).
+
+Launch order (startup-finish): once the steps are over the page asks the host for the launch's
+prompts (`Ask::Launch`, after `Ask::ReloadConfig` when the trust was written or a sign-in ran;
+the host reads them under the reloaded config); the gate keeps the home empty until they are
+known, the page shows them (`Step::Prompts`), and a command-line start page (`--agents`,
+`resume`) mounts only after the page popped (`StartupGate::holds_child`, `route_then`). A
+provider change on the reload restarts the embedded server (host `in_process.rs`). Tests:
+core `a_launch_with_no_step_due_asks_for_its_startup_prompts`,
+`launched_prompts_keep_the_page_due_until_asked`, `a_launch_ask_lost_with_the_connection_is_asked_again`,
+`the_launch_waits_for_the_steps_and_skips_a_launch_that_ends`,
+`a_confirmed_trust_write_asks_for_the_config_reload`; screens `startup::gate::*`
+(`a_launch_prompt_is_drawn_without_a_chat_frame_before_it`, `a_start_page_waits_for_the_startup_page`).
 
 Own tests:
 - core: steps_run_in_the_oracle_order, launch_facts_are_asked_once_and_stale_answers_dropped, update_choices_ask_the_host, exit_ends_every_step and seeds_read_the_fixture_forms;

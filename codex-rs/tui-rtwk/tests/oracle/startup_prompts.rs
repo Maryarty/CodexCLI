@@ -133,7 +133,7 @@ fn cwd_prompt_remembered_choices_select_and_persist_matching_directory() {
 fn cwd_prompt_persistence_failure_snapshot() {
     kit::pending(
         Owner::StartupPrompts,
-        "no entry for the history line `Failed to save working directory preference.`: the host inserts it into the scrollback after the prompt closes (its config write is not built in this slice)",
+        "no entry for the history line `Failed to save working directory preference.`: the cwd prompt is not a launch prompt of the rtwk binary yet (it has no resume or fork by id, the oracle's `resolve_cwd_for_resume_or_fork`), so its config write and the history line of a failed one have no caller; they come with the resume flow's cwd step",
     );
     let s = Screen::build(Owner::StartupPrompts)
         .size(100, 1)

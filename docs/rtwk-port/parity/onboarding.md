@@ -93,7 +93,7 @@ Each test below was seen failing on broken code, which was then restored:
 
 ## Mouse (startup-mouse task, ADR-011)
 
-The oracle has no mouse; the port's contract is held by `tests/pages/startup_mouse.rs` (17 tests, own test binary, kit mouse events on the oracle's debug entries). With the mouse unused every screen equals the oracle (the signin, onboarding and startup_prompts shards stay green).
+The oracle has no mouse; the port's contract is held by `tests/pages/startup_mouse.rs` (28 tests, own test binary, kit mouse events on the oracle's debug entries; startup-finish added the trust step, the import source and review, the hooks, unarchive and daemon prompts, so every startup view has a mouse test). With the mouse unused every screen equals the oracle (the signin, onboarding and startup_prompts shards stay green).
 
 - **`Options` takes the mouse itself** (`src/widgets/options.rs`): a tap selects the row, a tap on the selected row (so also a double tap) calls the caller's `on_accept(row)` (Enter's action), `on_move(row)` tells the caller where a tap moved the cursor (the OSS description follows it), the wheel scrolls through the `ScrollController`. Cursor and scroll stay in the controllers.
 - **Sign-in menu (S02) is Options rows** (`Options::view_stacked`, `StackedRow`, `Stacked`): description under the label, a gap after each row, compact (labels only) when the pane is short; the hand lines, `rows_of` re-measuring and the compact splice are gone. Disabled rows take no tap.

@@ -240,16 +240,21 @@ fn trust_a_click_selects_the_row() {
 
 #[test]
 fn trust_a_click_on_the_selected_row_accepts_it() {
+    // The fixture writes no trust (no host answers it): the accepted row is
+    // `2. Quit`, which closes the page as Enter on it does
+    // (`trust_directory.rs` `release_event_does_not_change_selection`).
     let mut s = onboarding("trust_git_repo", 80, 20);
-    s.click_text("1. Trust and continue");
-    s.assert_absent("Trust and continue");
+    s.click_text("2. Quit");
+    s.assert_contains("Folder access");
+    s.click_text("2. Quit");
+    s.assert_absent("Folder access");
 }
 
 #[test]
 fn trust_a_double_click_accepts_the_row() {
     let mut s = onboarding("trust_git_repo", 80, 20);
-    s.double_click_text("1. Trust and continue");
-    s.assert_absent("Trust and continue");
+    s.double_click_text("2. Quit");
+    s.assert_absent("Folder access");
 }
 
 // ---- the import (S06): the source picker and the review ----

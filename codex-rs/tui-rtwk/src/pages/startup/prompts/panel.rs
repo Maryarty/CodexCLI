@@ -54,8 +54,9 @@ pub enum Msg {
 /// Widget state: the cursor and the scroll of the choices (R14).
 pub struct PanelState {
     options: Options,
-    /// The prompt the cursor was placed for: a new prompt places it again.
-    placed: Option<Prompt>,
+    /// The prompt the cursor was placed for, by the number of answers before
+    /// it: a new prompt (after an answer) places it again.
+    placed: Option<usize>,
 }
 
 impl StatefulWidget for Panel {
@@ -85,14 +86,11 @@ impl State for PanelState {
         };
         // The same prompt with a new trust state (the hooks review writing)
         // keeps its cursor; another prompt starts on its first row.
-        let same = self
-            .placed
-            .as_ref()
-            .is_some_and(|p| std::mem::discriminant(p) == std::mem::discriminant(&prompt));
-        if !same {
+        let answered = read::<ScreenStates, _>(cx).startup.answers.len();
+        if self.placed != Some(answered) {
             self.options.set(prompt.initial_cursor());
         }
-        self.placed = Some(prompt);
+        self.placed = Some(answered);
     }
 
     fn dispose(&mut self) {

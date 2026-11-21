@@ -311,7 +311,7 @@ mod tests {
             environment_id: None,
             display_order: 0,
             enabled: false,
-            current_hash: format!("sha256:{key}"),
+            current_hash: ["sha256:", key].concat(),
             trust_status,
         }
     }
