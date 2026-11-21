@@ -11,7 +11,6 @@ const NO_FOOTER: &str = "the composer footer modes are not built: no key or seed
 const NO_FLASH: &str = "no seed for a footer flash or footer hint override: nothing sets the composer footer hint (`K label`) or a timed flash (`FLASH`), and the footer row does not show them";
 const NO_VIM: &str = "vim mode is not built: no seed or key turns the composer's vim draft on, so the `Vim: Insert` / `Vim: Normal` / `Vim: Replace` footer label is not drawn";
 const NO_SHELL: &str = "shell mode is not built: a leading `!` does not switch the composer to shell mode, so the `Shell mode` footer label and the shell prompt are not drawn";
-const NO_PASTE: &str = "large paste folding is not built: a paste over 1000 chars does not show as the `[Pasted Content N chars]` placeholder in the composer";
 const NO_SKILLS: &str = "no seed for skill mentions: the chat screen has no skill catalog (set_skill_mentions), so no `$` skill popup, no bound skill mentions and no skill rows are drawn";
 const NO_PLUGINS: &str = "no seed for plugin mentions: the chat screen has no plugin catalog (set_plugin_mentions with mentions v2), so no `@` plugin popup and no plugin accent are drawn";
 const NO_FILES: &str = "no seed for file search: the chat screen has no file index, so the `@` file popup has no rows; the skill catalog these tests set is not built either";
@@ -398,7 +397,6 @@ fn shell_command_can_be_typed_after_vim_normal_bang() {
 // ORACLE bottom_pane/chat_composer.rs:6342 clear_for_ctrl_c_preserves_pending_paste_history_entry kind=ui owner=chat-live
 #[test]
 fn clear_for_ctrl_c_preserves_pending_paste_history_entry() {
-    kit::pending(Owner::ChatLive, NO_PASTE);
     // The oracle pastes 1005 chars: the draft shows the placeholder; Ctrl+C clears it; Up
     // recalls the entry with the placeholder again.
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
@@ -413,7 +411,6 @@ fn clear_for_ctrl_c_preserves_pending_paste_history_entry() {
 // ORACLE bottom_pane/chat_composer.rs:6414 large_paste_numbering_reuses_after_ctrl_c_clear kind=ui owner=chat-live
 #[test]
 fn large_paste_numbering_reuses_after_ctrl_c_clear() {
-    kit::pending(Owner::ChatLive, NO_PASTE);
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
     s.paste(&"x".repeat(1004));
     s.assert_has_row("› [Pasted Content 1004 chars]");

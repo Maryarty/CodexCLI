@@ -19,11 +19,12 @@ const URL_LONG: &str = "https://example.test/alpha/beta/gamma/delta/epsilon";
 /// The oracle's maximum draft length (codex-protocol user_input.rs:11).
 const MAX_USER_INPUT_TEXT_CHARS: usize = 1 << 20;
 
-/// A draft pasted into the composer of a live chat, `width` by `height` cells.
+/// A draft pasted into the composer's text area alone (the oracle's bare
+/// `TextArea` at the test's rect), `width` by `height` cells.
 fn draft(width: u16, height: u16, text: &str) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(width, height)
-        .live()
+        .entry("composer", "textarea")
         .open();
     s.paste(text);
     s

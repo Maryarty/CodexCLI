@@ -313,16 +313,14 @@ fn empty_enter_returns_none() {
 // ORACLE bottom_pane/chat_composer.rs:9116 handle_paste_large_uses_placeholder_and_replaces_on_submit kind=ui owner=chat-live
 #[test]
 fn handle_paste_large_uses_placeholder_and_replaces_on_submit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: a paste over 1000 chars is inserted in full, not as `[Pasted Content N chars]`",
-    );
     let mut s = ready(100, 24);
     s.paste(&"x".repeat(1010));
     let p = prompt(&s);
     s.assert_row(p, "› [Pasted Content 1010 chars]");
     s.keys("enter");
     s.assert_absent("[Pasted Content");
+    // oracle: the submitted text is the paste itself
+    s.assert_contains(&"x".repeat(90));
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9150 submit_at_character_limit_succeeds kind=ui owner=chat-live
@@ -372,10 +370,6 @@ fn oversized_queued_submission_reports_error_and_restores_draft() {
 // ORACLE bottom_pane/chat_composer.rs:9264 edit_clears_pending_paste kind=ui owner=chat-live
 #[test]
 fn edit_clears_pending_paste() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: the paste is inserted in full, so the Backspace that removes a placeholder has nothing to clear",
-    );
     let mut s = ready(100, 24);
     s.paste(&"y".repeat(1001));
     let p = prompt(&s);

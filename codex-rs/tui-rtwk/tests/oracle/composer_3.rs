@@ -111,10 +111,6 @@ fn dismissed_file_popup_ignores_token_substrings_in_leading_paste() {
 // ORACLE bottom_pane/chat_composer.rs:10642 test_multiple_pastes_submission kind=ui owner=chat-live
 #[test]
 fn test_multiple_pastes_submission() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: pastes over 1000 chars draw '[Pasted Content N chars]' and expand to their text on submit",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1003));
     s.paste(" and ");
@@ -130,10 +126,6 @@ fn test_multiple_pastes_submission() {
 // ORACLE bottom_pane/chat_composer.rs:10721 test_placeholder_deletion kind=ui owner=chat-live
 #[test]
 fn test_placeholder_deletion() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: Backspace at the end of a placeholder removes it and its paste",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"a".repeat(1005));
     s.paste(" and ");
@@ -142,8 +134,10 @@ fn test_placeholder_deletion() {
         prompt(&s),
         "› [Pasted Content 1005 chars] and [Pasted Content 1006 chars]",
     );
-    // oracle: the cursor right after the first placeholder (27 chars in from the start), Backspace
-    s.keys(&times("left", 32));
+    // oracle: the cursor right after the first placeholder, Backspace. Left
+    // steps over a placeholder whole (`prev_atomic_boundary`): one Left
+    // over the second, five over " and ".
+    s.keys(&times("left", 6));
     s.keys("backspace");
     s.assert_row(prompt(&s), "›  and [Pasted Content 1006 chars]");
     // oracle: the cursor to the end, Backspace removes the second placeholder
@@ -154,10 +148,6 @@ fn test_placeholder_deletion() {
 // ORACLE bottom_pane/chat_composer.rs:10798 deleting_duplicate_length_pastes_removes_only_target kind=ui owner=chat-live
 #[test]
 fn deleting_duplicate_length_pastes_removes_only_target() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: two pastes of the same length get '#2' and Backspace at the end removes only the second",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1004));
     s.paste(&"x".repeat(1004));
@@ -172,15 +162,12 @@ fn deleting_duplicate_length_pastes_removes_only_target() {
 // ORACLE bottom_pane/chat_composer.rs:10840 large_paste_numbering_continues_with_same_length_placeholder kind=ui owner=chat-live
 #[test]
 fn large_paste_numbering_continues_with_same_length_placeholder() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: a same-length placeholder keeps its '#2' and a new paste gets '#3'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1004));
     s.paste(&"x".repeat(1004));
-    // oracle: the cursor after the first placeholder, Backspace removes it
-    s.keys(&times("left", 30));
+    // oracle: the cursor after the first placeholder, Backspace removes it;
+    // one Left steps over the second placeholder whole
+    s.keys("left");
     s.keys("backspace");
     s.assert_row(prompt(&s), "› [Pasted Content 1004 chars] #2");
     s.keys("end");
@@ -194,10 +181,6 @@ fn large_paste_numbering_continues_with_same_length_placeholder() {
 // ORACLE bottom_pane/chat_composer.rs:10885 large_paste_numbering_reuses_after_all_deleted kind=ui owner=chat-live
 #[test]
 fn large_paste_numbering_reuses_after_all_deleted() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: once every placeholder is deleted, the next paste is numbered from the base label",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1004));
     s.assert_row(prompt(&s), "› [Pasted Content 1004 chars]");
@@ -210,21 +193,23 @@ fn large_paste_numbering_reuses_after_all_deleted() {
 // ORACLE bottom_pane/chat_composer.rs:10922 test_partial_placeholder_deletion kind=ui owner=chat-live
 #[test]
 fn test_partial_placeholder_deletion() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: Backspace inside a placeholder breaks it, so its text no longer shows the placeholder",
-    );
     // oracle case 1: the cursor 5 chars before the placeholder's end, Backspace
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1004));
-    s.keys(&times("left", 5));
+    // the oracle's `set_cursor` inside the placeholder snaps to its nearer
+    // end; a click there is the screen's way to put the caret inside it
+    let label = "[Pasted Content 1004 chars]";
+    let row = prompt(&s);
+    s.assert_row(row, "› [Pasted Content 1004 chars]");
+    s.click((2 + label.len() - 5) as u16, row as u16);
     s.keys("backspace");
-    s.assert_absent("[Pasted Content 1004 chars]");
+    s.assert_row(prompt(&s), "› Ask Codex to do anything");
     // oracle case 2: the cursor at the end, Backspace
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"x".repeat(1004));
+    s.assert_row(prompt(&s), "› [Pasted Content 1004 chars]");
     s.keys("backspace");
-    s.assert_absent("[Pasted Content 1004 chars]");
+    s.assert_row(prompt(&s), "› Ask Codex to do anything");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:10975 attach_image_and_submit_includes_local_image_paths kind=ui owner=chat-live
@@ -292,10 +277,6 @@ fn history_navigation_restores_remote_only_submissions() {
 // ORACLE bottom_pane/chat_composer.rs:11113 history_navigation_leaves_cursor_at_end_of_line kind=ui owner=chat-live
 #[test]
 fn history_navigation_leaves_cursor_at_end_of_line() {
-    kit::pending(
-        Owner::ChatLive,
-        "no prompt history on the chat composer: Up recalls 'second' then 'first', and Down walks back, each with the cursor at the end of the line",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("first").keys("enter");
     s.type_text("second").keys("enter");
@@ -351,10 +332,6 @@ fn remapped_editor_history_navigation_does_not_fall_back_to_up() {
 // ORACLE bottom_pane/chat_composer.rs:11230 history_navigation_from_start_of_bang_command_recalls_older_entry kind=ui owner=chat-live
 #[test]
 fn history_navigation_from_start_of_bang_command_recalls_older_entry() {
-    kit::pending(
-        Owner::ChatLive,
-        "no prompt history or bang (!) shell-command mode on the chat composer: Up from the start of '!git' recalls the older entry 'first'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("first").keys("enter");
     s.type_text("!git").keys("enter");
@@ -437,10 +414,6 @@ fn pasted_crlf_normalizes_newlines_for_elements() {
 // ORACLE bottom_pane/chat_composer.rs:11455 suppressed_submission_restores_pending_paste_payload kind=ui owner=chat-live
 #[test]
 fn suppressed_submission_restores_pending_paste_payload() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: Enter on '/unknown [Pasted Content 1005 chars]' submits nothing and keeps the paste; after a space at the start, the paste is submitted",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.type_text("/unknown ");
     s.paste(&"x".repeat(1005));
@@ -765,10 +738,6 @@ fn popup_selected_slash_command_records_canonical_command_history() {
 // ORACLE bottom_pane/chat_composer.rs:12319 inline_slash_command_can_be_recalled_after_recording_pending_history kind=ui owner=chat-live
 #[test]
 fn inline_slash_command_can_be_recalled_after_recording_pending_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command history on the chat composer: '/plan investigate this' submitted with arguments, then Up recalls it",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: '/plan investigate this' with the popup closed: the Plan command with args
     s.type_text("/plan investigate this").keys("enter");
@@ -779,10 +748,6 @@ fn inline_slash_command_can_be_recalled_after_recording_pending_history() {
 // ORACLE bottom_pane/chat_composer.rs:12545 current_text_with_pending_expands_overlapping_placeholders kind=ui owner=chat-live
 #[test]
 fn current_text_with_pending_expands_overlapping_placeholders() {
-    kit::pending(
-        Owner::ChatLive,
-        "no large-paste placeholder on the chat composer: two 1004-char pastes draw the base placeholder then '#2', and submit expands both",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.paste(&"a".repeat(1004));
     s.paste(&"b".repeat(1004));
