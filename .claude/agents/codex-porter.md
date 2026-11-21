@@ -58,6 +58,16 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
    done for that gap); no local helper or workaround. Name the gap in your
    handover: the orchestrator tells the person, who decides whether rtwk
    gets it (the person, 2026-11-18).
+   Composition is not a workaround (process.md §5): rtwk widgets lay out and
+   paint, the app only picks WHICH widget/spelling from a measured width
+   (`LayoutBuilder` + `segmenter_of(cx)`); cutting, rewrapping or
+   re-measuring strings yourself is the workaround (pair: `widgets/dots.rs`
+   `dots_end` and `pages/agents/tabs.rs` vs `panel.rs` `words()`). Before a
+   gap row, three routes with file:line: the widget alone; a composition
+   (grep `src/widgets`, `src/pages/agents` first; the skill's cookbook "When
+   the one widget differs from the oracle"); a test setting (`TextMode`,
+   `attrs_of`). Rows with a cursor: `widgets/session_list.rs`; numbered
+   options: `widgets/options.rs`; controllers alone hold cursor and scroll.
 4. A fix round: the review's findings are the task's last review round
    (`task_start` returns them); fix them in the same worktree, answer each.
 

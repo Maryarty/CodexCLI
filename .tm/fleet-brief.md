@@ -24,6 +24,20 @@ read only the subsection this file points to.
   shadow of their state, no carried oracle helper that duplicates them. If
   your brief or a research note names such a mechanism, use rtwk instead and
   say so in the handover. Process.md §5.
+- Composition vs workaround (the person, 2026-11-21; process.md §5): rtwk
+  widgets lay out and paint; the app only picks WHICH widget/spelling from a
+  width it measured (`LayoutBuilder` + `segmenter_of(cx)`). Cutting, rewrapping
+  or re-measuring strings yourself is a workaround: a gap row + `pending(Gxx)`,
+  no code (G48 stays pending). Compositions: `widgets/dots.rs` `dots_end`,
+  `pages/agents/tabs.rs`; workaround: `pages/startup/prompts/panel.rs` `words()`.
+  Before a gap row, three routes with file:line: the widget alone; a composition
+  (grep `src/widgets`, `src/pages/agents` first); a test setting (`TextMode`,
+  `attrs_of`). The skill's cookbook "When the one widget differs from the oracle"
+  has the routes found so far. `pending(Gxx)` only on an open gap row.
+- One list: rows with a cursor = `widgets/session_list.rs`, numbered options =
+  `widgets/options.rs`. Controllers (`ListController`, `SelectionController`,
+  `ScrollController`) are the only holders of cursor and scroll: no `top`,
+  `window_top` or `rows[top..end]` in a view.
 - ADR CONFORMANCE (the person, 2026-11-19): a brief that asks you to simplify
   or bypass an architecture decision (e.g. "own RPC path, no session-core",
   a screen-local copy of thread state) must name the ADR and its debt task; if

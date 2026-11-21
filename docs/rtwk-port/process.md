@@ -202,6 +202,28 @@ Oracle: `bottom_pane/list_selection_view.rs` — `ListSelectionView`, a
   differing rows, minimal probe) and the test marked `pending(Gxx)`; the
   slice is handed over with it. The orchestrator tells the person, who
   decides whether rtwk gets it (the person, 2026-11-18).
+- The boundary between composition and workaround (the person, 2026-11-21).
+  Composition: rtwk widgets lay out and paint; the app only chooses WHICH
+  widget or spelling to build from a width it measured (`LayoutBuilder` +
+  `segmenter_of(cx)`, a branch, a `Row`/`Grid`/`ListView` of widgets).
+  Workaround: the app cuts, rewraps, pads or re-measures strings itself and
+  hands rtwk the result. Composition is the Flutter way and needs no row;
+  a workaround is a gap row + `pending(Gxx)`, never code (G48 stays pending).
+  Worked pair: `widgets/dots.rs` `dots_end` and `pages/agents/tabs.rs` are
+  compositions (they measure, then lay out widgets); `pages/startup/prompts/
+  panel.rs` `words()` is a workaround (a hand wrapper for G48). A landed
+  exception (G37 `pages/agents/path.rs`) is a closed row with its oracle
+  tests, not a precedent.
+- Before a gap row, three routes, each with file:line, in the row: (1) the
+  widget alone, run against the oracle's rows; (2) a composition (Flutter's
+  way: `LayoutBuilder`, `Row`, `Grid` + `GridTrack`, `ListView` + controllers,
+  `CustomPaint` + `CellPainter`), after grepping `src/widgets` and
+  `src/pages/agents` for a landed piece (`dots.rs`, `session_list.rs`,
+  `options.rs`, `page_keys.rs`, `tabs.rs`); (3) a test setting (`TextMode`
+  of the test terminal, the surface's `attrs_of`). About 20 of ~48 rows
+  closed "not a gap" because only route 1 was tried; `pending(Gxx)` stands
+  only on an open row. The skill's cookbook, "When the one widget differs
+  from the oracle", lists the routes found so far.
 - No edit of codex-tui: it stays the oracle.
 
 # Appendix A — running the slices through the fleet

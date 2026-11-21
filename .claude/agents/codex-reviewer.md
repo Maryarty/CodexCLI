@@ -70,7 +70,13 @@ Every review has an ADR-conformance section: per touched ADR — kept / departur
     written during build, no carried oracle helper or retyped mechanism that
     an rtwk widget/controller already provides (SelectionList, TextField,
     TabBar, ListController, rtwk-unicode widths/TextOverflow) — a FIX naming
-    the rtwk API to use;
+    the rtwk API to use; string cutting, rewrapping or re-measuring in a
+    view is a workaround (composition = a widget picked from a measured
+    width, process.md §5);
+  - a gap row names three routes with file:line (widget alone, a
+    composition after grepping `src/widgets` and `src/pages/agents`, a test
+    setting such as `TextMode`/`attrs_of`); a gap row without route 2 is a
+    FIX, and so is `pending(Gxx)` on a row that is not open;
   - area kept: no `lib.rs`/`mod.rs`/root-enum edits outside it; codex-tui,
     `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
