@@ -50,6 +50,8 @@ fn chat(width: u16, height: u16, markdown: &str) -> Screen {
 }
 
 // ---- oracle: markdown_render/math_tests.rs (6 screen-level tests here; 2 state tests left to chat-live)
+const G63: &str = "G63: MarkdownView joins a soft break with a blank; the oracle breaks the line (flutter_markdown softLineBreak)";
+
 // ORACLE markdown_render/math_tests.rs:16 unicode_math_inline_snapshot kind=snap owner=chat-live snap=unicode_math_inline_snapshot
 #[test]
 fn unicode_math_inline_snapshot() {
@@ -488,8 +490,11 @@ fn paragraph_single() {
 // ORACLE markdown_render_tests.rs:158 paragraph_soft_break kind=ui owner=chat-live
 #[test]
 fn paragraph_soft_break() {
+    kit::pending(Owner::ChatLive, G63);
     let s = chat(80, 24, "Hello\nWorld");
-    s.assert_in_order(&["Hello", "World"]);
+    // The oracle's two lines under the agent gutter (`• `, then `  `).
+    s.assert_has_row("• Hello");
+    s.assert_has_row("  World");
 }
 
 // ORACLE markdown_render_tests.rs:166 paragraph_multiple kind=ui owner=chat-live
