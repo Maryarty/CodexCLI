@@ -66,7 +66,7 @@ fn signin_a_click_on_the_selected_row_accepts_it() {
     let mut s = onboarding("sign_in_menu", 76, 19);
     s.click_text("3. Sign in another way");
     // The first click only selects.
-    s.assert_absent("Use an OpenAI API key\n");
+    s.assert_absent("Use an OpenAI API key");
     assert!(marked(&s, "> ").contains("3. Sign in another way"));
     s.click_text("3. Sign in another way");
     s.assert_contains("> 1. Use an OpenAI API key");
@@ -212,15 +212,17 @@ fn migration_prompt_a_click_selects_and_a_second_accepts() {
     let mut s = prompts("migration_opt_out", 80, 20);
     s.click_text("2. Use existing model");
     s.assert_contains("› 2. Use existing model");
+    s.assert_contains("Codex just got an upgrade");
     s.click_text("2. Use existing model");
-    s.assert_absent("Introducing gpt-new");
+    s.assert_absent("Codex just got an upgrade");
 }
 
 #[test]
 fn oss_prompt_a_click_moves_the_description_with_the_cursor() {
     let mut s = prompts("oss_mixed", 80, 16);
-    let before = s.text();
-    s.click_text("2. ");
-    assert_ne!(s.text(), before, "the picker did not follow the click");
-    assert!(marked(&s, "›").contains("2. "), "{}", s.text());
+    s.assert_contains("Local LM Studio server (default port 1234)");
+    s.click_text("2. Ollama");
+    assert!(marked(&s, "›").contains("2. Ollama"), "{}", s.text());
+    s.assert_contains("Local Ollama server (Responses API, default port 11434)");
+    s.assert_absent("Local LM Studio server");
 }

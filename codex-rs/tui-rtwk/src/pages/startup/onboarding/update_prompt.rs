@@ -48,6 +48,8 @@ pub enum Msg {
     Step(i64),
     Choose(UpdateChoice),
     Confirm,
+    /// A tap on the row the cursor is on, or a double tap: Enter's action.
+    Accept(usize),
 }
 
 /// Widget state: the cursor and the scroll of the choices (R14).
@@ -83,6 +85,10 @@ impl State for UpdatePromptState {
             }
             Msg::Choose(choice) => choice,
             Msg::Confirm => CHOICES[self.options.cursor().min(CHOICES.len() - 1)],
+            Msg::Accept(row) => {
+                self.options.set(row);
+                CHOICES[row.min(CHOICES.len() - 1)]
+            }
         };
         if let Some(at) = CHOICES.iter().position(|c| *c == choice) {
             self.options.set(at);
@@ -160,7 +166,7 @@ impl State for UpdatePromptState {
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(arrow(true))
-            .child(self.options.view(
+            .child(self.options.on_accept(cx.map(Msg::Accept)).view(
                 rows,
                 OptionStyles {
                     cursor: tokens.selected(),

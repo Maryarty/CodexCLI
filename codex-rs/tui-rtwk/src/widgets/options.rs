@@ -7,21 +7,30 @@
 //! (G39: not a gap; `Scrollable.ensureVisible` has no public counterpart from
 //! a handler, so the rows are measured with `TextPainter`'s counterpart,
 //! `measure::rows`, and the controller jumps).
+//!
+//! The mouse (ADR-011) is the widget's own, the controller stays the only
+//! holder of the cursor: each row's cells are a `GestureDetector` whose tap
+//! moves the cursor there (told to `on_move`), and a tap on the row the
+//! cursor is already on, or a double tap (its two taps), accepts it
+//! (`on_accept(row)`: the caller turns it into what Enter does at that row).
+//! The wheel is the `SingleChildScrollView`'s own.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use rtwk::controls::SelectionController;
 use rtwk::foundation::ListenableBuilder;
+use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::SizedBox;
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, Flexible, Grid, GridPlacement, GridTrack, MainAxisSize,
     Padding,
 };
+use rtwk::prelude::HitTestBehavior;
 use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, segmenter_of};
-use rtwk::{AnyWidget, LayoutBuilder};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use super::measure;
 
@@ -41,6 +50,31 @@ pub struct RichRow {
     pub prefix: String,
     pub label: Vec<Span>,
     pub description: Option<String>,
+}
+
+/// A row of the stacked menu: the lead (the mark and the number, as the
+/// cursor row has it and as the others do), the label and the description
+/// under it. A row that is not `enabled` is shown and cannot be tapped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StackedRow {
+    pub lead_on: String,
+    pub lead_off: String,
+    pub label: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
+/// The look of the stacked menu: the cursor row's lead and label and
+/// description, the others' label and description, and the indent of the
+/// description line.
+#[derive(Clone, Debug)]
+pub struct Stacked {
+    pub indent: &'static str,
+    pub cursor_lead: Style,
+    pub cursor_label: Style,
+    pub cursor_description: Style,
+    pub label: Style,
+    pub description: Style,
 }
 
 /// What the grid draws: a row of either kind.
@@ -74,6 +108,20 @@ pub struct Options {
     selection: SelectionController<usize>,
     scroll: ScrollController,
     heights: Rc<RefCell<Vec<i64>>>,
+    /// Told the row a tap moved the cursor to.
+    moved: Option<Handler<usize>>,
+    /// Told the row a tap accepted (the cursor was on it) or a double tap.
+    accept: Option<Handler<usize>>,
+}
+
+/// Two `Options` are the same when they share the controllers and tell the
+/// same handlers (what a row's tap widget compares).
+impl PartialEq for Options {
+    fn eq(&self, other: &Options) -> bool {
+        Rc::ptr_eq(&self.heights, &other.heights)
+            && self.moved == other.moved
+            && self.accept == other.accept
+    }
 }
 
 impl Default for Options {
@@ -90,6 +138,30 @@ impl Options {
             selection,
             scroll: ScrollController::default(),
             heights: Rc::new(RefCell::new(Vec::new())),
+            moved: None,
+            accept: None,
+        }
+    }
+
+    /// The same controllers, telling `handler` the row a tap accepts: a tap
+    /// on the row the cursor is on, or a double tap. Made by the state that
+    /// builds the rows (`cx.map(|row: usize| Msg::Accept(row))`); the cursor
+    /// is on the row already when it is told.
+    #[must_use]
+    pub fn on_accept(&self, handler: Handler<usize>) -> Options {
+        Options {
+            accept: Some(handler),
+            ..self.clone()
+        }
+    }
+
+    /// The same controllers, telling `handler` the row a tap moved the
+    /// cursor to (for a screen that shows something that follows the cursor).
+    #[must_use]
+    pub fn on_move(&self, handler: Handler<usize>) -> Options {
+        Options {
+            moved: Some(handler),
+            ..self.clone()
         }
     }
 
@@ -182,6 +254,95 @@ impl Options {
         self.items_view(Rc::new(items), styles, indent)
     }
 
+    /// The rows as a menu whose descriptions stand under the labels, a blank
+    /// row after each (the oracle's `render_pick_mode`: one paragraph, the
+    /// lines wrap where they stand). When the room the menu is given is less
+    /// than that, the descriptions and gaps give way and the labels stay (a
+    /// `LayoutBuilder` over the room, which the `Column` it stands in gives
+    /// after the lines around it). A `Flexible` for that `Column`.
+    pub fn view_stacked(&self, rows: Rc<Vec<StackedRow>>, look: Stacked) -> AnyWidget {
+        let me = self.clone();
+        Flexible::new(
+            1,
+            LayoutBuilder::new(move |cx, constraints| {
+                let seg = segmenter_of(cx);
+                let width = usize::try_from(constraints.max_width).unwrap_or(0).max(1);
+                let lines = |text: &str| -> i64 {
+                    i64::try_from(measure::rows(seg, text, width).len().max(1)).unwrap_or(1)
+                };
+                let heads: Vec<i64> = rows
+                    .iter()
+                    .map(|row| lines(&[row.lead_off.as_str(), row.label.as_str()].concat()))
+                    .collect();
+                let bodies: Vec<i64> = rows
+                    .iter()
+                    .map(|row| lines(&[look.indent, row.description.as_str()].concat()))
+                    .collect();
+                let full: i64 = heads.iter().zip(&bodies).map(|(a, b)| a + b + 1).sum();
+                let compact = full > i64::from(constraints.max_height);
+                *me.heights.borrow_mut() = if compact {
+                    heads
+                } else {
+                    heads.iter().zip(&bodies).map(|(a, b)| a + b + 1).collect()
+                };
+                let mut column = Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                for (index, row) in rows.iter().enumerate() {
+                    let (row, look, watch) = (row.clone(), look.clone(), me.selection.clone());
+                    let lines = ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
+                        let on = watch.cursor() == Some(index) && row.enabled;
+                        let (head, body) = if on {
+                            (
+                                vec![
+                                    Span::styled(row.lead_on.clone(), look.cursor_lead.clone()),
+                                    Span::styled(row.label.clone(), look.cursor_label.clone()),
+                                ],
+                                look.cursor_description.clone(),
+                            )
+                        } else {
+                            (
+                                vec![Span::styled(
+                                    [row.lead_off.as_str(), row.label.as_str()].concat(),
+                                    look.label.clone(),
+                                )],
+                                look.description.clone(),
+                            )
+                        };
+                        let mut lines = Column::new()
+                            .main_axis_size(MainAxisSize::Min)
+                            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                            .child(Text::rich(head));
+                        if !compact {
+                            lines = lines.child(Text::rich(vec![Span::styled(
+                                [look.indent, row.description.as_str()].concat(),
+                                body,
+                            )]));
+                        }
+                        lines.into()
+                    });
+                    column = column.child(if rows[index].enabled {
+                        me.tap(index, lines)
+                    } else {
+                        lines.into()
+                    });
+                    if !compact {
+                        column = column.child(SizedBox::new(None, Some(1), None));
+                    }
+                }
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(Flexible::new(
+                        1,
+                        SingleChildScrollView::new(column).controller(me.scroll.clone()),
+                    ))
+                    .into()
+            }),
+        )
+        .into()
+    }
+
     /// A row high, `mark` where rows are scrolled out of view above (or
     /// below), in `style`: the oracle's `↑` and `↓` of a picker. It follows
     /// the scroll of the rows.
@@ -203,7 +364,19 @@ impl Options {
         .into()
     }
 
+    /// `child` as the row `index`'s: a tap on it moves the cursor there or
+    /// accepts (see the module's note).
+    fn tap(&self, index: usize, child: impl Into<AnyWidget>) -> AnyWidget {
+        TapRow {
+            options: self.clone(),
+            index,
+            child: child.into(),
+        }
+        .into()
+    }
+
     fn items_view(&self, items: Rc<Vec<Item>>, styles: OptionStyles, indent: i32) -> AnyWidget {
+        let me = self.clone();
         let (selection, scroll, heights) = (
             self.selection.clone(),
             self.scroll.clone(),
@@ -327,23 +500,19 @@ impl Options {
                         })
                     };
                     let column = if hang { 1 } else { 0 };
-                    grid = grid.child(GridPlacement::new(first).at(at, 0));
+                    grid = grid.child(GridPlacement::new(me.tap(index, first)).at(at, 0));
                     if hang {
                         let (watch, st, label) = (watch.clone(), st.clone(), label.clone());
-                        grid = grid.child(
-                            GridPlacement::new(ListenableBuilder::new(
-                                watch.clone().listenable(),
-                                move |_, _| {
-                                    let style = if watch.cursor() == Some(index) {
-                                        st.cursor.clone()
-                                    } else {
-                                        st.label.clone()
-                                    };
-                                    Text::rich(label.clone()).style(style).into()
-                                },
-                            ))
-                            .at(at, 1),
-                        );
+                        let label =
+                            ListenableBuilder::new(watch.clone().listenable(), move |_, _| {
+                                let style = if watch.cursor() == Some(index) {
+                                    st.cursor.clone()
+                                } else {
+                                    st.label.clone()
+                                };
+                                Text::rich(label.clone()).style(style).into()
+                            });
+                        grid = grid.child(GridPlacement::new(me.tap(index, label)).at(at, 1));
                     }
                     let (watch, st) = (watch, st);
                     let description: AnyWidget =
@@ -362,6 +531,7 @@ impl Options {
                     } else {
                         description
                     };
+                    let description = me.tap(index, description);
                     grid = grid.child(GridPlacement::new(description).at(at, column + 1));
                 }
                 Column::new()
@@ -411,5 +581,69 @@ fn hidden(scroll: &ScrollController, heights: &[i64], above: bool) -> bool {
         position.pixels() > 0
     } else {
         position.pixels() + position.viewport_dimension() < heights.iter().sum::<i64>()
+    }
+}
+
+/// A row's cell under a tap: the first tap of a row moves the cursor to it
+/// (`GestureDetector::on_tap`), a tap on the row the cursor is on accepts it,
+/// so a double tap (two taps) selects and accepts.
+#[derive(Clone, Debug, PartialEq)]
+struct TapRow {
+    options: Options,
+    index: usize,
+    child: AnyWidget,
+}
+
+impl std::fmt::Debug for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("cursor", &self.cursor())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tap {
+    On,
+}
+
+struct TapRowState;
+
+impl StatefulWidget for TapRow {
+    type State = TapRowState;
+
+    fn create_state(&self) -> TapRowState {
+        TapRowState
+    }
+}
+
+impl_widget!(stateful eq TapRow);
+
+impl State for TapRowState {
+    type Widget = TapRow;
+    type Msg = Tap;
+
+    fn update(&mut self, Tap::On: Tap, w: &TapRow, cx: &mut Cx<'_, Self>) -> Rebuild {
+        let options = &w.options;
+        if options.cursor() == w.index {
+            if let Some(accept) = &options.accept {
+                cx.emit(accept, w.index);
+            }
+            return Rebuild::No;
+        }
+        options.set(w.index);
+        if let Some(moved) = &options.moved {
+            cx.emit(moved, w.index);
+        }
+        Rebuild::No
+    }
+
+    fn build(&self, w: &TapRow, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let tap: Handler<PointerEvent> = cx.map(|_: PointerEvent| Tap::On);
+        GestureDetector::new()
+            .behavior(HitTestBehavior::Opaque)
+            .on_tap(tap)
+            .child(w.child.clone())
+            .into()
     }
 }
