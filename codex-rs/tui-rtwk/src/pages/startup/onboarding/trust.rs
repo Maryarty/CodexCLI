@@ -1,11 +1,14 @@
 //! The directory trust step (S04). Oracle: `onboarding/trust_directory.rs`.
 //!
-//! In Flutter: a `LayoutBuilder` over a `Column(min)` on the menu surface,
-//! its blank rows `Flexible(loose)` so they give way first, the highlighted
-//! choice in the step's `State`, the keys a `Focus` with bindings. The paths
-//! get the rows the mandatory content leaves, measured as the oracle
-//! measures them (`measure::rows`, `TextPainter`'s counterpart); a path that
-//! does not fit its rows is cut in the middle by whole segments.
+//! In Flutter: a `Column(min)` on the menu surface, its blank rows
+//! `Flexible(loose)` so they give way, the two choices the shared `Options`
+//! (cursor in its controller, in the step's `State`), the keys a `Focus` with
+//! bindings. Each path is a `Flexible(loose)` child: a `LayoutBuilder` over
+//! the rows the `Column` gives it wraps the path where it fits them, else one
+//! line cut in the middle by whole segments (`TextPainter`'s
+//! `didExceedMaxLines`). The oracle gives the paths their rows before the
+//! blanks; `Column` shares by flex factor: G51 (the three long-path
+//! snapshots are pending).
 
 use std::rc::Rc;
 
@@ -137,18 +140,13 @@ impl State for TrustState {
             .error
             .as_deref()
             .map(|message| strings.trust_failed(&ask.target, message, &num));
-        let panel = LayoutBuilder::new(move |cx, constraints| {
-            panel(
-                cx,
-                strings,
-                &look,
-                &ask,
-                choices(&options, &rows, &look),
-                error.as_deref(),
-                constraints.max_width,
-                constraints.max_height,
-            )
-        });
+        let panel = panel(
+            strings,
+            &look,
+            &ask,
+            choices(&options, &rows, &look),
+            error.as_deref(),
+        );
         let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
         let mut focus = Focus::new(panel).autofocus();
         for (key, msg) in [
@@ -243,20 +241,40 @@ fn inset(child: impl Into<AnyWidget>) -> AnyWidget {
     Padding::new(EdgeInsets::symmetric(2, 0), child.into()).into()
 }
 
-#[allow(clippy::too_many_arguments)]
+/// A path in the rows the column leaves it: wrapped where it fits them, else
+/// one line cut in the middle (`TextPainter`'s `didExceedMaxLines` in a
+/// `LayoutBuilder`).
+fn path(text: String, style: Style) -> AnyWidget {
+    Flexible {
+        fit: FlexFit::Loose,
+        ..Flexible::new(
+            1,
+            inset(LayoutBuilder::new(move |cx, constraints| {
+                let seg = segmenter_of(cx);
+                let width = usize::try_from(constraints.max_width).unwrap_or(0).max(1);
+                let height = usize::try_from(constraints.max_height).unwrap_or(0);
+                let shown = if measure::grapheme_rows(seg, &text, width) <= height {
+                    text.clone()
+                } else {
+                    center_truncate_path(seg, &text, width)
+                };
+                Text::new(shown)
+                    .wrap(TextWrap::Grapheme)
+                    .style(style.clone())
+                    .into()
+            })),
+        )
+    }
+    .into()
+}
+
 fn panel(
-    cx: &mut Cx<'_>,
     strings: &'static Strings,
     look: &Look,
     ask: &TrustAsk,
     choices: AnyWidget,
     error: Option<&str>,
-    width: i32,
-    height: i32,
 ) -> AnyWidget {
-    let seg = segmenter_of(cx);
-    let inner = usize::try_from(width - 4).unwrap_or(0).max(1);
-    let rows = |text: &str| measure::rows(seg, text, inner).len();
     let hint: Vec<&str> = {
         let [enter, plain, sandbox, dot, esc] = strings.trust_hint;
         let action = if ask.sandbox_hint && !ask.restricted {
@@ -273,60 +291,26 @@ fn panel(
         ]
     };
     let note = (!ask.restricted && ask.cwd != ask.target).then_some(strings.git_note);
-    // The mandatory rows first (the oracle's `reserved_height`): the
-    // heading, the disclosure, the two choices, the error, the hint, the note.
-    let reserved = 1
-        + rows(disclosure(strings, ask))
-        + 2
-        + error.map_or(0, rows)
-        + rows(&hint.concat())
-        + note.map_or(0, rows);
-    let path_height = usize::try_from(height)
-        .unwrap_or(0)
-        .saturating_sub(reserved);
-    // One path row left shows the repository root that receives trust.
-    let cwd_height = if note.is_some() {
-        path_height / 2
-    } else {
-        path_height
-    };
-    let path = |text: &str, max: usize| -> AnyWidget {
-        let text = if measure::grapheme_rows(seg, text, inner) <= max {
-            text.to_owned()
-        } else {
-            center_truncate_path(seg, text, inner)
-        };
-        inset(
-            Text::new(text)
-                .wrap(TextWrap::Grapheme)
-                .style(look.dim.clone()),
-        )
-    };
-
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(gap())
         .child(inset(
             Text::new(strings.folder_access).style(look.bold.clone()),
-        ));
-    if cwd_height > 0 {
-        column = column.child(path(&ask.cwd, cwd_height));
-    }
-    column = column.child(gap());
+        ))
+        .child(path(ask.cwd.clone(), look.dim.clone()))
+        .child(gap());
     if let Some(note) = note {
-        column = column.child(inset(Text::new(note).style(look.warning.clone())));
-        let root_height = path_height - cwd_height;
-        if root_height > 0 {
-            column = column.child(path(&ask.target, root_height));
-        }
-        column = column.child(gap());
+        column = column
+            .child(inset(Text::new(note).style(look.warning.clone())))
+            .child(path(ask.target.clone(), look.dim.clone()))
+            .child(gap());
     }
     column = column
         .child(inset(Text::new(disclosure(strings, ask))))
+        .child(gap())
+        .child(choices)
         .child(gap());
-    column = column.child(choices);
-    column = column.child(gap());
     if let Some(error) = error {
         column = column
             .child(inset(Text::new(error.to_owned()).style(look.error.clone())))

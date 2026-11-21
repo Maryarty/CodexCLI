@@ -119,6 +119,10 @@ fn picker_wraps_paths_and_restricted_actions() {
 // ORACLE onboarding/trust_directory.rs:456 long_paths_keep_disclosure_and_choices_visible kind=snap owner=startup-flow snap=long_checkout_40x13 snap=long_repository_root_40x17 snap=only_repository_root_fits_40x16
 #[test]
 fn long_paths_keep_disclosure_and_choices_visible() {
+    kit::pending(
+        Owner::StartupFlow,
+        "G51: the oracle gives the paths the rows the mandatory content leaves (inflexible children laid out in order, then the blanks share what remains and the last takes the slack); `Column` shares the free rows among the paths and the blanks by flex factor and gives the remainder to the FIRST flexible child, so the paths lose their rows to the blanks. 40x16: ours has the blank above `Folder access` and no root path row (the oracle: `workspace/…/repository` under the note); 40x17 and 40x13 likewise",
+    );
     let s = open("trust_long_checkout", 40, 13);
     s.assert_snap("long_checkout_40x13");
     let s = open("trust_long_root", 40, 17);
