@@ -213,3 +213,14 @@ of 8 runs (before: 1 of 8) and `01_device` is EQUAL with the oracle's.
   only), and the device code runs before the resume picker here, while the oracle reads the
   selection first. They come with item 3 (resume/fork by id), which needs `src/lib.rs` and
   `src/pages/startup` (held by rtwk-repin-4).
+
+## Checks after item 1 and the Windows check (`startup-rest`)
+
+fmt clean; `clippy -q --workspace --all-targets -D warnings` clean; whole `nextest run --workspace`
+1390 of 1390 pass (one earlier run had `cells::errors_and_warnings_in_the_chat::a_turn_error_is_a_row_of_the_chat_and_there_is_no_status_banner`
+red under load, green alone and in the rerun: a load flake of chat-cells-2's test, not this change).
+Oracle shards signin, onboarding, startup_prompts (`--profile oracle`): 62 pass, 9 pending of the
+startup rows, as before (G48, G49, G50, G51, G55, the cwd persistence line, the two inline
+snapshots); the 73 run also hold two foreign pendings that match `startup_` by name
+(`chat_popups_2::startup_prompts_for_windows_sandbox...`, dialogs-pane;
+`chat_commands_3::startup_draft_waits_for_onboarding...`, chat-nav-pane). `shards.py --check`: 0 files stale.
