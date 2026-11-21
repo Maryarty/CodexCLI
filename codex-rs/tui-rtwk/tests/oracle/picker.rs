@@ -939,7 +939,7 @@ fn choice_labels_and_descriptions_keep_complete_url_destinations() {
 fn filled_tabs_window_around_active_tab() {
     kit::pending(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the kit cannot address one frame per active tab",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per active tab",
     );
     let s = Screen::build(Owner::UiPane)
         .size(30, 3)
@@ -954,7 +954,7 @@ fn filled_tabs_window_around_active_tab() {
 fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
     kit::pending(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the kit cannot address one frame per width",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per width",
     );
     let s = Screen::build(Owner::UiPane)
         .size(16, 4)
@@ -969,7 +969,7 @@ fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
     kit::pending(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog)",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(5, 1)

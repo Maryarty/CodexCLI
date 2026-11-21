@@ -136,6 +136,10 @@ name = "rtwk_g9"
 path = "tests/rtwk_g9.rs"
 
 [[test]]
+name = "rtwk_g46"
+path = "tests/rtwk_g46.rs"
+
+[[test]]
 name = "pin"
 path = "tests/rules/pin.rs"
 

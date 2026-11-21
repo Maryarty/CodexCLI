@@ -73,6 +73,9 @@ pub enum Picked {
     Item(String),
     /// The secondary action of an item of a generic list, by id.
     ItemSecondary(String),
+    /// A multi-select list (`List::multi`) was confirmed: the ids of the
+    /// items whose toggle is on, in the order of the list.
+    Items(Vec<String>),
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -95,6 +98,9 @@ pub enum Ev {
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
+    /// A screen asks for this menu (a generic list: its picks come back as
+    /// `Picked::Item(id)` in `Model::picked`).
+    Open(Menu),
     /// The row at this index was picked: the menu closes.
     Pick(usize),
     /// The item with this id (`List::id_of`) of a generic list was accepted.
@@ -103,6 +109,9 @@ pub enum Intent {
     Secondary(String),
     /// The toggle of the item with this id was flipped.
     Toggle(String),
+    /// A multi-select list (`List::multi`) was confirmed (Enter): the ids of
+    /// the toggled-on items are picked together and the menu closes.
+    Confirm,
     /// The menu was closed without a pick.
     Close,
 }
@@ -117,6 +126,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
+        Intent::Open(menu) => model.menu = Some(menu),
         Intent::Pick(index) => {
             let picked = match &model.menu {
                 Some(Menu::Models(rows)) => rows.get(index).map(|row| Picked::Model(row.name.clone())),
@@ -160,6 +170,14 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Toggle(id) => {
             if let Some(Menu::List(list)) = &mut model.menu {
                 list.flip(&id);
+            }
+        }
+        Intent::Confirm => {
+            if let Some(Menu::List(list)) = &model.menu
+                && list.multi
+            {
+                model.picked.push(Picked::Items(list.checked()));
+                model.menu = None;
             }
         }
         Intent::Close => model.menu = None,

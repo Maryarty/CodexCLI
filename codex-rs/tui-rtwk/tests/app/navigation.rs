@@ -163,11 +163,9 @@ fn import_is_a_step_of_the_startup_page() {
     h.t.pump_for(crate::common::ms(800));
     let page = find::by_type::<StartupPage>();
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
-    assert!(
-        h.t.screen().contains("import (S06): empty slot"),
-        "{}",
-        h.t.screen()
-    );
+    // the step draws nothing while it asks the server (oracle: the screen
+    // below stays; the answer needs the root wiring, see parity/import.md)
+    assert!(!h.t.screen().contains("empty slot"), "{}", h.t.screen());
     assert_eq!(Step::Import.index(), 5);
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));

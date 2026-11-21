@@ -162,6 +162,10 @@ pub struct List {
     /// The item (in `items`) the cursor starts on.
     pub initial: Option<usize>,
     pub max_rows: Option<usize>,
+    /// A multi-select: the rows with a toggle are the choices, Space flips
+    /// the one under the cursor (`Intent::Toggle`) and Enter confirms them
+    /// all at once (`Intent::Confirm`, answered as `Picked::Items`).
+    pub multi: bool,
 }
 
 impl Default for List {
@@ -183,6 +187,7 @@ impl Default for List {
             side: None,
             initial: None,
             max_rows: None,
+            multi: false,
         }
     }
 }
@@ -250,6 +255,15 @@ impl List {
     /// The item with this id.
     pub fn find(&self, id: &str) -> Option<&Item> {
         self.each().find(|(found, _)| found == id).map(|(_, item)| item)
+    }
+
+    /// The ids of the items whose toggle is on, in the order of the list
+    /// (the answer of a multi-select).
+    pub fn checked(&self) -> Vec<String> {
+        self.each()
+            .filter(|(_, item)| item.toggle == Some(true))
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Flips the toggle of the item with this id.

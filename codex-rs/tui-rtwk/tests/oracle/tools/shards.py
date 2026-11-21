@@ -67,6 +67,7 @@ RULES = [
     (r'^status/', 'S19', 'dialogs-pane', 'status'),
     # startup page: welcome, update prompt (S01), directory trust (S04)
     (r'^onboarding/(welcome|trust_directory|onboarding_screen)\.rs$|^update_prompt\.rs$', 'S01-S04', 'startup-flow', 'onboarding'),
+    (r'^external_agent_config_migration/', 'S06', 'routes-lists', 'import'),
 ]
 RULES = [(re.compile(p), s, o, g) for p, s, o, g in RULES]
 
@@ -79,7 +80,6 @@ OUT = [
     (r'^onboarding/|^update_|^cwd_prompt|^model_migration|^oss_selection|^daemon_|^startup_', 'S01-S05 startup screens (landed)'),
     (r'^analytics', 'S20 usage dashboard (landed)'),
     (r'^pets/', 'S24 pets (landed)'),
-    (r'^external_agent_config_migration/', 'S06 import (landed)'),
     (r'^ui_tree|^inline_visualization', 'S26 ui_tree (landed)'),
     (r'^(tui|custom_terminal|insert_history|terminal_|transcript_reflow)', 'Terminal and inline mode (rtwk owns it, S27)'),
     (r'^(clipboard|external_editor|markdown_copy|ide_context|tooltips|mention_codec|debug_config|streaming_)', 'Carried helper logic (reuse-carry): no screen'),

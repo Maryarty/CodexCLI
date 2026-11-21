@@ -69,6 +69,43 @@ fn esc_closes_without_a_pick() {
     );
 }
 
+#[test]
+fn a_multi_select_flips_the_row_under_the_cursor_with_space_and_enter_confirms() {
+    let mut h = open(60, "multi_select");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("[x] Alpha") && screen.contains("[ ] Beta") && screen.contains("[x] Gamma"),
+        "{screen}"
+    );
+    h.press("down");
+    h.press("space");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("[x] Alpha") && screen.contains("[x] Beta") && screen.contains("[x] Gamma"),
+        "space flipped Beta: {screen}"
+    );
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    let screen = h.t.screen();
+    assert!(
+        !screen.contains("[x] Alpha") && !screen.contains("[ ] Beta"),
+        "enter confirmed: {screen}"
+    );
+}
+
+#[test]
+fn a_number_key_flips_its_row_of_a_multi_select_and_keeps_it_open() {
+    let mut h = open(60, "multi_select");
+    h.press("1");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("[ ] Alpha") && screen.contains("Choose"),
+        "{screen}"
+    );
+}
+
 /// The rows of the screen, trailing blanks cut.
 fn rows(h: &Harness) -> Vec<String> {
     h.t.screen()

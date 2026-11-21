@@ -75,6 +75,8 @@ mod composer_3;
 mod composer_4;
 #[path = "oracle/composer_popups.rs"]
 mod composer_popups;
+#[path = "oracle/import.rs"]
+mod import;
 #[path = "oracle/markdown_streaming_1.rs"]
 mod markdown_streaming_1;
 #[path = "oracle/markdown_streaming_2.rs"]
@@ -105,8 +107,6 @@ mod resume_2;
 mod small_dialogs_1;
 #[path = "oracle/small_dialogs_2.rs"]
 mod small_dialogs_2;
-#[path = "oracle/startup_prompts.rs"]
-mod startup_prompts;
 #[path = "oracle/status.rs"]
 mod status;
 #[path = "oracle/textarea.rs"]
