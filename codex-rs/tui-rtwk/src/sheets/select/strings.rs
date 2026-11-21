@@ -27,6 +27,17 @@ pub struct Strings {
     pub access_ask_description: &'static str,
     pub access_full: &'static str,
     pub access_full_description: &'static str,
+    /// bottom_pane/selection_popup_common.rs: the empty list, the scroll
+    /// indicators and the mark after a disabled row's name.
+    pub no_matches: &'static str,
+    pub more_above: &'static str,
+    pub more_below: &'static str,
+    pub disabled_mark: &'static str,
+    /// A disabled row's reason after its description, or alone, and the
+    /// closing of the first.
+    pub reason_after: &'static str,
+    pub reason_alone: &'static str,
+    pub reason_close: &'static str,
 }
 
 /// English: the oracle's text.
@@ -40,6 +51,13 @@ pub const EN: Strings = Strings {
     access_ask_description: "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
     access_full: "Full Access",
     access_full_description: "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+    no_matches: "no matches",
+    more_above: "\u{2191}",
+    more_below: "\u{2193}",
+    disabled_mark: " (disabled)",
+    reason_after: " (disabled: ",
+    reason_alone: "disabled: ",
+    reason_close: ")",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

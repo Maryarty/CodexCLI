@@ -13,6 +13,9 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod list;
+pub use list::List;
+
 pub const NAME: &str = "select";
 pub const ID: &str = "S14";
 pub const KIND: Kind = Kind::Sheet;
@@ -40,6 +43,10 @@ pub enum Access {
 pub enum Menu {
     Models(Vec<ModelRow>),
     Permissions { current: Option<Access> },
+    /// The generic form: every option of the oracle's `SelectionViewParams`
+    /// (search, tabs, disabled rows, side preview, footers) as data. A named
+    /// parameterisation is a variant above whose view turns it into a `List`.
+    List(Box<List>),
 }
 
 impl Menu {
@@ -48,6 +55,7 @@ impl Menu {
         match self {
             Menu::Models(rows) => rows.len(),
             Menu::Permissions { .. } => 2,
+            Menu::List(list) => list.items.len(),
         }
     }
 
@@ -61,6 +69,10 @@ impl Menu {
 pub enum Picked {
     Model(String),
     Access(Access),
+    /// An item of a generic list, by id.
+    Item(String),
+    /// The secondary action of an item of a generic list, by id.
+    ItemSecondary(String),
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -85,6 +97,12 @@ pub enum Ev {
 pub enum Intent {
     /// The row at this index was picked: the menu closes.
     Pick(usize),
+    /// The item with this id (`List::id_of`) of a generic list was accepted.
+    Choose(String),
+    /// The secondary action of the item with this id (`s for secondary`).
+    Secondary(String),
+    /// The toggle of the item with this id was flipped.
+    Toggle(String),
     /// The menu was closed without a pick.
     Close,
 }
@@ -107,11 +125,41 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     1 => Some(Picked::Access(Access::Full)),
                     _ => None,
                 },
-                None => None,
+                Some(Menu::List(_)) | None => None,
             };
             if let Some(picked) = picked {
                 model.picked.push(picked);
                 model.menu = None;
+            }
+        }
+        Intent::Choose(id) => {
+            if let Some(Menu::List(list)) = &mut model.menu {
+                let Some(item) = list.find(&id) else { return };
+                if item.is_disabled() {
+                    return;
+                }
+                let keep = item.keep_open;
+                if item.checkbox && item.toggle.is_some() {
+                    list.flip(&id);
+                    return;
+                }
+                model.picked.push(Picked::Item(id));
+                if !keep {
+                    model.menu = None;
+                }
+            }
+        }
+        Intent::Secondary(id) => {
+            if let Some(Menu::List(list)) = &model.menu
+                && list.find(&id).is_some_and(|item| !item.is_disabled())
+            {
+                model.picked.push(Picked::ItemSecondary(id));
+                model.menu = None;
+            }
+        }
+        Intent::Toggle(id) => {
+            if let Some(Menu::List(list)) = &mut model.menu {
+                list.flip(&id);
             }
         }
         Intent::Close => model.menu = None,
@@ -169,11 +217,13 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 
 /// The seed form of this screen's events:
 /// `{"kind":"models","rows":[{"name":..,"description":..,"current":true}]}` and
-/// `{"kind":"permissions","current":"ask"}`.
+/// `{"kind":"permissions","current":"ask"}` and
+/// `{"kind":"list", ..}` (the fields of `List`).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
     Models { rows: Vec<SeedRow> },
+    List(Box<List>),
     Permissions {
         #[serde(default)]
         current: Option<SeedAccess>,
@@ -200,6 +250,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
+        SeedEv::List(list) => Menu::List(list),
         SeedEv::Models { rows } => Menu::Models(
             rows.into_iter()
                 .map(|row| ModelRow {
