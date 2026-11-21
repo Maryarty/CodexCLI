@@ -51,8 +51,8 @@ use codex_tui_rtwk::services::startup::dismiss_version;
 use codex_tui_rtwk::services::startup::ensure_npm_version_ready;
 use codex_tui_rtwk::services::startup::latest_from_release_tag;
 use codex_tui_rtwk::services::startup::read_version_cache;
-use codex_tui_rtwk::services::startup::version_cache_is_stale;
-use codex_tui_rtwk::services::startup::write_version_cache;
+use codex_tui_rtwk::services::startup::store_latest_version;
+use codex_tui_rtwk::services::startup::version_cache_needs_refresh;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
 use codex_utils_path_uri::PathConvention;
@@ -158,7 +158,7 @@ pub type Browser = Arc<dyn Fn(&str) -> std::io::Result<()> + Send + Sync>;
 
 /// The system's browser (`webbrowser::open`, as the oracle opens it).
 pub fn system_browser() -> Browser {
-    Arc::new(|url| webbrowser::open(url))
+    Arc::new(webbrowser::open)
 }
 
 /// The server's place (`AppServerTarget` without Cloud, which has no
@@ -353,7 +353,7 @@ where
         // `get_upgrade_version`: a missing or stale cache is refreshed in the
         // background, so the launch is not blocked by a network call: this
         // run reads the previous value, the next one shows the offer.
-        refresh_update: checks && version_cache_is_stale(&version_file(config), chrono::Utc::now()),
+        refresh_update: checks && version_cache_needs_refresh(&version_file(config)),
     })
 }
 
@@ -368,7 +368,7 @@ async fn refresh_version_cache(
     fetch: &Fetch,
 ) -> Result<(), String> {
     let latest = fetch(action).await?;
-    write_version_cache(file, &latest, chrono::Utc::now()).map_err(|error| error.to_string())
+    store_latest_version(file, &latest).map_err(|error| error.to_string())
 }
 
 // The homebrew cask is the latest for a brew install: it can lag behind the
@@ -674,6 +674,8 @@ fn update_action(context: &InstallContext) -> Option<UpdateAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
+    use codex_tui_rtwk::services::startup::write_version_cache;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -929,12 +931,22 @@ mod tests {
         })
     }
 
+    /// The version cache a launch starts from.
+    #[derive(Clone, Copy)]
+    enum Cache {
+        Missing,
+        /// Checked in 2020: older than twenty hours.
+        Old,
+        /// Checked just now.
+        Fresh,
+    }
+
     /// The launch with the update check on: the version file and whether
     /// the facts ask for a refresh. Nothing is fetched by the facts.
     async fn launch_with(
         startup: &mut Startup,
         fetch: Fetch,
-        cache: Option<&str>,
+        cache: Cache,
         version: &str,
     ) -> (std::path::PathBuf, bool) {
         startup.updates = Updates {
@@ -944,8 +956,15 @@ mod tests {
             fetch,
         };
         let file = version_file(&startup.config);
-        if let Some(cache) = cache {
-            std::fs::write(&file, cache).expect("the cache");
+        match cache {
+            Cache::Missing => {}
+            Cache::Old => write_version_cache(
+                &file,
+                "2.0.0",
+                Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
+            )
+            .expect("the cache"),
+            Cache::Fresh => store_latest_version(&file, "2.0.0").expect("the cache"),
         }
         let config = serde_json::json!({"config": {}, "layers": []});
         let ev = facts_ask(startup, serve(Ok(signed_out()), Ok(config))).await;
@@ -972,7 +991,7 @@ mod tests {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
         let fetch = fetching(&calls, Ok("9.9.9"));
-        let (file, asked) = launch_with(&mut startup, fetch, None, "1.0.0").await;
+        let (file, asked) = launch_with(&mut startup, fetch, Cache::Missing, "1.0.0").await;
         assert!(asked);
         assert_eq!(calls.load(Ordering::SeqCst), 0, "the facts fetch nothing");
         assert!(refresh(&startup).await.is_none());
@@ -987,9 +1006,8 @@ mod tests {
     async fn a_cache_older_than_twenty_hours_is_refreshed() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
         let fetch = fetching(&calls, Ok("2.1.0"));
-        let (file, asked) = launch_with(&mut startup, fetch, Some(old), "1.0.0").await;
+        let (file, asked) = launch_with(&mut startup, fetch, Cache::Old, "1.0.0").await;
         assert!(asked);
         refresh(&startup).await;
         assert_eq!(
@@ -1002,12 +1020,8 @@ mod tests {
     async fn a_fresh_cache_is_not_refreshed() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let fresh = format!(
-            r#"{{"latest_version":"2.0.0","last_checked_at":"{}"}}"#,
-            chrono::Utc::now().to_rfc3339()
-        );
         let fetch = fetching(&calls, Ok("2.1.0"));
-        let (_, asked) = launch_with(&mut startup, fetch, Some(&fresh), "1.0.0").await;
+        let (_, asked) = launch_with(&mut startup, fetch, Cache::Fresh, "1.0.0").await;
         assert!(!asked);
     }
 
@@ -1015,12 +1029,14 @@ mod tests {
     async fn a_failed_fetch_leaves_the_cache_as_it_was() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
         let fetch = fetching(&calls, Err("offline"));
-        let (file, _) = launch_with(&mut startup, fetch, Some(old), "1.0.0").await;
+        let (file, _) = launch_with(&mut startup, fetch, Cache::Old, "1.0.0").await;
         assert!(refresh(&startup).await.is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(std::fs::read_to_string(&file).expect("the cache"), old);
+        assert_eq!(
+            read_version_cache(&file).map(|cache| cache.latest),
+            Some("2.0.0".to_owned())
+        );
     }
 
     #[tokio::test]
@@ -1028,7 +1044,7 @@ mod tests {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
         let fetch = fetching(&calls, Ok("2.1.0"));
-        let (_, asked) = launch_with(&mut startup, fetch, None, "0.0.0").await;
+        let (_, asked) = launch_with(&mut startup, fetch, Cache::Missing, "0.0.0").await;
         assert!(!asked);
     }
 

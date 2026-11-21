@@ -25,7 +25,9 @@ mod gate {
     }
 
     fn answer(h: &Harness, facts: Facts) {
-        let epoch = h.fake.epoch().expect("attached");
+        let Some(epoch) = h.fake.epoch() else {
+            panic!("the app is not attached to the scripted server");
+        };
         h.fake.inject(
             epoch,
             AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { request: 1, facts })),

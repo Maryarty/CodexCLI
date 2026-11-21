@@ -124,6 +124,39 @@ pub fn write_version_cache(file: &Path, latest: &str, now: DateTime<Utc>) -> std
     std::fs::write(file, format!("{line}\n"))
 }
 
+/// Whether the cache at `file` is due a refresh now (the clock is read here:
+/// R11).
+pub fn version_cache_needs_refresh(file: &Path) -> bool {
+    version_cache_is_stale(file, Utc::now())
+}
+
+/// `write_version_cache` for a check made now.
+pub fn store_latest_version(file: &Path, latest: &str) -> std::io::Result<()> {
+    write_version_cache(file, latest, Utc::now())
+}
+
+/// The CLI's update run, once the terminal is restored: `program` with
+/// `args` in `cwd`, announced as `command`.
+pub fn run_update_process(
+    command: &str,
+    program: &Path,
+    args: &[String],
+    cwd: &Path,
+) -> Result<(), String> {
+    println!();
+    println!("Updating Codex via `{command}`...");
+    let status = std::process::Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("`{command}` failed with status {status}"));
+    }
+    println!("\n🎉 Update ran successfully! Please restart Codex.");
+    Ok(())
+}
+
 /// `update_action.rs::UpdateAction` without the daemon's (the local daemon
 /// update is not part of this prompt).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

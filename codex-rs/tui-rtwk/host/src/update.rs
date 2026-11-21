@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use codex_tui_rtwk::services::startup::UpdateAction;
+use codex_tui_rtwk::services::startup::run_update_process;
 
 /// Where an update runs: the CLI keeps project config and hooks out of the
 /// package manager's reach.
@@ -95,9 +96,7 @@ fn normalize_for_wsl(value: &str) -> String {
 /// The CLI's `run_update_action`: after the terminal is restored, the update
 /// runs where no project config steers it.
 pub fn run_update(action: UpdateAction) -> Result<(), String> {
-    println!();
     let command = action.command_str();
-    println!("Updating Codex via `{command}`...");
     let path_env = std::env::var_os("PATH");
     let plan = update_command(action, cfg!(windows), path_env.as_deref())?;
     // Kept alive until the update ends.
@@ -105,34 +104,22 @@ pub fn run_update(action: UpdateAction) -> Result<(), String> {
         UpdateCwd::Root => None,
         UpdateCwd::Fresh => Some(tempfile::tempdir().map_err(|error| error.to_string())?),
     };
-    let status = std::process::Command::new(&plan.program)
-        .args(&plan.args)
-        .current_dir(
-            fresh
-                .as_ref()
-                .map_or(std::path::Path::new("/"), |dir| dir.path()),
-        )
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("`{command}` failed with status {status}"));
-    }
-    println!("\n🎉 Update ran successfully! Please restart Codex.");
-    Ok(())
+    let cwd = fresh
+        .as_ref()
+        .map_or(std::path::Path::new("/"), |dir| dir.path());
+    run_update_process(&command, &plan.program, &plan.args, cwd)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A directory holding an executable file per name.
+    /// A directory holding an executable per name.
     fn bin_dir(names: &[&str]) -> tempfile::TempDir {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("tempdir");
         for name in names {
-            let file = dir.path().join(name);
-            std::fs::write(&file, "#!/bin/sh\n").expect("write");
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+            // A link to an executable is one.
+            std::os::unix::fs::symlink("/bin/sh", dir.path().join(name)).expect("link");
         }
         dir
     }
