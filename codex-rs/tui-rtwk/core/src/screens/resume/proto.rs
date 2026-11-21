@@ -8,13 +8,12 @@
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadListCwdFilter;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
-use codex_app_server_protocol::ThreadReadParams;
-use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
 use codex_app_server_protocol::ThreadUnarchiveParams;
@@ -71,15 +70,6 @@ pub(super) fn wire(command: &Command, id: RequestId) -> ClientRequest {
                 search_term: None,
             },
         },
-        Command::Preview { thread, .. } | Command::Transcript { thread, .. } => {
-            ClientRequest::ThreadRead {
-                request_id: id,
-                params: ThreadReadParams {
-                    thread_id: thread.to_string(),
-                    include_turns: true,
-                },
-            }
-        }
         Command::Archive { thread, .. } => ClientRequest::ThreadArchive {
             request_id: id,
             params: ThreadArchiveParams {
@@ -121,16 +111,6 @@ pub(super) fn decode(command: &Command, result: serde_json::Value) -> Result<Rep
                 unread,
             })
         }
-        Command::Preview { .. } => {
-            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Preview(preview_lines(&response.thread)))
-        }
-        Command::Transcript { .. } => {
-            let response: ThreadReadResponse = serde_json::from_value(result).map_err(malformed)?;
-            Ok(Reply::Transcript {
-                turns: response.thread.turns.len(),
-            })
-        }
         Command::Archive { .. } => Ok(Reply::Archived),
         Command::Unarchive { .. } => {
             let response: ThreadUnarchiveResponse =
@@ -162,16 +142,15 @@ pub fn row_of(thread: &Thread, backend: BackendId) -> Row {
     }
 }
 
-/// The newest transcript lines of a thread read with its turns, newest
-/// first as the oracle collects them, then in reading order (oracle:
-/// `append_transcript_preview_lines` / `_text`): the user's and the
-/// assistant's messages, each message's nonblank lines taken from its end.
-pub fn preview_lines(thread: &Thread) -> Vec<PreviewLine> {
+/// The newest transcript lines of a thread's turns (newest turn first, as
+/// the thread's history reads them), newest first as the oracle collects
+/// them, then in reading order (oracle: `append_transcript_preview_lines` /
+/// `_text`): the user's and the assistant's messages, each message's
+/// nonblank lines taken from its end.
+pub fn preview_lines(turns: &[Turn]) -> Vec<PreviewLine> {
     let mut lines: Vec<PreviewLine> = Vec::new();
-    let items = thread
-        .turns
+    let items = turns
         .iter()
-        .rev()
         .flat_map(|turn| turn.items.iter().rev())
         .map(|item| &item.payload);
     for item in items {
@@ -208,4 +187,79 @@ pub fn preview_lines(thread: &Thread) -> Vec<PreviewLine> {
     }
     lines.reverse();
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_app_server_protocol::{ThreadItem, TurnItemsView, TurnStatus};
+
+    fn turn(items: Vec<ThreadItemPayload>) -> Turn {
+        Turn {
+            id: "t".into(),
+            root_turn_id: None,
+            items: items.into_iter().map(ThreadItem::untimed).collect(),
+            items_view: TurnItemsView::Full,
+            status: TurnStatus::Completed,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+        }
+    }
+
+    fn user(text: &str) -> ThreadItemPayload {
+        ThreadItemPayload::UserMessage {
+            id: "u".into(),
+            client_id: None,
+            content: vec![UserInput::Text {
+                text: text.into(),
+                text_elements: Vec::new(),
+            }],
+        }
+    }
+
+    fn assistant(text: &str) -> ThreadItemPayload {
+        ThreadItemPayload::AgentMessage {
+            moderation: None,
+            id: "a".into(),
+            text: text.into(),
+            phase: None,
+            memory_citation: None,
+            delivery: None,
+            questions: None,
+        }
+    }
+
+    #[test]
+    fn the_preview_is_the_newest_lines_in_reading_order() {
+        // Newest turn first, as the thread's history reads them.
+        let turns = vec![
+            turn(vec![user("next"), assistant("one\n\n  two  \nthree")]),
+            turn(vec![user("first")]),
+        ];
+        let lines = preview_lines(&turns);
+        let spoken: Vec<_> = lines
+            .iter()
+            .map(|line| (line.speaker, line.text.as_str()))
+            .collect();
+        assert_eq!(
+            spoken,
+            vec![
+                (Speaker::User, "first"),
+                (Speaker::User, "next"),
+                (Speaker::Assistant, "one"),
+                (Speaker::Assistant, "two"),
+                (Speaker::Assistant, "three"),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_preview_keeps_only_the_newest_six_lines() {
+        let text = (1..=9).map(|n| n.to_string()).collect::<Vec<_>>().join("\n");
+        let lines = preview_lines(&[turn(vec![assistant(&text)])]);
+        let texts: Vec<_> = lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, vec!["4", "5", "6", "7", "8", "9"]);
+    }
 }

@@ -1606,11 +1606,25 @@ fn resume_picker(app: &mut CodexApp, intent: resume::Intent, fx: &mut AppFx) {
 fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
     for out in outs {
         let ticket = app.mint.next();
+        let command = match out.ask {
+            resume::Ask::Rpc(command) => ScreenCommand::Resume(command),
+            // A thread's turns are the thread's own RPC (ADR-003): asked as
+            // its history, on the backend that owns the thread.
+            resume::Ask::Turns { backend, thread } => {
+                Rc::make_mut(&mut app.screens)
+                    .agents
+                    .observe(backend, thread.as_str());
+                ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::History {
+                    thread: thread.to_string(),
+                    cursor: None,
+                }))
+            }
+        };
         app.outgoing.insert(ticket, AppCtx::Resume(out.ctx));
         fx.commands.push(Command::Screen {
             ticket,
             thread: ThreadId::default(),
-            command: ScreenCommand::Resume(out.command),
+            command,
         });
     }
 }
@@ -1619,6 +1633,9 @@ fn send_resume(app: &mut CodexApp, outs: Vec<resume::Out>, fx: &mut AppFx) {
 fn resume_answer(app: &mut CodexApp, ctx: resume::Ctx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {
         Answer::Screen(ScreenReply::Resume(reply)) => Ok(reply),
+        Answer::Screen(ScreenReply::Agents(agents::Reply::History { turns, .. })) => {
+            Ok(resume::Reply::Turns(turns))
+        }
         Answer::Failed(error) => Err(error),
         _ => Err(RpcError::Mismatch),
     };

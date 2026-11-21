@@ -12,11 +12,13 @@ use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::{Reply, RpcError};
-use codex_tui_core::screens::agents::{Command as AgentsCommand, Ev as AgentsEv};
+use codex_tui_core::screens::agents::{
+    Command as AgentsCommand, Ev as AgentsEv, Reply as AgentsReply,
+};
 use codex_tui_core::screens::resume::{
-    Action, ArchiveState, Command as ResumeCommand, CwdFilter, Density, Dir, Ev, Filter,
-    Intent as ResumeIntent, Launch, Load, PageMode, Preview, PreviewLine, Reply as ResumeReply,
-    Row, Scope, Sort, Speaker, Status, TranscriptState,
+    Action, ArchiveState, Command as ResumeCommand, Control, CwdFilter, Density, Dir, Ev, Filter,
+    Intent as ResumeIntent, Launch, Load, PageMode, Preview, Problem, Reply as ResumeReply, Row,
+    Scope, Sort, Status, TranscriptState,
 };
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply};
 use codex_tui_core::threads::ThreadAsk;
@@ -145,6 +147,36 @@ fn answer(app: &mut CodexApp, ticket: Ticket, reply: ResumeReply) -> AppFx {
     )
 }
 
+/// The reply of a thread's history (the turns of a preview or a transcript).
+fn turns(app: &mut CodexApp, ticket: Ticket) -> AppFx {
+    let reply = AgentsReply::History {
+        turns: Vec::new(),
+        next: None,
+    };
+    send(
+        app,
+        AppEv::Reply(ticket, Reply::screen(ScreenReply::Agents(reply))),
+    )
+}
+
+/// The thread-turns RPCs `fx` asks for: the ticket and the thread.
+fn turns_asked(fx: &AppFx) -> Vec<(Ticket, String)> {
+    fx.commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command:
+                    ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::History {
+                        thread, ..
+                    })),
+                ..
+            } => Some((*ticket, thread.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 fn fail(app: &mut CodexApp, ticket: Ticket, message: &str) -> AppFx {
     send(
         app,
@@ -241,9 +273,7 @@ fn a_reply_of_an_older_listing_is_dropped() {
     // Oracle: a reset listing invalidates every pending page (`listing_token`,
     // `request_token`). Changing the sort restarts the listing.
     let (mut app, first) = opened();
-    intent(&mut app, ResumeIntent::FocusNext);
-    intent(&mut app, ResumeIntent::FocusNext);
-    let fx = intent(&mut app, ResumeIntent::Change(Dir::Next));
+    let fx = intent(&mut app, ResumeIntent::Change(Control::Sort, Dir::Next));
     let (second, command) = only(&fx);
     assert!(matches!(
         command,
@@ -420,10 +450,7 @@ fn sources_page_on_their_own_cursors_and_one_failing_does_not_stop_the_other() {
     fail(&mut app, cloud, "cloud is down");
     let model = &app.screens().resume;
     assert_eq!(model.load, Load::Idle);
-    assert_eq!(
-        model.inline_error.as_deref(),
-        Some("Could not load one backend. Reopen the picker to retry.")
-    );
+    assert_eq!(model.inline_error, Some(Problem::OneBackend));
     assert_eq!(names(&app), vec!["l1"]);
     // The next page goes to the live source only.
     let fx = intent(&mut app, ResumeIntent::End);
@@ -446,8 +473,8 @@ fn a_failed_later_page_is_an_inline_error_and_the_rows_stay() {
     let (ticket, _) = only(&fx);
     fail(&mut app, ticket, "boom");
     assert_eq!(
-        app.screens().resume.inline_error.as_deref(),
-        Some("Could not load more sessions")
+        app.screens().resume.inline_error,
+        Some(Problem::MoreFailed)
     );
     assert_eq!(names(&app), vec!["a"]);
     assert!(
@@ -525,7 +552,10 @@ fn the_toolbar_changes_restart_the_listing_with_what_they_ask_for() {
     ));
     let generation = app.screens().resume.listing.generation;
     // Right on the filter: the repository's checkouts.
-    let (_, command) = only(&intent(&mut app, ResumeIntent::Change(Dir::Next)));
+    let (_, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Filter, Dir::Next),
+    ));
     assert_eq!(app.screens().resume.filter, Filter::Repo);
     assert!(matches!(
         command,
@@ -533,8 +563,10 @@ fn the_toolbar_changes_restart_the_listing_with_what_they_ask_for() {
     ));
     assert!(app.screens().resume.listing.generation > generation);
     // Tab to the status: archived sessions.
-    intent(&mut app, ResumeIntent::FocusNext);
-    let (_, command) = only(&intent(&mut app, ResumeIntent::Change(Dir::Next)));
+    let (_, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Status, Dir::Next),
+    ));
     assert_eq!(app.screens().resume.status, Status::Archived);
     assert!(matches!(command, ResumeCommand::List { archived: true, .. }));
 }
@@ -550,41 +582,52 @@ fn density_toggles_without_reading_anything() {
 // Preview and transcript.
 
 #[test]
-fn expanding_a_row_reads_its_preview_once() {
+fn expanding_a_row_reads_its_turns_once_as_the_threads_own_rpc() {
     let mut app = listed(&["a"], None);
     let id = ThreadId::new("a");
-    let (ticket, command) = only(&intent(&mut app, ResumeIntent::Expand(id.clone())));
-    assert!(matches!(command, ResumeCommand::Preview { .. }));
+    let fx = intent(&mut app, ResumeIntent::Expand(id.clone()));
+    assert!(asked(&fx).is_empty(), "not a picker RPC: the thread's own");
+    let found = turns_asked(&fx);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].1, "a");
     let key = (LOCAL, id.clone());
     assert_eq!(
         app.screens().resume.previews.get(&key),
         Some(&Preview::Loading)
     );
-    let lines = vec![PreviewLine {
-        speaker: Speaker::User,
-        text: "hello".into(),
-    }];
-    answer(&mut app, ticket, ResumeReply::Preview(lines.clone()));
+    turns(&mut app, found[0].0);
     assert_eq!(
         app.screens().resume.previews.get(&key),
-        Some(&Preview::Loaded(lines))
+        Some(&Preview::Loaded(Vec::new()))
     );
     // Collapse and expand again: the cached preview is used.
     intent(&mut app, ResumeIntent::Expand(id.clone()));
     assert_eq!(app.screens().resume.expanded, None);
     let fx = intent(&mut app, ResumeIntent::Expand(id));
-    assert!(asked(&fx).is_empty());
+    assert!(turns_asked(&fx).is_empty());
     assert_eq!(app.screens().resume.expanded, Some(key));
+}
+
+#[test]
+fn a_failed_preview_is_marked_failed() {
+    let mut app = listed(&["a"], None);
+    let id = ThreadId::new("a");
+    let fx = intent(&mut app, ResumeIntent::Expand(id.clone()));
+    fail(&mut app, turns_asked(&fx)[0].0, "no such thread");
+    assert_eq!(
+        app.screens().resume.previews.get(&(LOCAL, id)),
+        Some(&Preview::Failed)
+    );
 }
 
 #[test]
 fn a_late_preview_of_an_archived_row_is_ignored() {
     // Oracle: "Archiving removes the owned cache entry; ignore its late preview."
     let mut app = listed(&["a", "b"], None);
-    let (preview, _) = only(&intent(&mut app, ResumeIntent::Expand(ThreadId::new("a"))));
+    let preview = turns_asked(&intent(&mut app, ResumeIntent::Expand(ThreadId::new("a"))))[0].0;
     let (archive, _) = only(&intent(&mut app, ResumeIntent::Archive(ThreadId::new("a"))));
     answer(&mut app, archive, ResumeReply::Archived);
-    answer(&mut app, preview, ResumeReply::Preview(Vec::new()));
+    turns(&mut app, preview);
     assert!(app.screens().resume.previews.is_empty());
 }
 
@@ -592,25 +635,23 @@ fn a_late_preview_of_an_archived_row_is_ignored() {
 fn a_transcript_is_asked_for_and_marked_loaded() {
     let mut app = listed(&["a"], None);
     let id = ThreadId::new("a");
-    let (ticket, command) = only(&intent(&mut app, ResumeIntent::OpenTranscript(id)));
-    assert!(matches!(command, ResumeCommand::Transcript { .. }));
+    let fx = intent(&mut app, ResumeIntent::OpenTranscript(id));
+    let ticket = turns_asked(&fx)[0].0;
     let transcript = app.screens().resume.transcript.clone().expect("loading");
     assert_eq!(transcript.state, TranscriptState::Loading);
-    answer(&mut app, ticket, ResumeReply::Transcript { turns: 3 });
+    turns(&mut app, ticket);
     let transcript = app.screens().resume.transcript.clone().expect("loaded");
-    assert_eq!(transcript.state, TranscriptState::Loaded { turns: 3 });
+    assert_eq!(transcript.state, TranscriptState::Loaded { turns: 0 });
 }
 
 #[test]
 fn esc_cancels_a_transcript_that_is_loading_and_its_late_reply_is_dropped() {
     let mut app = listed(&["a"], None);
-    let (ticket, _) = only(&intent(
-        &mut app,
-        ResumeIntent::OpenTranscript(ThreadId::new("a")),
-    ));
+    let fx = intent(&mut app, ResumeIntent::OpenTranscript(ThreadId::new("a")));
+    let ticket = turns_asked(&fx)[0].0;
     intent(&mut app, ResumeIntent::CancelTranscript);
     assert_eq!(app.screens().resume.transcript, None);
-    answer(&mut app, ticket, ResumeReply::Transcript { turns: 1 });
+    turns(&mut app, ticket);
     assert_eq!(app.screens().resume.transcript, None);
 }
 
@@ -648,8 +689,8 @@ fn a_failed_archive_says_so_and_keeps_the_row() {
     let (ticket, _) = only(&intent(&mut app, ResumeIntent::Archive(ThreadId::new("a"))));
     fail(&mut app, ticket, "disk full");
     assert_eq!(
-        app.screens().resume.inline_error.as_deref(),
-        Some("Failed to archive session: disk full")
+        app.screens().resume.inline_error,
+        Some(Problem::ArchiveFailed("disk full".into()))
     );
     assert_eq!(names(&app), vec!["a"]);
     assert_eq!(app.screens().resume.archive, ArchiveState::Idle);
@@ -672,8 +713,8 @@ fn the_current_session_is_not_archived_from_the_picker() {
     let fx = intent(&mut app, ResumeIntent::Archive(ThreadId::new("current")));
     assert!(asked(&fx).is_empty());
     assert_eq!(
-        app.screens().resume.inline_error.as_deref(),
-        Some("Use /archive to archive the current session and exit.")
+        app.screens().resume.inline_error,
+        Some(Problem::CurrentSession)
     );
     only(&intent(
         &mut app,
@@ -684,8 +725,10 @@ fn the_current_session_is_not_archived_from_the_picker() {
 #[test]
 fn archiving_is_not_offered_in_the_archived_list() {
     let mut app = listed(&["a"], None);
-    intent(&mut app, ResumeIntent::FocusNext);
-    let (ticket, _) = only(&intent(&mut app, ResumeIntent::Change(Dir::Next)));
+    let (ticket, _) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Status, Dir::Next),
+    ));
     answer(&mut app, ticket, page(&[("a", 1)], None));
     assert_eq!(app.screens().resume.status, Status::Archived);
     assert!(asked(&intent(&mut app, ResumeIntent::Archive(ThreadId::new("a")))).is_empty());
@@ -717,17 +760,16 @@ fn a_row_that_is_not_listed_opens_nothing_and_says_so() {
     let mut app = listed(&["a"], None);
     let fx = intent(&mut app, ResumeIntent::Resume(ThreadId::new("ghost")));
     assert_eq!(resumed_thread(&fx), None);
-    assert_eq!(
-        app.screens().resume.inline_error.as_deref(),
-        Some("Failed to read session metadata from selected session")
-    );
+    assert_eq!(app.screens().resume.inline_error, Some(Problem::NoMetadata));
 }
 
 #[test]
 fn enter_in_the_archived_list_restores_the_session_and_then_opens_it() {
     let mut app = listed(&["a"], None);
-    intent(&mut app, ResumeIntent::FocusNext);
-    let (ticket, _) = only(&intent(&mut app, ResumeIntent::Change(Dir::Next)));
+    let (ticket, _) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Status, Dir::Next),
+    ));
     answer(&mut app, ticket, page(&[("a", 1)], None));
 
     let fx = intent(&mut app, ResumeIntent::Resume(ThreadId::new("a")));
@@ -753,15 +795,17 @@ fn enter_in_the_archived_list_restores_the_session_and_then_opens_it() {
 #[test]
 fn a_failed_restore_says_so() {
     let mut app = listed(&["a"], None);
-    intent(&mut app, ResumeIntent::FocusNext);
-    let (ticket, _) = only(&intent(&mut app, ResumeIntent::Change(Dir::Next)));
+    let (ticket, _) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Status, Dir::Next),
+    ));
     answer(&mut app, ticket, page(&[("a", 1)], None));
     let (ticket, _) = only(&intent(&mut app, ResumeIntent::Resume(ThreadId::new("a"))));
     let fx = fail(&mut app, ticket, "gone");
     assert_eq!(resumed_thread(&fx), None);
     assert_eq!(
-        app.screens().resume.inline_error.as_deref(),
-        Some("Failed to restore archived session: gone")
+        app.screens().resume.inline_error,
+        Some(Problem::RestoreFailed("gone".into()))
     );
 }
 

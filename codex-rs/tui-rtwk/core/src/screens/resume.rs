@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::Turn;
 
 use crate::app::AppFx;
 use crate::ids::{BackendId, ThreadId};
@@ -91,20 +92,43 @@ pub struct Model {
     pub filter: Filter,
     pub status: Status,
     pub sort: Sort,
-    pub focus: Control,
     pub density: Density,
     /// The typed search (oracle: `query`).
     pub query: String,
     pub listing: Listing,
     /// A one-line error under the list (oracle: `inline_error`), cleared by
-    /// the next thing the user does.
-    pub inline_error: Option<String>,
+    /// the next thing the user does. The words are the view's.
+    pub inline_error: Option<Problem>,
     pub expanded: Option<Key>,
     pub previews: BTreeMap<Key, Preview>,
     pub archive: ArchiveState,
     /// The transcript being loaded or last opened (ctrl+t).
     pub transcript: Option<Transcript>,
     seen: BTreeSet<String>,
+}
+
+/// What the line under the list reports (oracle: `inline_error`). Core says
+/// what happened; the page's strings say it in words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// The row has no readable thread id.
+    NoThreadId,
+    /// The row's session cannot be resumed.
+    NoMetadata,
+    /// The row has no transcript to open.
+    NoTranscript,
+    /// The transcript could not be read.
+    TranscriptFailed,
+    /// The current session is not archived from the picker.
+    CurrentSession,
+    /// One of several backends failed a page.
+    OneBackend,
+    /// A page after the first failed.
+    MoreFailed,
+    /// Archiving failed, with the server's message.
+    ArchiveFailed(String),
+    /// Restoring an archived session failed, with the server's message.
+    RestoreFailed(String),
 }
 
 /// Where the list stands (oracle: `PaginationState` and `inline_error`).
@@ -268,11 +292,9 @@ pub enum Intent {
     Paste(String),
     /// Esc with a query: the search is cleared.
     ClearQuery,
-    /// Tab and Shift+Tab move the toolbar focus.
-    FocusNext,
-    FocusPrevious,
-    /// Left and right change the focused control's value.
-    Change(Dir),
+    /// Left and right change the value of the toolbar control with the
+    /// keyboard focus (which one has it is the page's: UI state).
+    Change(Control, Dir),
     /// Ctrl+O.
     ToggleDensity,
     /// Ctrl+E on this row.
@@ -295,8 +317,18 @@ pub enum Intent {
 /// An RPC to make and what it is for (the app mints the ticket).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Out {
-    pub command: Command,
+    pub ask: Ask,
     pub ctx: Ctx,
+}
+
+/// What the picker asks of a backend.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// An RPC of this screen (`Command`).
+    Rpc(Command),
+    /// The newest turns of a thread (the preview and the transcript): a thread
+    /// RPC, so the app asks it as the thread's own `ThreadAsk` (ADR-003).
+    Turns { backend: BackendId, thread: ThreadId },
 }
 
 /// The RPCs of this screen: app-scoped, sent by `app::send_resume`.
@@ -309,14 +341,6 @@ pub enum Command {
         sort: Sort,
         archived: bool,
         cwd: Option<CwdFilter>,
-    },
-    Preview {
-        backend: BackendId,
-        thread: ThreadId,
-    },
-    Transcript {
-        backend: BackendId,
-        thread: ThreadId,
     },
     Archive {
         backend: BackendId,
@@ -333,8 +357,6 @@ impl Command {
     pub fn backend(&self) -> BackendId {
         match self {
             Self::List { backend, .. }
-            | Self::Preview { backend, .. }
-            | Self::Transcript { backend, .. }
             | Self::Archive { backend, .. }
             | Self::Unarchive { backend, .. } => *backend,
         }
@@ -342,7 +364,7 @@ impl Command {
 }
 
 /// The replies of those RPCs, decoded by `decode`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
     Page {
         rows: Vec<Row>,
@@ -350,16 +372,18 @@ pub enum Reply {
         /// The ids of the rows with unread output.
         unread: Vec<String>,
     },
-    Preview(Vec<PreviewLine>),
-    Transcript {
-        turns: usize,
-    },
+    /// The newest turns of a thread, newest first (the app turns the
+    /// thread's history reply into this).
+    Turns(Vec<Turn>),
     Archived,
     Unarchived {
         thread: ThreadId,
         cwd: Option<String>,
     },
 }
+
+// The protocol's `Turn` compares only by value, as the agents replies do.
+impl Eq for Reply {}
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -450,14 +474,14 @@ impl Model {
                 request: request.request,
                 search: request.search,
             },
-            command: Command::List {
+            ask: Ask::Rpc(Command::List {
                 backend: request.backend,
                 cursor: request.cursor,
                 mode: request.mode,
                 sort: self.sort,
                 archived: self.status == Status::Archived,
                 cwd: self.cwd_filter(),
-            },
+            }),
         }
     }
 
@@ -546,14 +570,14 @@ impl Model {
     }
 
     /// The row asked for, or the inline error the oracle shows.
-    fn row_or_error(&mut self, id: &ThreadId, error: &str) -> Option<Row> {
+    fn row_or_error(&mut self, id: &ThreadId, problem: Problem) -> Option<Row> {
         if id.as_str().is_empty() {
-            self.inline_error = Some(error.to_owned());
+            self.inline_error = Some(problem);
             return None;
         }
         let row = self.row(id).cloned();
         if row.is_none() {
-            self.inline_error = Some(error.to_owned());
+            self.inline_error = Some(problem);
         }
         row
     }
@@ -634,15 +658,7 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
             model.listing.search = None;
             Vec::new()
         }
-        Intent::FocusNext => {
-            model.focus = model.focus.next(model.action);
-            Vec::new()
-        }
-        Intent::FocusPrevious => {
-            model.focus = model.focus.previous(model.action);
-            Vec::new()
-        }
-        Intent::Change(dir) => change(model, dir),
+        Intent::Change(control, dir) => change(model, control, dir),
         Intent::ToggleDensity => {
             model.density = model.density.toggled();
             Vec::new()
@@ -690,8 +706,8 @@ fn paste_query(text: &str) -> Option<String> {
     (!folded.is_empty()).then_some(folded)
 }
 
-fn change(model: &mut Model, dir: Dir) -> Vec<Out> {
-    match model.focus {
+fn change(model: &mut Model, control: Control, dir: Dir) -> Vec<Out> {
+    match control {
         Control::Sort => model.sort = model.sort.toggled(),
         Control::Status => model.status = model.status.toggled(),
         Control::Filter => {
@@ -713,17 +729,17 @@ fn resume(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     if !matches!(model.archive, ArchiveState::Idle) {
         return Vec::new();
     }
-    let Some(row) = model.row_or_error(id, "Failed to read session metadata from selected session")
+    let Some(row) = model.row_or_error(id, Problem::NoMetadata)
     else {
         return Vec::new();
     };
     if model.status == Status::Archived {
         model.archive = ArchiveState::Restoring(row.key());
         return vec![Out {
-            command: Command::Unarchive {
+            ask: Ask::Rpc(Command::Unarchive {
                 backend: row.backend,
                 thread: row.id.clone(),
-            },
+            }),
             ctx: Ctx::Unarchive(row.key()),
         }];
     }
@@ -746,7 +762,7 @@ fn expand(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     }
     model.previews.insert(key.clone(), Preview::Loading);
     vec![Out {
-        command: Command::Preview {
+        ask: Ask::Turns {
             backend: row.backend,
             thread: row.id,
         },
@@ -755,7 +771,7 @@ fn expand(model: &mut Model, id: &ThreadId) -> Vec<Out> {
 }
 
 fn open_transcript(model: &mut Model, id: &ThreadId) -> Vec<Out> {
-    let Some(row) = model.row_or_error(id, "No transcript available for this session") else {
+    let Some(row) = model.row_or_error(id, Problem::NoTranscript) else {
         return Vec::new();
     };
     let key = row.key();
@@ -768,7 +784,7 @@ fn open_transcript(model: &mut Model, id: &ThreadId) -> Vec<Out> {
         state: TranscriptState::Loading,
     });
     vec![Out {
-        command: Command::Transcript {
+        ask: Ask::Turns {
             backend: row.backend,
             thread: row.id,
         },
@@ -780,19 +796,19 @@ fn archive(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     if !model.archive_available() || !matches!(model.archive, ArchiveState::Idle) {
         return Vec::new();
     }
-    let Some(row) = model.row_or_error(id, "Selected session does not have a thread ID.") else {
+    let Some(row) = model.row_or_error(id, Problem::NoThreadId) else {
         return Vec::new();
     };
     if matches!(&model.launch, Launch::Session { current } if current == &row.id) {
-        model.inline_error = Some("Use /archive to archive the current session and exit.".into());
+        model.inline_error = Some(Problem::CurrentSession);
         return Vec::new();
     }
     model.archive = ArchiveState::Pending(row.key());
     vec![Out {
-        command: Command::Archive {
+        ask: Ask::Rpc(Command::Archive {
             backend: row.backend,
             thread: row.id.clone(),
-        },
+        }),
         ctx: Ctx::Archive(row.key()),
     }]
 }
@@ -817,7 +833,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
             model.previews.insert(
                 key,
                 match result {
-                    Ok(Reply::Preview(lines)) => Preview::Loaded(lines),
+                    Ok(Reply::Turns(turns)) => Preview::Loaded(proto::preview_lines(&turns)),
                     _ => Preview::Failed,
                 },
             );
@@ -832,15 +848,15 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 return Vec::new();
             }
             match result {
-                Ok(Reply::Transcript { turns }) => {
+                Ok(Reply::Turns(turns)) => {
                     model.transcript = Some(Transcript {
                         key,
-                        state: TranscriptState::Loaded { turns },
+                        state: TranscriptState::Loaded { turns: turns.len() },
                     });
                 }
                 _ => {
                     model.transcript = None;
-                    model.inline_error = Some("Could not load transcript preview".into());
+                    model.inline_error = Some(Problem::TranscriptFailed);
                 }
             }
             Vec::new()
@@ -855,8 +871,7 @@ pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>
                 Ok(Reply::Unarchived { thread, .. }) => model.restored = Some(thread),
                 Ok(_) => {}
                 Err(error) => {
-                    model.inline_error =
-                        Some(format!("Failed to restore archived session: {}", describe(&error)));
+                    model.inline_error = Some(Problem::RestoreFailed(describe(&error)));
                 }
             }
             Vec::new()
@@ -922,12 +937,11 @@ fn page_answer(
                 source.failed = true;
             }
             if several {
-                model.inline_error =
-                    Some("Could not load one backend. Reopen the picker to retry.".into());
+                model.inline_error = Some(Problem::OneBackend);
             } else if model.rows.is_empty() {
                 model.load = Load::Failed(describe(&error));
             } else {
-                model.inline_error = Some("Could not load more sessions".into());
+                model.inline_error = Some(Problem::MoreFailed);
             }
             if !model.listing.is_loading() && matches!(model.load, Load::Loading) {
                 model.load = Load::Idle;
@@ -944,7 +958,7 @@ fn archive_answer(model: &mut Model, key: Key, result: Result<Reply, RpcError>) 
     }
     model.archive = ArchiveState::Idle;
     if let Err(error) = result {
-        model.inline_error = Some(format!("Failed to archive session: {}", describe(&error)));
+        model.inline_error = Some(Problem::ArchiveFailed(describe(&error)));
         return Vec::new();
     }
     // The seen key stays as a tombstone: an older page already in flight
