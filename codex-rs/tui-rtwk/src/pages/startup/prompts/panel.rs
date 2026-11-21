@@ -5,20 +5,19 @@
 //! In Flutter: a `Column(min)` on the menu surface: a blank row, the prompt's
 //! own lines, the choices (the shared `Options` controller: cursor and
 //! scroll, the room the rest leaves), the key hint and a blank row; the keys
-//! are a `Focus` with bindings, mapped to core's `Key` and answered by
-//! core's `Prompt::on_key` (what a key does is the oracle's, tested in
-//! core). The prompt is read from the model (`ScreenStates.startup.open`);
+//! are a `Focus` with the bindings of `keys.rs` (key -> `Cmd`), answered by
+//! core's `Prompt::{step, number, take}` (what a key does is the oracle's,
+//! tested in `keys.rs` and core). The prompt is read from the model (`ScreenStates.startup.open`);
 //! the widget keeps the cursor only (ADR-003).
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{
     Align, Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible,
     MainAxisSize, Padding, SizedBox,
 };
 use rtwk::navigation::Navigator;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::Text;
@@ -27,13 +26,14 @@ use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::startup::{Action, Intent, Key, Prompt, Reaction, Status, Trust};
+use codex_tui_core::screens::startup::{Action, Intent, Prompt, Reaction, Status, Trust};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 use crate::widgets::options::{OptionStyles, Options, RichRow};
 
+use super::keys::{self, Cmd};
 use super::strings::{self, Strings};
 
 /// The panel over the prompt the model has open.
@@ -42,7 +42,7 @@ pub struct Panel;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Msg {
-    Key(Key),
+    Cmd(Cmd),
 }
 
 /// Widget state: the cursor and the scroll of the choices (R14).
@@ -88,11 +88,11 @@ impl State for PanelState {
     }
 
     fn update(&mut self, msg: Msg, _: &Panel, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Msg::Key(key) = msg;
+        let Msg::Cmd(cmd) = msg;
         let Some(prompt) = open(cx) else {
             return Rebuild::No;
         };
-        match prompt.on_key(self.options.cursor(), key) {
+        match cmd.react(&prompt, self.options.cursor()) {
             Reaction::Nothing => Rebuild::No,
             Reaction::Cursor(row) => {
                 self.options.set(row);
@@ -222,30 +222,9 @@ impl State for PanelState {
         let panel = BoxWidget::new()
             .style(tokens.prompt_surface(cx, false))
             .child(column);
-        let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
-        let mut bindings = vec![
-            (KeyPress::UP, Key::Up),
-            (KeyPress::DOWN, Key::Down),
-            (KeyPress::LEFT, Key::Left),
-            (KeyPress::RIGHT, Key::Right),
-            (KeyPress::ENTER, Key::Enter),
-            (KeyPress::ESC, Key::Esc),
-            (ctrl('c'), Key::Ctrl('c')),
-            (ctrl('d'), Key::Ctrl('d')),
-            (
-                KeyPress::code(KeyCode::Backspace).with_mods(Mods::CTRL),
-                Key::Ctrl('h'),
-            ),
-            (ctrl('l'), Key::Ctrl('l')),
-        ];
-        bindings.extend(
-            "123456789kjynYNloLO"
-                .chars()
-                .map(|c| (KeyPress::char(c), Key::Char(c))),
-        );
         let mut focus = Focus::new(Align::new(Alignment::TOP_LEFT, panel)).autofocus();
-        for (press, key) in bindings {
-            focus = focus.bind(press, cx.send(Msg::Key(key)));
+        for (press, cmd) in keys::bindings(&prompt) {
+            focus = focus.bind(press, cx.send(Msg::Cmd(cmd)));
         }
         focus.into()
     }
