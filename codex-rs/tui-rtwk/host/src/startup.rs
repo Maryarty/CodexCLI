@@ -1,11 +1,14 @@
 //! The startup page's host side (S01-S04): reads the launch facts (the
-//! update offered, the sign-in due, the folder trust) and runs the page's
-//! asks (the trust write, the update's dismissal); the update chosen runs
+//! update offered, the sign-in due and what it offers, the folder trust)
+//! and runs the page's asks (the trust write, the update's dismissal, the
+//! logins through the app server's account RPCs); the update chosen runs
 //! once the app has ended (`main`). Core decides
 //! (`protocol::onboarding`); this only reads and writes. Oracle: `lib.rs`
 //! (`get_login_status`, the trust check at launch), `config_update.rs`,
-//! `updates.rs`, `updates_cache.rs`, `update_action.rs`, and the CLI's
-//! `run_update_action`.
+//! `updates.rs`, `updates_cache.rs`, `update_action.rs`, the CLI's
+//! `run_update_action`, `should_show_provider_setup_wizard`, and
+//! `onboarding/auth.rs` (`start_chatgpt_login`, `save_api_key`,
+//! `cancel_login_attempt`, `show_chatgpt_login_in_browser`).
 
 use std::future::Future;
 use std::path::Path;
@@ -14,20 +17,25 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_app_server_protocol::ClientRequest;
+use codex_config::ConfigLayerSource;
 use codex_config::default_project_root_markers;
 use codex_config::loader::discover_project_root;
 use codex_config::loader::normalized_project_trust_keys;
 use codex_config::loader::project_trust_key;
 use codex_core::config::Config;
 use codex_exec_server::LOCAL_FS;
+use codex_features::Feature;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_install_context::InstallContext;
 use codex_install_context::InstallMethod;
 use codex_install_context::StandalonePlatform;
+use codex_login::read_openai_api_key_from_env;
+use codex_protocol::config_types::ForcedLoginMethod;
 use codex_tui_core::app::AppEv;
 use codex_tui_core::protocol::onboarding as wire;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -51,6 +59,34 @@ pub struct Startup {
     /// does not open a workspace").
     pub check_trust: bool,
     pub update: UpdateSlot,
+    /// Which server the TUI talks to: what the provider wizards and the
+    /// browser login are offered for (`AppServerTarget`).
+    pub target: Target,
+}
+
+/// The server's place (`AppServerTarget` without Cloud, which has no
+/// startup side).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Embedded,
+    LocalDaemon,
+    Remote,
+}
+
+impl Target {
+    /// `uses_remote_workspace`: the login's browser callback is not here.
+    fn remote_workspace(self) -> bool {
+        self == Target::Remote
+    }
+
+    /// `should_show_provider_setup_wizard`'s `supported_target`.
+    fn supports(self, feature: Feature) -> bool {
+        match self {
+            Target::Embedded => true,
+            Target::LocalDaemon => feature == Feature::BedrockSetupWizard,
+            Target::Remote => false,
+        }
+    }
 }
 
 /// Runs one ask; the event that answers it, if any.
@@ -95,6 +131,28 @@ where
             }
             return None;
         }
+        Ask::Login { request, login } => {
+            let result = send(wire::login_start(&login, ids.next()))
+                .await
+                .map_err(|error| error.message);
+            let outcome = wire::login_outcome(&login, result);
+            // `show_chatgpt_login_in_browser`: the browser opens where the
+            // login's callback is; the oracle only logs a failure.
+            if let (
+                Login::ChatGpt,
+                codex_tui_core::screens::onboarding::auth::Outcome::Browser { url, .. },
+            ) = (&login, &outcome)
+                && !startup.target.remote_workspace()
+            {
+                let _ = webbrowser::open(url);
+            }
+            Ev::Auth(AuthResult { request, outcome })
+        }
+        Ask::CancelLogin { login_id } => {
+            // `cancel_login_attempt`: the oracle ignores the answer.
+            let _ = send(wire::login_cancel(&login_id, ids.next())).await;
+            return None;
+        }
     };
     Some(AppEv::Screen(ScreenEv::Onboarding(ev)))
 }
@@ -115,8 +173,8 @@ where
         wire::update_offer(env!("CARGO_PKG_VERSION"), cache.as_ref(), command)
     };
     let sign_in = match send(wire::account_read(ids.next())).await {
-        Ok(result) => wire::sign_in_due(result).unwrap_or(false),
-        Err(_) => false,
+        Ok(result) => wire::sign_in_offer(result, login_policy(startup)).unwrap_or(None),
+        Err(_) => None,
     };
     let trust = if startup.check_trust {
         trust(config, ids, send).await
@@ -129,9 +187,52 @@ where
             animations: config.animations && config.tui_effects.welcome,
         }),
         sign_in,
-        provider: false,
         trust,
     }
+}
+
+/// The login methods allowed and the provider wizards the configuration
+/// and the server offer (`OnboardingScreenArgs` in `run_ratatui_app`,
+/// `should_show_provider_setup_wizard`).
+fn login_policy(startup: &Startup) -> wire::LoginPolicy {
+    let config = &startup.config;
+    let auth = config.auth_config();
+    let wizard = |feature| {
+        startup.target.supports(feature)
+            && config.features.enabled(feature)
+            && (feature != Feature::GatewaySetupWizard
+                || config
+                    .config_layer_stack
+                    .required_model_provider()
+                    .is_none())
+            && config.model_provider_id == "openai"
+    };
+    wire::LoginPolicy {
+        chatgpt: auth.is_login_method_allowed(ForcedLoginMethod::Chatgpt),
+        api_key: auth.is_login_method_allowed(ForcedLoginMethod::Api),
+        wizards: Providers {
+            bedrock: wizard(Feature::BedrockSetupWizard),
+            gcp: wizard(Feature::GcpSetupWizard),
+            gateway: wizard(Feature::GatewaySetupWizard) && !provider_flag(startup),
+        },
+        env_api_key: read_openai_api_key_from_env(),
+    }
+}
+
+/// `client_provider_override_for_new_chats` is some: the launch chose a
+/// model provider (`-c model_provider=..`, a session flag) for an embedded
+/// server. A remote one offers no gateway wizard at all.
+fn provider_flag(startup: &Startup) -> bool {
+    startup.target == Target::Embedded
+        && startup
+            .config
+            .config_layer_stack
+            .layers_high_to_low()
+            .into_iter()
+            .any(|layer| {
+                layer.name == ConfigLayerSource::SessionFlags
+                    && layer.config.get("model_provider").is_some()
+            })
 }
 
 /// The folder trust to ask at launch (`check_directory_trust` with its

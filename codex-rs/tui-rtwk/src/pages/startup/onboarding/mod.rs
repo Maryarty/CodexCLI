@@ -31,6 +31,7 @@ use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 
+mod signin;
 pub mod strings;
 mod trust;
 mod update_prompt;
@@ -297,10 +298,18 @@ impl State for StartupPageState {
                 Some(ask) => trust::Trust { ask: ask.clone() }.into(),
                 None => AnyWidget::default(),
             },
-            Some(step @ (Step::SignIn | Step::Provider)) => Slot {
-                step: step.model().unwrap_or(core::Stage::SignIn),
-            }
-            .into(),
+            // The provider step is the sign-in step's widget too, so the
+            // menu's highlight outlives it (Esc there comes back to it).
+            Some(step @ (Step::SignIn | Step::Provider)) => match &model.sign_in {
+                Some(sign_in) => signin::SignInStep {
+                    sign_in: sign_in.clone(),
+                }
+                .into(),
+                None => Slot {
+                    step: step.model().unwrap_or(core::Stage::SignIn),
+                }
+                .into(),
+            },
             Some(Step::Import) => crate::pages::startup::import::Screen.into(),
             Some(Step::Migration) => Screen.into(),
         };
@@ -313,9 +322,15 @@ impl State for StartupPageState {
             return body;
         };
         let replay = self.replay;
+        // The logo goes while a login's link or code is shown
+        // (`should_suppress_animations`: `Presentation::Hidden`).
+        let frozen = model
+            .sign_in
+            .as_ref()
+            .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::freezes_animations);
         let page = LayoutBuilder::new(move |_, constraints| {
             let logo = welcome::shows_logo(
-                welcome_model.animations,
+                welcome_model.animations && !frozen,
                 constraints.max_width,
                 constraints.max_height,
             );

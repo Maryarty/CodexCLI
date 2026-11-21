@@ -90,7 +90,10 @@ fn bedrock_option_requires_feature_and_api_login_permission() {
 #[test]
 fn continue_in_browser_preserves_long_link_and_footer_at_narrow_width() {
     let s = open("browser_long_url", 44, 30);
-    s.assert_link("https://auth.openai.com/oauth/authorize?re", PRODUCTION_LENGTH_AUTH_URL);
+    s.assert_link(
+        "https://auth.openai.com/oauth/authorize?re",
+        PRODUCTION_LENGTH_AUTH_URL,
+    );
     s.assert_snap("continue_in_browser_narrow_long_url");
     s.assert_contains("On a remote or headless machine?");
     s.assert_contains("Press esc to cancel");
@@ -101,16 +104,16 @@ fn continue_in_browser_preserves_long_link_and_footer_at_narrow_width() {
 fn chatgpt_success_message_renders_osc8_hyperlinks() {
     let s = open("success_message", 80, 12);
     s.assert_link("Codex docs", "https://developers.openai.com/codex/security");
-    s.assert_link(
-        "training data preferences",
-        "https://chatgpt.com/#settings",
-    );
+    s.assert_link("training data preferences", "https://chatgpt.com/#settings");
     // The oracle's cells 0..47 of row 3 and 0..30 of row 9 are dim, the
     // indent's two blanks included; a terminal shows no dim on a blank, and
     // rtwk's presenter writes such blanks as erased cells
     // (`Attrs::VISIBLE_ON_BLANK`, `StyleTable::erasable`), so the screen's
     // blanks before the text carry none: the text's cells are checked.
-    s.assert_text_style("Learn about permissions and approvals in the", "dim !underlined");
+    s.assert_text_style(
+        "Learn about permissions and approvals in the",
+        "dim !underlined",
+    );
     s.assert_text_style("Codex docs", "dim underlined");
     s.assert_text_style("Your plan's rate limits and", "dim !underlined");
     s.assert_text_style("training data preferences", "dim underlined");
@@ -142,7 +145,10 @@ fn mark_url_hyperlink_wraps_cyan_underlined_cells() {
         "a ratatui buffer pass that wraps cyan underlined cells in OSC 8 after painting: rtwk paints the link as the text's own (`Hyperlink`); the link over the URL is held by continue_in_browser_preserves_long_link_and_footer_at_narrow_width",
     );
     let s = open("browser_long_url", 44, 30);
-    s.assert_link("https://auth.openai.com/oauth/authorize?re", PRODUCTION_LENGTH_AUTH_URL);
+    s.assert_link(
+        "https://auth.openai.com/oauth/authorize?re",
+        PRODUCTION_LENGTH_AUTH_URL,
+    );
     s.assert_no_link("Finish signing in via your browser");
 }
 

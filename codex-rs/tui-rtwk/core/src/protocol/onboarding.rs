@@ -7,18 +7,22 @@
 //! `update_versions.rs`.
 
 use codex_app_server_protocol::Account;
+use codex_app_server_protocol::CancelLoginAccountParams;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::MergeStrategy;
 use codex_app_server_protocol::RequestId;
 use serde_json::Value;
 
 use crate::rpc::RpcError;
 use crate::screens::onboarding::UpdateOffer;
+use crate::screens::onboarding::auth::{DeviceCode, Error, Login, Offer, Outcome, Providers};
 
 /// `account/read`: whether the sign-in step is due.
 pub fn account_read(request_id: RequestId) -> ClientRequest {
@@ -41,6 +45,107 @@ pub fn sign_in_due(result: Value) -> Result<bool, RpcError> {
         Some(Account::ApiKey {} | Account::Chatgpt { .. })
     );
     Ok(response.requires_openai_auth && !signed_in)
+}
+
+/// What the host read of the login policy and the provider wizards, for
+/// [`sign_in_offer`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LoginPolicy {
+    /// `AuthConfig::is_login_method_allowed(ForcedLoginMethod::Chatgpt)`.
+    pub chatgpt: bool,
+    /// `AuthConfig::is_login_method_allowed(ForcedLoginMethod::Api)`.
+    pub api_key: bool,
+    /// The wizards the configuration and the server allow, before the
+    /// sign-in and the API login are weighed (`should_show_provider_setup_wizard`
+    /// but its `should_show_login_screen` and API-login terms).
+    pub wizards: Providers,
+    /// `read_openai_api_key_from_env`.
+    pub env_api_key: Option<String>,
+}
+
+/// The sign-in step's offer, out of `account/read`'s result: none when the
+/// sign-in is not due ([`sign_in_due`]); the wizards only where API login
+/// is allowed (`should_show_provider_setup_wizard`).
+pub fn sign_in_offer(result: Value, policy: LoginPolicy) -> Result<Option<Offer>, RpcError> {
+    if !sign_in_due(result)? {
+        return Ok(None);
+    }
+    let wizards = if policy.api_key {
+        policy.wizards
+    } else {
+        Providers::default()
+    };
+    Ok(Some(Offer {
+        chatgpt: policy.chatgpt,
+        api_key: policy.api_key,
+        providers: wizards,
+        env_api_key: policy.env_api_key,
+    }))
+}
+
+/// `account/login/start` for a login (`start_chatgpt_login`,
+/// `start_headless_chatgpt_login`, `save_api_key`).
+pub fn login_start(login: &Login, request_id: RequestId) -> ClientRequest {
+    let params = match login {
+        Login::ChatGpt => LoginAccountParams::Chatgpt {
+            codex_streamlined_login: false,
+            use_hosted_login_success_page: false,
+            app_brand: None,
+        },
+        Login::DeviceCode => LoginAccountParams::ChatgptDeviceCode,
+        Login::ApiKey(key) => LoginAccountParams::ApiKey {
+            api_key: key.clone(),
+        },
+    };
+    ClientRequest::LoginAccount { request_id, params }
+}
+
+/// `account/login/cancel` (`cancel_login_attempt`).
+pub fn login_cancel(login_id: &str, request_id: RequestId) -> ClientRequest {
+    ClientRequest::CancelLoginAccount {
+        request_id,
+        params: CancelLoginAccountParams {
+            login_id: login_id.to_owned(),
+        },
+    }
+}
+
+/// What a login's `account/login/start` answer means; `Err` is the error
+/// the request failed with, as the oracle shows it.
+pub fn login_outcome(login: &Login, result: Result<Value, String>) -> Outcome {
+    let response = match result {
+        Ok(value) => serde_json::from_value::<LoginAccountResponse>(value),
+        Err(message) => {
+            return Outcome::Failed(match login {
+                Login::ApiKey(_) => Error::SaveFailed(message),
+                Login::ChatGpt | Login::DeviceCode => Error::Server(message),
+            });
+        }
+    };
+    match (login, response) {
+        (Login::ChatGpt, Ok(LoginAccountResponse::Chatgpt { login_id, auth_url })) => {
+            Outcome::Browser {
+                login_id,
+                url: auth_url,
+            }
+        }
+        (
+            Login::DeviceCode,
+            Ok(LoginAccountResponse::ChatgptDeviceCode {
+                login_id,
+                verification_url,
+                user_code,
+            }),
+        ) => Outcome::DeviceCode(DeviceCode {
+            login_id,
+            url: verification_url,
+            code: user_code,
+        }),
+        (Login::ApiKey(_), Ok(LoginAccountResponse::ApiKey {})) => Outcome::ApiKeySaved,
+        (Login::ApiKey(_), Err(error)) => Outcome::Failed(Error::SaveFailed(error.to_string())),
+        (_, Ok(other)) => Outcome::Failed(Error::Unexpected(format!("{other:?}"))),
+        (_, Err(error)) => Outcome::Failed(Error::Server(error.to_string())),
+    }
 }
 
 /// `config/read` with the layers for `cwd`: what the folder trust is read from.
@@ -345,6 +450,89 @@ mod tests {
         assert!(!due(
             json!({"account": {"type": "apiKey"}, "requiresOpenaiAuth": true})
         ));
+    }
+
+    #[test]
+    fn the_sign_in_offer_weighs_the_login_policy() {
+        let none = json!({"account": null, "requiresOpenaiAuth": true});
+        let wizards = Providers {
+            bedrock: true,
+            gcp: false,
+            gateway: true,
+        };
+        let policy = |api_key| LoginPolicy {
+            chatgpt: true,
+            api_key,
+            wizards,
+            env_api_key: Some("sk-env".into()),
+        };
+        let offer = sign_in_offer(none.clone(), policy(true))
+            .expect("an account")
+            .expect("due");
+        assert_eq!(offer.providers, wizards);
+        assert_eq!(offer.env_api_key.as_deref(), Some("sk-env"));
+        // No API login: no wizard (`is_login_method_allowed(Api)`).
+        let offer = sign_in_offer(none, policy(false))
+            .expect("an account")
+            .expect("due");
+        assert_eq!(offer.providers, Providers::default());
+        assert!(!offer.api_key);
+        let signed_in = json!({"account": {"type": "apiKey"}, "requiresOpenaiAuth": true});
+        assert!(
+            sign_in_offer(signed_in, policy(true))
+                .expect("an account")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn login_requests_and_their_answers() {
+        let ClientRequest::LoginAccount { params, .. } =
+            login_start(&Login::ApiKey("sk".into()), RequestId::Integer(1))
+        else {
+            panic!("a login");
+        };
+        assert_eq!(
+            params,
+            LoginAccountParams::ApiKey {
+                api_key: "sk".into()
+            }
+        );
+        assert_eq!(
+            login_outcome(
+                &Login::ChatGpt,
+                Ok(json!({"type": "chatgpt", "loginId": "l", "authUrl": "https://a"}))
+            ),
+            Outcome::Browser {
+                login_id: "l".into(),
+                url: "https://a".into()
+            }
+        );
+        assert_eq!(
+            login_outcome(
+                &Login::DeviceCode,
+                Ok(
+                    json!({"type": "chatgptDeviceCode", "loginId": "l", "verificationUrl": "https://d", "userCode": "AB-CD"})
+                )
+            ),
+            Outcome::DeviceCode(DeviceCode {
+                login_id: "l".into(),
+                url: "https://d".into(),
+                code: "AB-CD".into()
+            })
+        );
+        assert_eq!(
+            login_outcome(&Login::ApiKey("sk".into()), Ok(json!({"type": "apiKey"}))),
+            Outcome::ApiKeySaved
+        );
+        assert_eq!(
+            login_outcome(&Login::ApiKey("sk".into()), Err("boom".into())),
+            Outcome::Failed(Error::SaveFailed("boom".into()))
+        );
+        assert_eq!(
+            login_outcome(&Login::ChatGpt, Ok(json!({"type": "apiKey"}))),
+            Outcome::Failed(Error::Unexpected("ApiKey".into()))
+        );
     }
 
     #[test]

@@ -43,6 +43,8 @@ mod resume;
 mod select;
 #[path = "sheets/settings.rs"]
 mod settings;
+#[path = "pages/signin.rs"]
+mod signin;
 #[path = "pages/startup.rs"]
 mod startup;
 #[path = "pages/status.rs"]
