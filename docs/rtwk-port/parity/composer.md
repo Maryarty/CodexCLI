@@ -46,6 +46,23 @@ are pending with their reason (below), none loosened.
   Tab submits when idle, except a shell command. The `!cmd` is sent as text through
   `run_line` (running the user shell command is not the composer's). Shell input
   pastes stay literal (no blockquote quoting).
+- Shell mode and the history walk end where the composer clears, not at Enter
+  (`ComposerDraft::cleared`, called through `composer::clear_sent` by the page when the
+  thread took the submit, by a command that took the line, and by Ctrl+C). A submit the
+  thread did not take (no writer) clears nothing and keeps the `!` prompt and the walk;
+  the page re-reads its draft flags after each clear and the `Composer` widget carries
+  the shell flag it was built with, so its prompt follows. Tests: `composer_draft`
+  `a_shell_draft_the_thread_did_not_take_stays_a_shell_draft` and
+  `the_history_walk_goes_on_over_a_submit_the_thread_did_not_take` (red on the old code:
+  `› ls` and `› two`), and `..._the_thread_took_clears_and_leaves_shell_mode`.
+- A small paste whose text starts with `!`, put at the draft's start (caret or selection
+  at offset 0, not in shell mode), is shell mode: the `!` becomes the prompt, the caret
+  stays after the text (`insert_str_at_target` with `ShellPrefixHandling::Interpret`,
+  then `sync_bash_mode_from_text`). A large paste is a placeholder first, as in the oracle.
+  `a_pasted_bang_at_the_start_is_shell_mode` (red on the old code: `› !ls -la`) and
+  `a_pasted_bang_after_text_stays_text`.
+- The shell `!` prompt is bold (`light_red().bold()`); the footer's `Shell mode` label is
+  not, so the bold is added at the prompt's call site and the `shell()` token is unchanged.
 - Local history entries keep their placeholders in `ComposerDraft`. The core
   history stays `Vec<String>` (ADR-003: submits go through `run_line` / `Intent::Record`).
 - Blockquote paste is a pure core rule (`blockquote_paste`): after `> ` a multiline
@@ -65,7 +82,8 @@ are pending with their reason (below), none loosened.
   The debug menu under it marks its Column `overflow_intended` (one line in
   `src/app/debug/menu.rs`, the announced exception).
 - Landing items outside this area: a `shell()` token in `src/app/theme.rs` (light
-  red, the oracle's `light_red()`; startup-finish's area, the lander resolves);
+  red, the oracle's `light_red()`, not bold: the prompt adds the bold itself;
+  startup-finish's area, the lander resolves);
   `[[test]] composer_mouse` in `Cargo.toml` (precedent: `agents_mouse`,
   `startup_mouse`); the session page's import order was formatted
   (`session_page.rs`, fmt only).
@@ -81,9 +99,14 @@ are pending with their reason (below), none loosened.
 - G68: `Autocomplete` popup layout: floating rows, label/detail two spaces apart, no
   aligned columns, no hint line (command and mention popup snapshots: 5 composer_popups
   and 2 composer_2 tests).
-- G69: `Autocomplete::on_selected` tells the pick, not the key (the oracle's Tab completes
-  `/compact ` as text, Enter runs it) and the highlighted suggestion is not readable
-  (a typed `/` completes it): 3 composer_2 tests.
+- G69: `Autocomplete::on_selected` tells the pick, not the key that made it (the
+  oracle's Tab completes `/compact ` as text, Enter runs it): `took` runs before the key
+  hook, so no `EditingKeys` arm sees a pick key; 2 composer_2 tests. Rechecked in the fix
+  round: the highlighted suggestion IS readable (`AutocompleteState::suggestions()` through
+  a `GlobalKey` and `with_state`), the first row claimed it was not. The typed `/` that
+  completes the highlighted command (composer_2 `slash_key_completes_...`) is therefore
+  not a gap but not built (the oracle's version keeps the draft's tail as inline
+  arguments): pending to composer-2 with that reason.
 - G70: `Autocomplete` rows take no mouse: a click does nothing (`composer_mouse`
   `a_click_on_a_popup_row_picks_it`, `#[ignore]`d as pending(G70)).
 
@@ -105,13 +128,20 @@ are pending with their reason (below), none loosened.
 - `/init` (no handler) and `/diff` (the pager is not built) -> chat-nav-pane / pager.
 - Embedded, disconnected and draft-handoff composers, plugin mention bindings, remote
   image rows: no seed on the chat screen.
-- Kept markers whose bodies pass but do not express the oracle's point (the feature is
-  missing, so they pass vacuously; the probe lists them as stale): composer_2
-  reopening_identical_unified_mention_*, restored_bound_at_mentions_*, non_ascii_burst_*;
-  composer_3 dismissed_file_popup_* (2), submit_captures_recent_mention_bindings_*,
-  history_navigation_restores_remote_only_*, left_navigates_only_from_an_empty_prompt;
-  composer_4 vim/image/handoff/reconnect/right-click ones; composer_popups 4 seed rows;
-  textarea KEYMAP and LINK ones.
+- Markers whose body passes (27 of the 248, found by the probe, `KIT_PROBE_PENDING=1
+  summary.py --run <the six shards> --list stale`: composer_2 3, composer_3 5, composer_4
+  13, composer_popups 4, textarea 2). The table's `stale 0` is the normal run, where a
+  marker fails first, so it cannot show them; `shards.py --check`'s "0 files stale" is a
+  different check (the shard files against the oracle's sources). The markers stay: each
+  body asserts only the half the oracle's test has that the port can draw (the feature
+  itself is missing: file search, remote images, handoff, Vim, mention bindings, keymap
+  config, links), so a pass would be a false one. Two were corrected in this round because
+  they were stale for real: `editor_actions_insert_shell_prefixes` (shell mode and Ctrl+K /
+  Ctrl+Y are built; only the Vim part `r!` is missing, and the reason now says so) and
+  `composer_mouse_edits_flush_typing_...` (the click places the caret). Nine more reasons
+  that still said "no large-paste placeholder" or "no mouse selection" were reworded to
+  what the probe shows now (images, Vim, file search; the drag selects but is not drawn
+  REVERSED, not diagnosed, composer-2).
 - The textarea mouse tests (`MOUSE` in textarea.rs) stay pending: their rows are G65's and
   they need rect offsets (a 1-row rect at y 1, a resize mid-test) the kit cannot seed.
 

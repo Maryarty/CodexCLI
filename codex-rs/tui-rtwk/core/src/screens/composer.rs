@@ -23,8 +23,8 @@ pub const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
 
 /// A paste as the draft takes it (`apply_paste`): line breaks folded to
 /// `\n`, then CSI sequences and control characters removed but for tabs
-/// and newlines (`sanitize_user_text`). A lone ESC, or one whose sequence
-/// never ends, takes the rest of the text with it as the oracle does.
+/// and newlines (`sanitize_user_text`). A lone ESC is dropped on its own;
+/// a CSI sequence that never ends takes the rest of the text with it.
 pub fn sanitize_paste(pasted: &str) -> String {
     let folded = pasted.replace("\r\n", "\n").replace('\r', "\n");
     let mut rest = folded.as_str();

@@ -25,7 +25,7 @@ fn times(key: &str, n: usize) -> String {
 fn file_completion_preserves_large_paste_placeholder_elements() {
     kit::pending(
         Owner::ChatLive,
-        "no file-search result on the chat composer (Tab completes '@ma' to 'src/main.rs') and no large-paste placeholder: a 1005-char paste draws its text, not '[Pasted Content 1005 chars]'",
+        "no file-search result on the chat composer (Tab completes '@ma' to 'src/main.rs'), so the completion that keeps the placeholder is not drawn",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: a paste over the 1000-char threshold, ' @ma', then the file result 'src/main.rs' for 'ma' and Tab
@@ -367,7 +367,7 @@ fn vim_normal_history_navigation_from_start_of_bang_command_recalls_older_entry(
 fn large_paste_preserves_image_text_elements_on_submit() {
     kit::pending(
         Owner::ChatLive,
-        "no large-paste placeholder and no image attachment on the chat composer: a 1005-char paste, a space and an image submit as the text then '[Image #1]'",
+        "no image attachment on the chat composer: a 1005-char paste, a space and an image submit as the text then '[Image #1]'",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the large paste, ' ', then attach_image('/tmp/image_with_paste.png')
@@ -384,7 +384,7 @@ fn large_paste_preserves_image_text_elements_on_submit() {
 fn large_paste_with_leading_whitespace_trims_and_shifts_elements() {
     kit::pending(
         Owner::ChatLive,
-        "no large-paste placeholder and no image attachment on the chat composer: the leading spaces of a large paste are trimmed on submit, and the image label follows the text",
+        "no image attachment on the chat composer: the leading spaces of a large paste are trimmed on submit, and the image label follows the text",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: two leading spaces, 1005 x, ' ', then the image

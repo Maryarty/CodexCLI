@@ -272,7 +272,7 @@ fn embedded_composer_shows_validation_error_without_losing_draft() {
 fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     kit::pending(
         Owner::ChatLive,
-        "no mouse caret placement, no atomic placeholder selection and no paste-burst retro-grab on the chat composer; no image attachment (no kit seed)",
+        "no paste-burst retro-grab on the chat composer; no image attachment (no kit seed); the click places the caret and the large paste is a placeholder (composer_mouse and the shards hold them)",
     );
     let mut s = chat(80, 24);
     s.type_text("hello");
@@ -359,7 +359,7 @@ fn right_click_copy_uses_the_refreshed_editor_bounds() {
 fn selection_release_copies_and_keeps_the_editable_selection() {
     kit::pending(
         Owner::ChatLive,
-        "no mouse selection on the chat composer: the REVERSED highlight of the selected `hello` is not drawn, and the typed `X` does not replace it",
+        "the drag selects and the typed `X` replaces it (composer_mouse), but the selected `hello` is not drawn REVERSED: the first selected cell has no modifier (not diagnosed: the TextArea draws its own selection style)",
     );
     let mut s = chat(40, 24);
     s.type_text("hello world");
@@ -378,7 +378,7 @@ fn selection_release_copies_and_keeps_the_editable_selection() {
 fn selection_release_reports_only_clipboard_result() {
     kit::pending(
         Owner::ChatLive,
-        "no mouse selection on the chat composer: the selection's highlight is not drawn (the copy status is not on the screen)",
+        "the drag selects (composer_mouse), but the selection is not drawn REVERSED (the first selected cell has no modifier; not diagnosed), and the copy status is not on the screen",
     );
     let mut s = chat(40, 24);
     s.type_text("hello world");
@@ -550,7 +550,7 @@ fn offline_delete_reveals_the_edited_row_without_moving_the_caret() {
 fn reconnect_expands_pastes_preserving_images_and_cursor() {
     kit::pending(
         Owner::ChatLive,
-        "no disconnected composer on the chat screen (no seed), no large-paste placeholder and no image attachment (no kit seed for attach_image): the expansion on the `!` keystroke is not drawn",
+        "no disconnected composer on the chat screen (no seed) and no image attachment (no kit seed for attach_image): the expansion on the `!` keystroke is not drawn",
     );
     let mut s = chat(100, 24);
     s.paste(&"x".repeat(1001));
@@ -858,7 +858,7 @@ fn undo_and_redo_use_configured_bindings_and_support_unbinding() {
 fn undo_and_redo_restore_deleted_large_paste_payload() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim mode and no large-paste placeholder on the chat composer: the pasted 1001 characters are drawn in full, and Vim undo does not restore a placeholder",
+        "no Vim mode on the chat composer: Vim undo does not restore a deleted placeholder",
     );
     let mut s = chat(100, 24);
     s.type_text("alpha ");
@@ -967,7 +967,7 @@ fn vim_replace_delete_backward_restores_characters_hidden_by_prompt_prefixes() {
 fn vim_editing_modes_use_the_same_large_and_image_paste_handling() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim mode and no large-paste placeholder on the chat composer; the image-path paste needs a file on disk (no kit call writes one)",
+        "no Vim mode on the chat composer; the image-path paste needs a file on disk (no kit call writes one)",
     );
     let big = "x".repeat(1001);
     let mut insert = chat(100, 24);
@@ -1056,7 +1056,7 @@ fn cancelled_history_search_preserves_literal_bang_draft() {
 fn editor_actions_insert_shell_prefixes() {
     kit::pending(
         Owner::ChatLive,
-        "no shell-prefix (`!`) bash mode and no Ctrl+K / Ctrl+Y editor actions on the chat composer; the Vim part (`r!`, `lr!0.`) needs Vim mode",
+        "the Vim part (`r!`, `lr!0.`) needs Vim mode; the body holds only the non-Vim half (a yank of `!` at the start is shell mode), which passes",
     );
     let mut s = chat(100, 24);
     s.type_text("x!echo hi");

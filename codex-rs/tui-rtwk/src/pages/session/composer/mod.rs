@@ -330,7 +330,11 @@ impl State for ComposerState {
         .rows(popup::ROWS)
         .on_selected(cx.map(|picked: Suggestion| ComposerMsg::Picked(Rc::from(&*picked.text))));
         let mark = if w.ui.draft.shell() {
-            prompt(strings::of(cx).shell_prompt, tokens.shell())
+            prompt(
+                strings::of(cx).shell_prompt,
+                // `Span::from("!").light_red().bold()`; the footer's label is not bold
+                tokens.shell().attrs(Attrs::BOLD),
+            )
         } else {
             prompt(table.prompt, tokens.bold())
         };

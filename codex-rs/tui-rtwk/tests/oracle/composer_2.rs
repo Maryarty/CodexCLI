@@ -383,7 +383,7 @@ fn edit_clears_pending_paste() {
 fn ui_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "no large-paste placeholder on the chat composer, and the chat screen is not the composer alone at 100x10: the oracle's rows are the composer's region only",
+        "the chat screen is not the composer alone at 100x10: the oracle's rows are the composer's region only",
     );
     let s = ready(100, 10);
     s.assert_snap("empty");
@@ -636,7 +636,7 @@ fn tab_queues_bang_shell_prompts_while_task_running_without_execution() {
 fn slash_tab_completion_moves_cursor_to_end() {
     kit::pending(
         Owner::ChatLive,
-        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command)",
     );
     let mut s = ready(100, 24);
     s.type_text("/c").keys("tab");
@@ -651,7 +651,7 @@ fn slash_tab_completion_moves_cursor_to_end() {
 fn slash_tab_completion_wins_over_queueing_while_task_running() {
     kit::pending(
         Owner::ChatLive,
-        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
@@ -669,7 +669,7 @@ fn slash_tab_completion_wins_over_queueing_while_task_running() {
 fn slash_key_completes_selected_slash_command_as_text() {
     kit::pending(
         Owner::ChatLive,
-        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+        "not built: the typed `/` completes the highlighted command as text (the highlight is readable through `AutocompleteState::suggestions()`, a GlobalKey and `with_state`); composer-2",
     );
     let mut s = ready(100, 24);
     s.type_text("/m");
