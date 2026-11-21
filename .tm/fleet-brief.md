@@ -30,10 +30,11 @@ read only the subsection this file points to.
   or re-measuring strings yourself is a workaround: a gap row + `pending(Gxx)`,
   no code (G48 stays pending). Compositions: `widgets/dots.rs` `dots_end`,
   `pages/agents/tabs.rs`; workaround: `pages/startup/prompts/panel.rs` `words()`.
-  Before a gap row, three routes with file:line: the widget alone; a composition
-  (grep `src/widgets`, `src/pages/agents` first); a test setting (`TextMode`,
-  `attrs_of`). The skill's cookbook "When the one widget differs from the oracle"
-  has the routes found so far. `pending(Gxx)` only on an open gap row.
+  Before a gap row, a quick check in your head: how would Flutter do it, then
+  the same widget or a composition in rtwk (skill, grep `src/widgets`,
+  `src/pages/agents`). No probe files, no file:line per route. A gap row is one
+  line: the Flutter way, the rtwk widget tried, what differs (the person,
+  2026-11-21). `pending(Gxx)` only on an open gap row.
 - One list: rows with a cursor = `widgets/session_list.rs`, numbered options =
   `widgets/options.rs`. Controllers (`ListController`, `SelectionController`,
   `ScrollController`) are the only holders of cursor and scroll: no `top`,
@@ -53,8 +54,8 @@ read only the subsection this file points to.
   up in the reference (rtwk skill + references) and, when needed, the gallery
   (rtwk-gallery pages and their Code snippets). Never copy a landed screen's
   view code — several are hand-made. "rtwk cannot" only after running the
-  widget against the oracle's rows; then a gap row (route tried, differing
-  rows, minimal probe) + a pending(Gxx) test, the slice handed over with it,
+  widget against the oracle's rows; then a one-line gap row (Flutter way,
+  rtwk widget tried, what differs) + a pending(Gxx) test, the slice handed over with it,
   no local helper or workaround; the orchestrator tells the person, who
   decides whether rtwk gets it. Read process.md, this brief and the
   skill from the main checkout, not a stale worktree copy.
@@ -63,7 +64,7 @@ read only the subsection this file points to.
   nearest ready widget that looks different (`Dialog`, `Autocomplete`):
   compose rtwk primitives until rows and styles equal the oracle's. Only what
   rtwk truly cannot do goes into the handover as "rtwk needs: …" with the
-  route you tried (widgets, file:line) and a `docs/rtwk-port/rtwk-gaps.md`
+  rtwk widget you tried and a one-line `docs/rtwk-port/rtwk-gaps.md`
   row; stop and report it rather than writing it off as a delta.
 - The oracle's files, snapshots and tests for a screen: its rows in
   `docs/rtwk-port/refs/codex-registry.csv`. The oracle binary for pty

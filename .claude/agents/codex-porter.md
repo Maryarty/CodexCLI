@@ -52,8 +52,8 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
    and the skill's gallery Code snippets). Landed screens are NOT a model for
    building a view (several are hand-made and being reworked); read them only
    for wiring. "rtwk cannot" is a verdict only after you ran the widget
-   against the oracle's rows in a probe test, never from reading its source;
-   then: an rtwk-gaps row (route tried, the differing rows, a minimal probe)
+   against the oracle's rows, never from reading its source;
+   then: a one-line rtwk-gaps row (the Flutter way, the rtwk widget tried, what differs)
    and a pending(Gxx) test; the slice is handed over with it (it counts as
    done for that gap); no local helper or workaround. Name the gap in your
    handover: the orchestrator tells the person, who decides whether rtwk
@@ -63,10 +63,10 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
    (`LayoutBuilder` + `segmenter_of(cx)`); cutting, rewrapping or
    re-measuring strings yourself is the workaround (pair: `widgets/dots.rs`
    `dots_end` and `pages/agents/tabs.rs` vs `panel.rs` `words()`). Before a
-   gap row, three routes with file:line: the widget alone; a composition
-   (grep `src/widgets`, `src/pages/agents` first; the skill's cookbook "When
-   the one widget differs from the oracle"); a test setting (`TextMode`,
-   `attrs_of`). Rows with a cursor: `widgets/session_list.rs`; numbered
+   gap row, a quick check in your head: how Flutter would do it, then the
+   same widget or a composition in rtwk (skill, grep `src/widgets`,
+   `src/pages/agents`); no probe files, no file:line per route (the person,
+   2026-11-21). Rows with a cursor: `widgets/session_list.rs`; numbered
    options: `widgets/options.rs`; controllers alone hold cursor and scroll.
 4. A fix round: the review's findings are the task's last review round
    (`task_start` returns them); fix them in the same worktree, answer each.
@@ -118,7 +118,7 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
   (the person, 2026-11-18). Compose rtwk primitives until rows and styles
   equal the oracle's; never settle for the nearest ready widget that looks
   different. Only what rtwk truly cannot do is a delta: both renderings, the
-  rtwk route you tried (file:line), a `docs/rtwk-port/rtwk-gaps.md` row, and
+  rtwk widget you tried, a one-line `docs/rtwk-port/rtwk-gaps.md` row, and
   you report it to the orchestrator; never propose "accept", never loosen a
   test to hide it.
 - Red then green across your commits is the bite; a test added later is

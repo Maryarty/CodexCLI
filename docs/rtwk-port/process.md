@@ -198,8 +198,8 @@ Oracle: `bottom_pane/list_selection_view.rs` — `ListSelectionView`, a
   already owns is wrong: follow rtwk and say so in the handover (the person,
   2026-11-18).
 - No workaround for an rtwk gap. A gap is real only after the rtwk widget
-  ran against the oracle's rows; then a row in `rtwk-gaps.md` (route tried,
-  differing rows, minimal probe) and the test marked `pending(Gxx)`; the
+  ran against the oracle's rows; then a one-line row in `rtwk-gaps.md` (Flutter way,
+  rtwk widget tried, what differs) and the test marked `pending(Gxx)`; the
   slice is handed over with it. The orchestrator tells the person, who
   decides whether rtwk gets it (the person, 2026-11-18).
 - The boundary between composition and workaround (the person, 2026-11-21).
@@ -214,16 +214,13 @@ Oracle: `bottom_pane/list_selection_view.rs` — `ListSelectionView`, a
   panel.rs` `words()` is a workaround (a hand wrapper for G48). A landed
   exception (G37 `pages/agents/path.rs`) is a closed row with its oracle
   tests, not a precedent.
-- Before a gap row, three routes, each with file:line, in the row: (1) the
-  widget alone, run against the oracle's rows; (2) a composition (Flutter's
-  way: `LayoutBuilder`, `Row`, `Grid` + `GridTrack`, `ListView` + controllers,
-  `CustomPaint` + `CellPainter`), after grepping `src/widgets` and
-  `src/pages/agents` for a landed piece (`dots.rs`, `session_list.rs`,
-  `options.rs`, `page_keys.rs`, `tabs.rs`); (3) a test setting (`TextMode`
-  of the test terminal, the surface's `attrs_of`). About 20 of ~48 rows
-  closed "not a gap" because only route 1 was tried; `pending(Gxx)` stands
-  only on an open row. The skill's cookbook, "When the one widget differs
-  from the oracle", lists the routes found so far.
+- Before a gap row, a quick check in your head (the person, 2026-11-21):
+  how would Flutter do it, then find the same widget or a composition in
+  rtwk (the skill, grep `src/widgets`, `src/pages/agents`). That is all: no
+  probe files, no file:line per route, no review rounds about gap rows. A
+  gap row is one line: the Flutter way, the rtwk widget tried, what differs.
+  The skill's cookbook, "When the one widget differs from the oracle", lists
+  the compositions found so far. `pending(Gxx)` stands only on an open row.
 - No edit of codex-tui: it stays the oracle.
 
 # Appendix A — running the slices through the fleet
@@ -390,7 +387,7 @@ In the slice's area, committed with it; the reviewer and the person read it.
 kind: K<nn> from parity/delta-kinds.md, or NEW
 cause: rtwk-rich renderer | gap G<n> | layout | other: …
 oracle / ours: two fenced blocks, only the differing rows ± 2
-rtwk route tried: widgets / API with file:line, why it cannot give the oracle's result
+rtwk widget tried (the Flutter way, then its rtwk counterpart) and what differs
 gap: the docs/rtwk-port/rtwk-gaps.md row (the person hands gaps to rtwk)
 proposal: fixed here | blocked on gap G<n> (closest exact workaround named)
 ## Scenarios (pty)

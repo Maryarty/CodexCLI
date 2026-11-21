@@ -44,8 +44,8 @@ Every review has an ADR-conformance section: per touched ADR — kept / departur
     stored), the view built of rtwk widgets from the snapshot (no ported
     `render()` arithmetic, no ratatui painter), carried code only pure logic
     with its dependency closure and an oracle-file comment, renderers not
-    carried; a visual delta is a FIX unless it carries the rtwk route tried
-    (file:line) and a `rtwk-gaps.md` row showing rtwk cannot do it;
+    carried; a visual delta is a FIX unless it carries a one-line `rtwk-gaps.md`
+    row (Flutter way, rtwk widget tried, what differs);
   - tests first: the first commit holds the parity tests; expected values
     come from the oracle (`.snap` text, oracle assertions), not from output
     of the new code;
@@ -73,16 +73,15 @@ Every review has an ADR-conformance section: per touched ADR — kept / departur
     the rtwk API to use; string cutting, rewrapping or re-measuring in a
     view is a workaround (composition = a widget picked from a measured
     width, process.md §5);
-  - a gap row names three routes with file:line (widget alone, a
-    composition after grepping `src/widgets` and `src/pages/agents`, a test
-    setting such as `TextMode`/`attrs_of`); a gap row without route 2 is a
-    FIX, and so is `pending(Gxx)` on a row that is not open;
+  - gap rows are one line (Flutter way, rtwk widget tried, what differs);
+    do not review their routes or ask for probes (the person, 2026-11-21);
+    `pending(Gxx)` on a row that is not open is a FIX;
   - area kept: no `lib.rs`/`mod.rs`/root-enum edits outside it; codex-tui,
     `codex-rs/Cargo.toml`, `codex-rs/Cargo.lock`, the registry untouched.
 - Verdict, first line: `MERGE`, `MERGE-WITH-NOTES` or `FIX`. FIX only for a
   defect, a missing pack item, a broken condition or rule, or work outside
   the area, a re-implemented rtwk mechanism, or a visual delta without a
-  researched rtwk route, or a local workaround where a gap row + pending(Gxx)
+  gap row, or a local workaround where a gap row + pending(Gxx)
   belongs.
   A re-review after a fix round reads only the fix commits and the open
   findings.
