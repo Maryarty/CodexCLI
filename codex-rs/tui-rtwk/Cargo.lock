@@ -3618,6 +3618,7 @@ name = "codex-rtwk"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "codex-app-server-client",
  "codex-app-server-daemon",
  "codex-app-server-protocol",
@@ -3628,6 +3629,7 @@ dependencies = [
  "codex-features",
  "codex-feedback",
  "codex-git-utils",
+ "codex-http-client",
  "codex-install-context",
  "codex-login",
  "codex-protocol",
@@ -3636,6 +3638,7 @@ dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-cli",
  "codex-utils-path",
+ "codex-utils-path-uri",
  "codex-worktree",
  "dunce",
  "futures",
@@ -3644,8 +3647,10 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
  "url",
  "webbrowser",
+ "which",
 ]
 
 [[package]]

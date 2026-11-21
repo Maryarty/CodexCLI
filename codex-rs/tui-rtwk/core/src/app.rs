@@ -713,6 +713,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             set_status(app, Session::Failed(Failure::Message(message)));
         }
         AppEv::Disconnected => {
+            // The startup page's asks go to the first backend.
+            if origin == BackendId::default() {
+                crate::screens::onboarding::disconnected(
+                    &mut Rc::make_mut(&mut app.screens).onboarding,
+                );
+            }
             app.reset_requests(origin);
             Rc::make_mut(&mut app.session)
                 .backend_banners

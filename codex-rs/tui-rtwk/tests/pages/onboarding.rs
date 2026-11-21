@@ -24,7 +24,9 @@ fn onboarding_lists_the_startup_page_states() {
 
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
+use codex_tui_core::screens::onboarding::{
+    Ask, Ev, Facts, TrustAsk, TrustCancel, UpdateOffer, Welcome,
+};
 
 fn asks(h: &crate::common::Harness) -> Vec<Ask> {
     h.fake
@@ -97,4 +99,85 @@ fn the_startup_page_opens_on_the_launch_facts_and_writes_the_trust() {
         AppEv::Screen(ScreenEv::Onboarding(Ev::TrustSaved { request: 2 })),
     );
     h.wait_for("the chat", |s| !s.contains("Folder access"));
+}
+
+/// Oracle `trust_directory.rs` `handle_key_event`: Up goes to the first
+/// choice and Down to the last, and neither wraps. The cursor is the shared
+/// `Options` controller's, moved by `set`, not by its wrapping `step`.
+#[test]
+fn the_trust_cursor_stays_at_the_ends() {
+    let mut h = crate::common::start();
+    h.settle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request: 1,
+            facts: trust_facts(),
+        })),
+    );
+    h.wait_for("the trust prompt", |s| s.contains("Folder access"));
+    h.press("up");
+    h.settle();
+    assert!(h.t.screen().contains("› 1. Trust and continue"));
+    h.press("down");
+    h.press("down");
+    h.settle();
+    assert!(h.t.screen().contains("› 2. Back to Agent Command Center"));
+    h.press("down");
+    h.settle();
+    assert!(
+        h.t.screen().contains("› 2. Back to Agent Command Center"),
+        "Down on the last choice stays:\n{}",
+        h.t.screen()
+    );
+    h.press("up");
+    h.press("up");
+    h.settle();
+    assert!(h.t.screen().contains("› 1. Trust and continue"));
+}
+
+fn update_facts() -> Facts {
+    Facts {
+        update: Some(UpdateOffer {
+            current: "1.0.0".into(),
+            latest: "9.9.9".into(),
+            command: "npm install -g @openai/codex".into(),
+            choice: None,
+        }),
+        ..Facts::default()
+    }
+}
+
+/// R-F1: choosing "Update now" asks the host to store the update; the page
+/// stays until the host acknowledges, then the app quits (the oracle
+/// returns `RunUpdate` and exits). Quitting first would end the app before
+/// the host held the update.
+#[test]
+fn update_now_quits_the_app_only_after_the_host_stored_the_update() {
+    let mut h = crate::common::start_quittable(false);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request: 1,
+            facts: update_facts(),
+        })),
+    );
+    h.wait_for("the update prompt", |s| s.contains("Update available"));
+    h.press("1");
+    h.settle();
+    assert_eq!(
+        asks(&h),
+        [Ask::Facts { request: 1 }, Ask::RunUpdate { request: 2 }]
+    );
+    assert!(h.t.is_running(), "waits for the host");
+    assert!(h.t.screen().contains("Update available"));
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::UpdateQueued { request: 2 })),
+    );
+    h.settle();
+    assert!(!h.t.is_running(), "quits once the update is stored");
 }

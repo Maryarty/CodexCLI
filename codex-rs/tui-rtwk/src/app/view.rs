@@ -94,7 +94,13 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let child: AnyWidget = if app.ui.debug {
         child
     } else {
-        StartupGate { child }.into()
+        StartupGate {
+            child,
+            // A start page of the command line is pushed at mount, so the
+            // prompt cannot go first under it: those homes open at once.
+            awaits_facts: app.ui.awaits_facts && !app.ui.start_agents && !app.ui.start_resume,
+        }
+        .into()
     };
     let home = cx.memo((app.ui.presenter.place(), child), home_node);
     let tree = MultiProvider::new()

@@ -9,6 +9,7 @@ mod import;
 mod in_process;
 mod startup;
 mod target;
+mod update;
 mod workspace;
 
 use codex_arg0::Arg0DispatchPaths;
@@ -67,6 +68,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     // The update the startup page's prompt chose: run once the terminal is
     // restored (the oracle's `UpdatePromptOutcome::RunUpdate`).
     let update = startup::UpdateSlot::default();
+    let startup_failure = startup::FailureSlot::default();
     let cloud = cloud::Cloud {
         id: codex_tui_rtwk::services::shell::CLOUD_BACKEND,
         mode: mode.clone(),
@@ -85,6 +87,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         failed: failed_tx,
         agents: cli.agents,
         update: update.clone(),
+        startup_failure: startup_failure.clone(),
     }));
     // The Cloud connection next to the first, when the oracle's gate lets it
     // be tried (it decides inside, once the config is read).
@@ -99,6 +102,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         .with_debug_screens(cli.debug_screens)
         .with_start_agents(cli.agents)
         .with_start_resume(cli.resume)
+        .with_awaited_facts(true)
         .with_lang(cli.lang(&rtwk::l10n::requested()));
     let result = run_on(app, !cli.no_alt_screen);
     // Quitting aborted the backend future (rtwk unmounts the app and aborts
@@ -113,9 +117,13 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     if let Ok(message) = failed_rx.try_recv() {
         anyhow::bail!(message);
     }
+    // A launch fact that could not be read ends the process the same way.
+    if let Some(message) = startup_failure.lock().ok().and_then(|mut slot| slot.take()) {
+        anyhow::bail!(message);
+    }
     let chosen = update.lock().ok().and_then(|mut slot| slot.take());
     if let Some(action) = chosen {
-        codex_tui_rtwk::services::startup::run_update(action).map_err(anyhow::Error::msg)?;
+        update::run_update(action).map_err(anyhow::Error::msg)?;
     }
     Ok(())
 }

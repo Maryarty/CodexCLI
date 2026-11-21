@@ -62,6 +62,11 @@ pub struct Model {
     asked: Option<Request>,
     /// The trust write awaited: an answer under another number is stale.
     writing: Option<Request>,
+    /// The update run awaited: the host stores the update before the page
+    /// leaves.
+    running: Option<Request>,
+    /// The host stored the update to run.
+    update_queued: bool,
     /// The last request number minted.
     minted: Request,
 }
@@ -82,14 +87,33 @@ pub enum Ask {
     WriteTrust { request: Request, target: String },
     /// Do not offer `version` again (`updates::dismiss_version`); not answered.
     DismissUpdate { version: String },
-    /// Run the offered update once the app has ended (`UpdateAction`).
-    RunUpdate,
+    /// Run the offered update once the app has ended (`UpdateAction`),
+    /// answered with `Ev::UpdateQueued`: the page leaves only then, so the
+    /// host has the update stored before the app ends.
+    RunUpdate { request: Request },
     /// Start a login (`account/login/start`), answered with
     /// `Ev::Auth(AuthResult { request, .. })`; ChatGPT's opens the browser
     /// on a local server.
-    Login { request: Request, login: auth::Login },
+    Login {
+        request: Request,
+        login: auth::Login,
+    },
     /// Cancel a login started (`account/login/cancel`); not answered.
     CancelLogin { login_id: String },
+    /// Show the ChatGPT login's `url` in the browser: asked only for the
+    /// attempt the page still awaits (a stale or cancelled one never opens
+    /// it), and the host skips it for a remote workspace
+    /// (`show_chatgpt_login_in_browser`); not answered.
+    OpenBrowser { url: String },
+    /// Reload the session's config now that the folder is trusted (the
+    /// project's config and hooks apply); the host skips it for a remote
+    /// workspace (`consent.directory_trust_persisted && !uses_remote_workspace`).
+    /// Its answer, if any, is an event of the app.
+    ReloadConfig,
+    /// Refresh the update cache over the network (`check_for_update`), asked
+    /// once after the facts that found it stale; not answered, a failure is
+    /// only logged.
+    RefreshUpdateCache,
 }
 
 /// The launch facts the host read, all at once.
@@ -100,6 +124,9 @@ pub struct Facts {
     /// The sign-in due, with what it offers (the provider setups among it).
     pub sign_in: Option<auth::Offer>,
     pub trust: Option<TrustAsk>,
+    /// The update cache is missing or stale: the page asks the host to
+    /// refresh it (`Ask::RefreshUpdateCache`), for the next run.
+    pub refresh_update: bool,
 }
 
 /// A slot step's state: due, or done.
@@ -198,7 +225,12 @@ impl Model {
             return true;
         }
         match step {
-            Stage::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
+            // "Update now" is done once the host holds the update to run.
+            Stage::Update => self.update.as_ref().is_none_or(|u| match u.choice {
+                None => false,
+                Some(UpdateChoice::UpdateNow) => self.update_queued,
+                Some(UpdateChoice::Skip | UpdateChoice::SkipUntilNextVersion) => true,
+            }),
             Stage::SignIn => self.sign_in.as_ref().is_none_or(auth::SignIn::done),
             Stage::Provider => self.provider.is_none_or(|d| d.done),
             Stage::Trust => self.trust.as_ref().is_none_or(|t| {
@@ -213,6 +245,13 @@ impl Model {
     /// Whether the app opens on the startup page: a step is not finished.
     pub fn due(&self) -> bool {
         self.steps().into_iter().any(|step| !self.done(step))
+    }
+
+    /// Whether the launch is decided: the facts were read, or a step is due
+    /// without them (a fixture). Until then the app does not know whether
+    /// the chat or the startup page comes first.
+    pub fn settled(&self) -> bool {
+        self.read || self.due()
     }
 
     /// The write the trust step waits for: the folder to save as trusted.
@@ -248,13 +287,27 @@ pub enum Ev {
         error: Option<String>,
     },
     /// `account/updated`: the account is a ChatGPT one.
-    AccountUpdated { chatgpt_account: bool },
+    AccountUpdated {
+        chatgpt_account: bool,
+    },
     /// The answer to `Ask::Facts { request }`.
-    Facts { request: Request, facts: Facts },
+    Facts {
+        request: Request,
+        facts: Facts,
+    },
     /// The trust write `request` is confirmed.
-    TrustSaved { request: Request },
+    TrustSaved {
+        request: Request,
+    },
+    /// The answer to `Ask::RunUpdate { request }`: the update is stored.
+    UpdateQueued {
+        request: Request,
+    },
     /// The trust write `request` failed with this message.
-    TrustFailed { request: Request, message: String },
+    TrustFailed {
+        request: Request,
+        message: String,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -286,7 +339,9 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
         ServerNotification::AccountUpdated(update) => Ev::AccountUpdated {
             chatgpt_account: matches!(
                 update.auth_mode,
-                Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::PersonalAccessToken)
+                Some(
+                    AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::PersonalAccessToken
+                )
             ),
         },
         _ => return,
@@ -303,6 +358,22 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
     let request = mint(model);
     model.asked = Some(request);
     ask(fx, Ask::Facts { request });
+}
+
+/// The connection was lost: a trust write still awaited will not be
+/// answered, so the step is open again (`CancelTrust` is not held back by
+/// `Saving`) and a late answer to that write is dropped.
+pub fn disconnected(model: &mut Model) {
+    if model.writing.take().is_none() {
+        return;
+    }
+    if let Some(t) = model
+        .trust
+        .as_mut()
+        .filter(|t| t.decision == Some(TrustDecision::Saving))
+    {
+        t.decision = None;
+    }
 }
 
 fn mint(model: &mut Model) -> Request {
@@ -327,6 +398,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.sign_in = facts.sign_in.map(auth::SignIn::new);
             model.provider = None;
             model.trust = facts.trust;
+            if facts.refresh_update {
+                ask(fx, Ask::RefreshUpdateCache);
+            }
         }
         Ev::Update {
             current,
@@ -351,7 +425,19 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Auth(result) => {
             if let Some(sign_in) = model.sign_in.as_mut() {
                 let mut asks = Vec::new();
+                // The browser opens for the login the page took in, not for
+                // an answer it dropped.
+                let browser = match &result.outcome {
+                    auth::Outcome::Browser { login_id, .. } => Some(login_id.clone()),
+                    _ => None,
+                };
                 auth::apply_result(sign_in, result, &mut asks);
+                if let (Some(id), auth::State::Browser { login_id, url }) =
+                    (browser, &sign_in.state)
+                    && *login_id == id
+                {
+                    asks.push(Ask::OpenBrowser { url: url.clone() });
+                }
                 asks.into_iter().for_each(|a| ask(fx, a));
             }
         }
@@ -370,13 +456,25 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::Trust(ask) => model.trust = Some(ask),
+        Ev::UpdateQueued { request } => {
+            if model.running == Some(request) {
+                model.running = None;
+                model.update_queued = true;
+            }
+        }
         Ev::TrustSaved { request } => {
             if model.writing != Some(request) {
                 return;
             }
             model.writing = None;
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision == Some(TrustDecision::Saving))
+            {
                 t.decision = Some(TrustDecision::Trusted);
+                // The folder is trusted: the project's config applies.
+                ask(fx, Ask::ReloadConfig);
             }
         }
         // onboarding_screen.rs `persist_selected_trust`: the step stays, with
@@ -386,7 +484,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             model.writing = None;
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision == Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision == Some(TrustDecision::Saving))
+            {
                 t.decision = None;
                 t.error = Some(message);
             }
@@ -402,7 +504,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             if let Some(u) = model.update.as_mut().filter(|u| u.choice.is_none()) {
                 u.choice = Some(choice);
                 match choice {
-                    UpdateChoice::UpdateNow => ask(fx, Ask::RunUpdate),
+                    UpdateChoice::UpdateNow => {
+                        let request = mint(model);
+                        model.running = Some(request);
+                        ask(fx, Ask::RunUpdate { request });
+                    }
                     UpdateChoice::Skip => {}
                     UpdateChoice::SkipUntilNextVersion => ask(
                         fx,
@@ -431,7 +537,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             ask(fx, Ask::WriteTrust { request, target });
         }
         Intent::CancelTrust => {
-            if let Some(t) = model.trust.as_mut().filter(|t| t.decision != Some(TrustDecision::Saving)) {
+            if let Some(t) = model
+                .trust
+                .as_mut()
+                .filter(|t| t.decision != Some(TrustDecision::Saving))
+            {
                 t.decision = Some(TrustDecision::Cancelled);
             }
         }
@@ -573,7 +683,10 @@ fn yes() -> bool {
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 enum SeedSignInState {
-    Browser { login_id: String, url: String },
+    Browser {
+        login_id: String,
+        url: String,
+    },
     DeviceCode {
         #[serde(default)]
         url: Option<String>,
@@ -754,11 +867,13 @@ mod tests {
     fn update_prompt_confirm_selects_update() {
         let mut m = model(vec![update()]);
         intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
-        assert!(m.done(Stage::Update));
         assert_eq!(
             m.update.as_ref().and_then(|u| u.choice),
             Some(UpdateChoice::UpdateNow)
         );
+        // Done once the host holds the update to run.
+        answered(&mut m, Ev::UpdateQueued { request: 1 });
+        assert!(m.done(Stage::Update));
     }
 
     // update_prompt.rs:313 update_prompt_dismiss_option_leaves_prompt_in_normal_state
@@ -854,10 +969,7 @@ mod tests {
         );
         let t = m.trust.as_ref().expect("trust");
         assert_eq!(t.decision, None);
-        assert_eq!(
-            t.error.as_deref(),
-            Some("config/batchWrite failed")
-        );
+        assert_eq!(t.error.as_deref(), Some("config/batchWrite failed"));
         assert!(!m.done(Stage::Trust));
         intent(&mut m, Intent::Trust);
         assert_eq!(m.trust.as_ref().and_then(|t| t.error.clone()), None);
@@ -908,7 +1020,10 @@ mod tests {
     fn update_choices_ask_the_host() {
         let mut m = model(vec![update()]);
         assert_eq!(
-            intent(&mut m, Intent::ChooseUpdate(UpdateChoice::SkipUntilNextVersion)),
+            intent(
+                &mut m,
+                Intent::ChooseUpdate(UpdateChoice::SkipUntilNextVersion)
+            ),
             [Ask::DismissUpdate {
                 version: "9.9.9".into()
             }]
@@ -918,8 +1033,154 @@ mod tests {
         let mut m = model(vec![update()]);
         assert_eq!(
             intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow)),
-            [Ask::RunUpdate]
+            [Ask::RunUpdate { request: 1 }]
         );
+    }
+
+    // The update to run is stored by the host before the page leaves (and
+    // the app ends): the prompt is not done until the host says it is queued,
+    // and only for the run it asked for.
+    #[test]
+    fn the_update_prompt_waits_for_the_update_to_be_queued() {
+        let mut m = model(vec![update()]);
+        intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
+        assert!(!m.done(Stage::Update));
+        assert!(m.due());
+        assert_eq!(answered(&mut m, Ev::UpdateQueued { request: 9 }), []);
+        assert!(!m.done(Stage::Update), "a stale answer");
+        answered(&mut m, Ev::UpdateQueued { request: 1 });
+        assert!(m.done(Stage::Update));
+        assert!(!m.due());
+    }
+
+    // Skipping needs no host: the prompt is done at once.
+    #[test]
+    fn skipping_the_update_is_done_at_once() {
+        for choice in [UpdateChoice::Skip, UpdateChoice::SkipUntilNextVersion] {
+            let mut m = model(vec![update()]);
+            intent(&mut m, Intent::ChooseUpdate(choice));
+            assert!(m.done(Stage::Update), "{choice:?}");
+        }
+    }
+
+    fn answered(model: &mut Model, ev: Ev) -> Vec<Ask> {
+        let mut fx = AppFx::default();
+        apply(model, ev, &mut fx);
+        asks(fx)
+    }
+
+    // `show_chatgpt_login_in_browser`: the browser shows the login URL of the
+    // attempt taken in, and only that one.
+    #[test]
+    fn the_browser_opens_for_the_login_the_page_took_in() {
+        let mut m = model(vec![Ev::SignIn(auth::Offer {
+            chatgpt: true,
+            ..auth::Offer::default()
+        })]);
+        let started = intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+        );
+        let [Ask::Login { request, .. }] = started[..] else {
+            panic!("a login asked: {started:?}");
+        };
+        let browser = |request| {
+            Ev::Auth(auth::AuthResult {
+                request,
+                outcome: auth::Outcome::Browser {
+                    login_id: "login-1".into(),
+                    url: "https://auth.example".into(),
+                },
+            })
+        };
+        assert_eq!(
+            answered(&mut m, browser(request + 1)),
+            [],
+            "an answer to an ask not awaited opens nothing"
+        );
+        assert_eq!(
+            answered(&mut m, browser(request)),
+            [Ask::OpenBrowser {
+                url: "https://auth.example".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn an_answer_that_is_no_browser_login_opens_no_browser() {
+        let mut m = model(vec![Ev::SignIn(auth::Offer {
+            chatgpt: true,
+            ..auth::Offer::default()
+        })]);
+        let started = intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+        );
+        let [Ask::Login { request, .. }] = started[..] else {
+            panic!("a login asked: {started:?}");
+        };
+        assert_eq!(
+            answered(
+                &mut m,
+                Ev::Auth(auth::AuthResult {
+                    request,
+                    outcome: auth::Outcome::Failed(auth::Error::Server("down".into())),
+                })
+            ),
+            []
+        );
+    }
+
+    // lib.rs: `consent.directory_trust_persisted && !uses_remote_workspace`
+    // reloads the config: only a trust that was written and confirmed asks.
+    #[test]
+    fn a_confirmed_trust_write_asks_for_the_config_reload() {
+        let mut m = model(vec![trust(false)]);
+        intent(&mut m, Intent::Trust);
+        assert_eq!(
+            answered(&mut m, Ev::TrustSaved { request: 1 }),
+            [Ask::ReloadConfig]
+        );
+        // A repeated or stale answer asks nothing more.
+        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 1 }), []);
+    }
+
+    #[test]
+    fn a_trust_that_was_not_written_asks_no_config_reload() {
+        let mut m = model(vec![trust(false)]);
+        intent(&mut m, Intent::Trust);
+        let failed = Ev::TrustFailed {
+            request: 1,
+            message: "no".into(),
+        };
+        assert_eq!(answered(&mut m, failed), []);
+        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 1 }), []);
+        let mut m = model(vec![trust(true)]);
+        assert_eq!(intent(&mut m, Intent::Trust), []);
+        let mut m = model(vec![trust(false)]);
+        assert_eq!(intent(&mut m, Intent::CancelTrust), []);
+    }
+
+    // updates.rs `get_upgrade_version`: a missing or stale cache is
+    // refreshed in the background, once, when the facts arrive.
+    #[test]
+    fn facts_that_found_the_update_cache_stale_ask_for_a_refresh() {
+        let mut m = Model::default();
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        let facts = |refresh_update| Ev::Facts {
+            request: 1,
+            facts: Facts {
+                refresh_update,
+                ..Facts::default()
+            },
+        };
+        assert_eq!(answered(&mut m, facts(true)), [Ask::RefreshUpdateCache]);
+        // The answer was taken: a repeat asks nothing more.
+        assert_eq!(answered(&mut m, facts(true)), []);
+        let mut m = Model::default();
+        connected(&mut m, &mut AppFx::default());
+        assert_eq!(answered(&mut m, facts(false)), []);
     }
 
     // A quit from a step ends the page and the app (`should_exit`).
@@ -967,7 +1228,9 @@ mod tests {
 
     #[test]
     fn seeds_read_the_fixture_forms() {
-        let ev = seed(serde_json::json!({"trust": {"cwd": "/a/b", "target": "/a", "cancel": "current_task"}}));
+        let ev = seed(
+            serde_json::json!({"trust": {"cwd": "/a/b", "target": "/a", "cancel": "current_task"}}),
+        );
         assert_eq!(
             ev,
             Ok(Ev::Trust(TrustAsk {

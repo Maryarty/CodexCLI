@@ -187,6 +187,8 @@ pub struct InProcess {
     pub agents: bool,
     /// Where the startup page leaves the update to run after the app ends.
     pub update: crate::startup::UpdateSlot,
+    /// Where the startup page leaves the error of a launch it failed.
+    pub startup_failure: crate::startup::FailureSlot,
 }
 
 impl Connector for InProcess {
@@ -219,6 +221,7 @@ async fn run(
         failed,
         agents,
         update,
+        startup_failure,
     } = spec;
     // A start that fails ends the app: `main` reports `error` once the
     // terminal is restored.
@@ -235,9 +238,26 @@ async fn run(
         Err(error) => return fail(format!("Error parsing -c overrides: {error}")),
     };
     // Loaded here, after the first frame: config, state DB, environment manager.
+    let startup_cwd = cwd.clone();
     let overrides = ConfigOverrides {
         cwd,
         ..Default::default()
+    };
+    // The launch's own way of loading the config, kept for the reload once
+    // the folder is trusted.
+    let reload: crate::startup::Reload = {
+        let (cli_overrides, overrides) = (cli_overrides.clone(), overrides.clone());
+        Arc::new(move || {
+            let (cli_overrides, overrides) = (cli_overrides.clone(), overrides.clone());
+            Box::pin(async move {
+                ConfigBuilder::default()
+                    .cli_overrides(cli_overrides)
+                    .harness_overrides(overrides)
+                    .build()
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
     };
     let config = match ConfigBuilder::default()
         .cli_overrides(cli_overrides)
@@ -274,8 +294,16 @@ async fn run(
     let startup = crate::startup::Startup {
         config: config.clone(),
         connected: !matches!(mode, Mode::Embedded),
-        check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
+        check_trust: !agents,
+        remote_cwd: match mode {
+            Mode::Remote { daemon: false, .. } => startup_cwd.clone(),
+            _ => None,
+        },
         update,
+        failure: startup_failure,
+        browser: crate::startup::system_browser(),
+        updates: crate::startup::Updates::system(&config),
+        reload,
         target: match mode {
             Mode::Embedded => crate::startup::Target::Embedded,
             Mode::Daemon | Mode::Remote { daemon: true, .. } => crate::startup::Target::LocalDaemon,

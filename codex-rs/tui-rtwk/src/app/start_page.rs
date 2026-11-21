@@ -3,6 +3,7 @@
 //! pushed over it at once with nowhere to go back to but the session it
 //! reveals when it ends.
 
+use rtwk::layout::SizedBox;
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::watch;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
@@ -69,21 +70,30 @@ impl State for StartPageState {
 /// once its model has a step due (oracle: the update prompt and the
 /// onboarding screens run before the chat). The facts come from the host
 /// after the first frame, so the gate watches the model; it pushes once.
+/// With `awaits_facts` the home shows nothing until the facts are read, and
+/// then the chat or, with a step due, the page alone: the oracle draws no
+/// chat before its prompt.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupGate {
     pub child: AnyWidget,
+    pub awaits_facts: bool,
 }
 
-/// Whether the gate has pushed the page (R14: widget state).
+/// Whether the gate has pushed the page and whether the home may draw its
+/// child (R14: widget state).
 pub struct StartupGateState {
     pushed: bool,
+    open: bool,
 }
 
 impl StatefulWidget for StartupGate {
     type State = StartupGateState;
 
     fn create_state(&self) -> StartupGateState {
-        StartupGateState { pushed: false }
+        StartupGateState {
+            pushed: false,
+            open: !self.awaits_facts,
+        }
     }
 }
 
@@ -94,19 +104,27 @@ impl State for StartupGateState {
     type Msg = ();
 
     fn did_change_dependencies(&mut self, _: &StartupGate, cx: &mut Cx<'_, Self>) {
-        if !self.pushed && watch::<ScreenStates, _>(cx).onboarding.due() {
+        let onboarding = &watch::<ScreenStates, _>(cx).onboarding;
+        if !self.pushed && onboarding.due() {
             self.pushed = true;
             let push = cx.send(());
             cx.emit(&push, ());
+        } else if !self.pushed && onboarding.settled() {
+            self.open = true;
         }
     }
 
     fn update(&mut self, _: (), _: &StartupGate, cx: &mut Cx<'_, Self>) -> Rebuild {
         drop(Navigator::of(cx).push::<()>(onboarding::route(onboarding::Step::Update)));
-        Rebuild::No
+        self.open = true;
+        Rebuild::Yes
     }
 
     fn build(&self, w: &StartupGate, _: &mut Cx<'_, Self>) -> AnyWidget {
-        w.child.clone()
+        if self.open {
+            w.child.clone()
+        } else {
+            SizedBox::shrink().into()
+        }
     }
 }

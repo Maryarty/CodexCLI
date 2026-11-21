@@ -41,6 +41,10 @@ pub struct UiState {
     pub start_agents: bool,
     /// Open the resume picker over the chat at start (`codex-rtwk resume`).
     pub start_resume: bool,
+    /// The host answers the startup facts: the home shows nothing until they
+    /// are read (the oracle draws its prompt or the chat only after the
+    /// startup checks), so the chat never flashes before a prompt.
+    pub awaits_facts: bool,
     /// The request presenter's model (ADR-002): the kept handle of the
     /// navigator's home and which request is open.
     pub presenter: Presenter,
@@ -73,6 +77,7 @@ impl UiApp {
                 debug: false,
                 start_agents: false,
                 start_resume: false,
+                awaits_facts: false,
                 presenter: Presenter::new(),
                 switches_seen: 0,
                 desktop_notice: None,
@@ -95,6 +100,13 @@ impl UiApp {
 
     pub fn with_start_resume(mut self, on: bool) -> Self {
         self.ui.start_resume = on;
+        self
+    }
+
+    /// The host answers the startup facts (`Ask::Facts`): the home waits for
+    /// them (`StartupGate`).
+    pub fn with_awaited_facts(mut self, on: bool) -> Self {
+        self.ui.awaits_facts = on;
         self
     }
 
