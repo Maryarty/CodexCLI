@@ -9,9 +9,9 @@ use crate::kit::{self, Owner, Screen};
 /// The live chat draws an agent message as its plain text: no markdown renderer yet.
 const MD: &str = "the live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet";
 /// The chat draws math as its source text: no unicode math renderer yet.
-const MATH: &str = "the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters) is built in the chat's markdown yet";
+const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer yet.
-const MERMAID: &str = "a mermaid fence draws as its source text: the native mermaid renderer is not built in the chat's markdown yet";
+const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer is not built in the chat's markdown yet";
 /// The rendering preferences (`tui.rendering`) cannot be seeded on the live chat.
 const CONFIG: &str = "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them";
 /// Web links: the label-only presentation depends on the terminal kind, and the chat has no terminal seed.
@@ -50,6 +50,8 @@ fn chat(width: u16, height: u16, markdown: &str) -> Screen {
 }
 
 // ---- oracle: markdown_render/math_tests.rs (6 screen-level tests here; 2 state tests left to chat-live)
+const G63: &str = "G63: MarkdownView joins a soft break with a blank; the oracle breaks the line (flutter_markdown softLineBreak)";
+
 // ORACLE markdown_render/math_tests.rs:16 unicode_math_inline_snapshot kind=snap owner=chat-live snap=unicode_math_inline_snapshot
 #[test]
 fn unicode_math_inline_snapshot() {
@@ -342,7 +344,6 @@ fn unknown_terminals_and_multiplexers_keep_visible_destinations() {
 // ORACLE markdown_render/web_links_tests.rs:177 label_only_policy_keeps_non_web_links_and_literal_urls_unchanged kind=ui owner=chat-live
 #[test]
 fn label_only_policy_keeps_non_web_links_and_literal_urls_unchanged() {
-    kit::pending(Owner::ChatLive, TERM);
     // The oracle compares the label-only and destination renderings for equality; the
     // visible half is that the non-web links, the literal URL and the code span stay as text.
     let s = chat(
@@ -489,14 +490,16 @@ fn paragraph_single() {
 // ORACLE markdown_render_tests.rs:158 paragraph_soft_break kind=ui owner=chat-live
 #[test]
 fn paragraph_soft_break() {
+    kit::pending(Owner::ChatLive, G63);
     let s = chat(80, 24, "Hello\nWorld");
-    s.assert_in_order(&["Hello", "World"]);
+    // The oracle's two lines under the agent gutter (`• `, then `  `).
+    s.assert_has_row("• Hello");
+    s.assert_has_row("  World");
 }
 
 // ORACLE markdown_render_tests.rs:166 paragraph_multiple kind=ui owner=chat-live
 #[test]
 fn paragraph_multiple() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "Paragraph 1\n\nParagraph 2");
     s.assert_in_order(&["Paragraph 1", "Paragraph 2"]);
 }
@@ -604,7 +607,6 @@ fn list_item_with_inline_blockquote_on_same_line() {
 // ORACLE markdown_render_tests.rs:323 blockquote_surrounded_by_blank_lines kind=ui owner=chat-live
 #[test]
 fn blockquote_surrounded_by_blank_lines() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "foo\n\n> bar\n\nbaz\n");
     s.assert_in_order(&["foo", "> bar", "baz"]);
 }
@@ -628,7 +630,6 @@ fn blockquote_in_unordered_list_on_next_line() {
 // ORACLE markdown_render_tests.rs:387 blockquote_two_paragraphs_inside_ordered_list_has_blank_line kind=ui owner=chat-live
 #[test]
 fn blockquote_two_paragraphs_inside_ordered_list_has_blank_line() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1.\n   > para 1\n   >\n   > para 2\n");
     s.assert_in_order(&["1. > para 1", "   > para 2"]);
 }

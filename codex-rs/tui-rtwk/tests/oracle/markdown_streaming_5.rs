@@ -17,9 +17,9 @@ const FOLLOWUP: &str = "the chat draws a :codex-followup[..]{prompt=..} directiv
 /// A link draws as its text: no unfinished-link preview.
 const LINK: &str = "the chat draws a markdown link as its text: the unfinished-link preview (the label held until the destination closes, flushed on newline or completion) is not built";
 /// The chat draws math sources as their text: no unicode math renderer.
-const MATH: &str = "the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet";
+const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer.
-const MERMAID: &str = "a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet";
+const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet";
 /// Inline visualization directives draw as text: no inline visualization context.
 const VIS: &str = "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built";
 /// The chat has one render mode: no raw/rich history render mode to switch.
@@ -237,7 +237,6 @@ fn controller_loose_vs_tight_with_commit_ticks_matches_full() {
 // ORACLE streaming/controller.rs:1413 controller_streamed_table_matches_full_render_widths kind=ui owner=chat-live
 #[test]
 fn controller_streamed_table_matches_full_render_widths() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "| Key | Description |\n",
         "| --- | --- |\n",
@@ -251,7 +250,6 @@ fn controller_streamed_table_matches_full_render_widths() {
 // ORACLE streaming/controller.rs:1432 controller_holds_blockquoted_table_tail_until_stable kind=ui owner=chat-live
 #[test]
 fn controller_holds_blockquoted_table_tail_until_stable() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "> | A | B |\n",
         "> | --- | --- |\n",
@@ -300,7 +298,6 @@ fn controller_set_width_during_confirmed_table_stream_matches_finalize_render() 
 // ORACLE streaming/controller.rs:1612 controller_handles_table_immediately_after_heading kind=ui owner=chat-live
 #[test]
 fn controller_handles_table_immediately_after_heading() {
-    kit::pending(Owner::ChatLive, TABLE);
     let deltas = [
         "### 1) Basic table\n",
         "| Name | Role | Status |\n",
@@ -413,7 +410,6 @@ fn controller_keeps_markdown_fenced_no_outer_tables_mutable_until_finalize() {
 // ORACLE streaming/controller.rs:1829 controller_live_view_matches_render_during_interleaved_table_streaming kind=ui owner=chat-live
 #[test]
 fn controller_live_view_matches_render_during_interleaved_table_streaming() {
-    kit::pending(Owner::ChatLive, TABLE);
     let source = "Project updates are easier to scan when narrative and structured data alternate.\n\n| Focus Area | Owner | Priority | Status |\n|---|---|---|---|\n| Authentication cleanup | Maya | High | 80% |\n| CLI error messages | Jordan | Medium | 55% |\n| Docs refresh | Lee | Low | 30% |\n\nThe first checkpoint shows progress, but we still have open risks.\n\n| Task | Command / Artifact | Due | State |\n|---|---|---|---|\n| Run unit tests | `cargo test -p codex-core` | Today | ✅ |\n| Snapshot review | `cargo insta pending-snapshots -p codex-tui` | Today | ⏳ |\n| Changelog draft | Release template (https://replacechangelog.com/) | Tomorrow | 📝 |\n\nFinal sign-off criteria are summarized below.\n";
     // The oracle compares the live view with the full render after every delta; a finished
     // turn shows only the last view, so the port compares the streamed end with the whole answer.
@@ -739,7 +735,6 @@ fn incremental_render_keeps_final_block_mutable_and_matches_full_render() {
 // ORACLE streaming/render_tests.rs:119 incremental_file_citations_preserve_metadata_unicode_and_markdown kind=snap owner=chat-live snap=incremental_file_citations
 #[test]
 fn incremental_file_citations_preserve_metadata_unicode_and_markdown() {
-    kit::pending(Owner::ChatLive, VIS);
     // The oracle's two cases (a workbook citation, a unicode name) are one snapshot of both
     // renders; each case is streamed and compared with its whole answer here.
     for (filename, prefix) in [
@@ -759,7 +754,6 @@ fn incremental_file_citations_preserve_metadata_unicode_and_markdown() {
 // ORACLE streaming/render_tests.rs:145 growing_single_top_level_blocks_render_and_scan_in_one_pass kind=ui owner=chat-live
 #[test]
 fn growing_single_top_level_blocks_render_and_scan_in_one_pass() {
-    kit::pending(Owner::ChatLive, MD);
     // The oracle's block-scan counters (last_top_level_block_start, stable_source_len) are internal;
     // the visible part is that each growing block renders as the whole answer does.
     let chunks = [
@@ -787,7 +781,6 @@ fn incremental_raw_render_preserves_blank_lines() {
 // ORACLE streaming/render_tests.rs:205 compact_list_spacing_keeps_incremental_and_full_renders_aligned kind=ui owner=chat-live
 #[test]
 fn compact_list_spacing_keeps_incremental_and_full_renders_aligned() {
-    kit::pending(Owner::ChatLive, MD);
     let chunks = [
         "- Short\n",
         "- A sibling with enough words to wrap across rows\n",
@@ -854,7 +847,6 @@ fn inline_visualization_directive_survives_raw_to_rich_render_mode_switch() {
 // ORACLE streaming/render_tests.rs:398 reference_link_definition_recomputes_earlier_and_later_blocks kind=ui owner=chat-live
 #[test]
 fn reference_link_definition_recomputes_earlier_and_later_blocks() {
-    kit::pending(Owner::ChatLive, MD);
     let chunks = [
         "Earlier [reference][id].\n\n",
         "An unrelated paragraph.\n\n",
@@ -882,7 +874,6 @@ fn reference_link_definition_survives_raw_to_rich_render_mode_switch() {
 // ORACLE streaming/render_tests.rs:455 incremental_render_does_not_add_blank_line_before_html_block kind=ui owner=chat-live
 #[test]
 fn incremental_render_does_not_add_blank_line_before_html_block() {
-    kit::pending(Owner::ChatLive, MD);
     let chunks = [
         "Paragraph.\n\n",
         "<div>x</div>\n\n",
@@ -895,7 +886,6 @@ fn incremental_render_does_not_add_blank_line_before_html_block() {
 // ORACLE streaming/render_tests.rs:474 incremental_render_preserves_heading_and_normalized_html_seams kind=ui owner=chat-live
 #[test]
 fn incremental_render_preserves_heading_and_normalized_html_seams() {
-    kit::pending(Owner::ChatLive, MD);
     let chunks = [
         "Paragraph.\n\n",
         "<div>x</div>\n\n",
@@ -914,7 +904,6 @@ fn incremental_render_preserves_heading_and_normalized_html_seams() {
 // ORACLE streaming/render_tests.rs:495 paragraphs_after_unwrapped_table_fence_advance_stable_source kind=ui owner=chat-live
 #[test]
 fn paragraphs_after_unwrapped_table_fence_advance_stable_source() {
-    kit::pending(Owner::ChatLive, TABLE);
     // The oracle's stable_source_len advance is internal; the visible part is the whole render.
     let chunks = [
         "```markdown\n",
@@ -970,7 +959,6 @@ fn rejected_math_openers_allow_bounded_incremental_rendering() {
 // ORACLE streaming/rendering_preferences_tests.rs:9 empty_list_item_stays_mutable_until_finalization kind=ui owner=chat-live
 #[test]
 fn empty_list_item_stays_mutable_until_finalization() {
-    kit::pending(Owner::ChatLive, MD);
     for (marker, continuation) in [
         ("8.", ""),
         ("8.\n", "   answer\n"),

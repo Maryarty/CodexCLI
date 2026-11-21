@@ -94,10 +94,6 @@ fn ui_snapshot_apply_update_with_rename_block() {
 // ORACLE diff_render.rs:1688 ui_snapshot_apply_multiple_files_block kind=snap owner=chat-live snap=apply_multiple_files_block
 #[test]
 fn ui_snapshot_apply_multiple_files_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 14)
         .script(include_str!(
@@ -214,10 +210,6 @@ fn ui_snapshot_apply_update_block_relativizes_path() {
 // ORACLE diff_render.rs:1870 ui_snapshot_syntax_highlighted_insert_wraps kind=snap owner=chat-live snap=syntax_highlighted_insert_wraps
 #[test]
 fn ui_snapshot_syntax_highlighted_insert_wraps() {
-    kit::pending(
-        Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle's syntax spans are checked on each row, the screen shows the rows",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
@@ -321,10 +313,6 @@ fn cpp_module_extensions_use_cpp_highlighting() {
 // ORACLE diff_render.rs:2487 wrap_styled_spans_single_line kind=snap owner=chat-live snap=short
 #[test]
 fn wrap_styled_spans_single_line() {
-    kit::pending(
-        Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle's test asserts one chunk and names the snapshot 'short' that no file holds",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 6)
         .script(include_str!(
@@ -353,10 +341,6 @@ fn fallback_wrapping_uses_display_width_for_tabs_and_wide_chars() {
 // ORACLE diff_render.rs:2613 large_update_diff_skips_highlighting kind=ui owner=chat-live
 #[test]
 fn large_update_diff_skips_highlighting() {
-    kit::pending(
-        Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the 10001-line patch is built at run time, the performance half is not a screen fact",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let lines = 10_001;
     let patch = format!(
@@ -374,10 +358,6 @@ fn large_update_diff_skips_highlighting() {
 // ORACLE diff_render.rs:2699 update_diff_preserves_multiline_highlight_state_within_hunk kind=ui owner=chat-live
 #[test]
 fn update_diff_preserves_multiline_highlight_state_within_hunk() {
-    kit::pending(
-        Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the expected style is the oracle highlighter's output for that line, not a literal, so the style compare is not ported",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(120, 24)
         .script(include_str!(
@@ -622,10 +602,6 @@ fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
 // ORACLE exec_cell/transcript_tests.rs:34 raw_grouped_history_retains_terminal_input_and_omits_reasoning kind=snap owner=chat-live snap=raw_grouped_history_retains_terminal_input_and_omits_reasoning
 #[test]
 fn raw_grouped_history_retains_terminal_input_and_omits_reasoning() {
-    kit::pending(
-        Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the snapshot joins Rich and Raw blocks, the Raw block is not on the screen; the unified-exec interaction is not in the fixture",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -912,10 +888,6 @@ fn mcp_inventory_older_app_server_authentication() {
 // ORACLE history_cell/mcp_tests.rs:140 mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript kind=snap owner=chat-live snap=mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript
 #[test]
 fn mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the snapshot joins compact, history and transcript blocks",
-    );
     let s = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript.jsonl")).open();
     s.assert_contains("Called search.lookup");
 }
@@ -950,10 +922,6 @@ fn code_mode_output_preserves_trailing_failure_diagnostics_in_transcript() {
 // ORACLE history_cell/mcp_tests.rs:282 code_mode_output_row_budget_applies_after_wrapping_and_to_errors kind=ui owner=chat-live
 #[test]
 fn code_mode_output_row_budget_applies_after_wrapping_and_to_errors() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the oracle loops eight cases (two servers, four completions); the body covers the first, the rest is not transcribed yet",
-    );
     let s = Screen::build(Owner::ChatLive).size(40, 24).script(include_str!("fixtures/cells_1/code_mode_output_row_budget_applies_after_wrapping_and_to_errors.jsonl")).open();
     s.assert_contains("transcript tail");
 }
@@ -977,10 +945,6 @@ fn projected_content_preserves_full_rendering() {
 // ORACLE history_cell/mcp_tests.rs:388 projected_image_marker_still_requires_a_complete_image kind=ui owner=chat-live
 #[test]
 fn projected_image_marker_still_requires_a_complete_image() {
-    kit::pending(
-        Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(

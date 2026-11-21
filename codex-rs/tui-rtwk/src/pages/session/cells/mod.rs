@@ -12,8 +12,12 @@ use codex_tui_core::screens::cells::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
+pub mod markdown;
+pub mod patch;
+pub mod plan;
 pub mod status;
 pub mod strings;
+pub mod summary;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
 /// one entry per state worth opening (a screen on made-up data).

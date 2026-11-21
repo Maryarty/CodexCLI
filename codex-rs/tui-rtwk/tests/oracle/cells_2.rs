@@ -126,6 +126,16 @@ fn mixed_image_labels_preserve_existing_placeholders_without_duplicates() {
     );
 }
 
+/// The row of the cell that starts with `start`: the oracle's snapshot is the
+/// cell alone, the screen holds it among the chat's rows.
+fn row_of(screen: &Screen, start: &str) -> usize {
+    screen
+        .rows()
+        .iter()
+        .position(|row| row.starts_with(start))
+        .unwrap_or_else(|| panic!("no row starts with `{start}`:\n{}", screen.text()))
+}
+
 fn image_row(screen: &Screen) -> usize {
     screen
         .rows()
@@ -186,7 +196,7 @@ fn finalized_markdown_reuses_rendered_transcript_lines() {
 fn finalized_assistant_file_citation_renders_as_local_path_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the chat draws the agent text verbatim (src/screens/chat/home.rs:333): the :codex-file-citation directive is not parsed into a local path label",
+        "G60: MarkdownView has no inline syntax extension, so the :codex-file-citation directive is drawn as its source, not as a local path label",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 4)
@@ -289,7 +299,7 @@ fn spoken_windows_relative_paths_keep_original_text_and_link_the_workspace_file(
 fn compact_patches_retain_full_changes_and_failure_details() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the chat draws no edit summary; the failure diagnostics are not on the wire item",
+        "the failure diagnostics (`first`, `second`, `third`) are the oracle test's stderr: the app-server's fileChange item carries none, and the oracle's own live path then shows `(error details unavailable)` (chatwidget/tool_lifecycle.rs:173); the patch block passes",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 20)
@@ -318,12 +328,8 @@ fn compact_patches_retain_full_changes_and_failure_details() {
 // ORACLE history_cell/patches_tests.rs:45 viewed_image_retains_original_path_in_details kind=ui owner=chat-live
 #[test]
 fn viewed_image_retains_original_path_in_details() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image-view cell in the S11 transcript: core threads::project ignores imageView items and the chat draws no `Viewed image` row",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+        .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details.jsonl"
         ))
@@ -332,7 +338,7 @@ fn viewed_image_retains_original_path_in_details() {
     // Not ported: the transcript view at width 200 shows `• Viewed image /workspace/assets/example.png`
     // (the full path lives in the transcript overlay, not built), and the raw row.
     let w = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+        .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details_windows.jsonl"
         ))
@@ -343,17 +349,13 @@ fn viewed_image_retains_original_path_in_details() {
 // ORACLE history_cell/patches_tests.rs:74 viewed_image_narrow_summary kind=snap owner=chat-live snap=viewed_image_narrow_summary
 #[test]
 fn viewed_image_narrow_summary() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image-view cell in the S11 transcript (src/screens/chat/home.rs:333): the narrow `• Viewed image very-long-screen…` summary is not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 2)
+        .size(32, 8)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_narrow_summary.jsonl"
         ))
         .open();
-    s.assert_snap_region("viewed_image_narrow_summary", 0, 0);
+    s.assert_snap_region("viewed_image_narrow_summary", row_of(&s, "• Viewed"), 0);
     // Not ported: the image link (columns 15..width) is the file URL of a real file the kit cannot create.
 }
 
@@ -363,7 +365,7 @@ fn viewed_image_narrow_summary() {
 fn finalized_plan_reuses_rendered_transcript_lines() {
     kit::pending(
         Owner::ChatLive,
-        "no proposed-plan cell in the S11 transcript: core threads::project ignores plan items and the chat draws no plan card; the oracle's render-cache seed is internal",
+        "the oracle's check is the cell's render cache: on the screen the running turn's spinner ticks between the two shots and the 48x4 screen shows only the bottom pane; the fixture never completes the turn",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(48, 4)
@@ -383,18 +385,19 @@ fn finalized_plan_reuses_rendered_transcript_lines() {
 fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no proposed-plan cell in the S11 transcript (core threads::project ignores plan items): the `• Proposed Plan` card and the citation's local path label are not drawn",
+        "G60: MarkdownView has no inline syntax extension, so the :codex-file-citation directive is drawn as its source, not as the file's name",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 5)
+        .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/finalized_plan_file_citation_renders_as_local_path_snapshot.jsonl"
         ))
         .open();
-    s.assert_row(0, "• Proposed Plan");
-    s.assert_row(1, " ");
-    s.assert_row(2, " ");
-    s.assert_row(3, "  • Quarterly Report.xlsx");
+    let top = row_of(&s, "• Proposed Plan");
+    s.assert_row(top, "• Proposed Plan");
+    s.assert_row(top + 1, " ");
+    s.assert_row(top + 2, " ");
+    s.assert_row(top + 3, "  • Quarterly Report.xlsx");
 }
 
 // ---- oracle: history_cell/request_user_input_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
@@ -413,35 +416,41 @@ fn completed_and_interrupted_results() {
 // ORACLE history_cell/search_tests.rs:5 web_action_labels_and_missing_details kind=snap owner=chat-live snap=web_action_labels_and_missing_details
 #[test]
 fn web_action_labels_and_missing_details() {
-    kit::pending(
-        Owner::ChatLive,
-        "no web-search cell in the S11 transcript: core threads::project ignores webSearch items (src/screens/chat/home.rs:328-333 draws user and agent text only)",
-    );
+    // The snapshot is the six cells' display lines one after another; the chat
+    // puts a blank row between two history cells (oracle app.rs), so each row
+    // of the snapshot is a row of the screen, in order.
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 20)
         .script(include_str!(
             "fixtures/cells_2/web_action_labels_and_missing_details.jsonl"
         ))
         .open();
-    s.assert_snap_region("web_action_labels_and_missing_details", 0, 0);
+    let rows = [
+        "• Opened https://example.com/docs",
+        "• Opened page",
+        "• Searched for 'needle' in https://example.com/docs",
+        "• Searched for 'needle'",
+        "• Searched page https://example.com/docs",
+        "• Searched page",
+    ];
+    s.assert_in_order(&rows);
+    for row in rows {
+        s.assert_has_row(row);
+    }
 }
 
 // ORACLE history_cell/search_tests.rs:42 web_action_compact_display_preserves_transcript_and_raw_details kind=snap owner=chat-live snap=web_action_compact_display_preserves_transcript_and_raw_details
 #[test]
 fn web_action_compact_display_preserves_transcript_and_raw_details() {
-    kit::pending(
-        Owner::ChatLive,
-        "no web-search cell in the S11 transcript (core threads::project ignores webSearch items): the compact `• Searched for '日本語 🦀 needl…` row is not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 2)
+        .size(32, 8)
         .script(include_str!(
             "fixtures/cells_2/web_action_compact_display_preserves_transcript_and_raw_details.jsonl"
         ))
         .open();
     s.assert_snap_region(
         "web_action_compact_display_preserves_transcript_and_raw_details",
-        0,
+        row_of(&s, "• Searched"),
         0,
     );
     // Not ported: the transcript view at width 200 (`• Searched for '日本語 🦀 needle' in <url>`)
@@ -451,12 +460,8 @@ fn web_action_compact_display_preserves_transcript_and_raw_details() {
 // ORACLE history_cell/search_tests.rs:68 pending_web_action_and_legacy_query kind=snap owner=chat-live
 #[test]
 fn pending_web_action_and_legacy_query() {
-    kit::pending(
-        Owner::ChatLive,
-        "no active web-search cell in the S11 transcript (core threads::project ignores webSearch items): the `• Browsing the web` row is not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
+        .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/pending_web_action_and_legacy_query.jsonl"
         ))
@@ -468,12 +473,8 @@ fn pending_web_action_and_legacy_query() {
 // ORACLE history_cell/search_tests.rs:83 batched_search_retains_each_query kind=snap owner=chat-live
 #[test]
 fn batched_search_retains_each_query() {
-    kit::pending(
-        Owner::ChatLive,
-        "no web-search cell in the S11 transcript (core threads::project ignores webSearch items): the batched `Searched the web for first query, second query` row is not drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 3)
+        .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/batched_search_retains_each_query.jsonl"
         ))

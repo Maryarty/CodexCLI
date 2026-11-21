@@ -158,7 +158,6 @@ fn user_image_labels_follow_the_painted_prompt_surface() {
 // ORACLE history_cell/tests.rs:2472 user_history_cell_summarizes_inline_data_urls kind=snap owner=chat-live snap=portable_image_raw_output
 #[test]
 fn user_history_cell_summarizes_inline_data_urls() {
-    kit::pending(Owner::ChatLive, USER_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -206,10 +205,6 @@ fn user_history_cell_height_matches_rendered_lines_with_remote_images() {
 // ORACLE history_cell/tests.rs:2541 user_history_cell_trims_trailing_blank_message_lines kind=ui owner=chat-live
 #[test]
 fn user_history_cell_trims_trailing_blank_message_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "no user-message cell in S11. The body's visible half (the text) already shows in the plain transcript (probe: stale); the oracle's claim, exactly one trailing blank row after the text, is not expressible with the kit yet",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -224,10 +219,6 @@ fn user_history_cell_trims_trailing_blank_message_lines() {
 // ORACLE history_cell/tests.rs:2561 user_history_cell_trims_trailing_blank_message_lines_with_text_elements kind=ui owner=chat-live
 #[test]
 fn user_history_cell_trims_trailing_blank_message_lines_with_text_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "no user-message cell in S11. The body's visible half (the text) already shows in the plain transcript (probe: stale); the oracle's claim, exactly one trailing blank row after the text, is not expressible with the kit yet",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -550,7 +541,6 @@ fn legacy_zsh_migration_notice_snapshot() {
 // ORACLE history_cell/tests.rs:3009 agent_markdown_cell_renders_source_at_different_widths kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_renders_source_at_different_widths() {
-    kit::pending(Owner::ChatLive, AGENT_CELL);
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -566,7 +556,6 @@ fn agent_markdown_cell_renders_source_at_different_widths() {
 // ORACLE history_cell/tests.rs:3029 agent_markdown_cell_does_not_split_words_after_inline_markdown kind=ui owner=chat-live
 #[test]
 fn agent_markdown_cell_does_not_split_words_after_inline_markdown() {
-    kit::pending(Owner::ChatLive, AGENT_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(190, 24)
         .script(include_str!(

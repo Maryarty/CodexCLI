@@ -1,0 +1,242 @@
+//! The transcript entries beside messages and tool calls: reasoning, patches,
+//! plans, web activity, viewed images and session notices. Each is plain data
+//! projected once from a protocol item here (R4); views get these values and
+//! never the protocol. Oracle: `codex-rs/tui/src/history_cell/` (messages.rs
+//! reasoning, patches.rs, plans.rs, search.rs, notices.rs).
+
+use codex_app_server_protocol::{PatchApplyStatus, PatchChangeKind, ThreadItemPayload};
+
+use super::ToolStatus;
+use crate::ids::ItemId;
+
+/// A set of file changes the agent applied (oracle `PatchHistoryCell`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PatchActivity {
+    pub changes: Vec<PatchChange>,
+    pub status: ToolStatus,
+}
+
+/// One file of a patch: its path, what happened to it and its diff (the
+/// file's content for an added or deleted file, a unified diff otherwise).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PatchChange {
+    pub path: String,
+    pub kind: PatchKind,
+    pub diff: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatchKind {
+    Add,
+    Delete,
+    Update { move_path: Option<String> },
+}
+
+impl PatchChange {
+    /// Lines added and removed (oracle `diff_render::line_counts`).
+    pub fn counts(&self) -> (usize, usize) {
+        match self.kind {
+            PatchKind::Add => (self.diff.lines().count(), 0),
+            PatchKind::Delete => (0, self.diff.lines().count()),
+            PatchKind::Update { .. } => {
+                // oracle diff_render.rs calculate_add_remove_from_diff
+                let mut added = 0;
+                let mut removed = 0;
+                for line in self.diff.lines() {
+                    if line.starts_with("+++") || line.starts_with("---") {
+                        continue;
+                    }
+                    if line.starts_with('+') {
+                        added += 1;
+                    } else if line.starts_with('-') {
+                        removed += 1;
+                    }
+                }
+                (added, removed)
+            }
+        }
+    }
+}
+
+/// A web action of the model (oracle `WebSearchCell`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebActivity {
+    pub completed: bool,
+    pub action: WebAction,
+    /// What the action was about: the query, the page or `'pattern' in url`;
+    /// empty when the server sent nothing.
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebAction {
+    /// A search; `known` is false for an action of no known kind or none
+    /// sent yet (the oracle then reads `Browsing the web` while it runs).
+    Search {
+        known: bool,
+    },
+    OpenPage,
+    FindInPage {
+        pattern: bool,
+    },
+}
+
+/// A notice the session leaves in the transcript.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    ContextCompacted,
+    EnteredReview(String),
+    ExitedReview(String),
+}
+
+/// The entries of this module for one protocol item; `completed` tells an
+/// `item/completed` (or a stored item) from an `item/started`.
+pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, super::Item)> {
+    use super::Item;
+    Some(match payload {
+        ThreadItemPayload::Reasoning { id, summary, .. } => (
+            ItemId::new(id),
+            Item::Reasoning {
+                summary: summary_text(summary),
+            },
+        ),
+        ThreadItemPayload::Plan { id, text } => {
+            (ItemId::new(id), Item::Plan { text: text.clone() })
+        }
+        ThreadItemPayload::FileChange {
+            id,
+            changes,
+            status,
+        } => (
+            ItemId::new(id),
+            Item::Patch(std::sync::Arc::new(PatchActivity {
+                changes: {
+                    let mut changes: Vec<_> = changes
+                        .iter()
+                        .map(|change| PatchChange {
+                            path: change.path.clone(),
+                            kind: match &change.kind {
+                                PatchChangeKind::Add => PatchKind::Add,
+                                PatchChangeKind::Delete => PatchKind::Delete,
+                                PatchChangeKind::Update { move_path } => PatchKind::Update {
+                                    move_path: move_path
+                                        .as_ref()
+                                        .map(|path| path.to_string_lossy().into_owned()),
+                                },
+                            },
+                            diff: change.diff.clone(),
+                        })
+                        .collect();
+                    // oracle diff_render.rs collect_rows: by path
+                    changes.sort_by(|left, right| left.path.cmp(&right.path));
+                    changes
+                },
+                status: match status {
+                    PatchApplyStatus::InProgress => ToolStatus::Running,
+                    PatchApplyStatus::Completed => ToolStatus::Completed,
+                    PatchApplyStatus::Failed => ToolStatus::Failed,
+                    PatchApplyStatus::Declined => ToolStatus::Declined,
+                },
+            })),
+        ),
+        ThreadItemPayload::WebSearch(search) => (
+            ItemId::new(&search.id),
+            Item::Web(web_activity(search, completed)),
+        ),
+        ThreadItemPayload::ImageView { id, path } => {
+            let path = path.to_string();
+            (
+                ItemId::new(id),
+                Item::ImageView {
+                    name: file_name(&path).to_owned(),
+                    path,
+                },
+            )
+        }
+        ThreadItemPayload::ContextCompaction { id } => {
+            (ItemId::new(id), Item::Notice(Notice::ContextCompacted))
+        }
+        ThreadItemPayload::EnteredReviewMode { id, review } => (
+            ItemId::new(id),
+            Item::Notice(Notice::EnteredReview(review.clone())),
+        ),
+        ThreadItemPayload::ExitedReviewMode { id, review } => (
+            ItemId::new(id),
+            Item::Notice(Notice::ExitedReview(review.clone())),
+        ),
+        _ => return None,
+    })
+}
+
+/// The last part of a path written with either separator (oracle
+/// `ViewImageHistoryCell::filename`).
+fn file_name(path: &str) -> &str {
+    path.rsplit(['/', '\\'])
+        .find(|part| !part.is_empty())
+        .unwrap_or(path)
+}
+
+/// The summary parts as one Markdown source (oracle messages.rs
+/// `split_reasoning_summary_parts`): blank parts and parts whose body is an
+/// empty HTML comment are left out, the rest joined by blank lines.
+fn summary_text(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|part| part.trim())
+        .filter(|part| {
+            if part.is_empty() {
+                return false;
+            }
+            let header_end = part.strip_prefix("**").and_then(|after| {
+                after
+                    .find("**")
+                    .and_then(|close| (close > 0).then_some(close + 4))
+            });
+            let body = header_end.map_or(*part, |end| &part[end..]);
+            body.trim() != "<!-- -->"
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn web_activity(search: &codex_app_server_protocol::WebSearchItem, completed: bool) -> WebActivity {
+    use codex_app_server_protocol::WebSearchAction as Wire;
+    // oracle search.rs web_search_action_detail / web_search_detail
+    let (action, detail) = match &search.action {
+        Some(Wire::Search { query, queries }) => (
+            WebAction::Search { known: true },
+            query
+                .clone()
+                .filter(|query| !query.is_empty())
+                .unwrap_or_else(|| queries.as_deref().unwrap_or_default().join(", ")),
+        ),
+        Some(Wire::OpenPage { url }) => (WebAction::OpenPage, url.clone().unwrap_or_default()),
+        Some(Wire::FindInPage { url, pattern }) => {
+            let pattern = pattern.as_deref().filter(|pattern| !pattern.is_empty());
+            let url = url.as_deref().filter(|url| !url.is_empty());
+            (
+                WebAction::FindInPage {
+                    pattern: pattern.is_some(),
+                },
+                match (pattern, url) {
+                    (Some(pattern), Some(url)) => format!("'{pattern}' in {url}"),
+                    (Some(pattern), None) => format!("'{pattern}'"),
+                    (None, Some(url)) => url.to_owned(),
+                    (None, None) => String::new(),
+                },
+            )
+        }
+        Some(Wire::Other) => (WebAction::Search { known: false }, String::new()),
+        None => (WebAction::Search { known: false }, String::new()),
+    };
+    let detail = if detail.is_empty() {
+        search.query.clone()
+    } else {
+        detail
+    };
+    WebActivity {
+        completed,
+        action,
+        detail,
+    }
+}

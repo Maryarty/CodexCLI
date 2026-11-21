@@ -156,7 +156,6 @@ fn web_search_history_cell_without_detail_snapshot() {
 // ORACLE history_cell/tests.rs:1437 web_search_history_cell_truncates kind=ui owner=chat-live
 #[test]
 fn web_search_history_cell_truncates() {
-    kit::pending(Owner::ChatLive, NO_WEB_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(
@@ -169,7 +168,6 @@ fn web_search_history_cell_truncates() {
 // ORACLE history_cell/tests.rs:1456 web_search_history_cell_short_query_does_not_wrap kind=ui owner=chat-live
 #[test]
 fn web_search_history_cell_short_query_does_not_wrap() {
-    kit::pending(Owner::ChatLive, NO_WEB_CELL);
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(
