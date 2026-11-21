@@ -33,11 +33,12 @@ use rtwk::layout::{
     Alignment, Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment, FlexFit,
     Flexible, MainAxisSize, OverflowBox, SizedBox,
 };
-use rtwk::prelude::Mods;
+use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::prelude::{HitTestBehavior, Mods};
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_core::input::{InputEvent, KeyCode, KeyKind};
 
 use codex_tui_core::screens::ScreenIntent;
@@ -148,6 +149,8 @@ pub enum Msg {
     Accept(usize),
     Cancel,
     CopyLink,
+    /// Enter or a tap on the failed gateway sign-in's retry line: asks again.
+    Retry,
     Submitted(Rc<str>),
     /// The key entry is mounted: its field takes the focus.
     FocusField,
@@ -228,6 +231,16 @@ impl SignInState {
     fn emit(cx: &mut Cx<'_, Self>, intent: auth::Intent) {
         let hs = read::<Hs, _>(cx);
         cx.emit(&hs.screen, ScreenIntent::Onboarding(Intent::SignIn(intent)));
+    }
+
+    /// The gateway's sign-in failed and is asked again
+    /// (`RetryGatewayOAuth`: the model starts it over).
+    fn retry(cx: &mut Cx<'_, Self>) {
+        let hs = read::<Hs, _>(cx);
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::Onboarding(Intent::RetryGatewayOAuth),
+        );
     }
 
     /// The API key entry opened: the field starts from the key the
@@ -412,8 +425,14 @@ impl State for SignInState {
                     }
                 }
                 auth::State::SuccessMessage => Self::emit(cx, auth::Intent::Continue),
+                auth::State::GatewayOAuthFailed { .. } => Self::retry(cx),
                 _ => {}
             },
+            Msg::Retry => {
+                if matches!(state, auth::State::GatewayOAuthFailed { .. }) {
+                    Self::retry(cx);
+                }
+            }
             Msg::Submitted(text) => {
                 Self::emit(cx, auth::Intent::SaveApiKey(text.to_string()));
             }
@@ -546,7 +565,12 @@ impl State for SignInState {
                 provider::gateway_login::browser(provider::strings::of(cx), &look, url.as_deref())
             }
             auth::State::GatewayOAuthFailed { message, .. } => {
-                provider::gateway_login::failed(provider::strings::of(cx), &look, message)
+                provider::gateway_login::failed(
+                    provider::strings::of(cx),
+                    &look,
+                    message,
+                    cx.map(|_| Msg::Retry),
+                )
             }
         };
         focus.child = body;
@@ -649,16 +673,30 @@ pub(crate) fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> us
 /// The lines as a column of their own height: each wraps where it stands, a
 /// blank line is a row.
 fn column_of(lines: &[Line]) -> Column {
+    column_tapping(lines, None)
+}
+
+/// The same, one line of it (by index) a tap target.
+fn column_tapping(lines: &[Line], tap: Option<(usize, Handler<PointerEvent>)>) -> Column {
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
-    for line in lines.iter().cloned() {
-        column = if line.is_empty() {
-            column.child(SizedBox::new(None, Some(1), None))
+    for (index, line) in lines.iter().cloned().enumerate() {
+        let row: AnyWidget = if line.is_empty() {
+            SizedBox::new(None, Some(1), None).into()
         } else if one_word(&text_of(&line)) {
-            column.child(Text::rich(line).wrap(TextWrap::Grapheme))
+            Text::rich(line).wrap(TextWrap::Grapheme).into()
         } else {
-            column.child(Text::rich(line))
+            Text::rich(line).into()
+        };
+        column = match &tap {
+            Some((at, on_tap)) if *at == index => column.child(
+                GestureDetector::new()
+                    .behavior(HitTestBehavior::Opaque)
+                    .on_tap(on_tap.clone())
+                    .child(row),
+            ),
+            _ => column.child(row),
         };
     }
     column
@@ -667,9 +705,14 @@ fn column_of(lines: &[Line]) -> Column {
 /// The lines as a paragraph that wraps them and is cut off at the bottom of
 /// its room (`Paragraph::wrap(Wrap { trim: false })`).
 pub(crate) fn paragraph(lines: Vec<Line>) -> AnyWidget {
+    tapping(lines, None)
+}
+
+/// The same, one line of it (by index) a tap target.
+pub(crate) fn tapping(lines: Vec<Line>, tap: Option<(usize, Handler<PointerEvent>)>) -> AnyWidget {
     LayoutBuilder::new(move |cx, constraints| {
         let rows = rows_of(cx, &lines, width_of(constraints.max_width));
-        OverflowBox::new(column_of(&lines))
+        OverflowBox::new(column_tapping(&lines, tap.clone()))
             .max_height(i32::try_from(rows).unwrap_or(i32::MAX))
             .alignment(Alignment::TOP_LEFT)
             .into()

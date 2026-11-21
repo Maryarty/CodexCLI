@@ -1359,3 +1359,204 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         );
     }
 }
+
+/// The selected gateway's own sign-in (`onboarding/gateway_login.rs`): after
+/// the sign-in step ends on a gateway, the host starts its server and signs
+/// in (`Ask::SelectGateway`, `GatewayLogins`, `GatewayOAuth`) while the
+/// step's states show where it stands; Enter or a tap retries a failure.
+mod gateway_oauth {
+    use super::*;
+    use codex_tui_core::screens::onboarding::auth::State;
+    use codex_tui_core::screens::onboarding::gateway::Logins;
+
+    fn asks(h: &Harness) -> Vec<Ask> {
+        h.fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Startup { ask, .. } => Some(ask),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The numbers of the asks of one kind, in order.
+    fn requests(h: &Harness, kind: fn(&Ask) -> Option<u64>) -> Vec<u64> {
+        asks(h).iter().filter_map(kind).collect()
+    }
+
+    fn select(ask: &Ask) -> Option<u64> {
+        match ask {
+            Ask::SelectGateway { request, .. } => Some(*request),
+            _ => None,
+        }
+    }
+
+    fn logins_read(ask: &Ask) -> Option<u64> {
+        match ask {
+            Ask::GatewayLogins { request, .. } => Some(*request),
+            _ => None,
+        }
+    }
+
+    fn sign_in(ask: &Ask) -> Option<u64> {
+        match ask {
+            Ask::GatewayOAuth { request, .. } => Some(*request),
+            _ => None,
+        }
+    }
+
+    fn cancelled(h: &Harness) -> usize {
+        asks(h)
+            .iter()
+            .filter(|ask| matches!(ask, Ask::CancelGatewayOAuth))
+            .count()
+    }
+
+    fn inject(h: &mut Harness, epoch: ConnEpoch, event: Ev) {
+        h.fake.inject(epoch, ev(event));
+        h.settle();
+    }
+
+    /// The sign-in step ended on the gateway `office` and the host's server
+    /// runs with it: its account and provider are read, the gateway has an
+    /// OAuth; the number of the sign-in's ask.
+    fn signing_in() -> (Harness, ConnEpoch, u64) {
+        let (mut h, epoch) = launch();
+        h.t.resize(72, 8);
+        inject(
+            &mut h,
+            epoch,
+            Ev::SignInState(State::GatewaySelected("office".into())),
+        );
+        let request = *requests(&h, select)
+            .last()
+            .expect("the gateway's start is asked");
+        inject(&mut h, epoch, Ev::GatewayStarted { request });
+        let request = *requests(&h, logins_read)
+            .last()
+            .expect("the logins are read");
+        inject(
+            &mut h,
+            epoch,
+            Ev::GatewayLogins {
+                request,
+                logins: Logins {
+                    primary: false,
+                    oauth: true,
+                    offer: Offer::default(),
+                },
+            },
+        );
+        let request = *requests(&h, sign_in).last().expect("the sign-in is asked");
+        (h, epoch, request)
+    }
+
+    const STARTING: &str = "Starting gateway sign-in\u{2026}\nPress Ctrl+C to quit.";
+    const FAILED: &str = "Gateway sign-in expired.\nPress Enter to retry or Ctrl+C to quit.";
+
+    // `start_gateway_oauth` is under way: the title, and how to quit.
+    #[test]
+    fn the_step_shows_the_sign_in_starting() {
+        let (h, _, _) = signing_in();
+        assert_visible(&h, STARTING);
+    }
+
+    // `account/gatewayOAuth/changed`: the page to finish in, a link.
+    #[test]
+    fn the_page_to_sign_in_on_is_shown_when_the_server_names_it() {
+        let (mut h, epoch, _) = signing_in();
+        inject(
+            &mut h,
+            epoch,
+            Ev::GatewayOAuthChanged {
+                provider_id: "office".into(),
+                auth_url: Some("https://gateway.example/login".into()),
+            },
+        );
+        assert_visible(
+            &h,
+            "Finish signing in to your gateway in the browser.\nhttps://gateway.example/login\nPress Ctrl+C to quit.",
+        );
+    }
+
+    fn failed(h: &mut Harness, epoch: ConnEpoch, request: u64) {
+        inject(
+            h,
+            epoch,
+            Ev::GatewayOAuth {
+                request,
+                result: Err("Gateway sign-in expired.".into()),
+            },
+        );
+        assert_visible(h, FAILED);
+    }
+
+    // Enter on the failure asks again, with a new number: the answer to the
+    // first is not the second's.
+    #[test]
+    fn enter_retries_a_failed_sign_in() {
+        let (mut h, epoch, first) = signing_in();
+        failed(&mut h, epoch, first);
+        step(&mut h, "enter");
+        let all = requests(&h, sign_in);
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert_ne!(all[0], all[1]);
+        assert_visible(&h, STARTING);
+        // A late answer of the first attempt changes nothing.
+        inject(
+            &mut h,
+            epoch,
+            Ev::GatewayOAuth {
+                request: first,
+                result: Err("late".into()),
+            },
+        );
+        assert_visible(&h, STARTING);
+    }
+
+    // ADR-011: the retry line is a tap target, as Enter is; the message is
+    // not.
+    #[test]
+    fn a_tap_on_the_retry_line_retries() {
+        let (mut h, epoch, first) = signing_in();
+        failed(&mut h, epoch, first);
+        h.t.click(3, 0);
+        h.settle();
+        assert_eq!(requests(&h, sign_in).len(), 1, "the message is no button");
+        h.t.click(3, 1);
+        h.settle();
+        assert_eq!(requests(&h, sign_in).len(), 2);
+        assert_visible(&h, STARTING);
+    }
+
+    // The sign-in succeeded: the page leaves for the launch.
+    #[test]
+    fn a_signed_in_gateway_goes_on_to_the_launch() {
+        let (mut h, epoch, request) = signing_in();
+        inject(
+            &mut h,
+            epoch,
+            Ev::GatewayOAuth {
+                request,
+                result: Ok(()),
+            },
+        );
+        let all = asks(&h);
+        assert!(all.contains(&Ask::ReloadConfig), "{all:?}");
+        assert!(
+            all.iter().any(|ask| matches!(ask, Ask::Launch { .. })),
+            "{all:?}"
+        );
+        assert_eq!(cancelled(&h), 0);
+    }
+
+    // Ctrl+C while the sign-in runs cancels it on the server (the oracle's
+    // `GatewayOAuthCancel`) before the app ends.
+    #[test]
+    fn quitting_cancels_the_sign_in() {
+        let (mut h, _, _) = signing_in();
+        h.press("ctrl+c");
+        assert_eq!(cancelled(&h), 1);
+    }
+}

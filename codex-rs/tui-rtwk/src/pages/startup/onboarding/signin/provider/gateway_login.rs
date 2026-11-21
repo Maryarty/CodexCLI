@@ -4,10 +4,11 @@
 //! how to quit or retry. In Flutter these are `Text` rows of the step's body;
 //! the model's state decides which.
 
-use rtwk::AnyWidget;
+use rtwk::gestures::PointerEvent;
 use rtwk::style::Span;
+use rtwk::{AnyWidget, Handler};
 
-use super::super::{Line, Look, paragraph};
+use super::super::{Line, Look, paragraph, tapping};
 use super::strings::Strings;
 
 /// `Starting gateway sign-in…`, or the title and the page's link, and the
@@ -37,10 +38,19 @@ pub(in super::super) fn browser(
     paragraph(lines)
 }
 
-/// The failure, red, and how to retry.
-pub(in super::super) fn failed(strings: &'static Strings, look: &Look, message: &str) -> AnyWidget {
-    paragraph(vec![
-        vec![Span::styled(message.to_owned(), look.red.clone())],
-        vec![Span::styled(strings.gateway_oauth_retry, look.dim.clone())],
-    ])
+/// The failure, red, and how to retry: the retry line is a tap target
+/// (`on_retry`), as Enter is.
+pub(in super::super) fn failed(
+    strings: &'static Strings,
+    look: &Look,
+    message: &str,
+    on_retry: Handler<PointerEvent>,
+) -> AnyWidget {
+    tapping(
+        vec![
+            vec![Span::styled(message.to_owned(), look.red.clone())],
+            vec![Span::styled(strings.gateway_oauth_retry, look.dim.clone())],
+        ],
+        Some((1, on_retry)),
+    )
 }
