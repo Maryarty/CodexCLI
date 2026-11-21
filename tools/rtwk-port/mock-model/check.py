@@ -23,6 +23,10 @@ that the turns end as the scenario says.
 - `--json FILE` writes the results (coverage.py reads it); `--dump` prints, per model
   request, the tool names it offered and the output items it carried (to see what the
   binary accepted).
+- `--jobs N` runs N scenarios at once, each in a forked worker with its own mock server,
+  CODEX_HOME and pty (nothing is shared); the long ones start first, results print as they
+  finish. The default is 1 (the order below); land-check.sh passes 4. `--capture-resume` runs
+  one at a time whatever N says.
 - RTWK_BIN / ORACLE_BIN override the search of bins.py. A binary that is not
   built is reported as such and skipped; nothing is built here.
 Never talks to a real model: every run has its own CODEX_HOME whose provider is
@@ -32,7 +36,9 @@ the local mock.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import fcntl
+import multiprocessing
 import json
 import os
 import re
@@ -466,6 +472,11 @@ def run_one(name: str, label: str, binary: str, mode: str, show: bool = False, *
     return Result(name, label, mode, "PASS" if ok else "FAIL", time.time() - started, detail, notes)
 
 
+# Scenarios that last longest, started first under --jobs (seconds in a land-check of 2026-11-21:
+# router 151; error-context-window 66 and multi-agent 65 wait out their budget; the rest 6 to 19).
+SLOW_FIRST = ("router", "error-context-window", "multi-agent")
+
+
 def terminal_size(value: str) -> tuple[int, int]:
     match = re.fullmatch(r"(\d+)x(\d+)", value)
     if match is None:
@@ -486,6 +497,7 @@ def main() -> int:
     ap.add_argument("--capture-dir", type=Path, help="save named PTY checkpoints under DIR/scenario/binary")
     ap.add_argument("--capture-resume", action="store_true", help="add a shared saved-session checkpoint")
     ap.add_argument("--capture-details", action="store_true", help="also capture after Ctrl+T")
+    ap.add_argument("--jobs", type=int, default=int(os.environ.get("CHECK_JOBS", "1")), metavar="N", help="scenarios run at once (default 1)")
     ap.add_argument("--list-bins", action="store_true")
     ap.add_argument("--json", help="write the results to this file")
     ap.add_argument("--dump", action="store_true", help="print the tools and tool outputs of every model request")
@@ -509,6 +521,7 @@ def main() -> int:
     results: list[Result] = []
     terminal = Terminal(args.size, args.palette == "light", args.capture_details)
     order = ["rtwk", "oracle"] if args.capture_resume else ["oracle", "rtwk"]
+    jobs: list[tuple[str, str, str, str, str | None]] = []  # (name, label, path, mode, resume_with)
     for label in args.bin or order:
         path = found[label]
         if not path:
@@ -516,10 +529,28 @@ def main() -> int:
         for name in names:
             mode = "pty" if (label == "rtwk" or args.pty or args.capture_dir or scenarios.load(name).pty_only) else "exec"
             resume_with = found["rtwk"] if args.capture_resume and label == "oracle" else None
-            r = run_one(name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with)
-            results.append(r)
-            extra = f"  {r.detail}" if r.detail else ""
-            print(f"{r.status}  {label:6} {mode:4} {name:16} {r.seconds:5.1f}s{extra}  [{'; '.join(dict.fromkeys(r.notes))}]", flush=True)
+            jobs.append((name, label, path, mode, resume_with))
+
+    def show(r: Result) -> None:
+        results.append(r)
+        extra = f"  {r.detail}" if r.detail else ""
+        print(f"{r.status}  {r.binary:6} {r.mode:4} {r.scenario:16} {r.seconds:5.1f}s{extra}  [{'; '.join(dict.fromkeys(r.notes))}]", flush=True)
+
+    if args.jobs > 1 and len(jobs) > 1 and not args.capture_resume:
+        # The slow ones first (the router is one long session, the two build-dependent reds wait
+        # out their 60 s budget): the run then lasts as long as the longest, not the sum.
+        slow = {name: i for i, name in enumerate(SLOW_FIRST)}
+        jobs.sort(key=lambda j: slow.get(j[0], len(slow)))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs, mp_context=multiprocessing.get_context("fork")) as pool:
+            futures = [
+                pool.submit(run_one, name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with)
+                for name, label, path, mode, resume_with in jobs
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                show(future.result())
+    else:
+        for name, label, path, mode, resume_with in jobs:
+            show(run_one(name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with))
     if not results:
         print("no binary to run: nothing checked")
         return 2
