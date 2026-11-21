@@ -98,7 +98,7 @@ impl KeyGuard {
 
     /// A repeat of `key`: the guard is prolonged while it is the guarded
     /// key, ended by another.
-    pub fn repeat(&self, key: Option<GuardKey>, now: Duration) {
+    pub fn held(&self, key: Option<GuardKey>, now: Duration) {
         match self.0.get() {
             Some(guard) if key == Some(guard.key) => self.0.set(Some(Guarded {
                 key: guard.key,
@@ -164,9 +164,9 @@ mod tests {
     #[test]
     fn repeats_prolong_and_another_repeat_ends() {
         let guard = armed(GuardKey::Enter);
-        guard.repeat(Some(GuardKey::Enter), SECOND * 2);
+        guard.held(Some(GuardKey::Enter), SECOND * 2);
         assert!(guard.press(Some(GuardKey::Enter), SECOND * 2 + SECOND / 2));
-        guard.repeat(Some(GuardKey::Char('j')), SECOND * 3);
+        guard.held(Some(GuardKey::Char('j')), SECOND * 3);
         assert!(!guard.is_armed());
     }
 

@@ -75,7 +75,7 @@ enum MenuRow {
 /// The menu shown: the first one, or "Sign in another way"
 /// (`SignInOption::is_alternative` of the highlighted row).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Menu {
+enum ShownMenu {
     First,
     Another,
 }
@@ -90,12 +90,12 @@ struct Row {
 
 /// The rows of `menu` (`displayed_sign_in_options`): the one place that
 /// decides which rows show and which can be chosen.
-fn rows(offer: &auth::Offer, menu: Menu) -> Vec<Row> {
+fn rows(offer: &auth::Offer, menu: ShownMenu) -> Vec<Row> {
     let enabled = |choice| Row {
         choice,
         enabled: true,
     };
-    if menu == Menu::Another {
+    if menu == ShownMenu::Another {
         let mut rows = vec![enabled(MenuRow::ApiKey)];
         for provider in [Provider::Bedrock, Provider::Gcp, Provider::Gateway] {
             if offer.providers.offers(provider) {
@@ -149,7 +149,7 @@ pub enum Msg {
 /// Widget state: the highlighted option, the API key's field and the
 /// activation guard (R14).
 pub struct SignInState {
-    menu: Menu,
+    menu: ShownMenu,
     /// The highlighted row of the menu: an index into its reachable rows.
     cursor: Options,
     field: TextEditingController,
@@ -166,7 +166,7 @@ impl StatefulWidget for SignInStep {
 
     fn create_state(&self) -> SignInState {
         SignInState {
-            menu: Menu::First,
+            menu: ShownMenu::First,
             // ChatGPT is the first row, or the other-ways row when its
             // login is not allowed (not reachable then).
             cursor: Options::new(),
@@ -234,7 +234,7 @@ impl SignInState {
         }
         match choice {
             MenuRow::Other => {
-                self.menu = Menu::Another;
+                self.menu = ShownMenu::Another;
                 self.cursor.set(0);
                 Self::emit(cx, auth::Intent::Menu);
             }
@@ -349,8 +349,8 @@ impl State for SignInState {
                 Self::emit(cx, auth::Intent::SaveApiKey(text.to_string()));
             }
             Msg::Cancel => {
-                if *state == auth::State::Pick && self.menu == Menu::Another {
-                    self.menu = Menu::First;
+                if *state == auth::State::Pick && self.menu == ShownMenu::Another {
+                    self.menu = ShownMenu::First;
                     self.highlight(MenuRow::Other, w);
                     Self::emit(cx, auth::Intent::Menu);
                 } else {
@@ -503,7 +503,7 @@ impl State for SignInState {
                 }
                 KeyKind::Repeat => {
                     let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
-                    guard.repeat(guard_key, now);
+                    guard.held(guard_key, now);
                     let moves = matches!(key.code, KeyCode::Up | KeyCode::Down)
                         || (pick && matches!(guard_key, Some(GuardKey::Char('j' | 'k'))));
                     let edits = entry && matches!(key.code, KeyCode::Backspace | KeyCode::Escape);
@@ -600,7 +600,7 @@ fn hint(strings: &Strings, look: &Look, key: &'static str, what: &'static str) -
 /// The menu (`render_pick_mode`).
 struct Pick {
     offer: auth::Offer,
-    menu: Menu,
+    menu: ShownMenu,
     highlighted: Option<MenuRow>,
     error: Option<String>,
 }
@@ -616,7 +616,7 @@ impl Pick {
         height: usize,
     ) -> Vec<Line> {
         let providers = self.offer.providers.any();
-        let mut lines: Vec<Line> = if self.menu == Menu::Another {
+        let mut lines: Vec<Line> = if self.menu == ShownMenu::Another {
             vec![vec![
                 Span::new(strings.indent),
                 Span::new(strings.heading_other),
@@ -701,7 +701,7 @@ impl Pick {
             lines.push(Vec::new());
         }
         lines.push(hint(strings, look, strings.enter, strings.to_continue));
-        if self.menu == Menu::Another {
+        if self.menu == ShownMenu::Another {
             lines.push(hint(strings, look, strings.esc, strings.to_go_back));
         }
         if let Some(error) = &self.error {
