@@ -247,6 +247,13 @@ impl Model {
         self.steps().into_iter().any(|step| !self.done(step))
     }
 
+    /// Whether the launch is decided: the facts were read, or a step is due
+    /// without them (a fixture). Until then the app does not know whether
+    /// the chat or the startup page comes first.
+    pub fn settled(&self) -> bool {
+        self.read || self.due()
+    }
+
     /// The write the trust step waits for: the folder to save as trusted.
     pub fn trust_write(&self) -> Option<&str> {
         self.trust
