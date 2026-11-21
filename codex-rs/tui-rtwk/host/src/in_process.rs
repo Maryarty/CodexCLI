@@ -276,6 +276,7 @@ async fn run(
         connected: !matches!(mode, Mode::Embedded),
         check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
         update,
+        browser: crate::startup::system_browser(),
         target: match mode {
             Mode::Embedded => crate::startup::Target::Embedded,
             Mode::Daemon | Mode::Remote { daemon: true, .. } => crate::startup::Target::LocalDaemon,

@@ -35,7 +35,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::protocol::onboarding as wire;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Providers};
+use codex_tui_core::screens::onboarding::auth::{AuthResult, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::startup::UpdateAction;
@@ -62,6 +62,17 @@ pub struct Startup {
     /// Which server the TUI talks to: what the provider wizards and the
     /// browser login are offered for (`AppServerTarget`).
     pub target: Target,
+    /// Opens a URL in the user's browser (`webbrowser::open`); a seam so a
+    /// test opens none.
+    pub browser: Browser,
+}
+
+/// Opens a URL in the user's browser; blocking.
+pub type Browser = Arc<dyn Fn(&str) -> std::io::Result<()> + Send + Sync>;
+
+/// The system's browser (`webbrowser::open`, as the oracle opens it).
+pub fn system_browser() -> Browser {
+    Arc::new(|url| webbrowser::open(url))
 }
 
 /// The server's place (`AppServerTarget` without Cloud, which has no
@@ -136,18 +147,9 @@ where
                 .await
                 .map_err(|error| error.message);
             let outcome = wire::login_outcome(&login, result);
-            // `show_chatgpt_login_in_browser`: the browser opens where the
-            // login's callback is; the oracle only logs a failure.
-            if let (
-                Login::ChatGpt,
-                codex_tui_core::screens::onboarding::auth::Outcome::Browser { url, .. },
-            ) = (&login, &outcome)
-                && !startup.target.remote_workspace()
-            {
-                let _ = webbrowser::open(url);
-            }
             Ev::Auth(AuthResult { request, outcome })
         }
+        Ask::OpenBrowser { url: _ } => return None,
         Ask::CancelLogin { login_id } => {
             // `cancel_login_attempt`: the oracle ignores the answer.
             let _ = send(wire::login_cancel(&login_id, ids.next())).await;
@@ -310,4 +312,135 @@ fn update_action(context: &InstallContext) -> Option<UpdateAction> {
         },
         InstallMethod::Other => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    async fn startup_with(target: Target, browser: Browser) -> (Startup, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let config = codex_core::config::ConfigBuilder::default()
+            .codex_home(dir.path().to_path_buf())
+            .fallback_cwd(Some(dir.path().to_path_buf()))
+            .build()
+            .await
+            .expect("a config");
+        let startup = Startup {
+            config: Arc::new(config),
+            connected: false,
+            check_trust: true,
+            update: UpdateSlot::default(),
+            target,
+            browser,
+        };
+        (startup, dir)
+    }
+
+    async fn nothing(_: ClientRequest) -> Result<serde_json::Value, ServerError> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn counting(calls: &Arc<AtomicUsize>, result: std::io::Result<()>) -> Browser {
+        let calls = calls.clone();
+        let result = std::io::Result::<()>::map_err(result, |e| e.kind());
+        Arc::new(move |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            result.map_err(std::io::Error::from)
+        })
+    }
+
+    // oracle `show_chatgpt_login_in_browser`: the URL is opened for a local
+    // workspace.
+    #[tokio::test]
+    async fn the_login_url_opens_through_the_seam_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (startup, _dir) = startup_with(Target::Embedded, counting(&calls, Ok(()))).await;
+        let ev = run(
+            startup,
+            Ask::OpenBrowser {
+                url: "https://auth.example".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(ev.is_none(), "nothing answers an open");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    // The oracle only logs a failed open (`tracing::warn!`); the page stays
+    // on the browser step, the host answers nothing and does not fail.
+    #[tokio::test]
+    async fn a_browser_that_fails_to_open_is_only_logged() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let failing = counting(&calls, Err(std::io::ErrorKind::NotFound.into()));
+        let (startup, _dir) = startup_with(Target::LocalDaemon, failing).await;
+        let ev = run(
+            startup,
+            Ask::OpenBrowser {
+                url: "https://auth.example".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(ev.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    // `uses_remote_workspace`: the login's callback is not on this machine.
+    #[tokio::test]
+    async fn a_remote_workspace_opens_no_browser() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (startup, _dir) = startup_with(Target::Remote, counting(&calls, Ok(()))).await;
+        let ev = run(
+            startup,
+            Ask::OpenBrowser {
+                url: "https://auth.example".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(ev.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    // The open blocks (it may start a process and wait): on a one-thread
+    // runtime another task must still run meanwhile.
+    #[tokio::test]
+    async fn opening_the_browser_does_not_block_the_runtime() {
+        let ticked = Arc::new(AtomicBool::new(false));
+        let seen = Arc::new(AtomicBool::new(false));
+        let browser: Browser = {
+            let (ticked, seen) = (ticked.clone(), seen.clone());
+            Arc::new(move |_| {
+                std::thread::sleep(Duration::from_millis(300));
+                seen.store(ticked.load(Ordering::SeqCst), Ordering::SeqCst);
+                Ok(())
+            })
+        };
+        let (startup, _dir) = startup_with(Target::Embedded, browser).await;
+        let flag = ticked.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            flag.store(true, Ordering::SeqCst);
+        });
+        run(
+            startup,
+            Ask::OpenBrowser {
+                url: "https://auth.example".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(
+            seen.load(Ordering::SeqCst),
+            "another task ran while the browser opened"
+        );
+    }
 }

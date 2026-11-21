@@ -90,6 +90,11 @@ pub enum Ask {
     Login { request: Request, login: auth::Login },
     /// Cancel a login started (`account/login/cancel`); not answered.
     CancelLogin { login_id: String },
+    /// Show the ChatGPT login's `url` in the browser: asked only for the
+    /// attempt the page still awaits (a stale or cancelled one never opens
+    /// it), and the host skips it for a remote workspace
+    /// (`show_chatgpt_login_in_browser`); not answered.
+    OpenBrowser { url: String },
 }
 
 /// The launch facts the host read, all at once.
@@ -351,6 +356,12 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Auth(result) => {
             if let Some(sign_in) = model.sign_in.as_mut() {
                 let mut asks = Vec::new();
+                // The browser opens for the login the page took in, not for
+                // an answer it dropped.
+                let _browser = match &result.outcome {
+                    auth::Outcome::Browser { login_id, .. } => Some(login_id.clone()),
+                    _ => None,
+                };
                 auth::apply_result(sign_in, result, &mut asks);
                 asks.into_iter().for_each(|a| ask(fx, a));
             }
@@ -919,6 +930,74 @@ mod tests {
         assert_eq!(
             intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow)),
             [Ask::RunUpdate]
+        );
+    }
+
+    fn answered(model: &mut Model, ev: Ev) -> Vec<Ask> {
+        let mut fx = AppFx::default();
+        apply(model, ev, &mut fx);
+        asks(fx)
+    }
+
+    // `show_chatgpt_login_in_browser`: the browser shows the login URL of the
+    // attempt taken in, and only that one.
+    #[test]
+    fn the_browser_opens_for_the_login_the_page_took_in() {
+        let mut m = model(vec![Ev::SignIn(auth::Offer {
+            chatgpt: true,
+            ..auth::Offer::default()
+        })]);
+        let started = intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+        );
+        let [Ask::Login { request, .. }] = started[..] else {
+            panic!("a login asked: {started:?}");
+        };
+        let browser = |request| {
+            Ev::Auth(auth::AuthResult {
+                request,
+                outcome: auth::Outcome::Browser {
+                    login_id: "login-1".into(),
+                    url: "https://auth.example".into(),
+                },
+            })
+        };
+        assert_eq!(
+            answered(&mut m, browser(request + 1)),
+            [],
+            "an answer to an ask not awaited opens nothing"
+        );
+        assert_eq!(
+            answered(&mut m, browser(request)),
+            [Ask::OpenBrowser {
+                url: "https://auth.example".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn an_answer_that_is_no_browser_login_opens_no_browser() {
+        let mut m = model(vec![Ev::SignIn(auth::Offer {
+            chatgpt: true,
+            ..auth::Offer::default()
+        })]);
+        let started = intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+        );
+        let [Ask::Login { request, .. }] = started[..] else {
+            panic!("a login asked: {started:?}");
+        };
+        assert_eq!(
+            answered(
+                &mut m,
+                Ev::Auth(auth::AuthResult {
+                    request,
+                    outcome: auth::Outcome::Failed(auth::Error::Server("down".into())),
+                })
+            ),
+            []
         );
     }
 
