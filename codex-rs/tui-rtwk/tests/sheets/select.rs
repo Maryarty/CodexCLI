@@ -240,3 +240,60 @@ fn a_preview_sits_beside_the_rows_when_it_fits() {
     assert_eq!(at("N"), None);
     assert_eq!(at("1. Item 1"), Some(4));
 }
+
+// ---- the dialogs that are this sheet with other words: their oracle snapshots
+// (chatwidget/snapshots), at the width the snapshots were taken.
+
+#[test]
+fn skills_menu_snapshot() {
+    let h = open(80, "skills_menu");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__skills_menu_default_mentions_shortcut.snap",
+    );
+}
+
+#[test]
+fn copy_picker_snapshot() {
+    let h = open(80, "copy_picker");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__slash_copy_picker_status_fields.snap",
+    );
+}
+
+#[test]
+fn apps_loading_snapshot() {
+    let h = open(80, "apps_loading");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__apps_popup_loading_state.snap",
+    );
+}
+
+#[test]
+fn worktrees_conversation_snapshot() {
+    let h = open(80, "worktrees_conversation");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__worktrees_conversation_choices.snap",
+    );
+}
+
+#[test]
+fn worktrees_fork_snapshot() {
+    let h = open(80, "worktrees_fork");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__worktrees_fork_choices.snap",
+    );
+}
+
+#[test]
+fn worktrees_new_snapshot() {
+    let h = open(80, "worktrees_new");
+    assert_rows(
+        &h.t.screen(),
+        "chatwidget/snapshots/codex_tui__chatwidget__tests__worktrees_new_choices.snap",
+    );
+}

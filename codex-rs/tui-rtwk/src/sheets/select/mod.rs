@@ -22,7 +22,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 31] = [
+    let entries: [(&'static str, &'static str, &'static str); 37] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -157,6 +157,36 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "side_content",
             "one item with a preview beside the rows",
             include_str!("fixtures/side_content.jsonl"),
+        ),
+        (
+            "skills_menu",
+            "the skills menu: list skills or enable and disable them",
+            include_str!("fixtures/skills_menu.jsonl"),
+        ),
+        (
+            "copy_picker",
+            "the copy picker: the whole status or one of its fields",
+            include_str!("fixtures/copy_picker.jsonl"),
+        ),
+        (
+            "apps_loading",
+            "the apps list while it loads: one disabled row",
+            include_str!("fixtures/apps_loading.jsonl"),
+        ),
+        (
+            "worktrees_conversation",
+            "the worktrees menu: where the conversation goes",
+            include_str!("fixtures/worktrees_conversation.jsonl"),
+        ),
+        (
+            "worktrees_fork",
+            "where the forked conversation runs",
+            include_str!("fixtures/worktrees_fork.jsonl"),
+        ),
+        (
+            "worktrees_new",
+            "where the new conversation runs",
+            include_str!("fixtures/worktrees_new.jsonl"),
         ),
         (
             "col_width_auto_visible",
