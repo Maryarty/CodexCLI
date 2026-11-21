@@ -13,7 +13,7 @@ use crate::kit::{self, Owner, Screen};
 #[test]
 fn citations_render_as_plain_text() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/citations_render_as_plain_text.jsonl"
         ))
@@ -25,7 +25,7 @@ fn citations_render_as_plain_text() {
 #[test]
 fn append_markdown_preserves_full_text_line() {
     let s = Screen::build(Owner::ChatLive)
-        .size(120, 24)
+        .markdown(120, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_preserves_full_text_line.jsonl"
         ))
@@ -39,7 +39,7 @@ fn append_markdown_preserves_full_text_line() {
 #[test]
 fn append_markdown_keeps_ordered_list_line_unsplit_in_context() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_keeps_ordered_list_line_unsplit_in_context.jsonl"
         ))
@@ -51,7 +51,7 @@ fn append_markdown_keeps_ordered_list_line_unsplit_in_context() {
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_unwraps_markdown_fences_for_table_rendering.jsonl"
         ))
@@ -64,7 +64,7 @@ fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering.jsonl"
         ))
@@ -78,7 +78,7 @@ fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() 
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table.jsonl"
         ))
@@ -92,7 +92,7 @@ fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table()
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_single_column_table() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_unwraps_markdown_fences_for_single_column_table.jsonl"
         ))
@@ -105,7 +105,7 @@ fn append_markdown_agent_unwraps_markdown_fences_for_single_column_table() {
 #[test]
 fn append_markdown_agent_keeps_non_markdown_fences_as_code() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_keeps_non_markdown_fences_as_code.jsonl"
         ))
@@ -117,7 +117,7 @@ fn append_markdown_agent_keeps_non_markdown_fences_as_code() {
 #[test]
 fn append_markdown_agent_unwraps_blockquoted_markdown_fence_table() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_unwraps_blockquoted_markdown_fence_table.jsonl"
         ))
@@ -129,7 +129,7 @@ fn append_markdown_agent_unwraps_blockquoted_markdown_fence_table() {
 #[test]
 fn append_markdown_agent_keeps_markdown_fence_when_content_is_not_table() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_keeps_markdown_fence_when_content_is_not_table.jsonl"
         ))
@@ -142,7 +142,7 @@ fn append_markdown_agent_keeps_markdown_fence_when_content_is_not_table() {
 #[test]
 fn append_markdown_agent_keeps_markdown_fence_with_blank_line_between_header_and_delimiter() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/append_markdown_agent_keeps_markdown_fence_with_blank_line_between_header_and_delimiter.jsonl"
         ))
@@ -193,12 +193,8 @@ fn link_runs_share_destinations_and_bound_nested_formatting() {
 // ORACLE markdown_render.rs:2684 wraps_plain_text_when_width_provided kind=ui owner=chat-live
 #[test]
 fn wraps_plain_text_when_width_provided() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not wrap an agent message's prose to the content width: no markdown word wrap",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(16, 24)
+        .markdown(16, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_plain_text_when_width_provided.jsonl"
         ))
@@ -209,12 +205,8 @@ fn wraps_plain_text_when_width_provided() {
 // ORACLE markdown_render.rs:2699 wraps_list_items_preserving_indent kind=ui owner=chat-live
 #[test]
 fn wraps_list_items_preserving_indent() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no list bullets with a hanging indent: list layout is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(14, 24)
+        .markdown(14, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_list_items_preserving_indent.jsonl"
         ))
@@ -230,7 +222,7 @@ fn wraps_nested_lists() {
         "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(20, 24)
+        .markdown(20, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_nested_lists.jsonl"
         ))
@@ -248,12 +240,8 @@ fn wraps_nested_lists() {
 // ORACLE markdown_render.rs:2729 wraps_ordered_lists kind=ui owner=chat-live
 #[test]
 fn wraps_ordered_lists() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no ordered list with a hanging indent: list layout is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(18, 24)
+        .markdown(18, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_ordered_lists.jsonl"
         ))
@@ -271,12 +259,8 @@ fn wraps_ordered_lists() {
 fn wraps_blockquotes() {
     // The oracle's source-range style check (`styled_range`) is copy metadata and is not
     // drawn; the visible half, the wrapped quote rows, is asserted here.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no blockquote with a quote marker and wrapped rows: blockquote layout is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(22, 24)
+        .markdown(22, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_blockquotes.jsonl"
         ))
@@ -291,12 +275,8 @@ fn wraps_blockquotes() {
 // ORACLE markdown_render.rs:2771 wraps_blockquotes_inside_lists kind=ui owner=chat-live
 #[test]
 fn wraps_blockquotes_inside_lists() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no blockquote inside a list item: nested block layout is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 24)
+        .markdown(24, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_blockquotes_inside_lists.jsonl"
         ))
@@ -312,7 +292,7 @@ fn wraps_blockquotes_inside_lists() {
 #[test]
 fn wraps_list_items_containing_blockquotes() {
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 24)
+        .markdown(24, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wraps_list_items_containing_blockquotes.jsonl"
         ))
@@ -332,7 +312,7 @@ fn does_not_wrap_code_blocks() {
         "the chat draws no fenced code block: a code line wider than the content is not kept on one row",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(10, 24)
+        .markdown(10, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/does_not_wrap_code_blocks.jsonl"
         ))
@@ -348,7 +328,7 @@ fn does_not_split_long_url_like_token_without_scheme() {
         "the chat wraps prose without a word break rule: a long URL-like token is split across rows",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 24)
+        .markdown(24, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/does_not_split_long_url_like_token_without_scheme.jsonl"
         ))
@@ -365,21 +345,21 @@ fn fenced_code_info_string_with_metadata_highlights() {
     // "some cell has an Rgb foreground", and the oracle sets the terminal default colours
     // (`with_test_default_colors`) that the highlight depends on: kit gaps, reported.
     let comma = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/fenced_code_info_string_with_metadata_highlights_comma.jsonl"
         ))
         .open();
     comma.assert_contains("fn main() {}");
     let space = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/fenced_code_info_string_with_metadata_highlights_space.jsonl"
         ))
         .open();
     space.assert_contains("fn main() {}");
     let title = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/fenced_code_info_string_with_metadata_highlights_title.jsonl"
         ))
@@ -391,7 +371,7 @@ fn fenced_code_info_string_with_metadata_highlights() {
 #[test]
 fn crlf_code_block_no_extra_blank_lines() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/crlf_code_block_no_extra_blank_lines.jsonl"
         ))
@@ -408,7 +388,10 @@ fn wrap_cell_preserves_hard_break_lines() {
         Owner::ChatLive,
         "the chat draws no table: a cell with a hard break (two rows in one cell) has no markdown source and no table layout",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
     s.assert_in_order(&["first line", "second line"]);
 }
 
@@ -421,7 +404,10 @@ fn blank_table_continuations_do_not_repeat_the_first_cell() {
         Owner::ChatLive,
         "the chat draws no table: blank continuation rows of a two-column cell have no markdown source and no table layout",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
     s.assert_in_order(&["short    first", "last"]);
 }
 
@@ -433,7 +419,7 @@ fn annotates_explicit_web_link_label_and_visible_destination() {
         "the chat draws an agent link as plain text: no OSC 8 link to the destination is set",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/annotates_explicit_web_link_label_and_visible_destination.jsonl"
         ))
@@ -449,7 +435,7 @@ fn wrapped_table_url_fragments_keep_complete_web_destination() {
     // The wrapped fragments' texts are not in the oracle, and no kit call checks every linked
     // cell of a wrapped row against a destination: kit gap, reported.
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 24)
+        .markdown(32, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/wrapped_table_url_fragments_keep_complete_web_destination.jsonl"
         ))
@@ -464,10 +450,10 @@ fn key_value_table_keeps_web_annotations() {
     // call that checks the links of a row whose text wraps is missing: kit gap, reported.
     kit::pending(
         Owner::ChatLive,
-        "the chat draws no table: a six-column table at width 20 is not laid out as key-value records with links",
+        "the chat draws no table: a six-column table at width 20 is not laid out as key-value records with links; probe: the body passes without it (it checks less than the oracle claims)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(20, 24)
+        .markdown(20, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/key_value_table_keeps_web_annotations.jsonl"
         ))
@@ -483,7 +469,7 @@ fn does_not_annotate_code_or_non_web_markdown_links() {
         "the chat draws agent links and code without markdown: links are not set on code or mailto text yet",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/does_not_annotate_code_or_non_web_markdown_links.jsonl"
         ))
@@ -505,7 +491,7 @@ fn pipe_table_fallback_keeps_web_annotations() {
         "the chat draws no pipe-table fallback: the table's links are not drawn at width 5",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(5, 24)
+        .markdown(5, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/pipe_table_fallback_keeps_web_annotations.jsonl"
         ))
@@ -522,7 +508,7 @@ fn file_citation_paths_preserve_markdown_significant_characters() {
         "the chat does not render file citation directives: the path is drawn as the directive text",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citation_paths_preserve_markdown_significant_characters.jsonl"
         ))
@@ -546,7 +532,7 @@ fn file_url_citation_preserves_literal_query_delimiters_snapshot() {
     // The oracle's expected text is an inline snapshot (`report?final.xlsx`), not a .snap file.
     // It runs under three session cwds (the temp dir, C:/repo): the session cwd is not seedable yet.
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_url_citation_preserves_literal_query_delimiters_snapshot.jsonl"
         ))
@@ -563,7 +549,7 @@ fn file_citations_inside_code_existing_links_and_html_remain_literal() {
     );
     let c = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citations_inside_code_existing_links_and_html_remain_literal.jsonl"
         ))
@@ -582,7 +568,7 @@ fn file_citations_accept_unquoted_paths_and_trailing_windows_separators() {
         "the chat does not parse file citation directives (quoted, unquoted, Windows separators): citation rendering is not built",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citations_accept_unquoted_paths_and_trailing_windows_separators.jsonl"
         ))
@@ -606,7 +592,7 @@ fn file_citations_preserve_escaped_nested_and_reference_directives() {
     );
     let c = ":codex-file-citation{path=/tmp/report.xlsx}";
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citations_preserve_escaped_nested_and_reference_directives.jsonl"
         ))
@@ -630,7 +616,10 @@ fn multiple_file_citations_render_without_interpreting_encoded_source() {
         Owner::ChatLive,
         "the chat does not render file citations against the session cwd, nor a generated run of 512 citations: no cwd seed and no generated seed",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
     s.assert_contains(
         r#":codex-file-citation{path="ignored.xlsx"} reports/final%20report.xlsx and second.xlsx"#,
     );
@@ -644,7 +633,7 @@ fn file_citations_preserve_adjacent_entities_and_escaped_punctuation() {
         "the chat does not render citations next to entities, math and escaped punctuation: citation rendering is not built",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/file_citations_preserve_adjacent_entities_and_escaped_punctuation.jsonl"
         ))
@@ -662,7 +651,10 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
         Owner::ChatLive,
         "the chat does not resolve a local link against the session cwd, nor start a citation on a new line: no cwd seed",
     );
-    let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
     s.assert_in_order(&["first (first.txt)", "second.txt"]);
 }
 
@@ -672,7 +664,7 @@ fn generic_markdown_keeps_assistant_directives_literal() {
     // The generic renderer has no agent-message path on the screen: which chat item uses it is
     // decided by the markdown slice.
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/generic_markdown_keeps_assistant_directives_literal.jsonl"
         ))
@@ -691,7 +683,7 @@ fn followup_labels_render_like_ordinary_markdown_snapshot() {
         "the chat has no follow-up directive rendering: a label renders as a bullet and the prompt stays hidden",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 40)
+        .markdown(32, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/followup_labels_render_like_ordinary_markdown_snapshot.jsonl"
         ))
@@ -711,7 +703,7 @@ fn followups_preserve_literal_and_malformed_source() {
     // Its visible half: the malformed forms (no close, unfinished prompt, two prompts) stay as
     // typed in the transcript. The other forms (code, fence, HTML, link) change on render.
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/followups_preserve_literal_and_malformed_source.jsonl"
         ))
@@ -734,7 +726,7 @@ fn list_spacing_is_uniform_per_list_and_preserves_item_paragraphs() {
         "the chat has no list spacing choice (Compact or Uniform): one spacing is drawn, and the oracle snapshot joins ten stages",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(24, 120)
+        .markdown(24, 120)
         .script(include_str!(
             "fixtures/markdown_streaming_1/list_spacing_is_uniform_per_list_and_preserves_item_paragraphs.jsonl"
         ))
@@ -748,7 +740,7 @@ fn list_spacing_preserves_links_and_source_when_removing_separators() {
     // The oracle asserts Compact and Uniform render equal (two renders, not a screen); the
     // visible half, the links survive the list, is asserted here.
     let s = Screen::build(Owner::ChatLive)
-        .size(100, 24)
+        .markdown(100, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/list_spacing_preserves_links_and_source_when_removing_separators.jsonl"
         ))
@@ -767,7 +759,7 @@ fn unicode_math_snapshot() {
         "the chat has no math renderer: LaTeX display and inline math are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_snapshot.jsonl"
         ))
@@ -783,7 +775,7 @@ fn issue_48403_renders_zero_and_multiline_display() {
         "the chat has no math renderer: the zero and multiline display formula is drawn as its source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/issue_48403_renders_zero_and_multiline_display.jsonl"
         ))
@@ -799,7 +791,7 @@ fn unicode_math_schrodinger_equation_snapshot() {
         "the chat has no math renderer: the display equation is drawn as its source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(100, 60)
+        .markdown(100, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_schrodinger_equation_snapshot.jsonl"
         ))
@@ -815,7 +807,7 @@ fn unicode_math_optimization_model() {
         "the chat has no math renderer: the boxed aligned model is drawn with its LaTeX commands",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(240, 60)
+        .markdown(240, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_optimization_model.jsonl"
         ))
@@ -837,7 +829,7 @@ fn unicode_math_display_limits() {
         "the chat has no math renderer: display limits are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(100, 60)
+        .markdown(100, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_display_limits.jsonl"
         ))
@@ -853,7 +845,7 @@ fn unicode_math_grouped_scripts_and_annotations() {
         "the chat has no math renderer: inline grouped scripts and annotations are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(100, 60)
+        .markdown(100, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_grouped_scripts_and_annotations.jsonl"
         ))
@@ -871,7 +863,7 @@ fn integral_limits_and_parenthesized_matrices() {
         "the chat has no math renderer: integral limits and parenthesized matrices are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/integral_limits_and_parenthesized_matrices.jsonl"
         ))
@@ -890,7 +882,7 @@ fn unicode_math_aligned_fraction_and_narrow_fallback() {
         "the chat has no math renderer: the aligned fraction is drawn as its source at width 80 and 12",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_aligned_fraction_and_narrow_fallback.jsonl"
         ))
@@ -906,14 +898,14 @@ fn unicode_math_aligned_preserves_fraction_geometry() {
         "the chat has no math renderer: aligned fractions are drawn as their source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_aligned_preserves_fraction_geometry.jsonl"
         ))
         .open();
     s.assert_snap("codex_tui__markdown_render__math__display_tests__unicode_math_aligned_preserves_fraction_geometry");
     let spaced = Screen::build(Owner::ChatLive)
-        .size(80, 60)
+        .markdown(80, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_aligned_preserves_fraction_geometry_spaced.jsonl"
         ))
@@ -931,7 +923,7 @@ fn unicode_math_structured_bounds_and_invalid_input() {
         "the chat has no math renderer: the sixteen-row aligned block is drawn as its LaTeX source",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 40)
+        .markdown(80, 40)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_structured_bounds_and_invalid_input.jsonl"
         ))
@@ -949,7 +941,7 @@ fn unicode_math_narrow_layout_stays_meaningful() {
         "the chat has no math renderer: at width 12 a display fraction is drawn as its source, wrapped as text",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(12, 60)
+        .markdown(12, 60)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_narrow_layout_stays_meaningful.jsonl"
         ))
@@ -964,10 +956,10 @@ fn unicode_math_nested_fractions_and_oversized_pending_stay_source() {
     // display is internal. The visible half: the nested fractions stay as typed source.
     kit::pending(
         Owner::ChatLive,
-        "the chat has no math renderer: nested fractions are drawn as their source; the oversized pending display is not built",
+        "the chat has no math renderer: nested fractions are drawn as their source; the oversized pending display is not built; probe: the body passes without it (it checks less than the oracle claims)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+        .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_1/unicode_math_nested_fractions_and_oversized_pending_stay_source.jsonl"
         ))

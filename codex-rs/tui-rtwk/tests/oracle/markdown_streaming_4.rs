@@ -11,10 +11,6 @@
 use crate::kit::{self, Owner, Screen};
 
 /// The live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet.
-const MD: &str = "the live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet";
-/// As `MD`, and the oracle renders file links relative to a session cwd: the kit's live chat has no cwd seed.
-const MD_CWD: &str = "the live chat draws an agent message as its plain text (no markdown renderer yet) and the kit has no cwd seed: the oracle renders file links relative to /Users/example/code/codex";
-
 /// The streamed answer: the fixture's four steps (seed, turn started, one delta, turn completed).
 const ANSWER: &str = include_str!("fixtures/markdown_streaming_4/answer.jsonl");
 
@@ -65,7 +61,7 @@ fn stream(chunks: &[&str], complete: bool) -> String {
 /// after the feed can still show the chat before the first delta.
 fn streamed(width: u16, height: u16, chunks: &[&str], complete: bool) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
-        .size(width, height)
+        .markdown(width, height)
         .live()
         .open();
     s.feed(&stream(chunks, complete));
@@ -105,7 +101,6 @@ fn rows_in_order(s: &Screen, rows: &[&str]) {
 // ORACLE markdown_render_tests.rs:1439 code_block_unknown_lang_plain kind=ui owner=chat-live
 #[test]
 fn code_block_unknown_lang_plain() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "```xyzlang\nhello world\n```\n");
     rows_in_order(&s, &["hello world"]);
     // The oracle's span has no fg: no syntax colour, the terminal default.
@@ -117,7 +112,6 @@ fn code_block_unknown_lang_plain() {
 // ORACLE markdown_render_tests.rs:1471 code_block_no_lang_plain kind=ui owner=chat-live
 #[test]
 fn code_block_no_lang_plain() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "```\nno lang specified\n```\n");
     rows_in_order(&s, &["no lang specified"]);
     // The oracle's text has no fence line: the source fences are not drawn.
@@ -127,7 +121,6 @@ fn code_block_no_lang_plain() {
 // ORACLE markdown_render_tests.rs:1492 code_block_multiple_lines_root kind=ui owner=chat-live
 #[test]
 fn code_block_multiple_lines_root() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "```\nfirst\nsecond\n```\n");
     rows_in_order(&s, &["first", "second"]);
     // The oracle's text has no fence line: the source fences are not drawn.
@@ -137,7 +130,10 @@ fn code_block_multiple_lines_root() {
 // ORACLE markdown_render_tests.rs:1503 code_block_indented kind=ui owner=chat-live
 #[test]
 fn code_block_indented() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` function greet() {`:",
+    );
     let s = chat(
         80,
         24,
@@ -156,7 +152,10 @@ fn code_block_indented() {
 // ORACLE markdown_render_tests.rs:1515 horizontal_rule_renders_em_dashes kind=ui owner=chat-live
 #[test]
 fn horizontal_rule_renders_em_dashes() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `———`:",
+    );
     let s = chat(80, 24, "Before\n\n---\n\nAfter\n");
     rows_in_order(&s, &["Before", "", "———", "", "After"]);
 }
@@ -164,7 +163,6 @@ fn horizontal_rule_renders_em_dashes() {
 // ORACLE markdown_render_tests.rs:1532 code_block_with_inner_triple_backticks_outer_four kind=ui owner=chat-live
 #[test]
 fn code_block_with_inner_triple_backticks_outer_four() {
-    kit::pending(Owner::ChatLive, MD);
     let md = r#"````text
 Here is a code block that shows another fenced block:
 
@@ -195,7 +193,6 @@ Here is a code block that shows another fenced block:
 // ORACLE markdown_render_tests.rs:1578 code_block_inside_unordered_list_item_is_indented kind=ui owner=chat-live
 #[test]
 fn code_block_inside_unordered_list_item_is_indented() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- Item\n\n  ```\n  code line\n  ```\n");
     rows_in_order(&s, &["• Item", "", "  code line"]);
 }
@@ -203,7 +200,6 @@ fn code_block_inside_unordered_list_item_is_indented() {
 // ORACLE markdown_render_tests.rs:1595 code_block_multiple_lines_inside_unordered_list kind=ui owner=chat-live
 #[test]
 fn code_block_multiple_lines_inside_unordered_list() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- Item\n\n  ```\n  first\n  second\n  ```\n");
     rows_in_order(&s, &["• Item", "", "  first", "  second"]);
 }
@@ -211,7 +207,10 @@ fn code_block_multiple_lines_inside_unordered_list() {
 // ORACLE markdown_render_tests.rs:1612 list_item_after_code_block_keeps_blank_separator kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__list_item_after_code_block_keeps_blank_separator
 #[test]
 fn list_item_after_code_block_keeps_blank_separator() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: list_item_after_code_block_keeps_blank_separator: ours (right) differs from the oracle (left)",
+    );
     let s = chat(
         80,
         24,
@@ -224,7 +223,10 @@ fn list_item_after_code_block_keeps_blank_separator() {
 // ORACLE markdown_render_tests.rs:1627 outer_list_item_after_nested_code_block_keeps_blank_separator kind=ui owner=chat-live
 #[test]
 fn outer_list_item_after_nested_code_block_keeps_blank_separator() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • Nested:`:",
+    );
     let s = chat(
         80,
         24,
@@ -246,7 +248,6 @@ fn outer_list_item_after_nested_code_block_keeps_blank_separator() {
 // ORACLE markdown_render_tests.rs:1646 list_item_after_simple_item_stays_compact kind=ui owner=chat-live
 #[test]
 fn list_item_after_simple_item_stays_compact() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1. First\n\n2. Second\n");
     // The oracle's lines are these two rows; the compact spacing (no blank row between) is not checked.
     rows_in_order(&s, &["1. First", "2. Second"]);
@@ -255,7 +256,10 @@ fn list_item_after_simple_item_stays_compact() {
 // ORACLE markdown_render_tests.rs:1653 multiline_finding_items_are_separated_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__multiline_finding_items_are_separated_snapshot
 #[test]
 fn multiline_finding_items_are_separated_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: multiline_finding_items_are_separated_snapshot: ours (right) differs from the oracle (left)",
+    );
     let md = r#"**Findings**
 
 1. **Correctness issue: server tool-search completions are always rejected.**
@@ -277,7 +281,6 @@ fn multiline_finding_items_are_separated_snapshot() {
 // ORACLE markdown_render_tests.rs:1673 wrapped_list_item_is_separated_from_next_sibling kind=ui owner=chat-live
 #[test]
 fn wrapped_list_item_is_separated_from_next_sibling() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         24,
         24,
@@ -298,7 +301,10 @@ fn wrapped_list_item_is_separated_from_next_sibling() {
 // ORACLE markdown_render_tests.rs:1689 mixed_url_markdown_wraps_prose_without_splitting_words_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__mixed_url_markdown_wraps_prose_without_splitting_words_snapshot
 #[test]
 fn mixed_url_markdown_wraps_prose_without_splitting_words_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: mixed_url_markdown_wraps_prose_without_splitting_words_snapshot: ours (right) differs from the oracle (left)",
+    );
     let md = "This paragraph keeps **strikethrough** intact near a [link](https://example.com/path) while enough surrounding prose forces wrapping.";
     let s = chat(48, 24, md);
     s.assert_snap_region(
@@ -311,7 +317,10 @@ fn mixed_url_markdown_wraps_prose_without_splitting_words_snapshot() {
 // ORACLE markdown_render_tests.rs:1696 markdown_render_complex_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__markdown_render_complex_snapshot
 #[test]
 fn markdown_render_complex_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: markdown_render_complex_snapshot: ours (right) differs from the oracle (left)",
+    );
     let md = r#"# H1: Markdown Streaming Test
 Intro paragraph with bold **text**, italic *text*, and inline code `x=1`.
 Combined bold-italic ***both*** and escaped asterisks \*literal\*.
@@ -370,7 +379,10 @@ URL with parentheses: [link](https://example.com/path_(with)_parens).
 // ORACLE markdown_render_tests.rs:1767 ordered_item_with_code_block_and_nested_bullet kind=ui owner=chat-live
 #[test]
 fn ordered_item_with_code_block_and_nested_bullet() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • PROCESS_START (a OnceLock<Instant>) keeps the start time for the entire process.`:",
+    );
     let md = "1. **item 1**\n\n2. **item 2**\n   ```\n   code\n   ```\n   - `PROCESS_START` (a `OnceLock<Instant>`) keeps the start time for the entire process.\n";
     let s = chat(120, 24, md);
     rows_in_order(
@@ -388,7 +400,10 @@ fn ordered_item_with_code_block_and_nested_bullet() {
 // ORACLE markdown_render_tests.rs:1793 nested_five_levels_mixed_lists kind=ui owner=chat-live
 #[test]
 fn nested_five_levels_mixed_lists() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • Second level`:",
+    );
     let md = "1. First\n   - Second level\n     1. Third level (ordered)\n        - Fourth level (bullet)\n          - Fifth level to test indent consistency\n";
     let s = chat(80, 24, md);
     rows_in_order(
@@ -408,7 +423,6 @@ fn nested_five_levels_mixed_lists() {
 // ORACLE markdown_render_tests.rs:1811 html_inline_is_verbatim kind=ui owner=chat-live
 #[test]
 fn html_inline_is_verbatim() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "Hello <span>world</span>!");
     rows_in_order(&s, &["Hello <span>world</span>!"]);
 }
@@ -416,7 +430,10 @@ fn html_inline_is_verbatim() {
 // ORACLE markdown_render_tests.rs:1819 html_block_is_verbatim_multiline kind=ui owner=chat-live
 #[test]
 fn html_block_is_verbatim_multiline() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `<div>`:",
+    );
     let s = chat(80, 24, "<div>\n  <span>hi</span>\n</div>\n");
     rows_in_order(&s, &["<div>", "  <span>hi</span>", "</div>"]);
 }
@@ -424,7 +441,10 @@ fn html_block_is_verbatim_multiline() {
 // ORACLE markdown_render_tests.rs:1831 html_in_tight_ordered_item_soft_breaks_with_space kind=ui owner=chat-live
 #[test]
 fn html_in_tight_ordered_item_soft_breaks_with_space() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `1. Foo`:",
+    );
     let s = chat(80, 24, "1. Foo\n   <i>Bar</i>\n");
     rows_in_order(&s, &["1. Foo", "   <i>Bar</i>"]);
     s.assert_text_style("1.", "fg=LightBlue");
@@ -433,7 +453,6 @@ fn html_in_tight_ordered_item_soft_breaks_with_space() {
 // ORACLE markdown_render_tests.rs:1842 html_continuation_paragraph_in_unordered_item_indented kind=ui owner=chat-live
 #[test]
 fn html_continuation_paragraph_in_unordered_item_indented() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- Item\n\n  <em>continued</em>\n");
     rows_in_order(&s, &["• Item", "", "  <em>continued</em>"]);
 }
@@ -441,7 +460,10 @@ fn html_continuation_paragraph_in_unordered_item_indented() {
 // ORACLE markdown_render_tests.rs:1855 unordered_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn unordered_item_continuation_paragraph_is_indented() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` Continuation paragraph line 1`:",
+    );
     let s = chat(
         80,
         24,
@@ -461,7 +483,10 @@ fn unordered_item_continuation_paragraph_is_indented() {
 // ORACLE markdown_render_tests.rs:1880 ordered_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn ordered_item_continuation_paragraph_is_indented() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "1. Intro\n\n   More details about intro\n");
     rows_in_order(&s, &["1. Intro", "", "   More details about intro"]);
     s.assert_text_style("1.", "fg=LightBlue");
@@ -470,7 +495,10 @@ fn ordered_item_continuation_paragraph_is_indented() {
 // ORACLE markdown_render_tests.rs:1892 nested_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn nested_item_continuation_paragraph_is_indented() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` • B`:",
+    );
     let s = chat(80, 24, "1. A\n    - B\n\n      Continuation for B\n2. C\n");
     rows_in_order(
         &s,
@@ -489,7 +517,6 @@ fn nested_item_continuation_paragraph_is_indented() {
 // ORACLE markdown_render_tests.rs:1908 code_block_preserves_trailing_blank_lines kind=ui owner=chat-live
 #[test]
 fn code_block_preserves_trailing_blank_lines() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "```rust\nfn main() {}\n\n```\n");
     // The oracle's trailing blank row after `fn main() {}` is not checked (blank rows: missed kit call).
     rows_in_order(&s, &["fn main() {}"]);
@@ -500,7 +527,10 @@ fn code_block_preserves_trailing_blank_lines() {
 // ORACLE markdown_render_tests.rs:1942 table_renders_app_style_rows_with_themed_bold_header kind=ui owner=chat-live
 #[test]
 fn table_renders_app_style_rows_with_themed_bold_header() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): ` A B` at (0, 17) ` ` against `bold`: modifier is DIM, the oracle says BOLD",
+    );
     let s = chat(80, 24, "| A | B |\n|---|---|\n| 1 | 2 |\n");
     rows_in_order(&s, &[" A      B", "━━━━━  ━━━━━", " 1      2"]);
     // Header line bold, the rule's first span dim, the body row not bold.
@@ -512,7 +542,6 @@ fn table_renders_app_style_rows_with_themed_bold_header() {
 // ORACLE markdown_render_tests.rs:1974 table_alignment_respects_markers kind=ui owner=chat-live
 #[test]
 fn table_alignment_respects_markers() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         80,
         24,
@@ -527,7 +556,6 @@ fn table_alignment_respects_markers() {
 // ORACLE markdown_render_tests.rs:1988 table_separates_logical_rows_after_wrapped_content kind=ui owner=chat-live
 #[test]
 fn table_separates_logical_rows_after_wrapped_content() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(
         30,
         24,
@@ -543,7 +571,10 @@ fn table_separates_logical_rows_after_wrapped_content() {
 // ORACLE markdown_render_tests.rs:2027 table_wraps_file_paths_before_collapsing_narrative_columns_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_wraps_file_paths_before_collapsing_narrative_columns_snapshot
 #[test]
 fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
-    kit::pending(Owner::ChatLive, MD_CWD);
+    kit::pending(
+        Owner::ChatLive,
+        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: assertion failed: `(left == right)`: table_wraps_file_paths_before_collapsing_narrative_columns_snapshot: ours (right) differs from the oracle (left)",
+    );
     let md = r#"| Unit | Files | Adds | Removes | What It Adds |
 |---|---:|---:|---:|---|
 | Suggestion engine and unit coverage | [next_prompt_suggestion.rs](/Users/example/code/codex/codex-rs/core/src/next_prompt_suggestion.rs:1), [next_prompt_suggestion_tests.rs](/Users/example/code/codex/codex-rs/core/src/next_prompt_suggestion_tests.rs:1) | 704 | 0 | Sampling workflow, stable-history checks, tool-flow suppression, fast reasoning profile, filtering rules, cancellation and timeout. |
@@ -560,7 +591,10 @@ fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
 // ORACLE markdown_render_tests.rs:2043 table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot
 #[test]
 fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot: ours (right) differs fro...",
+    );
     let md = r#"| Session | Why useful | Detected table blocks |
 | --- | --- | --- |
 | [2026-05-25 current gallery](/Users/felipe.coury/.codex/sessions/2026/05/25/rollout-2026-05-25T18-13-09-019e60fc-0518-7c21-9596-980fe97225ba.jsonl) | The large gallery from this thread: emojis, links, emphasis, code, alignment, paragraphs, and a 30+ row table | 7 |
@@ -578,7 +612,10 @@ fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_s
 // ORACLE markdown_render_tests.rs:2056 table_renders_records_when_multiple_prose_columns_are_starved_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_records_when_multiple_prose_columns_are_starved_snapshot
 #[test]
 fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_records_when_multiple_prose_columns_are_starved_snapshot: ours (right) differs from the oracle (...",
+    );
     let md = r#"| Issue | Activity | Complexity | Why start |
 | --- | ---: | ---: | --- |
 | [#24485: newline shortcut fails in PyCharm terminal on Windows](https://github.com/openai/codex/issues/24485) | `+1` 0, substantive comments 0 | Low | New, deterministic regression range; localized composer/keymap path. |
@@ -598,7 +635,10 @@ fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
 // ORACLE markdown_render_tests.rs:2071 table_keeps_grid_when_only_one_compact_record_fragments_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_keeps_grid_when_only_one_compact_record_fragments_snapshot
 #[test]
 fn table_keeps_grid_when_only_one_compact_record_fragments_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_keeps_grid_when_only_one_compact_record_fragments_snapshot: ours (right) differs from the oracle (left)",
+    );
     let md = r#"| Key | Date | State |
 | --- | --- | --- |
 | short | 2025-01-01 | Ready |
@@ -616,7 +656,10 @@ fn table_keeps_grid_when_only_one_compact_record_fragments_snapshot() {
 // ORACLE markdown_render_tests.rs:2084 table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot
 #[test]
 fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapshot: ours (right) differs from the...",
+    );
     let md = r#"| Key | Notes |
 | --- | --- |
 | firstlongid | A readable explanatory sentence for this row. |
@@ -634,7 +677,10 @@ fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapsh
 // ORACLE markdown_render_tests.rs:2097 table_renders_halfwidth_sound_marks_at_constrained_width_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__table_renders_halfwidth_sound_marks_at_constrained_width_snapshot
 #[test]
 fn table_renders_halfwidth_sound_marks_at_constrained_width_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads ` Key Notes`:",
+    );
     let md = r#"| Key | Notes |
 | --- | --- |
 | ｶﾞﾊﾟtail | First ｶﾞ row with an escaped \| pipe. |
@@ -741,7 +787,10 @@ fn table_key_value_fallback_preserves_rich_values_and_themed_labels() {
 // ORACLE streaming/code_fence_render_tests.rs:13 growing_code_fences_preserve_styles_unicode_links_and_blank_lines kind=snap owner=chat-live
 #[test]
 fn growing_code_fences_preserve_styles_unicode_links_and_blank_lines() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `Before link`:",
+    );
     let chunks = [
         "Before [link](https://example.com).\n\n```rust,no_run\n",
         "fn main() {\n",
@@ -781,7 +830,10 @@ fn growing_code_fences_preserve_styles_unicode_links_and_blank_lines() {
 // ORACLE streaming/code_fence_render_tests.rs:49 long_open_fence_retains_its_rendered_prefix kind=ui owner=chat-live
 #[test]
 fn long_open_fence_retains_its_rendered_prefix() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `let value_511 = 511;`:",
+    );
     let lines: Vec<String> = (0..512)
         .map(|index| format!("    let value_{index} = {index};\n"))
         .collect();
@@ -848,7 +900,10 @@ fn crossing_a_highlight_limit_removes_previously_highlighted_colors() {
 // ORACLE streaming/code_fence_render_tests.rs:124 recomputing_after_resize_or_mode_change_drops_fence_state kind=ui owner=chat-live
 #[test]
 fn recomputing_after_resize_or_mode_change_drops_fence_state() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: the screen now (right) differs from the screen then (left)",
+    );
     let first = "```rust\nfn first() {}\n";
     let mut s = streamed(80, 24, &[first], false);
     // The resize recomputes the answer at width 20: the same rows as the message at 20.

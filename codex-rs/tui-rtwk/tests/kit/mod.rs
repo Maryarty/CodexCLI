@@ -19,6 +19,7 @@ mod oracle_snap;
 mod compare;
 mod grid;
 mod labels;
+mod markdown_gutter;
 mod seed;
 mod verdict;
 
@@ -68,11 +69,17 @@ pub struct Screen {
     /// Opened from a debug entry: the screen has a model of its own, which
     /// the app's events do not reach (`feed` cannot change it).
     entry: bool,
+    /// Columns at the left the oracle's rows do not have (`Open::markdown`).
+    gutter: usize,
 }
 
 impl From<Harness> for Screen {
     fn from(h: Harness) -> Screen {
-        Screen { h, entry: false }
+        Screen {
+            h,
+            entry: false,
+            gutter: 0,
+        }
     }
 }
 
@@ -213,12 +220,24 @@ impl Screen {
     }
 
     pub(crate) fn grid(&self) -> Grid {
-        self.h.t.with_screen(Grid::of)
+        let grid = self.h.t.with_screen(Grid::of);
+        if self.gutter == 0 {
+            grid
+        } else {
+            grid.without_left(self.gutter)
+        }
     }
 
     // ---- terminal and time ----------------------------------------------
 
     pub fn resize(&mut self, width: u16, height: u16) -> &mut Screen {
+        // A `markdown()` screen speaks of the renderer's width: the cell's
+        // gutter and free column come on top.
+        let width = if self.gutter > 0 {
+            width + markdown_gutter::GUTTER + markdown_gutter::RESERVE
+        } else {
+            width
+        };
         self.h.t.resize(width, height);
         self.h.advance(100);
         self

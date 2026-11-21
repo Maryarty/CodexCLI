@@ -6,8 +6,6 @@
 
 use crate::kit::{self, Owner, Screen};
 
-/// The live chat draws an agent message as its plain text: no markdown renderer yet.
-const MD: &str = "the live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet";
 /// A table draws as its plain text: no table renderer (separators, wrapping, held tail).
 const TABLE: &str = "the chat draws a table as its plain text: the table renderer (box separators, cell wrapping at the width, the mutable tail held until the table is stable, the no-outer-pipes and fenced forms) is not in the transcript yet";
 /// The plan stream has no view of its own in the chat.
@@ -24,9 +22,6 @@ const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a me
 const VIS: &str = "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built";
 /// The chat has one render mode: no raw/rich history render mode to switch.
 const MODE: &str = "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way";
-/// The rendering preferences (`tui.rendering`) cannot be seeded on the live chat.
-const CONFIG: &str = "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the live chat starts with every renderer on and no seed sets them";
-
 /// `text` as the body of a JSON string.
 fn json_string(text: &str) -> String {
     let mut out = String::new();
@@ -63,7 +58,7 @@ fn answer_chunks(chunks: &[&str]) -> String {
 /// The live chat at `width` x `height` after the answer streamed as `chunks`.
 fn chat_chunks(width: u16, height: u16, chunks: &[&str]) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
-        .size(width, height)
+        .markdown(width, height)
         .live()
         .open();
     s.feed(&answer_chunks(chunks));
@@ -86,7 +81,10 @@ fn assert_matches_whole(s: &Screen, width: u16, height: u16, chunks: &[&str]) {
 fn controller_set_width_rebuilds_queued_lines() {
     // The oracle: a 120-column stream queues one long line; resized to 24 columns before its
     // commit, the line is drawn over several rows.
-    let mut s = Screen::build(Owner::ChatLive).size(120, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(120, 24)
+        .live()
+        .open();
     s.feed(&answer_chunks(&[
         "This is a long line that should wrap into multiple rows when resized.\n",
     ]));
@@ -129,7 +127,11 @@ fn controller_live_tail_rerenders_table_tail_after_resize() {
 // ORACLE streaming/controller.rs:1211 controller_set_width_preserves_in_flight_tail kind=ui owner=chat-live
 #[test]
 fn controller_set_width_preserves_in_flight_tail() {
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    // The oracle's rows keep the agent's `• ` bullet, so this screen is read whole.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .live()
+        .open();
     s.feed(&answer_chunks(&["tail without newline"]));
     s.resize(24, 24);
     s.assert_contains("• tail without newline");
@@ -141,7 +143,10 @@ fn plan_controller_set_width_preserves_in_flight_tail() {
     // The plan item's text is drawn by the chat as its message: the finalized text survives a resize.
     // The oracle asserts an unwrapped transcript line; at 24 columns the screen wraps the same
     // text, so the fragments are checked in order across the wrap.
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
     s.feed(&answer_chunks(&["1. Item without newline"]));
     s.resize(24, 24);
     s.assert_in_order(&["Item without", "newline"]);
@@ -375,7 +380,10 @@ fn controller_stabilizes_two_column_no_outer_table_in_response() {
 // ORACLE streaming/controller.rs:1771 controller_keeps_markdown_fenced_tables_mutable_until_finalize kind=ui owner=chat-live
 #[test]
 fn controller_keeps_markdown_fenced_tables_mutable_until_finalize() {
-    kit::pending(Owner::ChatLive, TABLE);
+    kit::pending(
+        Owner::ChatLive,
+        "the oracle's controller state (the table tail held mutable until it is stable) is not observable on the chat; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let deltas = [
         "```md\n",
         "| A | B |\n",
@@ -392,7 +400,10 @@ fn controller_keeps_markdown_fenced_tables_mutable_until_finalize() {
 // ORACLE streaming/controller.rs:1798 controller_keeps_markdown_fenced_no_outer_tables_mutable_until_finalize kind=ui owner=chat-live
 #[test]
 fn controller_keeps_markdown_fenced_no_outer_tables_mutable_until_finalize() {
-    kit::pending(Owner::ChatLive, TABLE);
+    kit::pending(
+        Owner::ChatLive,
+        "the oracle's controller state (the table tail held mutable until it is stable) is not observable on the chat; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let deltas = [
         "```md\n",
         "Col A | Col B | Col C\n",
@@ -438,7 +449,10 @@ fn controller_keeps_non_markdown_fenced_tables_as_code() {
 // ORACLE streaming/controller.rs:1932 plan_controller_streamed_table_matches_final_render kind=ui owner=chat-live
 #[test]
 fn plan_controller_streamed_table_matches_final_render() {
-    kit::pending(Owner::ChatLive, PLAN);
+    kit::pending(
+        Owner::ChatLive,
+        "the plan stream has no view in the chat: a plan item (its heading, quote, table and links) is drawn as plain text; PlanStreamController has no screen yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let deltas = [
         "## Build plan\n\n",
         "| Step | Owner |\n",
@@ -468,7 +482,10 @@ fn finalized_plan_stream_preserves_semantic_url_fragments() {
 // ORACLE streaming/controller.rs:1999 plan_controller_streamed_markdown_fenced_table_matches_final_render kind=ui owner=chat-live
 #[test]
 fn plan_controller_streamed_markdown_fenced_table_matches_final_render() {
-    kit::pending(Owner::ChatLive, PLAN);
+    kit::pending(
+        Owner::ChatLive,
+        "the plan stream has no view in the chat: a plan item (its heading, quote, table and links) is drawn as plain text; PlanStreamController has no screen yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let deltas = [
         "## Build plan\n\n",
         "```md\n",
@@ -585,7 +602,10 @@ fn unicode_math_inline_stream_preserves_display_exclusion_boundaries() {
 // ORACLE streaming/math_tests.rs:8 unicode_math_aligned_stream_matches_complete_render kind=ui owner=chat-live
 #[test]
 fn unicode_math_aligned_stream_matches_complete_render() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let source = "Before.\n\n\\[\n\\begin{aligned}\n\\underset{x}{\\min}&=\\sum_{i=1}^N x_{gpt}\\\\[2mm]\ny&=2\n\\end{aligned}\n\\]\n\nAfter $\\alpha$.\n";
     // The oracle streams one character at a time, at 80 and 12 columns (its Rich and Raw modes
     // have no seed in the chat: MODE).
@@ -600,7 +620,10 @@ fn unicode_math_aligned_stream_matches_complete_render() {
 // ORACLE streaming/math_tests.rs:42 unicode_math_stream_holds_display_until_closed_and_preserves_source kind=ui owner=chat-live
 #[test]
 fn unicode_math_stream_holds_display_until_closed_and_preserves_source() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     for (open, close, prefix) in [("$$", "$$", "Before.\n\n"), ("\\[", "\\]", "Before.\n")] {
         let chunks = [
             prefix,
@@ -682,7 +705,10 @@ fn mermaid_stream_closes_resizes_and_preserves_raw_source() {
 // ORACLE streaming/mermaid_tests.rs:82 mermaid_holdback_tracks_nested_blocks_after_normalized_markdown kind=ui owner=chat-live
 #[test]
 fn mermaid_holdback_tracks_nested_blocks_after_normalized_markdown() {
-    kit::pending(Owner::ChatLive, MERMAID);
+    kit::pending(
+        Owner::ChatLive,
+        "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let prefix = "```md\n| Name | Value |\n| --- | --- |\n| A | B |\n```\n\n";
     for block in [
         "> ```mermaid\n> flowchart LR\n> A --> B\n> ```\n",
@@ -711,7 +737,10 @@ fn mermaid_controller_keeps_diagram_mutable_and_returns_original_source() {
 // ORACLE streaming/render_tests.rs:89 incremental_render_keeps_final_block_mutable_and_matches_full_render kind=snap owner=chat-live snap=incremental_render_representative_stream
 #[test]
 fn incremental_render_keeps_final_block_mutable_and_matches_full_render() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: incremental_render_representative_stream: ours (right) differs from the oracle (left)",
+    );
     let chunks = [
         "# Heading\n",
         "\n",
@@ -772,7 +801,10 @@ fn growing_single_top_level_blocks_render_and_scan_in_one_pass() {
 // ORACLE streaming/render_tests.rs:181 incremental_raw_render_preserves_blank_lines kind=ui owner=chat-live
 #[test]
 fn incremental_raw_render_preserves_blank_lines() {
-    kit::pending(Owner::ChatLive, MODE);
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     // The oracle's raw render: the lines are "alpha", "", "beta", "".
     let s = chat_chunks(80, 24, &["alpha\n", "\n", "beta\n", "\n"]);
     s.assert_in_order(&["alpha", "beta"]);
@@ -807,7 +839,10 @@ fn inline_visualization_context_without_directives_keeps_stable_prefix() {
 // ORACLE streaming/render_tests.rs:293 inline_visualizations_use_canonical_full_render kind=ui owner=chat-live
 #[test]
 fn inline_visualizations_use_canonical_full_render() {
-    kit::pending(Owner::ChatLive, VIS);
+    kit::pending(
+        Owner::ChatLive,
+        "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let chunks = ["Before.\n\n", "::codex-inline-vis{file=\"missing.html\"}\n"];
     let s = chat_chunks(80, 24, &chunks);
     assert_matches_whole(&s, 80, 24, &chunks);
@@ -826,7 +861,10 @@ fn inline_visualizations_without_context_use_canonical_full_render() {
 // ORACLE streaming/render_tests.rs:343 inline_visualization_content_references_use_canonical_full_render kind=ui owner=chat-live
 #[test]
 fn inline_visualization_content_references_use_canonical_full_render() {
-    kit::pending(Owner::ChatLive, VIS);
+    kit::pending(
+        Owner::ChatLive,
+        "the chat draws inline visualization directives and reference links as text: the inline visualization context and its canonical full render are not built; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let chunks = [
         "Before.\n\n",
         "\u{e200}visualize\u{e202}{\"path\":\"/tmp/missing.html\"}\u{e201}\n",
@@ -862,7 +900,10 @@ fn reference_link_definition_recomputes_earlier_and_later_blocks() {
 // ORACLE streaming/render_tests.rs:426 reference_link_definition_survives_raw_to_rich_render_mode_switch kind=ui owner=chat-live
 #[test]
 fn reference_link_definition_survives_raw_to_rich_render_mode_switch() {
-    kit::pending(Owner::ChatLive, MODE);
+    kit::pending(
+        Owner::ChatLive,
+        "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let s = chat(
         80,
         24,
@@ -938,7 +979,10 @@ fn shell_pid_preserves_following_equations() {
 // ORACLE streaming/render_tests.rs:545 rejected_math_openers_allow_bounded_incremental_rendering kind=ui owner=chat-live
 #[test]
 fn rejected_math_openers_allow_bounded_incremental_rendering() {
-    kit::pending(Owner::ChatLive, MATH);
+    kit::pending(
+        Owner::ChatLive,
+        "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     for (open, close) in [
         ("echo $$", "$$"),
         ("Equation: \\[", "\\]"),
@@ -973,7 +1017,10 @@ fn empty_list_item_stays_mutable_until_finalization() {
 // ORACLE streaming/rendering_preferences_tests.rs:62 lists_match_incremental_and_emitted_responses kind=ui owner=chat-live
 #[test]
 fn lists_match_incremental_and_emitted_responses() {
-    kit::pending(Owner::ChatLive, CONFIG);
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let chunks = [
         "- [ ] First task with enough words to wrap\n  - [x] Nested task\n- [X] Done\n\n",
         "> 9. [ ] [link](https://example.com)\n> 10. [x] Done\n\n",
@@ -987,7 +1034,10 @@ fn lists_match_incremental_and_emitted_responses() {
 // ORACLE streaming/rendering_preferences_tests.rs:108 rendering_preferences_match_incremental_final_and_emitted_responses kind=ui owner=chat-live
 #[test]
 fn rendering_preferences_match_incremental_final_and_emitted_responses() {
-    kit::pending(Owner::ChatLive, CONFIG);
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     let chunks = [
         "Before.\n\n",
         "```markdown\n| A | B |\n|---|---|\n| `a` | \\(x_1\\) |\n```\n\n",

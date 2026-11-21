@@ -7,11 +7,9 @@
 use crate::kit::{self, Owner, Screen};
 
 /// The live chat draws an agent message as its plain text: no markdown renderer yet.
-const MD: &str = "the live chat draws an agent message as its plain text: the markdown renderer (rtwk-rich MarkdownView over the streamed answer) is not in the transcript yet";
 /// The chat draws math as its source text: no unicode math renderer yet.
 const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer yet.
-const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer is not built in the chat's markdown yet";
 /// The rendering preferences (`tui.rendering`) cannot be seeded on the live chat.
 const CONFIG: &str = "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them";
 /// Web links: the label-only presentation depends on the terminal kind, and the chat has no terminal seed.
@@ -42,7 +40,7 @@ fn answer(markdown: &str) -> String {
 /// The live chat at `width` x `height` after the answer `markdown` has streamed in.
 fn chat(width: u16, height: u16, markdown: &str) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
-        .size(width, height)
+        .markdown(width, height)
         .live()
         .open();
     s.feed(&answer(markdown));
@@ -188,7 +186,10 @@ fn unicode_math_bounds_and_unsupported_input() {
 // ORACLE markdown_render/mermaid_tests.rs:20 mermaid_fences_use_native_renderer_for_every_family kind=snap owner=chat-live
 #[test]
 fn mermaid_fences_use_native_renderer_for_every_family() {
-    kit::pending(Owner::ChatLive, MERMAID);
+    kit::pending(
+        Owner::ChatLive,
+        "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer is not built in the chat's markdown yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     // The oracle compares each diagram with `codex_mermaid::render(source, 100)`, which
     // the kit cannot state as rows; the visible half is that the fence is not drawn as
     // its source. The diagram rows are the native renderer's, to be added with it.
@@ -215,7 +216,10 @@ fn mermaid_fences_use_native_renderer_for_every_family() {
 // ORACLE markdown_render/preferences_tests.rs:10 disabled_renderers_preserve_source_independently kind=snap owner=chat-live snap=disabled_renderers_preserve_source_independently
 #[test]
 fn disabled_renderers_preserve_source_independently() {
-    kit::pending(Owner::ChatLive, CONFIG);
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     // The oracle's snapshot joins four preference states under a Debug header each.
     // This ports the mermaid-off state (the first section); math, tables and lists
     // off are the same pattern on their own samples, not yet written.
@@ -230,7 +234,10 @@ fn disabled_renderers_preserve_source_independently() {
 // ORACLE markdown_render/preferences_tests.rs:57 disabled_mermaid_keeps_unsupported_source_without_notice kind=ui owner=chat-live
 #[test]
 fn disabled_mermaid_keeps_unsupported_source_without_notice() {
-    kit::pending(Owner::ChatLive, CONFIG);
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for the rendering preferences (tui.rendering: mermaid, math, tables, lists): the kit's live chat starts with every renderer on and no seed sets them; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     // With mermaid off the fence renders as the unknown fence does: its source lines, no notice.
     let s = chat(80, 24, "```mermaid\npie\n\"Cats\": 2\n```\n");
     s.assert_in_order(&["pie", "\"Cats\": 2"]);
@@ -261,7 +268,10 @@ fn disabled_tables_keep_markdown_fences_and_cell_markup() {
 // ORACLE markdown_render/task_list_tests.rs:10 lists_preserve_layout kind=snap owner=chat-live snap=codex_tui__markdown_render__task_list_tests__lists_preserve_layout
 #[test]
 fn lists_preserve_layout() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): `☐ Unchecked` is not on the screen after the fragments before it ([\"☐ Unchecked\", \"☑ Checked\", \"☑ Uppercase\", \"• Ordinary\"]):",
+    );
     // The oracle joins twelve sources at width 24 into one snapshot; this ports the
     // first three stages (rows of the snapshot), the others follow the same pattern.
     let stage = chat(
@@ -294,7 +304,10 @@ fn lists_preserve_layout() {
 // ORACLE markdown_render/web_links_tests.rs:22 bare_urls_are_styled_without_coloring_surrounding_prose kind=snap owner=chat-live snap=bare_urls_are_styled_without_coloring_surrounding_prose
 #[test]
 fn bare_urls_are_styled_without_coloring_surrounding_prose() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): `https://example.com/a` at (4, 19) `h` against `fg=Reset underlined`: fg is Rgb(137, 180, 250), the oracle's is Reset",
+    );
     let s = chat(
         100,
         24,
@@ -312,7 +325,10 @@ fn bare_urls_are_styled_without_coloring_surrounding_prose() {
 // ORACLE markdown_render/web_links_tests.rs:59 bare_urls_keep_link_style_when_wrapped_in_tables kind=snap owner=chat-live snap=bare_urls_keep_link_style_when_wrapped_in_tables
 #[test]
 fn bare_urls_keep_link_style_when_wrapped_in_tables() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no `https://example.com/docs` on the screen:",
+    );
     let s = chat(
         20,
         24,
@@ -395,7 +411,10 @@ fn label_only_web_links_keep_targets_after_prose_and_table_wrapping() {
 // ORACLE markdown_render/web_links_tests.rs:231 streaming_and_full_render_agree_with_label_only_links kind=ui owner=chat-live
 #[test]
 fn streaming_and_full_render_agree_with_label_only_links() {
-    kit::pending(Owner::ChatLive, TERM);
+    kit::pending(
+        Owner::ChatLive,
+        "no seed for the terminal kind (WebLinkDisplay::for_terminal): supporting terminals keep only the styled label, the others show the destination, and the chat reads no terminal detection yet; probe: the body passes without it (it checks less than the oracle claims)",
+    );
     // The oracle compares the streamed render of every prefix with the full render; this
     // ports the finished frame (the visible result). The per-prefix frames need a feed per
     // prefix and are not written yet.
@@ -428,7 +447,6 @@ fn label_only_and_fallback_presentations_snapshot() {
 // ORACLE markdown_render_tests.rs:36 bare_url_with_tilde_keeps_complete_hyperlink kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__bare_url_with_tilde_keeps_complete_hyperlink
 #[test]
 fn bare_url_with_tilde_keeps_complete_hyperlink() {
-    kit::pending(Owner::ChatLive, MD);
     // The oracle's snapshot is the Debug of the rows and their hyperlink columns: the row and its link.
     let destination = "https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf";
     let s = chat(80, 24, destination);
@@ -439,7 +457,10 @@ fn bare_url_with_tilde_keeps_complete_hyperlink() {
 // ORACLE markdown_render_tests.rs:65 table_url_with_tilde_keeps_complete_hyperlink kind=ui owner=chat-live
 #[test]
 fn table_url_with_tilde_keeps_complete_hyperlink() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no `https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf` on the screen:",
+    );
     let destination = "https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf";
     let markdown = format!("| URL |\n| --- |\n| {destination} |\n");
     let s = chat(32, 24, &markdown);
@@ -463,7 +484,10 @@ fn links_keep_their_columns_after_styled_fragments() {
 // ORACLE markdown_render_tests.rs:109 merged_text_events_preserve_entity_decoding kind=ui owner=chat-live
 #[test]
 fn merged_text_events_preserve_entity_decoding() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `https://example.com/a&b~c`:",
+    );
     let destination = "https://example.com/a&b~c";
     let s = chat(80, 24, "https://example.com/a&amp;b~c");
     s.assert_has_row(destination);
@@ -482,7 +506,6 @@ fn empty() {
 // ORACLE markdown_render_tests.rs:150 paragraph_single kind=ui owner=chat-live
 #[test]
 fn paragraph_single() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "Hello, world!");
     s.assert_has_row("Hello, world!");
 }
@@ -531,7 +554,10 @@ fn headings() {
 // ORACLE markdown_render_tests.rs:195 blockquote_single kind=ui owner=chat-live
 #[test]
 fn blockquote_single() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> Blockquote");
     s.assert_has_row("> Blockquote");
     s.assert_text_style("> Blockquote", "fg=Green");
@@ -540,7 +566,10 @@ fn blockquote_single() {
 // ORACLE markdown_render_tests.rs:203 blockquote_soft_break kind=ui owner=chat-live
 #[test]
 fn blockquote_soft_break() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): `> with a soft break` is not on the screen after the fragments before it ([\"> This is a blockquote\", \"> with a soft break\"]):",
+    );
     let s = chat(80, 24, "> This is a blockquote\nwith a soft break\n");
     s.assert_in_order(&["> This is a blockquote", "> with a soft break"]);
 }
@@ -548,7 +577,10 @@ fn blockquote_soft_break() {
 // ORACLE markdown_render_tests.rs:226 blockquote_multiple_with_break kind=ui owner=chat-live
 #[test]
 fn blockquote_multiple_with_break() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> Blockquote 1\n\n> Blockquote 2\n");
     s.assert_in_order(&["> Blockquote 1", "> Blockquote 2"]);
     s.assert_text_style("> Blockquote 1", "fg=Green");
@@ -558,7 +590,10 @@ fn blockquote_multiple_with_break() {
 // ORACLE markdown_render_tests.rs:238 blockquote_three_paragraphs_short_lines kind=ui owner=chat-live
 #[test]
 fn blockquote_three_paragraphs_short_lines() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> one\n>\n> two\n>\n> three\n");
     s.assert_in_order(&["> one", "> two", "> three"]);
     s.assert_text_style("> one", "fg=Green");
@@ -574,7 +609,10 @@ fn blockquote_nested_two_levels() {
 // ORACLE markdown_render_tests.rs:266 blockquote_with_list_items kind=ui owner=chat-live
 #[test]
 fn blockquote_with_list_items() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> - item 1\n> - item 2\n");
     s.assert_in_order(&["> • item 1", "> • item 2"]);
     s.assert_text_style("> • item 1", "fg=Green");
@@ -583,7 +621,10 @@ fn blockquote_with_list_items() {
 // ORACLE markdown_render_tests.rs:278 blockquote_with_ordered_list kind=ui owner=chat-live
 #[test]
 fn blockquote_with_ordered_list() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> 1. first\n> 2. second\n");
     s.assert_in_order(&["> 1. first", "> 2. second"]);
     s.assert_text_style("1. ", "fg=LightBlue");
@@ -599,7 +640,6 @@ fn blockquote_list_then_nested_blockquote() {
 // ORACLE markdown_render_tests.rs:312 list_item_with_inline_blockquote_on_same_line kind=ui owner=chat-live
 #[test]
 fn list_item_with_inline_blockquote_on_same_line() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1. > quoted\n");
     s.assert_has_row("1. > quoted");
 }
@@ -614,7 +654,6 @@ fn blockquote_surrounded_by_blank_lines() {
 // ORACLE markdown_render_tests.rs:349 blockquote_in_ordered_list_on_next_line kind=ui owner=chat-live
 #[test]
 fn blockquote_in_ordered_list_on_next_line() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "1.\n   > quoted\n");
     s.assert_has_row("1. > quoted");
 }
@@ -622,7 +661,6 @@ fn blockquote_in_ordered_list_on_next_line() {
 // ORACLE markdown_render_tests.rs:368 blockquote_in_unordered_list_on_next_line kind=ui owner=chat-live
 #[test]
 fn blockquote_in_unordered_list_on_next_line() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "-\n  > quoted\n");
     s.assert_has_row("• > quoted");
 }
@@ -637,6 +675,10 @@ fn blockquote_two_paragraphs_inside_ordered_list_has_blank_line() {
 // ORACLE markdown_render_tests.rs:413 blockquote_inside_nested_list kind=ui owner=chat-live
 #[test]
 fn blockquote_inside_nested_list() {
+    kit::pending(
+        Owner::ChatLive,
+        "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
+    );
     let s = chat(80, 24, "1. A\n    - B\n      > inner\n");
     s.assert_in_order(&["1. A", "    • B", "      > inner"]);
 }
@@ -651,7 +693,10 @@ fn list_item_text_then_blockquote() {
 // ORACLE markdown_render_tests.rs:447 list_item_blockquote_then_text kind=ui owner=chat-live
 #[test]
 fn list_item_blockquote_then_text() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): ` > after` is not on the screen after the fragments before it ([\"1. > quoted\", \" > after\"]):",
+    );
     let s = chat(80, 24, "1.\n   > quoted\n   after\n");
     s.assert_in_order(&["1. > quoted", "   > after"]);
 }
@@ -659,7 +704,10 @@ fn list_item_blockquote_then_text() {
 // ORACLE markdown_render_tests.rs:464 list_item_text_blockquote_text kind=ui owner=chat-live
 #[test]
 fn list_item_text_blockquote_text() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): ` > after` is not on the screen after the fragments before it ([\"1. before\", \" > quoted\", \" > after\"]):",
+    );
     let s = chat(80, 24, "1. before\n   > quoted\n   after\n");
     s.assert_in_order(&["1. before", "   > quoted", "   > after"]);
 }
@@ -674,7 +722,10 @@ fn blockquote_with_heading_and_paragraph() {
 // ORACLE markdown_render_tests.rs:506 blockquote_heading_inherits_heading_style kind=ui owner=chat-live
 #[test]
 fn blockquote_heading_inherits_heading_style() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "> # test header\n> in blockquote\n");
     s.assert_in_order(&["> # test header", "> in blockquote"]);
     s.assert_text_style("test header", "bold underlined");
@@ -684,7 +735,6 @@ fn blockquote_heading_inherits_heading_style() {
 // ORACLE markdown_render_tests.rs:525 blockquote_with_code_block kind=ui owner=chat-live
 #[test]
 fn blockquote_with_code_block() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> ```\n> code\n> ```\n");
     s.assert_has_row("> code");
 }
@@ -722,7 +772,6 @@ fn nested_blockquote_with_inline_and_fenced_code() {
 // ORACLE markdown_render_tests.rs:602 list_unordered_single kind=ui owner=chat-live
 #[test]
 fn list_unordered_single() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "- List item 1\n");
     s.assert_has_row("• List item 1");
 }
@@ -737,7 +786,10 @@ fn list_unordered_multiple() {
 // ORACLE markdown_render_tests.rs:621 list_ordered kind=ui owner=chat-live
 #[test]
 fn list_ordered() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "1. List item 1\n2. List item 2\n");
     s.assert_in_order(&["1. List item 1", "2. List item 2"]);
     s.assert_text_style("1. ", "fg=LightBlue");
@@ -747,7 +799,10 @@ fn list_ordered() {
 // ORACLE markdown_render_tests.rs:631 empty_list_items_keep_their_markers kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__empty_list_items
 #[test]
 fn empty_list_items_keep_their_markers() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): ` •` is not on the screen after the fragments before it ([\"•\", \" •\"]):",
+    );
     // The oracle's snapshot is the Debug of the rows of three sources; this ports the
     // first two (the `8.` marker row and the nested empty bullets), the third follows.
     let s = chat(80, 24, "8.");
@@ -759,6 +814,10 @@ fn empty_list_items_keep_their_markers() {
 // ORACLE markdown_render_tests.rs:638 list_nested kind=ui owner=chat-live
 #[test]
 fn list_nested() {
+    kit::pending(
+        Owner::ChatLive,
+        "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
+    );
     let s = chat(80, 24, "- List item 1\n  - Nested list item 1\n");
     s.assert_in_order(&["• List item 1", "    • Nested list item 1"]);
 }
@@ -766,7 +825,10 @@ fn list_nested() {
 // ORACLE markdown_render_tests.rs:649 ordered_list_markers_use_terminal_palette_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__ordered_list_markers_use_terminal_palette_snapshot
 #[test]
 fn ordered_list_markers_use_terminal_palette_snapshot() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     // The oracle's snapshot is the Debug of the Text: the marker in the palette's light
     // blue, the first link's label and target; the second link is the same shape.
     let s = chat(
@@ -781,7 +843,10 @@ fn ordered_list_markers_use_terminal_palette_snapshot() {
 // ORACLE markdown_render_tests.rs:657 list_ordered_custom_start kind=ui owner=chat-live
 #[test]
 fn list_ordered_custom_start() {
-    kit::pending(Owner::ChatLive, MD);
+    kit::pending(
+        Owner::ChatLive,
+        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
+    );
     let s = chat(80, 24, "3. First\n4. Second\n");
     s.assert_in_order(&["3. First", "4. Second"]);
     s.assert_text_style("3. ", "fg=LightBlue");
@@ -791,6 +856,10 @@ fn list_ordered_custom_start() {
 // ORACLE markdown_render_tests.rs:667 nested_unordered_in_ordered kind=ui owner=chat-live
 #[test]
 fn nested_unordered_in_ordered() {
+    kit::pending(
+        Owner::ChatLive,
+        "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
+    );
     let s = chat(80, 24, "1. Outer\n    - Inner A\n    - Inner B\n2. Next\n");
     s.assert_in_order(&["1. Outer", "    • Inner A", "    • Inner B", "2. Next"]);
 }
@@ -798,6 +867,10 @@ fn nested_unordered_in_ordered() {
 // ORACLE markdown_render_tests.rs:682 nested_ordered_in_unordered kind=ui owner=chat-live
 #[test]
 fn nested_ordered_in_unordered() {
+    kit::pending(
+        Owner::ChatLive,
+        "G64: MarkdownView indents a nested list by its parent's marker (2 columns), the oracle by 4 (flutter_markdown listIndent)",
+    );
     let s = chat(80, 24, "- Outer\n    1. One\n    2. Two\n- Last\n");
     s.assert_in_order(&["• Outer", "    1. One", "    2. Two", "• Last"]);
 }

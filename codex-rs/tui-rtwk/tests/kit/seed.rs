@@ -43,6 +43,7 @@ pub struct Open {
     pub(super) seed: Seed,
     pub(super) early: bool,
     pub(super) first_frame: bool,
+    pub(super) gutter: usize,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
 }
 
@@ -57,6 +58,7 @@ impl Screen {
             seed: Seed::Live,
             early: false,
             first_frame: false,
+            gutter: 0,
             keymap: None,
         }
     }
@@ -120,11 +122,14 @@ impl Open {
                 "no keymap seed: the port reads no key bindings from a config yet (the keymap slice); the test's remapped keys cannot be set",
             );
         }
-        match self.seed {
+        let gutter = self.gutter;
+        let mut screen = match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
             Seed::Entry { dir, entry } => self.open_entry(dir, entry),
             Seed::Script(text) => self.open_script(text),
-        }
+        };
+        screen.gutter = gutter;
+        screen
     }
 
     fn live_harness(&self) -> Harness {

@@ -11,7 +11,7 @@ use rtwk_test::{Cell, Screen as Vt};
 pub struct Grid {
     pub width: usize,
     pub height: usize,
-    cells: Vec<Cell>,
+    pub(super) cells: Vec<Cell>,
     pub cursor: Option<(usize, usize)>,
 }
 

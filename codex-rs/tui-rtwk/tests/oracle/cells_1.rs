@@ -16,7 +16,7 @@ const RT_SEED: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
 fn syntax_colors_follow_the_actual_diff_background() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the terminal default colours and the light theme are not seedable through the kit",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: syntax_colors_follow_the_actual_diff_background: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 12)
@@ -32,7 +32,7 @@ fn syntax_colors_follow_the_actual_diff_background() {
 fn display_path_prefers_cwd_without_git_repo() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle shows the path relative to the process cwd, which the kit cannot set",
+        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `tui/example.png`:",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 6)
@@ -48,7 +48,7 @@ fn display_path_prefers_cwd_without_git_repo() {
 fn ui_snapshot_wrap_behavior_insert() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: wrap_behavior_insert: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(90, 8)
@@ -64,7 +64,7 @@ fn ui_snapshot_wrap_behavior_insert() {
 fn ui_snapshot_apply_update_block() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -80,7 +80,7 @@ fn ui_snapshot_apply_update_block() {
 fn ui_snapshot_apply_update_with_rename_block() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_with_rename_block: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -108,7 +108,7 @@ fn ui_snapshot_apply_multiple_files_block() {
 fn ui_snapshot_apply_add_block() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the narrow frame needs a 3-column screen",
+        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `1 +a`:",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 10)
@@ -132,7 +132,7 @@ fn ui_snapshot_apply_add_block() {
 fn ui_snapshot_apply_delete_block() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_delete_block: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -148,7 +148,7 @@ fn ui_snapshot_apply_delete_block() {
 fn ui_snapshot_apply_update_block_wraps_long_lines() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle wraps at 72 columns, the screen wraps at its own width",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_wraps_long_lines: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -164,7 +164,7 @@ fn ui_snapshot_apply_update_block_wraps_long_lines() {
 fn ui_snapshot_apply_update_block_wraps_long_lines_text() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle wraps at 28 columns, so the screen is 28 wide",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_wraps_long_lines_text: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(28, 12)
@@ -180,7 +180,7 @@ fn ui_snapshot_apply_update_block_wraps_long_lines_text() {
 fn ui_snapshot_apply_update_block_line_numbers_three_digits_text() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the snapshot is taller than the screen, the cell's rows need the transcript's scroll",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_line_numbers_three_digits_text: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -196,7 +196,7 @@ fn ui_snapshot_apply_update_block_line_numbers_three_digits_text() {
 fn ui_snapshot_apply_update_block_relativizes_path() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the oracle relativizes to current_dir, the fixture to the item's cwd",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_relativizes_path: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 10)
@@ -224,7 +224,7 @@ fn ui_snapshot_syntax_highlighted_insert_wraps() {
 fn ui_snapshot_diff_gallery_80x24() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_80x24: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -238,7 +238,7 @@ fn ui_snapshot_diff_gallery_80x24() {
 fn ui_snapshot_diff_gallery_94x35() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_94x35: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(94, 35)
@@ -252,7 +252,7 @@ fn ui_snapshot_diff_gallery_94x35() {
 fn ui_snapshot_diff_gallery_120x40() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_120x40: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(120, 40)
@@ -266,7 +266,7 @@ fn ui_snapshot_diff_gallery_120x40() {
 fn ui_snapshot_ansi16_insert_delete_no_background() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the colour level ansi16 is not seedable through the kit",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: ansi16_insert_delete_no_background: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 4)
@@ -282,7 +282,7 @@ fn ui_snapshot_ansi16_insert_delete_no_background() {
 fn ui_snapshot_theme_scope_background_resolution() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the snapshot is the resolved scope backgrounds (insert=Some(Rgb(12, 34, 56)), delete=Some(Rgb(74, 34, 29))), which show only as cell backgrounds; no theme seed",
+        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `scope`:",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 6)
@@ -299,7 +299,7 @@ fn ui_snapshot_theme_scope_background_resolution() {
 fn cpp_module_extensions_use_cpp_highlighting() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the theme defaults (fg 220,220,220 bg 20,20,20) are not seedable through the kit",
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: cpp_module_extension_highlighting: ours (right) differs from the oracle (left)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -327,7 +327,7 @@ fn wrap_styled_spans_single_line() {
 fn fallback_wrapping_uses_display_width_for_tabs_and_wide_chars() {
     kit::pending(
         Owner::ChatLive,
-        "no patch cell in the S11 transcript: core threads::project ignores fileChange items and the cells screen is an empty form; the kit has no display-width assertion: the width check of every row is not ported",
+        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `界`:",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(8, 8)

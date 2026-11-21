@@ -10,7 +10,6 @@ const URL_LIKE: &str =
     "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
 
 const NO_MCP_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so an mcpToolCall item draws no tool-call cell on the S11 transcript";
-const NO_WEB_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so a webSearch item draws no search cell on the S11 transcript";
 const NO_EXEC_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so a commandExecution item draws no exec cell on the S11 transcript";
 const NO_SEED_MCP_RPC: &str = "no seed: the /mcp inventory is an RPC answer the script cannot carry, and S11 draws no MCP inventory cell";
 const NO_SEED_UPDATE: &str = "no seed: the update-available notice comes from the version check, which the kit cannot set, and S11 draws no notice cell";
@@ -98,7 +97,10 @@ fn unified_exec_interaction_details_wrap_long_input() {
 // ORACLE history_cell/tests.rs:1386 web_search_history_cell_snapshot kind=snap owner=chat-live snap=web_search_history_cell_snapshot
 #[test]
 fn web_search_history_cell_snapshot() {
-    kit::pending(Owner::ChatLive, NO_WEB_CELL);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: web_search_history_cell_snapshot: ours (right) differs from the oracle (left)",
+    );
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(
@@ -143,7 +145,10 @@ fn pnpm_update_available_history_cell_snapshot() {
 // ORACLE history_cell/tests.rs:1429 web_search_history_cell_without_detail_snapshot kind=snap owner=chat-live snap=web_search_history_cell_without_detail_snapshot
 #[test]
 fn web_search_history_cell_without_detail_snapshot() {
-    kit::pending(Owner::ChatLive, NO_WEB_CELL);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: web_search_history_cell_without_detail_snapshot: ours (right) differs from the oracle (left)",
+    );
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(
@@ -180,7 +185,10 @@ fn web_search_history_cell_short_query_does_not_wrap() {
 // ORACLE history_cell/tests.rs:1475 web_search_history_cell_transcript_snapshot kind=snap owner=chat-live snap=web_search_history_cell_transcript_snapshot
 #[test]
 fn web_search_history_cell_transcript_snapshot() {
-    kit::pending(Owner::ChatLive, NO_WEB_CELL);
+    kit::pending(
+        Owner::ChatLive,
+        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: web_search_history_cell_transcript_snapshot: ours (right) differs from the oracle (left)",
+    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(64, 12)
         .script(include_str!(
