@@ -1114,6 +1114,301 @@ mod hook_cell {
     }
 }
 
+mod collab_cell {
+    use std::sync::Arc;
+
+    use codex_tui_core::threads::{
+        AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind,
+    };
+    use codex_tui_rtwk::pages::session::cells::collab::CollabCell;
+    use rtwk::style::{Attrs, Color};
+
+    use AgentOutcome::{Completed, Errored, Interrupted, NotFound, PendingInit, Running, Shutdown};
+
+    fn agent(id: &str, nickname: Option<&str>, role: Option<&str>) -> AgentRef {
+        AgentRef {
+            id: id.to_owned(),
+            nickname: nickname.map(str::to_owned),
+            role: role.map(str::to_owned),
+        }
+    }
+
+    fn robie() -> AgentRef {
+        agent("robie-id", Some("Robie"), Some("explorer"))
+    }
+
+    fn show(width: u16, event: CollabEvent) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 12));
+        t.pump_widget(CollabCell {
+            event: Arc::new(event),
+        });
+        t
+    }
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    /// The column where `needle` starts on row `y`.
+    fn at(t: &rtwk_test::Tester, y: usize, needle: &str) -> usize {
+        let row = &rows(t)[y];
+        let start = row
+            .find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` in {row:?}"));
+        row[..start].chars().count()
+    }
+
+    #[test]
+    fn the_oracle_transcript_snapshot_rows() {
+        // oracle snapshots/codex_tui__multi_agents__tests__collab_agent_transcript.snap
+        let cases = [
+            (
+                CollabEvent::Spawned {
+                    agent: robie(),
+                    request: Some(SpawnRequest {
+                        model: "gpt-5".into(),
+                        effort: "high".into(),
+                    }),
+                    prompt: Some("Compute 11! and reply with just the integer result.".into()),
+                },
+                vec![
+                    "• Spawned Robie [explorer] (gpt-5 high)",
+                    "  └ Compute 11! and reply with just the integer result.",
+                ],
+            ),
+            (
+                CollabEvent::SentInput {
+                    agent: robie(),
+                    prompt: Some("Please continue and return the answer only.".into()),
+                },
+                vec![
+                    "• Sent input to Robie [explorer]",
+                    "  └ Please continue and return the answer only.",
+                ],
+            ),
+            (
+                CollabEvent::Waiting {
+                    agents: vec![robie()],
+                },
+                vec!["• Waiting for Robie [explorer]"],
+            ),
+            (
+                CollabEvent::FinishedWaiting {
+                    agents: vec![
+                        (robie(), Completed(Some("39916800".into()))),
+                        (
+                            agent("bob-id", Some("Bob"), Some("worker")),
+                            Errored(Some("tool timeout".into())),
+                        ),
+                    ],
+                },
+                vec![
+                    "• Finished waiting",
+                    "  └ Robie [explorer]: Completed - 39916800",
+                    "    Bob [worker]: Error - tool timeout",
+                ],
+            ),
+            (
+                CollabEvent::Closed { agent: robie() },
+                vec!["• Closed Robie [explorer]"],
+            ),
+            (
+                // collab_resume_interrupted.snap
+                CollabEvent::Resumed {
+                    agent: robie(),
+                    outcome: Some(Interrupted),
+                },
+                vec!["• Resumed Robie [explorer]", "  └ Interrupted"],
+            ),
+        ];
+        for (event, expected) in cases {
+            let t = show(80, event.clone());
+            assert_eq!(rows(&t), expected, "{event:?}");
+        }
+    }
+
+    #[test]
+    fn an_agent_without_a_nickname_is_its_thread_id_and_an_empty_role_is_no_role() {
+        let t = show(
+            80,
+            CollabEvent::Closed {
+                agent: agent(
+                    "00000000-0000-0000-0000-000000000002",
+                    Some("  "),
+                    Some(" "),
+                ),
+            },
+        );
+        assert_eq!(rows(&t), ["• Closed 00000000-0000-0000-0000-000000000002"]);
+    }
+
+    #[test]
+    fn waiting_names_nobody_one_agent_or_a_count_with_the_agents_listed() {
+        assert_eq!(
+            rows(&show(80, CollabEvent::Waiting { agents: vec![] })),
+            ["• Waiting for agents"]
+        );
+        let t = show(
+            80,
+            CollabEvent::Waiting {
+                agents: vec![robie(), agent("bob-id", Some("Bob"), None)],
+            },
+        );
+        assert_eq!(
+            rows(&t),
+            ["• Waiting for 2 agents", "  └ Robie [explorer]", "    Bob"]
+        );
+    }
+
+    #[test]
+    fn a_wait_nobody_finished_says_so() {
+        assert_eq!(
+            rows(&show(80, CollabEvent::FinishedWaiting { agents: vec![] })),
+            ["• Finished waiting", "  └ No agents completed yet"]
+        );
+    }
+
+    #[test]
+    fn a_failed_spawn_and_a_failed_resume_read_as_errors() {
+        assert_eq!(
+            rows(&show(
+                80,
+                CollabEvent::SpawnFailed {
+                    prompt: Some("go".into())
+                }
+            )),
+            ["• Agent spawn failed", "  └ go"]
+        );
+        assert_eq!(
+            rows(&show(
+                80,
+                CollabEvent::Resumed {
+                    agent: robie(),
+                    outcome: None
+                }
+            )),
+            [
+                "• Resumed Robie [explorer]",
+                "  └ Error - Agent resume failed"
+            ]
+        );
+        assert_eq!(
+            rows(&show(80, CollabEvent::Resuming { agent: robie() })),
+            ["• Resuming Robie [explorer]"]
+        );
+    }
+
+    #[test]
+    fn every_state_has_its_words() {
+        let words = [
+            (PendingInit, "Pending init"),
+            (Running, "Running"),
+            (Interrupted, "Interrupted"),
+            (Completed(None), "Completed"),
+            (Errored(None), "Error - Agent errored"),
+            (Errored(Some(String::new())), "Error"),
+            (Shutdown, "Shutdown"),
+            (NotFound, "Not found"),
+        ];
+        for (outcome, word) in words {
+            let t = show(
+                80,
+                CollabEvent::FinishedWaiting {
+                    agents: vec![(robie(), outcome.clone())],
+                },
+            );
+            assert_eq!(
+                rows(&t)[1],
+                format!("  └ Robie [explorer]: {word}"),
+                "{outcome:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sub_agent_activity_names_its_path_in_backticks() {
+        for (kind, text) in [
+            (SubAgentKind::Started, "• Started `/root/helper`"),
+            (SubAgentKind::Interacted, "• Interacted with `/root/helper`"),
+            (SubAgentKind::Interrupted, "• Interrupted `/root/helper`"),
+            (SubAgentKind::Completed, "• Completed `/root/helper`"),
+        ] {
+            let t = show(
+                80,
+                CollabEvent::Activity {
+                    kind,
+                    path: "/root/helper".into(),
+                },
+            );
+            assert_eq!(rows(&t), [text]);
+        }
+    }
+
+    #[test]
+    fn the_title_styles_the_nickname_the_role_and_the_request() {
+        // oracle multi_agents.rs title_styles_nickname_and_role
+        let t = show(
+            200,
+            CollabEvent::Spawned {
+                agent: robie(),
+                request: Some(SpawnRequest {
+                    model: "gpt-5".into(),
+                    effort: "high".into(),
+                }),
+                prompt: None,
+            },
+        );
+        let bullet = t.cell(0, 0);
+        assert!(bullet.attrs.intersects(Attrs::DIM), "{bullet:?}");
+        let verb = t.cell(2, 0);
+        assert!(verb.attrs.intersects(Attrs::BOLD), "{verb:?}");
+        let nickname = t.cell(at(&t, 0, "Robie"), 0);
+        assert!(nickname.attrs.intersects(Attrs::BOLD), "{nickname:?}");
+        let role = t.cell(at(&t, 0, "[explorer]"), 0);
+        assert!(!role.attrs.intersects(Attrs::DIM | Attrs::BOLD), "{role:?}");
+        assert_ne!(
+            role.fg, nickname.fg,
+            "the nickname is the accent, the role plain"
+        );
+        let request = t.cell(at(&t, 0, "(gpt-5"), 0);
+        // The oracle's magenta is the theme's accent here (status_line.rs).
+        assert_eq!(request.fg, nickname.fg, "{request:?}");
+        assert!(
+            !request.attrs.intersects(Attrs::DIM | Attrs::BOLD),
+            "{request:?}"
+        );
+    }
+
+    #[test]
+    fn the_states_are_coloured_as_the_oracle_does() {
+        let t = show(
+            80,
+            CollabEvent::FinishedWaiting {
+                agents: vec![
+                    (robie(), Completed(Some("done".into()))),
+                    (agent("b", Some("B"), None), Errored(Some("bad".into()))),
+                    (agent("c", Some("C"), None), NotFound),
+                ],
+            },
+        );
+        assert_eq!(t.cell(at(&t, 1, "Completed"), 1).fg, Color::GREEN);
+        assert_eq!(t.cell(at(&t, 2, "Error"), 2).fg, Color::RED);
+        assert_eq!(t.cell(at(&t, 3, "Not found"), 3).fg, Color::RED);
+        let dash = t.cell(at(&t, 1, " - ") + 1, 1);
+        assert!(dash.attrs.intersects(Attrs::DIM), "{dash:?}");
+        let message = t.cell(at(&t, 1, "done"), 1);
+        assert!(!message.attrs.intersects(Attrs::DIM), "{message:?}");
+    }
+}
+
 mod plan_in_transcript {
     use codex_tui_core::fixtures::builders::turn_started;
     use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;

@@ -9,6 +9,7 @@ pub use previews::{ThreadPreview, ThreadPreviews};
 mod activity;
 mod cells;
 pub mod citations;
+mod collab;
 pub mod directives;
 mod message;
 mod user_prompt;
@@ -18,6 +19,7 @@ pub use cells::{
     HookEntry, HookEntryKind, HookRun, HookStatus, Notice, PatchActivity, PatchChange, PatchKind,
     PlanStep, PlanUpdate, StepStatus, WebAction, WebActivity,
 };
+pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
 
@@ -99,6 +101,8 @@ pub enum Item {
     PlanUpdate(Arc<PlanUpdate>),
     /// A finished hook run with something to show.
     Hook(Arc<HookRun>),
+    /// A multi-agent call or a sub-agent's activity.
+    Collab(Arc<CollabEvent>),
 }
 
 impl Item {
@@ -1207,7 +1211,8 @@ fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, I
         _ => {
             return activity::tool(payload)
                 .map(|(id, tool)| (id, Item::Tool(Arc::new(tool))))
-                .or_else(|| cells::entry(payload, completed));
+                .or_else(|| cells::entry(payload, completed))
+                .or_else(|| collab::entry(payload));
         }
     })
 }

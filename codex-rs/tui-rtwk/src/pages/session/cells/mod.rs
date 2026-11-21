@@ -13,6 +13,7 @@ use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
 pub mod citation;
+pub mod collab;
 pub mod disclosure;
 pub mod hook;
 pub mod markdown;

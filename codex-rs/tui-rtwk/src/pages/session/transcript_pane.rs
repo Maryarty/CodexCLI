@@ -246,6 +246,13 @@ impl State for ViewportState {
                         cells,
                     ),
                 ),
+                Item::Collab(event) => cell(
+                    separator,
+                    super::cells::collab::CollabCell {
+                        event: event.clone(),
+                    }
+                    .into(),
+                ),
                 Item::Hook(run) => cell(
                     separator,
                     super::cells::hook::HookCell { run: run.clone() }.into(),

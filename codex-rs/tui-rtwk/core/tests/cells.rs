@@ -10,8 +10,9 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app}
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
-    HookEntryKind, HookRun, HookStatus, Item, Notice, PatchChange, PatchKind, PlanUpdate,
-    StepStatus, ThreadEv, ToolStatus, WebAction, WebActivity, project,
+    AgentOutcome, AgentRef, CollabEvent, HookEntryKind, HookRun, HookStatus, Item, Notice,
+    PatchChange, PatchKind, PlanUpdate, StepStatus, SubAgentKind, ThreadEv, ToolStatus, WebAction,
+    WebActivity, project,
 };
 use serde_json::{Value, json};
 
@@ -486,4 +487,228 @@ fn a_hook_without_a_turn_follows_the_last_row() {
         })
         .collect();
     assert_eq!(kinds, ["agent", "hook"]);
+}
+
+// ---- multi-agent events (oracle multi_agents.rs) ----
+
+const ROBIE: &str = "00000000-0000-0000-0000-000000000002";
+const BOB: &str = "00000000-0000-0000-0000-000000000003";
+
+fn collab(method: &str, call: Value) -> Option<(String, std::sync::Arc<CollabEvent>)> {
+    let mut base = json!({"type": "collabAgentToolCall", "id": "call-1",
+        "senderThreadId": "00000000-0000-0000-0000-000000000001",
+        "receiverThreadIds": [], "prompt": null, "model": null,
+        "reasoningEffort": null, "agentsStates": {}});
+    base.as_object_mut()
+        .expect("object")
+        .extend(call.as_object().expect("object").clone());
+    let notification: ServerNotification = serde_json::from_value(json!({
+        "method": method,
+        "params": {"item": base, "threadId": "thread-1", "turnId": "turn-1",
+            "completedAtMs": 0, "startedAtMs": 0}
+    }))
+    .expect("collab notification");
+    match project(&notification)?.1 {
+        ThreadEv::ItemStarted {
+            key,
+            item: Item::Collab(event),
+        }
+        | ThreadEv::ItemUpsert {
+            key,
+            item: Item::Collab(event),
+        } => Some((key.item.to_string(), event)),
+        other => panic!("not a collab entry: {other:?}"),
+    }
+}
+
+fn agent(id: &str) -> AgentRef {
+    AgentRef {
+        id: id.to_owned(),
+        nickname: None,
+        role: None,
+    }
+}
+
+#[test]
+fn a_spawn_is_a_row_when_it_ends_and_carries_the_request_and_prompt() {
+    let spawn = |method, status| {
+        collab(
+            method,
+            json!({"tool": "spawnAgent", "status": status,
+            "receiverThreadIds": [ROBIE], "prompt": "  Compute 11!  ",
+            "model": "gpt-5", "reasoningEffort": "high"}),
+        )
+    };
+    assert_eq!(spawn("item/started", "inProgress"), None);
+    let (key, event) = spawn("item/completed", "completed").expect("a row");
+    assert_eq!(key, "call-1");
+    assert_eq!(
+        *event,
+        CollabEvent::Spawned {
+            agent: agent(ROBIE),
+            request: Some(codex_tui_core::threads::SpawnRequest {
+                model: "gpt-5".into(),
+                effort: "high".into()
+            }),
+            prompt: Some("Compute 11!".into()),
+        }
+    );
+}
+
+#[test]
+fn a_spawn_without_a_receiver_failed() {
+    let (_, event) = collab(
+        "item/completed",
+        json!({"tool": "spawnAgent", "status": "failed"}),
+    )
+    .expect("a row");
+    assert_eq!(*event, CollabEvent::SpawnFailed { prompt: None });
+}
+
+#[test]
+fn a_long_prompt_is_cut_to_the_oracle_preview() {
+    let prompt = "x".repeat(300);
+    let (_, event) = collab(
+        "item/completed",
+        json!({"tool": "sendInput", "status": "completed",
+        "receiverThreadIds": [ROBIE], "prompt": prompt}),
+    )
+    .expect("a row");
+    let CollabEvent::SentInput {
+        prompt: Some(prompt),
+        ..
+    } = &*event
+    else {
+        panic!("{event:?}")
+    };
+    assert_eq!(prompt.chars().count(), 160);
+    assert!(prompt.ends_with("..."));
+}
+
+#[test]
+fn a_wait_is_two_rows_the_start_stays_when_the_end_arrives() {
+    let (begin_key, begin) = collab(
+        "item/started",
+        json!({"tool": "wait", "status": "inProgress",
+        "receiverThreadIds": [ROBIE, BOB]}),
+    )
+    .expect("the start");
+    let (end_key, end) = collab(
+        "item/completed",
+        json!({"tool": "wait", "status": "completed",
+        "receiverThreadIds": [ROBIE, BOB],
+        "agentsStates": {ROBIE: {"status": "completed", "message": "  39916800\n"},
+            BOB: {"status": "errored", "message": "tool timeout"}}}),
+    )
+    .expect("the end");
+    assert_ne!(begin_key, end_key);
+    assert_eq!(
+        *begin,
+        CollabEvent::Waiting {
+            agents: vec![agent(ROBIE), agent(BOB)]
+        }
+    );
+    assert_eq!(
+        *end,
+        CollabEvent::FinishedWaiting {
+            agents: vec![
+                (
+                    agent(ROBIE),
+                    AgentOutcome::Completed(Some("39916800".into()))
+                ),
+                (
+                    agent(BOB),
+                    AgentOutcome::Errored(Some("tool timeout".into()))
+                ),
+            ]
+        }
+    );
+}
+
+#[test]
+fn a_wait_that_nobody_finished_lists_no_agent() {
+    let (_, end) = collab(
+        "item/completed",
+        json!({"tool": "wait", "status": "completed"}),
+    )
+    .expect("the end");
+    assert_eq!(*end, CollabEvent::FinishedWaiting { agents: vec![] });
+}
+
+#[test]
+fn a_resume_is_two_rows_and_a_failed_one_has_no_state() {
+    let (_, begin) = collab(
+        "item/started",
+        json!({"tool": "resumeAgent", "status": "inProgress",
+        "receiverThreadIds": [ROBIE]}),
+    )
+    .expect("the start");
+    assert_eq!(
+        *begin,
+        CollabEvent::Resuming {
+            agent: agent(ROBIE)
+        }
+    );
+    let (_, end) = collab(
+        "item/completed",
+        json!({"tool": "resumeAgent", "status": "failed",
+        "receiverThreadIds": [ROBIE]}),
+    )
+    .expect("the end");
+    assert_eq!(
+        *end,
+        CollabEvent::Resumed {
+            agent: agent(ROBIE),
+            outcome: None
+        }
+    );
+}
+
+#[test]
+fn the_v2_tools_leave_no_row_of_their_own() {
+    for tool in [
+        "sendMessage",
+        "followupTask",
+        "interruptAgent",
+        "listAgents",
+    ] {
+        assert_eq!(
+            collab(
+                "item/completed",
+                json!({"tool": tool, "status": "completed",
+                "receiverThreadIds": [ROBIE]})
+            ),
+            None,
+            "{tool}"
+        );
+    }
+}
+
+#[test]
+fn a_sub_agent_activity_is_a_row_with_its_path() {
+    let notification: ServerNotification = serde_json::from_value(json!({
+        "method": "item/completed",
+        "params": {"item": {"type": "subAgentActivity", "id": "activity-1", "kind": "started",
+            "agentThreadId": ROBIE, "agentPath": "/root/helper", "model": null,
+            "reasoningEffort": null},
+            "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0, "startedAtMs": 0}
+    }))
+    .expect("activity");
+    let Some((
+        _,
+        ThreadEv::ItemUpsert {
+            item: Item::Collab(event),
+            ..
+        },
+    )) = project(&notification)
+    else {
+        panic!("no collab entry")
+    };
+    assert_eq!(
+        *event,
+        CollabEvent::Activity {
+            kind: SubAgentKind::Started,
+            path: "/root/helper".into()
+        }
+    );
 }
