@@ -171,10 +171,6 @@ fn empty_mcp_output_preserves_docs_hyperlink() {
 // ORACLE history_cell/tests.rs:475 proposed_plan_cell_unwraps_markdown_fenced_table kind=ui owner=chat-live
 #[test]
 fn proposed_plan_cell_unwraps_markdown_fenced_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "no proposed-plan cell on S11: the cells screen draws no plan cell yet, so the fenced markdown table is not unwrapped on screen",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(

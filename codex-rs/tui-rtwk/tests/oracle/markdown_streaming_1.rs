@@ -50,10 +50,6 @@ fn append_markdown_keeps_ordered_list_line_unsplit_in_context() {
 // ORACLE markdown.rs:700 append_markdown_agent_unwraps_markdown_fences_for_table_rendering kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not unwrap a markdown fence into a table: no table layout (heavy rule and cell columns) is drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -67,10 +63,6 @@ fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
 // ORACLE markdown.rs:710 append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not unwrap a markdown fence into a table (no outer pipes): no table layout is drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -85,10 +77,6 @@ fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() 
 // ORACLE markdown.rs:729 append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not unwrap a two-column markdown fence into a table: no table layout is drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -103,10 +91,6 @@ fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table()
 // ORACLE markdown.rs:740 append_markdown_agent_unwraps_markdown_fences_for_single_column_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_single_column_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not unwrap a single-column markdown fence into a table: no table layout is drawn",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -132,10 +116,6 @@ fn append_markdown_agent_keeps_non_markdown_fences_as_code() {
 // ORACLE markdown.rs:766 append_markdown_agent_unwraps_blockquoted_markdown_fence_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_blockquoted_markdown_fence_table() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not unwrap a blockquoted markdown fence: the fence markers would show",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
