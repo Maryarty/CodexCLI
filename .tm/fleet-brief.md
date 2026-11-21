@@ -122,3 +122,7 @@ result summary (what was done vs the task, oracle behaviours covered and the
 ones left with reasons, tests and their bites, deltas and NEW kinds, rtwk
 gaps, risks, what others must change). A fix round answers each review
 finding by `path:line` and commit.
+Your brief names the review tier (process.md §A5 "Review tiers"): TRIVIAL
+(markers, docs: no review), LIGHT (one reviewer pass, landing does not wait)
+or FULL (batch review). Stay inside what the tier allows: a TRIVIAL task that
+needs a `src/` change stops and says so.

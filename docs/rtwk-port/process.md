@@ -455,6 +455,21 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 | the wave (§A8) | `codex-reviewer` with `model: opus`, over the wave's diff | drift from the architecture or from rtwk's standard means; a rule enforced only on paper |
 | the person | tm acceptance, deltas, §A9 | the next wave; NEW delta kinds only where a slice cannot finish without the decision |
 
+> **Review tiers (the person, 2026-11-21: "для малорисковых срезов делать
+> ревью легче").** The orchestrator names the tier in the brief; the batch
+> rows above apply to FULL only.
+>
+> | tier | what | review | landing |
+> |---|---|---|---|
+> | TRIVIAL | test markers only (kit::pending), docs, parity packs, gap rows, renames | none: the orchestrator checks the diff scope (`git diff --name-only` inside the area; no `src/`, `core/`, `host/`, manifest change) and the porter's green checks | fast-forward or in the next candidate |
+> | LIGHT | one screen's view over existing core state, a fix round of findings already reviewed, strengthening oracle bodies, a kit helper | one Sonnet `codex-reviewer` pass over the slice's own diff: ADR conformance (ADR-003 state, layers, R15/rtwk-first, ADR-010 strings) + defects | does not wait for the review; findings go to the next round |
+> | FULL | new core state, protocol, services/host IO, a new shared widget, anything on the risky list above | the batch review as in the table (Opus where listed) | as today |
+>
+> The ADR guard (every review checks ADR conformance) holds for LIGHT and
+> FULL; the ADR check at landing (§A6) holds for every tier. When unsure,
+> the higher tier. Examples: stale-pending TRIVIAL, composer-asserts LIGHT,
+> startup-deltas FULL.
+
 What does **not** block landing: visual deltas of a decided kind, deltas
 proposed as accepted (they stay `built`, not `parity-accepted`), rtwk gaps
 listed as deltas, review notes.
