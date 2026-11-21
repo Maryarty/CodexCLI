@@ -272,6 +272,19 @@ impl Screen {
         self.snap(name).frame(section).assert();
     }
 
+    /// The composer's text (`ComposerInput::composer_text` of the oracle),
+    /// read from the composer's rows (see `Grid::composer_text` for what it
+    /// can and cannot tell): `""` while the placeholder shows.
+    pub fn composer_text(&self) -> String {
+        self.grid().composer_text()
+    }
+
+    /// The oracle test asserts the composer's text is exactly `text`
+    /// (`assert_eq!(chat.bottom_pane.composer_text(), ..)`).
+    pub fn assert_composer(&self, text: &str) {
+        self.grid().assert_composer(text);
+    }
+
     // ---- an oracle assertion's literal ------------------------------------------
 
     /// The oracle test asserts the screen holds `text` (copy its literal).

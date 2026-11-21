@@ -632,3 +632,40 @@ fn opening_a_script_screen_gives_the_same_rows_every_time() {
         assert_eq!(rows(n), first, "open number {n}");
     }
 }
+
+/// The composer's text is read from its rows: the placeholder is "", a draft
+/// is its text, a pasted two-line draft is two lines, and a user message in
+/// the transcript (`› hi`) is not the composer.
+#[test]
+fn the_composer_text_is_read_from_its_rows() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!("kit/fixtures/answered.jsonl"))
+        .open();
+    s.wait_for("• Hello there");
+    s.assert_contains("› hi");
+    s.assert_composer("");
+    s.type_text("draft one");
+    s.assert_composer("draft one");
+    s.keys(
+        "backspace backspace backspace backspace backspace backspace backspace backspace backspace",
+    );
+    s.assert_composer("");
+    s.paste("first\nsecond");
+    assert_eq!(s.composer_text(), "first\nsecond");
+    s.type_text("/");
+    s.assert_composer("first\nsecond/");
+}
+
+/// A composer text that differs fails, and a typed text that equals the
+/// placeholder is not mistaken for it.
+#[test]
+fn a_different_composer_text_fails() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("abc");
+    assert!(fails(|| s.assert_composer("abd")));
+    assert!(fails(|| s.assert_composer("")));
+    s.keys("backspace backspace backspace");
+    s.type_text("Ask Codex to do anything");
+    s.assert_composer("Ask Codex to do anything");
+}

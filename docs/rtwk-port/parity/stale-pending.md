@@ -19,7 +19,7 @@ Only change outside the marker lines: markdown_streaming_5.rs lost the now-unuse
 | chat_approvals_2 | 0 | 1 |
 | chat_commands_1 | 0 | 8 |
 | chat_commands_2 | 0 | 4 |
-| chat_commands_3 | 4 | 10 |
+| chat_commands_3 | 1 | 13 |
 | chat_live_1 | 2 | 1 |
 | chat_live_2 | 0 | 1 |
 | chat_live_3 | 0 | 4 |
@@ -47,13 +47,13 @@ Only change outside the marker lines: markdown_streaming_5.rs lost the now-unuse
 | transcript_view_2 | 0 | 7 |
 | transcript_view_3 | 0 | 1 |
 | transcript_view_5 | 0 | 1 |
-| **all** | **52** | **203** |
+| **all** | **49** | **206** |
 
 Per commit family (one commit each):
 
 - approvals: 1 REAL, 4 VACUOUS
 - cells: 0 REAL, 12 VACUOUS
-- chat: 10 REAL, 69 VACUOUS
+- chat: 7 REAL, 72 VACUOUS
 - composer: 3 REAL, 35 VACUOUS
 - markdown_streaming: 38 REAL, 46 VACUOUS
 - pane_footer: 0 REAL, 14 VACUOUS
@@ -66,7 +66,7 @@ composer_2: 10 red before and after (handle_paste_small_inserts_text, mention_po
 
 ## Notes for the owners
 
-- Bodies worth finishing so the marker can go: chat_commands_3 keymap/mcp usage (add the recall row), composer_popups::category_tags (narrow case), markdown_streaming_3::tight_item_with_soft_break (indent), markdown_streaming_2 paragraph_multiple / blockquote blank-row tests (use rows with blanks, assert_row), markdown_streaming_4::table_inside_blockquote (every row starts `> `).
+- Bodies worth finishing so the marker can go: composer_popups::category_tags (narrow case), markdown_streaming_3::tight_item_with_soft_break (indent), markdown_streaming_2 paragraph_multiple / blockquote blank-row tests (use rows with blanks, assert_row), markdown_streaming_4::table_inside_blockquote (every row starts `> `).
 - Stale marker texts on REAL tests said features did not exist (exec approval entry, markdown renderer, error cell); they are gone with the markers.
 
 ## Per test
@@ -136,9 +136,9 @@ composer_2: 10 red before and after (handle_paste_small_inserts_text, mention_po
 - `chat_commands_3::ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rendering` VACUOUS — passes only because the feature the marker names is absent: the sparkle (braille glyph) animation of a fresh task on gpt-6-astra with starfield is not seeded; the kit has no any-of-glyphs as...
 - `chat_commands_3::raw_slash_command_reports_usage_for_invalid_arg` REAL — `/raw status` draws `Usage: /raw [on|off]` (strings.rs usage_raw); oracle text asserted
 - `chat_commands_3::slash_archive_cancellation_keeps_task_running` VACUOUS — passes only because the feature the marker names is absent: a running task seed and the archive confirmation popup are not reachable black-box; the popup text is the oracle's slash_archive_r...
-- `chat_commands_3::slash_clear_after_ctrl_c_keeps_stashed_draft_recallable` REAL — Up after ctrl+c and /clear recalls the stashed draft (a non-trivial positive row); the second assert (`ok`) could also match the transcript row
-- `chat_commands_3::slash_keymap_invalid_args_show_usage` REAL — usage text drawn (usage_keymap); NOTE the body does not assert the oracle's recall of `/keymap nope` nor the absent op
-- `chat_commands_3::slash_mcp_invalid_args_show_usage` REAL — usage text drawn (usage_mcp); NOTE the body does not assert the oracle's recall of `/mcp full` nor the absent op
+- `chat_commands_3::slash_clear_after_ctrl_c_keeps_stashed_draft_recallable` VACUOUS — marker restored by composer-asserts: with the oracle's literals read through `Screen::composer_text` the body is red; the port keeps the draft in the composer on Ctrl+C (oracle: empty, draft recorded) and has no prompt history (Up recalls nothing). The earlier REAL row was a draft still on the screen matching `assert_contains`.
+- `chat_commands_3::slash_keymap_invalid_args_show_usage` VACUOUS — marker restored by composer-asserts: body now asserts the oracle's recall (clear the composer, Up, composer is `/keymap nope`); red because the chat composer has no prompt history (Up after the clear shows the placeholder). The port also keeps the draft in the composer after the usage line.
+- `chat_commands_3::slash_mcp_invalid_args_show_usage` VACUOUS — marker restored by composer-asserts: same as the keymap row (`/mcp full`); red because the chat composer has no prompt history.
 - `chat_commands_3::slash_rollout_handles_missing_path` VACUOUS — `not available` matches the generic `'/rollout' is not available yet.` for every unbuilt command
 - `chat_commands_3::startup_submission_edit_or_disconnect_cancels_without_losing_draft` VACUOUS — typed text echo only
 - `chat_commands_3::startup_submission_waits_for_protected_view_and_preserves_paste_provenance` VACUOUS — paste echo only; ops not drawn

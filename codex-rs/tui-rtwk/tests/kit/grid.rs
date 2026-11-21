@@ -297,6 +297,64 @@ pub fn check_style(spec: &str, style: &CellStyle) -> Vec<String> {
     bad
 }
 
+// ---- the composer's text, read from its rows ----------------------------------------
+
+impl Grid {
+    /// The composer's text, read black-box from its rows: the prompt row
+    /// (`› `, the row of the cursor or the nearest one above it that starts
+    /// so) and the continuation rows under it (two blanks of indent), down to
+    /// the first blank row (and never above the cursor's row). Rows are
+    /// joined with `\n`. The placeholder of an empty composer (drawn dim) reads
+    /// as `""`.
+    ///
+    /// Limits, by what the screen shows: the cursor must be visible (the
+    /// composer has the focus; no popup or dialog took it), a soft-wrapped
+    /// line reads as several rows, and a draft with an empty line ends at that
+    /// line unless the cursor is below it. Drafts of the oracle tests fit one
+    /// row each.
+    pub fn composer_text(&self) -> String {
+        let (_, cy) = self.cursor.unwrap_or_else(|| {
+            panic!(
+                "composer_text: the cursor is hidden, the composer has no focus:\n{}",
+                self.text()
+            )
+        });
+        let is_prompt = |y: usize| self.cell(0, y).text == "›" && self.cell(1, y).text == " ";
+        let top = (0..=cy).rev().find(|&y| is_prompt(y)).unwrap_or_else(|| {
+            panic!(
+                "composer_text: no prompt row `› ` at or above the cursor row {cy}:\n{}",
+                self.text()
+            )
+        });
+        let mut lines = vec![self.row(top, 2, self.width, false)];
+        let mut y = top + 1;
+        while y < self.height {
+            let row = self.row(y, 0, self.width, false);
+            if row.is_empty() && y > cy {
+                break;
+            }
+            if !row.is_empty() && !row.starts_with("  ") {
+                break;
+            }
+            lines.push(self.row(y, 2, self.width, false));
+            y += 1;
+        }
+        if lines.len() == 1 && self.style(2, top).modifier.contains("DIM") {
+            return String::new();
+        }
+        lines.join("\n")
+    }
+
+    pub fn assert_composer(&self, text: &str) {
+        pretty_assertions::assert_eq!(
+            text,
+            self.composer_text(),
+            "the composer's text:\n{}",
+            self.text()
+        );
+    }
+}
+
 // ---- an oracle assertion's literal, on the screen's cells ----------------------------
 
 impl Grid {
