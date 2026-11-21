@@ -2,6 +2,7 @@
 
 pub mod age;
 pub mod dots;
+pub mod key_guard;
 pub mod measure;
 pub mod options;
 pub mod page_keys;

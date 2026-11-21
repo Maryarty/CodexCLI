@@ -102,6 +102,13 @@ fn chatgpt_sign_in_runs_through_the_host_and_drops_stale_results() {
         "a stale result opens nothing:\n{}",
         h.t.screen()
     );
+    // ... and the login it started is cancelled (review O1).
+    assert_eq!(
+        logins(&h)[1..],
+        [Ask::CancelLogin {
+            login_id: "login-1".into(),
+        }]
+    );
     h.fake.inject(epoch, browser(2));
     h.wait_for("the browser link", |s| {
         s.contains("Finish signing in via your browser") && s.contains("https://auth.example/login")
@@ -110,7 +117,7 @@ fn chatgpt_sign_in_runs_through_the_host_and_drops_stale_results() {
     h.wait_for("the menu again", |s| s.contains("Sign in with ChatGPT"));
     h.settle();
     assert_eq!(
-        logins(&h)[1..],
+        logins(&h)[2..],
         [Ask::CancelLogin {
             login_id: "login-1".into(),
         }]
