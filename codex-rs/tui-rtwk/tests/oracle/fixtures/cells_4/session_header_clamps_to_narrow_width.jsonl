@@ -1,0 +1,3 @@
+# oracle history_cell/tests.rs:1873 session_header_clamps_to_narrow_width
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"status": {"cwd": "project", "profile": "full", "approval_policy": "never", "version": "test"}}}

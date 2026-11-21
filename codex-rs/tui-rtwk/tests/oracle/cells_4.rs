@@ -13,7 +13,7 @@ const NO_MCP_CELL: &str = "core threads::project maps only user and agent messag
 const NO_EXEC_CELL: &str = "core threads::project maps only user and agent messages (item_upsert), so a commandExecution item draws no exec cell on the S11 transcript";
 const NO_SEED_MCP_RPC: &str = "no seed: the /mcp inventory is an RPC answer the script cannot carry, and S11 draws no MCP inventory cell";
 const NO_SEED_UPDATE: &str = "no seed: the update-available notice comes from the version check, which the kit cannot set, and S11 draws no notice cell";
-const NO_SEED_HEADER: &str = "no seed: the session header (model, reasoning, cwd, yolo) is not in core's model, so S11 draws no header cell";
+const HALFWIDTH_HEADER: &str = "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the header's directory (`ｶﾞﾊﾟ`x8 and `-project`, 40 oracle cells, 24 in rtwk) fits the 37 columns beside its five-column indent and is not cut to `…` and its tail";
 const NO_SEED_LOCAL: &str = "no seed: this cell comes from a local flow (an approval answer, a stdin interaction, a recap or a loading state) the script cannot drive, and S11 draws no such cell";
 
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
@@ -414,24 +414,31 @@ fn completed_mcp_tool_call_multiple_outputs_inline_snapshot() {
 // ORACLE history_cell/tests.rs:1873 session_header_clamps_to_narrow_width kind=snap owner=chat-live snap=session_header_clamps_to_narrow_width
 #[test]
 fn session_header_clamps_to_narrow_width() {
-    kit::pending(Owner::ChatLive, NO_SEED_HEADER);
-    let s = Screen::build(Owner::ChatLive).size(44, 12).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(44, 12)
+        .script(include_str!("fixtures/cells_4/session_header_clamps_to_narrow_width.jsonl"))
+        .open();
     s.assert_snap_region("session_header_clamps_to_narrow_width", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:1895 session_header_indicates_yolo_mode kind=snap owner=chat-live snap=session_header_indicates_yolo_mode
 #[test]
 fn session_header_indicates_yolo_mode() {
-    kit::pending(Owner::ChatLive, NO_SEED_HEADER);
-    let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 12)
+        .script(include_str!("fixtures/cells_4/session_header_indicates_yolo_mode.jsonl"))
+        .open();
     s.assert_snap_region("session_header_indicates_yolo_mode", 0, 0);
 }
 
 // ORACLE history_cell/tests.rs:1909 session_header_truncates_halfwidth_directory kind=snap owner=chat-live snap=session_header_halfwidth_directory
 #[test]
 fn session_header_truncates_halfwidth_directory() {
-    kit::pending(Owner::ChatLive, NO_SEED_HEADER);
-    let s = Screen::build(Owner::ChatLive).size(42, 24).live().open();
+    kit::pending(Owner::ChatLive, HALFWIDTH_HEADER);
+    let s = Screen::build(Owner::ChatLive)
+        .size(42, 24)
+        .script(include_str!("fixtures/cells_4/session_header_truncates_halfwidth_directory.jsonl"))
+        .open();
     s.assert_snap_region("session_header_halfwidth_directory", 0, 0);
 }
 

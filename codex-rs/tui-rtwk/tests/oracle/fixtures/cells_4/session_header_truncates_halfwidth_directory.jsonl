@@ -1,0 +1,3 @@
+# oracle history_cell/tests.rs:1909 session_header_truncates_halfwidth_directory
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"status": {"cwd": "ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ-project", "profile": "workspace", "approval_policy": "on-request", "version": "test"}}}

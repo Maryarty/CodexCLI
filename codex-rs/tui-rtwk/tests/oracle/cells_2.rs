@@ -659,7 +659,7 @@ fn completion_rendering_uses_the_captured_display_date() {
 fn wheel_at_hidden_session_header_keeps_the_loaded_message_anchor() {
     kit::pending(
         Owner::ChatLive,
-        "no session-information cell and no partial transcript history in the S11 transcript: the kit cannot seed a hidden session header, and older pages are not paged in on a wheel gesture",
+        "no script step answers `thread/turns/list`, so a thread never gets a next cursor (the header is hidden only while `ThreadModel::can_load_history`), and the wheel at the top of the chat does not page older turns in or keep the anchor (the chat-transcript slice: TranscriptView history states)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(30, 3)
@@ -683,7 +683,7 @@ fn wheel_at_hidden_session_header_keeps_the_loaded_message_anchor() {
 fn session_information_waits_for_older_pages_and_reappears_after_completion() {
     kit::pending(
         Owner::ChatLive,
-        "no session-information cell and no history paging states (Partial, LoadingOlder, LoadingBeginning, Failed) in the S11 transcript; the kit cannot set those states",
+        "the header is hidden while older pages exist (`can_load_history`, the oracle's Partial) and shown when the history is complete, but the kit cannot give a thread a next cursor (no `thread/turns/list` script step) and core has no LoadingOlder, LoadingBeginning or Failed states (the chat-transcript slice); the row to compare is the pane's `OpenAI Codex` header, the oracle text `session announcement` is its test stand-in",
     );
     let s = Screen::build(Owner::ChatLive).size(30, 2).live().open();
     // The Complete state: the session announcement is the first row. The oracle's other

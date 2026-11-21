@@ -358,7 +358,7 @@ fn ps_output_empty_snapshot() {
 fn session_info_uses_availability_nux_tooltip_override() {
     kit::pending(
         Owner::ChatLive,
-        "no session-info cell with the availability NUX on S11: the startup banner and the model-availability tooltip are not drawn, and the model availability is not seedable",
+        "the startup card of the oracle (new_session_info: help lines of the first session and one `Tip:` row) is not built: core has no first-session fact, no `show_tooltips` setting, no tips catalog and no model-availability NUX, and no script seed sets them; the header above it is drawn",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_contains("Model just became available");
@@ -369,7 +369,7 @@ fn session_info_uses_availability_nux_tooltip_override() {
 fn session_info_availability_nux_tooltip_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no session-info cell with the availability NUX on S11: the startup banner and the model-availability tooltip are not drawn, and the model availability is not seedable",
+        "the startup card of the oracle (new_session_info: help lines of the first session and one `Tip:` row) is not built: core has no first-session fact, no `show_tooltips` setting, no tips catalog and no model-availability NUX, and no script seed sets them; the header above it is drawn",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap_region("session_info_availability_nux_tooltip_snapshot", 0, 0);
@@ -380,7 +380,7 @@ fn session_info_availability_nux_tooltip_snapshot() {
 fn session_info_preserves_styled_tooltip_links() {
     kit::pending(
         Owner::ChatLive,
-        "no session-info cell on S11: the tip with **/copy** bold and the community link is not drawn; the oracle's link-column dump is compared through assert_link and assert_text_style",
+        "the startup card's `Tip:` row (markdown with **/copy** bold and a community link) is not built: core has no tips catalog or tooltip override; the oracle's link-column dump is compared through assert_link and assert_text_style",
     );
     let s = Screen::build(Owner::ChatLive).size(30, 24).live().open();
     s.assert_in_order(&[
@@ -397,7 +397,7 @@ fn session_info_preserves_styled_tooltip_links() {
 fn session_info_first_event_respects_tooltip_preference() {
     kit::pending(
         Owner::ChatLive,
-        "no session-info cell on S11, and the tooltip preference (show_tooltips = false) is not seedable through the kit; the oracle's second pass of the loop is not reachable yet",
+        "the startup card's help lines and tip follow `show_tooltips`; core has no such setting and no first-session fact, and no script seed sets them",
     );
     // show_tooltips = true: the tip is shown, the availability notice is not.
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
@@ -411,7 +411,7 @@ fn session_info_first_event_respects_tooltip_preference() {
 fn session_info_hides_tooltips_when_disabled() {
     kit::pending(
         Owner::ChatLive,
-        "no session-info cell on S11, and show_tooltips = false is not seedable through the kit",
+        "the startup card's help lines and tip follow `show_tooltips`; core has no such setting, and no script seed sets it",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // The session banner is drawn without the tip: its header line is the oracle's.
