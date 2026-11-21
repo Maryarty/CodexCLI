@@ -40,6 +40,7 @@ use codex_tui_core::protocol::onboarding as wire;
 use codex_tui_core::rpc::RpcError;
 use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
@@ -181,14 +182,7 @@ where
     let ev = match ask {
         Ask::Facts { request } => match facts(&startup, &ids, &send).await {
             Ok(facts) => Ev::Facts { request, facts },
-            Err(message) => {
-                // The launch ends with the error, as the oracle's does: the
-                // slot first, so `main` finds it once the app has ended.
-                if let Ok(mut slot) = startup.failure.lock() {
-                    *slot = Some(message.clone());
-                }
-                return Some(AppEv::StartFailed(message));
-            }
+            Err(message) => return Some(fail_launch(&startup, message)),
         },
         Ask::WriteTrust { request, target } => {
             let (key, context) = if startup.connected {
@@ -228,7 +222,22 @@ where
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }
-        Ask::ReloadConfig => return None,
+        Ask::ReloadConfig => {
+            // The remote workspace's config is not this machine's.
+            if startup.target.remote_workspace() {
+                return None;
+            }
+            return Some(match (startup.reload)().await {
+                Ok(config) => {
+                    let status = crate::facts::status(&config).await;
+                    AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status))))
+                }
+                // `load_config_or_exit`.
+                Err(error) => {
+                    fail_launch(&startup, format!("Error loading configuration: {error}"))
+                }
+            });
+        }
         Ask::OpenBrowser { url } => {
             // `show_chatgpt_login_in_browser`: only for a local workspace; the
             // open may start a process and wait, so it runs off the async
@@ -251,6 +260,15 @@ where
         }
     };
     Some(AppEv::Screen(ScreenEv::Onboarding(ev)))
+}
+
+/// The launch ends with `message`, as the oracle's does: the slot first, so
+/// `main` finds it once the app has ended.
+fn fail_launch(startup: &Startup, message: String) -> AppEv {
+    if let Ok(mut slot) = startup.failure.lock() {
+        *slot = Some(message.clone());
+    }
+    AppEv::StartFailed(message)
 }
 
 /// The launch facts; the error text of one that could not be read.
@@ -534,7 +552,6 @@ fn update_action(context: &InstallContext) -> Option<UpdateAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_tui_core::screens::chat::Ev as ChatEv;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 

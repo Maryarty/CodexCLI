@@ -242,6 +242,22 @@ async fn run(
         cwd,
         ..Default::default()
     };
+    // The launch's own way of loading the config, kept for the reload once
+    // the folder is trusted.
+    let reload: crate::startup::Reload = {
+        let (cli_overrides, overrides) = (cli_overrides.clone(), overrides.clone());
+        Arc::new(move || {
+            let (cli_overrides, overrides) = (cli_overrides.clone(), overrides.clone());
+            Box::pin(async move {
+                ConfigBuilder::default()
+                    .cli_overrides(cli_overrides)
+                    .harness_overrides(overrides)
+                    .build()
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+    };
     let config = match ConfigBuilder::default()
         .cli_overrides(cli_overrides)
         .harness_overrides(overrides)
@@ -282,7 +298,7 @@ async fn run(
         failure: startup_failure,
         browser: crate::startup::system_browser(),
         updates: crate::startup::Updates::system(&config),
-        reload: Arc::new(|| Box::pin(std::future::ready(Err("no reload".to_owned())))),
+        reload,
         target: match mode {
             Mode::Embedded => crate::startup::Target::Embedded,
             Mode::Daemon | Mode::Remote { daemon: true, .. } => crate::startup::Target::LocalDaemon,

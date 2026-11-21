@@ -418,6 +418,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 .filter(|t| t.decision == Some(TrustDecision::Saving))
             {
                 t.decision = Some(TrustDecision::Trusted);
+                // The folder is trusted: the project's config applies.
+                ask(fx, Ask::ReloadConfig);
             }
         }
         // onboarding_screen.rs `persist_selected_trust`: the step stays, with
