@@ -7,3 +7,73 @@ use crate::common::slot;
 fn startup_slot_is_registered_and_empty() {
     slot("startup");
 }
+
+// R-F5: the oracle runs the startup checks before it draws the chat, so its
+// prompt is never preceded by a chat frame. A host that answers the facts
+// has the app wait for them (`with_awaited_facts`).
+mod gate {
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::onboarding::{Ev, Facts, TrustAsk, TrustCancel, Welcome};
+
+    use crate::common::{Harness, ms, start_app};
+
+    const CHAT: &str = "? for shortcuts";
+
+    fn awaiting() -> Harness {
+        start_app(|app| app.with_awaited_facts(true))
+    }
+
+    fn answer(h: &Harness, facts: Facts) {
+        let epoch = h.fake.epoch().expect("attached");
+        h.fake.inject(
+            epoch,
+            AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { request: 1, facts })),
+        );
+    }
+
+    fn trust() -> Facts {
+        Facts {
+            welcome: Some(Welcome { animations: false }),
+            trust: Some(TrustAsk {
+                cwd: "/workspace/project".into(),
+                target: "/workspace/project".into(),
+                cancel: TrustCancel::AgentsOverview,
+                ..TrustAsk::default()
+            }),
+            ..Facts::default()
+        }
+    }
+
+    #[test]
+    fn nothing_is_drawn_while_the_facts_are_awaited() {
+        let mut h = awaiting();
+        h.settle();
+        let screen = h.t.screen();
+        assert!(!screen.contains(CHAT), "the chat is up:\n{screen}");
+    }
+
+    #[test]
+    fn the_chat_shows_when_the_facts_hold_nothing_due() {
+        let mut h = awaiting();
+        h.settle();
+        answer(&h, Facts::default());
+        h.wait_for("the chat", |s| s.contains(CHAT));
+    }
+
+    #[test]
+    fn a_due_step_is_drawn_without_a_chat_frame_before_it() {
+        let mut h = awaiting();
+        h.settle();
+        answer(&h, trust());
+        for _ in 0..200 {
+            h.t.pump_for(ms(5));
+            let screen = h.t.screen();
+            assert!(!screen.contains(CHAT), "a chat frame:\n{screen}");
+            if screen.contains("Folder access") {
+                return;
+            }
+        }
+        panic!("the prompt never came:\n{}", h.t.screen());
+    }
+}
