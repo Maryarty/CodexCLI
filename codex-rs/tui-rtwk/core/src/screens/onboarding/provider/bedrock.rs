@@ -193,6 +193,11 @@ impl Bedrock {
             || self.discovery.environment.is_empty()
     }
 
+    /// A request is out (what `Esc` leaves, its answer dropped).
+    pub fn waits(&self) -> bool {
+        matches!(self.stage, Stage::Discovering(_) | Stage::Configuring { .. })
+    }
+
     pub fn is_text_entry(&self) -> bool {
         matches!(
             self.stage,
@@ -384,7 +389,8 @@ impl Bedrock {
             (Stage::Discovering(r), outcome) if *r == request => {
                 match outcome {
                     Ok(Answer::Discovered(discovery)) => *self = Bedrock::discovered(discovery),
-                    Ok(Answer::Written) => *self = Bedrock::discovered(Discovery::default()),
+                    // Not the answer of a discovery: nothing found.
+                    Ok(_) => *self = Bedrock::discovered(Discovery::default()),
                     Err(message) => {
                         *self = Bedrock::discovered(Discovery::default());
                         self.error = Some(Error::Discover(message));

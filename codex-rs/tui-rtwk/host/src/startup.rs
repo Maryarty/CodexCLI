@@ -240,9 +240,7 @@ where
             Ev::UpdateQueued { request }
         }
         Ask::Login { request, login } => {
-            let result = send(wire::login_start(&login, ids.next()))
-                .await
-                .map_err(|error| error.message);
+            let result = send(wire::login_start(&login, ids.next())).await;
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }

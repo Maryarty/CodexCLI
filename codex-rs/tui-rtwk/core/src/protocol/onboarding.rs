@@ -20,7 +20,7 @@ use codex_app_server_protocol::MergeStrategy;
 use codex_app_server_protocol::RequestId;
 use serde_json::Value;
 
-use crate::rpc::RpcError;
+use crate::rpc::{RpcError, ServerError};
 use crate::screens::onboarding::UpdateOffer;
 use crate::screens::onboarding::auth::provider;
 use crate::screens::onboarding::auth::{DeviceCode, Error, Login, Offer, Outcome, Providers};
@@ -115,10 +115,11 @@ pub fn login_cancel(login_id: &str, request_id: RequestId) -> ClientRequest {
 
 /// What a login's `account/login/start` answer means; `Err` is the error
 /// the request failed with, as the oracle shows it.
-pub fn login_outcome(login: &Login, result: Result<Value, String>) -> Outcome {
+pub fn login_outcome(login: &Login, result: Result<Value, ServerError>) -> Outcome {
     if let Login::Provider(setup) = login {
         return Outcome::Provider(provider::wire::outcome(setup, result));
     }
+    let result = result.map_err(|error| error.message);
     let response = match result {
         Ok(value) => serde_json::from_value::<LoginAccountResponse>(value),
         Err(message) => {

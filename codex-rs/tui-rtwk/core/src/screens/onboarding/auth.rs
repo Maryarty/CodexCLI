@@ -102,6 +102,9 @@ pub enum State {
     Provider(Provider),
     /// A provider's setup is written (`BedrockConfigured`, `GcpConfigured`).
     ProviderConfigured(Provider),
+    /// The gateway with this id is the default provider
+    /// (`SignInState::GatewaySelected`): what the host signs in to next.
+    GatewaySelected(String),
 }
 
 /// A device code to enter (`ContinueWithDeviceCodeState::ready`).
@@ -225,6 +228,7 @@ impl SignIn {
                 | State::ApiKeyConfigured
                 | State::Provider(_)
                 | State::ProviderConfigured(_)
+                | State::GatewaySelected(_)
         )
     }
 
@@ -301,8 +305,11 @@ pub fn apply_intent(
             let effect = wizard.back();
             // Esc leaves what the wizard waited for: its answer is dropped
             // (the wizard's view no longer holds the number) and the menu
-            // takes choices again.
-            if matches!(sign_in.awaiting, Some((_, Login::Provider(_)))) {
+            // takes choices again; a wizard that holds Esc back while its
+            // request is out (the oracle's `Configuring` ignores it) still
+            // takes the answer.
+            let held = effect == provider::Effect::None && wizard.waits();
+            if !held && matches!(sign_in.awaiting, Some((_, Login::Provider(_)))) {
                 sign_in.awaiting = None;
             }
             wizard_effect(sign_in, effect, asks);
@@ -385,8 +392,10 @@ fn choose(
                 sign_in.disallow_api_login();
             } else if sign_in.offer.providers.offers(provider) {
                 sign_in.error = None;
-                sign_in.wizard = provider::Wizard::of(provider);
+                let (wizard, effect) = provider::Wizard::of(provider, mint);
+                sign_in.wizard = Some(wizard);
                 sign_in.state = State::Provider(provider);
+                wizard_effect(sign_in, effect, asks);
             }
         }
     }
@@ -417,7 +426,12 @@ fn cancel(sign_in: &mut SignIn, asks: &mut Vec<Ask>) {
 
 /// The answer of a login ask. One no longer awaited is dropped; a device
 /// code or browser login that came for an attempt left is cancelled.
-pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask>) {
+pub fn apply_result(
+    sign_in: &mut SignIn,
+    result: AuthResult,
+    mint: &mut dyn FnMut() -> Request,
+    asks: &mut Vec<Ask>,
+) {
     let AuthResult { request, outcome } = result;
     let device = matches!(sign_in.state, State::DeviceCode { request: r, code: None } if r == request);
     let awaited = sign_in
@@ -483,9 +497,19 @@ pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask
             let Some(wizard) = sign_in.wizard.as_mut() else {
                 return;
             };
-            if wizard.answer(request, result) {
-                sign_in.wizard = None;
-                sign_in.state = State::ProviderConfigured(provider);
+            match wizard.answer(request, result, mint) {
+                provider::Settled::Waiting => {}
+                provider::Settled::Configured => {
+                    sign_in.wizard = None;
+                    sign_in.state = State::ProviderConfigured(provider);
+                }
+                provider::Settled::Selected(id) => {
+                    sign_in.wizard = None;
+                    sign_in.state = State::GatewaySelected(id);
+                }
+                provider::Settled::Ask(request, setup) => {
+                    wizard_effect(sign_in, provider::Effect::Ask(request, setup), asks);
+                }
             }
         }
         (Some(Login::Provider(_)), other) => {
@@ -571,7 +595,18 @@ mod tests {
         }
 
         fn result(&mut self, sign_in: &mut SignIn, request: Request, outcome: Outcome) {
-            apply_result(sign_in, AuthResult { request, outcome }, &mut self.asks);
+            let mut next = self.next;
+            let mut mint = || {
+                next += 1;
+                next
+            };
+            apply_result(
+                sign_in,
+                AuthResult { request, outcome },
+                &mut mint,
+                &mut self.asks,
+            );
+            self.next = next;
         }
     }
 
@@ -1049,5 +1084,98 @@ mod tests {
         run.intent(&mut sign_in, Intent::ProviderBack);
         assert_eq!(sign_in.state, State::Pick);
         assert_eq!(sign_in.wizard, None);
+    }
+
+    /// The setup the last ask of the run is.
+    fn last_setup(run: &Run) -> (Request, provider::Setup) {
+        match run.asks.last() {
+            Some(Ask::Login {
+                request,
+                login: Login::Provider(setup),
+            }) => (*request, setup.clone()),
+            other => panic!("no setup asked: {other:?}"),
+        }
+    }
+
+    fn gateway_sign_in() -> SignIn {
+        SignIn::new(Offer {
+            providers: Providers {
+                gateway: true,
+                ..Providers::default()
+            },
+            ..offer()
+        })
+    }
+
+    fn one_gateway() -> provider::Answer {
+        provider::Answer::Gateways(provider::gateway::Page {
+            gateways: vec![provider::gateway::Saved {
+                id: "office".into(),
+                name: "Office".into(),
+                variable: None,
+            }],
+            default_id: "openai".into(),
+        })
+    }
+
+    /// gateway_tests.rs select_a_saved_gateway_during_sign_in: choosing the
+    /// gateway opens its wizard, which reads the saved gateways at once;
+    /// only picking one ends the step, with its id.
+    #[test]
+    fn the_gateway_wizard_reads_the_saved_ones_and_ends_with_the_one_picked() {
+        let mut sign_in = gateway_sign_in();
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gateway)));
+        assert_eq!(sign_in.state, State::Provider(Provider::Gateway));
+        let (list, setup) = last_setup(&run);
+        assert_eq!(setup, provider::Setup::GatewayList);
+        run.result(&mut sign_in, list, Outcome::Provider(Ok(one_gateway())));
+        run.intent(
+            &mut sign_in,
+            Intent::Provider(provider::Intent::Gateway(provider::gateway::Intent::Activate(0))),
+        );
+        let (select, setup) = last_setup(&run);
+        assert_eq!(setup, provider::Setup::GatewaySelect("office".into()));
+        run.result(
+            &mut sign_in,
+            select,
+            Outcome::Provider(Ok(provider::Answer::GatewaySelected)),
+        );
+        assert_eq!(sign_in.state, State::GatewaySelected("office".into()));
+        assert_eq!(sign_in.wizard, None);
+        assert!(sign_in.done());
+    }
+
+    /// Esc while the gateways are read leaves for the menu and the answer
+    /// that comes later is dropped.
+    #[test]
+    fn esc_while_the_gateways_load_leaves_and_drops_the_answer() {
+        let mut sign_in = gateway_sign_in();
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gateway)));
+        let (list, _) = last_setup(&run);
+        run.intent(&mut sign_in, Intent::ProviderBack);
+        assert_eq!(sign_in.state, State::Pick);
+        assert_eq!(sign_in.awaiting(), None);
+        run.result(&mut sign_in, list, Outcome::Provider(Ok(one_gateway())));
+        assert_eq!(sign_in.state, State::Pick);
+        assert_eq!(sign_in.wizard, None);
+    }
+
+    /// gcp.rs: Esc while the credentials are validated does nothing; the
+    /// answer still arrives and is taken (it is not dropped with the key).
+    #[test]
+    fn esc_while_a_wizard_waits_keeps_its_answer() {
+        let mut sign_in = gcp_sign_in();
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        for _ in 0..3 {
+            gcp_next(&mut sign_in, &mut run, "test-project");
+        }
+        let (request, _) = last_setup(&run);
+        run.intent(&mut sign_in, Intent::ProviderBack);
+        assert!(sign_in.awaiting().is_some());
+        run.result(&mut sign_in, request, Outcome::Provider(Ok(provider::Answer::Written)));
+        assert_eq!(sign_in.state, State::ProviderConfigured(Provider::Gcp));
     }
 }

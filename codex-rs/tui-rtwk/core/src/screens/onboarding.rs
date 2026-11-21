@@ -521,7 +521,13 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                     auth::Outcome::Browser { login_id, .. } => Some(login_id.clone()),
                     _ => None,
                 };
-                auth::apply_result(sign_in, result, &mut asks);
+                let mut minted = model.minted;
+                let mut mint = || {
+                    minted += 1;
+                    minted
+                };
+                auth::apply_result(sign_in, result, &mut mint, &mut asks);
+                model.minted = minted;
                 if let (Some(id), auth::State::Browser { login_id, url }) =
                     (browser, &sign_in.state)
                     && *login_id == id
