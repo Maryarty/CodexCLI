@@ -9,7 +9,8 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 - `editing.rs`: Codex's keys (atomic placeholders, kill ring, history at the ends,
   shell mode in/out, Ctrl+C clear, a typed punctuation mark taking a `$skill`
   completion's separator space).
-- `draft.rs`: `ComposerDraft`, the per-thread companion of the `TextEditingController`
+- `src/widgets/composer_draft.rs` (moved down from `pages/session/composer/draft.rs`,
+  composer-2; rules test `widgets_never_import_pages`): `ComposerDraft`, the per-thread companion of the `TextEditingController`
   in `ThreadUi::draft` (elements, kill ring, history walk, shell mode, paste, the
   separator rule of a completion).
 - `footer.rs` (with `with_shell_mode`, the right-hand `Shell mode` label), `strings.rs`.
@@ -25,6 +26,10 @@ Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste
 - composer_popups: 11 / 0 / 32 / 0 of 43
 - textarea: 11 / 2 / 46 / 0 of 59
 - total 74 pass, 9 n/a, 248 pending, 0 red, 0 stale (68 pass at the second handoff).
+composer-2, at its first handoff (shell command, input limit, REVERSED, word select, the
+widgets import; open: paste burst, images, editor, startup draft, G68-G70): composer_2
+21 / 4 / 25 / 0, composer_4 9 / 1 / 63 / 0, the others unchanged; total 77 pass, 10 n/a,
+244 pending, 0 red (summary.py --run of the six shards).
 `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole default nextest
 (`--workspace`): 1058 passed, 15 skipped, 0 failed (including `composer_draft` 5,
 `composer_mouse` 2 + 1 ignored, the sanitize unit test). fmt `--check` and clippy
@@ -43,9 +48,44 @@ are pending with their reason (below), none loosened.
 - Shell mode (`is_bash_mode`) is UI state in `ComposerDraft`: a `!` typed at the
   start, or yanked there, becomes the prompt; Backspace at the start and Esc on an
   empty draft leave it; history recall of `!x` restores it; no command popup in it.
-  Tab submits when idle, except a shell command. The `!cmd` is sent as text through
-  `run_line` (running the user shell command is not the composer's). Shell input
-  pastes stay literal (no blockquote quoting).
+  Tab submits when idle, except a shell command. Shell input pastes stay literal (no
+  blockquote quoting).
+- composer-2: a `!cmd` line runs as the user's shell command (`submit_shell_command`), and
+  only a draft in visible shell mode does (a pasted placeholder whose payload starts with
+  `!` stays a model prompt: `composer::shell_line(line, shell_mode)` in core, unit-tested).
+  Path (ADR-003, no RPC in a screen): `run_line` -> `chat::Intent::Shell` -> `app.rs`
+  `apply_thread(ScreenThreadIntent::Chat(ThreadIntent::Shell))` -> `chat::apply_thread_intent`
+  -> `Command::Shell` -> `chat::wire` -> `ThreadAsk::Shell` (`thread/shellCommand`,
+  `core/src/threads.rs`; the rules test `thread_rpcs_only_in_threads` now names
+  `ThreadShellCommand` too). `!` alone is the `Notice::ShellHelp` (the oracle's usage
+  line). A turn running or not does not matter (`core/tests/composer_shell.rs`). No local
+  echo: the result comes back as the server's item, as in the oracle. Tests:
+  `composer_shell` (core, 3), `composer_draft` `a_shell_draft_the_thread_took_clears_...`,
+  `a_bang_slash_line_is_a_shell_command_not_the_slash_command`,
+  `a_bang_after_the_start_is_part_of_the_prompt`; shard composer_2
+  `bang_prefixed_slash_text_submits_literal_shell_command` (its first form asserted the
+  line as a prompt in the transcript; now the screen shows the cleared composer and the
+  request is in the page test).
+- composer-2: input-size limit. `composer::too_large(text)` (core, chars over
+  `MAX_INPUT_CHARS` = 1 << 20) -> `Notice::InputTooLarge { provided }` (shared
+  `core/src/commands/dispatch.rs`, two enum lines) -> `chat_strings.notice()` -> the notice
+  above the composer; the draft stays. Both Enter and Tab (queue) go through `run_line`.
+  The oracle's `set_steer_enabled` is a no-op (`_enabled`), so `oversized_queued_...` is the
+  same Enter there; the port drives its Tab route. Both shard tests assert the placeholder
+  row `› [Pasted Content 1048577 chars]`: the oracle's tests set the text with
+  `set_text_clearing_elements`, which keys cannot reach (a paste that size is a placeholder).
+  Bite shown: with the two checks taken out of `run_line` both tests fail.
+  `composer_4 embedded_composer_shows_validation_error_...` stays pending: the
+  `Message too long` flash belongs to the plain-text embedded composer, which has no entry.
+- composer-2: the drag selection IS drawn, with the theme's `on indexed(237)` background,
+  not REVERSED: rtwk's `TextArea::selection_style` (default the theme's `selection`) is the
+  Flutter `selectionColor`; the composer sets `Style::new().attrs(Attrs::REVERSE)` as the
+  oracle's textarea draws it. Not a gap (the earlier "not diagnosed" row text is gone).
+  `selection_release_copies_and_keeps_the_editable_selection` passes;
+  `selection_release_reports_only_clipboard_result` is n/a (the oracle's
+  `copy_selection_on_release` / `finish_copy` closure API, no screen). Mouse tests:
+  `composer_mouse` `a_double_click_selects_the_word_and_typing_replaces_it`,
+  `the_drag_is_drawn_reversed_...`.
 - Shell mode and the history walk end where the composer clears, not at Enter
   (`ComposerDraft::cleared`, called through `composer::clear_sent` by the page when the
   thread took the submit, by a command that took the line, and by Ctrl+C). A submit the
@@ -118,9 +158,6 @@ are pending with their reason (below), none loosened.
   Needs the kit to pace typed text first.
 - Images `[Image #N]`: core `StartTurn` is text only (no attachment in the protocol
   mapping), and the kit has no `attach_image` seed.
-- Input-size limit (`composer_2 oversized_*`, composer_4 embedded validation): needs a
-  `Notice::InputTooLarge` in `core/src/commands/dispatch.rs` and its string
-  (chat-commands' area).
 - Vim mode, reverse history search (Ctrl+R), shortcut chords from the keymap, rebindable
   queue key (`Ctrl+Q`) -> the keymap task / chat-nav-pane.
 - Footer modes (`100% context left`, flashes, the composer-alone 60-column snapshots) ->
@@ -140,15 +177,16 @@ are pending with their reason (below), none loosened.
   Ctrl+Y are built; only the Vim part `r!` is missing, and the reason now says so) and
   `composer_mouse_edits_flush_typing_...` (the click places the caret). Nine more reasons
   that still said "no large-paste placeholder" or "no mouse selection" were reworded to
-  what the probe shows now (images, Vim, file search; the drag selects but is not drawn
-  REVERSED, not diagnosed, composer-2).
+  what the probe shows now (images, Vim, file search; the drag selects and is drawn REVERSED now).
 - The textarea mouse tests (`MOUSE` in textarea.rs) stay pending: their rows are G65's and
   they need rect offsets (a 1-row rect at y 1, a resize mid-test) the kit cannot seed.
 
 ## Unit tests
 - `composer::editing::tests`: the oracle's kill and yank state tests, plus the atomic
   placeholder keys. Bite shown: breaking the EOL kill and the yank turns them red.
-- `composer::draft::tests`.
+- `widgets::composer_draft` tests (moved with the file).
+- `core screens::composer::tests`: `a_message_over_the_limit_is_too_large_by_its_characters`,
+  `only_a_draft_in_shell_mode_runs_a_bang_line`; `core/tests/composer_shell.rs`.
 - `core screens::composer::tests::sanitize_paste_*`: the oracle's `sanitize_user_text`
   cases and the `_count_rows` paste.
 
