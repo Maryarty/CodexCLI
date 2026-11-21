@@ -222,11 +222,18 @@ where
             let _ = dismiss_version(&version_file(&startup.config), &version);
             return None;
         }
-        Ask::RunUpdate { request: _ } => {
-            if let Ok(mut slot) = startup.update.lock() {
-                *slot = update_action(InstallContext::current());
-            }
-            return None;
+        Ask::RunUpdate { request } => {
+            // Stored here, before the answer: the page leaves and the app
+            // ends only on it, and `main` reads the slot after that.
+            let Ok(mut slot) = startup.update.lock() else {
+                return Some(fail_launch(
+                    &startup,
+                    "the update could not be queued".to_owned(),
+                ));
+            };
+            *slot = startup.updates.action;
+            drop(slot);
+            Ev::UpdateQueued { request }
         }
         Ask::Login { request, login } => {
             let result = send(wire::login_start(&login, ids.next()))
@@ -298,7 +305,7 @@ where
         && updates.version.trim() != SOURCE_BUILD;
     let update = if checks {
         let file = version_file(config);
-        let action = update_action(InstallContext::current());
+        let action = updates.action;
         // Refresh the cached latest version in the background so the launch
         // is not blocked by a network call: this run reads the previous
         // value, the next one shows the offer.

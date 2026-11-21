@@ -62,6 +62,11 @@ pub struct Model {
     asked: Option<Request>,
     /// The trust write awaited: an answer under another number is stale.
     writing: Option<Request>,
+    /// The update run awaited: the host stores the update before the page
+    /// leaves.
+    running: Option<Request>,
+    /// The host stored the update to run.
+    update_queued: bool,
     /// The last request number minted.
     minted: Request,
 }
@@ -213,7 +218,12 @@ impl Model {
             return true;
         }
         match step {
-            Stage::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
+            // "Update now" is done once the host holds the update to run.
+            Stage::Update => self.update.as_ref().is_none_or(|u| match u.choice {
+                None => false,
+                Some(UpdateChoice::UpdateNow) => self.update_queued,
+                Some(UpdateChoice::Skip | UpdateChoice::SkipUntilNextVersion) => true,
+            }),
             Stage::SignIn => self.sign_in.as_ref().is_none_or(auth::SignIn::done),
             Stage::Provider => self.provider.is_none_or(|d| d.done),
             Stage::Trust => self.trust.as_ref().is_none_or(|t| {
@@ -429,7 +439,12 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::Trust(ask) => model.trust = Some(ask),
-        Ev::UpdateQueued { .. } => {}
+        Ev::UpdateQueued { request } => {
+            if model.running == Some(request) {
+                model.running = None;
+                model.update_queued = true;
+            }
+        }
         Ev::TrustSaved { request } => {
             if model.writing != Some(request) {
                 return;
@@ -474,6 +489,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 match choice {
                     UpdateChoice::UpdateNow => {
                         let request = mint(model);
+                        model.running = Some(request);
                         ask(fx, Ask::RunUpdate { request });
                     }
                     UpdateChoice::Skip => {}
@@ -834,11 +850,13 @@ mod tests {
     fn update_prompt_confirm_selects_update() {
         let mut m = model(vec![update()]);
         intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
-        assert!(m.done(Stage::Update));
         assert_eq!(
             m.update.as_ref().and_then(|u| u.choice),
             Some(UpdateChoice::UpdateNow)
         );
+        // Done once the host holds the update to run.
+        answered(&mut m, Ev::UpdateQueued { request: 1 });
+        assert!(m.done(Stage::Update));
     }
 
     // update_prompt.rs:313 update_prompt_dismiss_option_leaves_prompt_in_normal_state
