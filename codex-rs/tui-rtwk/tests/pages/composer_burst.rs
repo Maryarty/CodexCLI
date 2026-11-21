@@ -6,10 +6,7 @@
 //! tests of `paste_burst.rs` hold the machine, these the page's wiring
 //! (the keys' door, the app timer, the page's `?` and `Left`).
 
-#[path = "../common/mod.rs"]
-mod common;
-#[path = "../kit/mod.rs"]
-mod kit;
+use crate::kit;
 
 use kit::{Owner, Screen};
 

@@ -17,6 +17,7 @@ mod approvals;
 mod backend_switch;
 mod cells;
 mod commands;
+mod composer_shell;
 mod dialogs;
 mod import;
 mod model;

@@ -12,6 +12,8 @@ mod kit;
 
 #[path = "pages/agents_mouse.rs"]
 mod agents_mouse;
+#[path = "pages/composer_burst.rs"]
+mod composer_burst;
 #[path = "pages/composer_draft.rs"]
 mod composer_draft;
 #[path = "pages/composer_mouse.rs"]
