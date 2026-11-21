@@ -1,36 +1,110 @@
 //! `resume` (S18, resume and fork picker): the core half of the screen's directory. The model
 //! part, its events and intents, its RPCs and their protocol wiring live here,
-//! with no rtwk; the view half is `src/pages/resume/` in the UI crate. Nothing
-//! outside these two directories (bar their test files) needs an edit when it
-//! grows.
+//! with no rtwk; the view half is `src/pages/resume/` in the UI crate.
+//!
+//! The picker lists saved threads page by page from every connected backend
+//! (its sources), filtered by directory and status, sorted by update or
+//! creation time, and searched by a typed query. Every `thread/list` page
+//! carries the listing generation, its request number and the search token
+//! it serves (`listing`): a reply of an older cycle is dropped whole, a page
+//! of an older search ingests its rows but starts no further page for it.
+//! Opening a thread is not done here: `Intent::Resume` names the thread and
+//! the app opens it through `OpenThread` (ADR-003).
+
+mod listing;
+mod proto;
+mod toolbar;
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
-use crate::ids::ThreadId;
+use crate::ids::{BackendId, ThreadId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
+
+pub use listing::{Listing, PageMode, Request, Source};
+pub use proto::{PAGE_SIZE, PREVIEW_LINES, preview_lines, row_of};
+pub use toolbar::{Action, Control, Density, Dir, Filter, Sort, Status};
 
 pub const NAME: &str = "resume";
 pub const ID: &str = "S18";
 pub const KIND: Kind = Kind::Route;
 
+/// The cursor is this near the end of the loaded rows: the next page is asked
+/// for (oracle: `LOAD_NEAR_THRESHOLD`).
+const LOAD_NEAR: usize = 5;
+
+/// What a thread is called across the picker's caches: its backend and id.
+pub type Key = (BackendId, ThreadId);
+
+/// Where the picker was opened from (oracle: `SessionPickerLaunchContext`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Launch {
+    #[default]
+    Startup,
+    /// From a running session: archiving that session here is refused.
+    Session { current: ThreadId },
+}
+
+/// The directory the picker is scoped to (oracle: `filter_cwd` and
+/// `local_filter_cwd`), and the checkouts of its repository the shell found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scope {
+    pub cwd: Option<String>,
+    /// Every checkout of the working directory's repository, itself included.
+    pub repo_cwds: Vec<String>,
+}
+
+impl Scope {
+    /// The repository filter is offered when the repository has other
+    /// checkouts (oracle: `local_repo_filter_available`).
+    pub fn repo_available(&self) -> bool {
+        self.repo_cwds.len() > 1
+    }
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The picker's rows, newest first as the backend listed them.
+    /// The rows loaded so far, deduplicated and sorted by the sort key,
+    /// newest first. What the list shows is `visible`.
     pub rows: Vec<Row>,
     /// The reference time of the relative ages, epoch seconds (R11: the
     /// clock is a model input).
     pub clock: i64,
     pub load: Load,
-    /// The thread the user asked to resume (the app asks the backend).
+    /// The thread the user asked to resume (the app opens it).
     pub resuming: Option<ThreadId>,
-    /// The picker was opened on the live backend: its rows are the
-    /// backend's sessions (`sync`), not the ones a script seeded.
+    /// The thread a restore made available: the app opens it too.
+    pub restored: Option<ThreadId>,
+    /// The picker was opened on the live backend.
     pub live: bool,
+    pub action: Action,
+    pub launch: Launch,
+    pub scope: Scope,
+    /// The backends the listing reads (the connected ones).
+    pub sources: Vec<BackendId>,
+    pub filter: Filter,
+    pub status: Status,
+    pub sort: Sort,
+    pub focus: Control,
+    pub density: Density,
+    /// The typed search (oracle: `query`).
+    pub query: String,
+    pub listing: Listing,
+    /// A one-line error under the list (oracle: `inline_error`), cleared by
+    /// the next thing the user does.
+    pub inline_error: Option<String>,
+    pub expanded: Option<Key>,
+    pub previews: BTreeMap<Key, Preview>,
+    pub archive: ArchiveState,
+    /// The transcript being loaded or last opened (ctrl+t).
+    pub transcript: Option<Transcript>,
+    seen: BTreeSet<String>,
 }
 
 /// Where the list stands (oracle: `PaginationState` and `inline_error`).
@@ -40,13 +114,14 @@ pub enum Load {
     Idle,
     /// The first page is loading (`Loading sessions…`).
     Loading,
-    /// A page failed; the message shows on the search line.
+    /// The first page failed; the message shows on the search line.
     Failed(String),
 }
 
 /// One saved thread in the picker's list (oracle: `resume_picker::Row`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
+    /// Empty when the listing gave no readable thread id.
     pub id: ThreadId,
     pub preview: String,
     pub model_provider: String,
@@ -62,6 +137,10 @@ pub struct Row {
     pub cloud: bool,
     /// The thread has unread output (`●`).
     pub unread: bool,
+    /// The backend that listed the row.
+    pub backend: BackendId,
+    /// The rollout file, when the backend reports one.
+    pub path: Option<String>,
 }
 
 impl Row {
@@ -69,13 +148,88 @@ impl Row {
     pub fn display_preview(&self) -> &str {
         self.thread_name.as_deref().unwrap_or(&self.preview)
     }
+
+    pub fn key(&self) -> Key {
+        (self.backend, self.id.clone())
+    }
+
+    /// Oracle: `Row::seen_key`: the rollout path, else the thread id.
+    fn seen_key(&self) -> Option<String> {
+        self.path
+            .clone()
+            .or_else(|| (!self.id.as_str().is_empty()).then(|| self.id.to_string()))
+    }
+
+    /// Oracle: `Row::matches_query` (`query` is lower case).
+    fn matches_query(&self, query: &str) -> bool {
+        let has = |text: &str| text.to_lowercase().contains(query);
+        has(&self.preview)
+            || self.thread_name.as_deref().is_some_and(has)
+            || has(self.id.as_str())
+            || self.branch.as_deref().is_some_and(has)
+            || self.cwd.as_deref().is_some_and(has)
+    }
+}
+
+/// One line of an expanded row's conversation preview.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Speaker {
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreviewLine {
+    pub speaker: Speaker,
+    pub text: String,
+}
+
+/// The preview of an expanded row (oracle: `TranscriptPreviewState`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Preview {
+    Loading,
+    Loaded(Vec<PreviewLine>),
+    Failed,
+}
+
+/// The transcript of a row, asked for with ctrl+t (oracle:
+/// `pending_transcript_open` and `SessionTranscriptState`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Transcript {
+    pub key: Key,
+    pub state: TranscriptState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TranscriptState {
+    Loading,
+    /// Read: this many turns.
+    Loaded { turns: usize },
+}
+
+/// Archiving and restoring act on one session at a time (oracle:
+/// `archive::ArchiveState`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ArchiveState {
+    #[default]
+    Idle,
+    Pending(Key),
+    Restoring(Key),
+}
+
+/// The directories a page is asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CwdFilter {
+    One(String),
+    Many(Vec<String>),
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
-    /// The backend listed the saved threads.
+    /// The listing, as one finished page (a script's seed; the live picker
+    /// reads pages through `Command::List`).
     Listed(Vec<Row>),
     /// The reference time of the ages.
     Clock(i64),
@@ -83,6 +237,22 @@ pub enum Ev {
     Loading,
     /// A listing failed with this message.
     Failed(String),
+    /// The directory the picker is scoped to, and the checkouts the shell
+    /// found for its repository.
+    Scope(Scope),
+    /// What a launch asks of the picker.
+    Launched {
+        action: Action,
+        launch: Launch,
+        density: Density,
+        db_first: bool,
+    },
+    /// A page of a source, as the backend answered (a script's seed).
+    Paged {
+        backend: BackendId,
+        rows: Vec<Row>,
+        next: Option<String>,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -90,74 +260,721 @@ pub enum Ev {
 pub enum Intent {
     /// The picker opened on the live backend: the sessions are listed.
     Open,
-    /// Enter on a row: resume (or fork) this thread.
+    /// Enter on a row: resume (or fork, or restore an archived) this thread.
     Resume(ThreadId),
+    /// The search text is now this (typing, backspace).
+    Query(String),
+    /// Text pasted into the search.
+    Paste(String),
+    /// Esc with a query: the search is cleared.
+    ClearQuery,
+    /// Tab and Shift+Tab move the toolbar focus.
+    FocusNext,
+    FocusPrevious,
+    /// Left and right change the focused control's value.
+    Change(Dir),
+    /// Ctrl+O.
+    ToggleDensity,
+    /// Ctrl+E on this row.
+    Expand(ThreadId),
+    /// Ctrl+T on this row.
+    OpenTranscript(ThreadId),
+    /// Esc while the transcript loads.
+    CancelTranscript,
+    /// Ctrl+A on this row.
+    Archive(ThreadId),
+    /// The cursor is on this index of the visible rows: when it is near the
+    /// end another page is asked for. Any key clears the inline error.
+    Cursor(usize),
+    /// The list shows this many rows and has room for more.
+    Room(usize),
+    /// The list is scrolled to the last loaded row.
+    End,
+}
+
+/// An RPC to make and what it is for (the app mints the ticket).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Out {
+    pub command: Command,
+    pub ctx: Ctx,
+}
+
+/// The RPCs of this screen: app-scoped, sent by `app::send_resume`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Command {
+    List {
+        backend: BackendId,
+        cursor: Option<String>,
+        mode: PageMode,
+        sort: Sort,
+        archived: bool,
+        cwd: Option<CwdFilter>,
+    },
+    Preview {
+        backend: BackendId,
+        thread: ThreadId,
+    },
+    Transcript {
+        backend: BackendId,
+        thread: ThreadId,
+    },
+    Archive {
+        backend: BackendId,
+        thread: ThreadId,
+    },
+    Unarchive {
+        backend: BackendId,
+        thread: ThreadId,
+    },
+}
+
+impl Command {
+    /// The backend that answers.
+    pub fn backend(&self) -> BackendId {
+        match self {
+            Self::List { backend, .. }
+            | Self::Preview { backend, .. }
+            | Self::Transcript { backend, .. }
+            | Self::Archive { backend, .. }
+            | Self::Unarchive { backend, .. } => *backend,
+        }
+    }
+}
+
+/// The replies of those RPCs, decoded by `decode`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reply {
+    Page {
+        rows: Vec<Row>,
+        next: Option<String>,
+        /// The ids of the rows with unread output.
+        unread: Vec<String>,
+    },
+    Preview(Vec<PreviewLine>),
+    Transcript {
+        turns: usize,
+    },
+    Archived,
+    Unarchived {
+        thread: ThreadId,
+        cwd: Option<String>,
+    },
+}
+
+/// What an outgoing RPC of this screen was for, kept with its ticket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ctx {
+    Page {
+        backend: BackendId,
+        generation: u64,
+        request: u64,
+        search: Option<u64>,
+    },
+    Preview(Key),
+    Transcript(Key),
+    Archive(Key),
+    Unarchive(Key),
+}
+
+impl Ctx {
+    /// The backend the RPC went to.
+    pub fn backend(&self) -> BackendId {
+        match self {
+            Self::Page { backend, .. } => *backend,
+            Self::Preview(key) | Self::Transcript(key) | Self::Archive(key) | Self::Unarchive(key) => {
+                key.0
+            }
+        }
+    }
+}
+
+impl Model {
+    /// The rows the list shows: the directory filter, then the query
+    /// (oracle: `apply_filter`).
+    pub fn visible(&self) -> Vec<&Row> {
+        let query = self.query.to_lowercase();
+        self.rows
+            .iter()
+            .filter(|row| self.in_scope(row))
+            .filter(|row| query.is_empty() || row.matches_query(&query))
+            .collect()
+    }
+
+    /// Whether the directory filter lets `row` in (oracle: `row_matches_filter`).
+    fn in_scope(&self, row: &Row) -> bool {
+        let Some(cwd) = self.scope.cwd.as_deref() else {
+            return true;
+        };
+        match self.filter {
+            Filter::All => true,
+            Filter::Cwd => row.cwd.as_deref().is_some_and(|row| same_dir(row, cwd)),
+            Filter::Repo => row.cwd.as_deref().is_some_and(|row| {
+                same_dir(row, cwd) || self.scope.repo_cwds.iter().any(|dir| same_dir(row, dir))
+            }),
+        }
+    }
+
+    /// The directory filter the backend is asked with.
+    fn cwd_filter(&self) -> Option<CwdFilter> {
+        let cwd = self.scope.cwd.clone()?;
+        match self.filter {
+            Filter::All => None,
+            Filter::Cwd => Some(CwdFilter::One(cwd)),
+            Filter::Repo if self.scope.repo_available() => {
+                Some(CwdFilter::Many(self.scope.repo_cwds.clone()))
+            }
+            Filter::Repo => Some(CwdFilter::One(cwd)),
+        }
+    }
+
+    pub fn row(&self, id: &ThreadId) -> Option<&Row> {
+        self.rows.iter().find(|row| &row.id == id)
+    }
+
+    /// Whether another page is loading or could be read (the list's `↓ more`).
+    pub fn has_more(&self) -> bool {
+        self.listing.has_more()
+    }
+
+    /// The archive shortcut is offered when resuming active sessions
+    /// (oracle: `archive_shortcut_available`).
+    pub fn archive_available(&self) -> bool {
+        self.action == Action::Resume && self.status == Status::Active
+    }
+
+    fn command(&self, request: Request) -> Out {
+        Out {
+            ctx: Ctx::Page {
+                backend: request.backend,
+                generation: self.listing.generation,
+                request: request.request,
+                search: request.search,
+            },
+            command: Command::List {
+                backend: request.backend,
+                cursor: request.cursor,
+                mode: request.mode,
+                sort: self.sort,
+                archived: self.status == Status::Archived,
+                cwd: self.cwd_filter(),
+            },
+        }
+    }
+
+    fn outs(&self, requests: Vec<Request>) -> Vec<Out> {
+        requests.into_iter().map(|request| self.command(request)).collect()
+    }
+
+    /// A new listing cycle (oracle: `start_initial_load`).
+    fn restart(&mut self) -> Vec<Out> {
+        self.rows.clear();
+        self.seen.clear();
+        self.expanded = None;
+        self.load = Load::Loading;
+        let search = if self.query.is_empty() {
+            None
+        } else {
+            Some(self.listing.next_search_token())
+        };
+        self.listing.search = search;
+        let sources = if self.sources.is_empty() {
+            vec![BackendId::default()]
+        } else {
+            self.sources.clone()
+        };
+        let requests = self.listing.restart(&sources, search);
+        self.outs(requests)
+    }
+
+    /// The next page of every source that has one (oracle: `load_more_if_needed`).
+    fn load_more(&mut self, search: Option<u64>) -> Vec<Out> {
+        let requests = self.listing.begin_all(search);
+        self.outs(requests)
+    }
+
+    /// Adds a page's rows: new ones only, the rest sorted again (oracle: `ingest_page`).
+    fn ingest(&mut self, backend: BackendId, rows: Vec<Row>, unread: &[String]) {
+        for mut row in rows {
+            row.backend = backend;
+            row.unread = row.unread || unread.iter().any(|id| id == row.id.as_str());
+            let duplicate = row.seen_key().is_some_and(|key| !self.seen.insert(key));
+            if !duplicate {
+                self.rows.push(row);
+            }
+        }
+        let sort = self.sort;
+        self.rows.sort_by_key(|row| {
+            std::cmp::Reverse(match sort {
+                Sort::Created => row.created,
+                Sort::Updated => row.updated.or(row.created),
+            })
+        });
+    }
+
+    /// While a search finds nothing in the loaded rows, more pages are read
+    /// until it does or the sources end (oracle: `continue_search_if_needed`).
+    fn continue_search(&mut self) -> Vec<Out> {
+        let Some(token) = self.listing.search else {
+            return Vec::new();
+        };
+        if !self.visible().is_empty() || !self.listing.has_more() {
+            self.listing.search = None;
+            return Vec::new();
+        }
+        if !self.listing.can_page() {
+            return Vec::new();
+        }
+        self.load_more(Some(token))
+    }
+
+    fn set_query(&mut self, query: String) -> Vec<Out> {
+        if self.query == query {
+            return Vec::new();
+        }
+        self.query = query;
+        self.listing.search = None;
+        if self.query.is_empty() || !self.visible().is_empty() || !self.listing.has_more() {
+            return Vec::new();
+        }
+        let token = self.listing.next_search_token();
+        self.listing.search = Some(token);
+        if self.listing.can_page() {
+            self.load_more(Some(token))
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The row asked for, or the inline error the oracle shows.
+    fn row_or_error(&mut self, id: &ThreadId, error: &str) -> Option<Row> {
+        if id.as_str().is_empty() {
+            self.inline_error = Some(error.to_owned());
+            return None;
+        }
+        let row = self.row(id).cloned();
+        if row.is_none() {
+            self.inline_error = Some(error.to_owned());
+        }
+        row
+    }
+}
+
+/// Whether two directory paths name the same directory (oracle:
+/// `paths_match`, without touching the file system: trailing separators and
+/// case-insensitive drive letters are not told apart here).
+fn same_dir(left: &str, right: &str) -> bool {
+    left.trim_end_matches('/') == right.trim_end_matches('/')
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Listed(rows) => {
+            model.seen = rows.iter().filter_map(Row::seen_key).collect();
             model.rows = rows;
             model.load = Load::Idle;
         }
         Ev::Clock(secs) => model.clock = secs,
         Ev::Loading => model.load = Load::Loading,
         Ev::Failed(message) => model.load = Load::Failed(message),
+        Ev::Scope(scope) => {
+            model.filter = Filter::initial(false, scope.cwd.as_deref());
+            model.scope = scope;
+        }
+        Ev::Launched {
+            action,
+            launch,
+            density,
+            db_first,
+        } => {
+            model.action = action;
+            model.launch = launch;
+            model.density = density;
+            model.listing.initial_mode = if db_first {
+                PageMode::StateDbOnly
+            } else {
+                PageMode::StoreDefault
+            };
+        }
+        Ev::Paged { backend, rows, next } => {
+            model.ingest(backend, rows, &[]);
+            model.sources = vec![backend];
+            let source = model.listing.sources.entry(backend).or_default();
+            source.exhausted = next.is_none();
+            source.cursor = next;
+            model.load = Load::Idle;
+        }
     }
+}
+
+/// The intents of this screen; what the picker needs from the backend comes
+/// back as `Out`s the app sends.
+pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
+    model.inline_error = None;
+    match intent {
+        Intent::Open => {
+            model.live = true;
+            model.restart()
+        }
+        Intent::Resume(id) => resume(model, &id),
+        Intent::Query(query) => model.set_query(query),
+        Intent::Paste(text) => {
+            let Some(text) = paste_query(&text) else {
+                return Vec::new();
+            };
+            let mut query = model.query.clone();
+            if !query.is_empty() && !query.ends_with(char::is_whitespace) {
+                query.push(' ');
+            }
+            query.push_str(&text);
+            model.set_query(query)
+        }
+        Intent::ClearQuery => {
+            model.query.clear();
+            model.listing.search = None;
+            Vec::new()
+        }
+        Intent::FocusNext => {
+            model.focus = model.focus.next(model.action);
+            Vec::new()
+        }
+        Intent::FocusPrevious => {
+            model.focus = model.focus.previous(model.action);
+            Vec::new()
+        }
+        Intent::Change(dir) => change(model, dir),
+        Intent::ToggleDensity => {
+            model.density = model.density.toggled();
+            Vec::new()
+        }
+        Intent::Expand(id) => expand(model, &id),
+        Intent::OpenTranscript(id) => open_transcript(model, &id),
+        Intent::CancelTranscript => {
+            if let Some(transcript) = model.transcript.take()
+                && !matches!(transcript.state, TranscriptState::Loading)
+            {
+                model.transcript = Some(transcript);
+            }
+            Vec::new()
+        }
+        Intent::Archive(id) => archive(model, &id),
+        Intent::Cursor(index) => {
+            let remaining = model.visible().len().saturating_sub(index + 1);
+            if remaining <= LOAD_NEAR && !model.visible().is_empty() && model.listing.can_page() {
+                let search = model.listing.search;
+                return model.load_more(search);
+            }
+            Vec::new()
+        }
+        Intent::Room(rows) => {
+            if rows > model.visible().len() && model.listing.can_page() {
+                let search = model.listing.search;
+                return model.load_more(search);
+            }
+            Vec::new()
+        }
+        Intent::End => {
+            if model.listing.can_page() {
+                let search = model.listing.search;
+                return model.load_more(search);
+            }
+            Vec::new()
+        }
+    }
+}
+
+/// Oracle: `normalize_pasted_search_query`: the paste's whitespace folded
+/// into single spaces; nothing is left of a blank paste.
+fn paste_query(text: &str) -> Option<String> {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!folded.is_empty()).then_some(folded)
+}
+
+fn change(model: &mut Model, dir: Dir) -> Vec<Out> {
+    match model.focus {
+        Control::Sort => model.sort = model.sort.toggled(),
+        Control::Status => model.status = model.status.toggled(),
+        Control::Filter => {
+            let next = model.filter.change(
+                dir,
+                model.scope.cwd.is_some(),
+                model.scope.repo_available(),
+            );
+            if next == model.filter {
+                return Vec::new();
+            }
+            model.filter = next;
+        }
+    }
+    model.restart()
+}
+
+fn resume(model: &mut Model, id: &ThreadId) -> Vec<Out> {
+    if !matches!(model.archive, ArchiveState::Idle) {
+        return Vec::new();
+    }
+    let Some(row) = model.row_or_error(id, "Failed to read session metadata from selected session")
+    else {
+        return Vec::new();
+    };
+    if model.status == Status::Archived {
+        model.archive = ArchiveState::Restoring(row.key());
+        return vec![Out {
+            command: Command::Unarchive {
+                backend: row.backend,
+                thread: row.id.clone(),
+            },
+            ctx: Ctx::Unarchive(row.key()),
+        }];
+    }
+    model.resuming = Some(row.id);
+    Vec::new()
+}
+
+fn expand(model: &mut Model, id: &ThreadId) -> Vec<Out> {
+    let Some(row) = model.row(id).cloned() else {
+        return Vec::new();
+    };
+    let key = row.key();
+    if model.expanded.as_ref() == Some(&key) {
+        model.expanded = None;
+        return Vec::new();
+    }
+    model.expanded = Some(key.clone());
+    if model.previews.contains_key(&key) {
+        return Vec::new();
+    }
+    model.previews.insert(key.clone(), Preview::Loading);
+    vec![Out {
+        command: Command::Preview {
+            backend: row.backend,
+            thread: row.id,
+        },
+        ctx: Ctx::Preview(key),
+    }]
+}
+
+fn open_transcript(model: &mut Model, id: &ThreadId) -> Vec<Out> {
+    let Some(row) = model.row_or_error(id, "No transcript available for this session") else {
+        return Vec::new();
+    };
+    let key = row.key();
+    if matches!(&model.transcript, Some(Transcript { key: loaded, state: TranscriptState::Loaded { .. } }) if loaded == &key)
+    {
+        return Vec::new();
+    }
+    model.transcript = Some(Transcript {
+        key: key.clone(),
+        state: TranscriptState::Loading,
+    });
+    vec![Out {
+        command: Command::Transcript {
+            backend: row.backend,
+            thread: row.id,
+        },
+        ctx: Ctx::Transcript(key),
+    }]
+}
+
+fn archive(model: &mut Model, id: &ThreadId) -> Vec<Out> {
+    if !model.archive_available() || !matches!(model.archive, ArchiveState::Idle) {
+        return Vec::new();
+    }
+    let Some(row) = model.row_or_error(id, "Selected session does not have a thread ID.") else {
+        return Vec::new();
+    };
+    if matches!(&model.launch, Launch::Session { current } if current == &row.id) {
+        model.inline_error = Some("Use /archive to archive the current session and exit.".into());
+        return Vec::new();
+    }
+    model.archive = ArchiveState::Pending(row.key());
+    vec![Out {
+        command: Command::Archive {
+            backend: row.backend,
+            thread: row.id.clone(),
+        },
+        ctx: Ctx::Archive(row.key()),
+    }]
+}
+
+/// The reply to an RPC of this screen. A reply that is not the one in
+/// flight (an older listing, a cancelled or finished load) changes nothing.
+pub fn apply_answer(model: &mut Model, ctx: Ctx, result: Result<Reply, RpcError>) -> Vec<Out> {
+    match (ctx, result) {
+        (
+            Ctx::Page {
+                backend,
+                generation,
+                request,
+                search,
+            },
+            result,
+        ) => page_answer(model, backend, generation, request, search, result),
+        (Ctx::Preview(key), result) => {
+            if !matches!(model.previews.get(&key), Some(Preview::Loading)) {
+                return Vec::new();
+            }
+            model.previews.insert(
+                key,
+                match result {
+                    Ok(Reply::Preview(lines)) => Preview::Loaded(lines),
+                    _ => Preview::Failed,
+                },
+            );
+            Vec::new()
+        }
+        (Ctx::Transcript(key), result) => {
+            let waiting = matches!(
+                &model.transcript,
+                Some(Transcript { key: asked, state: TranscriptState::Loading }) if asked == &key
+            );
+            if !waiting {
+                return Vec::new();
+            }
+            match result {
+                Ok(Reply::Transcript { turns }) => {
+                    model.transcript = Some(Transcript {
+                        key,
+                        state: TranscriptState::Loaded { turns },
+                    });
+                }
+                _ => {
+                    model.transcript = None;
+                    model.inline_error = Some("Could not load transcript preview".into());
+                }
+            }
+            Vec::new()
+        }
+        (Ctx::Archive(key), result) => archive_answer(model, key, result),
+        (Ctx::Unarchive(key), result) => {
+            if model.archive != ArchiveState::Restoring(key) {
+                return Vec::new();
+            }
+            model.archive = ArchiveState::Idle;
+            match result {
+                Ok(Reply::Unarchived { thread, .. }) => model.restored = Some(thread),
+                Ok(_) => {}
+                Err(error) => {
+                    model.inline_error =
+                        Some(format!("Failed to restore archived session: {}", describe(&error)));
+                }
+            }
+            Vec::new()
+        }
+    }
+}
+
+fn describe(error: &RpcError) -> String {
+    match error {
+        RpcError::Remote(message) | RpcError::Malformed(message) => message.clone(),
+        RpcError::Mismatch => "unexpected reply".to_owned(),
+    }
+}
+
+fn page_answer(
+    model: &mut Model,
+    backend: BackendId,
+    generation: u64,
+    request: u64,
+    search: Option<u64>,
+    result: Result<Reply, RpcError>,
+) -> Vec<Out> {
+    let first_page = model.rows.is_empty();
+    let several = model.listing.sources.len() > 1;
+    let (mode, was_first) = {
+        let Some(source) = model.listing.finish(backend, generation, request) else {
+            return Vec::new();
+        };
+        (source.mode, source.cursor.is_none())
+    };
+    match result {
+        Ok(Reply::Page { rows, next, unread }) => {
+            // Oracle: fall back to the store's own listing only when the
+            // first indexed page is empty (an empty later page ends the list).
+            if mode == PageMode::StateDbOnly && first_page && was_first && rows.is_empty() {
+                if let Some(source) = model.listing.sources.get_mut(&backend) {
+                    source.mode = PageMode::StoreDefault;
+                }
+                let search = model.listing.search.or(search);
+                return model
+                    .listing
+                    .begin(backend, search)
+                    .map(|request| model.command(request))
+                    .into_iter()
+                    .collect();
+            }
+            if let Some(source) = model.listing.sources.get_mut(&backend) {
+                source.exhausted = next.is_none();
+                source.cursor = next;
+            }
+            model.ingest(backend, rows, &unread);
+            if !model.listing.is_loading() {
+                model.load = Load::Idle;
+            }
+            // A page asked for by an older search still brings its rows; what
+            // is read next serves the search that is current now (oracle:
+            // `continue_search_if_token_matches`).
+            model.continue_search()
+        }
+        Ok(_) => Vec::new(),
+        Err(error) => {
+            if let Some(source) = model.listing.sources.get_mut(&backend) {
+                source.failed = true;
+            }
+            if several {
+                model.inline_error =
+                    Some("Could not load one backend. Reopen the picker to retry.".into());
+            } else if model.rows.is_empty() {
+                model.load = Load::Failed(describe(&error));
+            } else {
+                model.inline_error = Some("Could not load more sessions".into());
+            }
+            if !model.listing.is_loading() && matches!(model.load, Load::Loading) {
+                model.load = Load::Idle;
+            }
+            model.listing.search = None;
+            Vec::new()
+        }
+    }
+}
+
+fn archive_answer(model: &mut Model, key: Key, result: Result<Reply, RpcError>) -> Vec<Out> {
+    if model.archive != ArchiveState::Pending(key.clone()) {
+        return Vec::new();
+    }
+    model.archive = ArchiveState::Idle;
+    if let Err(error) = result {
+        model.inline_error = Some(format!("Failed to archive session: {}", describe(&error)));
+        return Vec::new();
+    }
+    // The seen key stays as a tombstone: an older page already in flight
+    // cannot put the archived session back.
+    model.rows.retain(|row| row.key() != key);
+    model.previews.remove(&key);
+    if model.expanded.as_ref() == Some(&key) {
+        model.expanded = None;
+    }
+    if matches!(&model.transcript, Some(transcript) if transcript.key == key) {
+        model.transcript = None;
+    }
+    model.inline_error = None;
+    if model.visible().is_empty()
+        && !model.query.is_empty()
+        && model.listing.has_more()
+        && model.listing.search.is_none()
+    {
+        let token = model.listing.next_search_token();
+        model.listing.search = Some(token);
+        if model.listing.can_page() {
+            return model.load_more(Some(token));
+        }
+    }
+    Vec::new()
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
-    match intent {
-        Intent::Open => model.live = true,
-        Intent::Resume(id) => model.resuming = Some(id),
-    }
-}
-
-/// The picker's rows out of the sessions the app knows (the command center's
-/// list, which the backend's `thread/list` fills): the root threads, newest
-/// first. Hidden tasks are in: the picker is how they come back.
-pub fn listing(agents: &crate::screens::agents::Model) -> (Vec<Row>, Load) {
-    let mut threads: Vec<_> = agents
-        .threads
-        .iter()
-        .filter(|thread| {
-            thread.parent_thread_id.is_none()
-                && !thread.ephemeral
-                && !agents.removed.contains(&thread.id)
-        })
-        .collect();
-    threads.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    let rows: Vec<Row> = threads
-        .into_iter()
-        .map(|thread| Row {
-            id: ThreadId::new(&thread.id),
-            preview: thread.preview.clone(),
-            model_provider: thread.model_provider.clone(),
-            started: String::new(),
-            thread_name: thread.name.clone(),
-            created: Some(thread.created_at),
-            updated: Some(thread.updated_at),
-            cwd: Some(thread.cwd.display().to_string()),
-            branch: thread.git_info.as_ref().and_then(|git| git.branch.clone()),
-            cloud: false,
-            unread: agents.unread.contains(&thread.id),
-        })
-        .collect();
-    let load = if agents.paging.failed {
-        Load::Failed("Could not load more sessions".to_owned())
-    } else if agents.paging.loading && rows.is_empty() {
-        Load::Loading
-    } else {
-        Load::Idle
-    };
-    (rows, load)
+    // The app sends the outs (`app::resume_picker`); the generic path has none.
+    let _ = (update(model, intent), fx);
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -168,19 +985,6 @@ pub struct ThreadPart {}
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadEv {}
-
-/// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
-/// the thread and the ticket; the shell sends them through `wire`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {}
-
-/// The replies of those RPCs, decoded by `decode`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reply {}
-
-/// What an outgoing RPC of this screen was for, kept with its ticket.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ctx {}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
@@ -193,24 +997,24 @@ pub fn apply_reply(
     result: Result<Reply, RpcError>,
     fx: &mut ThreadFx<'_>,
 ) {
-    let _ = (part, result, fx);
-    match ctx {}
+    // Every RPC of this screen is app-scoped: `apply_answer` takes its reply.
+    let _ = (part, ctx, result, fx);
 }
 
 /// The wire request of `command` for `thread`.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
-    let _ = (thread, id);
-    match *command {}
+    let _ = thread;
+    proto::wire(command, id)
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
-    let _ = result;
-    match *command {}
+    proto::decode(command, result)
 }
 
 /// The seed form of this screen's events (`{"listed":{"rows":[..]}}`,
-/// `{"clock":..}`, `{"loading":null}`, `{"failed":".."}`).
+/// `{"clock":..}`, `{"loading":null}`, `{"failed":".."}`, `{"scope":{..}}`,
+/// `{"launched":{..}}`, `{"paged":{"rows":[..],"next":".."}}`).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -221,6 +1025,28 @@ enum SeedEv {
     Clock(i64),
     Loading(()),
     Failed(String),
+    Scope {
+        cwd: Option<String>,
+        #[serde(default)]
+        repo_cwds: Vec<String>,
+    },
+    Launched {
+        #[serde(default)]
+        fork: bool,
+        #[serde(default)]
+        current: Option<String>,
+        #[serde(default)]
+        dense: bool,
+        #[serde(default)]
+        db_first: bool,
+    },
+    Paged {
+        #[serde(default)]
+        backend: u32,
+        rows: Vec<RolloutSeed>,
+        #[serde(default)]
+        next: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -246,6 +1072,28 @@ struct RolloutSeed {
     cloud: bool,
     #[serde(default)]
     unread: bool,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+impl RolloutSeed {
+    fn row(self) -> Row {
+        Row {
+            id: ThreadId::new(self.id),
+            preview: self.preview,
+            model_provider: self.model_provider,
+            started: self.timestamp,
+            thread_name: self.thread_name,
+            created: self.created,
+            updated: self.updated,
+            cwd: self.cwd,
+            branch: self.branch,
+            cloud: self.cloud,
+            unread: self.unread,
+            backend: BackendId::default(),
+            path: self.path,
+        }
+    }
 }
 
 /// A script's `screen` step for this directory.
@@ -253,27 +1101,36 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(match seed {
-        SeedEv::Listed { rows } => {
-            Ev::Listed(
-                rows.into_iter()
-                    .map(|row| Row {
-                        id: ThreadId::new(row.id),
-                        preview: row.preview,
-                        model_provider: row.model_provider,
-                        started: row.timestamp,
-                        thread_name: row.thread_name,
-                        created: row.created,
-                        updated: row.updated,
-                        cwd: row.cwd,
-                        branch: row.branch,
-                        cloud: row.cloud,
-                        unread: row.unread,
-                    })
-                    .collect(),
-            )
-        }
+        SeedEv::Listed { rows } => Ev::Listed(rows.into_iter().map(RolloutSeed::row).collect()),
         SeedEv::Clock(secs) => Ev::Clock(secs),
         SeedEv::Loading(()) => Ev::Loading,
         SeedEv::Failed(message) => Ev::Failed(message),
+        SeedEv::Scope { cwd, repo_cwds } => Ev::Scope(Scope { cwd, repo_cwds }),
+        SeedEv::Launched {
+            fork,
+            current,
+            dense,
+            db_first,
+        } => Ev::Launched {
+            action: if fork { Action::Fork } else { Action::Resume },
+            launch: current.map_or(Launch::Startup, |current| Launch::Session {
+                current: ThreadId::new(current),
+            }),
+            density: if dense {
+                Density::Dense
+            } else {
+                Density::Comfortable
+            },
+            db_first,
+        },
+        SeedEv::Paged {
+            backend,
+            rows,
+            next,
+        } => Ev::Paged {
+            backend: BackendId(backend),
+            rows: rows.into_iter().map(RolloutSeed::row).collect(),
+            next,
+        },
     })
 }
