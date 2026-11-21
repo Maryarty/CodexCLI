@@ -25,8 +25,14 @@ that the turns end as the scenario says.
   binary accepted).
 - `--jobs N` runs N scenarios at once, each in a forked worker with its own mock server,
   CODEX_HOME and pty (nothing is shared); the long ones start first, results print as they
-  finish. The default is 1 (the order below); land-check.sh passes 4. `--capture-resume` runs
-  one at a time whatever N says.
+  finish. The default is 1 (the order below); land-check.sh passes 8. `--capture-resume` runs
+  one at a time whatever N says. With N > 1 a scenario that names `cuts` (router.py: the
+  router, 34 turns) runs as pieces `router#1..#4`, each a worker of its own that types its
+  slice of the turns (the sentinel is checked by the last piece): a long scenario no longer
+  sets the floor of the whole run. `MOCK_TURN_TIMES=1` prints the seconds of each turn.
+- `--short-budget NAME[,NAME]` gives the named scenarios 20 s of slack per turn instead of
+  60 s: a known red only waits its budget out, a green one never does. land-check.sh passes
+  the `scenarios:` entries of known-red.txt.
 - RTWK_BIN / ORACLE_BIN override the search of bins.py. A binary that is not
   built is reported as such and skipped; nothing is built here.
 Never talks to a real model: every run has its own CODEX_HOME whose provider is
@@ -37,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import dataclasses
 import fcntl
 import multiprocessing
 import json
@@ -91,10 +98,14 @@ class Terminal:
     details: bool = False
 
 
+SLOW_BASE, SHORT_BASE = 60.0, 20.0
+SHORT: set[str] = set()  # scenarios run with the short slack (--short-budget): known reds that only wait it out
+
+
 def budget(sc: scenarios.Scenario) -> float:
-    """Seconds one turn may take: the paced stream time, doubled, plus slack."""
+    """Seconds one turn may take: the paced stream time, tripled, plus slack."""
     longest = max((len(r.events) * r.pace for r in sc.responses), default=0.0)
-    return 60.0 + 3 * longest + 0.15 * len(sc.responses)
+    return (SHORT_BASE if sc.name in SHORT else SLOW_BASE) + 3 * longest + 0.15 * len(sc.responses)
 
 
 # ---------------------------------------------------------------- exec mode
@@ -307,6 +318,7 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
         expected = 0
         for i, turn in enumerate(() if resume else sc.turns):
             expected += len(turn.responses)
+            turn_started = time.time()
             pump(1.0)
             if NUDGE.search(screen_text(max(0, len(out) - 3000))):
                 send(b"2")
@@ -354,6 +366,8 @@ def run_pty(binary: str, sc: scenarios.Scenario, root: Path, srv: ScenarioServer
                 last = " | ".join(x.strip() for x in screen_text(max(0, len(out) - 3000)).splitlines() if x.strip())[-int(os.environ.get("MOCK_SCREEN_CHARS", "360")):]
                 return False, f"turn {i + 1}: mock served {srv.turn_requests()} of {expected} model request(s) in {budget(sc):.0f}s; screen ends: {last}", notes
             checkpoint(f"turn-{i + 1}")
+            if os.environ.get("MOCK_TURN_TIMES"):  # per-turn seconds, to cut a long scenario into balanced parts
+                notes.append(f"turn {i + 1} ({turn.prompt}) {time.time() - turn_started:.1f}s")
         seen = sc.sentinel in re.sub(r"\s+", "", screen_text())
         notes.append(f"sentinel on screen: {'yes' if seen else 'no'}")
         if capture is not None and terminal.details:
@@ -429,8 +443,12 @@ def dump(srv: ScenarioServer) -> None:
                 print(f"           output {i.get('call_id')}: {json.dumps(i.get('output'))[:200]}")
 
 
-def run_one(name: str, label: str, binary: str, mode: str, show: bool = False, *, terminal: Terminal = Terminal(), capture_dir: Path | None = None, resume_with: str | None = None) -> Result:
+def run_one(name: str, label: str, binary: str, mode: str, show: bool = False, *, terminal: Terminal = Terminal(), capture_dir: Path | None = None, resume_with: str | None = None, piece: tuple[int, int, int] | None = None) -> Result:
     sc = scenarios.load(name)
+    if piece is not None:  # (first turn, end turn, number): one session of a scenario cut at sc.cuts
+        lo, hi, number = piece
+        sc = dataclasses.replace(sc, turns=sc.turns[lo:hi], sentinel=sc.sentinel if hi >= len(sc.turns) else "")
+        name = f"{name}#{number}"
     root = home.temp_root()
     started = time.time()
     try:
@@ -498,10 +516,12 @@ def main() -> int:
     ap.add_argument("--capture-resume", action="store_true", help="add a shared saved-session checkpoint")
     ap.add_argument("--capture-details", action="store_true", help="also capture after Ctrl+T")
     ap.add_argument("--jobs", type=int, default=int(os.environ.get("CHECK_JOBS", "1")), metavar="N", help="scenarios run at once (default 1)")
+    ap.add_argument("--short-budget", metavar="NAME[,NAME]", help=f"run these scenarios with {SHORT_BASE:.0f} s of slack per turn instead of {SLOW_BASE:.0f} (known reds: they only wait out the budget, a green one never waits; land-check.sh passes the known-red.txt names)")
     ap.add_argument("--list-bins", action="store_true")
     ap.add_argument("--json", help="write the results to this file")
     ap.add_argument("--dump", action="store_true", help="print the tools and tool outputs of every model request")
     args = ap.parse_args()
+    SHORT.update(n for n in (args.short_budget or "").split(",") if n)
     found = {"rtwk": bins.rtwk_bin(), "oracle": bins.oracle_bin()}
     if args.capture_resume and (args.capture_dir is None or args.bin or not all(found.values())):
         ap.error("--capture-resume requires --capture-dir and both binaries")
@@ -521,7 +541,7 @@ def main() -> int:
     results: list[Result] = []
     terminal = Terminal(args.size, args.palette == "light", args.capture_details)
     order = ["rtwk", "oracle"] if args.capture_resume else ["oracle", "rtwk"]
-    jobs: list[tuple[str, str, str, str, str | None]] = []  # (name, label, path, mode, resume_with)
+    jobs: list[tuple[str, str, str, str, str | None, tuple[int, int, int] | None]] = []  # (name, label, path, mode, resume_with, piece)
     for label in args.bin or order:
         path = found[label]
         if not path:
@@ -529,7 +549,12 @@ def main() -> int:
         for name in names:
             mode = "pty" if (label == "rtwk" or args.pty or args.capture_dir or scenarios.load(name).pty_only) else "exec"
             resume_with = found["rtwk"] if args.capture_resume and label == "oracle" else None
-            jobs.append((name, label, path, mode, resume_with))
+            cuts = scenarios.load(name).cuts if args.jobs > 1 and not args.capture_dir and not args.capture_resume else ()
+            if cuts:  # independent sessions side by side instead of one long one
+                bounds = [0, *cuts, len(scenarios.load(name).turns)]
+                jobs += [(name, label, path, mode, resume_with, (lo, hi, n)) for n, (lo, hi) in enumerate(zip(bounds, bounds[1:]), 1)]
+            else:
+                jobs.append((name, label, path, mode, resume_with, None))
 
     def show(r: Result) -> None:
         results.append(r)
@@ -543,14 +568,14 @@ def main() -> int:
         jobs.sort(key=lambda j: slow.get(j[0], len(slow)))
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs, mp_context=multiprocessing.get_context("fork")) as pool:
             futures = [
-                pool.submit(run_one, name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with)
-                for name, label, path, mode, resume_with in jobs
+                pool.submit(run_one, name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with, piece=piece)
+                for name, label, path, mode, resume_with, piece in jobs
             ]
             for future in concurrent.futures.as_completed(futures):
                 show(future.result())
     else:
-        for name, label, path, mode, resume_with in jobs:
-            show(run_one(name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with))
+        for name, label, path, mode, resume_with, piece in jobs:
+            show(run_one(name, label, path, mode, args.dump, terminal=terminal, capture_dir=args.capture_dir, resume_with=resume_with, piece=piece))
     if not results:
         print("no binary to run: nothing checked")
         return 2

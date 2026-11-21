@@ -34,6 +34,39 @@ def loop_reload_is_constant() -> None:
     print("loop reload: queued() over load + 3 reloads =", seen)
 
 
+def cuts_cover_every_turn_once() -> None:
+    """check.py --jobs N runs a scenario's pieces (Scenario.cuts) as separate sessions: together
+    they are every turn once, in order, and the router never cuts between `compact` and the
+    message that compacts."""
+    for name in scenarios.names():
+        sc = scenarios.load(name)
+        if not sc.cuts:
+            continue
+        bounds = [0, *sc.cuts, len(sc.turns)]
+        assert bounds == sorted(set(bounds)), (name, sc.cuts)
+        pieces = [sc.turns[lo:hi] for lo, hi in zip(bounds, bounds[1:])]
+        assert [t for piece in pieces for t in piece] == sc.turns, name
+        if name == "router":
+            for piece in pieces:
+                prompts = [t.prompt for t in piece]
+                assert ("compact" in prompts) == ("nothing special" in prompts), prompts
+                assert prompts.index("compact") + 1 == prompts.index("nothing special") if "compact" in prompts else True
+        print(f"cuts: {name} = {len(pieces)} pieces of {[len(p) for p in pieces]} turns")
+
+
+def short_budget_is_shorter() -> None:
+    import check
+
+    sc = scenarios.load("multi-agent")
+    long = check.budget(sc)
+    check.SHORT.add("multi-agent")
+    try:
+        assert abs(check.budget(sc) - (long - (check.SLOW_BASE - check.SHORT_BASE))) < 1e-9, (check.budget(sc), long)
+    finally:
+        check.SHORT.discard("multi-agent")
+    print(f"budget: multi-agent {long:.0f} s, short {long - (check.SLOW_BASE - check.SHORT_BASE):.0f} s")
+
+
 def fake_harness(drop_module=(), drop_methods=()) -> types.ModuleType:
     real = harness.H
     fake = types.ModuleType("fake_harness")
@@ -80,5 +113,7 @@ def verify_fails_clearly() -> None:
 
 if __name__ == "__main__":
     loop_reload_is_constant()
+    cuts_cover_every_turn_once()
+    short_budget_is_shorter()
     verify_fails_clearly()
     print("ok")

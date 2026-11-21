@@ -72,6 +72,11 @@ class Scenario:
     allow_unsupported: bool = False  # the expected tool output is an 'unsupported ...' error
     pty_only: bool = False  # needs keys or slash commands: `codex exec` cannot run it
     router: bool = False  # served by router.py (the user's message picks the response)
+    # Turn indexes before which a new session may start: the turns are independent there, so
+    # `check.py --jobs N` runs the pieces as separate scenarios (`name#1`, `name#2`, ...) side
+    # by side. A piece that depends on the one before it (the compaction turns) has no cut
+    # between them. Empty = one session, whatever --jobs says.
+    cuts: tuple[int, ...] = ()
     # What it mirrors, for the coverage table: Rust helpers and core suite tests.
     helpers: str = ""
     suite: str = ""

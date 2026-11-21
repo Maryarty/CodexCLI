@@ -745,32 +745,55 @@ fn live_center_search_row_appears_only_while_editing() {
 
 /// vs1-review D4: the screen draws at any width, with the list, the search
 /// line, the help and the confirmation (the old view subtracted past zero
-/// below nine cells).
-#[test]
-fn the_center_draws_at_widths_one_to_ten() {
-    for width in 1..=10u16 {
-        for height in [3u16, 6, 24] {
-            let mut h = start_clipping(true, width, height);
-            h.open_debug_row("agents", Some("overview"));
-            h.settle();
-            h.press("/");
-            h.settle();
-            h.press("escape");
-            h.settle();
-            h.press("?");
-            h.settle();
-            h.press("escape");
-            h.settle();
-            let mut h = start_clipping(true, width, height);
-            h.open_debug_row("agents", Some("confirm"));
-            h.press("a");
-            h.settle();
-            assert!(
-                h.t.screen().lines().count() <= usize::from(height),
-                "{width}x{height}"
-            );
-        }
+/// below nine cells). One test per width: each settles the app on a real
+/// clock, so nextest runs them side by side (build-speed-2: one test for all
+/// ten widths was 27 s, the longest test of the whole run).
+fn the_center_draws_at(width: u16) {
+    for height in [3u16, 6, 24] {
+        let mut h = start_clipping(true, width, height);
+        h.open_debug_row("agents", Some("overview"));
+        h.settle();
+        h.press("/");
+        h.settle();
+        h.press("escape");
+        h.settle();
+        h.press("?");
+        h.settle();
+        h.press("escape");
+        h.settle();
+        let mut h = start_clipping(true, width, height);
+        h.open_debug_row("agents", Some("confirm"));
+        h.press("a");
+        h.settle();
+        assert!(
+            h.t.screen().lines().count() <= usize::from(height),
+            "{width}x{height}"
+        );
     }
+}
+
+macro_rules! the_center_draws_at_widths {
+    ($($name:ident: $width:literal,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                the_center_draws_at($width);
+            }
+        )*
+    };
+}
+
+the_center_draws_at_widths! {
+    the_center_draws_at_width_1: 1,
+    the_center_draws_at_width_2: 2,
+    the_center_draws_at_width_3: 3,
+    the_center_draws_at_width_4: 4,
+    the_center_draws_at_width_5: 5,
+    the_center_draws_at_width_6: 6,
+    the_center_draws_at_width_7: 7,
+    the_center_draws_at_width_8: 8,
+    the_center_draws_at_width_9: 9,
+    the_center_draws_at_width_10: 10,
 }
 
 /// Item 2 (review point 44): `o` opens the resume picker in the center, empty

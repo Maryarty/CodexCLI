@@ -261,6 +261,12 @@ def build_scenario() -> Scenario:
     # the next message compacts first: one more request (the summary) before the help text
     turns.append(Turn("nothing special", [summary(), helptext()]))
     turns.append(Turn("all", r.chains["all"]))
+    # The router is stateless, so any keyword may start a session: `check.py --jobs N` runs four
+    # pieces side by side (~40 s each, 29 turns of ~4 s were one 151 s session). Never cut
+    # between `compact` and `nothing special`: the second one needs the first one's token usage.
+    cut_before = ("proposal", "code", "compact")
+    cuts = tuple(i for i, t in enumerate(turns) if t.prompt in cut_before)
+    assert len(cuts) == len(cut_before), "router.py: a cut keyword is not a turn any more"
     return Scenario(
         name="router",
         description="one session: the keyword in the user's message picks the response type; `all` plays the showcase",
@@ -269,6 +275,7 @@ def build_scenario() -> Scenario:
         approval_policy="on-request",
         sandbox_mode="read-only",
         router=True,
+        cuts=cuts,
         pty_only=True,
         allow_unsupported=True,  # the `custom` keyword is a call Codex refuses
         config_top=COMPACT_TOP,
