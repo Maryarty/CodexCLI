@@ -534,7 +534,7 @@ fn file_link_uses_target_path_for_hash_range() {
 fn url_link_shows_destination() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `docs (https://example.com/docs)`:",
+        "the oracle writes ` (https://example.com/docs)` after the label: its display for a terminal not known to support OSC 8 (tui web_links.rs WebLinkDisplay::for_terminal); the port has no terminal detection and draws a web label alone with its hyperlink (`LinkDestinations::Auto`, as the oracle does on a supporting terminal: supporting_terminals_render_only_the_styled_label_and_keep_its_target); the screen has no `docs (https://example.com/docs)`",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)

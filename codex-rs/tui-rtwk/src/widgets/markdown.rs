@@ -30,6 +30,10 @@ pub fn themed(view: MarkdownView, theme: MarkdownTheme) -> ConfiguredMarkdownVie
     view.theme(theme).link_destinations(LinkDestinations::Auto)
 }
 
+/// The source marker of a heading of level 1 to 6 (markdown_render.rs
+/// `start_heading`): the hashes and a space.
+const MARKERS: [&str; 6] = ["# ", "## ", "### ", "#### ", "##### ", "###### "];
+
 /// `blocks` with the marker (`#` to `######`, and a space) at the start of
 /// every heading, in lists and quotes too.
 pub fn with_heading_markers(blocks: &[Block]) -> Vec<Block> {
@@ -39,7 +43,7 @@ pub fn with_heading_markers(blocks: &[Block]) -> Vec<Block> {
 fn marked(block: &Block) -> Block {
     match &**block {
         MdBlock::Heading { level, children } => {
-            let marker = format!("{} ", "#".repeat(usize::from(*level)));
+            let marker = MARKERS[usize::from(*level).clamp(1, MARKERS.len()) - 1];
             let mut content = Vec::with_capacity(children.len() + 1);
             content.push(MdInline::Text(Arc::from(marker)));
             content.extend(children.iter().cloned());

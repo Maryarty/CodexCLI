@@ -16,7 +16,8 @@ Decisions:
 - The exec cell keeps the existing ToolRow; ~14 cells_1 exec tests stay pending (exec rework not in this pass).
 - Kit limit (not an rtwk gap): markdown_render rows are the renderer's alone, the chat adds the agent gutter
   `• `/`  `, so most markdown_streaming tests stay pending with their old reasons; tests/kit is read-only here.
-- Link destinations wait for rtwk baccefc2 (MarkdownView::link_destinations); the pin is 492ab738.
+- Link destinations: the pin (rtwk main 5583c142) has `MarkdownView::link_destinations`; the chat draws `LinkDestinations::Auto` (a web label
+  alone with its hyperlink, a local target with ` (target)`); the oracle's web suffix is for a terminal not known to support OSC 8 and stays pending (repin-4.md).
 - cells_2 compact_patches…failure_details pending: the wire carries no failure stderr (patch half matches);
   finalized_plan_reuses_rendered_transcript_lines pending: spinner/cache frame equality.
 Gap rows added (rtwk-gaps.md, provisional ids): G60 MarkdownView inline syntax extension (file citations),
@@ -67,7 +68,7 @@ Findings of the FULL review of chat-cells:
 Item 11 (theme colours) is done in round 2 below.
 Gap rows: G71 (MarkdownView paragraphs take no inherited text style). Renumbered from G65 (composer took G65-G70 on the tip);
 the commit message of fb9220a1 still says G65.
-Pin: link destinations need rtwk baccefc2 (`MarkdownView::link_destinations`); the pin (492ab738) is older.
+Pin: rtwk main 5583c142 has link destinations (`MarkdownView::link_destinations`, baccefc2); see repin-4.md for how the chat uses it.
 
 ### Round 2 (same day, after startup-finish landed; items 11, 7, 9, 8 done)
 Shard counts (oracle profile, rebased on 1171555ad = tip, nothing to rebase at the end): cells_1 9/0/51 · cells_2 10/1/22 · cells_3 1/0/38 ·
@@ -82,8 +83,8 @@ Checks: fmt clean, clippy `--workspace --all-targets -D warnings` clean, whole n
   cwd-relative label) and cells/citation.rs (`view(source, cwd) -> MarkdownView`: the source is parsed with the directives masked, the way the
   oracle masks them, and the node that stands for one becomes a code node; code, HTML, link text and destinations, reference definitions stay
   literal). Agent and plan cells read citations, the reasoning summary does not (the oracle's generic renderer). G60 is solved for these two:
-  the lander closes the row (rtwk-gaps.md is composer-2's file this run). Two link-suffix tests and the soft-break test wait for rtwk baccefc2
-  (`MarkdownView::link_destinations`, the pin 492ab738 lacks it), the adjacent-entities test pends on G61.
+  the lander closes the row (rtwk-gaps.md is composer-2's file this run). The link-suffix tests waited for rtwk baccefc2 (the pin 5583c142 has `MarkdownView::link_destinations`; repin-4.md), the soft-break test is G63,
+  the adjacent-entities test pends on G61.
 - 9 web search: oracle `handle_thread_item` runs `on_web_search_begin` then `on_web_search_end` for an item/completed; begin commits the cell
   item/started left (`• Browsing the web`), so the pty shows both rows. `Transcript::upsert` keeps the started web entry and appends the
   completed one under the id `<id>#2` (a stored thread without a start stays one row). Core and page tests (red with the rule off).
