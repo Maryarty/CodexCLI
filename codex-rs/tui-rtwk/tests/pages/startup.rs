@@ -135,12 +135,19 @@ mod gate {
         );
         h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
         h.press("ctrl+c");
-        let screen = h.t.screen();
-        assert!(
-            !screen.contains(CHAT),
-            "a chat frame before the exit:\n{screen}"
-        );
-        assert!(!h.t.is_running(), "the app runs on:\n{screen}");
+        for _ in 0..200 {
+            let screen = h.t.screen();
+            assert!(
+                !screen.contains(CHAT),
+                "a chat frame before the exit:\n{screen}"
+            );
+            if !h.t.is_running() {
+                return;
+            }
+            h.t.pump_for(ms(5));
+            std::thread::sleep(ms(2));
+        }
+        panic!("the app runs on:\n{}", h.t.screen());
     }
 
     // run_ratatui_app: the hooks review is asked before the app draws; the
@@ -153,7 +160,10 @@ mod gate {
         launched(&h, vec![hooks_due()]);
         let mut seen = false;
         for _ in 0..200 {
+            // the injected event comes from the fake server's thread: wall
+            // time, not only the fake clock
             h.t.pump_for(ms(5));
+            std::thread::sleep(ms(2));
             let screen = h.t.screen();
             assert!(!screen.contains(CHAT), "a chat frame:\n{screen}");
             if screen.contains("hooks") || screen.contains("Hooks") {
@@ -172,7 +182,10 @@ mod gate {
         h.settle();
         answer(&h, trust());
         for _ in 0..200 {
+            // the injected event comes from the fake server's thread: wall
+            // time, not only the fake clock
             h.t.pump_for(ms(5));
+            std::thread::sleep(ms(2));
             let screen = h.t.screen();
             assert!(!screen.contains(CHAT), "a chat frame:\n{screen}");
             if screen.contains("Folder access") {

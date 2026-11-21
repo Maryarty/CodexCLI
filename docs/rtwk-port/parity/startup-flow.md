@@ -54,7 +54,11 @@ core `a_launch_with_no_step_due_asks_for_its_startup_prompts`,
 `launched_prompts_keep_the_page_due_until_asked`, `a_launch_ask_lost_with_the_connection_is_asked_again`,
 `the_launch_waits_for_the_steps_and_skips_a_launch_that_ends`,
 `a_confirmed_trust_write_asks_for_the_config_reload`; screens `startup::gate::*`
-(`a_launch_prompt_is_drawn_without_a_chat_frame_before_it`, `a_start_page_waits_for_the_startup_page`).
+(`a_launch_prompt_is_drawn_without_a_chat_frame_before_it`, `a_start_page_waits_for_the_startup_page`,
+`ctrl_c_on_the_sign_in_quits_without_a_chat_frame`: a quit leaves from the page, no frame of the chat under it).
+E2E (startup-finish, pty, empty CODEX_HOME, 100x30): sign-in menu by keys and double clicks down to the
+API key entry and back; Ctrl-C quits; with `auth.json` the trust step, a double click on "Trust and
+continue" writes `trust_level = "trusted"` and the chat follows; Down+Enter opens the agents overview.
 
 Own tests:
 - core: steps_run_in_the_oracle_order, launch_facts_are_asked_once_and_stale_answers_dropped, update_choices_ask_the_host, exit_ends_every_step and seeds_read_the_fixture_forms;
@@ -87,14 +91,12 @@ Own tests:
   - After the trust is saved the page asks `ReloadConfig`: the host rebuilds the config with the folder trusted.
   - The browser opens (`OpenBrowser`) only for the login attempt still awaited, on `spawn_blocking`, through a seam; the host offers no provider wizards (`WIZARDS_BUILT`).
   - The file IO lives in `src/services/startup.rs`: layers rule R12.
-- Launch order (R-F5): the real host answers the facts, so `UiApp::with_awaited_facts(true)` makes `StartupGate` draw nothing until they are read; then the chat, or with a step due the page alone: no chat frame before the prompt. The homes of `agents` and `resume` open at once (their start page is pushed at mount, and the prompt cannot go under it).
+- Launch order (R-F5): the real host answers the facts, so `UiApp::with_awaited_facts(true)` makes `StartupGate` draw nothing until they are read; then the chat, or with a step due the page alone: no chat frame before the prompt. The homes of `agents` and `resume` mount only after the page popped (`StartupGate::holds_child`).
 
 ## Departures (no visual delta)
 
 - Provider facts are always false (task `onboarding`).
-- The login-time config reload (`show_login_screen`) and the restart of the embedded server after a provider change are not ported; only the trust reload is.
 - A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update: `SOURCE_BUILD` (`host/src/startup.rs`) is that version, and the oracle's own source build has the same 0.0.0, so the update prompt does not show in either (the oracle's `updates.rs` is also compiled out of debug builds). Not a defect; the prompt is reached through the debug entry `update_prompt`.
-- `agents` and `resume` start pages open before the facts are read (see Launch order): with a step due, their page shows for a frame before the prompt.
 - Flex: a loose `Flexible` lays out as in Flutter (G51 below).
 
 ## rtwk gaps
