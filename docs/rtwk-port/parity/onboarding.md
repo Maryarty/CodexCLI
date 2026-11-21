@@ -52,11 +52,27 @@ Shard `signin`: `tests/oracle/signin.rs`. Run it with `--profile oracle -E 'test
 | onboarding_screen.rs:1016.. suppress_quit_* (4) | view: `q` quits unless the key entry holds text; ctrl+c/ctrl+d always; core `exit_cancels_the_login_in_progress` | partly | the predicate is not a pure fn here (the view's key handler); no own test for `q` while typing | |
 | bedrock_tests.rs (4) gov_cloud_*, discovery_*, credential_* | shard, pending | pending | the Bedrock wizard (S03) is not built (onboarding) | |
 | gateway_tests.rs (3) | shard, pending | pending | the gateway wizard is not built (onboarding) | |
-| gcp_tests.rs:16 gcp_menu_gating_and_setup_flow | shard, pending; its menu snaps green in `provider_tests_sign_in_menus` | pending | the Google Cloud wizard is not built (onboarding) | |
+| gcp_tests.rs:16 gcp_menu_gating_and_setup_flow | shard (`providers`): menu snaps, then the wizard's `gcp_project_entry`, `gcp_location_entry`, `gcp_credentials_entry`, `gcp_configuring` green; page test `gcp_setup_is_asked_of_the_host_refused_and_retried` (fake host) holds the host half: setup params, `gcp_setup_error_narrow` rows, retry under a new number, stale answer dropped, `gcp_configured` line; core tests `the_gcp_wizard_runs_its_setup_through_an_ask`, `esc_on_the_first_gcp_stage_returns_to_the_menu`, `provider::gcp::tests` (4) | yes | the oracle test's `gcp_setup_error_narrow` and `gcp_configured` are asserted in the page test, not the shard (a debug entry has no host to answer the setup; the fixture seed cannot be extended: core/src/screens/onboarding.rs belongs to startup-deltas); the Enter that opens the wizard is held back by the guard for 1 s, so the shard test waits 1.1 s where the oracle test sends a key release (the kit has no release) | |
 
 Extra shard test: `provider_tests_sign_in_menus` (snaps sign_in_menu_short_without_cloud_wizards, gcp_sign_in_menu, gcp_sign_in_menu_short, gateway_sign_in_menu).
 
+## Review round 1 (providers task)
+
+- **O1** (double ChatGPT login): `choose` ignores an activation while a login is awaited; a stale `Outcome::Browser` is cancelled by `Ask::CancelLogin`; Esc on the key entry forgets the pending save. Core tests `second_choose_while_a_login_is_awaited_is_ignored`, `stale_browser_outcome_cancels_the_login`, `cancel_forgets_the_pending_api_key`; page test extended.
+- **O2** (menu on shared widgets): the held-Enter guard is `widgets::key_guard::KeyGuard` (7 tests). The menu keeps `Options`' cursor and `step` (wraps); it cannot use `Options`' two-column grid, whose rows differ from the oracle's (number and label on one row with the description under it, the caret `>`). What `options.rs` lacks for this menu: a one-column layout with a description row under each option and a caret marker.
+- **N-O5**: one place (`rows` in `signin/mod.rs`) decides the ChatGPT row.
+- **O3**: the blossom has a `faded` prop and a 400 ms fade; `welcome::header(.., faded)` and the page pass `SignIn::is_text_entry` (announced edits of `welcome.rs` and `onboarding/mod.rs`). Page test `the_welcome_logo_stops_and_fades_while_the_api_key_is_typed`.
+
+## Provider wizards (providers task)
+
+- Core: `auth::provider::{Wizard, Setup, Intent, Effect, gcp}` (the module is declared from `auth.rs`); `SignIn.wizard`, `State::ProviderConfigured(Provider)`, `Login::Provider(Setup)`, `Outcome::Provider(Result<(), String>)`, `Intent::Provider`/`ProviderBack`. The setup is asked as `Ask::Login`, answered as `Ev::Auth` (request-number guarded like every login); the host needs no new arm (`wire::login_start` maps `Login::Provider(Setup::Gcp)` to `ClientRequest::GcpSetup`, `login_outcome` to `Outcome::Provider`), so `host/src/startup.rs` is untouched and `host/src/providers.rs` does not exist yet.
+- View: `signin/provider/{mod,gcp,strings}.rs`: one `TextField` per stage (keyed, post-frame focus), the footer at the bottom of the room (`frame`), `guarded_keys` shared with the step (guard and quit chords; a `q` is text).
+- Announced edit outside the area: `core/src/protocol/onboarding.rs` (two match arms; the area was widened for it).
+
 ## Bites
+
+Each test below was seen failing on broken code, which was then restored:
+
 
 Each test below was seen failing on broken code, which was then restored:
 
@@ -68,6 +84,9 @@ Each test below was seen failing on broken code, which was then restored:
 - The offer not zeroing the wizards without API login breaks:
   - `the_sign_in_offer_weighs_the_login_policy`.
 - `exit_cancels_the_login_in_progress` was red before `Exit` cancelled.
+- GCP (providers task):
+  - dropping the stale-answer check of `Gcp::answer` breaks `a_refusal_returns_to_the_credentials_and_a_stale_answer_is_dropped`;
+  - dropping the post-frame focus of the stage's field breaks the shard test `gcp_menu_gating_and_setup_flow` (Enter reaches no field).
 - In the logo and quit page test:
   - the logo shown while frozen fails the logo check;
   - the quit not sent fails the cancel check.
@@ -80,6 +99,5 @@ Each test below was seen failing on broken code, which was then restored:
 
 ## Left
 
-- **Provider wizards (S03)**: Bedrock, Google Cloud and gateway, with their 8 oracle tests (pending).
-- **Faded welcome logo**: the oracle fades and stops the logo while the API key entry is active (`Presentation::Faded`). The blossom stage (`pages::session::blossom`, outside this area) has no fade. The logo is shown animated instead.
-- **Fixture `bedrock_gov_cloud`**: the pending gov-cloud tests name it, but it does not exist yet.
+- **Provider wizards (S03)**: Google Cloud is built (above). Bedrock (guidance, discovery, credential entries; `bedrock.rs`, `bedrock_tests.rs`) and the gateway wizard with its login (`gateway.rs`, `gateway_login.rs`, needs the provider form of `app/provider`, not ported) are not: 7 oracle tests stay pending (`gov_cloud_*` x2, `discovery_*`, `credential_*`, `gateway_tests` x3).
+- **Fixture `bedrock_gov_cloud`**: the pending gov-cloud tests name it; it needs a seed event for a wizard state (`SeedEv` in `core/src/screens/onboarding.rs`, held by startup-deltas), or key steps in the fixture script from `sign_in_bedrock`.

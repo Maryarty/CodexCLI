@@ -268,7 +268,7 @@ impl State for GcpState {
                 Error::EnterProject => strings.gcp_project_required.to_owned(),
                 Error::Server(message) => message.clone(),
             };
-            footer.push(vec![Span::styled(message, look.red.clone())]);
+            footer.push(vec![Span::styled(message, look.red)]);
         }
         LayoutBuilder::new(move |cx, constraints| {
             let width = width_of(constraints.max_width);
