@@ -1,0 +1,4 @@
+# The migration prompt with a link and no choices
+# Oracle data: model_migration.rs:460
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "migration", "current_model": "gpt-5", "target_model": "gpt-5.1", "target_display_name": "gpt-5.1", "target_description": "Broad world knowledge with strong general reasoning.", "link": "https://www.codex.com/models/gpt-5.1", "can_opt_out": false}}

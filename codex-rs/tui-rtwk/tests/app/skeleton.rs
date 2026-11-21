@@ -87,7 +87,7 @@ fn debug_menu_lists_the_directories() {
     // 22 directories and every entry: more rows than the oracle's 24 lines,
     // which this menu (not an oracle screen) need not fit. Tall, so that the
     // entries a slice adds still show.
-    let mut h = start_sized(true, 80, 120);
+    let mut h = start_sized(true, 80, 200);
     h.t.pump_for(crate::common::ms(100));
     let screen = h.t.screen();
     for (name, id, _) in DIRS {

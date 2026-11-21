@@ -1,0 +1,4 @@
+# The migration prompt with the server copy and the choices
+# Oracle data: model_migration.rs:426
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "migration", "current_model": "gpt-5.1-codex-mini", "target_model": "gpt-5.1-codex-max", "target_display_name": "gpt-5.1-codex-max", "target_description": "Codex-optimized flagship for deep and fast reasoning.", "copy": "Upgrade to gpt-5.2-codex for the latest and greatest agentic coding model.", "can_opt_out": true}}

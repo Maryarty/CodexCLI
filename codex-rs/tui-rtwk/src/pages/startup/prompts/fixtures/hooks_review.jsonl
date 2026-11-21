@@ -1,0 +1,4 @@
+# The startup hooks review
+# Oracle data: startup_hooks_review.rs:484
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "hooks", "count": 2}}

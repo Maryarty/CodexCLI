@@ -1,0 +1,4 @@
+# The cwd prompt on resume
+# Oracle data: cwd_prompt.rs:378 (new_prompt)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "resume", "current": "/Users/example/current", "session": "/Users/example/session", "remembered_current": "/Users/example/current", "allow_remember_current": true}}

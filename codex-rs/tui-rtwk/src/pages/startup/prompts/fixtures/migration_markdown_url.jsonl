@@ -1,0 +1,4 @@
+# A markdown migration prompt holding a long URL
+# Oracle data: model_migration.rs:546 (url shortened)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "migration", "current_model": "gpt-old", "target_model": "gpt-new", "target_display_name": "GPT New", "markdown": "https://example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/details/tail42", "can_opt_out": false}}

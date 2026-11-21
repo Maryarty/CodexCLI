@@ -1,0 +1,4 @@
+# The recovery menu where a restart cannot help
+# Oracle data: daemon_recovery_tests.rs:11
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "daemon", "reason": "code-mode host fallback policy requires embedded mode", "managed": true}}

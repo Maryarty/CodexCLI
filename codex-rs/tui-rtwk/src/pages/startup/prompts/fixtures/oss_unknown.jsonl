@@ -1,0 +1,4 @@
+# The provider picker, LM Studio unknown, Ollama unknown
+# Oracle data: oss_selection_tests.rs:9
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "oss", "lmstudio": "unknown", "ollama": "unknown"}}
