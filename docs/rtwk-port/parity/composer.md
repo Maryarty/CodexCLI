@@ -17,7 +17,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## Shard counts (pass / n/a / pending / red of total), at c14d490d5 + the mouse file
+## Shard counts (pass / n/a / pending / red of total), at the fix round (rebased on 13670e134)
 - composer_1: 8 / 1 / 41 / 0 of 50
 - composer_2: 19 / 4 / 27 / 0 of 50
 - composer_3: 17 / 2 / 37 / 0 of 56
@@ -26,9 +26,9 @@ Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste
 - textarea: 11 / 2 / 46 / 0 of 59
 - total 74 pass, 9 n/a, 248 pending, 0 red, 0 stale (68 pass at the second handoff).
 `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole default nextest
-(`--workspace`): 1043 passed, 14 skipped (before the sanitize unit test and the
-mouse file, which pass on their own: 2 + 1 ignored). fmt, clippy `--workspace
---all-targets -D warnings`: clean.
+(`--workspace`): 1058 passed, 15 skipped, 0 failed (including `composer_draft` 5,
+`composer_mouse` 2 + 1 ignored, the sanitize unit test). fmt `--check` and clippy
+`--workspace --all-targets -D warnings`: clean.
 
 Reds on the base tip that this branch moved: 9 composer_2 and 15 composer_popups
 tests were red on `claude/tui-rtwk` itself (checked first, as the checkpoint asked).
@@ -160,10 +160,10 @@ A click on a popup row is G70 (rtwk). In the oracle shards: composer_4
 blockquote_paste_replacing_selected_*, backspace_deletes_a_body_selection_*, composer_3 a click
 inside a placeholder snaps the caret to its end, textarea target_replaces_*.
 
-## Binary run (c14d490d5, debug build)
+## Binary run (fix round, debug build)
 `check.py --bin rtwk --bin oracle --only multi-turn,interrupted --capture-dir /tmp/composer-cap`:
-4/4 PASS (type and submit three turns, 17.6 s rtwk / 14.9 s oracle; Esc interrupts a
-streaming turn in 0.46 s rtwk / 0.36 s oracle and the next prompt works). The captures are
+4/4 PASS (type and submit three turns, 15.0 s rtwk / 14.3 s oracle; Esc interrupts a
+streaming turn in 0.27 s rtwk / 0.45 s oracle and the next prompt works). The captures are
 raw ANSI, not a rendered grid, so no row was compared from them: the composer rows are
 held by the oracle shards. Known difference in the same screens: the oracle's footer is
 `? for shortcuts` plus the model/cwd status line, ours is the page's key hints
