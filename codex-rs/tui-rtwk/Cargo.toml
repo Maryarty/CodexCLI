@@ -200,6 +200,10 @@ name = "composer_mouse"
 path = "tests/pages/composer_mouse.rs"
 
 [[test]]
+name = "composer_draft"
+path = "tests/pages/composer_draft.rs"
+
+[[test]]
 name = "shell_agents"
 path = "tests/services/shell_agents.rs"
 

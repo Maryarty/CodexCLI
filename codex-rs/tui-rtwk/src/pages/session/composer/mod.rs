@@ -69,6 +69,9 @@ pub struct Composer {
     on_picked: Option<Handler<Rc<str>>>,
     /// The text area alone: no prompt, no placeholder, no suggestions.
     bare: bool,
+    /// Shell mode as the page built this widget: the page resets it when
+    /// the composer clears, and the prompt follows.
+    shell: bool,
 }
 
 impl PartialEq for Composer {
@@ -79,6 +82,7 @@ impl PartialEq for Composer {
             && self.on_submitted == other.on_submitted
             && self.on_picked == other.on_picked
             && self.bare == other.bare
+            && self.shell == other.shell
     }
 }
 
@@ -86,6 +90,7 @@ impl Composer {
     /// The composer of `ui`'s draft, focused through `node`.
     pub fn new(ui: Rc<ThreadUi>, node: FocusNode) -> Composer {
         Composer {
+            shell: ui.draft.shell(),
             ui,
             node: Some(node),
             on_changed: None,
@@ -98,6 +103,7 @@ impl Composer {
     /// The text area alone (the oracle's bare `TextArea`).
     pub fn bare(ui: Rc<ThreadUi>) -> Composer {
         Composer {
+            shell: ui.draft.shell(),
             ui,
             node: None,
             on_changed: None,
@@ -135,13 +141,13 @@ pub fn submission(ui: &ThreadUi) -> Rc<str> {
     Rc::from(ui.draft.expanded(&ui.composer))
 }
 
-/// The draft as it is sent (Enter, or Tab's queue): its `submission`, kept
-/// for the history's placeholders, and shell mode left
-/// (`record_local_submission`).
-pub fn take_submission(ui: &ThreadUi) -> Rc<str> {
-    let text = submission(ui);
-    ui.draft.record_local(&ui.composer);
-    text
+/// The composer of `ui` emptied for a line that went out or a command that
+/// took it (not for a submit the thread did not accept: that clears
+/// nothing): the draft's history entry, walk and shell mode end with the
+/// text (`record_local_submission`).
+pub fn clear_sent(ui: &ThreadUi) {
+    ui.draft.cleared(&ui.composer);
+    ui.composer.clear();
 }
 
 impl StatefulWidget for Composer {
@@ -218,14 +224,14 @@ impl State for ComposerState {
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
                 }
+                // a paste at the start may have made it shell mode
+                return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Submitted(_) => {
-                // `record_local_submission`: the next Up starts at the newest.
-                let text = take_submission(&w.ui);
+                // the draft clears when the thread takes it (`clear_sent`)
                 if let Some(h) = &w.on_submitted {
-                    cx.emit(h, text);
+                    cx.emit(h, submission(&w.ui));
                 }
-                return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Shell => {
                 if let Some(h) = &w.on_changed {
@@ -234,8 +240,8 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::ClearForCtrlC => {
-                let text = take_submission(&w.ui);
-                w.ui.composer.clear();
+                let text = submission(&w.ui);
+                clear_sent(&w.ui);
                 let hs = read::<Hs, _>(cx);
                 cx.emit(
                     &hs.screen,

@@ -185,11 +185,7 @@ fn edit_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
             draft.yank(c);
             // a yank at the start is a prefix insertion: a leading `!`
             // becomes shell mode (`sync_bash_mode_from_text`)
-            if caret == 0 && collapsed && !draft.shell() && c.text().starts_with('!') {
-                let after = c.selection().extent_offset;
-                c.replace(0, 1, "");
-                c.set_selection(TextSelection::collapsed(after.saturating_sub(1)));
-                draft.set_shell(true);
+            if caret == 0 && collapsed && draft.absorb_shell_prefix(c) {
                 (data.tell)(ComposerMsg::Shell);
             }
             true

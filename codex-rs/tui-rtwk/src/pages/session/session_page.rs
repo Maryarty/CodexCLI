@@ -32,7 +32,7 @@ use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::footer::with_shell_mode;
 use crate::pages::session::composer::footer::{FooterLine, footer};
-use crate::pages::session::composer::{Composer, take_submission};
+use crate::pages::session::composer::{Composer, clear_sent, submission};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
@@ -136,6 +136,15 @@ impl StatefulWidget for Chat {
 
 impl_widget!(stateful eq Chat);
 
+impl ChatState {
+    /// What the page keeps of the draft (the footer and the Tab binding
+    /// read it): empty (shell mode's `!` is content) and in shell mode.
+    fn sync_draft(&mut self, w: &Chat) {
+        self.draft_shell = w.ui.draft.shell();
+        self.draft_empty = w.ui.composer.text().is_empty() && !self.draft_shell;
+    }
+}
+
 impl State for ChatState {
     type Widget = Chat;
     type Msg = ChatMsg;
@@ -182,8 +191,7 @@ impl State for ChatState {
     fn did_update_widget(&mut self, old: &Chat, w: &Chat, _cx: &mut Cx<'_, Self>) {
         if old != w {
             *self.composer.borrow_mut() = w.ui.composer.clone();
-            self.draft_empty = w.ui.composer.text().is_empty();
-            self.draft_shell = w.ui.draft.shell();
+            self.sync_draft(w);
             self.esc_primed = false;
             self.detailed_transcript = false;
             self.leader.set(false);
@@ -202,7 +210,8 @@ impl State for ChatState {
             && *before != now.1
             && now.1.is_some()
         {
-            w.ui.composer.clear();
+            clear_sent(&w.ui);
+            self.sync_draft(w);
         }
         self.seen = Some(now);
         let states = watch::<ScreenStates, _>(cx);
@@ -244,12 +253,15 @@ impl State for ChatState {
                 // The same Enter may have run it through a popup's pick.
                 if !w.ui.composer.text().is_empty() {
                     run_line(&text, w, cx, &hs);
+                    // a command that took the line cleared the composer
+                    self.sync_draft(w);
                 }
             }
             ChatMsg::QueueDraft => {
-                let draft = take_submission(&w.ui);
+                let draft = submission(&w.ui);
                 if !draft.is_empty() {
                     run_line(&draft, w, cx, &hs);
+                    self.sync_draft(w);
                 }
             }
             ChatMsg::Picked(text) => {
@@ -258,6 +270,7 @@ impl State for ChatState {
                 // itself); what `$` and `@` put in is text and stays.
                 if text.starts_with('/') {
                     run_line(&text, w, cx, &hs);
+                    self.sync_draft(w);
                 }
             }
             ChatMsg::RetryWriter => {
@@ -292,9 +305,7 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Changed(text) => {
-                self.draft_shell = w.ui.draft.shell();
-                // `is_empty`: shell mode's `!` is content
-                self.draft_empty = text.is_empty() && !self.draft_shell;
+                self.sync_draft(w);
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;

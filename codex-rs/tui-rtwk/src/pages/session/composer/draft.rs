@@ -197,9 +197,15 @@ impl ComposerDraft {
             })
             .flatten();
         let text = quoted.as_deref().unwrap_or(pasted);
+        // a small paste that puts a `!` at the draft's start is shell mode
+        // (`insert_str_at_target`: `ShellPrefixHandling::Interpret`)
+        let at_start = c.selection().start() == 0;
         if let Some(chars) = composer::large_paste(text) {
             let label = self.next_label(c, &label(chars));
             self.insert_element(c, &label, text);
+        } else if at_start && text.starts_with('!') && !self.shell() {
+            c.insert(text);
+            self.absorb_shell_prefix(c);
         } else if quoted.is_some() || text != original {
             // what the field would insert is not what the draft takes
             c.insert(text);
@@ -288,6 +294,22 @@ impl ComposerDraft {
         let changed = inner.shell != on;
         inner.shell = on;
         changed
+    }
+
+    /// A `!` the text starts with becomes shell mode, its prompt
+    /// (`sync_bash_mode_from_text`): out of the text, the caret kept where
+    /// it was in what follows. `true` when it did.
+    pub fn absorb_shell_prefix(&self, c: &TextEditingController) -> bool {
+        if self.shell() || !c.text().starts_with('!') {
+            return false;
+        }
+        let selection = c.selection();
+        c.replace(0, 1, "");
+        c.set_selection(TextSelection::new(
+            selection.base_offset.saturating_sub(1),
+            selection.extent_offset.saturating_sub(1),
+        ));
+        self.set_shell(true)
     }
 
     /// The element that holds `offset` strictly inside it.
@@ -449,9 +471,12 @@ impl ComposerDraft {
         c.set_selection(TextSelection::collapsed(text.len()));
     }
 
-    /// A submit (or `Ctrl+C`'s clear) ends the walk and keeps the draft's
-    /// placeholders for the entry it sent (`record_local_submission`).
-    pub fn record_local(&self, c: &TextEditingController) {
+    /// The composer cleared (the thread took the submit, a command opened a
+    /// screen, `Ctrl+C`): the placeholders stay with the entry it sent
+    /// (`record_local_submission`), the history walk is over and shell mode
+    /// left. A submit the thread did not take clears nothing, and keeps all
+    /// of it.
+    pub fn cleared(&self, c: &TextEditingController) {
         let elements = self.elements(c);
         let sent = self.expanded(c);
         let mut inner = self.0.borrow_mut();

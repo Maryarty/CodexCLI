@@ -12,6 +12,7 @@ use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popover
 use codex_tui_core::threads::{Failure, ThreadModel};
 
 use crate::app::view::Hs;
+use crate::pages::session::composer::clear_sent;
 use crate::pages::session::open::open;
 
 /// The chat screen of one thread's controllers.
@@ -88,7 +89,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         Outcome::Open(opened) => {
             record(cx);
-            w.ui.composer.clear();
+            clear_sent(&w.ui);
             if matches!(opened.target, Target::Status | Target::Usage) {
                 let intent = if opened.target == Target::Status {
                     ScreenIntent::Status(codex_tui_core::screens::status::Intent::Open)
@@ -105,7 +106,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         Outcome::Session { command, intent } => {
             record(cx);
-            w.ui.composer.clear();
+            clear_sent(&w.ui);
             screen(
                 cx,
                 chat::Intent::Session {
