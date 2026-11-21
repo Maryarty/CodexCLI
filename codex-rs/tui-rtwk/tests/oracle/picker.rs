@@ -937,42 +937,26 @@ fn choice_labels_and_descriptions_keep_complete_url_destinations() {
 // ORACLE bottom_pane/selection_tabs_tests.rs:22 filled_tabs_window_around_active_tab kind=snap owner=ui-pane snap=filled_tabs_window_around_active_tab
 #[test]
 fn filled_tabs_window_around_active_tab() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per active tab",
+        "a frame per active tab and per width is not addressable by the kit (oracle_snap::frames reads no such header); the strips are asserted against the oracle's snapshot text through the sheet in tests/sheets/select.rs filled_tabs_window_around_active_tab",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(30, 3)
-        .entry("select", "filled_tabs_seven")
-        .open();
-    s.assert_snap("filled_tabs_window_around_active_tab");
-    // missed kit call: the three active tabs are three screens; the bold and background check of each active label is not a kit call
 }
 
 // ORACLE bottom_pane/selection_tabs_tests.rs:60 filled_tabs_truncate_unicode_without_hiding_active_tab kind=snap owner=ui-pane snap=filled_tabs_truncate_unicode_without_hiding_active_tab
 #[test]
 fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per width",
+        "a frame per width is not addressable by the kit (oracle_snap::frames reads no such header); the strips are asserted against the oracle's snapshot text through the sheet in tests/sheets/select.rs filled_tabs_truncate_unicode_without_hiding_active_tab",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(16, 4)
-        .entry("select", "filled_tabs_unicode")
-        .open();
-    s.assert_snap("filled_tabs_truncate_unicode_without_hiding_active_tab");
-    // missed kit call: the four widths are four screens; the snapshot has one row per width
 }
 
 // ORACLE bottom_pane/selection_tabs_tests.rs:69 filled_tab_unknown_palette_uses_readable_underlined_defaults kind=ui owner=ui-pane
 #[test]
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
-    kit::pending(
-        Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog)",
-    );
     let s = Screen::build(Owner::UiPane)
-        .size(5, 1)
+        .size(20, 6)
         .entry("select", "filled_tab_all")
         .open();
     s.assert_text_style(" All ", "fg=Reset bg=Reset bold underlined");
