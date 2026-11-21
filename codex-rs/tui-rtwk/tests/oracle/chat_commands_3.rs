@@ -133,10 +133,6 @@ fn slash_keymap_debug_can_inspect_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2561 slash_keymap_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /keymap command's usage message is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap nope");
     s.keys("enter");
@@ -235,10 +231,6 @@ fn slash_clear_with_name_requests_named_session() {
 // ORACLE chatwidget/tests/slash_commands.rs:2894 slash_clear_after_ctrl_c_keeps_stashed_draft_recallable kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the stashed-draft history recall after ctrl+c and /clear needs a thread with a history entry (set_history_metadata seed), not reachable black-box",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("ok");
     s.keys("enter");
@@ -300,10 +292,6 @@ fn slash_memory_maintenance_reports_stubbed_feature() {
 // ORACLE chatwidget/tests/slash_commands.rs:3041 slash_mcp_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_mcp_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /mcp command's usage message is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/mcp full");
     s.keys("enter");
@@ -607,7 +595,6 @@ fn user_turn_sends_standard_override_after_fast_is_turned_off() {
 // ORACLE chatwidget/tests/slash_commands.rs:3811 raw_slash_command_reports_usage_for_invalid_arg kind=ui owner=chat-nav-pane
 #[test]
 fn raw_slash_command_reports_usage_for_invalid_arg() {
-    kit::pending(Owner::ChatNavPane, "the /raw usage message is not built");
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/raw status");
     s.keys("enter");

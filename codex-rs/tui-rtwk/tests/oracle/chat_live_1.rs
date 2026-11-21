@@ -1037,7 +1037,6 @@ fn live_app_server_collab_spawn_completed_renders_requested_model_and_effort() {
 // ORACLE chatwidget/tests/app_server.rs:1660 live_app_server_failed_turn_does_not_duplicate_error_history kind=ui owner=chat-live
 #[test]
 fn live_app_server_failed_turn_does_not_duplicate_error_history() {
-    kit::pending(Owner::ChatLive, ERR_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&error_note("turn-1", "permission denied", "null", false));
@@ -1052,10 +1051,6 @@ fn live_app_server_failed_turn_does_not_duplicate_error_history() {
 // ORACLE chatwidget/tests/app_server.rs:1763 live_app_server_turn_completion_repairs_dropped_message_deltas kind=snap owner=chat-live snap=live_app_server_turn_completion_repairs_dropped_message_deltas
 #[test]
 fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
-    kit::pending(
-        Owner::ChatLive,
-        "no streamed-answer repair on the chat screen: the completed answer's text is not drawn from the turn, and the consolidation source is not a drawn row",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("turn-1", r#"The transport kept this.\n"#));

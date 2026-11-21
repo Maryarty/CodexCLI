@@ -626,10 +626,6 @@ fn disabled_slash_command_while_task_running_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1382 approval_modal_exec_snapshot kind=snap owner=dialogs-pane snap=approval_modal_exec
 #[test]
 fn approval_modal_exec_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the live chat does not draw a command approval request: it shows `needs an answer. This build cannot answer it yet` (the approval modal is reached through the approvals entries only)",
-    );
     // oracle: the exec request (bash -lc 'echo hello world', reason, execpolicy echo hello world) at width 100.
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 14)
@@ -642,10 +638,6 @@ fn approval_modal_exec_snapshot() {
 // ORACLE chatwidget/tests/exec_flow.rs:1443 approval_modal_exec_without_reason_snapshot kind=snap owner=dialogs-pane snap=approval_modal_exec_no_reason
 #[test]
 fn approval_modal_exec_without_reason_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no approvals entry for the exec request without a reason (fixtures/chat_approvals_1/exec_no_reason.jsonl, the slice registers it)",
-    );
     // oracle: the same command with no reason: the spacing of the modal without a reason line, width 100.
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 12)

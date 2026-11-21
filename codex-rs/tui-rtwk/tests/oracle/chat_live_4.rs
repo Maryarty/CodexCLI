@@ -552,10 +552,6 @@ fn plan_update_renders_history_cell() {
 // ORACLE chatwidget/tests/replay_render_tests.rs:7 completed_replay_preserves_messages_and_draft_across_reconstruction kind=snap owner=chat-live
 #[test]
 fn completed_replay_preserves_messages_and_draft_across_reconstruction() {
-    kit::pending(
-        Owner::ChatLive,
-        "no thread replay in the port: the chat projection ignores a completed turn's items, so the replayed messages are not drawn; the oracle's inline snapshot is checked by its rows in order",
-    );
     let mut first = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     first.paste("Unsent draft");
     first.feed(REPLAY_MESSAGES);
