@@ -31,7 +31,9 @@ pub fn proposed_plan(
             .style(tokens.dim().attrs(Attrs::DIM | Attrs::ITALIC))
             .into()
     } else {
-        MarkdownView::new(text).theme(markdown.clone()).into()
+        MarkdownView::new(super::markdown::unwrap_markdown_fences(text).as_ref())
+            .theme(markdown.clone())
+            .into()
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)

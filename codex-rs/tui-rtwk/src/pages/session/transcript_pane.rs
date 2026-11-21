@@ -171,7 +171,8 @@ impl State for ViewportState {
                     } else {
                         ListSpacing::Uniform
                     };
-                    let markdown = MarkdownView::new(text.as_str()).theme(MarkdownTheme {
+                    let source = super::cells::markdown::unwrap_markdown_fences(text);
+                    let markdown = MarkdownView::new(source.as_ref()).theme(MarkdownTheme {
                         list_spacing,
                         ..markdown.clone()
                     });
