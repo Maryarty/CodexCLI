@@ -21,6 +21,34 @@ pub const KIND: Kind = Kind::Part;
 /// placeholder (`chat_composer.rs`, `LARGE_PASTE_CHAR_THRESHOLD`).
 pub const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
 
+/// A paste as the draft takes it (`apply_paste`): line breaks folded to
+/// `\n`, then CSI sequences and control characters removed but for tabs
+/// and newlines (`sanitize_user_text`). A lone ESC, or one whose sequence
+/// never ends, takes the rest of the text with it as the oracle does.
+pub fn sanitize_paste(pasted: &str) -> String {
+    let folded = pasted.replace("\r\n", "\n").replace('\r', "\n");
+    let mut rest = folded.as_str();
+    let mut out = String::with_capacity(folded.len());
+    while let Some(at) =
+        rest.find(|ch: char| ch == '\x1b' || ch.is_control() && !matches!(ch, '\n' | '\t'))
+    {
+        out.push_str(&rest[..at]);
+        let mut chars = rest[at..].chars();
+        let ch = chars.next().unwrap_or_default();
+        let after = chars.as_str();
+        match after.strip_prefix('[').filter(|_| ch == '\x1b') {
+            // a CSI sequence ends at its final byte, `@` to `~`
+            Some(sequence) => match sequence.find(|c: char| ('@'..='~').contains(&c)) {
+                Some(end) => rest = &sequence[end + 1..],
+                None => return out,
+            },
+            None => rest = after,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The size in characters of a paste the composer puts in as a placeholder,
 /// or none for one it puts in as text (`handle_paste`).
 pub fn large_paste(pasted: &str) -> Option<usize> {
@@ -172,4 +200,28 @@ pub fn trigger(before_caret: &str) -> Option<Trigger> {
         start,
         query: word[1..].to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_paste;
+
+    #[test]
+    fn sanitize_paste_removes_control_sequences_keeping_tabs_and_newlines() {
+        for (pasted, expected) in [
+            ("clean\ttext\n", "clean\ttext\n"),
+            ("\x07before", "before"),
+            ("\x1b[31mbefore", "before"),
+            ("before\x1b[31", "before"),
+            ("\x07[31m", "[31m"),
+            ("\x07", ""),
+            ("before\x1b[31mafter\x07", "beforeafter"),
+            ("é\u{85}中", "é中"),
+            ("before\x1bafter", "beforeafter"),
+            ("a\r\nb\rc", "a\nb\nc"),
+            ("_count_r\x1b[13;2:3uows\tindent\n\0two\u{7f}", "_count_rows\tindent\ntwo"),
+        ] {
+            assert_eq!(sanitize_paste(pasted), expected, "{pasted:?}");
+        }
+    }
 }

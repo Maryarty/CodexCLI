@@ -183,7 +183,9 @@ impl ComposerDraft {
         pasted: &str,
         label: impl Fn(usize) -> String,
     ) -> bool {
-        let pasted = pasted.replace("\r\n", "\n").replace('\r', "\n");
+        let original = pasted;
+        let sanitized = composer::sanitize_paste(pasted);
+        let pasted = sanitized.as_str();
         // a multiline paste after `> ` goes in quoted, and the caret leaves
         // the quote (`apply_paste`); shell input stays literal
         let quoted = (!self.shell())
@@ -191,14 +193,15 @@ impl ComposerDraft {
                 let at = c.selection().start();
                 let before = &c.text()[..at];
                 let line = before.rsplit('\n').next().unwrap_or_default();
-                composer::blockquote_paste(line, &pasted)
+                composer::blockquote_paste(line, pasted)
             })
             .flatten();
-        let text = quoted.as_deref().unwrap_or(&pasted);
+        let text = quoted.as_deref().unwrap_or(pasted);
         if let Some(chars) = composer::large_paste(text) {
             let label = self.next_label(c, &label(chars));
             self.insert_element(c, &label, text);
-        } else if quoted.is_some() {
+        } else if quoted.is_some() || text != original {
+            // what the field would insert is not what the draft takes
             c.insert(text);
         } else {
             return false;

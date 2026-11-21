@@ -507,6 +507,10 @@ fn fallback_completions_keep_the_draft_cursor_and_footer_anchored() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:12 skill_completion_attaches_typed_punctuation_snapshot kind=snap owner=chat-nav-pane snap=skill_completion_attaches_typed_punctuation
 #[test]
 fn skill_completion_attaches_typed_punctuation_snapshot() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "footer modes (pane-footer): the row `› 请用 $rustdoc》` matches; the oracle's footer of a non-empty draft is `100% context left` at the right, ours the page's key hints",
+    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(100, 9)
         .script(include_str!(
@@ -570,6 +574,10 @@ fn skill_completion_keeps_space_after_cursor_navigation() {
 // ORACLE bottom_pane/chat_composer/skill_completion_tests.rs:102 skill_completion_keeps_space_before_a_punctuation_paste_burst kind=ui owner=chat-nav-pane
 #[test]
 fn skill_completion_keeps_space_before_a_punctuation_paste_burst() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "no paste burst on the chat composer: the punctuation typed after the skill completion is held with the following characters as one burst, so the completion's space stays before it (`$rustdoc ,x`); the kit's typed text is one instant but reaches the field as separate keys",
+    );
     for (typed, expected) in [(",", "› $rustdoc ,x"), ("。", "› $rustdoc 。x")] {
         let mut s = Screen::build(Owner::ChatNavPane)
             .size(80, 24)

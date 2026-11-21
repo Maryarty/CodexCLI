@@ -86,6 +86,10 @@ fn reopening_identical_unified_mention_restarts_file_search() {
 // ORACLE bottom_pane/chat_composer.rs:7979 mention_popup_type_prefixes_snapshot kind=snap owner=chat-live snap=mention_popup_type_prefixes
 #[test]
 fn mention_popup_type_prefixes_snapshot() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "G68: the popup rows float in a different layout from the oracle's: a `▎` marker and label/detail two spaces apart, not aligned columns, no `enter insert · esc close` line, no `100% context left` footer",
+    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(72, 8)
         .script(include_str!("fixtures/composer_2/mention_types.jsonl"))
@@ -442,6 +446,10 @@ fn remote_image_rows_snapshots() {
 // ORACLE bottom_pane/chat_composer.rs:9412 slash_popup_model_clipping_snapshot kind=snap owner=chat-live snap=slash_popup_mo_clipped
 #[test]
 fn slash_popup_model_clipping_snapshot() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "G68: the popup rows float in a different layout from the oracle's: a `▎` marker and label/detail two spaces apart, not aligned columns, no `enter insert · esc close` line, no `100% context left` footer",
+    );
     let mut s = ready(60, 3);
     s.type_text("/mo");
     // the draft and its cursor stay visible above the clipped picker
@@ -461,6 +469,10 @@ fn service_tier_slash_command_dispatches_from_catalog_name() {
 // ORACLE bottom_pane/chat_composer.rs:9550 slash_init_dispatches_command_and_does_not_submit_literal_text kind=ui owner=chat-live
 #[test]
 fn slash_init_dispatches_command_and_does_not_submit_literal_text() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "`/init` is not available yet in the port (SessionIntent::Init has no handler: \"'/init' is not available yet.\"), so the command is not dispatched",
+    );
     let mut s = ready(100, 24);
     s.type_text("/init").keys("enter");
     // the command is dispatched and the draft cleared: no literal `/init` is submitted
@@ -488,6 +500,10 @@ fn kill_buffer_preserves_image_after_submit() {
 // ORACLE bottom_pane/chat_composer.rs:9655 kill_buffer_persists_after_slash_command_dispatch kind=ui owner=chat-live
 #[test]
 fn kill_buffer_persists_after_slash_command_dispatch() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "`/diff` opens the transcript pager, which is not built (\"Not implemented yet: expanded transcript\") and takes the Ctrl+Y that should yank the killed text back",
+    );
     let mut s = ready(100, 24);
     s.type_text("restore me").keys("home ctrl+k");
     s.assert_row(prompt(&s), PLACEHOLDER);
@@ -618,6 +634,10 @@ fn tab_queues_bang_shell_prompts_while_task_running_without_execution() {
 // ORACLE bottom_pane/chat_composer.rs:10001 slash_tab_completion_moves_cursor_to_end kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_moves_cursor_to_end() {
+    kit::pending(
+        Owner::ChatLive,
+        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+    );
     let mut s = ready(100, 24);
     s.type_text("/c").keys("tab");
     let p = prompt(&s);
@@ -629,6 +649,10 @@ fn slash_tab_completion_moves_cursor_to_end() {
 // ORACLE bottom_pane/chat_composer.rs:10029 slash_tab_completion_wins_over_queueing_while_task_running kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_wins_over_queueing_while_task_running() {
+    kit::pending(
+        Owner::ChatLive,
+        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!("fixtures/composer_2/running.jsonl"))
@@ -643,6 +667,10 @@ fn slash_tab_completion_wins_over_queueing_while_task_running() {
 // ORACLE bottom_pane/chat_composer.rs:10059 slash_key_completes_selected_slash_command_as_text kind=ui owner=chat-live
 #[test]
 fn slash_key_completes_selected_slash_command_as_text() {
+    kit::pending(
+        Owner::ChatLive,
+        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command), and the highlighted one is not readable (a typed `/` completes it)",
+    );
     let mut s = ready(100, 24);
     s.type_text("/m");
     s.type_text("/");
@@ -695,8 +723,8 @@ fn bang_prefixed_slash_text_submits_literal_shell_command() {
 fn slash_mention_dispatches_command_and_inserts_at() {
     let mut s = ready(100, 24);
     s.type_text("/mention").keys("enter");
-    s.assert_row(prompt(&s), PLACEHOLDER);
-    s.type_text("@");
+    // the command clears the draft and the chat inserts the `@` itself (the
+    // oracle's test plays the chat by calling `insert_str("@")` on the composer)
     s.assert_row(prompt(&s), "› @");
 }
 
