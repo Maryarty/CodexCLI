@@ -17,11 +17,34 @@ fn chat() -> Harness {
     h
 }
 
-/// Types `line` and sends it; dialogs fade in, so the frames run on.
+/// Waits until the chat has opened `dir`: the ask goes through the shell and
+/// comes back as an event, so the screen is up when the app applied it, not
+/// after a fixed span of frames. Then the frames of the fade-in.
+fn wait_shows(h: &mut Harness, what: &str, dir: &str) {
+    h.wait_until(&format!("{what} to open {dir}"), |h| shows(h, dir));
+    if dir == "import" {
+        // The route is up before its flow starts; Escape needs the flow.
+        h.wait_until("the import flow started", |h| {
+            h.import_phase() != codex_tui_core::screens::import::Phase::Idle
+        });
+    }
+    h.t.pump_for(ms(800));
+}
+
+/// Escape closes what the chat opened: the page or sheet answers through the
+/// shell too (the import page cancels its flow there), so the chat is back
+/// when the app applied that, not after a fixed span of frames. Waits for the
+/// screen the chat showed before, then the fade-out.
+fn escape_closes(h: &mut Harness, before: &str) {
+    h.press("escape");
+    h.wait_until("the chat back as it was", |h| h.t.screen() == before);
+    h.t.pump_for(ms(400));
+}
+
+/// Types `line` and sends it; the caller waits for what it opens.
 fn run_command(h: &mut Harness, line: &str) {
     h.t.type_text(line);
     h.press("enter");
-    h.t.pump_for(ms(800));
 }
 
 macro_rules! command_opens {
@@ -31,9 +54,9 @@ macro_rules! command_opens {
             let mut h = chat();
             let before = h.t.screen();
             run_command(&mut h, $line);
+            wait_shows(&mut h, $line, $dir);
             assert!(shows(&h, $dir), "{} did not open {}:\n{}", $line, $dir, h.t.screen());
-            h.press("escape");
-            h.t.pump_for(ms(400));
+            escape_closes(&mut h, &before);
             assert_chat_back(&h, None, &before);
         }
     )*};
@@ -74,6 +97,10 @@ command_opens! {
 fn slash_subagents_opens_the_agent_picker_not_the_command_center() {
     let mut h = chat();
     run_command(&mut h, "/subagents");
+    h.wait_for("the sheet", |s| {
+        s.contains("Not implemented yet: subagent picker")
+    });
+    h.t.pump_for(ms(800));
     assert_eq!(open::last_opened(), Some(Target::AgentPicker));
     assert!(
         h.t.screen()
@@ -91,10 +118,9 @@ fn a_command_picked_in_the_popup_opens_its_screen() {
     h.t.type_text("/stat");
     h.t.pump_for(ms(100));
     h.press("enter");
-    h.t.pump_for(ms(800));
+    wait_shows(&mut h, "/stat + enter", "status");
     assert!(shows(&h, "status"), "{}", h.t.screen());
-    h.press("escape");
-    h.t.pump_for(ms(400));
+    escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }
 
@@ -107,10 +133,9 @@ macro_rules! chord_opens {
             h.t.pump_for(ms(100));
             let before = h.t.screen();
             h.press($keys);
-            h.t.pump_for(ms(800));
+            wait_shows(&mut h, $keys, $dir);
             assert!(shows(&h, $dir), "{} did not open {}:\n{}", $keys, $dir, h.t.screen());
-            h.press("escape");
-            h.t.pump_for(ms(400));
+            escape_closes(&mut h, &before);
             assert_chat_back(&h, Some("a draft"), &before);
         }
     )*};
@@ -127,10 +152,9 @@ fn esc_esc_starts_backtrack_and_esc_leaves_it() {
     let before = h.t.screen();
     h.press("escape");
     h.press("escape");
-    h.t.pump_for(ms(400));
+    wait_shows(&mut h, "esc esc", "backtrack");
     assert!(shows(&h, "backtrack"), "{}", h.t.screen());
-    h.press("escape");
-    h.t.pump_for(ms(400));
+    escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }
 
@@ -156,10 +180,9 @@ fn f8_toggles_voice_which_opens_the_voice_strip() {
     let mut h = chat();
     let before = h.t.screen();
     h.press("f8");
-    h.t.pump_for(ms(400));
+    wait_shows(&mut h, "f8", "voice");
     assert!(shows(&h, "voice"), "{}", h.t.screen());
-    h.press("escape");
-    h.t.pump_for(ms(400));
+    escape_closes(&mut h, &before);
     assert_chat_back(&h, None, &before);
 }
 
@@ -170,7 +193,7 @@ fn quit_and_exit_leave_the_app() {
         chat_with_history(&mut h);
         h.t.type_text(line);
         h.press("enter");
-        h.t.pump_for(ms(400));
+        h.wait_until("the app to end", |h| !h.t.is_running());
         assert!(!h.t.is_running(), "{line} did not quit");
     }
 }

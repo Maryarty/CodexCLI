@@ -8,7 +8,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::script::Input;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::agents::Ev as AgentsEv;
 use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::app::debug;
 use codex_tui_rtwk::app::run::{app_view, localized, root};
@@ -16,6 +19,8 @@ use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
 use codex_tui_rtwk::services::shell::Backend;
 use rtwk_test::{Options, Tester};
+
+pub mod wait;
 
 /// The size of the oracle's snapshots.
 pub const WIDTH: u16 = 80;
@@ -276,32 +281,52 @@ impl Harness {
     /// Pumps until `ready` holds of the screen; the backend thread answers
     /// in real time, the frames run on the fake clock.
     pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
-        for _ in 0..400 {
-            self.t.pump_for(ms(20));
-            if ready(&self.t.screen()) {
-                return;
-            }
-            self.pause(ms(5));
-        }
-        panic!("never saw {what}; the screen:\n{}", self.t.screen());
+        wait::wait_until(self, what, |h| ready(&h.t.screen()));
+    }
+
+    /// `wait::wait_until` on this harness: frames until `ready` holds of it
+    /// (the screen, a page found in the tree, the facts of the app).
+    pub fn wait_until(&mut self, what: &str, ready: impl FnMut(&mut Harness) -> bool) {
+        wait::wait_until(self, what, ready);
     }
 
     /// Waits for a ready session and a settled turn. Idle is silent in the chat frame.
     pub fn wait_idle(&mut self) {
-        for _ in 0..400 {
-            self.t.pump_for(ms(20));
-            if self.t.read_app(|app: &UiApp| {
+        wait::wait_until(self, "the session idle", |h| {
+            h.t.read_app(|app: &UiApp| {
                 app.core.session().status == codex_tui_core::app::Session::Ready
                     && !app.core.active_thread().can_interrupt()
-            }) {
-                return;
-            }
-            self.pause(ms(5));
+            })
+        });
+    }
+
+    /// Where the import flow is. The import page is up the moment its route
+    /// is pushed, but it only starts its flow (`Phase::Detecting`) when its
+    /// `Open` has gone through the shell and back: a key sent before that
+    /// reaches a page whose flow has not begun.
+    pub fn import_phase(&self) -> codex_tui_core::screens::import::Phase {
+        self.t
+            .read_app(|app: &UiApp| app.core.screens().import.phase)
+    }
+
+    /// Delivers `events` as the backend would, then waits until the app has
+    /// applied every one of them. The ingress is one queue applied in order:
+    /// a clock event sent after them and seen by the app means they are all
+    /// in the model. Nothing else is promised about the screen (a dialog
+    /// that fades in still needs frames).
+    pub fn inject(&mut self, events: impl IntoIterator<Item = AppEv>) {
+        let epoch = self.fake.epoch().expect("connected");
+        for ev in events {
+            self.fake.inject(epoch, ev);
         }
-        panic!(
-            "session never reached idle; the screen:\n{}",
-            self.t.screen()
+        let mark = self.t.read_app(|app: &UiApp| app.core.screens().agents.now) + 1;
+        self.fake.inject(
+            epoch,
+            AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(mark))),
         );
+        wait::wait_until(self, "the injected events applied", |h| {
+            h.t.read_app(|app: &UiApp| app.core.screens().agents.now) == mark
+        });
     }
 
     /// Lets the backend thread run what the app sent it: commands travel
@@ -405,4 +430,14 @@ pub fn assert_snapshot_where(t: &Tester, dir: &str, name: &str, keep: impl Fn(&s
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|_| panic!("missing snapshot {}; the screen:\n{actual}", path.display()));
     pretty_assertions::assert_eq!(expected.trim_end(), actual.trim_end(), "{name}");
+}
+
+impl wait::Pumped for Harness {
+    fn tester(&mut self) -> &mut Tester {
+        &mut self.t
+    }
+
+    fn pause(&mut self) {
+        Harness::pause(self, ms(5));
+    }
 }

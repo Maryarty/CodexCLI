@@ -130,6 +130,7 @@ fn pets_is_a_sheet_over_the_session_page() {
     let before = h.t.screen();
     h.t.type_text("/pets");
     h.press("enter");
+    h.wait_for("the sheet", |s| s.contains("empty slot"));
     h.t.pump_for(crate::common::ms(800));
     let open = h.t.screen();
     assert!(
@@ -160,14 +161,21 @@ fn import_is_a_step_of_the_startup_page() {
     crate::chat::chat_with_history(&mut h);
     h.t.type_text("/import");
     h.press("enter");
-    h.t.pump_for(crate::common::ms(800));
+    // The ask goes through the shell: the page is up when the app applied it.
     let page = find::by_type::<StartupPage>();
+    h.wait_until("the startup page", |h| page.count(&h.t) == 1);
+    h.wait_until("the import flow started", |h| {
+        h.import_phase() != codex_tui_core::screens::import::Phase::Idle
+    });
+    h.t.pump_for(crate::common::ms(800));
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     // the step draws nothing while it asks the server (oracle: the screen
     // below stays; the answer needs the root wiring, see parity/import.md)
     assert!(!h.t.screen().contains("empty slot"), "{}", h.t.screen());
     assert_eq!(Step::Import.index(), 5);
     h.press("escape");
+    // The cancel goes through the shell as the open did.
+    h.wait_until("the page closed", |h| page.count(&h.t) == 0);
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(page.count(&h.t), 0);
     assert!(h.t.screen().contains("• Hello"));
@@ -185,6 +193,7 @@ fn diff_opens_the_not_implemented_popup() {
     for close in ["escape", "enter"] {
         h.t.type_text("/diff");
         h.press("enter");
+        h.wait_for("the popup", |s| s.contains(NOT_YET));
         h.t.pump_for(crate::common::ms(800));
         assert!(h.t.screen().contains(NOT_YET), "{}", h.t.screen());
         h.press(close);
@@ -246,6 +255,7 @@ fn left_on_an_empty_composer_opens_the_agents_page() {
     h.t.type_text("ab");
     h.press("left");
     h.t.pump_for(crate::common::ms(400));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     // The left moved the cursor inside the draft: back to its end first.
     h.press("end");
@@ -254,6 +264,7 @@ fn left_on_an_empty_composer_opens_the_agents_page() {
     h.t.pump_for(crate::common::ms(200));
     h.press("left");
     h.t.pump_for(crate::common::ms(800));
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
 }
 
@@ -264,16 +275,19 @@ fn session_to_agents_and_back_keeps_the_session() {
 
     let mut h = open_over_the_session("/agents");
     let page = find::by_type::<agents::Screen>();
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     h.press("down");
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     assert_session_back(&h);
     // Again: the page is there again and Esc still returns.
     h.t.type_text("/agents");
     h.press("enter");
     h.t.pump_for(crate::common::ms(800));
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
@@ -292,6 +306,7 @@ fn agents_to_session_when_a_task_opens() {
 
     let mut h = open_over_the_session("/agents");
     let page = find::by_type::<agents::Screen>();
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     let thread: Thread = serde_json::from_value(serde_json::json!({
         "id": FAKE_THREAD, "environments": null, "extra": null, "sessionId": FAKE_THREAD,
@@ -322,6 +337,7 @@ fn agents_to_session_when_a_task_opens() {
     h.wait_for("the listed task", |screen| screen.contains(FAKE_THREAD));
     h.press("enter");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     assert!(
         h.t.screen().contains("Ask Codex to do anything"),
@@ -337,9 +353,11 @@ fn session_to_resume_and_back() {
 
     let mut h = open_over_the_session("/resume");
     let page = find::by_type::<resume::Screen>();
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     assert_session_back(&h);
 }
@@ -355,9 +373,11 @@ fn resume_picks_a_row_and_returns_to_the_session() {
     let mut h = start_sized(true, 80, 24);
     h.open_debug_row("resume", Some("table"));
     let page = find::by_type::<resume::Screen>();
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     h.press("enter");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
 }
 
@@ -368,9 +388,11 @@ fn session_to_usage_and_back() {
 
     let mut h = open_over_the_session("/usage");
     let page = find::by_type::<usage::Screen>();
+    h.wait_until("page count 1", |h| page.count(&h.t) == 1);
     assert_eq!(page.count(&h.t), 1, "{}", h.t.screen());
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("page count 0", |h| page.count(&h.t) == 0);
     assert_eq!(page.count(&h.t), 0, "{}", h.t.screen());
     assert_session_back(&h);
 }
@@ -400,15 +422,18 @@ fn the_cli_entries_start_at_the_right_page() {
 
     let mut h = crate::common::start_app(|app| app.with_start_agents(true));
     h.t.pump_for(crate::common::ms(400));
+    h.wait_until("agents_page count 1", |h| agents_page.count(&h.t) == 1);
     assert_eq!(agents_page.count(&h.t), 1, "{}", h.t.screen());
     assert_eq!(resume_page.count(&h.t), 0);
 
     let mut h = crate::common::start_app(|app| app.with_start_resume(true));
     h.t.pump_for(crate::common::ms(400));
+    h.wait_until("resume_page count 1", |h| resume_page.count(&h.t) == 1);
     assert_eq!(resume_page.count(&h.t), 1, "{}", h.t.screen());
     assert_eq!(agents_page.count(&h.t), 0);
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
+    h.wait_until("resume_page count 0", |h| resume_page.count(&h.t) == 0);
     assert_eq!(resume_page.count(&h.t), 0, "{}", h.t.screen());
 }
 
