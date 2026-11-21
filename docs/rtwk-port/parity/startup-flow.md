@@ -30,7 +30,7 @@ Shard `onboarding`: `tests/oracle/onboarding.rs`, run with `--profile oracle -E
 | trust_directory.rs:402 renders_restricted_folder | snaps renders_restricted_folder, existing_untrusted_task | yes | | |
 | trust_directory.rs:424 renders_snapshot_for_trust_error | snap, same name | yes | | |
 | trust_directory.rs:440 picker_wraps_paths_and_restricted_actions | snap folder_picker_restricted_40x24 | yes | | |
-| trust_directory.rs:456 long_paths_keep_disclosure_and_choices_visible | snaps long_checkout_40x13, long_repository_root_40x17, only_repository_root_fits_40x16 | yes | | |
+| trust_directory.rs:456 long_paths_keep_disclosure_and_choices_visible | shard, pending(G51): snaps long_checkout_40x13, long_repository_root_40x17, only_repository_root_fits_40x16 | pending | rtwk `RenderFlex` hands the remainder to the first flexible children, the oracle's `FlexRenderable` shortens the paths first (gap G51, `rtwk-gaps.md`) | |
 | welcome.rs:166 welcome_renders_animation_on_first_draw | shard, same name | yes | | |
 | welcome.rs:184 welcome_skips_animation_below_height_breakpoint | shard, same name | yes | | |
 | welcome.rs:199 welcome_logo_layout (160x48) | shard, pending | pending | the test kit reads entries 100 ms in, but the oracle reads the logo's first frame; a kit seed is needed (kit owner) | |
@@ -42,13 +42,20 @@ Shard `onboarding`: `tests/oracle/onboarding.rs`, run with `--profile oracle -E
 | update_prompt.rs:340 update_prompt_navigation_wraps_between_entries | shard, same name | yes | | |
 | update_prompt.rs:349 long_update_command_keeps_selected_skip_visible_in_a_short_viewport | snap update_picker_selected_28x12 | yes | | |
 
-Snapshots: 12 green, 1 pending (welcome_logo_layout).
+Snapshots: 9 green, 2 pending (welcome_logo_layout, long_paths_keep_disclosure_and_choices_visible: G51).
 
 Own tests:
 - core: steps_run_in_the_oracle_order, launch_facts_are_asked_once_and_stale_answers_dropped, update_choices_ask_the_host, exit_ends_every_step and seeds_read_the_fixture_forms;
 - protocol: 8 reader tests (sign-in due, the trust lookup over local roots, the update offer and versions);
 - services: 2 tests (`services/startup.rs`, the version cache and the dismissal);
 - screen: tests/pages/onboarding.rs the_startup_page_opens_on_the_launch_facts_and_writes_the_trust (launch, the stale answer dropped, Enter, the trust write, the page left).
+- fix round and deltas (each red first, in its own commit):
+  - F1/F2: the_trust_cursor_stays_at_the_ends (tests/pages/onboarding.rs);
+  - N-O2/N-O1, deltas 1-4 (read error, version refresh, config reload, remote trust): about 46 host tests in `host/src/startup.rs` (fake seams for the browser, the network, the reload and the remote server) and the core tests of `core/src/screens/onboarding.rs`;
+  - delta 5: update_now_quits_the_app_only_after_the_host_stored_the_update (tests/pages/onboarding.rs) and the core tests;
+  - delta 6: 5 tests in `host/src/update.rs` (Windows PATH lookup, powershell.exe, relative entries ignored, the oracle's error words, `/` off Windows);
+  - delta 7: 3 tests in `core/tests/onboarding.rs` (connection lost while saving, late answer dropped, a made choice untouched);
+  - delta 8: 3 tests in `tests/pages/startup.rs` (`gate`: nothing drawn while the facts are awaited, the chat when nothing is due, a due step with no chat frame before it).
 
 ## Launch and host side
 
@@ -61,21 +68,26 @@ Own tests:
     - the update offer from `version.json`, never in a debug build.
   - Trust write: `ConfigBatchWrite projects."<key>".trust_level="trusted"`. The key is `project_trust_key` when embedded, or the folder as read for a daemon. The oracle's error context goes into the failure message.
   - Dismissal: writes `dismissed_version` to the cache.
-  - RunUpdate: stores the install context's action, which `main` runs after the terminal is restored, from `/`.
-  - The file and process IO lives in `src/services/startup.rs`: layers rule R12.
+  - RunUpdate: stores the install context's action, then answers `UpdateQueued` (the page leaves only then); `main` runs it after the terminal is restored (`host/src/update.rs`, the CLI's `run_update_action`: from `/` off Windows; on Windows the command is found on the absolute PATH entries, the standalone installer goes through `powershell.exe`, in a fresh directory).
+  - The launch facts fail the launch when `account/read` or `config/read` cannot be read (`StartFailed`: the process ends with `Error: <message>` after the terminal is restored).
+  - Remote workspaces: the trust of the `--cd` folder is read over the remote config (`read_remote_project_trust`).
+  - Version cache: when missing or older than 20 h the facts carry `refresh_update`, the page asks `RefreshUpdateCache` and the shell runs it (the oracle's `check_for_update`; rule R1: the host spawns nothing).
+  - After the trust is saved the page asks `ReloadConfig`: the host rebuilds the config with the folder trusted.
+  - The browser opens (`OpenBrowser`) only for the login attempt still awaited, on `spawn_blocking`, through a seam; the host offers no provider wizards (`WIZARDS_BUILT`).
+  - The file IO lives in `src/services/startup.rs`: layers rule R12.
+- Launch order (R-F5): the real host answers the facts, so `UiApp::with_awaited_facts(true)` makes `StartupGate` draw nothing until they are read; then the chat, or with a step due the page alone: no chat frame before the prompt. The homes of `agents` and `resume` open at once (their start page is pushed at mount, and the prompt cannot go under it).
 
 ## Departures (no visual delta)
 
-- Trust lookup: local host only. A remote workspace is not checked, as in the oracle's agents and remote paths.
-- An error on account/read or config/read at launch counts as "nothing due". The oracle fails the launch.
-- The network refresh of the version cache (`check_for_update`) is not ported. The offer reads the cache as it is.
 - Provider facts are always false (task `onboarding`).
-- The session connects in parallel with the page. A saved trust does not reload the session config.
-- Flex: a loose `Flexible` lays out as in Flutter. This differs from the oracle's FlexRenderable only when part of the space is left over, which no snapshot covers.
+- The login-time config reload (`show_login_screen`) and the restart of the embedded server after a provider change are not ported; only the trust reload is.
+- A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update, as the oracle's debug build.
+- `agents` and `resume` start pages open before the facts are read (see Launch order): with a step due, their page shows for a frame before the prompt.
+- Flex: a loose `Flexible` lays out as in Flutter (G51 below).
 
 ## rtwk gaps
 
-None.
+- G51 (`rtwk-gaps.md`): a column's flex children share the space unlike the oracle's `FlexRenderable`, so a long path pushes the disclosure and choices off a short screen; the three long-path snapshots are the pending test.
 
 ## Checks (2026-11-21)
 
