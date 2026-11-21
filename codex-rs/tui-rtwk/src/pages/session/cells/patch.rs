@@ -17,7 +17,7 @@ use rtwk::layout::{
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextAlign, TextWrap};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 use rtwk_rich::diff::{Diff, DiffLineKind};
 use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
@@ -26,6 +26,21 @@ use codex_tui_core::threads::{PatchActivity, PatchChange, PatchKind, ToolStatus}
 use crate::app::theme::Tokens;
 
 use super::strings::Strings;
+
+/// The disclosure control, indented as the oracle's activity anchor
+/// (transcript_view/text.rs `with_control`): a quarter of the width, at most
+/// four columns.
+fn disclosure(label: &'static str, style: Style) -> AnyWidget {
+    LayoutBuilder::new(move |_, room| {
+        let indent = (room.max_width / 4).min(4);
+        Padding::new(
+            EdgeInsets::only(indent, 0, 0, 0),
+            Text::new(label).style(style.clone()),
+        )
+        .into()
+    })
+    .into()
+}
 
 /// oracle activity_preview.rs `DETAIL_PREVIEW_LINES`.
 const PREVIEW_LINES: usize = 3;
@@ -90,10 +105,7 @@ impl State for PatchCellState {
                     .main_axis_size(MainAxisSize::Min)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(summary)
-                    .child(Padding::new(
-                        EdgeInsets::only(2, 0, 0, 0),
-                        Text::new(label).style(tokens.dim().attrs(Attrs::DIM)),
-                    ))
+                    .child(disclosure(label, tokens.dim().attrs(Attrs::DIM)))
                     .into();
                 let toggle = cx.send(!expanded);
                 Pressable::new(move |_, _| content.clone())
