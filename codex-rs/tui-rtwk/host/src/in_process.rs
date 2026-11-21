@@ -276,6 +276,11 @@ async fn run(
         connected: !matches!(mode, Mode::Embedded),
         check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
         update,
+        target: match mode {
+            Mode::Embedded => crate::startup::Target::Embedded,
+            Mode::Daemon | Mode::Remote { daemon: true, .. } => crate::startup::Target::LocalDaemon,
+            Mode::Remote { daemon: false, .. } => crate::startup::Target::Remote,
+        },
     };
     let show_version = config.tui_show_server_version_notice;
     let mut held = HandBack::new(client, done);

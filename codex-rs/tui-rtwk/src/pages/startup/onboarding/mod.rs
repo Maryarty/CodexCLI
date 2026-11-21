@@ -31,6 +31,7 @@ use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 
+mod signin;
 pub mod strings;
 mod trust;
 mod update_prompt;
@@ -86,6 +87,26 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         entry!(
             "trust_long_root",
             "trust: a subdirectory of a long repository root"
+        ),
+        entry!("sign_in_menu", "sign-in: ChatGPT and an API key"),
+        entry!("sign_in_forced_chatgpt", "sign-in: ChatGPT login forced"),
+        entry!("sign_in_bedrock", "sign-in: the Bedrock wizard offered"),
+        entry!(
+            "sign_in_cloud",
+            "sign-in: the Bedrock and Google Cloud wizards offered"
+        ),
+        entry!("sign_in_gateway", "sign-in: every provider wizard offered"),
+        entry!("sign_in_env_key", "sign-in: OPENAI_API_KEY set"),
+        entry!("api_key_entry", "sign-in: the API key entry"),
+        entry!(
+            "browser_long_url",
+            "sign-in: ChatGPT in the browser, a long link"
+        ),
+        entry!("success_message", "sign-in: signed in with ChatGPT"),
+        entry!("device_code", "sign-in: the device code shown"),
+        entry!(
+            "device_code_requesting",
+            "sign-in: the device code requested"
         ),
     ]
 }
@@ -277,10 +298,18 @@ impl State for StartupPageState {
                 Some(ask) => trust::Trust { ask: ask.clone() }.into(),
                 None => AnyWidget::default(),
             },
-            Some(step @ (Step::SignIn | Step::Provider)) => Slot {
-                step: step.model().unwrap_or(core::Stage::SignIn),
-            }
-            .into(),
+            // The provider step is the sign-in step's widget too, so the
+            // menu's highlight outlives it (Esc there comes back to it).
+            Some(step @ (Step::SignIn | Step::Provider)) => match &model.sign_in {
+                Some(sign_in) => signin::SignInStep {
+                    sign_in: sign_in.clone(),
+                }
+                .into(),
+                None => Slot {
+                    step: step.model().unwrap_or(core::Stage::SignIn),
+                }
+                .into(),
+            },
             Some(Step::Import) => crate::pages::startup::import::Screen.into(),
             Some(Step::Migration) => Screen.into(),
         };
@@ -293,9 +322,15 @@ impl State for StartupPageState {
             return body;
         };
         let replay = self.replay;
+        // The logo goes while a login's link or code is shown
+        // (`should_suppress_animations`: `Presentation::Hidden`).
+        let frozen = model
+            .sign_in
+            .as_ref()
+            .is_some_and(codex_tui_core::screens::onboarding::auth::SignIn::freezes_animations);
         let page = LayoutBuilder::new(move |_, constraints| {
             let logo = welcome::shows_logo(
-                welcome_model.animations,
+                welcome_model.animations && !frozen,
                 constraints.max_width,
                 constraints.max_height,
             );

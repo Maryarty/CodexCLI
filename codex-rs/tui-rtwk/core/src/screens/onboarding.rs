@@ -4,10 +4,15 @@
 //! only by `apply`; the view half is `src/pages/startup/onboarding/` in the UI
 //! crate. Oracle: `update_prompt.rs` (S01), `onboarding/onboarding_screen.rs`
 //! (which steps show, in what order), `onboarding/welcome.rs`,
-//! `onboarding/trust_directory.rs` and `onboarding/directory_trust.rs` (S04).
+//! `onboarding/trust_directory.rs` and `onboarding/directory_trust.rs` (S04);
+//! the sign-in step (S02) is `auth`.
 
+pub mod auth;
+
+use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
 use serde::Deserialize;
 
 use crate::app::AppFx;
@@ -43,9 +48,9 @@ pub struct Model {
     /// The welcome header: shown while the user is signed out
     /// (`WelcomeWidget::get_step_state`).
     pub welcome: Option<Welcome>,
-    /// S02: the sign-in step is due (`show_login_screen`).
-    pub sign_in: Option<Decided>,
-    /// S03: the provider step is due.
+    /// S02: the sign-in step, due (`show_login_screen`).
+    pub sign_in: Option<auth::SignIn>,
+    /// S03: the provider setup chosen at sign-in, until it is configured.
     pub provider: Option<Decided>,
     /// S04: the folder to trust (`show_trust_screen`).
     pub trust: Option<TrustAsk>,
@@ -79,6 +84,12 @@ pub enum Ask {
     DismissUpdate { version: String },
     /// Run the offered update once the app has ended (`UpdateAction`).
     RunUpdate,
+    /// Start a login (`account/login/start`), answered with
+    /// `Ev::Auth(AuthResult { request, .. })`; ChatGPT's opens the browser
+    /// on a local server.
+    Login { request: Request, login: auth::Login },
+    /// Cancel a login started (`account/login/cancel`); not answered.
+    CancelLogin { login_id: String },
 }
 
 /// The launch facts the host read, all at once.
@@ -86,8 +97,8 @@ pub enum Ask {
 pub struct Facts {
     pub update: Option<UpdateOffer>,
     pub welcome: Option<Welcome>,
-    pub sign_in: bool,
-    pub provider: bool,
+    /// The sign-in due, with what it offers (the provider setups among it).
+    pub sign_in: Option<auth::Offer>,
     pub trust: Option<TrustAsk>,
 }
 
@@ -188,7 +199,7 @@ impl Model {
         }
         match step {
             Stage::Update => self.update.as_ref().is_none_or(|u| u.choice.is_some()),
-            Stage::SignIn => self.sign_in.is_none_or(|d| d.done),
+            Stage::SignIn => self.sign_in.as_ref().is_none_or(auth::SignIn::done),
             Stage::Provider => self.provider.is_none_or(|d| d.done),
             Stage::Trust => self.trust.as_ref().is_none_or(|t| {
                 matches!(
@@ -223,9 +234,21 @@ pub enum Ev {
         command: String,
     },
     Welcome(Welcome),
-    SignInDue,
-    ProviderDue,
+    /// The sign-in is due, offering this.
+    SignIn(auth::Offer),
+    /// A sign-in state the oracle's tests start from (fixtures).
+    SignInState(auth::State),
     Trust(TrustAsk),
+    /// The answer to `Ask::Login`.
+    Auth(auth::AuthResult),
+    /// `account/login/completed`.
+    LoginCompleted {
+        login_id: Option<String>,
+        success: bool,
+        error: Option<String>,
+    },
+    /// `account/updated`: the account is a ChatGPT one.
+    AccountUpdated { chatgpt_account: bool },
     /// The answer to `Ask::Facts { request }`.
     Facts { request: Request, facts: Facts },
     /// The trust write `request` is confirmed.
@@ -244,8 +267,31 @@ pub enum Intent {
     CancelTrust,
     /// A slot step finished.
     SlotDone(Stage),
+    /// The sign-in step's.
+    SignIn(auth::Intent),
     /// Quit from a step.
     Exit,
+}
+
+/// A server notification the sign-in reads (`handle_app_server_notification`):
+/// a login completed, the account changed.
+pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut AppFx) {
+    let ev = match notification {
+        ServerNotification::AccountLoginCompleted(done) => Ev::LoginCompleted {
+            login_id: done.login_id.clone(),
+            success: done.success,
+            error: done.error.clone(),
+        },
+        // `on_account_updated`: `AuthMode::has_chatgpt_account`.
+        ServerNotification::AccountUpdated(update) => Ev::AccountUpdated {
+            chatgpt_account: matches!(
+                update.auth_mode,
+                Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::PersonalAccessToken)
+            ),
+        },
+        _ => return,
+    };
+    apply(model, ev, fx);
 }
 
 /// Asks the host for the launch facts once the first backend is up; a new
@@ -269,7 +315,6 @@ fn ask(fx: &mut AppFx, ask: Ask) {
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = fx;
     match ev {
         Ev::Facts { request, facts } => {
             if model.asked != Some(request) {
@@ -279,8 +324,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.read = true;
             model.update = facts.update;
             model.welcome = facts.welcome;
-            model.sign_in = facts.sign_in.then(Decided::default);
-            model.provider = facts.provider.then(Decided::default);
+            model.sign_in = facts.sign_in.map(auth::SignIn::new);
+            model.provider = None;
             model.trust = facts.trust;
         }
         Ev::Update {
@@ -296,8 +341,34 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             });
         }
         Ev::Welcome(welcome) => model.welcome = Some(welcome),
-        Ev::SignInDue => model.sign_in = Some(Decided::default()),
-        Ev::ProviderDue => model.provider = Some(Decided::default()),
+        Ev::SignIn(offer) => model.sign_in = Some(auth::SignIn::new(offer)),
+        Ev::SignInState(state) => {
+            if let Some(sign_in) = model.sign_in.as_mut() {
+                sign_in.state = state;
+            }
+            follow_provider(model);
+        }
+        Ev::Auth(result) => {
+            if let Some(sign_in) = model.sign_in.as_mut() {
+                let mut asks = Vec::new();
+                auth::apply_result(sign_in, result, &mut asks);
+                asks.into_iter().for_each(|a| ask(fx, a));
+            }
+        }
+        Ev::LoginCompleted {
+            login_id,
+            success,
+            error,
+        } => {
+            if let Some(sign_in) = model.sign_in.as_mut() {
+                auth::login_completed(sign_in, login_id.as_deref(), success, error);
+            }
+        }
+        Ev::AccountUpdated { chatgpt_account } => {
+            if let Some(sign_in) = model.sign_in.as_mut() {
+                sign_in.chatgpt_account = chatgpt_account;
+            }
+        }
         Ev::Trust(ask) => model.trust = Some(ask),
         Ev::TrustSaved { request } => {
             if model.writing != Some(request) {
@@ -364,19 +435,52 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 t.decision = Some(TrustDecision::Cancelled);
             }
         }
-        Intent::SlotDone(Stage::SignIn) => {
-            if let Some(d) = model.sign_in.as_mut() {
-                d.done = true;
-            }
+        Intent::SignIn(intent) => {
+            let Some(sign_in) = model.sign_in.as_mut() else {
+                return;
+            };
+            let mut minted = model.minted;
+            let mut mint = || {
+                minted += 1;
+                minted
+            };
+            let mut asks = Vec::new();
+            auth::apply_intent(sign_in, intent, &mut mint, &mut asks);
+            model.minted = minted;
+            asks.into_iter().for_each(|a| ask(fx, a));
+            follow_provider(model);
         }
         Intent::SlotDone(Stage::Provider) => {
             if let Some(d) = model.provider.as_mut() {
                 d.done = true;
             }
         }
-        Intent::SlotDone(Stage::Update | Stage::Trust) => {}
-        Intent::Exit => model.exit = true,
+        Intent::SlotDone(Stage::SignIn | Stage::Update | Stage::Trust) => {}
+        Intent::Exit => {
+            // `cancel_auth_if_active`: a login started is cancelled on the
+            // way out.
+            if let Some(sign_in) = model.sign_in.as_mut().filter(|s| !s.done()) {
+                let mut asks = Vec::new();
+                auth::apply_intent(sign_in, auth::Intent::Cancel, &mut || 0, &mut asks);
+                asks.into_iter().for_each(|a| ask(fx, a));
+            }
+            model.exit = true;
+        }
     }
+}
+
+/// The provider step runs while the sign-in has a provider chosen: it is
+/// due from the choice and goes when the sign-in is back on its menu.
+fn follow_provider(model: &mut Model) {
+    let chosen = model
+        .sign_in
+        .as_ref()
+        .is_some_and(|s| matches!(s.state, auth::State::Provider(_)));
+    model.provider = if chosen {
+        Some(model.provider.unwrap_or_default())
+    } else {
+        None
+    };
 }
 
 /// Per-thread state of this screen: none (the page keeps no thread state,
@@ -439,9 +543,48 @@ enum SeedEv {
     Welcome {
         animations: bool,
     },
-    SignIn(()),
-    Provider(()),
+    SignIn(Option<SeedSignIn>),
+    SignInState(SeedSignInState),
     Trust(SeedTrust),
+}
+
+/// The sign-in's offer; none offers ChatGPT and an API key, no provider.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SeedSignIn {
+    #[serde(default = "yes")]
+    chatgpt: bool,
+    #[serde(default = "yes")]
+    api_key: bool,
+    #[serde(default)]
+    bedrock: bool,
+    #[serde(default)]
+    gcp: bool,
+    #[serde(default)]
+    gateway: bool,
+    #[serde(default)]
+    env_api_key: Option<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum SeedSignInState {
+    Browser { login_id: String, url: String },
+    DeviceCode {
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        code: Option<String>,
+    },
+    SuccessMessage(()),
+    ApiKey {
+        #[serde(default)]
+        prefill: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -477,8 +620,36 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             command,
         },
         SeedEv::Welcome { animations } => Ev::Welcome(Welcome { animations }),
-        SeedEv::SignIn(()) => Ev::SignInDue,
-        SeedEv::Provider(()) => Ev::ProviderDue,
+        SeedEv::SignIn(offer) => Ev::SignIn(match offer {
+            None => auth::Offer {
+                chatgpt: true,
+                api_key: true,
+                ..auth::Offer::default()
+            },
+            Some(o) => auth::Offer {
+                chatgpt: o.chatgpt,
+                api_key: o.api_key,
+                providers: auth::Providers {
+                    bedrock: o.bedrock,
+                    gcp: o.gcp,
+                    gateway: o.gateway,
+                },
+                env_api_key: o.env_api_key,
+            },
+        }),
+        SeedEv::SignInState(state) => Ev::SignInState(match state {
+            SeedSignInState::Browser { login_id, url } => auth::State::Browser { login_id, url },
+            SeedSignInState::DeviceCode { url, code } => auth::State::DeviceCode {
+                request: 0,
+                code: url.zip(code).map(|(url, code)| auth::DeviceCode {
+                    login_id: "login-1".into(),
+                    url,
+                    code,
+                }),
+            },
+            SeedSignInState::SuccessMessage(()) => auth::State::SuccessMessage,
+            SeedSignInState::ApiKey { prefill } => auth::State::ApiKey { prefill },
+        }),
         SeedEv::Trust(t) => Ev::Trust(TrustAsk {
             target: t.target.unwrap_or_else(|| t.cwd.clone()),
             cwd: t.cwd,
@@ -551,7 +722,26 @@ mod tests {
     #[test]
     fn steps_run_in_the_oracle_order() {
         assert!(!Model::default().due());
-        let m = model(vec![trust(false), Ev::SignInDue, update(), Ev::ProviderDue]);
+        let m = model(vec![
+            trust(false),
+            Ev::SignIn(auth::Offer {
+                api_key: true,
+                providers: auth::Providers {
+                    gcp: true,
+                    ..auth::Providers::default()
+                },
+                ..auth::Offer::default()
+            }),
+            update(),
+        ]);
+        assert_eq!(m.steps(), [Stage::Update, Stage::SignIn, Stage::Trust]);
+        let mut m = m;
+        intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::Provider(
+                auth::Provider::Gcp,
+            ))),
+        );
         assert_eq!(
             m.steps(),
             [Stage::Update, Stage::SignIn, Stage::Provider, Stage::Trust]
@@ -692,7 +882,7 @@ mod tests {
             [Ask::Facts { request: 1 }, Ask::Facts { request: 2 }]
         );
         let facts = Facts {
-            sign_in: true,
+            sign_in: Some(auth::Offer::default()),
             welcome: Some(Welcome { animations: true }),
             ..Facts::default()
         };
@@ -733,6 +923,40 @@ mod tests {
     }
 
     // A quit from a step ends the page and the app (`should_exit`).
+    // onboarding_screen.rs `handle_key_event`: a quit while a login runs
+    // cancels it on the way out (`cancel_auth_if_active`).
+    #[test]
+    fn exit_cancels_the_login_in_progress() {
+        let mut m = model(vec![Ev::SignIn(auth::Offer {
+            chatgpt: true,
+            ..auth::Offer::default()
+        })]);
+        let started = intent(
+            &mut m,
+            Intent::SignIn(auth::Intent::Choose(auth::Method::ChatGpt)),
+        );
+        let [Ask::Login { request, .. }] = started[..] else {
+            panic!("a login asked: {started:?}");
+        };
+        ev(
+            &mut m,
+            Ev::Auth(auth::AuthResult {
+                request,
+                outcome: auth::Outcome::Browser {
+                    login_id: "login-1".into(),
+                    url: "https://auth.example".into(),
+                },
+            }),
+        );
+        assert_eq!(
+            intent(&mut m, Intent::Exit),
+            [Ask::CancelLogin {
+                login_id: "login-1".into(),
+            }]
+        );
+        assert!(m.exit);
+    }
+
     #[test]
     fn exit_ends_every_step() {
         let mut m = model(vec![update(), trust(false)]);
@@ -757,6 +981,13 @@ mod tests {
             seed(serde_json::json!({"welcome": {"animations": true}})),
             Ok(Ev::Welcome(Welcome { animations: true }))
         );
-        assert_eq!(seed(serde_json::json!({"sign_in": null})), Ok(Ev::SignInDue));
+        assert_eq!(
+            seed(serde_json::json!({"sign_in": null})),
+            Ok(Ev::SignIn(auth::Offer {
+                chatgpt: true,
+                api_key: true,
+                ..auth::Offer::default()
+            }))
+        );
     }
 }

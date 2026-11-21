@@ -1,0 +1,2 @@
+# The sign-in menu with ChatGPT login forced (widget_forced_chatgpt).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"api_key": false}}}

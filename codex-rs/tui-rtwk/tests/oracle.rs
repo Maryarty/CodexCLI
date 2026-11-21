@@ -103,6 +103,8 @@ mod renderer_internals;
 mod resume_1;
 #[path = "oracle/resume_2.rs"]
 mod resume_2;
+#[path = "oracle/signin.rs"]
+mod signin;
 #[path = "oracle/small_dialogs_1.rs"]
 mod small_dialogs_1;
 #[path = "oracle/small_dialogs_2.rs"]

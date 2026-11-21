@@ -70,6 +70,8 @@ RULES = [
     (r'^external_agent_config_migration/', 'S06', 'routes-lists', 'import'),
     # startup prompts (S05)
     (r'^(cwd_prompt|model_migration|startup_hooks_review|unarchive_prompt_tests|oss_selection|oss_selection_tests|daemon_recovery_tests)\.rs$', 'S05', 'startup-prompts', 'startup_prompts'),
+    # startup page: sign-in (S02) and provider setup (S03)
+    (r'^onboarding/(auth(/\w+)?|provider_setup|gateway(_login|_tests)?|bedrock(_tests)?|gcp(_tests)?)\.rs$', 'S02-S03', 'onboarding', 'signin'),
 ]
 RULES = [(re.compile(p), s, o, g) for p, s, o, g in RULES]
 

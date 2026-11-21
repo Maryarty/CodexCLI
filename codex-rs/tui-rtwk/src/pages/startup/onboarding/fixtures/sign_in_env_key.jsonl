@@ -1,0 +1,2 @@
+# The sign-in menu, OPENAI_API_KEY set (activation_key_tests.rs).
+{"step": "screen", "dir": "onboarding", "ev": {"sign_in": {"env_api_key": "test-api-key"}}}

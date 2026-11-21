@@ -749,6 +749,18 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 }
                 _ => {}
             }
+            // The startup page's sign-in: a login completed, the account.
+            if matches!(
+                &*notification,
+                ServerNotification::AccountLoginCompleted(_)
+                    | ServerNotification::AccountUpdated(_)
+            ) {
+                crate::screens::onboarding::observe(
+                    &mut Rc::make_mut(&mut app.screens).onboarding,
+                    &notification,
+                    fx,
+                );
+            }
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {
