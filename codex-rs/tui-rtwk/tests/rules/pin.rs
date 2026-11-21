@@ -119,3 +119,75 @@ fn the_patch_tables_are_codex_rs_s_verbatim() {
         assert_eq!(table(&manifest(), header), theirs, "{header} differs");
     }
 }
+
+/// The backend pin (docs/rtwk-port/README.md): every codex backend crate is a
+/// path dependency into ONE checkout, `~/.cache/codexcli/backend-pin`, never
+/// `../..` of the worktree, so every worktree names the same backend packages
+/// and the shared target builds them once.
+fn backend_paths() -> Vec<(String, PathBuf)> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    ["Cargo.toml", "host/Cargo.toml", "core/Cargo.toml"]
+        .into_iter()
+        .flat_map(|file| {
+            let text = std::fs::read_to_string(dir.join(file)).expect(file);
+            text.lines()
+                .filter(|line| line.trim_start().starts_with("codex-"))
+                .filter_map(|line| {
+                    let start = line.find("path = \"")? + "path = \"".len();
+                    let end = line[start..].find('"')? + start;
+                    Some((
+                        format!("{file}: {}", line.trim()),
+                        PathBuf::from(&line[start..end]),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        })
+        // our own crates stay relative
+        .filter(|(line, _)| {
+            !line.contains("codex-tui-core =") && !line.contains("codex-tui-rtwk =")
+        })
+        .collect()
+}
+
+fn backend_ref() -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/rtwk-port/BACKEND_REF");
+    std::fs::read_to_string(path)
+        .expect("BACKEND_REF")
+        .trim()
+        .to_string()
+}
+
+const BACKEND_PIN: &str = "/.cache/codexcli/backend-pin/codex-rs/";
+
+#[test]
+fn every_backend_dependency_is_a_path_into_the_backend_pin() {
+    let paths = backend_paths();
+    assert!(paths.len() >= 10, "the backend crates: {paths:?}");
+    for (line, path) in &paths {
+        assert!(
+            path.is_absolute() && path.to_string_lossy().contains(BACKEND_PIN),
+            "{line}: a backend crate is a path into ~{BACKEND_PIN}, not into this worktree"
+        );
+    }
+}
+
+#[test]
+fn the_backend_pin_is_at_the_commit_backend_ref_names() {
+    let (_, first) = backend_paths().into_iter().next().expect("a backend crate");
+    let s = first.to_string_lossy().into_owned();
+    let root = PathBuf::from(&s[..s.find(BACKEND_PIN).expect("pin") + BACKEND_PIN.len()]);
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .expect("git runs");
+    assert!(out.status.success(), "{root:?} is not a git checkout");
+    let head = String::from_utf8(out.stdout).expect("utf8");
+    assert_eq!(
+        backend_ref().len(),
+        40,
+        "BACKEND_REF holds one full commit id"
+    );
+    assert_eq!(head.trim(), backend_ref());
+}

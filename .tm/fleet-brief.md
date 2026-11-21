@@ -94,6 +94,13 @@ read only the subsection this file points to.
 
 ## Checks: scoped while you work, full once at the end
 All from `codex-rs/tui-rtwk` (its own workspace), through `~/.cache/rtwk/acargo`.
+The target is shared automatically (`~/.cache/codexcli/target-shared`, the
+backend built once from `~/.cache/codexcli/backend-pin`): never set
+CARGO_TARGET_DIR; a wait on cargo's build-directory lock is normal. Your
+binary is `~/.cache/codexcli/target-shared/debug/codex-rtwk`, and another
+agent's build replaces it: copy it right after your build
+(`cp …/codex-rtwk /tmp/<alias>-codex-rtwk`) and pass the copy as `RTWK_BIN`
+to the pty scenarios.
 - While iterating: `acargo nextest run --status-level fail
   --final-status-level fail --hide-progress-bar -E 'test(<filter>)'`,
   `acargo clippy -q --all-targets -- -D warnings`.

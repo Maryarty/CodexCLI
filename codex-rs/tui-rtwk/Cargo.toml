@@ -79,10 +79,10 @@ workspace = true
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-codex-app-server-protocol = { path = "../app-server-protocol" }
-codex-shell-command = { path = "../shell-command" }
+codex-app-server-protocol = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/app-server-protocol" }
+codex-shell-command = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/shell-command" }
 codex-tui-core = { path = "core" }
-codex-utils-elapsed = { path = "../utils/elapsed" }
+codex-utils-elapsed = { path = "/Users/admin/.cache/codexcli/backend-pin/codex-rs/utils/elapsed" }
 rtwk = { workspace = true }
 rtwk-core = { workspace = true }
 rtwk-render = { workspace = true }

@@ -10,6 +10,7 @@ the design and the references agents read.
 | [architecture.md](architecture.md) | decisions (ADR-001…009), skeleton, rtwk gaps, risks, open decisions |
 | [ORACLE_REF](ORACLE_REF) | the upstream commit whose `codex-rs/tui` is the oracle |
 | [RTWK_REF](RTWK_REF) | the rtwk commit the port builds against |
+| [BACKEND_REF](BACKEND_REF) | the commit of this repository whose `codex-rs` backend crates the port builds against |
 | [research/codex-tui-surface.md](research/codex-tui-surface.md) | screens, flows and terminal behaviours of the oracle |
 | [research/codex-tui-features.csv](research/codex-tui-features.csv) | 312 rows: every view, popup, overlay, cell, slash command, keymap group, terminal capability |
 | [research/codex-tui-architecture.md](research/codex-tui-architecture.md) | the oracle's runtime, state, rendering, reuse, tests |
@@ -24,3 +25,16 @@ through a symlink makes cargo read the outer `codex-rs` workspace root and
 fail on `rust-version` inheritance. `tui-rtwk/tests/pin.rs` checks that the
 checkout is at RTWK_REF. A new pin is a new commit in RTWK_REF, in this
 crate's manifest paths and in the checkout, together.
+
+Backend pin: the codex backend crates (`codex-core`, `codex-protocol`,
+`codex-app-server-*` and the rest) are path dependencies on one fixed checkout,
+`/Users/admin/.cache/codexcli/backend-pin` (a detached worktree of this
+repository at the commit in [BACKEND_REF](BACKEND_REF)), not on `../..` of each
+worktree. Every worktree then names the same backend packages, so the one
+shared target (`~/.cache/codexcli/target-shared`, the default `acargo` sets for
+CodexCLI checkouts) builds the backend once. `tests/rules/pin.rs` checks that
+all three manifests point into the pin and the pin is at BACKEND_REF. The port
+never edits the backend. After an upstream sync touches `codex-rs` outside
+`tui-rtwk`, move the pin and the file together:
+`git -C ~/.cache/codexcli/backend-pin checkout --detach <ref>` and write the
+full commit into BACKEND_REF.

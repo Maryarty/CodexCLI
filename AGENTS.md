@@ -92,6 +92,10 @@ command center bypassed ADR-003 and hit "thread already has an active writer").
 - Cargo through `~/.cache/rtwk/acargo`, quiet output (`-q`, nextest
   `--status-level fail --final-status-level fail --hide-progress-bar`), no
   call over ~4 min (`~/.cache/rtwk/bgrun.sh`). Read big files in ranges.
+- One shared cargo target for every CodexCLI checkout (`acargo` sets
+  `~/.cache/codexcli/target-shared`; backend crates come from
+  `~/.cache/codexcli/backend-pin`, docs/rtwk-port/README.md): never set
+  CARGO_TARGET_DIR; agents building at once wait on cargo's lock, which is normal.
 - An agent hands off at ~100 turns / ~250k context through
   `task_checkpoint`; the orchestrator at the end of a wave or ~230k (never
   past 350k) with a ≤40-line `## Now` handoff.
