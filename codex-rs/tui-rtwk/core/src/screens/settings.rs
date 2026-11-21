@@ -404,9 +404,89 @@ pub enum Edit {
     KeymapPicked(String),
 }
 
+/// What the dialogs open from, read of the config and the disk by the host
+/// and sent as `Ev::Facts` (the model reads no files: ADR-003).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Facts {
+    /// `[tui] theme` of the config: the syntax theme in force.
+    pub syntax_theme: Option<String>,
+    /// The `.tmTheme` files of `{codex_home}/themes` (file stems).
+    pub custom_themes: Vec<String>,
+    /// That directory as the subtitle names it (`~/.codex/themes`); none when
+    /// it is not below the home directory.
+    pub themes_dir: Option<String>,
+}
+
+/// The bundled syntax themes in kebab-case, alphabetical
+/// (`render/highlight.rs`: `BUILTIN_THEME_NAMES`).
+pub const BUILTIN_THEMES: [&str; 32] = [
+    "1337",
+    "ansi",
+    "base16",
+    "base16-256",
+    "base16-eighties-dark",
+    "base16-mocha-dark",
+    "base16-ocean-dark",
+    "base16-ocean-light",
+    "catppuccin-frappe",
+    "catppuccin-latte",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
+    "coldark-cold",
+    "coldark-dark",
+    "dark-neon",
+    "dracula",
+    "github",
+    "gruvbox-dark",
+    "gruvbox-light",
+    "inspired-github",
+    "monokai-extended",
+    "monokai-extended-bright",
+    "monokai-extended-light",
+    "monokai-extended-origin",
+    "nord",
+    "one-half-dark",
+    "one-half-light",
+    "solarized-dark",
+    "solarized-light",
+    "sublime-snazzy",
+    "two-dark",
+    "zenburn",
+];
+
+/// The dialog a slash command opens, built from the facts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dialog {
+    /// `/theme`.
+    Theme,
+}
+
+impl Facts {
+    /// The picker `/theme` opens: the bundled names and the custom files,
+    /// sorted together case-insensitively (`list_available_themes`).
+    fn theme_picker(&self) -> ThemePicker {
+        let mut themes: Vec<String> = BUILTIN_THEMES.iter().map(ToString::to_string).collect();
+        let mut custom = Vec::new();
+        for name in &self.custom_themes {
+            if !themes.contains(name) {
+                themes.push(name.clone());
+                custom.push(name.clone());
+            }
+        }
+        themes.sort_by_cached_key(|name| (name.to_ascii_lowercase(), name.clone()));
+        ThemePicker {
+            themes,
+            custom,
+            original: self.syntax_theme.clone(),
+            themes_dir: self.themes_dir.clone(),
+        }
+    }
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
+    pub facts: Facts,
     pub open: Option<Open>,
     /// The syntax theme in force (the oracle: `highlight::current_syntax_theme`):
     /// the picker previews by changing it.
@@ -420,6 +500,8 @@ pub struct Model {
 pub enum Ev {
     /// A settings dialog was opened.
     Opened(Open),
+    /// The config's values and the disk's files the dialogs open from.
+    Facts(Facts),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`. The
@@ -445,6 +527,8 @@ pub enum Intent {
     KeymapPick(String),
     /// Esc.
     Close,
+    /// A slash command opens a dialog, built from the facts.
+    Open(Dialog),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -456,11 +540,29 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.open = Some(open);
         }
+        Ev::Facts(facts) => {
+            // The syntax theme in force follows the config, but not while a
+            // picker previews another one.
+            if !matches!(model.open, Some(Open::Theme(_))) {
+                model.syntax_theme = facts.syntax_theme.clone();
+            }
+            model.facts = facts;
+        }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
+    if let Intent::Open(dialog) = intent {
+        match dialog {
+            Dialog::Theme => {
+                let picker = model.facts.theme_picker();
+                model.syntax_theme = picker.original.clone();
+                model.open = Some(Open::Theme(picker));
+            }
+        }
+        return;
+    }
     let Some(open) = &mut model.open else {
         return;
     };

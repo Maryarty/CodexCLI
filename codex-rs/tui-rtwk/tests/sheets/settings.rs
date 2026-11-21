@@ -8,7 +8,10 @@
 
 use rtwk_core::input::{Mods, MouseKind};
 
-use crate::common::{Harness, ms, start_sized};
+use codex_tui_core::screens::settings::{Edit, Open};
+use codex_tui_rtwk::app::UiApp;
+
+use crate::common::{Harness, ms, start, start_sized};
 
 fn open(entry: &str) -> Harness {
     open_sized(entry, 80, 24)
@@ -314,7 +317,7 @@ fn a_long_theme_list_scrolls_and_marks_the_custom_file() {
     let screen = h.t.screen();
     assert!(screen.contains("› my-night (custom)"), "{screen}");
     h.press("home");
-    assert!(cursor_row(&h).contains("ansi"), "{}", h.t.screen());
+    assert!(cursor_row(&h).contains("1337"), "{}", h.t.screen());
 }
 
 /// ADR-011 (beyond the oracle): a click on a theme puts the cursor there (the
@@ -347,4 +350,71 @@ fn a_click_previews_a_theme_a_second_click_keeps_it_and_the_wheel_scrolls() {
         "the wheel scrolled up\n{}",
         h.t.screen()
     );
+}
+
+// ---- /theme through the app: the model builds the picker from its facts,
+// so these tests read the real model (a debug entry's lives in its seeded
+// scope) ----
+
+fn theme_command() -> Harness {
+    let mut h = start();
+    h.wait_idle();
+    h.t.type_text("/theme");
+    h.press("enter");
+    h.wait_for("the picker", |screen| {
+        screen.contains("Select Syntax Theme")
+    });
+    h.advance(600);
+    h
+}
+
+fn syntax_theme(h: &Harness) -> Option<String> {
+    h.t.read_app(|app: &UiApp| app.core.screens().settings.syntax_theme.clone())
+}
+
+#[test]
+fn slash_theme_opens_the_picker_over_the_bundled_themes() {
+    let h = theme_command();
+    let screen = h.t.screen();
+    assert!(screen.contains("› 1337"), "{screen}");
+    assert!(screen.contains("ansi"), "{screen}");
+    let themes =
+        h.t.read_app(|app: &UiApp| match &app.core.screens().settings.open {
+            Some(Open::Theme(picker)) => picker.themes.len(),
+            _ => 0,
+        });
+    assert_eq!(themes, 32);
+}
+
+#[test]
+fn the_cursor_previews_in_the_model_and_esc_restores_the_theme_in_force() {
+    let mut h = theme_command();
+    assert_eq!(syntax_theme(&h), None);
+    h.press("down");
+    h.wait_until("the model previews ansi", |h| {
+        syntax_theme(h).as_deref() == Some("ansi")
+    });
+    h.press("down");
+    h.wait_until("the model previews base16", |h| {
+        syntax_theme(h).as_deref() == Some("base16")
+    });
+    h.press("esc");
+    h.wait_until("Esc restores the theme in force", |h| {
+        syntax_theme(h).is_none()
+    });
+    assert!(!h.t.screen().contains("Select Syntax Theme"));
+}
+
+#[test]
+fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
+    let mut h = theme_command();
+    h.press("down");
+    h.press("down");
+    h.press("enter");
+    h.advance(800);
+    assert_eq!(syntax_theme(&h).as_deref(), Some("base16"));
+    let edits =
+        h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone());
+    assert_eq!(edits, vec![Edit::ThemeSelected("base16".to_string())]);
+    assert!(!h.t.screen().contains("Select Syntax Theme"));
 }

@@ -225,6 +225,48 @@ fn the_theme_picker_filters_by_name_and_knows_the_custom_files() {
     assert_eq!(picker.themes_dir.as_deref(), Some("~/.codex/themes"));
 }
 
+/// `list_available_themes`: the bundled names and the custom files sorted
+/// together without regard to case, a custom file named like a bundled theme
+/// adds nothing; the picker opens on the theme the config names.
+#[test]
+fn opening_the_theme_picker_builds_it_from_the_facts() {
+    use codex_tui_core::app::AppFx;
+    use codex_tui_core::screens::settings::{Dialog, Ev, Facts, Model, apply, apply_intent};
+    let mut fx = AppFx::default();
+    let mut model = Model::default();
+    apply(
+        &mut model,
+        Ev::Facts(Facts {
+            syntax_theme: Some("Zebra".into()),
+            custom_themes: vec!["Zebra".into(), "my-night".into(), "nord".into()],
+            themes_dir: Some("~/.codex/themes".into()),
+        }),
+        &mut fx,
+    );
+    assert_eq!(model.syntax_theme.as_deref(), Some("Zebra"));
+    apply_intent(&mut model, SettingsIntent::Open(Dialog::Theme), &mut fx);
+    let Some(Open::Theme(picker)) = &model.open else {
+        panic!("theme picker open");
+    };
+    assert_eq!(picker.themes.len(), 34, "32 bundled, 2 new custom");
+    assert_eq!(
+        picker.custom,
+        vec!["Zebra".to_string(), "my-night".to_string()]
+    );
+    assert_eq!(picker.themes.first().map(String::as_str), Some("1337"));
+    // "my-night" sorts between "monokai-extended-origin" and "nord"; "Zebra" after "zenburn"? no: z-e-b < z-e-n
+    let at = |name: &str| picker.themes.iter().position(|theme| theme == name);
+    assert!(at("monokai-extended-origin") < at("my-night"));
+    assert!(at("my-night") < at("nord"));
+    assert!(at("two-dark") < at("Zebra") && at("Zebra") < at("zenburn"));
+    assert_eq!(picker.initial(), at("Zebra").unwrap_or(usize::MAX));
+    assert_eq!(picker.themes_dir.as_deref(), Some("~/.codex/themes"));
+    // facts that arrive while the picker previews do not undo the preview
+    apply_intent(&mut model, SettingsIntent::Preview("nord".into()), &mut fx);
+    apply(&mut model, Ev::Facts(Facts::default()), &mut fx);
+    assert_eq!(model.syntax_theme.as_deref(), Some("nord"));
+}
+
 #[test]
 fn an_unknown_theme_is_ignored() {
     let mut sandbox = Sandbox::play(THEME).expect("plays");
