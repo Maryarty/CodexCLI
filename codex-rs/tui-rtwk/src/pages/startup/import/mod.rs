@@ -1,8 +1,8 @@
 //! `import` (S06): the view half of the import from other agents, a step of
 //! the startup page (`onboarding::Step::Import`). The flow, its requests and
 //! its choices are core's `codex_tui_core::screens::import`; this directory
-//! draws what the model says: the source prompt (the generic selection sheet,
-//! opened as a `Menu::List`; its pick returns as `Picked::Item(id)`) and the
+//! draws what the model says: the source prompt (`source::SourcePrompt`, the
+//! startup prompts' look over the shared `Options`) and the
 //! review, a summary and a checklist of the detected items with the actions
 //! under them. Oracle: `external_agent_config_migration/{mod,render,source}.rs`.
 
@@ -18,8 +18,6 @@ use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::import::{self as import, Intent as ImportIntent, Mark, Phase};
-use codex_tui_core::screens::select::list::{Item as Choice, List};
-use codex_tui_core::screens::select::{Intent as SelectIntent, Menu, Picked};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates};
 
 use crate::app::debug::DebugEntry;
@@ -34,6 +32,7 @@ pub mod labels;
 pub mod nav;
 pub mod notices;
 pub mod rows;
+pub mod source;
 pub mod strings;
 
 use nav::{Action, Focus as Has, Key, Nav, View};
@@ -106,12 +105,6 @@ pub struct Screen;
 #[derive(Debug)]
 pub struct ScreenState {
     list: ListController,
-    /// The picks of the selection sheet when the prompt was opened: the ones
-    /// after are the answer.
-    seen_picks: Option<usize>,
-    /// The model has taken the menu the view asked for and the sheet is up:
-    /// a menu gone after that is a cancel, before that it is not yet there.
-    menu_up: bool,
     /// The review's navigation (the page, the focus, the cursor and the
     /// highlighted action): the view's own state, for the review `nav_for`.
     nav: Option<Nav>,
@@ -126,8 +119,6 @@ pub enum Msg {
     Key(Key),
     /// An intent of the flow (cancel).
     Intent(ImportIntent),
-    /// The model holds the source menu: raise the sheet that shows it.
-    OpenSheet,
 }
 
 impl StatefulWidget for Screen {
@@ -136,8 +127,6 @@ impl StatefulWidget for Screen {
     fn create_state(&self) -> ScreenState {
         ScreenState {
             list: ListController::new(),
-            seen_picks: None,
-            menu_up: false,
             nav: None,
             nav_for: 0,
             scrolled: (None, None, false),
@@ -165,9 +154,7 @@ impl State for ScreenState {
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         let screens = watch::<ScreenStates, _>(cx);
         let model = &screens.import;
-        let hs = read::<Hs, _>(cx);
         match model.phase {
-            Phase::Source => self.source_prompt(&screens, &hs, cx),
             Phase::Done => {
                 Navigator::maybe_pop(cx);
             }
@@ -206,20 +193,20 @@ impl State for ScreenState {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.screen, ScreenIntent::Import(intent));
             }
-            Msg::OpenSheet => {
-                drop(crate::sheets::select::open(cx));
-            }
         }
         Rebuild::No
     }
 
     fn build(&self, _: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let screens = watch::<ScreenStates, _>(cx);
+        if screens.import.phase == Phase::Source {
+            return source::SourcePrompt.into();
+        }
         let nav = match (&self.nav, screens.import.phase) {
             (Some(nav), Phase::Review) if self.nav_for == screens.import.review_id => nav.clone(),
             _ => {
-                // The oracle draws nothing while it asks the server and while
-                // the prompt (the sheet) is up: the screen below stays. Escape
+                // The oracle draws nothing while it asks the server: the
+                // screen below stays. Escape
                 // ends a detection that has not answered (its answer is then
                 // stale).
                 let cancel = || cx.send(Msg::Intent(ImportIntent::Cancel));
@@ -289,47 +276,6 @@ impl ScreenState {
         }
         self.scrolled = key;
     }
-
-    /// The model wants a source: the prompt is the selection sheet over the
-    /// list the model derives; the sheet's pick (`Picked::Item(id)`) or its
-    /// close is the answer.
-    fn source_prompt(&mut self, screens: &Rc<ScreenStates>, hs: &Hs, cx: &mut Cx<'_, Self>) {
-        let menu = &screens.select;
-        match self.seen_picks {
-            None => {
-                self.seen_picks = Some(menu.picked.len());
-                self.menu_up = false;
-                let list = source_list(strings::of(cx), &screens.import);
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::Select(SelectIntent::Open(Menu::List(Box::new(list)))),
-                );
-            }
-            Some(seen) => {
-                let answer = menu
-                    .picked
-                    .iter()
-                    .skip(seen)
-                    .find_map(|picked| match picked {
-                        Picked::Item(id) => Some(id.clone()),
-                        _ => None,
-                    });
-                if !self.menu_up && menu.menu.is_some() {
-                    // the model holds the menu now: the sheet reads it when
-                    // it is built (it closes itself on a model without one)
-                    self.menu_up = true;
-                    (cx.local_sender())(Msg::OpenSheet);
-                }
-                if let Some(id) = answer {
-                    self.seen_picks = None;
-                    cx.emit(&hs.screen, ScreenIntent::Import(ImportIntent::Source(id)));
-                } else if self.menu_up && menu.menu.is_none() {
-                    self.seen_picks = None;
-                    cx.emit(&hs.screen, ScreenIntent::Import(ImportIntent::Cancel));
-                }
-            }
-        }
-    }
 }
 
 /// What the review draws with.
@@ -341,26 +287,6 @@ struct Look {
     selected: Style,
     error: Style,
     section: Style,
-}
-
-/// The source prompt's list: the sources that have items, numbered.
-fn source_list(strings: &Strings, model: &import::Model) -> List {
-    List {
-        title: Some(strings.source_title.to_owned()),
-        subtitle: Some(strings.source_subtitle.to_owned()),
-        footer_hint: Some(strings.source_hint.to_owned()),
-        numbered: true,
-        items: model
-            .detected
-            .iter()
-            .map(|found| Choice {
-                id: found.source.id().to_owned(),
-                name: labels::source(strings, found.source).to_owned(),
-                ..Choice::default()
-            })
-            .collect(),
-        ..List::default()
-    }
 }
 
 /// The oracle's `render_ref`: the heading, the intro, the error, the list,

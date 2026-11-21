@@ -119,7 +119,8 @@ pub struct Strings {
     pub source_cursor: &'static str,
     pub source_title: &'static str,
     pub source_subtitle: &'static str,
-    pub source_hint: &'static str,
+    /// The keys and the words between them (the odd entries are dim).
+    pub source_hint: [&'static str; 4],
     projects: Msg<1>,
     chat_sessions: Msg<1>,
     counted_bare: Msg<2>,
@@ -133,6 +134,7 @@ pub struct Strings {
     failed: Msg<1>,
     detect_failed: Msg<1>,
     source_error: Msg<2>,
+    source_row: Msg<2>,
     import_failed: Msg<1>,
     selected_one: Msg<2>,
     selected_many: Msg<2>,
@@ -231,7 +233,7 @@ pub const EN: Strings = Strings {
     source_cursor: "Cursor",
     source_title: "Choose an import source",
     source_subtitle: "Select the app whose setup you want to import.",
-    source_hint: "enter continue · esc cancel",
+    source_hint: ["enter", " continue · ", "esc", " cancel"],
     projects: msg!("Projects ({0})"),
     chat_sessions: msg!("Chat sessions ({0})"),
     counted_bare: msg!("{0} {1}"),
@@ -247,6 +249,7 @@ pub const EN: Strings = Strings {
     failed: msg!("{0} failed"),
     detect_failed: msg!("Could not check for importable setup: {0}"),
     source_error: msg!("{0}: {1}"),
+    source_row: msg!("{0}. {1}"),
     import_failed: msg!("Import failed: {0}"),
     selected_one: msg!("Selected {0} of {1} item."),
     selected_many: msg!("Selected {0} of {1} items."),
@@ -380,6 +383,11 @@ impl Strings {
             [Arg::Text(source), Arg::Text(error)],
             num,
         )
+    }
+
+    /// `1. Claude Code`: a row of the source prompt.
+    pub fn source_row(&self, number: usize, label: &str, num: &NumSyms) -> String {
+        one(self.source_row, [int(number), Arg::Text(label)], num)
     }
 
     pub fn import_failed(&self, error: &str, num: &NumSyms) -> String {

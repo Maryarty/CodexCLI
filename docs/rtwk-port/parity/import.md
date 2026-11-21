@@ -9,7 +9,7 @@ It is a step of the startup page (`onboarding::Step::Import` renders `import::Sc
 | layer | files |
 |---|---|
 | core (no rtwk, no words) | `core/src/screens/import/mod.rs` (Model, Phase, Intent, Ev, Request, Outcome, Failure, Started, Finished, `apply`, `seed`), `detect.rs` (Source, Detection), `item.rs` (typed projections of the items: Kind, GroupKind, Sel methods, Places) |
-| view | `src/pages/startup/import/mod.rs` (the step: `Screen`, the source prompt, the review), `nav.rs` (Nav: page, focus, cursor, action; Key), `rows.rs` (the review's lines), `labels.rs` (labels, details, descriptions, failures), `notices.rs` (the history lines of a started and a finished import), `strings.rs` (words, English `EN`), `fixtures/*.jsonl` (mock data through core `apply`) |
+| view | `src/pages/startup/import/mod.rs` (the step: `Screen`, the review), `source.rs` (the source prompt: `SourcePrompt` over the shared `Options`, the startup prompts' look), `nav.rs` (Nav: page, focus, cursor, action; Key), `rows.rs` (the review's lines), `labels.rs` (labels, details, descriptions, failures), `notices.rs` (the history lines of a started and a finished import), `strings.rs` (words, English `EN`), `fixtures/*.jsonl` (mock data through core `apply`) |
 | generic sheet | multi-select in `core/src/screens/select{,/list}.rs` and `src/sheets/select/` |
 | tests | `core/tests/import.rs` (flow), `tests/pages/import.rs` (words and keys), `tests/oracle/import.rs` (the oracle's screen tests, shard `import`), `tests/rtwk_g46.rs` (probe) |
 
@@ -30,12 +30,15 @@ request id (`Request::{Detect, Import}.request`), a stale answer is dropped.
   flips one, `Intent::Confirm` (Enter) answers, `Picked::Items(Vec<String>)` is the answer.
   In a multi list a row click or digit toggles instead of accepting. Tests:
   `core/tests/select.rs` (3), `tests/sheets/select.rs` (2), fixture `multi_select`.
-* The source prompt does not use it (one source is chosen): it is a `List` with `numbered`,
-  opened as `Menu::List`, its pick returns as `Picked::Item(id)`.
+* The source prompt does not use the sheet (import-rest I1): it is `source::SourcePrompt`,
+  the startup prompts' composition (the prompt surface at the top left, the shared `Options`
+  controller for the cursor), and it answers with the flow's own intents (`Source(id)`,
+  `Cancel`). The oracle's title is not indented, which the prompts' `Panel` does for its
+  titles (it is bound to the startup model's prompts), so the prompt is composed beside it.
 
 ## Oracle tests (shard `tests/oracle/import.rs`, profile `oracle`)
 
-17 oracle tests: 12 green, 1 n/a, 4 pending, 0 red.
+17 oracle tests: 13 green, 1 n/a, 3 pending, 0 red.
 
 | oracle (file::name) | ours | status |
 |---|---|---|
@@ -45,7 +48,7 @@ request id (`Request::{Detect, Import}.request`), a stale answer is dropped.
 | mod.rs::customize_snapshot, customize_action_snapshot | same | pending N1 |
 | mod.rs::action_rows_keep_single_line_allocation_and_focus_style | same | pending G46 |
 | mod.rs: proceed_returns_selected_items, toggle_item_then_proceed_keeps_remaining_selection, escape_skips_prompt, numeric_shortcuts_*, empty_selection_enter_*, control_exit_shortcuts_*, summary_does_not_toggle_selection | same | green |
-| source_tests.rs::external_agent_config_source_prompt_snapshot | same | pending G47 |
+| source_tests.rs::external_agent_config_source_prompt_snapshot | same | green (import-rest I1) |
 | source_tests.rs::..._selects_highlighted_source, ..._can_cancel | same | green |
 
 The state-test twins of the view (`tests/pages/import.rs`: the notices, the rows, the keys) carry
@@ -57,10 +60,6 @@ the oracle's names.
   the plugins detail row of the customize view differs by one blank (2 snapshots pending).
 * G46 (new row): a blank cell never carries DIM in rtwk; the oracle's `set_style(area, dim)`
   dims the blank at cell 2 of the action row (probe `tests/rtwk_g46.rs`, green).
-* G47 (new row, decision of the brief, not an rtwk limit): the source prompt is the generic
-  selection sheet, so its frame is not the oracle's top-left screen (bottom anchored, title
-  indented two cells, no blank between title and subtitle, two blanks before the list).
-  The prompt snapshot is pending against that.
 * G45 (select-dialog, earlier commit e3e98f3c6): `TabBar` cuts a tab at the edge; pending, no workaround.
 * The review is composed in the page from rtwk primitives (Column, SizedBox, ListView with a
   `ListController`, Text with ellipsis); it does not use the sheet's grid.
@@ -78,6 +77,5 @@ the oracle's names.
   `strings.no_items`).
 * startup-flow advances or pops on `Phase::Done` (the page does `Navigator::maybe_pop`).
 * Edits outside the area: `tests/oracle.rs`, `tests/oracle/tools/shards.py`,
-  `docs/rtwk-port/test-shards.md` (shard registration), `docs/rtwk-port/rtwk-gaps.md` (N1, G46,
-  G47), `Cargo.toml` (`rtwk_g46` test), `tests/app/navigation.rs` (the placeholder assertion of
+  `docs/rtwk-port/test-shards.md` (shard registration), `docs/rtwk-port/rtwk-gaps.md` (N1, G46), `Cargo.toml` (`rtwk_g46` test), `tests/app/navigation.rs` (the placeholder assertion of
   `import_is_a_step_of_the_startup_page`), `tests/pages/import.rs` (the slot test file).
