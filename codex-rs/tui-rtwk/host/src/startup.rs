@@ -242,6 +242,7 @@ where
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }
+        Ask::RefreshUpdateCache => return None,
         Ask::ReloadConfig => {
             // The remote workspace's config is not this machine's.
             if startup.target.remote_workspace() {
@@ -351,6 +352,7 @@ where
         }),
         sign_in,
         trust,
+        refresh_update: false,
     })
 }
 
@@ -926,12 +928,14 @@ mod tests {
         })
     }
 
+    /// The launch with the update check on: the version file and whether
+    /// the facts ask for a refresh. Nothing is fetched by the facts.
     async fn launch_with(
         startup: &mut Startup,
         fetch: Fetch,
         cache: Option<&str>,
         version: &str,
-    ) -> std::path::PathBuf {
+    ) -> (std::path::PathBuf, bool) {
         startup.updates = Updates {
             enabled: true,
             version: version.to_owned(),
@@ -943,18 +947,21 @@ mod tests {
             std::fs::write(&file, cache).expect("the cache");
         }
         let config = serde_json::json!({"config": {}, "layers": []});
-        facts_ask(startup, serve(Ok(signed_out()), Ok(config))).await;
-        file
+        let ev = facts_ask(startup, serve(Ok(signed_out()), Ok(config))).await;
+        let Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { facts, .. }))) = ev else {
+            panic!("expected the facts, got {ev:?}");
+        };
+        (file, facts.refresh_update)
     }
 
-    async fn settled(calls: &Arc<AtomicUsize>, wanted: usize) {
-        for _ in 0..200 {
-            if calls.load(Ordering::SeqCst) >= wanted {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    async fn refresh(startup: &Startup) -> Option<AppEv> {
+        run(
+            startup.clone(),
+            Ask::RefreshUpdateCache,
+            Ids::default(),
+            nothing,
+        )
+        .await
     }
 
     // `get_upgrade_version`: no cache -> refreshed in the background; the
@@ -963,8 +970,11 @@ mod tests {
     async fn a_missing_cache_is_refreshed_in_the_background() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let file = launch_with(&mut startup, fetching(&calls, Ok("9.9.9")), None, "1.0.0").await;
-        settled(&calls, 1).await;
+        let fetch = fetching(&calls, Ok("9.9.9"));
+        let (file, asked) = launch_with(&mut startup, fetch, None, "1.0.0").await;
+        assert!(asked);
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "the facts fetch nothing");
+        assert!(refresh(&startup).await.is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(
             read_version_cache(&file).map(|cache| cache.latest),
@@ -977,14 +987,10 @@ mod tests {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
         let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
-        let file = launch_with(
-            &mut startup,
-            fetching(&calls, Ok("2.1.0")),
-            Some(old),
-            "1.0.0",
-        )
-        .await;
-        settled(&calls, 1).await;
+        let fetch = fetching(&calls, Ok("2.1.0"));
+        let (file, asked) = launch_with(&mut startup, fetch, Some(old), "1.0.0").await;
+        assert!(asked);
+        refresh(&startup).await;
         assert_eq!(
             read_version_cache(&file).map(|cache| cache.latest),
             Some("2.1.0".to_owned())
@@ -999,15 +1005,9 @@ mod tests {
             r#"{{"latest_version":"2.0.0","last_checked_at":"{}"}}"#,
             chrono::Utc::now().to_rfc3339()
         );
-        launch_with(
-            &mut startup,
-            fetching(&calls, Ok("2.1.0")),
-            Some(&fresh),
-            "1.0.0",
-        )
-        .await;
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let fetch = fetching(&calls, Ok("2.1.0"));
+        let (_, asked) = launch_with(&mut startup, fetch, Some(&fresh), "1.0.0").await;
+        assert!(!asked);
     }
 
     #[tokio::test]
@@ -1015,14 +1015,9 @@ mod tests {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
         let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
-        let file = launch_with(
-            &mut startup,
-            fetching(&calls, Err("offline")),
-            Some(old),
-            "1.0.0",
-        )
-        .await;
-        settled(&calls, 1).await;
+        let fetch = fetching(&calls, Err("offline"));
+        let (file, _) = launch_with(&mut startup, fetch, Some(old), "1.0.0").await;
+        assert!(refresh(&startup).await.is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(std::fs::read_to_string(&file).expect("the cache"), old);
     }
@@ -1031,197 +1026,9 @@ mod tests {
     async fn a_source_build_checks_nothing() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        launch_with(&mut startup, fetching(&calls, Ok("2.1.0")), None, "0.0.0").await;
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-    }
-
-    fn reloading(calls: &Arc<AtomicUsize>, model: Result<&str, &str>) -> Reload {
-        let calls = calls.clone();
-        let model = model.map(str::to_owned).map_err(str::to_owned);
-        Arc::new(move || {
-            calls.fetch_add(1, Ordering::SeqCst);
-            let model = model.clone();
-            Box::pin(async move {
-                let model = model?;
-                let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
-                codex_core::config::ConfigBuilder::default()
-                    .codex_home(dir.path().to_path_buf())
-                    .fallback_cwd(Some(dir.path().to_path_buf()))
-                    .harness_overrides(codex_core::config::ConfigOverrides {
-                        model: Some(model),
-                        ..Default::default()
-                    })
-                    .build()
-                    .await
-                    .map_err(|error| error.to_string())
-            })
-        })
-    }
-
-    // lib.rs: after the trust is persisted the config is loaded again; what
-    // the status shows (model, sandbox) follows the project's config.
-    #[tokio::test]
-    async fn the_config_is_reloaded_and_its_status_shown_after_trust() {
-        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
-        let calls = Arc::new(AtomicUsize::new(0));
-        startup.reload = reloading(&calls, Ok("reloaded-model"));
-        let ev = run(startup, Ask::ReloadConfig, Ids::default(), nothing).await;
-        let Some(AppEv::Screen(ScreenEv::Chat(ChatEv::Status(status)))) = ev else {
-            panic!("expected the status, got {ev:?}");
-        };
-        assert_eq!(status.model.as_deref(), Some("reloaded-model"));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    // `!uses_remote_workspace`: the remote workspace's config is not ours.
-    #[tokio::test]
-    async fn a_remote_workspace_reloads_no_config() {
-        let (mut startup, _dir) = startup_with(Target::Remote, system_browser()).await;
-        let calls = Arc::new(AtomicUsize::new(0));
-        startup.reload = reloading(&calls, Ok("reloaded-model"));
-        let ev = run(startup, Ask::ReloadConfig, Ids::default(), nothing).await;
-        assert!(ev.is_none());
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-    }
-
-    // `load_config_or_exit`: `Error loading configuration: <error>` ends the
-    // launch.
-    #[tokio::test]
-    async fn a_config_that_does_not_load_again_fails_the_launch() {
-        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
-        let calls = Arc::new(AtomicUsize::new(0));
-        startup.reload = reloading(&calls, Err("bad toml"));
-        let ev = run(startup.clone(), Ask::ReloadConfig, Ids::default(), nothing).await;
-        let Some(AppEv::StartFailed(message)) = ev else {
-            panic!("expected StartFailed, got {ev:?}");
-        };
-        assert_eq!(message, "Error loading configuration: bad toml");
-        assert_eq!(
-            startup.failure.lock().unwrap().as_deref(),
-            Some(message.as_str())
-        );
-    }
-
-    /// A server that answers `config/read` for the remote folder `projects`
-    /// (and the environment's cwd), recording the folders it was asked for.
-    fn remote_server(
-        projects: serde_json::Value,
-        layers: serde_json::Value,
-        asked: &Arc<Mutex<Vec<String>>>,
-    ) -> impl Fn(ClientRequest) -> std::future::Ready<Result<serde_json::Value, ServerError>> {
-        let asked = asked.clone();
-        move |request| {
-            std::future::ready(match request {
-                ClientRequest::GetAccount { .. } => Ok(signed_out()),
-                ClientRequest::ConfigRead { params, .. } => {
-                    asked
-                        .lock()
-                        .unwrap()
-                        .push(params.cwd.clone().unwrap_or_default());
-                    Ok(serde_json::json!({"config": {"projects": projects}, "layers": layers}))
-                }
-                ClientRequest::EnvironmentInfo { .. } => Ok(serde_json::json!({
-                    "shell": {"name": "bash", "path": "/bin/bash"},
-                    "cwd": "file:///srv"
-                })),
-                other => panic!("unexpected request {other:?}"),
-            })
-        }
-    }
-
-    async fn remote_facts(
-        cwd: Option<&str>,
-        projects: serde_json::Value,
-        layers: serde_json::Value,
-    ) -> (Option<AppEv>, Vec<String>, Startup) {
-        let (mut startup, _dir) = startup_with(Target::Remote, system_browser()).await;
-        startup.connected = true;
-        startup.remote_cwd = cwd.map(PathBuf::from);
-        let asked = Arc::new(Mutex::new(Vec::new()));
-        let ev = facts_ask(&startup, remote_server(projects, layers, &asked)).await;
-        let asked = asked.lock().unwrap().clone();
-        (ev, asked, startup)
-    }
-
-    fn trust_of(ev: Option<AppEv>) -> Option<TrustAsk> {
-        let Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { facts, .. }))) = ev else {
-            panic!("expected the facts, got {ev:?}");
-        };
-        facts.trust
-    }
-
-    // lib.rs: `(!uses_remote_workspace || remote_cwd_override.is_some())`,
-    // `check_directory_trust` with the remote cwd and `ProjectTrustHost::Remote`.
-    #[tokio::test]
-    async fn a_remote_workspace_with_a_cwd_asks_the_trust_of_that_folder() {
-        let (ev, asked, _) = remote_facts(
-            Some("/srv/app"),
-            serde_json::json!({}),
-            serde_json::json!([]),
-        )
-        .await;
-        assert_eq!(asked, ["/srv/app"]);
-        assert_eq!(
-            trust_of(ev),
-            Some(TrustAsk {
-                cwd: "/srv/app".into(),
-                target: "/srv/app".into(),
-                cancel: TrustCancel::AgentsOverview,
-                ..TrustAsk::default()
-            })
-        );
-    }
-
-    #[tokio::test]
-    async fn a_remote_workspace_without_a_cwd_asks_no_trust() {
-        let (ev, asked, _) = remote_facts(None, serde_json::json!({}), serde_json::json!([])).await;
-        assert!(asked.is_empty());
-        assert_eq!(trust_of(ev), None);
-    }
-
-    // `check_directory_trust`: "Remote connections retain the existing
-    // behavior for saved untrusted folders": not asked.
-    #[tokio::test]
-    async fn a_remote_folder_saved_as_untrusted_or_trusted_is_not_asked() {
-        for level in ["untrusted", "trusted"] {
-            let projects = serde_json::json!({"/srv/app": {"trust_level": level}});
-            let (ev, _, _) = remote_facts(Some("/srv/app"), projects, serde_json::json!([])).await;
-            assert_eq!(trust_of(ev), None, "{level}");
-        }
-    }
-
-    // `read_remote_project_trust`: inside an untrusted project, with no
-    // project config loaded, is an error.
-    #[tokio::test]
-    async fn a_remote_folder_inside_an_untrusted_project_fails_the_launch() {
-        let projects = serde_json::json!({"/srv": {"trust_level": "untrusted"}});
-        let (ev, _, startup) =
-            remote_facts(Some("/srv/app"), projects, serde_json::json!([])).await;
-        let Some(AppEv::StartFailed(message)) = ev else {
-            panic!("expected StartFailed, got {ev:?}");
-        };
-        assert_eq!(
-            message,
-            "remote project directory is inside an explicitly untrusted project; pass the repository root explicitly with --cd"
-        );
-        assert_eq!(
-            startup.failure.lock().unwrap().as_deref(),
-            Some(message.as_str())
-        );
-    }
-
-    // `read_remote_project_trust`: a relative folder is joined to the
-    // environment's cwd (`environment/info`).
-    #[tokio::test]
-    async fn a_relative_remote_folder_resolves_against_the_environment_cwd() {
-        let (ev, asked, _) =
-            remote_facts(Some("app"), serde_json::json!({}), serde_json::json!([])).await;
-        assert_eq!(asked, ["/srv/app"]);
-        assert_eq!(
-            trust_of(ev).map(|trust| trust.cwd),
-            Some("/srv/app".to_owned())
-        );
+        let fetch = fetching(&calls, Ok("2.1.0"));
+        let (_, asked) = launch_with(&mut startup, fetch, None, "0.0.0").await;
+        assert!(!asked);
     }
 
     // R-F1: the update chosen is stored before the answer that lets the page

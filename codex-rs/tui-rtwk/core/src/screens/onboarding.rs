@@ -110,6 +110,10 @@ pub enum Ask {
     /// workspace (`consent.directory_trust_persisted && !uses_remote_workspace`).
     /// Its answer, if any, is an event of the app.
     ReloadConfig,
+    /// Refresh the update cache over the network (`check_for_update`), asked
+    /// once after the facts that found it stale; not answered, a failure is
+    /// only logged.
+    RefreshUpdateCache,
 }
 
 /// The launch facts the host read, all at once.
@@ -120,6 +124,9 @@ pub struct Facts {
     /// The sign-in due, with what it offers (the provider setups among it).
     pub sign_in: Option<auth::Offer>,
     pub trust: Option<TrustAsk>,
+    /// The update cache is missing or stale: the page asks the host to
+    /// refresh it (`Ask::RefreshUpdateCache`), for the next run.
+    pub refresh_update: bool,
 }
 
 /// A slot step's state: due, or done.
@@ -1142,6 +1149,28 @@ mod tests {
         assert_eq!(intent(&mut m, Intent::Trust), []);
         let mut m = model(vec![trust(false)]);
         assert_eq!(intent(&mut m, Intent::CancelTrust), []);
+    }
+
+    // updates.rs `get_upgrade_version`: a missing or stale cache is
+    // refreshed in the background, once, when the facts arrive.
+    #[test]
+    fn facts_that_found_the_update_cache_stale_ask_for_a_refresh() {
+        let mut m = Model::default();
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        let facts = |refresh_update| Ev::Facts {
+            request: 1,
+            facts: Facts {
+                refresh_update,
+                ..Facts::default()
+            },
+        };
+        assert_eq!(answered(&mut m, facts(true)), [Ask::RefreshUpdateCache]);
+        // The answer was taken: a repeat asks nothing more.
+        assert_eq!(answered(&mut m, facts(true)), []);
+        let mut m = Model::default();
+        connected(&mut m, &mut AppFx::default());
+        assert_eq!(answered(&mut m, facts(false)), []);
     }
 
     // A quit from a step ends the page and the app (`should_exit`).
