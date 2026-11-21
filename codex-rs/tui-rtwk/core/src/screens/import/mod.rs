@@ -140,6 +140,8 @@ pub struct Model {
     pub outcome: Option<Outcome>,
     /// An import started and has not completed yet.
     pub running: bool,
+    /// The id the server gave the import that runs: only its completion is ours.
+    pub import_id: Option<String>,
     /// What the last completed import finished with.
     pub finished: Option<Finished>,
 }
@@ -174,7 +176,7 @@ pub enum Ev {
         selected: Option<Vec<usize>>,
     },
     /// The import request was answered.
-    Imported { request: u64, result: Result<(), String> },
+    Imported { request: u64, result: Result<String, String> },
     /// The server's notice that an import finished.
     Completed(Box<Completed>),
 }
@@ -308,6 +310,12 @@ fn finished(done: &Completed) -> Finished {
     }
 }
 
+/// A server notification the flow reads: the completion of the import it
+/// started.
+pub fn observe(model: &mut Model, notification: &codex_app_server_protocol::ServerNotification, fx: &mut AppFx) {
+    let _ = (model, notification, fx);
+}
+
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
@@ -352,7 +360,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             match result {
-                Ok(()) => {
+                Ok(_) => {
                     let remaining = model.items.len().saturating_sub(model.selected_count());
                     model.running = true;
                     model.end(Outcome::Started(Started { items: model.items.iter().filter(|sel| sel.enabled).cloned().collect(), remaining }));

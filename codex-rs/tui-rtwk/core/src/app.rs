@@ -279,6 +279,13 @@ pub enum Command {
     Startup {
         ask: crate::screens::onboarding::Ask,
     },
+    /// An ask of the import flow the shell runs (the sources' detection, the
+    /// import), answered with the screen's events under the request's number
+    /// (`import::Request`).
+    #[non_exhaustive]
+    Import {
+        ask: crate::screens::import::Request,
+    },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -527,7 +534,7 @@ impl CodexApp {
                 *backend
             }
             // The startup page reads and writes this machine's first backend.
-            Command::Startup { .. } => BackendId::default(),
+            Command::Startup { .. } | Command::Import { .. } => BackendId::default(),
             Command::Screen { thread, .. } if !thread.as_str().is_empty() => {
                 agents.owner_of(thread.as_str())
             }

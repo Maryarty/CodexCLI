@@ -136,7 +136,7 @@ fn notices_of_the_flow() -> (import::Started, import::Finished) {
         &mut model,
         import::Ev::Imported {
             request,
-            result: Ok(()),
+            result: Ok("import-1".into()),
         },
         &mut AppFx::default(),
     );
@@ -464,4 +464,81 @@ fn the_checklist_and_summary_rows_are_the_oracles() {
     );
     assert_eq!(rows[0], Row::Section(None));
     assert_eq!(rows.iter().filter(|row| **row == Row::Gap).count(), 1);
+}
+
+// ---- the flow on the scripted backend: `/import` asks the sources and the
+// import through the shell (oracle: `flow.rs` `run_external_agent_config_migration_flow`)
+
+mod flow {
+    use codex_tui_core::rpc::ServerError;
+    use serde_json::{Value, json};
+
+    use crate::common::{Harness, ms, start};
+
+    fn answer(request: &Value) -> Option<Result<Value, ServerError>> {
+        match request["method"].as_str()? {
+            "externalAgentConfig/detect" => {
+                let found = request["params"]["migrationSource"] == "claude-code";
+                let items = if found {
+                    vec![json!({"itemType":"CONFIG","description":"Import settings","cwd":null,"details":null})]
+                } else {
+                    Vec::new()
+                };
+                Some(Ok(json!({"items": items, "connectors": []})))
+            }
+            "externalAgentConfig/import" => Some(Ok(json!({"importId": "import-1"}))),
+            _ => None,
+        }
+    }
+
+    fn methods(h: &Harness) -> Vec<String> {
+        h.fake
+            .requests()
+            .iter()
+            .filter_map(|r| r["method"].as_str().map(str::to_owned))
+            .filter(|m| m.starts_with("externalAgentConfig"))
+            .collect()
+    }
+
+    #[test]
+    fn slash_import_asks_every_source_and_reviews_what_one_found() {
+        let mut h = start();
+        h.fake.respond(answer);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        assert_eq!(
+            methods(&h),
+            ["externalAgentConfig/detect", "externalAgentConfig/detect"],
+            "one per source, in the oracle's order"
+        );
+        let sources: Vec<Value> = h
+            .fake
+            .requests()
+            .iter()
+            .map(|r| r["params"]["migrationSource"].clone())
+            .collect();
+        assert_eq!(sources, [json!("claude-code"), json!("cursor")]);
+    }
+
+    #[test]
+    fn importing_sends_the_checked_items_and_leaves_the_page_for_the_chat() {
+        let mut h = start();
+        h.fake.respond(answer);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        h.press("enter");
+        h.t.pump_for(ms(400));
+        h.wait_for("the chat back", |screen| !screen.contains("Import setup"));
+        let sent: Vec<Value> = h
+            .fake
+            .requests()
+            .into_iter()
+            .filter(|r| r["method"] == "externalAgentConfig/import")
+            .collect();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["params"]["migrationSource"], "claude-code");
+        assert_eq!(sent[0]["params"]["migrationItems"][0]["description"], "Import settings");
+    }
 }
