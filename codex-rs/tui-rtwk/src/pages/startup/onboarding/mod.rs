@@ -300,6 +300,12 @@ impl State for StartupPageState {
                 let model = &screens.onboarding;
                 let answers = screens.startup.answers.get(self.answers_from..);
                 let quit = quits(model) || answers.is_some_and(|a| a.iter().any(|a| exits(*a)));
+                // A quit leaves from the page: no frame of what lies under it.
+                if quit {
+                    let hs = read::<Hs, _>(cx);
+                    cx.emit(&hs.quit, ());
+                    return Rebuild::No;
+                }
                 // The trust prompt cancelled at launch opens the agents
                 // overview instead of the folder (lib.rs: `should_exit`).
                 if overview(model) {
@@ -312,10 +318,6 @@ impl State for StartupPageState {
                     if let Some(left) = &w.left {
                         cx.emit(left, ());
                     }
-                }
-                if quit {
-                    let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.quit, ());
                 }
                 Rebuild::No
             }

@@ -115,6 +115,31 @@ mod gate {
         h.wait_until("the resume picker", |h| resume_page.count(&h.t) == 1);
     }
 
+    // onboarding_screen.rs `handle_key_event`: Ctrl-C on the sign-in menu
+    // (auth in progress) exits the app; no chat frame comes before the exit.
+    #[test]
+    fn ctrl_c_on_the_sign_in_quits_without_a_chat_frame() {
+        use codex_tui_core::screens::onboarding::auth::Offer;
+        let mut h = crate::common::start_quittable(false);
+        h.settle();
+        answer(
+            &h,
+            Facts {
+                sign_in: Some(Offer {
+                    chatgpt: true,
+                    api_key: true,
+                    ..Offer::default()
+                }),
+                ..Facts::default()
+            },
+        );
+        h.wait_for("the sign-in menu", |s| s.contains("Sign in with ChatGPT"));
+        h.press("ctrl+c");
+        let screen = h.t.screen();
+        assert!(!screen.contains(CHAT), "a chat frame before the exit:\n{screen}");
+        assert!(!h.t.is_running(), "the app runs on:\n{screen}");
+    }
+
     // run_ratatui_app: the hooks review is asked before the app draws; the
     // chat follows its answer.
     #[test]
