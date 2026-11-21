@@ -91,7 +91,12 @@ Own tests:
 
 ## Checks (2026-11-21, startup-fix-2 after fix round 1)
 
-Run in the worktree of startup-fix-2 (branch from `6b1fb3955`); the numbers are filled in at the end of the task, below.
+Run in the worktree of startup-fix-2 (branch from `6b1fb3955`):
+
+- `fmt --check`: clean. `clippy --workspace --all-targets -D warnings`: clean (rc 0; the warnings printed are the pin's and the backend's, not the workspace's).
+- `nextest --workspace`: 1018 run, 1011 passed, 7 failed, all timing flakes of the known kind, none touching this task: `screens::status_data` (3 to 4 of them, a different one each run, also with `--test-threads 1`), `shell_agents` (3), `navigation::import_is_a_step_of_the_startup_page` (task flaky-apply-wait). The core crate (452 tests, delta 5 included) and the rules (R1 with `spawn_blocking(`) pass; `rtwk_g49_g51` 11 of 11 (probes).
+- `shards.py --check`: 55 shards, 0 files stale.
+- Red then green: R1 red at `ce48b6c8a` (host/src/startup.rs:278), green at `d35c68b24`; delta 5 red at `ffbc70d91` (2 of the 3 tests), green at `9ef1bfa9b`.
 
 - Delta 5 is extended: `disconnected` also resets `running` and reopens the update prompt (core test `a_connection_lost_while_the_update_is_stored_opens_the_prompt_again`, `a_late_ack_of_the_update_of_a_lost_connection_is_dropped`, `a_lost_connection_leaves_a_stored_update_alone`; red first).
 - The browser open runs from `src/services/startup.rs` `open_in_browser`; the host calls it and spawns nothing; rule R1 now also greps `spawn_blocking(` in the host.
