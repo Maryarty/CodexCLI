@@ -634,7 +634,7 @@ const R15_GAPS: &[(&str, &str)] = &[
         "ours: carried oracle pure fn (center_truncate_path), not a gap",
     ),
     (
-        "src/pages/agents/tabs.rs",
+        "src/widgets/tab_strip.rs",
         "measure, not a gap: whole-tab window by segmenter_of widths (oracle render_filled_tab_bar); a LayoutBuilder and a Row",
     ),
     (

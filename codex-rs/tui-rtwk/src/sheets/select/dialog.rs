@@ -1,19 +1,23 @@
 //! The generic selection dialog (the oracle's `ListSelectionView`): a title
-//! and subtitle, tabs, a search line, a window of rows with arrows for what is
+//! and subtitle, tabs, a search line, the rows with arrows for what is
 //! hidden, a footer note and hint. In Flutter it is a `showModalBottomSheet`
-//! whose content is a `Column(min)` with a `TabBar`, a `TextField` over a
-//! `TextEditingController`, and a `ListView`; what the user picks goes back as
-//! an intent with an id (ADR-003: the sheet keeps no copy of app state, only
-//! the cursor, the tab and the query, which are UI state).
+//! whose content is a `Column(min)` with a tab strip over a `TabController`, a
+//! `TextField` over a `TextEditingController`, and a `ListView` over a
+//! `ScrollController` with the cursor in a `SelectionController`; what the
+//! user picks goes back as an intent with an id (ADR-003: the sheet keeps no
+//! copy of app state, only the controllers: cursor, scroll, tab and query).
+//! The controllers are the only holders: the sheet has no window of its own
+//! (no first row, no `top`), no index shadowing the tab controller's, and
+//! reads the arrows and the page size from the list's position and viewport.
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
-use rtwk::controls::{TabBar, TabController};
+use rtwk::controls::{SelectionController, TabController};
 use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
-use rtwk::foundation::Listenable;
+use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::PointerEvent;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox,
@@ -21,13 +25,14 @@ use rtwk::layout::{
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
+use rtwk::scroll::ListController;
 use rtwk::style::{Attrs, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::list::{Browse, List, normalize_paste, window_top};
+use codex_tui_core::screens::select::list::{Browse, List, normalize_paste};
 use codex_tui_core::screens::select::{Intent, Menu};
 
 use super::lists;
@@ -36,6 +41,8 @@ use super::side;
 use super::strings;
 use crate::app::theme;
 use crate::app::view::Hs;
+use crate::widgets::session_list::page_rows;
+use crate::widgets::tab_strip::Tabs;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuDialog;
@@ -57,14 +64,15 @@ pub struct MenuDialogState {
     node: FocusNode,
     query: TextEditingController,
     flags: Rc<Cell<Flags>>,
-    tab: Option<usize>,
-    /// The tabs' selection (`TabController`): the bar and the arrow keys both set it,
-    /// and the dialog follows through its own message.
+    /// The tabs' selection (`TabController`): the tab strip's taps and the
+    /// arrow keys both set it, and the dialog follows through its own
+    /// message. The only holder of the tab.
     tabs: Option<TabController>,
     /// The highlighted item (an index into the tab's items).
-    item: Option<usize>,
-    /// The first item of the window, a position among the visible items.
-    top: usize,
+    cursor: SelectionController<usize>,
+    /// The scroll of the rows: asked to show the cursor row, read for the
+    /// arrows and the size of a page.
+    scroll: ListController,
 }
 
 /// A key the list answers.
@@ -89,7 +97,10 @@ pub enum Act {
 pub enum Msg {
     Act(Act),
     Query,
+    /// The tab controller moved to this tab.
     Tab(usize),
+    /// A tap on this tab of the strip.
+    TapTab(usize),
     Row(usize),
 }
 
@@ -103,10 +114,9 @@ impl StatefulWidget for MenuDialog {
             node: FocusNode::new(),
             query: TextEditingController::new(""),
             flags: Rc::new(Cell::new(Flags::default())),
-            tab: None,
             tabs: None,
-            item: None,
-            top: 0,
+            cursor: SelectionController::new(),
+            scroll: ListController::new(),
         }
     }
 }
@@ -198,6 +208,7 @@ impl State for MenuDialogState {
     fn dispose(&mut self) {
         self.node.set_on_key_event(None);
         self.query.dispose();
+        self.cursor.dispose();
     }
 
     fn did_change_dependencies(&mut self, _: &MenuDialog, cx: &mut Cx<'_, Self>) {
@@ -211,8 +222,7 @@ impl State for MenuDialogState {
             && let Some(list) = self.list(cx)
         {
             self.ready = true;
-            self.tab = list.first_tab();
-            if let Some(first) = self.tab {
+            if let Some(first) = list.first_tab() {
                 let tabs = TabController::with_initial_index(list.tabs.len(), first);
                 let send = cx.local_sender();
                 let seen = tabs.clone();
@@ -229,17 +239,21 @@ impl State for MenuDialogState {
         };
         match msg {
             Msg::Query => {
-                let before = self.item;
+                let before = self.cursor.cursor();
                 self.settle(&list, before);
             }
-            Msg::Tab(tab) => {
-                // The controller's own echo of a switch the dialog made is not one.
-                if self.tab != Some(tab) {
-                    self.switch(&list, tab);
+            Msg::Tab(_) => {
+                // Another tab has its own rows and an empty search.
+                self.query.set_text("");
+                self.settle(&list, None);
+            }
+            Msg::TapTab(tab) => {
+                if let Some(tabs) = &self.tabs {
+                    tabs.set_index(tab);
                 }
             }
             Msg::Row(item) => {
-                self.item = Some(item);
+                self.cursor.set_cursor(Some(item));
                 self.pick(&list, cx);
             }
             Msg::Act(act) => self.act(act, &list, cx),
@@ -254,20 +268,12 @@ impl State for MenuDialogState {
         let tokens = theme::Tokens::of(cx);
         let s = strings::of(cx);
         let query = self.query.text();
-        let browse = Browse {
-            list: &list,
-            tab: self.tab,
-            query: &query,
-        };
+        let browse = self.browse(&list, &query);
         let visible = browse.visible();
-        let cursor = self
-            .item
-            .and_then(|item| visible.iter().position(|v| *v == item));
-        let rows = browse.rows(&visible, cursor);
-        let max = list.max_rows();
-        let top = window_top(self.top, cursor, rows.len(), max);
-        let end = (top + max).min(rows.len());
-        let selected = self.item.and_then(|item| browse.items().get(item));
+        let selected = self
+            .cursor
+            .cursor()
+            .and_then(|item| browse.items().get(item));
         self.flags.set(Flags {
             searchable: list.searchable,
             tabs: !list.tabs.is_empty(),
@@ -305,7 +311,7 @@ impl State for MenuDialogState {
             pane = pane.child(Text::new(String::new()));
         }
         if !list.tabs.is_empty() {
-            pane = pane.child(inset(self.tab_strip(&list, &tokens)));
+            pane = pane.child(inset(self.tab_strip(&list, &tokens, s, cx)));
             if list.searchable {
                 pane = pane.child(Text::new(String::new()));
             }
@@ -338,34 +344,28 @@ impl State for MenuDialogState {
                 ),
             );
         }
-        let arrow = |show: bool, glyph: &'static str| -> AnyWidget {
-            if show {
-                Text::line(glyph.to_string()).style(tokens.accent()).into()
-            } else {
-                Text::new(String::new()).into()
-            }
-        };
-        pane = pane.child(arrow(top > 0, s.more_above));
-        if rows.is_empty() {
+        pane = pane.child(self.arrow(true, s.more_above, tokens.accent()));
+        if visible.is_empty() {
             pane = pane.child(
                 Text::line(s.no_matches.to_string()).style(tokens.dim().attrs(Attrs::ITALIC)),
             );
         } else {
-            let all = list.columns == codex_tui_core::screens::select::list::Columns::AutoAllRows;
-            let measured = if all {
-                rows[..top]
-                    .iter()
-                    .chain(rows[end..].iter())
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
             pane = pane.child(
                 Rows {
-                    window: Rc::new(rows[top..end].to_vec()),
-                    measured: Rc::new(measured),
-                    cursor: cursor.and_then(|c| (c >= top && c < end).then(|| c - top)),
+                    rows: Rc::new(browse.rows(&visible)),
+                    taps: Rc::new(
+                        visible
+                            .iter()
+                            .map(|item| {
+                                let item = *item;
+                                cx.map(move |_: PointerEvent| Msg::Row(item))
+                            })
+                            .collect(),
+                    ),
+                    items: Rc::new(visible),
+                    selection: self.cursor.clone(),
+                    list: self.scroll.clone(),
+                    max_rows: list.max_rows(),
                     styles: RowStyles {
                         cursor: tokens.accent().attrs(Attrs::BOLD),
                         label: Style::new(),
@@ -380,19 +380,14 @@ impl State for MenuDialogState {
                         reason_after: s.reason_after,
                         reason_alone: s.reason_alone,
                         reason_close: s.reason_close,
+                        mark_on: s.mark_on,
+                        mark_off: s.mark_off,
                     },
-                    taps: visible[top..end]
-                        .iter()
-                        .map(|item| {
-                            let item = *item;
-                            cx.map(move |_: PointerEvent| Msg::Row(item))
-                        })
-                        .collect(),
                 }
                 .view(),
             );
         }
-        pane = pane.child(arrow(end < rows.len(), s.more_below));
+        pane = pane.child(self.arrow(false, s.more_below, tokens.accent()));
         let mut body: AnyWidget = pane.into();
         if let Some(side) = list.side.clone() {
             body = side::with_preview(body, side, Style::new());
@@ -433,45 +428,44 @@ impl MenuDialogState {
         Some(lists::of(&menu, strings::of(cx)))
     }
 
-    /// The highlight after the rows changed (a query, a tab).
-    fn settle(&mut self, list: &List, previous: Option<usize>) {
-        let query = self.query.text();
-        let browse = Browse {
-            list,
-            tab: self.tab,
-            query: &query,
-        };
-        let visible = browse.visible();
-        let pos = browse.settle(&visible, previous, list.initial);
-        self.item = pos.and_then(|pos| visible.get(pos).copied());
-        self.top = 0;
+    /// The tab the controller is on (none: the list has no tabs).
+    fn tab(&self) -> Option<usize> {
+        self.tabs.as_ref().map(TabController::index)
     }
 
-    fn switch(&mut self, list: &List, tab: usize) {
-        if list.tabs.is_empty() {
-            return;
+    fn browse<'a>(&self, list: &'a List, query: &'a str) -> Browse<'a> {
+        Browse {
+            list,
+            tab: self.tab(),
+            query,
         }
-        let tab = tab % list.tabs.len();
-        self.tab = Some(tab);
-        if let Some(tabs) = &self.tabs {
-            tabs.set_index(tab);
+    }
+
+    /// The highlight after the rows changed (a query, a tab), the rows
+    /// scrolled back to their start unless the cursor is further down.
+    fn settle(&mut self, list: &List, previous: Option<usize>) {
+        let query = self.query.text();
+        let browse = self.browse(list, &query);
+        let visible = browse.visible();
+        let pos = browse.settle(&visible, previous, list.initial);
+        self.cursor
+            .set_cursor(pos.and_then(|pos| visible.get(pos).copied()));
+        self.scroll.jump_to_index(0);
+        if let Some(pos) = pos {
+            self.scroll.ensure_index_visible(pos);
         }
-        self.query.set_text("");
-        self.settle(list, None);
     }
 
     fn act(&mut self, act: Act, list: &List, cx: &mut Cx<'_, Self>) {
         let query = self.query.text();
-        let browse = Browse {
-            list,
-            tab: self.tab,
-            query: &query,
-        };
+        let browse = self.browse(list, &query);
         let visible = browse.visible();
         let at = self
-            .item
+            .cursor
+            .cursor()
             .and_then(|item| visible.iter().position(|v| *v == item));
-        let window = list.max_rows();
+        // A page is the rows the list shows.
+        let window = page_rows(&self.scroll);
         let to = match act {
             Act::Up => browse.step(&visible, at, false),
             Act::Down => browse.step(&visible, at, true),
@@ -480,15 +474,15 @@ impl MenuDialogState {
             Act::Top => browse.jump(&visible, true),
             Act::Bottom => browse.jump(&visible, false),
             Act::Left | Act::Right => {
-                let len = list.tabs.len();
-                if len > 0 {
-                    let now = self.tab.unwrap_or(0);
+                if let Some(tabs) = &self.tabs {
+                    let len = list.tabs.len();
+                    let now = tabs.index();
                     let next = if act == Act::Right {
                         now + 1
                     } else {
                         now + len - 1
                     };
-                    self.switch(list, next);
+                    tabs.set_index(next % len);
                 }
                 return;
             }
@@ -499,20 +493,22 @@ impl MenuDialogState {
             Act::Secondary => return self.secondary(list, cx),
             Act::Shortcut(key) => {
                 if let Some(item) = browse.shortcut(key) {
-                    self.item = Some(item);
+                    self.cursor.set_cursor(Some(item));
                     self.pick(list, cx);
                 }
                 return;
             }
         };
         if let Some(pos) = to {
-            self.item = visible.get(pos).copied();
-            self.top = window_top(self.top, Some(pos), visible.len(), window);
+            self.cursor.set_cursor(visible.get(pos).copied());
+            self.scroll.ensure_index_visible(pos);
         }
     }
 
     fn id(&self, list: &List) -> Option<String> {
-        self.item.map(|item| list.id_of(self.tab, item))
+        self.cursor
+            .cursor()
+            .map(|item| list.id_of(self.tab(), item))
     }
 
     /// A click or a shortcut on a row: accepts it, and in a multi-select
@@ -532,7 +528,7 @@ impl MenuDialogState {
     }
 
     fn accept(&mut self, list: &List, cx: &mut Cx<'_, Self>) {
-        let Some(item) = self.item else {
+        let Some(item) = self.cursor.cursor() else {
             // Nothing matches: the oracle takes it for a cancel.
             return self.close(cx);
         };
@@ -541,14 +537,14 @@ impl MenuDialogState {
             matches!(states.select.menu, Some(Menu::List(_)))
         });
         let disabled = list
-            .items_of(self.tab)
+            .items_of(self.tab())
             .get(item)
             .is_none_or(codex_tui_core::screens::select::list::Item::is_disabled);
         if disabled {
             return;
         }
         let intent = if is_list {
-            Intent::Choose(list.id_of(self.tab, item))
+            Intent::Choose(list.id_of(self.tab(), item))
         } else {
             Intent::Pick(item)
         };
@@ -575,16 +571,61 @@ impl MenuDialogState {
         close_dialog::<_, ()>(cx, None);
     }
 
-    /// The tab labels, the active one marked: rtwk's `TabBar` over the
-    /// dialog's `TabController` (G45: it scrolls by columns and cuts a tab at
-    /// the edge where the oracle's `render_filled_tab_bar` shows whole tabs).
-    fn tab_strip(&self, list: &List, tokens: &theme::Tokens) -> AnyWidget {
+    /// The tab labels, the active one marked: the shared filled strip of whole
+    /// tabs (`widgets/tab_strip.rs`, oracle `render_filled_tab_bar`) over the
+    /// dialog's `TabController`; a tap on a tab sets it.
+    fn tab_strip(
+        &self,
+        list: &List,
+        tokens: &theme::Tokens,
+        s: &'static strings::Strings,
+        cx: &mut Cx<'_, Self>,
+    ) -> AnyWidget {
         let Some(tabs) = &self.tabs else {
             return AnyWidget::default();
         };
-        TabBar::new(tabs, list.tabs.iter().map(|tab| tab.label.clone()))
-            .tab_style(tokens.dim())
-            .selected_style(tokens.bold().attrs(Attrs::UNDERLINE))
-            .into()
+        Tabs {
+            labels: list.tabs.iter().map(|tab| tab.label.clone()).collect(),
+            active: tabs.index(),
+            marks: (s.tab_left, s.tab_right),
+            // The oracle's unknown-palette fallback (`active_tab_style`): bold and
+            // underlined on the terminal's own colours.
+            styles: (
+                Style::new().attrs(Attrs::BOLD | Attrs::UNDERLINE),
+                tokens.dim(),
+            ),
+            taps: (0..list.tabs.len())
+                .map(|tab| cx.map(move |_: PointerEvent| Msg::TapTab(tab)))
+                .collect(),
+        }
+        .widget()
+    }
+
+    /// A row high, `glyph` while rows are scrolled out of view above (or
+    /// below): the oracle's `↑` and `↓` of a picker, read from the list's
+    /// position, so they follow its scroll.
+    fn arrow(&self, above: bool, glyph: &'static str, style: Style) -> AnyWidget {
+        let scroll = self.scroll.clone();
+        let watched = Rc::new((*self.scroll).clone());
+        SizedBox::new(
+            None,
+            Some(1),
+            Some(
+                ListenableBuilder::new(watched, move |_, _| {
+                    let shown = scroll.try_position().is_ok_and(|at| {
+                        if above {
+                            at.pixels() > 0
+                        } else {
+                            at.pixels() < at.max_scroll_extent()
+                        }
+                    });
+                    Text::line(if shown { glyph } else { "" })
+                        .style(style.clone())
+                        .into()
+                })
+                .into(),
+            ),
+        )
+        .into()
     }
 }

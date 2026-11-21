@@ -1,4 +1,5 @@
-//! The filter strip of the command center, the Flutter way (G36: not a gap,
+//! The filled tab strip, shared by the command center's filters and the
+//! selection sheet's tabs, the Flutter way (G36 and G45: not gaps,
 //! `docs/rtwk-port/rtwk-gaps.md`): a `LayoutBuilder` measures the labels with
 //! `segmenter_of(cx)` and a `Row` lays out the whole tabs one blank apart,
 //! the overflow marks outside them and the active tab in the selection style

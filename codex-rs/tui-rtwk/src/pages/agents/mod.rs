@@ -43,7 +43,6 @@ mod opening;
 pub(crate) mod path;
 mod state;
 pub mod strings;
-mod tabs;
 mod usage;
 mod view;
 

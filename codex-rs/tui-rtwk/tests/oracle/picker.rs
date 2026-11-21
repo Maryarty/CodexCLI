@@ -454,7 +454,7 @@ fn snapshot_narrow_width_counts_halfwidth_sound_marks() {
 fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
     kit::pending(
         Owner::UiPane,
-        "the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs",
+        "G39b: AutoVisible measures the label column over the rows in the list's window and rtwk's ListView has no layout-time hook for it; the kit also cannot address the `before scroll:` and `after scroll:` frames; the probe is tests/sheets/select.rs probe_g39b_auto_visible_measures_the_column_over_every_row",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
@@ -937,31 +937,19 @@ fn choice_labels_and_descriptions_keep_complete_url_destinations() {
 // ORACLE bottom_pane/selection_tabs_tests.rs:22 filled_tabs_window_around_active_tab kind=snap owner=ui-pane snap=filled_tabs_window_around_active_tab
 #[test]
 fn filled_tabs_window_around_active_tab() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per active tab",
+        "a frame per active tab and per width is not addressable by the kit (oracle_snap::frames reads no such header); the strips are asserted against the oracle's snapshot text through the sheet in tests/sheets/select.rs filled_tabs_window_around_active_tab",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(30, 3)
-        .entry("select", "filled_tabs_seven")
-        .open();
-    s.assert_snap("filled_tabs_window_around_active_tab");
-    // missed kit call: the three active tabs are three screens; the bold and background check of each active label is not a kit call
 }
 
 // ORACLE bottom_pane/selection_tabs_tests.rs:60 filled_tabs_truncate_unicode_without_hiding_active_tab kind=snap owner=ui-pane snap=filled_tabs_truncate_unicode_without_hiding_active_tab
 #[test]
 fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per width",
+        "a frame per width is not addressable by the kit (oracle_snap::frames reads no such header); the strips are asserted against the oracle's snapshot text through the sheet in tests/sheets/select.rs filled_tabs_truncate_unicode_without_hiding_active_tab",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(16, 4)
-        .entry("select", "filled_tabs_unicode")
-        .open();
-    s.assert_snap("filled_tabs_truncate_unicode_without_hiding_active_tab");
-    // missed kit call: the four widths are four screens; the snapshot has one row per width
 }
 
 // ORACLE bottom_pane/selection_tabs_tests.rs:69 filled_tab_unknown_palette_uses_readable_underlined_defaults kind=ui owner=ui-pane
@@ -969,10 +957,10 @@ fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
     kit::pending(
         Owner::UiPane,
-        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog)",
+        "G-clear (select-dialog.md): the oracle's `Style::default().fg(Reset).bg(Reset)` resets the cells under the tab; rtwk's `Style` has no explicit reset (a Text with no colour blends the cell beneath, `ColoredBox(Color::DEFAULT)` resets only the bg), so the blank of the tab keeps the fg (and underline colour) of what the dialog covers; the sheet's strip is bold and underlined as the oracle's fallback",
     );
     let s = Screen::build(Owner::UiPane)
-        .size(5, 1)
+        .size(20, 6)
         .entry("select", "filled_tab_all")
         .open();
     s.assert_text_style(" All ", "fg=Reset bg=Reset bold underlined");

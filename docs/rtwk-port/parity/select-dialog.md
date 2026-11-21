@@ -17,7 +17,7 @@ words, `fixtures/*.jsonl` mock data through core `apply`).
   strings.rs) and opens the menu through `ScreenIntent::Select`/`SeedEv::List`.
 * A pick returns an id: `Picked::Item(id)` (`Picked::ItemSecondary(id)` for the secondary
   key); the sheet keeps no copy of app state (ADR-003) and is a `StatefulWidget` that
-  reads the open menu from the screen state, owns only the cursor, window, tab, query
+  reads the open menu from the screen state, owns only controllers (a `SelectionController` cursor, a `ListController` scroll, a `TabController`), query
   controller and focus node.
 * Mouse: a tap on a row picks it, on a tab switches to it. Keys: up/down, j/k (not while searching), ctrl-p/ctrl-n,
   page, home/end, number and row shortcuts, left/right (tabs), space/enter, esc, search
@@ -67,8 +67,8 @@ through the replay helper (`tests/oracle_snap`); expected text is the oracle's s
 | bottom_pane/list_selection_view.rs::snapshot_model_picker_width_80 | `tests/oracle/picker.rs::snapshot_model_picker_width_80` | green | |  |
 | bottom_pane/list_selection_view.rs::snapshot_narrow_width_preserves_third_option | `tests/oracle/picker.rs::snapshot_narrow_width_preserves_third_option` | green | |  |
 | bottom_pane/list_selection_view.rs::snapshot_narrow_width_counts_halfwidth_sound_marks | `tests/oracle/picker.rs::snapshot_narrow_width_counts_halfwidth_sound_marks` | pending | G44: rtwk's text engine clusters a halfwidth katakana and its sound mark into one cell (TextMode::Graphemes), the oracle counts the mark as its own cell, so the label column is one cell narrower and the description wraps one cell later; and the kit cannot address the `width 20:` and `width 24:` frames (oracle_snap::frames reads only `width=`) | rtwk gap G44 |
-| bottom_pane/list_selection_view.rs::snapshot_auto_visible_col_width_mode_scroll_behavior | `tests/oracle/picker.rs::snapshot_auto_visible_col_width_mode_scroll_behavior` | pending | the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs | kit (frame addressing) |
-| bottom_pane/list_selection_view.rs::snapshot_auto_all_rows_col_width_mode_scroll_behavior | `tests/oracle/picker.rs::snapshot_auto_all_rows_col_width_mode_scroll_behavior` | pending | the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs | kit (frame addressing) |
+| bottom_pane/list_selection_view.rs::snapshot_auto_visible_col_width_mode_scroll_behavior | `tests/oracle/picker.rs::snapshot_auto_visible_col_width_mode_scroll_behavior` | pending | G39b: AutoVisible measures the label column over the rows in the list's window; rtwk's `ListView` has no layout-time hook for its window, so the column is measured over every row; the kit also cannot address the `before scroll:` / `after scroll:` frames; probe: `tests/sheets/select.rs::probe_g39b_auto_visible_measures_the_column_over_every_row` | rtwk gap G39b |
+| bottom_pane/list_selection_view.rs::snapshot_auto_all_rows_col_width_mode_scroll_behavior | `tests/oracle/picker.rs::snapshot_auto_all_rows_col_width_mode_scroll_behavior` | pending | the kit cannot address the `before scroll:` and `after scroll:` frames (kit's tests/kit is not this slice's); the same two frames are green as literal rows in `tests/sheets/select.rs::snapshot_auto_all_rows_col_width_mode_scroll_behavior` | kit frames |
 | bottom_pane/list_selection_view.rs::auto_all_rows_col_width_does_not_shift_when_scrolling | `tests/oracle/picker.rs::auto_all_rows_col_width_does_not_shift_when_scrolling` | green | |  |
 | bottom_pane/list_selection_view.rs::stacked_side_content_is_used_when_side_by_side_does_not_fit | `tests/oracle/picker.rs::stacked_side_content_is_used_when_side_by_side_does_not_fit` | green | |  |
 | bottom_pane/list_selection_view.rs::side_content_clearing_resets_symbols_and_style | `tests/oracle/picker.rs::side_content_clearing_resets_symbols_and_style` | pending | the sheet draws the preview beside the rows (side_content fixture, tests/sheets/select.rs); the kit cannot paint the screen behind the widget first (no red-filled X cells) to prove the clearing | rows-only popup widget (`widgets/options.rs`, ui-pane) / palette |
@@ -94,42 +94,112 @@ through the replay helper (`tests/oracle_snap`); expected text is the oracle's s
 | bottom_pane/selection_popup_common.rs::selection_preserves_semantic_spans_and_secondary_hierarchy | `tests/oracle/picker.rs::selection_preserves_semantic_spans_and_secondary_hierarchy` | pending | no entry with the provider row (underlined L, Ready green italic, secondary details) under the default palette and the selection styles: the select screen has no semantic-span row and the kit has no palette seed | rows-only popup widget (`widgets/options.rs`, ui-pane) / palette |
 | bottom_pane/selection_popup_common.rs::selected_rows_use_the_shared_accent_style | `tests/oracle/picker.rs::selected_rows_use_the_shared_accent_style` | pending | no entry with one selected row `selected` at width 16: the select screen has no selected-row accent style | rows-only popup widget (`widgets/options.rs`, ui-pane) / palette |
 | bottom_pane/selection_row_links_tests.rs::choice_labels_and_descriptions_keep_complete_url_destinations | `tests/oracle/picker.rs::choice_labels_and_descriptions_keep_complete_url_destinations` | pending | no entry with the wrapped URL rows (a 日本語 label with a long URL, a long URL description) in the eight prefix, wrap and single-line combinations: the select screen has no hyperlink rows | rows-only popup widget (`widgets/options.rs`, ui-pane) / palette |
-| bottom_pane/selection_tabs_tests.rs::filled_tabs_window_around_active_tab | `tests/oracle/picker.rs::filled_tabs_window_around_active_tab` | pending | G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per active tab | rtwk gap G45 |
-| bottom_pane/selection_tabs_tests.rs::filled_tabs_truncate_unicode_without_hiding_active_tab | `tests/oracle/picker.rs::filled_tabs_truncate_unicode_without_hiding_active_tab` | pending | G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the kit cannot address one frame per width | rtwk gap G45 |
-| bottom_pane/selection_tabs_tests.rs::filled_tab_unknown_palette_uses_readable_underlined_defaults | `tests/oracle/picker.rs::filled_tab_unknown_palette_uses_readable_underlined_defaults` | pending | G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs with rtwk's TabBar over a TabController, no workaround; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog) | rtwk gap G45 |
+| bottom_pane/selection_tabs_tests.rs::filled_tabs_window_around_active_tab | `tests/oracle/picker.rs::filled_tabs_window_around_active_tab` | n/a | the kit cannot address one frame per active tab; the same strips are green in `tests/sheets/select.rs::filled_tabs_window_around_active_tab` through the shared strip `widgets/tab_strip.rs` (G45 is not a gap) | |
+| bottom_pane/selection_tabs_tests.rs::filled_tabs_truncate_unicode_without_hiding_active_tab | `tests/oracle/picker.rs::filled_tabs_truncate_unicode_without_hiding_active_tab` | n/a | the kit cannot address one frame per width; the same strips are green in `tests/sheets/select.rs::filled_tabs_truncate_unicode_without_hiding_active_tab` through the shared strip `widgets/tab_strip.rs` (G45 is not a gap) | |
+| bottom_pane/selection_tabs_tests.rs::filled_tab_unknown_palette_uses_readable_underlined_defaults | `tests/oracle/picker.rs::filled_tab_unknown_palette_uses_readable_underlined_defaults` | pending | G-clear (new, below): the oracle's `Style::default().fg(Reset).bg(Reset)` resets the cells under the tab; the strip is bold and underlined as the fallback, but a blank cell of it keeps the fg of what the dialog covers | rtwk gap G-clear |
 | bottom_pane/tests/picker_hint_tests.rs::popup_hints_follow_configured_bindings | `tests/oracle/picker.rs::popup_hints_follow_configured_bindings` | pending | no keymap seed: accept = F3 and cancel = F2 cannot be set (the keymap slice); the footer hint `f3 select · f2 back` comes from those bindings | keymap slice (bindings from a config) |
 
 ## Sheet tests (`tests/sheets/select.rs`, binary `screens`) and core tests
 
 * `snapshot_model_picker_width_80`, `approvals_selection_popup_snapshot` (the two
-  snapshots the slice had), `snapshot_auto_visible_col_width_mode_scroll_behavior` and
-  `snapshot_auto_all_rows_col_width_mode_scroll_behavior` (literal rows of the oracle's
-  two frames, because the kit cannot address a frame header), enter / number key picks,
-  esc closes, `a_preview_sits_beside_the_rows_when_it_fits`,
+  snapshots the slice had), `snapshot_auto_all_rows_col_width_mode_scroll_behavior`
+  (literal rows of the oracle's two frames, because the kit cannot address a frame
+  header), enter / number key picks, esc closes, `a_preview_sits_beside_the_rows_when_it_fits`,
   `skills_menu_snapshot`, `copy_picker_snapshot`, `apps_loading_snapshot`,
   `worktrees_conversation_snapshot`, `worktrees_fork_snapshot`, `worktrees_new_snapshot`
   (the last six compare the oracle's rows in order with `assert_rows`, which accepts a row
   that contains the oracle row).
-* `probe_g45_tab_bar_cuts_a_tab_at_the_edge`: the probe of G45.
+* `filled_tabs_window_around_active_tab` and
+  `filled_tabs_truncate_unicode_without_hiding_active_tab` (the oracle's two snapshots
+  `filled_tabs_*`, fixtures `filled_tabs_seven`, `filled_tabs_unicode`, `filled_tab_all`):
+  the strips at the oracle's widths through `widgets/tab_strip.rs` (which holds a unit
+  test of the window too). Bite: `at.pixels() > 0` of the `↑` arrow set to `> 1000` fails
+  `snapshot_auto_all_rows_col_width_mode_scroll_behavior`; the unicode strip at width 9
+  failed with the former `dots_end` (the `…` a cell late) and passes now.
+* `the_sheet_holds_no_window_cursor_or_tab_of_its_own`: a source scan of `dialog.rs`
+  (no `top`, `window_top`, `rows[..]` window, `tab:`/`item:` fields; the cursor, the
+  scroll and the tab are controllers).
+* `probe_g39b_auto_visible_measures_the_column_over_every_row`: the probe of G39b (green
+  while the gap exists; when rtwk gives the window, its first frame turns narrow, it fails
+  and the oracle test loses its `pending(G39b)`).
 * Core (`core/src/screens/select/list.rs`): search, settle, step wrap and disabled skip,
-  page and jump, number shortcuts, row prefixes, window follow, paste, toggle flip, and
-  `Side::beside` with the oracle's `side_layout_width_*` values. Bite: removing the
-  disabled skip in `Browse::step` fails `step_wraps_round_the_ends_and_skips_disabled_rows`.
+  page and jump (the page is the rows the list shows, handed in from the viewport), number
+  shortcuts, row prefixes (no cursor mark: the view draws it), paste, toggle flip, and
+  `Side::beside` with the oracle's `side_layout_width_*` values. `window_top` is gone.
+
+## rtwk means and the notes
+
+* The rows are a `ListView::builder` with a `ListController`, the cursor a
+  `SelectionController<usize>`, each row a `ListenableBuilder` on the cursor, a tap a
+  `GestureDetector`. The arrows `↑`/`↓` read the controller's position
+  (`pixels() > 0`, `pixels() < max_scroll_extent()`), the page size is `page_rows`
+  (the viewport), the tab index is the `TabController`'s. No app-side window.
+* The list is as tall as the `max_rows` consecutive rows that take most lines (a tallest
+  window over the measured row heights): exact for uniform rows, an approximation where
+  wrapped rows differ in height (the oracle shows `max_rows` items, whatever their lines).
+* The label column floor is `name_column_width` itself (it was `+ 2`): measured against
+  the oracle's `compute_desc_col`; the gap before the description is the two-cell box.
+* `widgets/dots.rs` `dots_end` now measures the cells that fit (`cut_head_cells`, a width,
+  not a cut string) so the `…` follows the last whole grapheme as the oracle's cut does
+  (the unicode strip at width 9); one file outside the task area.
 
 ## rtwk gaps
 
-* G44 (new): halfwidth sound mark clusters into one cell in rtwk, the oracle counts it as
+* **G39b** (narrowed, row text for `rtwk-gaps.md`): the oracle's `AutoVisible` column is measured over the
+  rows in view only (`list_selection_view.rs` `ColumnWidthMode::AutoVisible`, `compute_desc_col`
+  over `visible`); `AutoAllRows` is composed (`LayoutBuilder` + `segmenter_of(cx)` over all
+  rows, `sheets/select/rows.rs`). Routes for AutoVisible: (1) the widget alone: `ListView::builder`
+  gives the builder an index, never its window, and builds only the visible items
+  (`rtwk-scroll/src/list_view.rs`), so no item can see its siblings' widths; (2) a
+  composition: a `ListenableBuilder` on the `ScrollController` could re-measure from
+  `pixels()` and `viewport_dimension()` after layout, but the first frame has no
+  position (the `ScrollController` notifies after the first layout) and the column would
+  jump a frame later, and walking heights from the position is the app-side window the
+  person ruled out (2026-11-21); (3) a test setting: none (`TextMode` and `attrs_of` do
+  not reach layout). Differing rows: the first frame, `› 1. Item 1  desc 1` (oracle) against
+  `› 1. Item 1` + 41 blanks + `desc 1` (rtwk). Probe:
+  `tests/sheets/select.rs::probe_g39b_auto_visible_measures_the_column_over_every_row`.
+  Wanted: a way for a list item to be laid out knowing the item range of the window (an
+  `ItemBuilder` told its window, or a `ListView` shared-extent for a column).
+* **G45**: not a gap (composition). The filled tab strip is `LayoutBuilder` +
+  `segmenter_of(cx)` + `Row` of whole tabs with `dots_end` labels and a
+  `GestureDetector` per tab: `widgets/tab_strip.rs` (lifted from `pages/agents/tabs.rs`,
+  now shared by the command center and the selection sheet). Routes tried before: `TabBar`
+  over a `TabController` (`rtwk-controls/src/tabs.rs:915-935`, columns offset, cuts a tab);
+  the composition passes the oracle's `filled_tabs_*` snapshots at widths 1, 4, 9, 16 and
+  30/34.
+* **G-clear** (new, number for the orchestrator): a `Text`/`Style` cannot reset what is under
+  it. The oracle's active tab is `Style::default().fg(Reset).bg(Reset).bold().underlined()`
+  (`picker_style.rs:27`), rendering over cleared cells. Routes: (1) `Style::new().fg(Color::DEFAULT)
+  .bg(Color::DEFAULT)` on the `Text`: `Color::DEFAULT` is "unset", the blank of the tab
+  keeps the fg (and so the underline colour) of the cell beneath (probe: the oracle test
+  `filled_tab_unknown_palette_uses_readable_underlined_defaults`); (2) `ColoredBox(Color::DEFAULT)`
+  around the dialog's `BoxWidget`: resets the bg, the fg of the blank cell still stays
+  (`rtwk-widgets/src/layout/container.rs:108`); (3) a test setting: none. Differing
+  cell: `fg is Rgb(103, 0, 103), the oracle's is Reset` at the blank of ` All `. Visible in
+  the underline colour of the blank cells of the active tab over a coloured page; wanted:
+  a clearing widget (Flutter's `Opacity`/`ColoredBox` over an opaque base) or explicit-reset
+  colours in `Style`.
+* G44 (earlier): halfwidth sound mark clusters into one cell in rtwk, the oracle counts it as
   a cell. Probe: the oracle test under `KIT_PROBE_PENDING=1`.
-* G45 (new): `TabBar` scrolls by columns and cuts a tab, the oracle windows whole tabs.
-  Probe in `tests/sheets/select.rs`.
-* G39b: the label column over the rows in view needs no rtwk hook: the sheet windows the
-  items itself (note added to the G39b row).
 
 ## Deltas, risks
 
-* No visual delta in the green tests. Not done: tab strip windowing (G45; the sheet's rtwk `TabBar` scrolls by columns and cuts a tab at the edge), the active tab's fill colour from the terminal palette (the
+* No visual delta in the green tests. Not done: the active tab's fill colour from the terminal palette (the
   fallback bold underline is drawn), side preview background (`Side::bg`), vertical
   centring inside the preview, multi-select, reorder, section breaks, row hyperlinks,
   fuzzy match highlight, configurable key bindings (no keymap config yet).
 * The kit asserts a whole screen, so tests size the screen to the dialog; the debug page
   shows through above a bottom-aligned sheet.
+* Outside the task area, one-line edits (the orchestrator may take them at landing):
+  `src/widgets/mod.rs` (`pub mod tab_strip;`), `src/pages/agents/mod.rs` (`mod tabs;`
+  removed), `src/pages/agents/view/mod.rs` (import of `widgets::tab_strip::Tabs`),
+  `tests/rules/rules.rs` (the `R15_GAPS` path of the strip), `src/widgets/dots.rs`.
+* The stripe of the active tab keeps the oracle's unknown-palette fallback (bold,
+  underlined); the filled gray tab of a known palette (`picker_style.rs:34-48`,
+  `readable_color_on`) needs the terminal-palette machinery and is not carried (it was not
+  before either).
+* Red on arrival (not this slice): `status_data::*` (seven tests, red at `6b1fb3955` too);
+  flaky under load: `chat::transitions::slash_import_opens_the_import`,
+  `shell_agents::cancelling_resume_picker_preserves_command_center_state`,
+  `shell_agents::typing_a_word_asks_the_server_once` (pass and fail between runs).

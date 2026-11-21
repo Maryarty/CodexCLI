@@ -33,6 +33,12 @@ pub struct Strings {
     pub more_above: &'static str,
     pub more_below: &'static str,
     pub disabled_mark: &'static str,
+    /// The cell before a row: the cursor's mark, or blank.
+    pub mark_on: &'static str,
+    pub mark_off: &'static str,
+    /// The tab strip's marks for tabs out of room (selection_tabs.rs).
+    pub tab_left: &'static str,
+    pub tab_right: &'static str,
     /// A disabled row's reason after its description, or alone, and the
     /// closing of the first.
     pub reason_after: &'static str,
@@ -55,6 +61,10 @@ pub const EN: Strings = Strings {
     more_above: "\u{2191}",
     more_below: "\u{2193}",
     disabled_mark: " (disabled)",
+    mark_on: "\u{203a}",
+    mark_off: " ",
+    tab_left: "\u{2039}",
+    tab_right: "\u{203a}",
     reason_after: " (disabled: ",
     reason_alone: "disabled: ",
     reason_close: ")",
