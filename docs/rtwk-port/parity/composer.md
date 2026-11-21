@@ -266,3 +266,14 @@ those are covered by the shard tests above, not run in the binary.
   the checks ran through a copy of `acargo` without `RUSTC_WRAPPER` (same flags, own
   target). An earlier disk-full (ENOSPC) was cleared by removing the scratch worktree
   `/tmp/composer-base` this task had made for the base check.
+
+## Binary run (composer-2 phase 2, popup in; debug build)
+`check.py --bin rtwk --bin oracle --only multi-turn,interrupted --capture-dir /tmp/composer2-cap`:
+4/4 passed. A pty drive of the rtwk binary (keys one by one, 100x24, ANSI stripped; no screen
+emulator, so the diff-rendered stream is read, not a grid): `/stat` opens `▎/status  show
+current s...`, `/` lists the commands (`/model`, `/ide`, `/permissions`, `/keymap`...), two
+Downs move the bar to `/ide`, Esc closes the list, a typed `/stat` and Enter print the status
+card (`Model: gpt-6-sol  Directory: ...`). Tab, startup draft and images were run in the page
+tests only. Differing rows against the oracle: the G68 layout (`▎` bar, right-aligned detail,
+no hint line); the rest equal in what was driven. A `/stat` plus Enter written in ONE write is a
+paste burst in both binaries (Enter is a newline), as the oracle does.
