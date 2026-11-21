@@ -20,10 +20,6 @@ const G63: &str = "G63: MarkdownView joins a soft break with a blank; the oracle
 // ORACLE markdown_render_tests.rs:697 loose_list_item_multiple_paragraphs kind=ui owner=chat-live
 #[test]
 fn loose_list_item_multiple_paragraphs() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle's blank rows between the paragraphs and the items are not asserted: the kit has no row-gap check.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -57,10 +53,6 @@ fn tight_item_with_soft_break() {
 // ORACLE markdown_render_tests.rs:723 deeply_nested_mixed_three_levels kind=ui owner=chat-live
 #[test]
 fn deeply_nested_mixed_three_levels() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle's blank row before `2. D` is not asserted: the kit has no row-gap check.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -75,10 +67,6 @@ fn deeply_nested_mixed_three_levels() {
 // ORACLE markdown_render_tests.rs:738 loose_items_due_to_blank_line_between_items kind=ui owner=chat-live
 #[test]
 fn loose_items_due_to_blank_line_between_items() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle's blank row between the two items is not asserted: the kit has no row-gap check.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -94,10 +82,6 @@ fn loose_items_due_to_blank_line_between_items() {
 // ORACLE markdown_render_tests.rs:749 mixed_tight_then_loose_in_one_list kind=ui owner=chat-live
 #[test]
 fn mixed_tight_then_loose_in_one_list() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle has no blank row between the items: adjacency of rows is not asserted (the kit has no row-gap check).
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -112,10 +96,6 @@ fn mixed_tight_then_loose_in_one_list() {
 // ORACLE markdown_render_tests.rs:760 ordered_item_with_indented_continuation_is_tight kind=ui owner=chat-live
 #[test]
 fn ordered_item_with_indented_continuation_is_tight() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle has no blank row between `Foo` and `Bar`: adjacency is not asserted (the kit has no row-gap check).
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)

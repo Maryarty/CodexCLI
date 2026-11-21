@@ -483,10 +483,6 @@ fn unordered_item_continuation_paragraph_is_indented() {
 // ORACLE markdown_render_tests.rs:1880 ordered_item_continuation_paragraph_is_indented kind=ui owner=chat-live
 #[test]
 fn ordered_item_continuation_paragraph_is_indented() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "1. Intro\n\n   More details about intro\n");
     rows_in_order(&s, &["1. Intro", "", "   More details about intro"]);
     s.assert_text_style("1.", "fg=LightBlue");

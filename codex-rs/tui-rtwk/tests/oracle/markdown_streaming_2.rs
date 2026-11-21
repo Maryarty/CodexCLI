@@ -554,10 +554,6 @@ fn headings() {
 // ORACLE markdown_render_tests.rs:195 blockquote_single kind=ui owner=chat-live
 #[test]
 fn blockquote_single() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "> Blockquote");
     s.assert_has_row("> Blockquote");
     s.assert_text_style("> Blockquote", "fg=Green");
@@ -577,10 +573,6 @@ fn blockquote_soft_break() {
 // ORACLE markdown_render_tests.rs:226 blockquote_multiple_with_break kind=ui owner=chat-live
 #[test]
 fn blockquote_multiple_with_break() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "> Blockquote 1\n\n> Blockquote 2\n");
     s.assert_in_order(&["> Blockquote 1", "> Blockquote 2"]);
     s.assert_text_style("> Blockquote 1", "fg=Green");
@@ -590,10 +582,6 @@ fn blockquote_multiple_with_break() {
 // ORACLE markdown_render_tests.rs:238 blockquote_three_paragraphs_short_lines kind=ui owner=chat-live
 #[test]
 fn blockquote_three_paragraphs_short_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "> one\n>\n> two\n>\n> three\n");
     s.assert_in_order(&["> one", "> two", "> three"]);
     s.assert_text_style("> one", "fg=Green");
@@ -611,7 +599,7 @@ fn blockquote_nested_two_levels() {
 fn blockquote_with_list_items() {
     kit::pending(
         Owner::ChatLive,
-        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
+        "the oracle test runs with an empty syntax theme (`set_syntax_theme(Theme::default())`), where the bullet takes the quote's green; the app's theme gives bullets the Mocha/Latte teal, as the oracle's default does, and the kit cannot choose the syntax theme",
     );
     let s = chat(80, 24, "> - item 1\n> - item 2\n");
     s.assert_in_order(&["> • item 1", "> • item 2"]);
@@ -621,10 +609,6 @@ fn blockquote_with_list_items() {
 // ORACLE markdown_render_tests.rs:278 blockquote_with_ordered_list kind=ui owner=chat-live
 #[test]
 fn blockquote_with_ordered_list() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "> 1. first\n> 2. second\n");
     s.assert_in_order(&["> 1. first", "> 2. second"]);
     s.assert_text_style("1. ", "fg=LightBlue");
@@ -722,10 +706,6 @@ fn blockquote_with_heading_and_paragraph() {
 // ORACLE markdown_render_tests.rs:506 blockquote_heading_inherits_heading_style kind=ui owner=chat-live
 #[test]
 fn blockquote_heading_inherits_heading_style() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the blockquote bar colour (oracle Green) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "> # test header\n> in blockquote\n");
     s.assert_in_order(&["> # test header", "> in blockquote"]);
     s.assert_text_style("test header", "bold underlined");
@@ -786,10 +766,6 @@ fn list_unordered_multiple() {
 // ORACLE markdown_render_tests.rs:621 list_ordered kind=ui owner=chat-live
 #[test]
 fn list_ordered() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "1. List item 1\n2. List item 2\n");
     s.assert_in_order(&["1. List item 1", "2. List item 2"]);
     s.assert_text_style("1. ", "fg=LightBlue");
@@ -825,10 +801,6 @@ fn list_nested() {
 // ORACLE markdown_render_tests.rs:649 ordered_list_markers_use_terminal_palette_snapshot kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__ordered_list_markers_use_terminal_palette_snapshot
 #[test]
 fn ordered_list_markers_use_terminal_palette_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     // The oracle's snapshot is the Debug of the Text: the marker in the palette's light
     // blue, the first link's label and target; the second link is the same shape.
     let s = chat(
@@ -837,16 +809,20 @@ fn ordered_list_markers_use_terminal_palette_snapshot() {
         "1. plain [plain](https://example.com) `code` [`code`](https://example.com)",
     );
     s.assert_text_style("1. ", "fg=LightBlue");
-    s.assert_link("plain", "https://example.com");
+    // `plain` stands twice (the text, then the link's label): the label is the second.
+    let grid = s.grid();
+    let (x, _, y) = grid
+        .locate("plain plain")
+        .expect("the two words on the screen");
+    for x in x + "plain ".len()..x + "plain plain".len() {
+        assert_eq!(grid.cell(x, y).link.as_deref(), Some("https://example.com"));
+    }
+    s.assert_no_link("1. plain");
 }
 
 // ORACLE markdown_render_tests.rs:657 list_ordered_custom_start kind=ui owner=chat-live
 #[test]
 fn list_ordered_custom_start() {
-    kit::pending(
-        Owner::ChatLive,
-        "item 11 (lander note): the ordered-list marker colour (oracle LightBlue) is src/app/theme.rs transcript_markdown, startup-finish's area",
-    );
     let s = chat(80, 24, "3. First\n4. Second\n");
     s.assert_in_order(&["3. First", "4. Second"]);
     s.assert_text_style("3. ", "fg=LightBlue");

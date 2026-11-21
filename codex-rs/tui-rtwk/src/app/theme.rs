@@ -103,8 +103,11 @@ impl Tokens {
             strong: MarkdownStyle::new().fg(strong).attrs(Attrs::BOLD),
             unordered_marker: Some(MarkdownStyle::new().fg(bullet)),
             link: MarkdownStyle::new().fg(link).attrs(Attrs::UNDERLINE),
-            quote: MarkdownStyle::new(),
-            quote_bar: MarkdownStyle::new(),
+            // The oracle's ordered markers are ANSI light blue and a block quote,
+            // bar and text, is green (markdown_render.rs `MarkdownStyles`).
+            marker: MarkdownStyle::new().fg(Color::indexed(12)),
+            quote: MarkdownStyle::new().fg(Color::GREEN),
+            quote_bar: MarkdownStyle::new().fg(Color::GREEN),
             code_block: MarkdownStyle::new(),
             table_style: TableStyle::RowRules,
             table_header: self.accent().attrs(Attrs::BOLD),
