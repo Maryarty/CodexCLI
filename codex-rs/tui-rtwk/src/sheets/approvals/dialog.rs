@@ -1,8 +1,9 @@
 //! The dialog of a presented request (S13): the question, the header, the
 //! options and the hint, drawn from `present::body` of the prompt the model
 //! holds for the request. Enter, the digits and each option's shortcut answer
-//! it; Esc cancels (the oracle's `cancel_current_request`). A request whose
-//! prompt the model does not hold gets the skeleton's dismiss dialog.
+//! it; Esc cancels (the oracle's `cancel_current_request`); `o` opens the
+//! thread a request of another thread came from. A request whose prompt the
+//! model does not hold gets the skeleton's dismiss dialog.
 
 use std::rc::Rc;
 
@@ -10,9 +11,10 @@ use rtwk::focus::Focus;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::provider::{read, select};
-use rtwk::style::{Attrs, Style};
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk_rich::highlight::{Highlighter, SyntaxTheme, language_named};
 
 use codex_tui_core::app::RequestQueue;
 use codex_tui_core::ids::RequestKey;
@@ -20,11 +22,11 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
 use super::dismiss::DismissDialog;
-use super::present::{self, Body};
+use super::present::{self, Body, Line, Piece, Tone};
 use super::strings;
 use crate::app::theme;
 use crate::app::view::Hs;
-use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::options::{OptionRow, OptionStyles, Options, RichRow};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestDialog {
@@ -41,6 +43,7 @@ pub enum Msg {
     Move(i64),
     Enter,
     Cancel,
+    OpenThread,
 }
 
 impl StatefulWidget for RequestDialog {
@@ -83,21 +86,36 @@ impl State for RequestDialogState {
         let Some(prompt) = prompt_of(&w.key, cx) else {
             return Rebuild::No;
         };
-        let decisions = prompt.decisions();
+        let s = strings::of(cx);
+        let body = present::body(&prompt, s);
+        let hs = read::<Hs, _>(cx);
         let decision = match msg {
             Msg::Move(delta) => {
-                self.options.step(delta, decisions.len());
+                self.options.step(delta, body.options.len());
                 return Rebuild::No;
             }
-            Msg::Enter => decisions.get(self.options.cursor()).cloned(),
-            Msg::Answer(index) => decisions.get(index).cloned(),
+            Msg::OpenThread => {
+                if body.open_thread {
+                    cx.emit(&hs.open_thread, w.key.thread.clone());
+                }
+                return Rebuild::No;
+            }
+            Msg::Enter => body
+                .options
+                .get(self.options.cursor())
+                .map(|option| option.decision.clone()),
+            Msg::Answer(index) => body
+                .options
+                .get(index)
+                .map(|option| option.decision.clone()),
             // The oracle's cancel: the list's cancel option.
-            Msg::Cancel => decisions
+            Msg::Cancel => body
+                .options
                 .iter()
+                .map(|option| &option.decision)
                 .find(|d| matches!(d, Decision::Cancel | Decision::DenyPermissions))
                 .cloned(),
         };
-        let hs = read::<Hs, _>(cx);
         let Some(decision) = decision else {
             if msg == Msg::Cancel {
                 cx.emit(&hs.dismiss, w.key.clone());
@@ -120,8 +138,22 @@ impl State for RequestDialogState {
             return DismissDialog { key: w.key.clone() }.into();
         };
         let tokens = theme::Tokens::of(cx);
+        let syntax = SyntaxTheme::of(cx);
         let s = strings::of(cx);
         let body = present::body(&prompt, s);
+        let tone = |tone: Tone| match tone {
+            Tone::Plain => Style::new(),
+            Tone::Dim => tokens.dim(),
+            Tone::Bold => tokens.bold(),
+            Tone::Italic => Style::new().attrs(Attrs::ITALIC),
+            Tone::Accent => tokens.accent(),
+        };
+        let spans = |pieces: &[Piece]| -> Vec<Span> {
+            pieces
+                .iter()
+                .map(|piece| Span::styled(piece.text.clone(), tone(piece.tone)))
+                .collect()
+        };
         // The oracle's bottom pane: a blank row, the question in bold, the
         // header, the options (the cursor row in the accent colour, marked
         // `›`), a blank row and the hint, all two cells in.
@@ -135,22 +167,50 @@ impl State for RequestDialogState {
                 .child(Text::new(String::new()));
         }
         for line in &body.header {
-            pane = pane.child(inset(Text::new(line.clone()).wrap(TextWrap::Word)));
+            pane = match line {
+                Line::Blank => pane.child(Text::new(String::new())),
+                Line::Pieces(pieces) => {
+                    pane.child(inset(Text::rich(spans(pieces)).wrap(TextWrap::Word)))
+                }
+                Line::Command(command) => {
+                    let code = Highlighter::new(language_named("bash"), command);
+                    let mut lines = Column::new()
+                        .main_axis_size(MainAxisSize::Min)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+                    for index in 0..code.line_count() {
+                        let mut row = Vec::new();
+                        if index == 0 {
+                            row.push(Span::new(s.shell_prompt));
+                        }
+                        row.extend(
+                            syntax
+                                .spans(code.line(index), code.tokens(index))
+                                .into_iter()
+                                .map(|span| Span::styled(span.text, span.style)),
+                        );
+                        lines = lines.child(Text::rich(row).wrap(TextWrap::Word));
+                    }
+                    pane.child(inset(lines))
+                }
+            };
         }
+        let styles = OptionStyles {
+            cursor: tokens.accent().attrs(Attrs::BOLD),
+            label: Style::new(),
+            description: Style::new(),
+        };
         // An approval's rows start at the edge; a form's are inset like its text.
-        let options = self.options.view(
-            Rc::new(rows_of(&body)),
-            OptionStyles {
-                cursor: tokens.accent().attrs(Attrs::BOLD),
-                label: Style::new(),
-                description: Style::new(),
-            },
-            if body.form { 2 } else { 0 },
-        );
+        // A tap moves the cursor, a tap on the cursor's row answers (ADR-011).
+        let rows = self.options.on_accept(cx.map(Msg::Answer));
+        let options = if body.form {
+            rows.view(Rc::new(form_rows(&body)), styles, 2)
+        } else {
+            rows.view_rich(Rc::new(approval_rows(&body, s, &tokens)), styles, 0)
+        };
         pane = pane
             .child(options)
             .child(Text::new(String::new()))
-            .child(inset(Text::new(body.hint.clone()).style(tokens.dim())));
+            .child(inset(Text::rich(spans(&body.hint))));
         let mut focus = Focus::new(Dialog::bare(
             BoxWidget::new().style(Style::new()).child(pane),
         ))
@@ -159,6 +219,11 @@ impl State for RequestDialogState {
         .bind(rtwk::focus::KeyPress::UP, cx.send(Msg::Move(-1)))
         .bind(rtwk::focus::KeyPress::DOWN, cx.send(Msg::Move(1)))
         .bind(rtwk::focus::KeyPress::ENTER, cx.send(Msg::Enter));
+        if body.open_thread
+            && let Some(open) = s.key_open.chars().next()
+        {
+            focus = focus.bind(open, cx.send(Msg::OpenThread));
+        }
         for (index, option) in body.options.iter().enumerate() {
             if let Some(key) = option.key {
                 focus = focus.bind(key, cx.send(Msg::Answer(index)));
@@ -171,17 +236,37 @@ impl State for RequestDialogState {
     }
 }
 
-/// The option rows: number and label (and the shortcut shown after it), and
-/// the description column of a form.
-fn rows_of(body: &Body) -> Vec<OptionRow> {
+/// The approval's rows: the number, then the label with its shortcut after
+/// it (`Yes, proceed (y)`, the key in bold).
+fn approval_rows(body: &Body, s: &strings::Strings, tokens: &theme::Tokens) -> Vec<RichRow> {
+    body.options
+        .iter()
+        .enumerate()
+        .map(|(index, option)| {
+            let mut label = vec![Span::new(option.label.clone())];
+            if let Some(key) = &option.key_label {
+                label.extend([
+                    Span::new(s.key_open_paren),
+                    Span::styled(key.clone(), tokens.bold()),
+                    Span::new(s.key_close_paren),
+                ]);
+            }
+            RichRow {
+                prefix: format!("{}. ", index + 1),
+                label,
+                description: option.description.clone(),
+            }
+        })
+        .collect()
+}
+
+/// The form's rows: number and label, and the description column.
+fn form_rows(body: &Body) -> Vec<OptionRow> {
     body.options
         .iter()
         .enumerate()
         .map(|(index, option)| OptionRow {
-            label: match (&option.key_label, body.form) {
-                (Some(key), false) => format!("{}. {} ({key})", index + 1, option.label),
-                _ => format!("{}. {}", index + 1, option.label),
-            },
+            label: format!("{}. {}", index + 1, option.label),
             description: option.description.clone(),
         })
         .collect()

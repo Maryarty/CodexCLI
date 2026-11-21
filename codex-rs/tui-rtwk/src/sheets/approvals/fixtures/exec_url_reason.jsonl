@@ -1,0 +1,4 @@
+# bottom_pane/approval_overlay.rs approval_headers_preserve_wrapped_url_destinations: the reason is a URL
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"echo hi","cwd":"/tmp","reason":"https://github.com/openai/codex/pull/12345?diff=split","availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"echo hi","cwd":"/tmp","reason":"https://github.com/openai/codex/pull/12345?diff=split","availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}}

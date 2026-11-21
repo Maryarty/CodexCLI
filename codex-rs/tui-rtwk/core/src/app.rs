@@ -937,7 +937,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         key,
                         method,
                         preview,
-                        prompt: approvals::prompt_of(&request).map(|entry| Rc::new(entry.prompt)),
+                        prompt: approvals::prompt_of(&request).map(|entry| {
+                            let label = approvals::thread_label(
+                                &app.screens.agents.threads,
+                                &entry.thread,
+                                app.session.active.as_ref(),
+                            );
+                            Rc::new(entry.prompt.with_thread_label(label))
+                        }),
                         request: Rc::from(request),
                     });
             }
@@ -976,6 +983,18 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         app.threads.open(id, Origin::Resumed);
                     }
                     Rc::make_mut(&mut app.session).active = id.clone();
+                }
+                // A seed of the approvals screen replaces what the queued
+                // request asks (the thread's own state in a fixture).
+                ScreenEv::Approvals(approvals::Ev::Presented(entry)) => {
+                    let queue = Rc::make_mut(&mut app.requests);
+                    if let Some(queued) = queue
+                        .entries
+                        .iter_mut()
+                        .find(|e| e.key.thread == entry.thread && e.key.id == entry.id)
+                    {
+                        queued.prompt = Some(Rc::new(entry.prompt.clone()));
+                    }
                 }
                 ScreenEv::Agents(agents::Ev::Request(id, preview)) => {
                     app.threads.previews_mut().seed_request(id, preview.clone());

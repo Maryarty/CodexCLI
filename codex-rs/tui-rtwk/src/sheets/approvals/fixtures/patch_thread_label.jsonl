@@ -1,0 +1,4 @@
+# bottom_pane/approval_overlay.rs apply_patch_prompt_with_thread_label_omits_command_line: Banach [worker], an add, a move, foreign paths
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-patch","threadId":"thread-2","turnId":"turn-1","startedAtMs":0}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-patch","threadId":"thread-2","turnId":"turn-1","startedAtMs":0}},"label":"Banach [worker]","destinations":["/tmp/bug1.txt","/tmp/new.txt","/tmp/old.txt","C:\\workspace\\new.txt","C:\\workspace\\old.txt"]}}

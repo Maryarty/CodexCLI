@@ -233,3 +233,96 @@ fn reconnect_drops_the_old_request_key_even_if_the_new_server_reuses_its_id() {
     assert!(fx.commands().is_empty());
     assert_ne!(app.requests().head().expect("new request").key, old);
 }
+
+#[test]
+fn a_network_request_offers_the_allow_rule_it_proposes() {
+    // The oracle's `network_exec_options`: just this once, for the
+    // conversation, the proposed allow rule, then the cancel.
+    let sandbox = play(&exec(
+        r#","networkApprovalContext":{"host":"example.com","protocol":"https"},"proposedNetworkPolicyAmendments":[{"host":"example.com","action":"allow"}]"#,
+    ));
+    assert_eq!(
+        prompt(&sandbox).decisions(),
+        vec![
+            Decision::Accept,
+            Decision::AcceptForSession,
+            Decision::NetworkRule {
+                host: "example.com".into(),
+                allow: true
+            },
+            Decision::Cancel
+        ]
+    );
+}
+
+#[test]
+fn a_command_with_additional_permissions_lists_its_rule_and_asks_once() {
+    let sandbox = play(&exec(
+        r#","additionalPermissions":{"network":{"enabled":true},"fileSystem":{"read":["/tmp/readme.txt"],"write":["/tmp/out.txt"]}}"#,
+    ));
+    let Prompt::Exec(exec) = prompt(&sandbox) else {
+        panic!("an exec prompt");
+    };
+    assert_eq!(exec.decisions, vec![Decision::Accept, Decision::Cancel]);
+    assert_eq!(exec.permission_rule.len(), 3, "network, read and write");
+}
+
+fn agent(
+    id: &str,
+    nickname: Option<&str>,
+    role: Option<&str>,
+) -> codex_app_server_protocol::Thread {
+    serde_json::from_value(serde_json::json!({
+        "id": id, "environments": null, "extra": null, "sessionId": id,
+        "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+        "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+        "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+        "model": null, "reasoningEffort": null, "createdAt": 0,
+        "updatedAt": 0, "recencyAt": 0, "status": {"type": "idle"}, "path": null,
+        "cwd": "/tmp", "cliVersion": "0.0.0", "originator": null, "source": "cli",
+        "canAcceptDirectInput": true, "threadSource": null,
+        "agentNickname": nickname, "agentRole": role, "gitInfo": null, "name": null,
+        "daybreakEnabled": null, "turns": []
+    }))
+    .expect("a thread")
+}
+
+#[test]
+fn a_request_of_another_thread_is_named_like_the_agent_picker_names_it() {
+    use codex_tui_core::screens::approvals::thread_label;
+    let shown = ThreadId::new("thread-1");
+    let other = ThreadId::new("thread-2");
+    let threads = [agent("thread-2", Some("Robie"), Some("explorer"))];
+    assert_eq!(
+        thread_label(&threads, &other, Some(&shown)).as_deref(),
+        Some("Robie [explorer]")
+    );
+    assert_eq!(
+        thread_label(&threads, &shown, Some(&shown)),
+        None,
+        "the shown thread has no label"
+    );
+    // No nickname: the id's last group tells the agents spawned together apart.
+    let uuid = "019a0000-0000-7000-8000-00000000cafe";
+    let nameless = [agent(uuid, None, None)];
+    assert_eq!(
+        thread_label(&nameless, &ThreadId::new(uuid), Some(&shown)).as_deref(),
+        Some("Agent (00000000cafe)")
+    );
+}
+
+#[test]
+fn a_seeded_label_reaches_the_prompt_the_queue_holds() {
+    // A fixture's `label` is what the app-server request cannot carry: the
+    // `Presented` event sets the prompt of the request already queued.
+    let request = exec("");
+    let script = format!(
+        r#"{{"step":"seed","seed":"session","thread":"thread-1"}}
+{{"step":"request","message":{request}}}
+{{"step":"screen","dir":"approvals","ev":{{"kind":"request","request":{request},"label":"Robie [explorer]"}}}}"#
+    );
+    let sandbox = Sandbox::play(&script).expect("plays");
+    let head = sandbox.app().requests().head().expect("a request");
+    let prompt = head.prompt.as_ref().expect("a prompt");
+    assert_eq!(prompt.thread_label(), Some("Robie [explorer]"));
+}

@@ -36,6 +36,56 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/exec_command.jsonl"),
         ),
         (
+            "exec_request",
+            "make_exec_request: echo hi, a reason, Accept and Cancel",
+            include_str!("fixtures/exec_request.jsonl"),
+        ),
+        (
+            "exec_url_reason",
+            "a reason that is a URL, wrapped",
+            include_str!("fixtures/exec_url_reason.jsonl"),
+        ),
+        (
+            "exec_cross_thread",
+            "a request of another thread: the `o` hint",
+            include_str!("fixtures/exec_cross_thread.jsonl"),
+        ),
+        (
+            "exec_snippet",
+            "header_includes_command_snippet",
+            include_str!("fixtures/exec_snippet.jsonl"),
+        ),
+        (
+            "exec_additional_permissions",
+            "additional permissions: the rule line",
+            include_str!("fixtures/exec_additional_permissions.jsonl"),
+        ),
+        (
+            "exec_network",
+            "a blocked network request: the host in the title",
+            include_str!("fixtures/exec_network.jsonl"),
+        ),
+        (
+            "exec_empty_command",
+            "an exec approval whose command is empty",
+            include_str!("fixtures/exec_empty_command.jsonl"),
+        ),
+        (
+            "exec_zsh_git_add",
+            "a long zsh command",
+            include_str!("fixtures/exec_zsh_git_add.jsonl"),
+        ),
+        (
+            "patch_no_changes",
+            "no changes: destination unavailable",
+            include_str!("fixtures/patch_no_changes.jsonl"),
+        ),
+        (
+            "patch_thread_label",
+            "another thread, with destinations",
+            include_str!("fixtures/patch_thread_label.jsonl"),
+        ),
+        (
             "patch_edits",
             "a file-change approval",
             include_str!("fixtures/patch_edits.jsonl"),

@@ -1,0 +1,4 @@
+# make_exec_request (bottom_pane/approval_overlay.rs:1237): echo hi, reason, Accept and Cancel only
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"echo hi","cwd":"/tmp","reason":"reason","availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}
+{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"echo hi","cwd":"/tmp","reason":"reason","availableDecisions":["accept","cancel"],"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}}

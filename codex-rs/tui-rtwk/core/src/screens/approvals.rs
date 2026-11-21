@@ -45,21 +45,35 @@ pub enum Rule {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExecPrompt {
+    /// The thread the request came from when it is not the one shown (the
+    /// oracle's `thread_label`).
+    pub thread_label: Option<String>,
     pub reason: Option<String>,
     /// The command, shell wrapper stripped (`strip_bash_lc_and_escape`).
     pub command: String,
     pub environment: Option<String>,
     pub network_host: Option<String>,
+    /// The rule of the additional permissions the command asks for.
+    pub permission_rule: Vec<Rule>,
+    /// What a `writeStdin` request sends to the terminal (shown as `Input:`
+    /// instead of the command).
+    pub input: Option<String>,
     pub decisions: Vec<Decision>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PatchPrompt {
+    pub thread_label: Option<String>,
     pub reason: Option<String>,
+    /// The paths the edit writes, sorted and unique (the oracle's
+    /// `Destination:` lines); empty for the app-server request, which
+    /// carries no file changes.
+    pub destinations: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PermissionsPrompt {
+    pub thread_label: Option<String>,
     pub reason: Option<String>,
     pub environment: Option<String>,
     pub rule: Vec<Rule>,
@@ -67,6 +81,7 @@ pub struct PermissionsPrompt {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ElicitationPrompt {
+    pub thread_label: Option<String>,
     pub server: String,
     pub message: String,
 }
@@ -92,6 +107,8 @@ pub enum Decision {
     GrantForTurnStrict,
     GrantForSession,
     DenyPermissions,
+    /// A persistent network policy rule for a host: allow or block it.
+    NetworkRule { host: String, allow: bool },
     /// A user-input answer: the index of the chosen option.
     Choose(usize),
 }
@@ -120,6 +137,29 @@ pub enum Prompt {
 }
 
 impl Prompt {
+    /// The thread the request came from, when it is not the one shown.
+    pub fn thread_label(&self) -> Option<&str> {
+        match self {
+            Prompt::Exec(p) => p.thread_label.as_deref(),
+            Prompt::Patch(p) => p.thread_label.as_deref(),
+            Prompt::Permissions(p) => p.thread_label.as_deref(),
+            Prompt::Elicitation(p) => p.thread_label.as_deref(),
+            Prompt::UserInput(_) => None,
+        }
+    }
+
+    /// The prompt with the label of the thread it came from.
+    pub fn with_thread_label(mut self, label: Option<String>) -> Prompt {
+        match &mut self {
+            Prompt::Exec(p) => p.thread_label = label,
+            Prompt::Patch(p) => p.thread_label = label,
+            Prompt::Permissions(p) => p.thread_label = label,
+            Prompt::Elicitation(p) => p.thread_label = label,
+            Prompt::UserInput(_) => {}
+        }
+        self
+    }
+
     /// The decisions the dialog lists, in order.
     pub fn decisions(&self) -> Vec<Decision> {
         match self {
@@ -275,17 +315,66 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    Request { request: ServerRequest },
+    /// `label` is the thread label of a request from a thread that is not
+    /// shown, `destinations` the paths of a file-change request that has its
+    /// changes (the app-server request has none): what the thread's own
+    /// state gives the oracle's request.
+    Request {
+        request: ServerRequest,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        destinations: Vec<String>,
+    },
 }
 
 /// A script's `screen` step for this directory.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
-    let SeedEv::Request { request } = seed;
-    prompt_of(&request)
-        .map(Ev::Presented)
-        .ok_or_else(|| crate::screens::SeedError::Bad("not a request this screen presents".into()))
+    let SeedEv::Request {
+        request,
+        label,
+        destinations,
+    } = seed;
+    let mut entry = prompt_of(&request).ok_or_else(|| {
+        crate::screens::SeedError::Bad("not a request this screen presents".into())
+    })?;
+    if let Prompt::Patch(patch) = &mut entry.prompt {
+        patch.destinations = destinations;
+    }
+    entry.prompt = entry.prompt.with_thread_label(label);
+    Ok(Ev::Presented(entry))
+}
+
+/// The label of the thread a request came from, when it is not the thread
+/// shown (the oracle's `App::thread_label` with
+/// `format_agent_picker_item_name`: `nickname [role]`, and `Agent (suffix)`
+/// for a thread with no nickname).
+pub fn thread_label(
+    threads: &[codex_app_server_protocol::Thread],
+    thread: &ThreadId,
+    active: Option<&ThreadId>,
+) -> Option<String> {
+    if active == Some(thread) {
+        return None;
+    }
+    let known = threads.iter().find(|t| t.id == thread.as_str());
+    let clean = |text: Option<&str>| text.map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    let nickname = clean(known.and_then(|t| t.agent_nickname.as_deref()));
+    let role = clean(known.and_then(|t| t.agent_role.as_deref()));
+    let label = match (&nickname, &role) {
+        (Some(nickname), Some(role)) => format!("{nickname} [{role}]"),
+        (Some(nickname), None) => nickname.clone(),
+        (None, Some(role)) => format!("[{role}]"),
+        (None, None) => "Agent".to_string(),
+    };
+    Some(if nickname.is_none() {
+        let id = thread.as_str();
+        format!("{label} ({})", id.rsplit('-').next().unwrap_or(id))
+    } else {
+        label
+    })
 }
 
 /// The presentation of a server request, read through its wire form (the
@@ -305,13 +394,16 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
         "item/commandExecution/requestApproval" => Prompt::Exec(exec_prompt(params)),
         "item/fileChange/requestApproval" => Prompt::Patch(PatchPrompt {
             reason: text("reason"),
+            ..PatchPrompt::default()
         }),
         "item/permissions/requestApproval" => Prompt::Permissions(PermissionsPrompt {
+            thread_label: None,
             reason: text("reason"),
             environment: text("environmentId"),
             rule: rule_of(params.get("permissions")),
         }),
         "mcpServer/elicitation/request" => Prompt::Elicitation(ElicitationPrompt {
+            thread_label: None,
             server: text("serverName").unwrap_or_default(),
             message: text("message").unwrap_or_default(),
         }),
@@ -348,15 +440,31 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
                 .collect::<Vec<_>>()
                 .join(" ")
         });
+    let permission_rule = rule_of(params.get("additionalPermissions"));
     let has_permissions = params
         .get("additionalPermissions")
         .is_some_and(|p| !p.is_null());
+    let network_allow = params
+        .get("proposedNetworkPolicyAmendments")
+        .and_then(|list| list.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|a| a.get("action").and_then(|v| v.as_str()) == Some("allow"))
+        })
+        .and_then(|a| a.get("host").and_then(|h| h.as_str()))
+        .map(|host| Decision::NetworkRule {
+            host: host.to_string(),
+            allow: true,
+        });
     // `ExecApprovalRequestEvent::effective_available_decisions`
     // (tui/src/approval_events.rs): the request's own list, else the default.
     let decisions = match params.get("availableDecisions").and_then(|d| d.as_array()) {
         Some(list) => list.iter().filter_map(decision_of).collect(),
         None if network_host.is_some() => {
-            vec![Decision::Accept, Decision::AcceptForSession, Decision::Cancel]
+            let mut decisions = vec![Decision::Accept, Decision::AcceptForSession];
+            decisions.extend(network_allow);
+            decisions.push(Decision::Cancel);
+            decisions
         }
         None if has_permissions => vec![Decision::Accept, Decision::Cancel],
         None => {
@@ -366,13 +474,16 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
             decisions
         }
     };
+    let write_stdin = params.get("kind").and_then(|k| k.as_str()) == Some("writeStdin");
+    let command = text("command").unwrap_or_default();
     ExecPrompt {
+        thread_label: None,
         reason: text("reason"),
-        command: text("command")
-            .map(|command| strip_shell_wrapper(&command))
-            .unwrap_or_default(),
+        input: write_stdin.then(|| split_words(&command).pop().unwrap_or_default()),
+        command: strip_shell_wrapper(&command),
         environment: text("environmentId"),
         network_host,
+        permission_rule,
         decisions,
     }
 }
@@ -386,6 +497,15 @@ fn decision_of(value: &serde_json::Value) -> Option<Decision> {
             "cancel" => Some(Decision::Cancel),
             _ => None,
         };
+    }
+    if let Some(amendment) = value.get("applyNetworkPolicyAmendment").and_then(|a| {
+        a.get("network_policy_amendment")
+            .or_else(|| a.get("networkPolicyAmendment"))
+    }) {
+        return Some(Decision::NetworkRule {
+            host: amendment.get("host")?.as_str()?.to_string(),
+            allow: amendment.get("action")?.as_str()? == "allow",
+        });
     }
     let prefix = value
         .get("acceptWithExecpolicyAmendment")?

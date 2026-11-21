@@ -8,6 +8,8 @@ use codex_app_server_protocol::GrantedPermissionProfile;
 use codex_app_server_protocol::McpServerElicitationAction;
 use codex_app_server_protocol::McpServerElicitationRequest;
 use codex_app_server_protocol::McpServerElicitationRequestResponse;
+use codex_app_server_protocol::NetworkPolicyAmendment;
+use codex_app_server_protocol::NetworkPolicyRuleAction;
 use codex_app_server_protocol::PermissionGrantScope;
 use codex_app_server_protocol::PermissionsRequestApprovalResponse;
 use codex_app_server_protocol::ServerRequest;
@@ -33,6 +35,16 @@ pub(crate) fn answer(
                 D::AcceptForSession => ExecDecision::AcceptForSession,
                 D::Decline => ExecDecision::Decline,
                 D::Cancel => ExecDecision::Cancel,
+                D::NetworkRule { ref host, allow } => ExecDecision::ApplyNetworkPolicyAmendment {
+                    network_policy_amendment: NetworkPolicyAmendment {
+                        host: host.clone(),
+                        action: if allow {
+                            NetworkPolicyRuleAction::Allow
+                        } else {
+                            NetworkPolicyRuleAction::Deny
+                        },
+                    },
+                },
                 D::AcceptWithPrefix(ref prefix) => {
                     let amendment =
                         params

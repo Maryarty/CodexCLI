@@ -6,13 +6,22 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The first screen row that holds `text`: where a sheet's rows start when it
+/// is drawn over the debug menu.
+fn row_of(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|r| r.contains(text))
+        .unwrap_or(usize::MAX)
+}
+
 // ---- oracle: bottom_pane/approval_overlay.rs (28 screen-level tests here; 9 state tests left to dialogs-pane)
 // ORACLE bottom_pane/approval_overlay.rs:1348 configured_list_cancel_aborts_exec_approval kind=ui owner=dialogs-pane
 #[test]
 fn configured_list_cancel_aborts_exec_approval() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (`.keymap` is missing until the port reads key bindings) and no entry with make_exec_request (echo hi, reason, Accept and Cancel only)",
+        "no keymap seed (`.keymap` is missing until the port reads key bindings; entry approvals/exec_request exists)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "exec_request")
@@ -62,13 +71,15 @@ fn deny_shortcut_submits_denied_exec_decision() {
 fn approval_headers_preserve_wrapped_url_destinations() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with an exec approval whose reason is the wrapped URL https://github.com/openai/codex/pull/12345?diff=split and command echo hi, drawn at 32 columns (the slice registers it as approvals/exec_url_reason)",
+        "G72: the wrapped URL is plain text, so no cell carries its OSC 8 link (rtwk Text links only a Span::link; the rows equal the oracle's snapshot, pinned in tests/sheets/approvals.rs)",
     );
+    // The oracle draws the header alone at 32 columns; the sheet draws it two
+    // cells in, so 36 columns, and the header's rows are the region.
     let s = Screen::build(Owner::DialogsPane)
-        .size(32, 5)
+        .size(36, 16)
         .entry("approvals", "exec_url_reason")
         .open();
-    s.assert_snap("approval_header_wrapped_url");
+    s.assert_snap_region("approval_header_wrapped_url", row_of(&s, "Reason:"), 2);
     // The URL is one OSC 8 link over its two wrapped rows.
     s.assert_link(
         "https://github.com/openai/codex/",
@@ -111,10 +122,6 @@ fn configured_open_thread_shortcut_opens_source_thread() {
 // ORACLE bottom_pane/approval_overlay.rs:1689 cross_thread_footer_hint_mentions_o_shortcut kind=snap owner=dialogs-pane snap=approval_overlay_cross_thread_prompt
 #[test]
 fn cross_thread_footer_hint_mentions_o_shortcut() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with an exec approval from thread label Robie [explorer], command echo hi, Accept and Cancel (the slice registers it as approvals/exec_cross_thread)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(80, 12)
         .entry("approvals", "exec_cross_thread")
@@ -143,10 +150,6 @@ fn network_deny_forever_shortcut_is_not_bound() {
 // ORACLE bottom_pane/approval_overlay.rs:1814 header_includes_command_snippet kind=ui owner=dialogs-pane
 #[test]
 fn header_includes_command_snippet() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with an exec approval of the command echo hello world (no reason; Accept and Cancel only), drawn at 80 columns (the slice registers it as approvals/exec_snippet)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
         .entry("approvals", "exec_snippet")
@@ -184,10 +187,6 @@ fn permissions_strict_auto_review_shortcut_submits_turn_scope_with_strict_review
 // ORACLE bottom_pane/approval_overlay.rs:2117 additional_permissions_prompt_shows_permission_rule_line kind=ui owner=dialogs-pane
 #[test]
 fn additional_permissions_prompt_shows_permission_rule_line() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with `cat /tmp/readme.txt` carrying additional permissions (network on, read /tmp/readme.txt, write /tmp/out.txt), drawn at 100 columns (the slice registers it as approvals/exec_additional_permissions)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 24)
         .entry("approvals", "exec_additional_permissions")
@@ -199,12 +198,9 @@ fn additional_permissions_prompt_shows_permission_rule_line() {
 // ORACLE bottom_pane/approval_overlay.rs:2175 additional_permissions_prompt_snapshot kind=snap owner=dialogs-pane snap=approval_overlay_additional_permissions_prompt
 #[test]
 fn additional_permissions_prompt_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with `cat /tmp/readme.txt` carrying the reason need filesystem access and additional permissions (the slice registers it as approvals/exec_additional_permissions)",
-    );
+    // The sheet is bottom-aligned: 14 rows tall, the oracle's buffer.
     Screen::build(Owner::DialogsPane)
-        .size(120, 18)
+        .size(120, 14)
         .entry("approvals", "exec_additional_permissions")
         .open()
         .assert_snap("approval_overlay_additional_permissions_prompt");
@@ -224,10 +220,6 @@ fn permissions_prompt_snapshot() {
 // ORACLE bottom_pane/approval_overlay.rs:2224 apply_patch_prompt_with_thread_label_omits_command_line kind=ui owner=dialogs-pane
 #[test]
 fn apply_patch_prompt_with_thread_label_omits_command_line() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with an apply_patch request from thread label Banach [worker] with an add, a move and two foreign-path updates (the slice registers it as approvals/patch_thread_label)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(120, 24)
         .entry("approvals", "patch_thread_label")
@@ -246,12 +238,9 @@ fn apply_patch_prompt_with_thread_label_omits_command_line() {
 // ORACLE bottom_pane/approval_overlay.rs:2282 apply_patch_prompt_without_changes_shows_unavailable_destination kind=snap owner=dialogs-pane snap=approval_overlay_patch_destination_unavailable
 #[test]
 fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with an apply_patch request whose changes are empty (cwd /tmp, no reason) (the slice registers it as approvals/patch_no_changes)",
-    );
+    // The sheet is bottom-aligned: 12 rows tall, the oracle's buffer.
     Screen::build(Owner::DialogsPane)
-        .size(120, 16)
+        .size(120, 12)
         .entry("approvals", "patch_no_changes")
         .open()
         .assert_snap("approval_overlay_patch_destination_unavailable");
@@ -262,10 +251,11 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 fn network_exec_prompt_title_includes_host() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with `curl https://example.com` (reason network request blocked; Accept, AcceptForSession, network allow amendment and Cancel), drawn at 100 columns (the slice registers it as approvals/exec_network)",
+        "the kit cannot read the snapshot: oracle_snap::parse_row returns the Buffer row 1 (`Do you want to approve network access to \"example.com\"?`, an unescaped quote inside the Debug row) as raw text; the rows and the sheet equal the snapshot, pinned in tests/sheets/approvals.rs",
     );
+    // The sheet is bottom-aligned: 13 rows tall, the oracle's buffer.
     let s = Screen::build(Owner::DialogsPane)
-        .size(100, 9)
+        .size(100, 13)
         .entry("approvals", "exec_network")
         .open();
     s.assert_snap("network_exec_prompt");
@@ -288,7 +278,7 @@ fn ctrl_shift_a_opens_fullscreen() {
 fn exec_history_cell_wraps_with_two_space_indent() {
     kit::pending(
         Owner::DialogsPane,
-        "the approval-decision history cell is a transcript row written after y: no entry with /bin/zsh -lc 'git add tui/src/render/mod.rs tui/src/render/renderable.rs' (the slice registers it as approvals/exec_zsh_git_add)",
+        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_zsh_git_add exists)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(28, 8)
@@ -309,7 +299,7 @@ fn exec_history_cell_wraps_with_two_space_indent() {
 fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with an exec approval whose command is empty (the slice registers it as approvals/exec_empty_command)",
+        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (entry approvals/exec_empty_command exists)",
     );
     let mut approved = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -331,7 +321,7 @@ fn exec_history_cell_does_not_render_blank_action_for_empty_command() {
 fn network_access_command_history_uses_target_without_structured_context() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the command network-access https://example.com:8443 (no structured network context; Accept and Cancel) (the slice registers it as approvals/exec_network_access)",
+        "the decision cell (`✔ You approved ...`) is a transcript row the thread records when the answer goes out (core ThreadModel items and the transcript cells are chat-cells-2's), and an approvals entry draws the sheet over the debug menu, not over a chat (and no entry approvals/exec_network_access yet)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 24)
@@ -362,10 +352,6 @@ fn esc_still_cancels_elicitation_with_custom_overlap() {
 // ORACLE bottom_pane/approval_overlay.rs:2570 enter_sets_last_selected_index_without_dismissing kind=ui owner=dialogs-pane
 #[test]
 fn enter_sets_last_selected_index_without_dismissing() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with make_exec_request (echo hi, reason, Accept and Cancel only); exec_request is the slice's entry name to register",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "exec_request")
         .open();
