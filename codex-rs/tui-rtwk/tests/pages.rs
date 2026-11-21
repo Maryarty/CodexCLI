@@ -20,6 +20,8 @@ mod composer_draft;
 mod composer_images;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
+#[path = "pages/composer_startup.rs"]
+mod composer_startup;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 

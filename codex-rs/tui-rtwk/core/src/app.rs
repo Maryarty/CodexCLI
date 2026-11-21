@@ -356,6 +356,13 @@ enum AppCtx {
     },
 }
 
+/// An ask made before the first thread exists.
+enum BeforeThread {
+    Message(UserMessage),
+    /// A user shell command (`!cmd`).
+    Shell(String),
+}
+
 /// The model.
 pub struct CodexApp {
     session: Rc<SessionSlice>,
@@ -366,7 +373,10 @@ pub struct CodexApp {
     screens: Rc<ScreenStates>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
-    queued_submits: Vec<UserMessage>,
+    /// What was asked before the first thread exists, in order: it goes out
+    /// when the thread starts (oracle: input queued until the session is
+    /// configured).
+    queued_submits: Vec<BeforeThread>,
     /// Notifications may be delivered before the reply to the operation attaching the writer.
     attaching_events: VecDeque<(BackendId, ThreadId, ThreadEv)>,
     /// Whether connecting starts the first thread. `codex agents` opens the
@@ -1138,7 +1148,7 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => {
                     // Before the first thread: kept until it exists; the
                     // composer's draft clears (the blank projection's ticket).
-                    app.queued_submits.push(message);
+                    app.queued_submits.push(BeforeThread::Message(message));
                     threads::apply(
                         app.threads.blank_mut(),
                         ThreadEv::DeferredSubmit,
@@ -1228,9 +1238,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             intent,
         })) => session_intent(app, thread, command, intent, fx),
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Shell { thread, command })) => {
-            if let Some(thread) = thread.or_else(|| app.session.active.clone()) {
-                let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Shell(command));
-                apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx);
+            match thread.or_else(|| app.session.active.clone()) {
+                Some(thread) => run_shell(app, &thread, command, fx),
+                // Before the first thread: kept in order with the messages.
+                None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
@@ -1483,6 +1494,12 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     send_agents(app, outs, fx);
 }
 
+/// A user shell command on `thread`, a turn running or not.
+fn run_shell(app: &mut CodexApp, thread: &ThreadId, command: String, fx: &mut AppFx) {
+    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Shell(command));
+    apply_thread(app, thread, ThreadEv::ScreenIntent(intent), fx);
+}
+
 /// The first thread's answer.
 fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
     match answer {
@@ -1491,8 +1508,11 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
-            for message in std::mem::take(&mut app.queued_submits) {
-                submit(app, &thread, message, fx);
+            for ask in std::mem::take(&mut app.queued_submits) {
+                match ask {
+                    BeforeThread::Message(message) => submit(app, &thread, message, fx),
+                    BeforeThread::Shell(command) => run_shell(app, &thread, command, fx),
+                }
             }
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),

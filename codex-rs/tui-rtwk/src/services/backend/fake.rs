@@ -62,6 +62,9 @@ pub(crate) struct Shared {
     requests: Vec<serde_json::Value>,
     /// History searches wait for this gate instead of the debounce's clock.
     search_gate: Option<Gate>,
+    /// The first thread's start stays unanswered (a test replies with
+    /// `inject`, the session is `Starting` until then).
+    hold_thread_start: bool,
 }
 
 /// What the scripted server answers to a wire request (as JSON): `None`
@@ -264,6 +267,14 @@ impl FakeHandle {
         }
     }
 
+    /// Leaves every `StartThread` unanswered: the session stays `Starting`
+    /// until the test injects the reply.
+    pub fn hold_thread_start(&self) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.hold_thread_start = true;
+        }
+    }
+
     /// The wire requests that went out (a page of the list is one per
     /// source), as JSON.
     pub fn requests(&self) -> Vec<serde_json::Value> {
@@ -393,6 +404,8 @@ async fn run_as(
             }
         };
         match command {
+            Command::StartThread { .. }
+                if shared.lock().is_ok_and(|guard| guard.hold_thread_start) => {}
             Command::StartThread { ticket, .. } => emit(AppEv::Reply(
                 ticket,
                 // A further backend's thread has an id of its own.

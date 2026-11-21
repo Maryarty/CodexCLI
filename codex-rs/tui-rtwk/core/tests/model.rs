@@ -16,6 +16,7 @@ use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
 };
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
 use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
 
@@ -150,6 +151,48 @@ fn a_submit_before_ready_waits_and_goes_out_when_the_thread_starts() {
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].1, "early");
+}
+
+/// A `!cmd` before the first thread is the same as a message: kept in order
+/// with them (the oracle queues it until the session is configured) and run
+/// when the thread starts.
+#[test]
+fn a_shell_command_before_ready_waits_in_order_and_runs_when_the_thread_starts() {
+    let mut app = app();
+    let shell = |command: &str| {
+        AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Shell {
+            thread: None,
+            command: command.to_string(),
+        })))
+    };
+    let early = |text: &str| {
+        AppEv::Intent(Intent::Submit {
+            thread: None,
+            message: UserMessage::text(text),
+        })
+    };
+    assert!(run(&mut app, shell("ls -la")).commands().is_empty());
+    run(&mut app, early("then"));
+    assert!(run(&mut app, shell("pwd")).commands().is_empty());
+    let fx = run(&mut app, AppEv::Connected);
+    let ticket = start_thread_ticket(&fx);
+    let fx = run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+    );
+    let sent: Vec<String> = fx
+        .commands()
+        .iter()
+        .filter_map(|c| match c {
+            Command::Screen {
+                command: ScreenCommand::Chat(chat::Command::Shell(command)),
+                ..
+            } => Some(format!("!{command}")),
+            Command::StartTurn { message, .. } => Some(message.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, ["!ls -la", "then", "!pwd"], "{:?}", fx.commands());
 }
 
 #[test]

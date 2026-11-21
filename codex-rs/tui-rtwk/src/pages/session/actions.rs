@@ -83,9 +83,12 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         return;
     }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
-    // `submit_shell_command`), through the thread, a turn or none running.
+    // `submit_shell_command`), through the thread, a turn or none running;
+    // before the first thread the app keeps it with the messages.
     if let Some(shell) = composer::shell_line(line, w.ui.draft.shell()) {
-        if !facts.thread_started {
+        // a thread that exists but is not taking input (no connection) keeps
+        // the draft; with no thread yet the app queues it
+        if !facts.thread_started && session.active.is_some() {
             return;
         }
         if states.chat.notice.is_some() {

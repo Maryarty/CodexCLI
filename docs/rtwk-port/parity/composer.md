@@ -191,6 +191,13 @@ are pending with their reason (below), none loosened.
   `image_file`); tests `composer_images`. Not built: clipboard image paste (Ctrl+V needs
   the clipboard-image dependency and IO), `/plan <args>` carrying the images, remote
   image rows and the thumbnail strip (transcript_view_1).
+- Startup draft (built 2026-11-21): typing while the session is `Starting` works (the
+  draft is the page's, not the thread's); Enter before the first thread queues the message
+  or the `!cmd` in order in `CodexApp` (`BeforeThread`), and both go out when the thread
+  starts (`composer_startup`, core `model.rs`). Not ported: a slash command typed before
+  the start is answered by `dispatch`'s notice (`SessionStarting`), the oracle queues it
+  (`QueuedInputAction::ParseSlash`) and parses it when configured; the empty-state
+  animation dismissal; `thread_stream_disconnected` / rate-limit-recovery queue pauses.
 - Vim mode, reverse history search (Ctrl+R), shortcut chords from the keymap, rebindable
   queue key (`Ctrl+Q`) -> the keymap task / chat-nav-pane.
 - Footer modes (`100% context left`, flashes, the composer-alone 60-column snapshots) ->
