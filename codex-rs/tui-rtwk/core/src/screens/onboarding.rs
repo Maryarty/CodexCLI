@@ -391,6 +391,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.sign_in = facts.sign_in.map(auth::SignIn::new);
             model.provider = None;
             model.trust = facts.trust;
+            if facts.refresh_update {
+                ask(fx, Ask::RefreshUpdateCache);
+            }
         }
         Ev::Update {
             current,

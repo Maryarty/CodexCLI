@@ -242,7 +242,17 @@ where
             let outcome = wire::login_outcome(&login, result);
             Ev::Auth(AuthResult { request, outcome })
         }
-        Ask::RefreshUpdateCache => return None,
+        Ask::RefreshUpdateCache => {
+            // In the background: this ask runs beside the page, and the
+            // launch has read the cache as it was.
+            let file = version_file(&startup.config);
+            if let Err(error) =
+                refresh_version_cache(&file, startup.updates.action, &startup.updates.fetch).await
+            {
+                tracing::error!("Failed to update version: {error}");
+            }
+            return None;
+        }
         Ask::ReloadConfig => {
             // The remote workspace's config is not this machine's.
             if startup.target.remote_workspace() {
@@ -305,19 +315,7 @@ where
         && config.check_for_update_on_startup
         && updates.version.trim() != SOURCE_BUILD;
     let update = if checks {
-        let file = version_file(config);
         let action = updates.action;
-        // Refresh the cached latest version in the background so the launch
-        // is not blocked by a network call: this run reads the previous
-        // value, the next one shows the offer.
-        if version_cache_is_stale(&file, chrono::Utc::now()) {
-            let fetch = updates.fetch.clone();
-            tokio::spawn(async move {
-                if let Err(error) = refresh_version_cache(&file, action, &fetch).await {
-                    tracing::error!("Failed to update version: {error}");
-                }
-            });
-        }
         let cache = read_version_cache(&version_file(config));
         wire::update_offer(
             &updates.version,
@@ -352,7 +350,10 @@ where
         }),
         sign_in,
         trust,
-        refresh_update: false,
+        // `get_upgrade_version`: a missing or stale cache is refreshed in the
+        // background, so the launch is not blocked by a network call: this
+        // run reads the previous value, the next one shows the offer.
+        refresh_update: checks && version_cache_is_stale(&version_file(config), chrono::Utc::now()),
     })
 }
 
@@ -790,19 +791,19 @@ mod tests {
         };
         let (startup, _dir) = startup_with(Target::Embedded, browser).await;
         let flag = ticked.clone();
-        tokio::spawn(async move {
+        let ticker = async move {
             tokio::time::sleep(Duration::from_millis(20)).await;
             flag.store(true, Ordering::SeqCst);
-        });
-        run(
+        };
+        let open = run(
             startup,
             Ask::OpenBrowser {
                 url: "https://auth.example".into(),
             },
             Ids::default(),
             nothing,
-        )
-        .await;
+        );
+        tokio::join!(open, ticker);
         assert!(
             seen.load(Ordering::SeqCst),
             "another task ran while the browser opened"
