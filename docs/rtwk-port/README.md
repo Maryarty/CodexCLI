@@ -30,9 +30,11 @@ Backend pin: the codex backend crates (`codex-core`, `codex-protocol`,
 `codex-app-server-*` and the rest) are path dependencies on one fixed checkout,
 `/Users/admin/.cache/codexcli/backend-pin` (a detached worktree of this
 repository at the commit in [BACKEND_REF](BACKEND_REF)), not on `../..` of each
-worktree. Every worktree then names the same backend packages, so the one
-shared target (`~/.cache/codexcli/target-shared`, the default `acargo` sets for
-CodexCLI checkouts) builds the backend once. `tests/rules/pin.rs` checks that
+worktree. Every worktree then names the same backend packages at the same absolute
+paths, so sccache (in `acargo`) serves the backend to each worktree's own
+target (`codex-rs/tui-rtwk/target`). One target shared by all worktrees was
+tried and dropped (2026-11-21): cargo names workspace units by their path
+relative to the workspace, so worktrees overwrote each other's test binaries. `tests/rules/pin.rs` checks that
 all three manifests point into the pin and the pin is at BACKEND_REF. The port
 never edits the backend. After an upstream sync touches `codex-rs` outside
 `tui-rtwk`, move the pin and the file together:

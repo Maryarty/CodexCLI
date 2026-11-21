@@ -123,7 +123,7 @@ fn the_patch_tables_are_codex_rs_s_verbatim() {
 /// The backend pin (docs/rtwk-port/README.md): every codex backend crate is a
 /// path dependency into ONE checkout, `~/.cache/codexcli/backend-pin`, never
 /// `../..` of the worktree, so every worktree names the same backend packages
-/// and the shared target builds them once.
+/// at the same paths and sccache serves them to each worktree's own target.
 fn backend_paths() -> Vec<(String, PathBuf)> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     ["Cargo.toml", "host/Cargo.toml", "core/Cargo.toml"]
