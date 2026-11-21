@@ -36,7 +36,6 @@ pub struct Chat {
     pub quota_remaining: Msg<2>,
     pub usage_limit_title: &'static str,
     pub usage_limit_detail: &'static str,
-    pub turn_failed: &'static str,
     /// The backend stopped (`Failure::Stopped`).
     pub server_stopped: &'static str,
     /// A reply of another screen than its ticket's (`Failure::ReplyMismatch`).
@@ -121,7 +120,6 @@ pub const EN: Shared = Shared {
         quota_remaining: msg!("{0} {1}% left"),
         usage_limit_title: "Usage limit reached",
         usage_limit_detail: "Your included usage is exhausted. Choose an option below to continue.",
-        turn_failed: "error: the turn failed",
         server_stopped: "error: the app-server stopped",
         reply_mismatch: "error: a reply of another screen",
         keys: "F12 screens  Ctrl+C quit",

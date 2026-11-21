@@ -203,3 +203,16 @@ Handover list: G44 (halfwidth), G48 (hyphen break), G49 (no break after a slash)
 theme accent (`tokens.accent()`); middle truncation by screen rows and unbroken wide URL tokens may be gaps (not pinned); chat_live_1 WARN_PENDING /
 ERR_PENDING / COLLAB_PENDING tests are chat-live's (some may pass now: not probed); an incident of disk full (ENOSPC) in phase 1 was cleared by pruning ~18 GB
 of this worktree's own target artifacts.
+
+## chat-cells-2 lander fixes (2026-11-21, FULL review LAND WITH FIXES)
+- 1 turn error ends the turn (oracle `on_error`): `ThreadEv::TurnError` now runs `end_turn` (finalize, next queued input) then `report_error`; the failed turn's
+  `TurnCompleted` afterwards is a no-op (no second error row, `send_next` once: `finished_turns` / idle turn). Core test
+  `a_turn_error_ends_the_turn_and_sends_the_next_queued_message_once` (core/tests/model.rs); oracle `live_app_server_failed_turn_does_not_duplicate_error_history` green.
+- 2 deprecation routing applied in core/src/app.rs (the patch above, both cells_5 notice tests un-pended and green). Correction of the reviewer: the thread-less
+  warning and the deprecation summary stay as the `backend_notices` banner line while NO thread is open (`session.active` is none); with a thread open they are
+  that thread's detailed-transcript rows. (The oracle always has a chat; the startup page has none.)
+- 3 `Failure::TurnFailed`, `strings.chat.turn_failed` and the `failure_text` arm removed.
+- 4 collab `preview` stays by chars: `codex-tui-core` has no `unicode-segmentation` dependency (the layers rule lists its dependencies; the crate is only in the
+  workspace manifest), so it is port debt: grapheme cut in collab previews (needs the dependency allowed in core, or a segmentation fn from the host).
+  PLAN_URL_TOKENS stays pending, not an rtwk gap: the oracle keeps a URL whole on one row wider than the screen (the terminal wraps it); a cell grid cannot
+  hold a 70-char token on a 30-column row, so this is a by-design difference of an alt-screen grid, not something rtwk could add. Reason text unchanged.

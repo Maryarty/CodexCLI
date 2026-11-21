@@ -579,6 +579,32 @@ fn a_failed_turn_keeps_the_servers_error_message() {
     assert_eq!(thread(&app).turn(), &TurnState::Idle);
 }
 
+/// Oracle `on_error`: a non-retried error notification ends the turn (finalize, the
+/// error row, the next queued input); the failed turn's completion after it is a
+/// no-op: no second error row, the queue is not sent twice.
+#[test]
+fn a_turn_error_ends_the_turn_and_sends_the_next_queued_message_once() {
+    let mut app = ready();
+    notification(&mut app, turn_started(T, "turn-1"));
+    submit(&mut app, "two");
+    submit(&mut app, "three");
+    let fx = notification(&mut app, turn_error(T, "turn-1", "no network", false));
+    assert_eq!(thread(&app).turn(), &TurnState::Idle);
+    let turns = start_turns(&fx);
+    assert_eq!(turns.len(), 1, "{:?}", fx.commands());
+    assert_eq!(turns[0].1, "two");
+    assert_eq!(queued(&app), vec!["three".to_string()]);
+    let fx = notification(&mut app, turn_failed(T, "turn-1"));
+    assert!(start_turns(&fx).is_empty(), "{:?}", fx.commands());
+    assert_eq!(queued(&app), vec!["three".to_string()]);
+    let errors = thread(&app)
+        .transcript()
+        .iter()
+        .filter(|(_, item)| matches!(item, Item::Error { .. }))
+        .count();
+    assert_eq!(errors, 1);
+}
+
 /// The oracle shows nothing for a failed turn that has no error (`finalize_turn` only).
 #[test]
 fn a_failed_turn_without_a_message_shows_nothing() {

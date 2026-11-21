@@ -756,7 +756,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     }
                     return;
                 }
-                ServerNotification::Warning(note) if note.thread_id.is_none() => {
+                // With no thread open there is no transcript to show a thread-less
+                // warning or deprecation notice in: the banner line keeps it. With a
+                // thread open it is that thread's detailed-transcript row (below).
+                ServerNotification::Warning(note)
+                    if note.thread_id.is_none() && app.session.active.is_none() =>
+                {
                     Rc::make_mut(&mut app.session)
                         .backend_notices
                         .insert(origin, note.message.clone());
@@ -766,7 +771,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .backend_notices
                         .insert(origin, note.summary.clone());
                 }
-                ServerNotification::DeprecationNotice(note) => {
+                ServerNotification::DeprecationNotice(note) if app.session.active.is_none() => {
                     Rc::make_mut(&mut app.session)
                         .backend_notices
                         .insert(origin, note.summary.clone());
@@ -850,6 +855,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 let outs =
                     agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
                 send_agents(app, outs, fx);
+            }
+            // What the server sends without a thread (a deprecation notice) is
+            // the displayed thread's: the chat shows it in the detailed transcript.
+            if active_backend(app) == origin
+                && let Some(ev) = threads::project_unrouted(&notification)
+                && let Some(thread) = app.session.active.clone()
+            {
+                apply_thread(app, &thread, ev, fx);
             }
             if let Some((thread, ev)) = threads::project(&notification) {
                 if app.threads.contains(&thread) {

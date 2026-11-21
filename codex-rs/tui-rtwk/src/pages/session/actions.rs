@@ -23,7 +23,6 @@ use super::session_page::*;
 pub(super) fn failure_text(strings: &crate::l10n::strings::Shared, failure: &Failure) -> String {
     match failure {
         Failure::Message(message) => strings.error(message).to_string(),
-        Failure::TurnFailed => strings.chat.turn_failed.to_string(),
         Failure::Lagged(skipped) => strings.lagged(*skipped).to_string(),
         Failure::Stopped => strings.chat.server_stopped.to_string(),
         Failure::ReplyMismatch => strings.chat.reply_mismatch.to_string(),

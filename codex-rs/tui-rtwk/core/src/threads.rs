@@ -659,7 +659,6 @@ pub struct HistoryTurn {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     Message(String),
-    TurnFailed,
     /// The backend dropped this many events (a `Lagged` gap).
     Lagged(usize),
     /// The backend stopped.
@@ -1500,7 +1499,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
         }
-        ThreadEv::TurnError { turn, message } => model.transcript.report_error(&turn, &message),
+        ThreadEv::TurnError { turn, message } => {
+            // Oracle `on_error`: the turn is finalized, then the error row, then
+            // the next queued input; the failed turn's own completion is a no-op.
+            end_turn(model, turn.clone(), fx);
+            model.transcript.report_error(&turn, &message);
+        }
         ThreadEv::TurnStarted { turn, started_at } => {
             start_turn(model, turn.clone());
             if let TurnState::Running(running) = &mut model.turn

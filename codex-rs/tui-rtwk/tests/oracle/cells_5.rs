@@ -12,7 +12,6 @@ const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript d
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
-const NOTICE_CELL: &str = "the cell is built (DeprecationCell, core `project_unrouted`) but the app does not hand the thread-less `deprecationNotice` to the displayed thread, and core/src/app.rs still shows its summary as the `backend_notices` banner line; the ready patch (parity/cells.md) passes this test, core/src/app.rs is claimed by startup-device-code";
 const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
@@ -502,7 +501,6 @@ fn reasoning_summary_block_preserves_literal_html_comment() {
 // ORACLE history_cell/tests.rs:2978 deprecation_notice_renders_summary_with_details kind=ui owner=chat-live
 #[test]
 fn deprecation_notice_renders_summary_with_details() {
-    kit::pending(Owner::ChatLive, NOTICE_CELL);
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -518,7 +516,6 @@ fn deprecation_notice_renders_summary_with_details() {
 // ORACLE history_cell/tests.rs:2997 legacy_zsh_migration_notice_snapshot kind=snap owner=chat-live snap=legacy_zsh_migration_notice_snapshot
 #[test]
 fn legacy_zsh_migration_notice_snapshot() {
-    kit::pending(Owner::ChatLive, NOTICE_CELL);
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
