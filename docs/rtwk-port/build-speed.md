@@ -138,6 +138,9 @@ that cannot share artifacts (clippy checks, nextest builds: 280 s + 328 s) and t
 
 ## 5. What is left
 
+(Round two, §6, did the cache, the router, the two known reds and the width test below; the
+cap is its proposal 1.)
+
 - **The sccache cache is full** (10 GiB cap): a cold build still compiles `aws-lc-sys`'s build
   script (44 s) and the codex-core family; raising the cap (`SCCACHE_CACHE_SIZE`) or pruning old
   worktree targets would help every cold build. It is machine configuration, not repo code.
@@ -152,3 +155,167 @@ that cannot share artifacts (clippy checks, nextest builds: 280 s + 328 s) and t
   It is in another area, so it is only noted here.
 - **Not tried**: `opt-level = 1` for the rtwk dependencies (faster tests, slower cold build),
   more nextest threads (the memcap cap is 3 for memory reasons).
+
+## 6. build-speed-2 (2026-11-21, the second round)
+
+The person: "everything must be much faster". Order kept: read the code, change it, then
+measure (no new before-measurement was spent; the baseline is §3 and
+`~/.cache/codexcli/land-check-times.log`). Load is named with every number: three other
+builders ran all day (load 4 to 44 on 10 cores); an unloaded machine is faster than every number
+here, and the same run differs by 2x between a load of 5 and a load of 20.
+
+### What was slow, found in the code and then measured
+
+1. **Two compiles of the whole graph**: `clippy` (check mode) and `nextest` (build mode) share
+   no artifacts, 280 s + 328 s cold.
+2. **sccache did not hit across worktrees for ~340 of ~860 crates**, so every new worktree (every
+   porter, every land-check) compiled the codex-core family again (codex-core alone 84 to 106 s,
+   a chain of ~30 backend crates behind it). sccache hashes the CONTENTS of each dependency's
+   artifact into the key of the crate above it, and two checkouts differed in two kinds of bytes:
+   - a crate whose build script generates code that is `include!`d (serde_core, thiserror, ...)
+     carries the absolute `OUT_DIR` path (inside the checkout's target) in its rlib;
+   - a proc-macro dylib on macOS carries its absolute OUTPUT path in `LC_ID_DYLIB` (and so in the
+     `LC_UUID` and the code signature). `ts_rs` (through `ts-rs-macros`) is under almost every
+     `codex-*` crate: it differed, and everything above it with it (found by diffing the rlibs of two
+     checkouts: 98 of 859 differed, the root being `ts_rs`).
+3. **`CARGO_TARGET_DIR` exported by land-check.sh**: sccache hashes every `CARGO_*` variable it
+   sees; this one holds the worktree's path. With it set NOTHING hits across worktrees (measured:
+   417 s for the lint-build at load 16 to 20; the same tree without it 128 s at load 14 to 19).
+4. Small ones: the router scenario (151 s) as the floor of the scenario step, the two known reds
+   waiting a full minute each, `agents::the_center_draws_at_widths_one_to_ten` (27 s) as the floor
+   of the `screens` run, the scenarios started only after nextest.
+
+### What changed
+
+In the repo:
+- `tools/rtwk-port/mock-model/check.py`, `router.py`, `scenario.py`, `selftest.py`: a scenario can
+  name `cuts` (the router: before `proposal`, `code`, `compact`); with `--jobs N` > 1 it runs as
+  pieces `router#1..#4` (8, 9, 9 and 3 turns), each in a worker of its own, the last one checks
+  the sentinel. `--short-budget NAME[,NAME]` gives the named scenarios 20 s of slack per turn
+  instead of 60 s (land-check passes the `scenarios:` entries of known-red.txt: a known red only
+  waits its budget out, a green one never does). `MOCK_TURN_TIMES=1` prints per-turn seconds.
+  `selftest.py` covers both (every turn runs exactly once; the short budget is shorter).
+- `codex-rs/tui-rtwk/tests/pages/agents.rs`: the width test is ten tests (`macro_rules!`,
+  `the_center_draws_at_width_1` .. `_10`, each 2.4 to 2.6 s), so nextest runs them in parallel.
+- `.tm/fleet-brief.md`: the porter's cycle command (below).
+
+Outside the repo (each with a `.bak-build-speed-2` beside it, except the new file):
+- `~/.cache/rtwk/remap-bin/rustc` (NEW): `RUSTC` for CodexCLI checkouts: the real rustc plus
+  `--remap-path-prefix=<checkout>=/w` and, for proc-macro crates on macOS,
+  `-C link-arg=-Wl,-install_name,@rpath/lib<crate><extra-filename>.dylib`. sccache stays
+  `RUSTC_WRAPPER` in front of it, so its key sees cargo's arguments, not these. Verified: the
+  `ts_rs_macros` dylib has the same md5 in two checkouts, and the rlibs of all 859 crates are
+  byte-identical between two checkouts except the two workspace crates compiled by clippy-driver.
+- `~/.cache/rtwk/acargo`: for CodexCLI checkouts, the stable toolchain and sccache on, the
+  heavy subcommands (build, check, clippy, test, nextest, bench, run, doc) set `RUSTC` to the script
+  above (`RTWK_REMAP_TOP` = the checkout; `ACARGO_NO_REMAP=1` switches it off; a `RUSTC` of the caller
+  is kept). It also drops a `CARGO_TARGET_DIR` that equals the checkout's default target (item 3).
+  A target built before this change is not rebuilt by it; only crates compiled from now on carry
+  the remap.
+- `~/.cache/codexcli/land-check.sh` (the header of the file lists it): `lint-build` = ONE pass,
+  `nextest run --workspace --all-targets --no-run` with clippy-driver as `RUSTC_WORKSPACE_WRAPPER` and
+  `CLIPPY_ARGS=-D warnings` (what `cargo clippy -- -D warnings` sets; plants of an unused variable
+  and a `needless_return` were caught by it in 6 s; the same lints on lib, bins, tests and examples
+  as the old `clippy --workspace --all-targets`) replaces the separate clippy step (`LAND_FUSED=0`
+  brings the old two steps back); the scenarios start as soon as the binary exists and run beside
+  nextest; `LAND_SCENARIO_JOBS` default 8 (was 4); short slack for the known-red scenarios; a
+  scenario that fails and is not a known red gets ONE rerun on its own (a pty startup stalls now
+  and then on a loaded machine: two `session_sse` tests and three scenarios at 8 test threads +
+  12 scenario jobs; they pass on their own); `CARGO_TARGET_DIR` is no longer exported;
+  `LAND_TEST_THREADS` / `LAND_BUILD_JOBS` take acargo's 3 and 3 unless given (8 test threads beside
+  the scenarios: 178 s and two flaky tests; 3 threads: 66 s and none).
+- Not changed: the sccache cap (see the proposals).
+
+### Numbers
+
+Lint + build of a new worktree (`nextest run --workspace --all-targets --no-run`, one cold checkout
+after another, the same sccache; before = no remap):
+
+| run | wall | load |
+|---|---|---|
+| before: separate clippy + nextest build (the §3 land-check) | 280 + 328 = 608 s | 6 to 18 |
+| fused lint-build, no remap, 1st checkout, cold | 475 s | 17 to 44 |
+| fused lint-build, no remap, 2nd checkout (what sccache gave a new worktree) | 353 s | 11 to 19 |
+| fused + remap, populating the cache | 200 to 305 s | 7 to 15 |
+| **fused + remap, a new worktree** | **59 s** | 4 to 9 |
+| same, four other runs of a new worktree (jobs 3 or 6) | 69 s, 70 s, 119 s, 128 s | 4 to 19 |
+| with `CARGO_TARGET_DIR` exported (what land-check did) | 417 s | 16 to 20 |
+
+`codex-core` 84 to 106 s compiled drops to 2 s (a hit); what is left on the critical path is
+`aws-lc-sys`'s build script (31 to 44 s even with every C file a hit) and the workspace crates
+(tui-core, tui-rtwk, the 7 test binaries and the bin, ~50 s at 3 jobs; 6 jobs did not help: 69 s).
+sccache counters of the server: Rust hit rate 60.1 % after the first remap run (still the old
+dylibs), 80.3 % after the fix. One run of a new worktree (19:59, load 9 to 12) missed ~100 crates
+for a reason that was not found (255 s; the next two runs of new worktrees hit: 69 s and 70 s); the
+cache is full, see the proposals.
+
+Tests and scenarios (load 7 to 16, 1149 tests):
+
+| | before | after |
+|---|---|---|
+| nextest run, 3 threads | 45 s (the 27 s width test is the floor) | the width test is ten of 2.5 s |
+| nextest run, 8 threads | not measured | 19.6 s (load 8), 36 s (load 13, before the split) |
+| scenarios alone | 147 s (jobs 4, the router 151 s as one) | 80 s (jobs 8, load 14), 48 s (jobs 16, load up to 28) |
+| the two known reds | ~66 s each, holding 2 workers | ~30 s each |
+| nextest 3 threads + scenarios 12 jobs together | n/a | 74 s in all (66 s + 63 s overlapped, load ~20) |
+
+Edit to test result in one worktree (load 9 to 21; "run" = nextest's own time):
+
+| cycle | wall | of which run |
+|---|---|---|
+| edit in `src/widgets/age.rs`, the fleet's `-E 'test(age) \| binary(rules)'` over all 7 roots | 111 s (load 21) | 16.9 s |
+| same edit, `--test rules` | 9.4 s | 1.0 s |
+| same edit, `--test screens -E 'test(age)'` | 21.9 s | 12.2 s |
+| edit in `tests/pages/agents.rs`, `--test screens` (10 width tests) | 15.0 s | 11.3 s (3 threads) |
+| same edit, all 7 roots | 25.5 s | 12.3 s |
+| `acargo check --tests --quiet` after a test-file edit, warm | 2.5 to 6.8 s | |
+
+The porter's fastest command is therefore: `acargo check --tests --quiet` for type errors, then
+`acargo nextest run --test <root> ... -E 'test(<name>)'` (the root where the file is registered:
+`screens` for tests/pages, sheets, app; `shell`; `rules`; `pages` for probe files; `oracle`; core:
+`-p codex-tui-core`): only that binary is built and linked, 10 to 15 s from edit to result when
+the filtered tests are short. `.tm/fleet-brief.md` says so.
+
+Land-check of this branch (fresh worktree, empty target, `land-check.sh <worktree> 960e4f2b4`,
+2026-11-21 20:55 to 20:59, load 23 to 17 from the log line; code tip `0a85e8d4d`, the doc commit
+after it changes no code):
+
+| step | build-speed (§3) | build-speed-2 |
+|---|---|---|
+| **whole land-check** | **808 s** | **189 s (3.2 min), -77 %** (`fail=0`: fmt is green on this tip) |
+| manifests, oracle-untouched, shards, fmt | 1 s, 0 s, 0 s, 2 s | 0 s, 0 s, 1 s, 1 s |
+| clippy `--workspace --all-targets` | 280 s | gone (in lint-build) |
+| compile: lint + build of all targets | 328 s (nextest build) | **105 s** (clippy lints and test build in one pass, warm cache) |
+| build-bin | 2 s | 1 s |
+| nextest run (1210 tests, 0 flaky, 3 threads, beside the scenarios) | 44 s | 51 s (48.3 s run) |
+| scenarios (39/41, the two known reds) | 147 s, after nextest | 80 s, beside nextest |
+
+The first land-check of this branch ran with 8 test threads and 12 scenario jobs: 301 s, nextest
+178 s, three flaky tests (two `session_sse`, one known): the settings in §6 "What changed" are
+the ones that came out of that run. The 105 s are the compile: `aws-lc-sys` (31 to 44 s) and the
+workspace chain; a first land-check after a repin or a new dependency compiles what is not in the
+cache (200 to 300 s, see the table above).
+
+### Proposals (they need the person's yes)
+
+1. **sccache cap 10 -> 16 GiB** (`~/.cache/rtwk/sccache-main/config`, `size`; `sccache-config.sh`
+   writes 20 by default). The cache is full: 10229 entries, all written in the last ~2.5 hours, i.e.
+   three builders turn the whole cache over in about 2.5 hours, and one graph is 3.8 GiB raw. With
+   the fix a populate is worth keeping for the whole working day. The data volume had 95 GiB free
+   after this task's scratch targets were deleted (it was down to 117 MiB while they existed: keep
+   scratch trees to two). Not applied: it is the person's disk.
+2. **Profile and linker**: not tried, `codex-rs/tui-rtwk/Cargo.toml` is held by rtwk-repin-4.
+   `incremental` per package (the workspace crates only, so sccache is not asked to cache them) may
+   shorten the edit cycle further. `rust-objcopy` aborts on every link (a SIGABRT with a missing
+   `libLLVM.dylib`, while stripping debuginfo: the toolchain's component is broken, the build goes
+   on); `strip = "none"` in the dev profile would skip the failing subprocess.
+3. **A fast land path** is not needed any more: see the land-check numbers above (808 s before).
+   The scenarios already run beside nextest, so skipping them would not shorten the critical path.
+
+### Found on the way, not fixed
+
+- Pty startups stall now and then under load: a scenario or a `session_sse` test sees the splash
+  for 60 s and serves 0 of N requests; they pass on their own. Not the harness's fixed wait
+  (`quiet_for(1.5, 30)`): the process is stuck, not late. Outside this task's area. The land-check
+  reruns a failed scenario once and nextest has `--retries 1`.
+- `rust-objcopy` SIGABRT warning on every link (proposal 2).
