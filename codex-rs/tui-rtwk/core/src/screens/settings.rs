@@ -176,12 +176,35 @@ impl ConfigPanel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThemePicker {
     pub themes: Vec<String>,
+    /// The names among `themes` that are the user's own `.tmTheme` files
+    /// (shown with "(custom)").
+    pub custom: Vec<String>,
     /// The theme to restore when the picker is cancelled; the row the cursor
     /// starts on.
     pub original: Option<String>,
+    /// The directory of the custom themes as the subtitle names it
+    /// (`~/.codex/themes`); none when it is not below the home directory.
+    pub themes_dir: Option<String>,
 }
 
 impl ThemePicker {
+    /// The themes a search leaves, as indices into `themes`: those whose
+    /// name holds the text typed, in any case (`SelectionItem::search_value`).
+    pub fn visible(&self, query: &str) -> Vec<usize> {
+        let query = query.to_lowercase();
+        self.themes
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| name.to_lowercase().contains(&query))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// The theme is one of the user's own files.
+    pub fn is_custom(&self, name: &str) -> bool {
+        self.custom.iter().any(|custom| custom == name)
+    }
+
     /// The row the cursor starts on: the theme in force.
     pub fn initial(&self) -> usize {
         self.original
@@ -598,7 +621,11 @@ enum SeedEv {
     ThemePicker {
         themes: Vec<String>,
         #[serde(default)]
+        custom: Vec<String>,
+        #[serde(default)]
         current: Option<String>,
+        #[serde(default)]
+        themes_dir: Option<String>,
     },
     StatusLine {
         use_theme_colors: bool,
@@ -675,9 +702,16 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
         SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
-        SeedEv::ThemePicker { themes, current } => Open::Theme(ThemePicker {
+        SeedEv::ThemePicker {
             themes,
+            custom,
+            current,
+            themes_dir,
+        } => Open::Theme(ThemePicker {
+            themes,
+            custom,
             original: current,
+            themes_dir,
         }),
         SeedEv::StatusLine {
             use_theme_colors,

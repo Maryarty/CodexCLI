@@ -20,6 +20,7 @@ use crate::app::debug::EntryOpen;
 
 pub mod setup;
 pub mod strings;
+pub mod theme;
 
 /// What the debug menu lists for this directory: each dialog on a state
 /// worth opening, made by a fixture script.
@@ -44,6 +45,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "terminal_title",
             "the terminal title setup",
             include_str!("fixtures/title.jsonl"),
+        ),
+        (
+            "theme_picker",
+            "the syntax theme picker over six themes, the codex home under ~",
+            include_str!("fixtures/theme_picker.jsonl"),
+        ),
+        (
+            "theme_picker_all",
+            "the syntax theme picker over the built-in themes and a custom one",
+            include_str!("fixtures/theme_picker_all.jsonl"),
         ),
     ];
     entries
@@ -82,6 +93,7 @@ pub fn open_empty() -> DebugOpen {
 enum Shown {
     Nothing,
     Setup,
+    Theme,
     Other,
 }
 
@@ -96,10 +108,12 @@ impl StatelessWidget for Screen {
         let shown = select::<ScreenStates, Shown, _>(cx, |states| match &states.settings.open {
             None => Shown::Nothing,
             Some(Open::Setup(_)) => Shown::Setup,
+            Some(Open::Theme(_)) => Shown::Theme,
             Some(_) => Shown::Other,
         });
         match shown {
             Shown::Setup => setup::SetupSheet.into(),
+            Shown::Theme => theme::ThemeSheet.into(),
             // No dialog seeded (the debug menu's row): the skeleton's
             // empty-slot line.
             Shown::Nothing | Shown::Other => {

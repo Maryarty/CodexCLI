@@ -22,6 +22,7 @@ use pretty_assertions::assert_eq;
 
 const CONFIG: &str = include_str!("../../src/sheets/settings/fixtures/config_panel.jsonl");
 const THEME: &str = include_str!("../../src/sheets/settings/fixtures/theme_picker.jsonl");
+const THEME_ALL: &str = include_str!("../../src/sheets/settings/fixtures/theme_picker_all.jsonl");
 const STATUS_LINE: &str = include_str!("../../src/sheets/settings/fixtures/status_line.jsonl");
 const TITLE: &str = include_str!("../../src/sheets/settings/fixtures/title.jsonl");
 const KEYMAP: &str = include_str!("../../src/sheets/settings/fixtures/keymap.jsonl");
@@ -147,7 +148,7 @@ const THEMES: [&str; 6] = ["ada", "babbage", "curie", "cushman", "dali", "davinc
 #[test]
 fn model_theme_files_preview_select_and_restore() {
     for (index, name) in THEMES.into_iter().enumerate() {
-        let script = THEME.replace("\"ada\"}", &format!("\"{name}\"}}"));
+        let script = THEME.replace("\"current\":\"ada\"", &format!("\"current\":\"{name}\""));
         let mut sandbox = Sandbox::play(&script).expect("plays");
         let picker = match &sandbox.app().screens().settings.open {
             Some(Open::Theme(picker)) => picker.clone(),
@@ -192,6 +193,36 @@ fn cancelling_the_theme_picker_restores_the_theme_in_force() {
     );
     assert!(sandbox.app().screens().settings.edits.is_empty());
     assert!(sandbox.app().screens().settings.open.is_none());
+}
+
+/// `theme_picker.rs` `SelectionItem::search_value`: the typed text matches a
+/// name in any case; custom files and the directory come from the seed.
+#[test]
+fn the_theme_picker_filters_by_name_and_knows_the_custom_files() {
+    let sandbox = Sandbox::play(THEME_ALL).expect("play");
+    let Some(Open::Theme(picker)) = &sandbox.app().screens().settings.open else {
+        panic!("theme picker open");
+    };
+    assert_eq!(picker.themes.len(), 33);
+    let names = |query: &str| -> Vec<&str> {
+        picker
+            .visible(query)
+            .into_iter()
+            .map(|at| picker.themes[at].as_str())
+            .collect()
+    };
+    assert_eq!(names("NIGHT"), vec!["my-night"]);
+    assert_eq!(
+        names("coldark"),
+        vec!["coldark-cold", "coldark-dark"],
+        "builtin order kept"
+    );
+    assert!(names("zzz").is_empty());
+    assert_eq!(names("").len(), 33);
+    assert!(picker.is_custom("my-night"));
+    assert!(!picker.is_custom("nord"));
+    assert_eq!(picker.initial(), 24, "the row of the theme in force");
+    assert_eq!(picker.themes_dir.as_deref(), Some("~/.codex/themes"));
 }
 
 #[test]

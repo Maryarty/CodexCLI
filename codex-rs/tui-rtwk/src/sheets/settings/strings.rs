@@ -17,6 +17,27 @@ use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
+/// How a line of the theme preview changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    Context,
+    Added,
+    Removed,
+}
+
+/// One line of the theme preview's sample diff (`theme_picker.rs`:
+/// `PreviewRow`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreviewRow {
+    pub no: &'static str,
+    pub change: Change,
+    pub code: &'static str,
+}
+
+const fn row(no: &'static str, change: Change, code: &'static str) -> PreviewRow {
+    PreviewRow { no, change, code }
+}
+
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strings {
@@ -58,8 +79,14 @@ pub struct Strings {
     // theme_picker.rs
     pub theme_title: &'static str,
     pub theme_subtitle: &'static str,
-    /// The narrow preview: a diff of a Rust function.
-    pub theme_preview: [&'static str; 4],
+    pub theme_search_placeholder: &'static str,
+    /// The subtitle when the custom themes' directory is known and fits.
+    pub theme_custom_dir: Msg<1>,
+    pub theme_custom_mark: &'static str,
+    /// The narrow preview (stacked below the rows): a diff of a Rust function.
+    pub theme_narrow: [PreviewRow; 4],
+    /// The wide preview (beside the rows).
+    pub theme_wide: [PreviewRow; 8],
     /// bottom_pane/popup_consts.rs: `standard_popup_hint_line`.
     pub popup_hint: &'static str,
     // bottom_pane/status_line_setup.rs
@@ -128,11 +155,48 @@ pub const EN: Strings = Strings {
     config_search_hint_toggle: "enter toggle \u{b7} esc clear search",
     theme_title: "Select Syntax Theme",
     theme_subtitle: "Move up/down to live preview themes",
-    theme_preview: [
-        "12  fn greet(name: &str) -> String {",
-        "13 -    format!(\"Hello, {}!\", name)",
-        "13 +    format!(\"Hello, {name}!\")",
-        "14  }",
+    theme_search_placeholder: "Type to filter themes...",
+    theme_custom_dir: msg!("Custom .tmTheme files can be added to the {0} directory."),
+    theme_custom_mark: " (custom)",
+    theme_narrow: [
+        row("12", Change::Context, "fn greet(name: &str) -> String {"),
+        row("13", Change::Removed, "    format!(\"Hello, {}!\", name)"),
+        row("13", Change::Added, "    format!(\"Hello, {name}!\")"),
+        row("14", Change::Context, "}"),
+    ],
+    theme_wide: [
+        row(
+            "31",
+            Change::Context,
+            "fn summarize(users: &[User]) -> String {",
+        ),
+        row(
+            "32",
+            Change::Removed,
+            "    let active = users.iter().filter(|u| u.is_active).count();",
+        ),
+        row(
+            "32",
+            Change::Added,
+            "    let active = users.iter().filter(|u| u.is_active()).count();",
+        ),
+        row(
+            "33",
+            Change::Context,
+            "    let names: Vec<&str> = users.iter().map(User::name).take(3).collect();",
+        ),
+        row(
+            "34",
+            Change::Removed,
+            "    format!(\"{} active: {}\", active, names.join(\", \"))",
+        ),
+        row(
+            "34",
+            Change::Added,
+            "    format!(\"{active} active users: {}\", names.join(\", \"))",
+        ),
+        row("35", Change::Added, "        .trim()"),
+        row("36", Change::Context, "}"),
     ],
     popup_hint: "Press enter to confirm or esc to go back",
     status_title: "Configure Status Line",
@@ -174,6 +238,11 @@ impl Strings {
     /// "Automatic ›".
     pub fn choice<'a>(&'a self, label: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.value_choice, [Arg::Text(label)], &self.num)
+    }
+
+    /// "Custom .tmTheme files can be added to the ~/.codex/themes directory.".
+    pub fn custom_dir<'a>(&'a self, dir: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.theme_custom_dir, [Arg::Text(dir)], &self.num)
     }
 
     /// "12 actions.".
