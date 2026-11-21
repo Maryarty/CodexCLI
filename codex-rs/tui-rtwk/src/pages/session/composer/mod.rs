@@ -8,14 +8,16 @@
 //! `bottom_pane/chat_composer.rs`, `bottom_pane/textarea.rs`.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use rtwk::binding::AppBinding;
-use rtwk::editing::{Autocomplete, EditingKeys, Suggestion, TextArea};
+use rtwk::editing::{EditingKeys, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row};
+use rtwk::layout::{BoxWidget, CrossAxisAlignment, Expanded, Row, Shadow};
+use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, watch};
-use rtwk::style::{Attrs, Style};
+use rtwk::style::{Attrs, Style, Theme};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
@@ -36,6 +38,7 @@ pub mod burst;
 pub mod editing;
 pub mod footer;
 pub mod strings;
+pub mod suggest;
 
 use burst::BurstEnv;
 use editing::KeyData;
@@ -157,7 +160,10 @@ impl StatefulWidget for Composer {
     type State = ComposerState;
 
     fn create_state(&self) -> ComposerState {
-        ComposerState { listener: None }
+        ComposerState {
+            listener: None,
+            suggest: Rc::default(),
+        }
     }
 }
 
@@ -166,7 +172,9 @@ impl_widget!(stateful eq Composer);
 /// The listener that keeps the elements in step with the text and the caret
 /// out of them, and what the editing keys read.
 pub struct ComposerState {
-    listener: Option<(Rc<ThreadUi>, VoidCallback)>,
+    listener: Option<(Rc<ThreadUi>, VoidCallback, VoidCallback)>,
+    /// The popup's rows and highlight, read by the key hook.
+    suggest: Rc<suggest::Suggest>,
 }
 
 /// What the composer's own children tell it.
@@ -175,7 +183,21 @@ pub enum ComposerMsg {
     Changed(Rc<str>),
     Submitted(Rc<str>),
     Pasted,
+    /// A suggestion put in by Enter or a click: a command runs.
     Picked(Rc<str>),
+    /// A suggestion completed as text by Tab.
+    Completed(Rc<str>),
+    /// The text or the caret changed: the popup asks for its rows again.
+    Refresh,
+    /// The popup's highlight moved: draw it again.
+    Redraw,
+    /// The pointer or the wheel is over row `i` of the popup.
+    Highlight(i32),
+    /// A click on row `i` of the popup.
+    Click(i32),
+    /// The popup lost the focus or was dismissed: closed until the text
+    /// changes.
+    Dismiss,
     /// Ctrl+C on a draft: it is cleared and kept in history.
     ClearForCtrlC,
     /// The draft entered or left shell mode.
@@ -186,18 +208,80 @@ pub enum ComposerMsg {
 }
 
 impl ComposerState {
-    fn listen(&mut self, ui: &Rc<ThreadUi>) {
+    fn listen(&mut self, ui: &Rc<ThreadUi>, tell: Rc<dyn Fn(ComposerMsg)>) {
         self.unlisten();
         let (c, d) = (ui.composer.clone(), ui.draft.clone());
         let snap: VoidCallback = Rc::new(move || d.snap_caret(&c));
         ui.composer.listenable().add_listener(snap.clone());
-        self.listener = Some((ui.clone(), snap));
+        // the popup's rows follow the text and the caret
+        let refresh: VoidCallback = Rc::new(move || tell(ComposerMsg::Refresh));
+        ui.composer.listenable().add_listener(refresh.clone());
+        self.listener = Some((ui.clone(), snap, refresh));
     }
 
     fn unlisten(&mut self) {
-        if let Some((ui, snap)) = self.listener.take() {
+        if let Some((ui, snap, refresh)) = self.listener.take() {
             ui.composer.listenable().remove_listener(&snap);
+            ui.composer.listenable().remove_listener(&refresh);
         }
+    }
+
+    /// Asks the popup's sources for the rows of the text before the caret
+    /// (none in shell mode: `allow_command_popup`); whether they changed.
+    fn refresh(&self, w: &Composer, states: &ScreenStates, table: &chat_strings::Strings) -> bool {
+        if w.bare || w.ui.draft.shell() {
+            return self.suggest.refresh(&w.ui.composer, |_| Vec::new());
+        }
+        self.suggest.refresh(&w.ui.composer, |before| {
+            popup::suggestions(states, table, before)
+        })
+    }
+}
+
+impl ComposerState {
+    /// `field` with the popup of the suggestions over or under it: a
+    /// `Popover` of an `OptionList` (no focus of its own, the caret stays
+    /// in the field), closed by Esc, a press outside or the focus leaving.
+    /// Enter and a click pick, Tab completes (`suggest`).
+    fn popup(&self, field: AnyWidget, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let theme = Theme::of(cx);
+        let shown = self.suggest.shown();
+        let open = !shown.items.is_empty();
+        let popup: AnyWidget = if open {
+            let rows: Vec<OptionItem> = shown
+                .items
+                .iter()
+                .map(|s| {
+                    let label = s.label.as_ref().unwrap_or(&s.text);
+                    let marks = fuzzy_match(&shown.query, label)
+                        .map(|m| m.positions)
+                        .unwrap_or_default();
+                    let row = OptionItem::new(label.clone()).marks(marks);
+                    match &s.detail {
+                        Some(detail) => row.detail(detail.clone()),
+                        None => row,
+                    }
+                })
+                .collect();
+            let list = OptionList::new(rows)
+                .highlighted(i32::try_from(shown.highlighted).unwrap_or(i32::MAX))
+                .rows(i32::try_from(popup::ROWS).unwrap_or(i32::MAX))
+                .on_highlight(cx.map(ComposerMsg::Highlight))
+                .on_selected(cx.map(ComposerMsg::Click));
+            // rtwk's own look of a suggestion list (`PanelLook::Raised`)
+            Shadow::new(
+                BoxWidget::new()
+                    .style(theme.surface.merge(&theme.text))
+                    .child(list),
+            )
+            .shadow(Panel::shadow_of(&theme))
+            .into()
+        } else {
+            AnyWidget::default()
+        };
+        Popover::new(open, popup, field, Some(cx.map(|()| ComposerMsg::Dismiss)))
+            .fade_in(Duration::from_millis(120))
+            .into()
     }
 }
 
@@ -225,13 +309,15 @@ impl State for ComposerState {
     type Widget = Composer;
     type Msg = ComposerMsg;
 
-    fn init_state(&mut self, w: &Composer, _: &mut Cx<'_, Self>) {
-        self.listen(&w.ui);
+    fn init_state(&mut self, w: &Composer, cx: &mut Cx<'_, Self>) {
+        let tell = cx.local_sender();
+        self.listen(&w.ui, tell);
     }
 
-    fn did_update_widget(&mut self, old: &Composer, w: &Composer, _: &mut Cx<'_, Self>) {
+    fn did_update_widget(&mut self, old: &Composer, w: &Composer, cx: &mut Cx<'_, Self>) {
         if !Rc::ptr_eq(&old.ui, &w.ui) {
-            self.listen(&w.ui);
+            let tell = cx.local_sender();
+            self.listen(&w.ui, tell);
         }
     }
 
@@ -305,6 +391,43 @@ impl State for ComposerState {
                 if let Some(h) = &w.on_picked {
                     cx.emit(h, text);
                 }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Completed(text) => {
+                w.ui.draft.completed(&w.ui.composer, &text);
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Refresh => {
+                let states = read::<ScreenStates, _>(cx);
+                let table = chat_strings::of(cx);
+                return if self.refresh(w, &states, table) {
+                    rtwk::Rebuild::Yes
+                } else {
+                    rtwk::Rebuild::No
+                };
+            }
+            ComposerMsg::Redraw => return rtwk::Rebuild::Yes,
+            ComposerMsg::Highlight(at) => {
+                if let Ok(at) = usize::try_from(at) {
+                    self.suggest.highlight(at);
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Click(at) => {
+                // a click picks as Enter does
+                if let Ok(at) = usize::try_from(at)
+                    && let Some(text) = self.suggest.pick(&w.ui.composer, at)
+                {
+                    w.ui.draft.completed(&w.ui.composer, &text);
+                    if let Some(h) = &w.on_picked {
+                        cx.emit(h, text);
+                    }
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Dismiss => {
+                self.suggest.hide(w.ui.composer.text());
+                return rtwk::Rebuild::Yes;
             }
         }
         rtwk::Rebuild::No
@@ -335,6 +458,7 @@ impl State for ComposerState {
             history: Rc::from(states.popovers.history.as_slice()),
             tell: cx.local_sender(),
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
+            suggest: self.suggest.clone(),
         };
         let env = data.burst.clone();
         let keys = |child: AnyWidget| -> AnyWidget {
@@ -377,21 +501,9 @@ impl State for ComposerState {
             area = area.placeholder(strings.chat.placeholder);
         }
         let table = chat_strings::of(cx);
-        let shell = w.ui.draft.clone();
-        let field = Autocomplete::new(
-            c.clone(),
-            // no command popup in shell mode (`allow_command_popup`)
-            move |before: &str| {
-                if shell.shell() {
-                    Vec::new()
-                } else {
-                    popup::suggestions(&states, table, before)
-                }
-            },
-            keys(area.into()),
-        )
-        .rows(popup::ROWS)
-        .on_selected(cx.map(|picked: Suggestion| ComposerMsg::Picked(Rc::from(&*picked.text))));
+        // the rows of the text as it is now (the states may have changed)
+        self.refresh(w, &states, table);
+        let field = self.popup(keys(area.into()), cx);
         let mark = if w.ui.draft.shell() {
             prompt(
                 strings::of(cx).shell_prompt,

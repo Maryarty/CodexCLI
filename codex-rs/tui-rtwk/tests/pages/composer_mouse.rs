@@ -74,9 +74,8 @@ fn the_drag_is_drawn_reversed_as_the_oracles_textarea_does() {
     s.assert_style(7, row, "!reversed");
 }
 
-// pending(G70): rtwk's `Autocomplete` rows take no pointer (a click does nothing)
+// ADR-011: a click on a row of the composer's popup picks it as Enter does
 #[test]
-#[ignore = "pending(G70): the Autocomplete popup rows take no mouse"]
 fn a_click_on_a_popup_row_picks_it() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)

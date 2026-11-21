@@ -22,6 +22,8 @@ mod composer_images;
 mod composer_mouse;
 #[path = "pages/composer_startup.rs"]
 mod composer_startup;
+#[path = "pages/composer_suggest.rs"]
+mod composer_suggest;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 

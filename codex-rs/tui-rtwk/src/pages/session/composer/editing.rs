@@ -15,6 +15,7 @@ use rtwk::prelude::{KeyCode, Mods};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
+use super::suggest::Suggest;
 use crate::widgets::composer_draft::ComposerDraft;
 
 /// What the handler reads besides the controller: the draft of the same
@@ -27,6 +28,8 @@ pub struct KeyData {
     pub history: Rc<[String]>,
     pub tell: Rc<dyn Fn(ComposerMsg)>,
     pub burst: Option<BurstEnv>,
+    /// The popup's rows: it takes Up, Down, Enter and Tab while it shows.
+    pub suggest: Rc<Suggest>,
 }
 
 fn only(key: &KeyPress, mods: Mods) -> bool {
@@ -42,9 +45,17 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     }
     // a `$skill` completion's space lasts for the next key only
     let skill_space = data.draft.take_skill_space();
+    if data.suggest.take_slash(c, key, &*data.tell) {
+        return true;
+    }
     if let Some(env) = &data.burst
         && burst::take(data, env, c, key, skill_space)
     {
+        return true;
+    }
+    // a popup with rows takes the keys of its list before the editing keys
+    // (history on Up and Down, the queue key on Tab)
+    if data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
     edit_key(data, c, key, skill_space)
@@ -262,6 +273,7 @@ mod tests {
             history: Rc::from(Vec::new()),
             tell: Rc::new(|_| {}),
             burst: None,
+            suggest: Rc::default(),
         }
     }
 

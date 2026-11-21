@@ -433,14 +433,11 @@ fn paste_burst_tabs_refresh_idle_timeout() {
 // ORACLE bottom_pane/chat_composer/paste_tests.rs:106 paste_burst_tab_does_not_accept_a_completion kind=ui owner=chat-live
 #[test]
 fn paste_burst_tab_does_not_accept_a_completion() {
-    kit::pending(
-        Owner::ChatLive,
-        "G69: the `/` popup (rtwk `Autocomplete`) takes the Tab before the composer's keys, so a Tab inside a burst completes the highlighted command instead of being a literal tab",
-    );
     let mut s = chat(100, 24);
     s.type_text("/");
-    s.type_text("review this");
-    s.keys("tab");
+    // the paste arrives as fast keys, the Tab among them
+    s.type_burst("review this\t");
+    s.wait(100);
     // the Tab is a literal tab (`/review this\t`): the completion is not accepted
     s.assert_row_starts_with(prompt(&s), "› /review this");
 }

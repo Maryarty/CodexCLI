@@ -88,7 +88,7 @@ fn reopening_identical_unified_mention_restarts_file_search() {
 fn mention_popup_type_prefixes_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "G68: the popup rows float in a different layout from the oracle's: a `▎` marker and label/detail two spaces apart, not aligned columns, no `enter insert · esc close` line, no `100% context left` footer",
+        "G68: the popup rows float in a different layout from the oracle's: a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line, no `100% context left` footer",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(72, 8)
@@ -450,7 +450,7 @@ fn remote_image_rows_snapshots() {
 fn slash_popup_model_clipping_snapshot() {
     kit::pending(
         Owner::ChatNavPane,
-        "G68: the popup rows float in a different layout from the oracle's: a `▎` marker and label/detail two spaces apart, not aligned columns, no `enter insert · esc close` line, no `100% context left` footer",
+        "G68: the popup rows float in a different layout from the oracle's: a `▎` bar and a right-aligned detail, not aligned name/description columns with a `›` marker, no `enter insert · esc close` line, no `100% context left` footer",
     );
     let mut s = ready(60, 3);
     s.type_text("/mo");
@@ -634,10 +634,6 @@ fn tab_queues_bang_shell_prompts_while_task_running_without_execution() {
 // ORACLE bottom_pane/chat_composer.rs:10001 slash_tab_completion_moves_cursor_to_end kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_moves_cursor_to_end() {
-    kit::pending(
-        Owner::ChatLive,
-        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command)",
-    );
     let mut s = ready(100, 24);
     s.type_text("/c").keys("tab");
     let p = prompt(&s);
@@ -649,10 +645,6 @@ fn slash_tab_completion_moves_cursor_to_end() {
 // ORACLE bottom_pane/chat_composer.rs:10029 slash_tab_completion_wins_over_queueing_while_task_running kind=ui owner=chat-live
 #[test]
 fn slash_tab_completion_wins_over_queueing_while_task_running() {
-    kit::pending(
-        Owner::ChatLive,
-        "G69: the suggestions tell a pick, not the key that made it (Tab completes `/compact ` as text, Enter runs the command)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!("fixtures/composer_2/running.jsonl"))
@@ -667,10 +659,6 @@ fn slash_tab_completion_wins_over_queueing_while_task_running() {
 // ORACLE bottom_pane/chat_composer.rs:10059 slash_key_completes_selected_slash_command_as_text kind=ui owner=chat-live
 #[test]
 fn slash_key_completes_selected_slash_command_as_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "not built: the typed `/` completes the highlighted command as text (the highlight is readable through `AutocompleteState::suggestions()`, a GlobalKey and `with_state`); composer-2",
-    );
     let mut s = ready(100, 24);
     s.type_text("/m");
     s.type_text("/");

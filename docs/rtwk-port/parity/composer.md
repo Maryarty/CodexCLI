@@ -159,19 +159,18 @@ are pending with their reason (below), none loosened.
   lines with Alt+Enter.
 - G67: no widget-level terminal suspend for `$EDITOR` (Ctrl+G external editor; one
   composer_4 test).
-- G68: `Autocomplete` popup layout: floating rows, label/detail two spaces apart, no
-  aligned columns, no hint line (command and mention popup snapshots: 5 composer_popups
-  and 2 composer_2 tests).
-- G69: `Autocomplete::on_selected` tells the pick, not the key that made it (the
-  oracle's Tab completes `/compact ` as text, Enter runs it): `took` runs before the key
-  hook, so no `EditingKeys` arm sees a pick key; 2 composer_2 tests. Rechecked in the fix
-  round: the highlighted suggestion IS readable (`AutocompleteState::suggestions()` through
-  a `GlobalKey` and `with_state`), the first row claimed it was not. The typed `/` that
-  completes the highlighted command (composer_2 `slash_key_completes_...`) is therefore
-  not a gap but not built (the oracle's version keeps the draft's tail as inline
-  arguments): pending to composer-2 with that reason.
-- G70: `Autocomplete` rows take no mouse: a click does nothing (`composer_mouse`
-  `a_click_on_a_popup_row_picks_it`, `#[ignore]`d as pending(G70)).
+- G68 (still a gap): the popup is `Popover` + `OptionList`; the oracle's rows are aligned
+  name/description columns with a `›` marker and an `enter insert · esc close` line, rtwk's
+  list has a `▎` bar and a right-aligned detail (5 composer_popups and 2 composer_2 tests).
+- G69, G70 (closed, route (b)): `Autocomplete` takes Tab/Enter alike and has no mouse, so
+  the composer owns `suggest.rs` (`Suggest` model read by the `EditingKeys` hook, drawn by
+  `Popover` + `OptionList`): Enter picks (a command runs, a mention is put in), Tab completes
+  `/name ` as text, a typed `/` completes the highlighted command, Up/Down/Ctrl+P/Ctrl+N and
+  the wheel move the highlight (wrapping), Esc closes until the text changes, a click picks
+  the row, a press outside closes. Page tests `tests/pages/composer_suggest.rs` (10); bite
+  shown: with the Tab arm off, 4 of them go red. Shards un-pended: composer_2 the two
+  slash-tab tests and `slash_key_completes_selected_slash_command_as_text`, composer_4
+  `paste_burst_tab_does_not_accept_a_completion`; the click test of `composer_mouse` runs.
 
 ## Pending and why (the rest, none built here)
 - Paste burst, what stays pending: composer_3 `shortcut_modified_input_does_not_enter_paste_bursts`
@@ -181,7 +180,7 @@ are pending with their reason (below), none loosened.
   alone with its own `100% context left` footer; the typing is the page test
   `composer_burst a_space_inside_a_burst_is_kept`),
   composer_2 `ascii_burst_treats_enter_as_newline_even_when_parent_owned` (no parent-owned
-  thread seed), composer_4 `paste_burst_tab_does_not_accept_a_completion` (G69).
+  thread seed), composer_4 `paste_burst_tab_does_not_accept_a_completion` (built with the popup, see G69).
 - Images `[Image #N]` (built 2026-11-21): a pasted image path (quotes, `file://`, escapes,
   Windows paths; the file must sniff as PNG/JPEG/GIF/WebP) becomes an atomic element in
   `ComposerDraft` (numbered by attach order, relabelled on every edit, a yank gets a new
@@ -240,7 +239,7 @@ are pending with their reason (below), none loosened.
 `tests/pages/composer_mouse.rs` (kit mouse events on the live chat screen): a click puts
 the caret in the draft (`› helloX world`), a drag selects and the next typed text replaces
 it (`› hello X`). Bite shown: without the click and the drag the rows read `› hello worldX`.
-A click on a popup row is G70 (rtwk). In the oracle shards: composer_4
+A click on a popup row picks it (`composer_mouse`, `composer_suggest`). In the oracle shards: composer_4
 blockquote_paste_replacing_selected_*, backspace_deletes_a_body_selection_*, composer_3 a click
 inside a placeholder snaps the caret to its end, textarea target_replaces_*.
 

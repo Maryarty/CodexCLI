@@ -64,9 +64,9 @@ fn large_draft_search() -> Screen {
 const HISTORY_SEARCH: &str = "reverse history search (Ctrl+R) is not built on the chat composer: no `reverse-i-search` footer, no match highlight, no pasted query";
 
 /// G68: the oracle's popup is the pane's rows under the prompt, its name and description in aligned
-/// columns from column 0; rtwk's `Autocomplete` floats it above the field (inline: inside the field's
-/// column, label and detail two spaces apart).
-const POPUP_ROWS: &str = "G68: rtwk Autocomplete draws the suggestions as a floating list above the prompt (inline: indented by the prompt mark, label and detail not in aligned columns), the oracle's are the pane's rows under the prompt";
+/// columns with a `›` marker and a hint line; rtwk's `OptionList` in a `Popover` floats above the
+/// prompt with a `▎` bar and a right-aligned detail.
+const POPUP_ROWS: &str = "G68: the popup is a floating OptionList (a `▎` bar, the detail right-aligned, no `enter insert · esc close` line), the oracle's are the pane's rows under the prompt in aligned name/description columns with a `›` marker";
 
 #[test]
 fn vim_normal_j_k_navigate_history_at_history_boundaries() {
