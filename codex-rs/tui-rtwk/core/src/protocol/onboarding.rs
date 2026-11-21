@@ -12,6 +12,8 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::ConfigReadParams;
+use codex_app_server_protocol::GcpSetupParams;
+use codex_app_server_protocol::GcpSetupResponse;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::LoginAccountParams;
@@ -22,6 +24,7 @@ use serde_json::Value;
 
 use crate::rpc::RpcError;
 use crate::screens::onboarding::UpdateOffer;
+use crate::screens::onboarding::auth::provider::Setup;
 use crate::screens::onboarding::auth::{DeviceCode, Error, Login, Offer, Outcome, Providers};
 
 /// `account/read`: whether the sign-in step is due.
@@ -87,6 +90,18 @@ pub fn sign_in_offer(result: Value, policy: LoginPolicy) -> Result<Option<Offer>
 /// `start_headless_chatgpt_login`, `save_api_key`).
 pub fn login_start(login: &Login, request_id: RequestId) -> ClientRequest {
     let params = match login {
+        // `GcpState`'s Enter on the credentials: the app server validates and
+        // writes the configuration (`account/gcp/setup`).
+        Login::Provider(Setup::Gcp(gcp)) => {
+            return ClientRequest::GcpSetup {
+                request_id,
+                params: GcpSetupParams {
+                    project_id: gcp.project_id.clone(),
+                    location: gcp.location.clone(),
+                    credential_file: gcp.credential_file.clone(),
+                },
+            };
+        }
         Login::ChatGpt => LoginAccountParams::Chatgpt {
             codex_streamlined_login: false,
             use_hosted_login_success_page: false,
@@ -113,12 +128,21 @@ pub fn login_cancel(login_id: &str, request_id: RequestId) -> ClientRequest {
 /// What a login's `account/login/start` answer means; `Err` is the error
 /// the request failed with, as the oracle shows it.
 pub fn login_outcome(login: &Login, result: Result<Value, String>) -> Outcome {
+    if let Login::Provider(Setup::Gcp(_)) = login {
+        // `spawn_provider_setup`: the response carries nothing, a refusal
+        // its server message.
+        return Outcome::Provider(result.and_then(|value| {
+            serde_json::from_value::<GcpSetupResponse>(value)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
+        }));
+    }
     let response = match result {
         Ok(value) => serde_json::from_value::<LoginAccountResponse>(value),
         Err(message) => {
             return Outcome::Failed(match login {
                 Login::ApiKey(_) => Error::SaveFailed(message),
-                Login::ChatGpt | Login::DeviceCode => Error::Server(message),
+                Login::ChatGpt | Login::DeviceCode | Login::Provider(_) => Error::Server(message),
             });
         }
     };

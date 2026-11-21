@@ -14,13 +14,15 @@
 //! `InputListener::with_raw_key_repeats` around it. What the step does is
 //! an intent to core (`Intent::SignIn`); the logins run in the host.
 //!
-//! The menu is a column of rows rather than a `SelectionList`: the oracle's
-//! cursor wraps round the ends, `j`/`k` and the digits move it, and in a
-//! short pane the descriptions and gaps give way to keep every option and
-//! the hint in view (`compact_options`), which the rows measure for
-//! themselves (`widgets::measure`).
+//! The menu's rows are text under the oracle's wrapping paragraph (a number
+//! and a label, the description under it, the caret `>`), so they are not
+//! `widgets::options`' two columns; what the menu shares with it is the
+//! cursor: `Options` keeps the highlighted row and its `step` wraps round the
+//! ends. In a short pane the descriptions and gaps give way to keep every
+//! option and the hint in view (`compact_options`): no rtwk widget picks a
+//! child by whether it fits, so the page measures its lines
+//! (`widgets::measure`) in a `LayoutBuilder`.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -45,8 +47,11 @@ use codex_tui_core::screens::onboarding::auth::{self, Method, Provider, SignIn};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
+use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
+use crate::widgets::options::Options;
 
+mod provider;
 pub mod strings;
 use strings::Strings;
 
@@ -68,107 +73,62 @@ enum MenuRow {
     Provider(Provider),
 }
 
-impl MenuRow {
-    /// A row of "Sign in another way".
-    fn is_alternative(self) -> bool {
-        matches!(self, MenuRow::ApiKey | MenuRow::Provider(_))
-    }
+/// The menu shown: the first one, or "Sign in another way"
+/// (`SignInOption::is_alternative` of the highlighted row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShownMenu {
+    First,
+    Another,
 }
 
-/// The rows of the menu the highlight is in (`displayed_sign_in_options`).
-fn options(offer: &auth::Offer, highlighted: MenuRow) -> Vec<MenuRow> {
-    if highlighted.is_alternative() {
-        let mut rows = vec![MenuRow::ApiKey];
+/// A row shown, and whether it can be chosen: the ChatGPT row stays on the
+/// menu, saying its login is disabled, when the policy forbids it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Row {
+    choice: MenuRow,
+    enabled: bool,
+}
+
+/// The rows of `menu` (`displayed_sign_in_options`): the one place that
+/// decides which rows show and which can be chosen.
+fn rows(offer: &auth::Offer, menu: ShownMenu) -> Vec<Row> {
+    let enabled = |choice| Row {
+        choice,
+        enabled: true,
+    };
+    if menu == ShownMenu::Another {
+        let mut rows = vec![enabled(MenuRow::ApiKey)];
         for provider in [Provider::Bedrock, Provider::Gcp, Provider::Gateway] {
             if offer.providers.offers(provider) {
-                rows.push(MenuRow::Provider(provider));
+                rows.push(enabled(MenuRow::Provider(provider)));
             }
         }
         return rows;
     }
-    let mut rows = vec![MenuRow::ChatGpt];
+    let mut rows = vec![Row {
+        choice: MenuRow::ChatGpt,
+        enabled: offer.chatgpt,
+    }];
     if offer.chatgpt {
-        rows.push(MenuRow::DeviceCode);
+        rows.push(enabled(MenuRow::DeviceCode));
     }
     if offer.api_key {
-        rows.push(MenuRow::Other);
+        rows.push(enabled(MenuRow::Other));
     }
     rows
 }
 
-/// The key a guard holds back: Enter or a character.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GuardKey {
-    Enter,
-    Char(char),
+/// The rows the highlight moves over (`move_highlight`).
+fn reachable(rows: &[Row]) -> Vec<MenuRow> {
+    rows.iter()
+        .filter(|row| row.enabled)
+        .map(|row| row.choice)
+        .collect()
 }
 
-impl GuardKey {
-    fn of_press(key: &KeyPress) -> Option<GuardKey> {
-        if key.mods != Mods::NONE && key.mods != Mods::SHIFT {
-            return None;
-        }
-        match key.code {
-            KeyCode::Enter => Some(GuardKey::Enter),
-            KeyCode::Char => key.ch.map(GuardKey::Char),
-            _ => None,
-        }
-    }
-}
-
-/// The oracle's `ActivationKeyGuard` with `reported_repeats_only` false: the
-/// key that changed the view is held back until it is released, another
-/// key is pressed, or a second passes without it (a terminal that reports
-/// no repeats repeats with presses).
-#[derive(Clone, Copy, Debug)]
-struct Guard {
-    key: GuardKey,
-    until: Duration,
-}
-
-const GUARD: Duration = Duration::from_secs(1);
-
-#[derive(Default)]
-struct Guards {
-    guard: Option<Guard>,
-}
-
-impl Guards {
-    /// Whether the press of `key` at `now` is held back.
-    fn press(&mut self, key: Option<GuardKey>, now: Duration) -> bool {
-        let Some(guard) = self.guard else {
-            return false;
-        };
-        if key == Some(guard.key) && now <= guard.until {
-            self.guard = Some(Guard {
-                key: guard.key,
-                until: guard.until.max(now + GUARD),
-            });
-            return true;
-        }
-        self.guard = None;
-        false
-    }
-
-    /// A repeat of `key`: held back while guarded, the guard prolonged.
-    fn held(&mut self, key: Option<GuardKey>, now: Duration) {
-        match self.guard {
-            Some(guard) if key == Some(guard.key) => {
-                self.guard = Some(Guard {
-                    key: guard.key,
-                    until: guard.until.max(now + GUARD),
-                });
-            }
-            Some(_) => self.guard = None,
-            None => {}
-        }
-    }
-
-    fn release(&mut self, key: Option<GuardKey>) {
-        if self.guard.is_some_and(|guard| Some(guard.key) == key) {
-            self.guard = None;
-        }
-    }
+/// The oracle's `.is_alternative()`: a row of "Sign in another way".
+fn is_alternative(row: MenuRow) -> bool {
+    matches!(row, MenuRow::ApiKey | MenuRow::Provider(_))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -190,11 +150,13 @@ pub enum Msg {
 /// Widget state: the highlighted option, the API key's field and the
 /// activation guard (R14).
 pub struct SignInState {
-    highlighted: MenuRow,
+    menu: ShownMenu,
+    /// The highlighted row of the menu: an index into its reachable rows.
+    cursor: Options,
     field: TextEditingController,
     field_node: FocusNode,
     node: FocusNode,
-    guards: Rc<RefCell<Guards>>,
+    guard: KeyGuard,
     /// "Copy requested; check your clipboard" under the link, until the
     /// browser login ends.
     copied: bool,
@@ -205,15 +167,14 @@ impl StatefulWidget for SignInStep {
 
     fn create_state(&self) -> SignInState {
         SignInState {
-            highlighted: if self.sign_in.offer.chatgpt {
-                MenuRow::ChatGpt
-            } else {
-                MenuRow::Other
-            },
+            menu: ShownMenu::First,
+            // ChatGPT is the first row, or the other-ways row when its
+            // login is not allowed (not reachable then).
+            cursor: Options::new(),
             field: TextEditingController::default(),
             field_node: FocusNode::new(),
             node: FocusNode::new(),
-            guards: Rc::new(RefCell::new(Guards::default())),
+            guard: KeyGuard::default(),
             copied: false,
         }
     }
@@ -224,6 +185,30 @@ impl_widget!(stateful eq SignInStep);
 /// The time on the app's clock (a test's fake clock moves it).
 fn now<S: State>(cx: &Cx<'_, S>) -> Duration {
     AppBinding::maybe_of(cx).map_or(Duration::ZERO, |binding| binding.clock().now())
+}
+
+/// What every key press meets first, on a node of the step or of a field in
+/// it: the activation guard (a held Enter acts once), then the quit keys
+/// (`keys::QUIT`: Ctrl+C and Ctrl+D, and a `q` unless `typing` says it is
+/// text). The provider wizards' fields use it too.
+pub(crate) fn guarded_keys(
+    guard: KeyGuard,
+    now: Rc<dyn Fn() -> Duration>,
+    typing: Rc<dyn Fn() -> bool>,
+    quit: Rc<dyn Fn()>,
+) -> FocusOnKeyEventCallback {
+    Rc::new(move |_, key| {
+        if guard.press(GuardKey::of_press(&key), now()) {
+            return KeyEventResult::Handled;
+        }
+        let chord = key.mods == Mods::CTRL && matches!(key.ch, Some('c' | 'd'));
+        let q = key.mods == Mods::NONE && key.ch == Some('q');
+        if chord || (q && !typing()) {
+            quit();
+            return KeyEventResult::Handled;
+        }
+        KeyEventResult::Ignored
+    })
 }
 
 impl SignInState {
@@ -249,22 +234,33 @@ impl SignInState {
         }
     }
 
-    fn guard(&self, key: GuardKey, cx: &Cx<'_, Self>) {
-        self.guards.borrow_mut().guard = Some(Guard {
-            key,
-            until: now(cx) + GUARD,
-        });
+    /// The row the highlight is on.
+    fn highlighted(&self, w: &SignInStep) -> Option<MenuRow> {
+        reachable(&rows(&w.sign_in.offer, self.menu))
+            .get(self.cursor.cursor())
+            .copied()
+    }
+
+    /// The highlight goes to `choice` (a digit chose it).
+    fn highlight(&self, choice: MenuRow, w: &SignInStep) {
+        if let Some(at) = reachable(&rows(&w.sign_in.offer, self.menu))
+            .iter()
+            .position(|row| *row == choice)
+        {
+            self.cursor.set(at);
+        }
     }
 
     /// `activate_highlighted_mode` and `handle_sign_in_option`.
-    fn activate(&mut self, choice: MenuRow, key: GuardKey, cx: &mut Cx<'_, Self>) {
-        self.highlighted = choice;
-        if choice == MenuRow::Other || choice.is_alternative() {
-            self.guard(key, cx);
+    fn activate(&mut self, choice: MenuRow, key: GuardKey, w: &SignInStep, cx: &mut Cx<'_, Self>) {
+        self.highlight(choice, w);
+        if choice == MenuRow::Other || is_alternative(choice) {
+            self.guard.arm(key, now(cx));
         }
         match choice {
             MenuRow::Other => {
-                self.highlighted = MenuRow::ApiKey;
+                self.menu = ShownMenu::Another;
+                self.cursor.set(0);
                 Self::emit(cx, auth::Intent::Menu);
             }
             MenuRow::ChatGpt => Self::emit(cx, auth::Intent::Choose(Method::ChatGpt)),
@@ -276,22 +272,11 @@ impl SignInState {
         }
     }
 
-    /// `move_highlight`: round the ends, past ChatGPT when its login is not
-    /// allowed.
-    fn step(&mut self, delta: isize, w: &SignInStep) {
-        let mut rows = options(&w.sign_in.offer, self.highlighted);
-        if !w.sign_in.offer.chatgpt {
-            rows.retain(|row| *row != MenuRow::ChatGpt);
-        }
-        if rows.is_empty() {
-            return;
-        }
-        let len = rows.len() as isize;
-        let at = rows
-            .iter()
-            .position(|row| *row == self.highlighted)
-            .unwrap_or(0) as isize;
-        self.highlighted = rows[(at + delta).rem_euclid(len) as usize];
+    /// `move_highlight`: round the ends (`Options::step`), past ChatGPT when
+    /// its login is not allowed.
+    fn step(&self, delta: i64, w: &SignInStep) {
+        self.cursor
+            .step(delta, reachable(&rows(&w.sign_in.offer, self.menu)).len());
     }
 }
 
@@ -322,27 +307,24 @@ impl State for SignInState {
         // Every key press meets the guard first, on the step's node and on
         // the key entry's (whose field takes Enter and the arrows).
         let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
+        let now: Rc<dyn Fn() -> Duration> =
+            Rc::new(move || clock.as_ref().map_or(Duration::ZERO, |clock| clock.now()));
         let send = cx.local_sender();
         let on_key = |typing: Option<TextEditingController>| -> FocusOnKeyEventCallback {
-            let (guards, clock, send) = (self.guards.clone(), clock.clone(), send.clone());
-            Rc::new(move |_, key| {
-                let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
-                if guards.borrow_mut().press(GuardKey::of_press(&key), now) {
-                    return KeyEventResult::Handled;
-                }
-                // `keys::QUIT`; a `q` is text once the key entry holds some
-                // (`suppress_quit_while_typing`).
-                let chord = key.mods == Mods::CTRL && matches!(key.ch, Some('c' | 'd'));
-                let q = key.mods == Mods::NONE && key.ch == Some('q');
-                let typed = typing
+            // `suppress_quit_while_typing`: a `q` is text once the key
+            // entry holds some.
+            let typed: Rc<dyn Fn() -> bool> = Rc::new(move || {
+                typing
                     .as_ref()
-                    .is_some_and(|field| !field.text().is_empty());
-                if chord || (q && !typed) {
-                    send(Msg::Quit);
-                    return KeyEventResult::Handled;
-                }
-                KeyEventResult::Ignored
-            })
+                    .is_some_and(|field| !field.text().is_empty())
+            });
+            let send = send.clone();
+            guarded_keys(
+                self.guard.clone(),
+                now.clone(),
+                typed,
+                Rc::new(move || send(Msg::Quit)),
+            )
         };
         self.node.set_on_key_event(Some(on_key(None)));
         self.field_node
@@ -355,6 +337,7 @@ impl State for SignInState {
 
     fn dispose(&mut self) {
         self.field.dispose();
+        self.cursor.dispose();
     }
 
     fn update(&mut self, msg: Msg, w: &SignInStep, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -369,15 +352,18 @@ impl State for SignInState {
                 if *state != auth::State::Pick {
                     return Rebuild::No;
                 }
-                let rows = options(&w.sign_in.offer, self.highlighted);
-                if let Some(choice) = rows.get(index).copied()
-                    && (choice != MenuRow::ChatGpt || w.sign_in.offer.chatgpt)
+                if let Some(row) = rows(&w.sign_in.offer, self.menu).get(index).copied()
+                    && row.enabled
                 {
-                    self.activate(choice, GuardKey::Char(key), cx);
+                    self.activate(row.choice, GuardKey::Char(key), w, cx);
                 }
             }
             Msg::Confirm => match state {
-                auth::State::Pick => self.activate(self.highlighted, GuardKey::Enter, cx),
+                auth::State::Pick => {
+                    if let Some(choice) = self.highlighted(w) {
+                        self.activate(choice, GuardKey::Enter, w, cx);
+                    }
+                }
                 auth::State::SuccessMessage => Self::emit(cx, auth::Intent::Continue),
                 _ => {}
             },
@@ -385,9 +371,12 @@ impl State for SignInState {
                 Self::emit(cx, auth::Intent::SaveApiKey(text.to_string()));
             }
             Msg::Cancel => {
-                if *state == auth::State::Pick && self.highlighted.is_alternative() {
-                    self.highlighted = MenuRow::Other;
+                if *state == auth::State::Pick && self.menu == ShownMenu::Another {
+                    self.menu = ShownMenu::First;
+                    self.highlight(MenuRow::Other, w);
                     Self::emit(cx, auth::Intent::Menu);
+                } else if matches!(state, auth::State::Provider(_)) {
+                    Self::emit(cx, auth::Intent::ProviderBack);
                 } else {
                     Self::emit(cx, auth::Intent::Cancel);
                 }
@@ -440,7 +429,8 @@ impl State for SignInState {
             auth::State::Pick => {
                 let pick = Pick {
                     offer: w.sign_in.offer.clone(),
-                    highlighted: self.highlighted,
+                    menu: self.menu,
+                    highlighted: self.highlighted(w),
                     error,
                 };
                 LayoutBuilder::new(move |cx, constraints| {
@@ -496,9 +486,15 @@ impl State for SignInState {
                         .on_submitted(cx.map(Msg::Submitted)),
                 )
             }
-            // The provider's setup (S03) is not built yet: its place is
-            // empty, and Esc comes back to the menu.
-            auth::State::Provider(_) => SizedBox::shrink().into(),
+            // The provider's wizard (S03); one whose wizard is not built
+            // has an empty place, and Esc comes back to the menu.
+            auth::State::Provider(_) => match &w.sign_in.wizard {
+                Some(wizard) => provider::body(wizard, &self.guard),
+                None => SizedBox::shrink().into(),
+            },
+            auth::State::ProviderConfigured(chosen) => {
+                provider::configured(*chosen, &look, provider::strings::of(cx))
+            }
         };
         focus.child = body;
         for (key, msg) in [
@@ -521,7 +517,7 @@ impl State for SignInState {
         // a held key moves the highlight and deletes, nothing else
         // (`KeyEventKind::Press` checks of `handle_key_event`); a release
         // ends the guard of its key.
-        let guards = self.guards.clone();
+        let guard = self.guard.clone();
         let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
         let pick = w.sign_in.state == auth::State::Pick;
         let entry = matches!(w.sign_in.state, auth::State::ApiKey { .. });
@@ -529,22 +525,15 @@ impl State for SignInState {
             let InputEvent::Key(key) = event else {
                 return false;
             };
-            let guard_key = KeyPress::from_event(key)
-                .as_ref()
-                .and_then(GuardKey::of_press)
-                .or(match (key.code, key.text.chars().next()) {
-                    (KeyCode::Enter, _) => Some(GuardKey::Enter),
-                    (KeyCode::Char, Some(c)) => Some(GuardKey::Char(c)),
-                    _ => None,
-                });
+            let guard_key = GuardKey::of_event(key);
             match key.kind {
                 KeyKind::Release => {
-                    guards.borrow_mut().release(guard_key);
+                    guard.release(guard_key);
                     false
                 }
                 KeyKind::Repeat => {
                     let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
-                    guards.borrow_mut().held(guard_key, now);
+                    guard.held(guard_key, now);
                     let moves = matches!(key.code, KeyCode::Up | KeyCode::Down)
                         || (pick && matches!(guard_key, Some(GuardKey::Char('j' | 'k'))));
                     let edits = entry && matches!(key.code, KeyCode::Backspace | KeyCode::Escape);
@@ -559,18 +548,18 @@ impl State for SignInState {
 
 /// The styles of the step.
 #[derive(Clone)]
-struct Look {
-    dim: Style,
+pub(crate) struct Look {
+    pub(crate) dim: Style,
     /// A key's name in a hint (`key_hint_style`: bold, not dim).
-    key: Style,
-    cyan: Style,
-    green: Style,
-    red: Style,
+    pub(crate) key: Style,
+    pub(crate) cyan: Style,
+    pub(crate) green: Style,
+    pub(crate) red: Style,
 }
 
-type Line = Vec<Span>;
+pub(crate) type Line = Vec<Span>;
 
-fn width_of(max_width: i32) -> usize {
+pub(crate) fn width_of(max_width: i32) -> usize {
     usize::try_from(max_width).unwrap_or(0)
 }
 
@@ -588,7 +577,7 @@ fn one_word(text: &str) -> bool {
 }
 
 /// The rows the lines take at `width`.
-fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
+pub(crate) fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
     let seg = segmenter_of(cx);
     let width = width.max(1);
     lines
@@ -606,7 +595,7 @@ fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
 
 /// The lines as a paragraph that wraps them and is cut off at the bottom of
 /// its room (`Paragraph::wrap(Wrap { trim: false })`).
-fn paragraph(lines: Vec<Line>) -> AnyWidget {
+pub(crate) fn paragraph(lines: Vec<Line>) -> AnyWidget {
     LayoutBuilder::new(move |cx, constraints| {
         let rows = rows_of(cx, &lines, width_of(constraints.max_width));
         let mut column = Column::new()
@@ -641,7 +630,8 @@ fn hint(strings: &Strings, look: &Look, key: &'static str, what: &'static str) -
 /// The menu (`render_pick_mode`).
 struct Pick {
     offer: auth::Offer,
-    highlighted: MenuRow,
+    menu: ShownMenu,
+    highlighted: Option<MenuRow>,
     error: Option<String>,
 }
 
@@ -656,7 +646,7 @@ impl Pick {
         height: usize,
     ) -> Vec<Line> {
         let providers = self.offer.providers.any();
-        let mut lines: Vec<Line> = if self.highlighted.is_alternative() {
+        let mut lines: Vec<Line> = if self.menu == ShownMenu::Another {
             vec![vec![
                 Span::new(strings.indent),
                 Span::new(strings.heading_other),
@@ -676,10 +666,7 @@ impl Pick {
         lines.push(Vec::new());
         let start = lines.len();
         let mut compact = Vec::new();
-        for (index, choice) in options(&self.offer, self.highlighted)
-            .into_iter()
-            .enumerate()
-        {
+        for (index, Row { choice, .. }) in rows(&self.offer, self.menu).into_iter().enumerate() {
             let (label, description) = match choice {
                 MenuRow::ChatGpt => (
                     strings.chatgpt,
@@ -707,7 +694,7 @@ impl Pick {
                     (strings.gateway, strings.gateway_description)
                 }
             };
-            let on = choice == self.highlighted;
+            let on = Some(choice) == self.highlighted;
             let number = strings.option_number(index + 1, on, num);
             let (first, second) = if on {
                 let cyan_dim = look.cyan.clone().merge(&look.dim);
@@ -744,7 +731,7 @@ impl Pick {
             lines.push(Vec::new());
         }
         lines.push(hint(strings, look, strings.enter, strings.to_continue));
-        if self.highlighted.is_alternative() {
+        if self.menu == ShownMenu::Another {
             lines.push(hint(strings, look, strings.esc, strings.to_go_back));
         }
         if let Some(error) = &self.error {

@@ -23,14 +23,26 @@ pub fn shows_logo(animations: bool, width: i32, height: i32) -> bool {
     animations && height >= MIN_ANIMATION_HEIGHT && width >= MIN_ANIMATION_WIDTH
 }
 
-/// The header; `replay` changes to play the logo again.
-pub fn header(strings: &'static Strings, bold: Style, logo: bool, replay: u32) -> AnyWidget {
+/// The header; `replay` changes to play the logo again; `faded` is a text
+/// entry being open (`Presentation::Faded`: the logo stops and fades).
+pub fn header(
+    strings: &'static Strings,
+    bold: Style,
+    logo: bool,
+    replay: u32,
+    faded: bool,
+) -> AnyWidget {
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start);
     if logo {
         column = column
-            .child(blossom::stage(ANIMATION_WIDTH, ANIMATION_HEIGHT, replay))
+            .child(blossom::stage(
+                ANIMATION_WIDTH,
+                ANIMATION_HEIGHT,
+                replay,
+                faded,
+            ))
             .child(SizedBox::new(None, Some(1), None));
     }
     let [before, name, after] = strings.welcome;
