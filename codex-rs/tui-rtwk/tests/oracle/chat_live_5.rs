@@ -465,13 +465,10 @@ fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
 // ORACLE chatwidget/tests/review_mode.rs:1087 ctrl_c_cleared_prompt_is_recoverable_via_history kind=ui owner=chat-live
 #[test]
 fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attach step in the kit: the draft's attached image placeholder ([Image #1]) is not made, so Ctrl+C clear and Up recall cannot be checked",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("draft message ");
-    // oracle: attach_image(/tmp/preview.png) appends "[Image #1]" to the draft (no kit step yet).
+    // oracle: attach_image(/tmp/preview.png) appends "[Image #1]" to the draft
+    s.attach_image("preview.png");
     s.keys("ctrl+c");
     s.assert_absent("draft message");
     s.keys("up");

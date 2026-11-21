@@ -83,6 +83,15 @@ impl From<Harness> for Screen {
     }
 }
 
+/// A tiny PNG `name` in a directory of this test process; returns its path.
+pub fn image_file(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("codex-kit-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("image dir");
+    let path = dir.join(name);
+    std::fs::write(&path, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").expect("write the image");
+    path
+}
+
 impl Screen {
     // ---- keys ----------------------------------------------------------
 
@@ -125,6 +134,19 @@ impl Screen {
             self.h.t.pump_for(crate::common::ms(1));
         }
         self
+    }
+
+    /// Attaches a PNG at the caret, as the oracle's `attach_image(path)`: a
+    /// terminal drops a dragged file on the prompt as its path, and the
+    /// composer attaches an image file as `[Image #N]` (with a space after
+    /// it, which is taken back, as `attach_image` adds none). The file is a
+    /// tiny PNG `name` in a directory of this test process; returns its
+    /// path.
+    pub fn attach_image(&mut self, name: &str) -> std::path::PathBuf {
+        let path = image_file(name);
+        self.paste(&path.to_string_lossy());
+        self.keys("backspace");
+        path
     }
 
     /// Pastes text as a terminal with bracketed paste does.

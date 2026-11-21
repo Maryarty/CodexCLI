@@ -135,6 +135,7 @@ mod timer {
             now: Rc::new(|| Duration::ZERO),
             arm: Rc::new(move || counter.set(counter.get() + 1)),
             label: Rc::new(|n| format!("[Pasted Content {n} chars]")),
+            image: Rc::new(|n| format!("[Image #{n}]")),
         };
         // two fast chars: the burst begins and holds both
         draft.burst(|b| {

@@ -36,6 +36,8 @@ pub struct BurstEnv {
     pub arm: Rc<dyn Fn()>,
     /// The placeholder of a paste of that many chars.
     pub label: Rc<dyn Fn(usize) -> String>,
+    /// The placeholder of the n-th attached image.
+    pub image: Rc<dyn Fn(usize) -> String>,
 }
 
 /// Whether the burst detector takes `key`: held or buffered (`true`), or
@@ -152,7 +154,7 @@ pub fn apply_paste(
     c: &TextEditingController,
     text: &str,
 ) {
-    if !draft.paste(c, text, |chars| (env.label)(chars)) {
+    if !draft.paste(c, text, |chars| (env.label)(chars), |n| (env.image)(n)) {
         c.insert(text);
     }
     draft.burst(PasteBurst::clear_after_explicit_paste);

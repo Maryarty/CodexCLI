@@ -404,7 +404,7 @@ async fn run_as(
             Command::StartTurn {
                 ticket,
                 thread,
-                text,
+                message,
                 ..
             } => {
                 let (n, events) = scripted.unwrap_or((0, None));
@@ -420,7 +420,7 @@ async fn run_as(
                     thread.as_str(),
                     &turn_id,
                     &format!("user-{n}"),
-                    &text,
+                    &message.text,
                 )));
                 for event in events.unwrap_or_default() {
                     emit(AppEv::Backend(event));

@@ -52,6 +52,7 @@ use crate::threads::ThreadFx;
 use crate::threads::ThreadModel;
 use crate::threads::ThreadSet;
 use crate::threads::TurnState;
+use crate::threads::UserMessage;
 
 /// Where the connection to the app-server stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,7 +157,7 @@ pub enum Intent {
     /// the session to be `Ready`.
     Submit {
         thread: Option<ThreadId>,
-        text: String,
+        message: UserMessage,
     },
     /// Reject an unanswered request.
     DismissRequest(RequestKey),
@@ -236,7 +237,7 @@ pub enum Command {
     StartTurn {
         ticket: Ticket,
         thread: ThreadId,
-        text: String,
+        message: UserMessage,
     },
     #[non_exhaustive]
     RejectRequest { key: RequestKey },
@@ -365,7 +366,7 @@ pub struct CodexApp {
     screens: Rc<ScreenStates>,
     mint: TicketMint,
     outgoing: Pending<AppCtx>,
-    queued_submits: Vec<String>,
+    queued_submits: Vec<UserMessage>,
     /// Notifications may be delivered before the reply to the operation attaching the writer.
     attaching_events: VecDeque<(BackendId, ThreadId, ThreadEv)>,
     /// Whether connecting starts the first thread. `codex agents` opens the
@@ -1130,14 +1131,14 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 banner.dismiss(ticket);
             }
         }
-        Intent::Submit { thread, text } => {
+        Intent::Submit { thread, message } => {
             let target = thread.or_else(|| app.session.active.clone());
             match target {
-                Some(thread) => submit(app, &thread, text, fx),
+                Some(thread) => submit(app, &thread, message, fx),
                 None => {
                     // Before the first thread: kept until it exists; the
                     // composer's draft clears (the blank projection's ticket).
-                    app.queued_submits.push(text);
+                    app.queued_submits.push(message);
                     threads::apply(
                         app.threads.blank_mut(),
                         ThreadEv::DeferredSubmit,
@@ -1490,8 +1491,8 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
-            for text in std::mem::take(&mut app.queued_submits) {
-                submit(app, &thread, text, fx);
+            for message in std::mem::take(&mut app.queued_submits) {
+                submit(app, &thread, message, fx);
             }
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
@@ -1618,12 +1619,12 @@ fn show_held_thread(app: &mut CodexApp, id: ThreadId) {
     session.status = Session::Ready;
 }
 
-fn submit(app: &mut CodexApp, thread: &ThreadId, text: String, fx: &mut AppFx) {
-    let text = text.trim().to_string();
-    if text.is_empty() || !app.threads.contains(thread) {
+fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut AppFx) {
+    let message = message.trimmed();
+    if message.is_empty() || !app.threads.contains(thread) {
         return;
     }
-    apply_thread(app, thread, ThreadEv::Submit { text }, fx);
+    apply_thread(app, thread, ThreadEv::Submit { message }, fx);
 }
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.

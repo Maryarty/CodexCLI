@@ -16,6 +16,7 @@ use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::{Ev, Page};
+use codex_tui_core::threads::UserMessage;
 
 const LOCAL: BackendId = BackendId(0);
 const CLOUD: BackendId = BackendId(1);
@@ -158,7 +159,7 @@ fn a_conversation_with_a_turn_cannot_cycle() {
         &mut app,
         AppEv::Intent(Intent::Submit {
             thread: None,
-            text: "hello".into(),
+            message: UserMessage::text("hello"),
         }),
     );
     assert_eq!(app.cycle_label(), None);

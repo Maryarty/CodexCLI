@@ -10,7 +10,7 @@ use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch};
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
-use codex_tui_core::threads::{Failure, ThreadModel};
+use codex_tui_core::threads::{Failure, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
@@ -118,7 +118,16 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             // the message; the composer clears when it has.
             if !line.trim().is_empty() {
                 record(cx);
-                cx.emit(&hs.submit, line.to_string());
+                // the draft's images go with its text; a line that is not
+                // the draft (a popup's pick) goes as text
+                let table = crate::pages::session::composer::strings::of(cx);
+                let draft = w.ui.draft.submission(&w.ui.composer, |n| table.image(n));
+                let message = if draft.text.trim() == line.trim() {
+                    draft
+                } else {
+                    UserMessage::text(line)
+                };
+                cx.emit(&hs.submit, message);
             }
         }
         Outcome::Open(opened) => {

@@ -19,6 +19,7 @@ use codex_tui_core::app::Intent;
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
 use crate::widgets::thread_ui::ThreadUiMap;
@@ -44,7 +45,7 @@ pub struct SeededScopeState {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SeededMsg {
-    Submit(String),
+    Submit(UserMessage),
     Dismiss(RequestKey),
     DismissBanner(BackendId, Ticket),
     Screen(ScreenIntent),
@@ -82,9 +83,9 @@ impl State for SeededScopeState {
             return Rebuild::No;
         };
         let intent = match msg {
-            SeededMsg::Submit(text) => Intent::Submit {
+            SeededMsg::Submit(message) => Intent::Submit {
                 thread: sandbox.app().session().active.clone(),
-                text,
+                message,
             },
             SeededMsg::Dismiss(key) => Intent::DismissRequest(key),
             SeededMsg::DismissBanner(backend, ticket) => {

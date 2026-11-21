@@ -215,13 +215,9 @@ fn test_partial_placeholder_deletion() {
 // ORACLE bottom_pane/chat_composer.rs:10975 attach_image_and_submit_includes_local_image_paths kind=ui owner=chat-live
 #[test]
 fn attach_image_and_submit_includes_local_image_paths() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: the oracle attaches /tmp/image1.png through the API; the screen has no attach path, so a pasted png path stands in for it",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: attach_image('/tmp/image1.png'), then ' hi'
-    s.paste("/tmp/image1.png");
+    s.attach_image("image1.png");
     s.paste(" hi");
     s.assert_row(prompt(&s), "› [Image #1] hi");
     // oracle: Enter submits '[Image #1] hi' with one image element at 0..10
@@ -365,15 +361,11 @@ fn vim_normal_history_navigation_from_start_of_bang_command_recalls_older_entry(
 // ORACLE bottom_pane/chat_composer.rs:11326 large_paste_preserves_image_text_elements_on_submit kind=ui owner=chat-live
 #[test]
 fn large_paste_preserves_image_text_elements_on_submit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: a 1005-char paste, a space and an image submit as the text then '[Image #1]'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the large paste, ' ', then attach_image('/tmp/image_with_paste.png')
     s.paste(&"x".repeat(1005));
     s.paste(" ");
-    s.paste("/tmp/image_with_paste.png");
+    s.attach_image("image_with_paste.png");
     s.keys("enter");
     s.assert_contains("[Image #1]");
     s.assert_absent("[Pasted Content");
@@ -382,15 +374,11 @@ fn large_paste_preserves_image_text_elements_on_submit() {
 // ORACLE bottom_pane/chat_composer.rs:11369 large_paste_with_leading_whitespace_trims_and_shifts_elements kind=ui owner=chat-live
 #[test]
 fn large_paste_with_leading_whitespace_trims_and_shifts_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: the leading spaces of a large paste are trimmed on submit, and the image label follows the text",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: two leading spaces, 1005 x, ' ', then the image
     s.paste(&format!("  {}", "x".repeat(1005)));
     s.paste(" ");
-    s.paste("/tmp/image_with_trim.png");
+    s.attach_image("image_with_trim.png");
     s.keys("enter");
     s.assert_contains("[Image #1]");
     s.assert_absent("[Pasted Content");
@@ -399,15 +387,11 @@ fn large_paste_with_leading_whitespace_trims_and_shifts_elements() {
 // ORACLE bottom_pane/chat_composer.rs:11412 pasted_crlf_normalizes_newlines_for_elements kind=ui owner=chat-live
 #[test]
 fn pasted_crlf_normalizes_newlines_for_elements() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: a paste with CRLF line ends submits as 'line1' and 'line2' lines, then the image label",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'line1\r\nline2\r\n', ' ', then the image: the CRLF pairs become '\n'
     s.paste("line1\r\nline2\r\n");
     s.paste(" ");
-    s.paste("/tmp/image_crlf.png");
+    s.attach_image("image_crlf.png");
     s.keys("enter");
     s.assert_in_order(&["line1", "line2", "[Image #1]"]);
 }
@@ -433,13 +417,9 @@ fn suppressed_submission_restores_pending_paste_payload() {
 // ORACLE bottom_pane/chat_composer.rs:11508 attach_image_without_text_submits_empty_text_and_images kind=ui owner=chat-live
 #[test]
 fn attach_image_without_text_submits_empty_text_and_images() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: an image with no text submits as '[Image #1]' alone",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: attach_image('/tmp/image2.png') with no text, Enter
-    s.paste("/tmp/image2.png");
+    s.attach_image("image2.png");
     s.keys("enter");
     s.assert_contains("[Image #1]");
 }
@@ -447,33 +427,25 @@ fn attach_image_without_text_submits_empty_text_and_images() {
 // ORACLE bottom_pane/chat_composer.rs:11547 duplicate_image_placeholders_get_suffix kind=ui owner=chat-live
 #[test]
 fn duplicate_image_placeholders_get_suffix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: the same image attached twice gets the labels '[Image #1]' and '[Image #2]'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: attach_image(same path), ' ', attach_image(same path)
-    s.paste("/tmp/image_dup.png");
+    s.attach_image("image_dup.png");
     s.paste(" ");
-    s.paste("/tmp/image_dup.png");
+    s.attach_image("image_dup.png");
     s.assert_row(prompt(&s), "› [Image #1] [Image #2]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11576 image_placeholder_backspace_behaves_like_text_placeholder kind=ui owner=chat-live
 #[test]
 fn image_placeholder_backspace_behaves_like_text_placeholder() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: Backspace at the end removes the '[Image #1]' placeholder, and Backspace inside it keeps it",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    s.paste("/tmp/image3.png");
+    s.attach_image("image3.png");
     s.assert_contains("[Image #1]");
     // oracle case 1: the cursor at the end, Backspace removes the placeholder
     s.keys("end backspace");
     s.assert_absent("[Image #1]");
     // oracle case 2: the cursor about the middle of the re-added placeholder, Backspace keeps it
-    s.paste("/tmp/image3.png");
+    s.attach_image("image3.png");
     s.keys("end");
     s.keys(&times("left", 5));
     s.keys("backspace");
@@ -483,12 +455,8 @@ fn image_placeholder_backspace_behaves_like_text_placeholder() {
 // ORACLE bottom_pane/chat_composer.rs:11615 backspace_with_multibyte_text_before_placeholder_does_not_panic kind=ui owner=chat-live
 #[test]
 fn backspace_with_multibyte_text_before_placeholder_does_not_panic() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: after '[Image #1]', typed '日本語' and Backspace leaves '[Image #1]日本' with the placeholder intact",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    s.paste("/tmp/image_multibyte.png");
+    s.attach_image("image_multibyte.png");
     s.type_text("日本語");
     s.keys("backspace");
     s.assert_row(prompt(&s), "› [Image #1]日本");
@@ -497,17 +465,13 @@ fn backspace_with_multibyte_text_before_placeholder_does_not_panic() {
 // ORACLE bottom_pane/chat_composer.rs:11645 deleting_one_of_duplicate_image_placeholders_removes_one_entry kind=ui owner=chat-live
 #[test]
 fn deleting_one_of_duplicate_image_placeholders_removes_one_entry() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: Backspace after the first of two image placeholders removes it and relabels the second as '[Image #1]'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    s.paste("/tmp/image_dup1.png");
+    s.attach_image("image_dup1.png");
     s.paste(" ");
-    s.paste("/tmp/image_dup2.png");
-    // oracle: the cursor right after the first placeholder (10 columns), Backspace
-    s.keys("home");
-    s.keys(&times("right", 10));
+    s.attach_image("image_dup2.png");
+    // oracle: the cursor right after the first placeholder (set_cursor 10), Backspace; an
+    // element is one stop for the arrows, so one Right from the start lands there
+    s.keys("home right");
     s.keys("backspace");
     s.assert_row(prompt(&s), "›  [Image #1]");
 }
@@ -528,14 +492,10 @@ fn deleting_reordered_image_one_renumbers_text_in_place() {
 // ORACLE bottom_pane/chat_composer.rs:11764 deleting_first_text_element_renumbers_following_text_element kind=ui owner=chat-live
 #[test]
 fn deleting_first_text_element_renumbers_following_text_element() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: two adjacent images, Delete at the start removes the first and renumbers the second to '[Image #1]'",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: attach_image twice: '[Image #1][Image #2]'
-    s.paste("/tmp/image_first.png");
-    s.paste("/tmp/image_second.png");
+    s.attach_image("image_first.png");
+    s.attach_image("image_second.png");
     s.assert_row(prompt(&s), "› [Image #1][Image #2]");
     s.keys("home delete");
     s.assert_row(prompt(&s), "› [Image #1]");
@@ -544,14 +504,11 @@ fn deleting_first_text_element_renumbers_following_text_element() {
 // ORACLE bottom_pane/chat_composer.rs:11803 pasting_filepath_attaches_image kind=ui owner=chat-live
 #[test]
 fn pasting_filepath_attaches_image() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer: a pasted png path becomes '[Image #1] ' in the draft",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
-    // oracle: a 3x2 png written to a temp dir, its path pasted (the kit has no temp-file seed)
-    s.paste("/tmp/codex_tui_test_paste_image.png");
-    s.assert_row_starts_with(prompt(&s), "› [Image #1] ");
+    // oracle: a png written to a temp dir, its path pasted
+    s.paste(&kit::image_file("codex_tui_test_paste_image.png").to_string_lossy());
+    // (the space after the label is the draft's; the screen trims it)
+    s.assert_row(prompt(&s), "› [Image #1]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:11829 slash_path_input_submits_without_command_error kind=ui owner=chat-live

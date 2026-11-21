@@ -182,8 +182,15 @@ are pending with their reason (below), none loosened.
   `composer_burst a_space_inside_a_burst_is_kept`),
   composer_2 `ascii_burst_treats_enter_as_newline_even_when_parent_owned` (no parent-owned
   thread seed), composer_4 `paste_burst_tab_does_not_accept_a_completion` (G69).
-- Images `[Image #N]`: core `StartTurn` is text only (no attachment in the protocol
-  mapping), and the kit has no `attach_image` seed.
+- Images `[Image #N]` (built 2026-11-21): a pasted image path (quotes, `file://`, escapes,
+  Windows paths; the file must sniff as PNG/JPEG/GIF/WebP) becomes an atomic element in
+  `ComposerDraft` (numbered by attach order, relabelled on every edit, a yank gets a new
+  number); submit carries `UserMessage { text, images }` through `Intent::Submit`,
+  `ThreadEv::Submit` and `Command::StartTurn` to `protocol::turn_input` (`LocalImage`
+  items first, the text with its `text_elements`). The kit seeds it (`attach_image`,
+  `image_file`); tests `composer_images`. Not built: clipboard image paste (Ctrl+V needs
+  the clipboard-image dependency and IO), `/plan <args>` carrying the images, remote
+  image rows and the thumbnail strip (transcript_view_1).
 - Vim mode, reverse history search (Ctrl+R), shortcut chords from the keymap, rebindable
   queue key (`Ctrl+Q`) -> the keymap task / chat-nav-pane.
 - Footer modes (`100% context left`, flashes, the composer-alone 60-column snapshots) ->

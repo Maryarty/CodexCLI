@@ -17,6 +17,7 @@ use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::screens::agents::{Ev, Page, Reply as AgentsReply};
 use codex_tui_core::screens::{ScreenEv, ScreenReply, ScreenThreadIntent};
+use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{Item, ThreadAsk, TurnState};
 use serde_json::json;
 
@@ -188,11 +189,11 @@ fn every_intent_in_every_lifecycle_state_keeps_the_model_consistent() {
     let intents: [fn() -> Intent; 8] = [
         || Intent::Submit {
             thread: None,
-            text: "hi".into(),
+            message: UserMessage::text("hi"),
         },
         || Intent::Submit {
             thread: Some(ThreadId::new("nowhere")),
-            text: "hi".into(),
+            message: UserMessage::text("hi"),
         },
         || Intent::CycleBackend,
         || Intent::OpenThread(ThreadId::new(B)),
@@ -395,7 +396,7 @@ fn reconnect_reattaches_the_active_thread_and_ignores_the_lost_rpc() {
         &mut app,
         AppEv::Intent(Intent::Submit {
             thread: Some(ThreadId::new(A)),
-            text: "first turn".into(),
+            message: UserMessage::text("first turn"),
         }),
     );
     let [Command::StartTurn { ticket, .. }] = start.commands() else {

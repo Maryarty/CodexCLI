@@ -16,12 +16,16 @@
 //! (elements, `kill_buffer`).
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+use codex_tui_core::threads::{LocalImage, UserMessage};
+
+use crate::services::images;
 
 /// One atomic element of the text: the bytes `start..end` show `label`
 /// and stand for `payload` on submit.
@@ -31,11 +35,19 @@ pub struct Element {
     pub end: usize,
     pub label: Rc<str>,
     pub payload: Rc<str>,
+    /// The file of an `[Image #N]` placeholder (its payload is its label,
+    /// the image goes with the turn), `None` for a paste.
+    pub image: Option<Rc<PathBuf>>,
+    /// When it was attached: images are numbered in this order
+    /// (`AttachmentState::relabel_local_images`).
+    pub seq: u64,
 }
 
 #[derive(Default)]
 struct Inner {
     elements: Vec<Element>,
+    /// The next `Element::seq`.
+    next_seq: u64,
     /// The text the elements are measured on.
     seen: Option<TextBuffer>,
     /// What the last `Ctrl+K` / `Ctrl+W` killed (`textarea.rs`
@@ -198,12 +210,14 @@ impl ComposerDraft {
     /// The paste rule of `apply_paste` (core's `large_paste`): a large
     /// paste goes in as a placeholder element at the selection, named by
     /// `label` from its size, and `true` says it was taken; a shorter one is
-    /// left to the field.
+    /// left to the field; a path of an image file is attached, named by
+    /// `image` from its number.
     pub fn paste(
         &self,
         c: &TextEditingController,
         pasted: &str,
         label: impl Fn(usize) -> String,
+        image: impl Fn(usize) -> String,
     ) -> bool {
         let original = pasted;
         let sanitized = composer::sanitize_paste(pasted);
@@ -225,6 +239,13 @@ impl ComposerDraft {
         if let Some(chars) = composer::large_paste(text) {
             let label = self.next_label(c, &label(chars));
             self.insert_element(c, &label, text);
+        } else if text.chars().nth(1).is_some()
+            && let Some(path) = images::pasted_image(text)
+        {
+            // a dragged image file: attached, a space after it
+            // (`handle_paste_image_path`)
+            self.attach_image(c, path, image);
+            c.insert(" ");
         } else if at_start && text.starts_with('!') && !self.shell() {
             c.insert(text);
             self.absorb_shell_prefix(c);
@@ -243,6 +264,33 @@ impl ComposerDraft {
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {
+        self.insert_with(c, label, payload, None);
+    }
+
+    /// Attaches the image file `path` at the selection as the next
+    /// `[Image #N]` (`AttachmentState::attach_image`).
+    pub fn attach_image(
+        &self,
+        c: &TextEditingController,
+        path: PathBuf,
+        image: impl Fn(usize) -> String,
+    ) {
+        let images = self
+            .elements(c)
+            .iter()
+            .filter(|e| e.image.is_some())
+            .count();
+        let label = image(images + 1);
+        self.insert_with(c, &label, &label, Some(Rc::new(path)));
+    }
+
+    fn insert_with(
+        &self,
+        c: &TextEditingController,
+        label: &str,
+        payload: &str,
+        image: Option<Rc<PathBuf>>,
+    ) {
         self.sync(c);
         let selection = c.selection();
         let start = selection.start();
@@ -250,6 +298,8 @@ impl ComposerDraft {
         self.sync(c);
         let mut inner = self.0.borrow_mut();
         let at = inner.elements.partition_point(|e| e.start < start);
+        let seq = inner.next_seq;
+        inner.next_seq += 1;
         inner.elements.insert(
             at,
             Element {
@@ -257,8 +307,79 @@ impl ComposerDraft {
                 end: start + label.len(),
                 label: Rc::from(label),
                 payload: Rc::from(payload),
+                image,
+                seq,
             },
         );
+    }
+
+    /// Numbers the images again in the order they were attached, `[Image
+    /// #1]`.. with no gap (after one was deleted, killed or yanked back:
+    /// `relabel_local_images`); the caret stays where it was in the text.
+    pub fn relabel_images(&self, c: &TextEditingController, image: impl Fn(usize) -> String) {
+        self.sync(c);
+        let elements = self.0.borrow().elements.clone();
+        let mut by_seq: Vec<usize> = (0..elements.len())
+            .filter(|&i| elements[i].image.is_some())
+            .collect();
+        by_seq.sort_by_key(|&i| elements[i].seq);
+        let mut want: Vec<Option<String>> = vec![None; elements.len()];
+        for (rank, &i) in by_seq.iter().enumerate() {
+            let label = image(rank + 1);
+            if *elements[i].label != *label {
+                want[i] = Some(label);
+            }
+        }
+        if want.iter().all(Option::is_none) {
+            return;
+        }
+        let selection = c.selection();
+        // the field's listeners read the elements while the text changes:
+        // none, rather than the old ones
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.elements.clear();
+            inner.seen = None;
+        }
+        for (i, label) in want.iter().enumerate().rev() {
+            if let Some(label) = label {
+                c.replace(elements[i].start, elements[i].end, label);
+            }
+        }
+        let mut delta = 0isize;
+        let mut moved = elements;
+        // where the text before each element's old end moved to
+        let mut shifts = Vec::new();
+        for (e, label) in moved.iter_mut().zip(&want) {
+            let old_len = e.end - e.start;
+            e.start = e.start.saturating_add_signed(delta);
+            let old_end = e.end;
+            if let Some(label) = label {
+                delta += isize::try_from(label.len()).unwrap_or(0)
+                    - isize::try_from(old_len).unwrap_or(0);
+                e.label = Rc::from(label.as_str());
+                e.payload = e.label.clone();
+            }
+            e.end = e.start + e.label.len();
+            shifts.push((old_end, delta));
+        }
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.elements = moved;
+            inner.seen = Some(c.buffer());
+        }
+        let after = |offset: usize| {
+            let by = shifts
+                .iter()
+                .rev()
+                .find(|(end, _)| *end <= offset)
+                .map_or(0, |(_, delta)| *delta);
+            offset.saturating_add_signed(by)
+        };
+        c.set_selection(TextSelection::new(
+            after(selection.base_offset),
+            after(selection.extent_offset),
+        ));
     }
 
     /// `next_large_paste_placeholder`: `[Pasted Content N chars]`, then
@@ -289,20 +410,62 @@ impl ComposerDraft {
     /// The text with every element's label replaced by its payload: what a
     /// submit sends (`expand_pending_pastes`).
     pub fn expanded(&self, c: &TextEditingController) -> String {
+        self.expand(c).0
+    }
+
+    /// What a submit sends: the expanded text and the images its
+    /// placeholders stand for, in the order they were attached, each with
+    /// the placeholder's range in that text (`prepare_submission_text`,
+    /// `prune_local_images_for_submission`).
+    pub fn submission(
+        &self,
+        c: &TextEditingController,
+        image: impl Fn(usize) -> String,
+    ) -> UserMessage {
+        self.relabel_images(c, image);
+        let (text, placed) = self.expand(c);
+        let mut images: Vec<(u64, LocalImage)> = placed
+            .into_iter()
+            .filter_map(|(range, e)| {
+                let path = e.image?;
+                Some((
+                    e.seq,
+                    LocalImage {
+                        path: (*path).clone(),
+                        range,
+                    },
+                ))
+            })
+            .collect();
+        images.sort_by_key(|(seq, _)| *seq);
+        UserMessage {
+            text,
+            images: images.into_iter().map(|(_, image)| image).collect(),
+        }
+    }
+
+    /// The expanded text and where each element's payload stands in it.
+    fn expand(
+        &self,
+        c: &TextEditingController,
+    ) -> (String, Vec<(std::ops::Range<usize>, Element)>) {
         let elements = self.elements(c);
         let text = c.text();
         let mut out = String::with_capacity(text.len() + 1);
         if self.shell() {
             out.push('!');
         }
+        let mut placed = Vec::new();
         let mut at = 0;
-        for e in &elements {
+        for e in elements {
             out.push_str(&text[at..e.start]);
+            let start = out.len();
             out.push_str(&e.payload);
+            placed.push((start..out.len(), e.clone()));
             at = e.end;
         }
         out.push_str(&text[at..]);
-        out
+        (out, placed)
     }
 
     /// Whether the draft is in shell mode.
@@ -403,7 +566,7 @@ impl ComposerDraft {
             if at < e.start {
                 c.insert(&text[at..e.start]);
             }
-            self.insert_element(c, &e.label, &e.payload);
+            self.insert_with(c, &e.label, &e.payload, e.image.clone());
             at = e.end;
         }
         if at < text.len() {
@@ -550,7 +713,12 @@ mod tests {
     fn an_element_moves_with_an_edit_before_it_and_breaks_when_cut() {
         let c = TextEditingController::new("");
         let d = ComposerDraft::default();
-        assert!(d.paste(&c, &"x".repeat(1001), |n| format!("[{n}]")));
+        assert!(d.paste(
+            &c,
+            &"x".repeat(1001),
+            |n| format!("[{n}]"),
+            |n| format!("<{n}>")
+        ));
         assert_eq!(&*c.text(), "[1001]");
         c.set_selection(TextSelection::collapsed(0));
         c.insert("hi ");

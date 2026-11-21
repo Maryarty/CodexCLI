@@ -20,6 +20,9 @@ pub struct Strings {
     /// What a large paste shows in the draft (`chat_composer.rs`,
     /// `next_large_paste_placeholder`).
     pub pasted_content: Msg<1>,
+    /// What an attached image shows in the draft
+    /// (`codex_protocol::models::local_image_label_text`).
+    pub image_label: Msg<1>,
     /// Shell mode's prompt and footer label (`chat_composer.rs`
     /// `shell_mode_footer_line`).
     pub shell_prompt: &'static str,
@@ -38,12 +41,18 @@ impl Strings {
         )
         .to_string()
     }
+
+    /// The placeholder of the `n`-th attached image.
+    pub fn image(&self, n: usize) -> String {
+        Fmt::new(self.image_label, [Arg::Text(&n.to_string())], &self.num).to_string()
+    }
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
 pub const EN: Strings = Strings {
     title: "composer",
     pasted_content: msg!("[Pasted Content {0} chars]"),
+    image_label: msg!("[Image #{0}]"),
     shell_prompt: "!",
     shell_mode: "Shell mode",
     num: NumSyms::ENGLISH,

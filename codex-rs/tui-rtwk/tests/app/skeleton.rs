@@ -75,8 +75,8 @@ fn prompt_streams_the_answer_as_plain_text() {
     let commands = h.fake.commands();
     assert!(
         matches!(commands.as_slice(),
-            [Command::Startup { .. }, Command::StartThread { .. }, Command::StartTurn { thread, text, .. }]
-                if *thread == ThreadId::new(FAKE_THREAD) && text == "hi"),
+            [Command::Startup { .. }, Command::StartThread { .. }, Command::StartTurn { thread, message, .. }]
+                if *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
         "{commands:?}"
     );
     assert_snapshot(&h.t, "chat", "answer");
@@ -351,7 +351,7 @@ fn turn_texts(h: &crate::common::Harness) -> Vec<String> {
         .commands()
         .into_iter()
         .filter_map(|command| match command {
-            Command::StartTurn { text, .. } => Some(text),
+            Command::StartTurn { message, .. } => Some(message.text),
             _ => None,
         })
         .collect()

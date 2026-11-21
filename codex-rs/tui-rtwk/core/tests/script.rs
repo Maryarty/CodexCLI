@@ -8,6 +8,7 @@ use codex_tui_core::fixtures::builders::turn_started;
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::fixtures::script::{Input, ScriptError, build, parse};
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{Item, TurnState};
 use pretty_assertions::assert_eq;
 
@@ -151,7 +152,7 @@ fn a_sandbox_applies_an_intent_and_drops_its_effects() {
     let mut sandbox = Sandbox::play(SESSION).expect("plays");
     sandbox.send(AppEv::Intent(Intent::Submit {
         thread: Some(ThreadId::new("thread-1")),
-        text: "hi".into(),
+        message: UserMessage::text("hi"),
     }));
     // The model took the submit (a ticket was minted for it); the RPC it
     // asked for went nowhere: the sandbox has no backend.

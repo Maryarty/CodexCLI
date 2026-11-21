@@ -411,14 +411,20 @@ fn ui_snapshots() {
 fn image_placeholder_snapshots() {
     kit::pending(
         Owner::ChatLive,
-        "no image attachment on the chat composer: the kit has no seed for attach_image (a local PNG) and the port draws no `[Image #N]` placeholder",
+        "the oracle's snapshot is the composer alone, with its own `100% context left` footer; the chat draws the page's footer (pane-footer). The prompt rows below are what the port draws",
     );
-    // attach_image(/tmp/image1.png), kill (ctrl+u), restore (ctrl+y): no kit call yet
-    let s = ready(100, 9);
+    // attach_image(/tmp/image1.png), kill (ctrl+u), restore (ctrl+y)
+    let mut s = ready(100, 9);
+    s.attach_image("image1.png");
+    s.keys("ctrl+u ctrl+y");
+    s.assert_row(prompt(&s), "› [Image #1]");
     s.assert_snap("image_placeholder_single");
 
-    // attach_image(/tmp/image1.png) and attach_image(/tmp/image2.png): no kit call yet
-    let s = ready(100, 9);
+    // attach_image(/tmp/image1.png) and attach_image(/tmp/image2.png)
+    let mut s = ready(100, 9);
+    s.attach_image("image1.png");
+    s.attach_image("image2.png");
+    s.assert_row(prompt(&s), "› [Image #1][Image #2]");
     s.assert_snap("image_placeholder_multiple");
 }
 
@@ -479,18 +485,16 @@ fn slash_init_dispatches_command_and_does_not_submit_literal_text() {
 // ORACLE bottom_pane/chat_composer.rs:9602 kill_buffer_preserves_image_after_submit kind=ui owner=chat-live
 #[test]
 fn kill_buffer_preserves_image_after_submit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image attachment on the chat composer (attach_image has no kit seed): the killed draft's `[Image #1]` and the second image's placeholder are not drawn",
-    );
     let mut s = ready(100, 24);
     s.type_text("restore me ");
-    // attach_image(/tmp/killed-image.png): no kit call yet
+    s.attach_image("killed-image.png");
     s.keys("ctrl+u");
     s.assert_row(prompt(&s), PLACEHOLDER);
     s.type_text("hello").keys("enter");
-    // attach_image(/tmp/other-image.png), paste " ", ctrl+y, enter: no kit call yet
-    s.assert_contains("[Image #1] restore me [Image #2]");
+    s.attach_image("other-image.png");
+    s.paste(" ");
+    s.keys("ctrl+y");
+    s.assert_row(prompt(&s), "› [Image #1] restore me [Image #2]");
 }
 
 // ORACLE bottom_pane/chat_composer.rs:9655 kill_buffer_persists_after_slash_command_dispatch kind=ui owner=chat-live
@@ -734,7 +738,7 @@ fn slash_mention_dispatches_command_and_inserts_at() {
 fn slash_plan_args_preserve_text_elements() {
     kit::pending(
         Owner::ChatLive,
-        "no image attachment on the chat composer (attach_image has no kit seed): the `/plan` args placeholder `[Image #1]` is not drawn",
+        "`/plan <args>` does not carry the draft's images: the `[Image #1]` placeholder in the args is sent as plain text",
     );
     let mut s = ready(100, 24);
     s.type_text("/plan ");

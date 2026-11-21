@@ -269,7 +269,7 @@ fn embedded_composer_shows_validation_error_without_losing_draft() {
 fn composer_mouse_edits_flush_typing_and_reconcile_placeholders() {
     kit::pending(
         Owner::ChatLive,
-        "no image attachment (no kit seed for attach_image): the double click on a placeholder and the attached image rows are not drawn (composer_mouse holds the click, the shards the large paste)",
+        "no image rows above the composer (attach_image is in the kit; the rest of this test is not): the double click on a placeholder and the attached image rows are not drawn (composer_mouse holds the click, the shards the large paste)",
     );
     let mut s = chat(80, 24);
     s.type_text("hello");
@@ -540,7 +540,7 @@ fn offline_delete_reveals_the_edited_row_without_moving_the_caret() {
 fn reconnect_expands_pastes_preserving_images_and_cursor() {
     kit::pending(
         Owner::ChatLive,
-        "no disconnected composer on the chat screen (no seed) and no image attachment (no kit seed for attach_image): the expansion on the `!` keystroke is not drawn",
+        "no disconnected composer on the chat screen (no seed) and no image rows above the composer (attach_image is in the kit; the rest of this test is not): the expansion on the `!` keystroke is not drawn",
     );
     let mut s = chat(100, 24);
     s.paste(&"x".repeat(1001));
@@ -555,7 +555,7 @@ fn reconnect_expands_pastes_preserving_images_and_cursor() {
 fn reconnect_edit_removes_deleted_attachment_and_paste_metadata() {
     kit::pending(
         Owner::ChatLive,
-        "no disconnected composer on the chat screen (no seed) and no image attachment (no kit seed for attach_image): Ctrl+U in the disconnected mode is not seeded",
+        "no disconnected composer on the chat screen (no seed) and no image rows above the composer (attach_image is in the kit; the rest of this test is not): Ctrl+U in the disconnected mode is not seeded",
     );
     let mut s = chat(100, 24);
     // attach_image(local.png), then the 1001-character paste: no kit call for the image yet
@@ -719,7 +719,7 @@ fn deleting_a_selected_remote_image_is_one_undoable_vim_edit() {
 fn direct_edits_join_the_active_vim_insert_transaction() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim mode on the chat composer (enable_vim_in_insert_mode has no kit call) and no image attachment (no kit seed for attach_image)",
+        "no Vim mode on the chat composer (enable_vim_in_insert_mode has no kit call) and no image rows above the composer (attach_image is in the kit; the rest of this test is not)",
     );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "abc");
@@ -871,7 +871,7 @@ fn undo_and_redo_restore_deleted_large_paste_payload() {
 fn undo_and_redo_restore_deleted_image_attachment() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim mode and no image attachment on the chat composer (no kit seed for attach_image): the `[Image #1]` placeholder is not drawn and Vim undo does not restore it",
+        "no Vim mode and no image rows on the chat composer (attach_image is in the kit; the rest of this test is not): the `[Image #1]` placeholder is not drawn and Vim undo does not restore it",
     );
     let mut s = chat(100, 24);
     s.type_text("alpha ");

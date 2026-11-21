@@ -10,10 +10,12 @@ mod activity;
 mod cells;
 pub mod citations;
 pub mod directives;
+mod message;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
 pub use cells::{Notice, PatchActivity, PatchChange, PatchKind, WebAction, WebActivity};
+pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
@@ -461,9 +463,9 @@ pub enum ThreadEv {
     ConnectionLost,
     /// An app-scoped error for this thread.
     Failure(Failure),
-    /// The user sent `text`; `apply` refuses it while a turn runs or starts.
+    /// The user sent `message`; `apply` refuses it while a turn runs or starts.
     Submit {
-        text: String,
+        message: UserMessage,
     },
     Interrupt,
     ScreenIntent(ScreenThreadIntent),
@@ -571,7 +573,7 @@ pub struct ThreadModel {
     /// when it changes, never before.
     last_submit: Option<Ticket>,
     /// Messages sent while a turn runs: one goes out per turn end, in order.
-    queue: Vec<String>,
+    queue: Vec<UserMessage>,
     /// The per-thread parts of the screen slots.
     slots: ThreadSlots,
     last_error: Option<Failure>,
@@ -750,7 +752,7 @@ impl ThreadModel {
         self.last_submit
     }
 
-    pub fn queue(&self) -> &[String] {
+    pub fn queue(&self) -> &[UserMessage] {
         &self.queue
     }
 
@@ -987,15 +989,15 @@ impl<'a> ThreadFx<'a> {
         self.mint.next()
     }
 
-    /// Asks the backend to start a turn with `text`.
-    pub fn start_turn(&mut self, text: String) -> Ticket {
+    /// Asks the backend to start a turn with `message`.
+    pub fn start_turn(&mut self, message: UserMessage) -> Ticket {
         let ticket = self.mint.next();
         self.registered
             .push((ticket, ThreadCtx::StartTurn { interrupt: false }));
         self.out.commands.push(Command::StartTurn {
             ticket,
             thread: self.thread.clone(),
-            text,
+            message,
         });
         ticket
     }
@@ -1233,13 +1235,13 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
         }
-        ThreadEv::Submit { text } if model.has_writer() => {
+        ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10): while a turn runs or starts the
             // message is queued, otherwise it starts a turn.
             // An older queued message goes first, whatever the turn state.
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             if busy || !model.queue.is_empty() {
-                model.queue.push(text);
+                model.queue.push(message);
                 model.last_submit = Some(fx.mint());
                 if !busy {
                     send_next(model, fx);
@@ -1247,7 +1249,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 return;
             }
             model.last_error = None;
-            model.last_submit = Some(fx.start_turn(text));
+            model.last_submit = Some(fx.start_turn(message));
         }
         ThreadEv::Submit { .. } => {}
         ThreadEv::Interrupt if model.can_interrupt() => {
@@ -1450,8 +1452,8 @@ fn send_next(model: &mut ThreadModel, fx: &mut ThreadFx<'_>) {
     if model.queue.is_empty() {
         return;
     }
-    let text = model.queue.remove(0);
-    fx.start_turn(text);
+    let message = model.queue.remove(0);
+    fx.start_turn(message);
 }
 
 fn is_start_turn(ctx: &ThreadCtx) -> bool {

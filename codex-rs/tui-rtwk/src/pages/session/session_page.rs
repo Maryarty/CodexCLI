@@ -604,9 +604,9 @@ impl State for ChatState {
             body = body.child(status);
         }
         const QUEUE_PREVIEW: usize = 3;
-        for text in thread.queue().iter().take(QUEUE_PREVIEW) {
+        for message in thread.queue().iter().take(QUEUE_PREVIEW) {
             body = body.child(
-                Text::new(strings.queued(text).to_string())
+                Text::new(strings.queued(&message.text).to_string())
                     .max_lines(Some(2))
                     .overflow(TextOverflow::Ellipsis)
                     .style(tokens.dim()),

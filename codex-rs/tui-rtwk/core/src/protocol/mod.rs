@@ -11,10 +11,12 @@ pub mod onboarding;
 pub(crate) mod requests;
 pub(crate) mod targets;
 
+use codex_app_server_protocol::ByteRange;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::TextElement;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::TurnInterruptResponse;
@@ -31,6 +33,7 @@ use crate::rpc::Reply;
 use crate::rpc::RpcError;
 use crate::rpc::ServerError;
 use crate::screens;
+use crate::threads::UserMessage;
 
 /// The wire request of `command`, under `request_id`. `model` is the
 /// `--model` override for a new thread. `None` for `RejectRequest`, which is
@@ -52,14 +55,13 @@ pub fn client_request(
                 ..ThreadStartParams::default()
             },
         }),
-        Command::StartTurn { thread, text, .. } => Some(ClientRequest::TurnStart {
+        Command::StartTurn {
+            thread, message, ..
+        } => Some(ClientRequest::TurnStart {
             request_id,
             params: TurnStartParams {
                 thread_id: thread.to_string(),
-                input: vec![UserInput::Text {
-                    text: text.clone(),
-                    text_elements: Vec::new(),
-                }],
+                input: turn_input(message),
                 ..TurnStartParams::default()
             },
         }),
@@ -192,5 +194,86 @@ pub fn dismissal() -> JSONRPCErrorError {
         code: -32000,
         data: None,
         message: "dismissed by the user".to_string(),
+    }
+}
+
+/// The input of a turn (`input_submission.rs`): the local images first,
+/// then the text with a text element for each image's placeholder.
+fn turn_input(message: &UserMessage) -> Vec<UserInput> {
+    let mut input: Vec<UserInput> = message
+        .images
+        .iter()
+        .map(|image| UserInput::LocalImage {
+            path: image.path.clone(),
+            detail: None,
+        })
+        .collect();
+    if !message.text.is_empty() {
+        let mut elements: Vec<TextElement> = message
+            .images
+            .iter()
+            .filter_map(|image| {
+                let placeholder = message.text.get(image.range.clone())?;
+                Some(TextElement::new(
+                    ByteRange {
+                        start: image.range.start,
+                        end: image.range.end,
+                    },
+                    Some(placeholder.to_string()),
+                ))
+            })
+            .collect();
+        elements.sort_by_key(|element| element.byte_range.start);
+        input.push(UserInput::Text {
+            text: message.text.clone(),
+            text_elements: elements,
+        });
+    }
+    input
+}
+
+#[cfg(test)]
+mod turn_input_tests {
+    use super::*;
+    use crate::threads::LocalImage;
+
+    #[test]
+    fn the_images_go_first_and_the_text_names_their_placeholders() {
+        let message = UserMessage {
+            text: "see [Image #1]".into(),
+            images: vec![LocalImage {
+                path: "/tmp/a.png".into(),
+                range: 4..14,
+            }],
+        };
+        let input = turn_input(&message);
+        assert!(matches!(&input[0], UserInput::LocalImage { path, .. } if path.ends_with("a.png")));
+        let UserInput::Text {
+            text,
+            text_elements,
+        } = &input[1]
+        else {
+            panic!("the text second: {input:?}");
+        };
+        assert_eq!(text, "see [Image #1]");
+        assert_eq!(
+            text_elements,
+            &vec![TextElement::new(
+                ByteRange { start: 4, end: 14 },
+                Some("[Image #1]".into())
+            )]
+        );
+    }
+
+    #[test]
+    fn an_image_alone_sends_no_text() {
+        let message = UserMessage {
+            text: String::new(),
+            images: vec![LocalImage {
+                path: "/tmp/a.png".into(),
+                range: 0..0,
+            }],
+        };
+        assert_eq!(turn_input(&message).len(), 1);
     }
 }

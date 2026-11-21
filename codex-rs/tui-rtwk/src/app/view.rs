@@ -15,6 +15,7 @@ use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
 use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::threads::UserMessage;
 
 use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
@@ -26,7 +27,7 @@ use crate::sheets::presenter::home_node;
 pub struct Hs {
     /// Send `text` to the active thread (to the startup draft before the
     /// session is ready).
-    pub submit: Handler<String>,
+    pub submit: Handler<UserMessage>,
     /// Close a request without answering it.
     pub dismiss: Handler<RequestKey>,
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
@@ -43,9 +44,9 @@ pub struct Hs {
 /// The view of the app.
 pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     let hs = Hs {
-        submit: cx.on_with(|app: &mut UiApp, text: String, _cx| {
+        submit: cx.on_with(|app: &mut UiApp, message: UserMessage, _cx| {
             let thread = app.core.session().active.clone();
-            app.send(AppEv::Intent(Intent::Submit { thread, text }));
+            app.send(AppEv::Intent(Intent::Submit { thread, message }));
         }),
         dismiss: cx.on_with(|app: &mut UiApp, key: RequestKey, _cx| {
             app.send(AppEv::Intent(Intent::DismissRequest(key)));

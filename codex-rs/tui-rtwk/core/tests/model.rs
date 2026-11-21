@@ -16,6 +16,7 @@ use codex_tui_core::ids::{
     ConnEpoch, ItemId, RequestKey, ServerRequestId, ThreadId, Ticket, TurnId,
 };
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::threads::UserMessage;
 use codex_tui_core::threads::{self, Failure, Item, ItemKey, TurnEnd, TurnState};
 
 const T: &str = "thread-1";
@@ -48,6 +49,11 @@ fn start_thread_ticket(fx: &AppFx) -> Ticket {
     found[0]
 }
 
+/// The texts waiting in the queue of thread `T`.
+fn queued(app: &CodexApp) -> Vec<String> {
+    thread(app).queue().iter().map(|m| m.text.clone()).collect()
+}
+
 /// The `(ticket, text)` of every `StartTurn` in `fx` for thread `T`.
 fn start_turns(fx: &AppFx) -> Vec<(Ticket, String)> {
     fx.commands()
@@ -56,11 +62,11 @@ fn start_turns(fx: &AppFx) -> Vec<(Ticket, String)> {
             Command::StartTurn {
                 ticket,
                 thread,
-                text,
+                message,
                 ..
             } => {
                 assert_eq!(*thread, ThreadId::new(T));
-                Some((*ticket, text.clone()))
+                Some((*ticket, message.text.clone()))
             }
             _ => None,
         })
@@ -95,7 +101,7 @@ fn submit(app: &mut CodexApp, text: &str) -> AppFx {
         app,
         AppEv::Intent(Intent::Submit {
             thread: Some(ThreadId::new(T)),
-            text: text.into(),
+            message: UserMessage::text(text),
         }),
     )
 }
@@ -131,7 +137,7 @@ fn a_submit_before_ready_waits_and_goes_out_when_the_thread_starts() {
         &mut app,
         AppEv::Intent(Intent::Submit {
             thread: None,
-            text: "early".into(),
+            message: UserMessage::text("early"),
         }),
     );
     assert!(fx.commands().is_empty());
@@ -153,7 +159,7 @@ fn a_second_submit_while_the_turn_starts_is_queued_not_refused() {
     let first = thread(&app).last_submit();
     let fx = submit(&mut app, "two");
     assert!(fx.commands().is_empty());
-    assert_eq!(thread(&app).queue(), vec!["two".to_string()]);
+    assert_eq!(queued(&app), vec!["two".to_string()]);
     assert_ne!(thread(&app).last_submit(), first, "the intent was accepted");
 }
 
@@ -164,7 +170,7 @@ fn a_submit_while_a_turn_runs_is_queued_and_accepted() {
     notification(&mut app, turn_started(T, "turn-1"));
     let fx = submit(&mut app, "two");
     assert!(fx.commands().is_empty());
-    assert_eq!(thread(&app).queue(), vec!["two".to_string()]);
+    assert_eq!(queued(&app), vec!["two".to_string()]);
     assert_ne!(thread(&app).last_submit(), first);
 }
 
@@ -174,15 +180,12 @@ fn queued_messages_go_out_in_order_one_per_turn_end() {
     notification(&mut app, turn_started(T, "turn-1"));
     submit(&mut app, "two");
     submit(&mut app, "three");
-    assert_eq!(
-        thread(&app).queue(),
-        vec!["two".to_string(), "three".to_string()]
-    );
+    assert_eq!(queued(&app), vec!["two".to_string(), "three".to_string()]);
     let fx = notification(&mut app, turn_completed(T, "turn-1"));
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1, "one per turn end");
     assert_eq!(turns[0].1, "two");
-    assert_eq!(thread(&app).queue(), vec!["three".to_string()]);
+    assert_eq!(queued(&app), vec!["three".to_string()]);
     // The turn for "two" is accepted and runs; its end sends "three".
     run(
         &mut app,
@@ -196,7 +199,7 @@ fn queued_messages_go_out_in_order_one_per_turn_end() {
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].1, "three");
-    assert!(thread(&app).queue().is_empty());
+    assert!(queued(&app).is_empty());
 }
 
 #[test]
@@ -207,7 +210,7 @@ fn a_queue_survives_a_second_submit_and_keeps_its_order() {
     submit(&mut app, "three");
     submit(&mut app, "four");
     assert_eq!(
-        thread(&app).queue(),
+        queued(&app),
         ["two", "three", "four"].map(String::from).to_vec()
     );
 }
@@ -248,7 +251,7 @@ fn a_queued_message_goes_out_when_the_turn_end_was_seen_before_its_start_reply()
     let turns = start_turns(&fx);
     assert_eq!(turns.len(), 1, "the queue must not stall");
     assert_eq!(turns[0].1, "two");
-    assert!(thread(&app).queue().is_empty());
+    assert!(queued(&app).is_empty());
     assert!(!thread(&app).is_running(), "the ended turn is not revived");
 }
 
@@ -270,7 +273,7 @@ fn a_later_submit_does_not_overtake_older_queued_text() {
     // "two" is starting: "three" waits behind it.
     let fx = submit(&mut app, "three");
     assert!(start_turns(&fx).is_empty());
-    assert_eq!(thread(&app).queue(), vec!["three".to_string()]);
+    assert_eq!(queued(&app), vec!["three".to_string()]);
 }
 
 #[test]
@@ -641,7 +644,9 @@ fn ended_before_start_reply_skips_interrupt_and_sends_one_queued_turn() {
             Reply::turn_started(ThreadId::new(T), TurnId::new("turn-1")),
         ),
     );
-    assert!(matches!(fx.commands(), [Command::StartTurn { text, .. }] if text == "queued"));
+    assert!(
+        matches!(fx.commands(), [Command::StartTurn { message, .. }] if message.text == "queued")
+    );
 }
 
 #[test]

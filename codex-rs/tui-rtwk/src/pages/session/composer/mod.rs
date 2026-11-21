@@ -217,6 +217,7 @@ fn burst_env(
             timer.start_timer(burst::FLUSH_AFTER, due.clone());
         }),
         label: Rc::new(move |chars| table.pasted(chars)),
+        image: Rc::new(move |n| table.image(n)),
     }
 }
 
@@ -241,11 +242,18 @@ impl State for ComposerState {
     fn update(&mut self, msg: ComposerMsg, w: &Composer, cx: &mut Cx<'_, Self>) -> rtwk::Rebuild {
         match msg {
             ComposerMsg::Changed(text) => {
+                // an image gone or yanked back: the rest are numbered again
+                let table = strings::of(cx);
+                w.ui.draft
+                    .relabel_images(&w.ui.composer, |n| table.image(n));
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, text);
                 }
             }
             ComposerMsg::Pasted => {
+                let table = strings::of(cx);
+                w.ui.draft
+                    .relabel_images(&w.ui.composer, |n| table.image(n));
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
                 }
@@ -349,7 +357,12 @@ impl State for ComposerState {
                 burst::flush_held_with(&draft, &*tell, env, &pasted_into);
             }
             draft.burst(PasteBurst::clear_after_explicit_paste);
-            let took = draft.paste(&pasted_into, text, |chars| table.pasted(chars));
+            let took = draft.paste(
+                &pasted_into,
+                text,
+                |chars| table.pasted(chars),
+                |n| table.image(n),
+            );
             if took {
                 tell(ComposerMsg::Pasted);
             }
