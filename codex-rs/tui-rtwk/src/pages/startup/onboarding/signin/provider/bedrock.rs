@@ -447,6 +447,8 @@ impl State for BedrockState {
                 .controller(self.fields[index].clone())
                 .focus_node(self.nodes[index].clone())
                 .obscure_text(secret)
+                .obscure_reveal_last(secret)
+                .obscure_reveal_timeout(None)
                 .obscuring_character(strings.secret)
                 .style(Style::new())
                 .focused_style(look.cyan.clone())

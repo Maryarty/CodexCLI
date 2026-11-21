@@ -404,8 +404,10 @@ Bedrock API key
 /// the part rtwk draws as the oracle does: a profile or the environment
 /// without a region asks for it; the access keys move with Down and Up and
 /// keep the secrets hidden; the API key, the profile, the region entries
-/// and the environment's instructions. The focused secret's last character
-/// shown is G55 (`tests/oracle/signin.rs`).
+/// and the environment's instructions. The focused secret shows its last
+/// character it was typed with (`obscure_reveal_last`); the one a field
+/// shows on arrival with text already in it is G55's rest
+/// (`tests/oracle/signin.rs`).
 #[test]
 fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     let (mut h, epoch) = launch();
@@ -454,6 +456,13 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     h.t.input(b"AKIAEXAMPLE");
     step(&mut h, "down");
     h.t.input(b"secret-value");
+    h.settle();
+    assert!(
+        h.t.screen()
+            .contains("AWS secret access key: \u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}e"),
+        "{}",
+        h.t.screen()
+    );
     step(&mut h, "down");
     h.t.input(b"session-value");
     step(&mut h, "up");

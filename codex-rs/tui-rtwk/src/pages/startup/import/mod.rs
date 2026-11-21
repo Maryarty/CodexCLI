@@ -596,6 +596,7 @@ fn review(
     };
     let list = ListView::builder(rows.len(), builder)
         .item_extent(1)
+        .shrink_wrap(true)
         .controller(regions.list.clone());
     let checklist = KeyBindings::new(
         regions.checklist.clone(),
@@ -603,15 +604,11 @@ fn review(
             .focus_node(regions.items.clone())
             .on_focus_change(regions.focus.0.clone()),
     );
-    // The list is as tall as its rows (one cell each: `ListView` has no
-    // shrink-wrap) and no taller than the room the `Flexible` gets.
-    let content = i32::try_from(rows.len()).unwrap_or(i32::MAX);
+    // The list is as tall as its rows and no taller than the room the
+    // `Flexible` gets (`ListView.shrinkWrap`).
     column = column.child(Flexible {
         fit: FlexFit::Loose,
-        ..Flexible::new(
-            1,
-            SizedBox::new(None, Some(content), Some(checklist.into())),
-        )
+        ..Flexible::new(1, checklist)
     });
     column = column.child(SizedBox::new(None, Some(1), None));
     column = column.child(wrapped(

@@ -232,7 +232,7 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
 fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     kit::pending(
         Owner::Onboarding,
-        "G55: rtwk's `TextField.obscure_text` hides every character; the oracle's focused secret field shows its last one (`AWS secret access key: •••••••••••e`). The rest of this test passes in tests/pages/signin_wizards.rs (same name), which answers the discovery",
+        "G55 (rest): `obscure_reveal_last` shows the grapheme typed last, on the frames' timeout or until a key/move/blur; the oracle's focused secret shows its last grapheme always, also on arrival at text already in the field (`> AWS secret access key: •••••••••••e` of a field never typed in), which rtwk shows as bullets only. The screen is also behind the discovery request a fixture cannot answer; the typed reveal is tested in tests/pages/signin_wizards.rs (same name)",
     );
     let mut s = open("sign_in_bedrock", 72, 24);
     s.keys("3 2");
