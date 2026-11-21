@@ -1133,6 +1133,27 @@ mod tests {
         })
     }
 
+    /// The gateway's own sign-in (`SignInState::GatewayOAuth`) keeps the
+    /// step open until the gateway is configured.
+    #[test]
+    fn the_gateway_sign_in_ends_the_step_only_when_configured() {
+        let mut sign_in = gateway_sign_in();
+        for (state, done) in [
+            (State::GatewayOAuth { provider_id: "office".into(), url: None }, false),
+            (
+                State::GatewayOAuthFailed {
+                    provider_id: "office".into(),
+                    message: "Gateway sign-in expired.".into(),
+                },
+                false,
+            ),
+            (State::GatewayConfigured, true),
+        ] {
+            sign_in.state = state;
+            assert_eq!(sign_in.done(), done, "{:?}", sign_in.state);
+        }
+    }
+
     /// gateway_tests.rs select_a_saved_gateway_during_sign_in: choosing the
     /// gateway opens its wizard, which reads the saved gateways at once;
     /// only picking one ends the step, with its id.

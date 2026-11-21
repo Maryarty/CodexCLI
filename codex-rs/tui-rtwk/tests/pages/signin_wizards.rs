@@ -884,6 +884,13 @@ mod gateway {
         h.t.pump_for(Duration::from_millis(20));
     }
 
+    /// A key in a field or on Save: the mark is the model's, so the host
+    /// runs before the screen is read.
+    fn key(h: &mut Harness, keys: &str) {
+        h.press(keys);
+        h.settle();
+    }
+
     fn paste(h: &mut Harness, text: &str) {
         h.t.paste(text);
         h.settle();
@@ -1025,5 +1032,330 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         h.wait_for("the configured line", |s| {
             s.contains("\u{2713} Custom provider configured")
         });
+    }
+
+    /// The row of the screen the text is on (the first), by its start.
+    fn row_of(h: &Harness, start: &str) -> u16 {
+        let screen = h.t.screen();
+        let at = screen
+            .lines()
+            .position(|row| row.trim_start_matches(['\u{203a}', ' ']).starts_with(start));
+        match at {
+            Some(at) => u16::try_from(at).unwrap_or(0),
+            None => panic!("no row starts with {start:?}:\n{screen}"),
+        }
+    }
+
+    /// Esc goes one stage back: the form to the picker with the create row
+    /// marked, the picker to the menu; while the list loads it leaves too,
+    /// and a late answer is dropped.
+    #[test]
+    fn esc_goes_one_stage_back() {
+        let (mut h, epoch) = launch();
+        form(&mut h, epoch);
+        h.t.resize(72, 12);
+        step(&mut h, "esc");
+        assert_eq!(
+            at(&mut h, 8),
+            "  Use a custom provider or gateway
+
+
+  \u{25cb} Office                             office
+\u{203a} Create a custom provider or gateway
+
+
+  Press enter to create or esc to go back"
+        );
+        step(&mut h, "esc");
+        assert!(h.t.screen().contains("Use a custom provider or gateway"));
+        assert!(h.t.screen().contains("Sign in another way"));
+        let request = open(&mut h);
+        step(&mut h, "esc");
+        assert!(h.t.screen().contains("Sign in another way"));
+        answer(&mut h, epoch, request, Ok(Answer::Gateways(page(vec![]))));
+        assert!(
+            h.t.screen().contains("Sign in another way"),
+            "a late answer shows nothing:\n{}",
+            h.t.screen()
+        );
+    }
+
+    /// The load error leaves by its one row (its number, Enter) or Esc.
+    #[test]
+    fn the_load_error_leaves_by_back() {
+        for keys in ["1", "enter", "esc"] {
+            let (mut h, epoch) = launch();
+            let request = open(&mut h);
+            answer(&mut h, epoch, request, Err(POLICY.into()));
+            assert!(h.t.screen().contains("1. Back"));
+            step(&mut h, keys);
+            assert!(
+                h.t.screen().contains("Sign in another way"),
+                "{keys}:\n{}",
+                h.t.screen()
+            );
+        }
+    }
+
+    /// A save whose reply was lost: the list is read again and the picker
+    /// says the save is unconfirmed (`UNCONFIRMED_CREATE`).
+    #[test]
+    fn an_unconfirmed_save_reads_the_list_again_and_says_so() {
+        let (mut h, epoch) = launch();
+        form(&mut h, epoch);
+        paste(&mut h, "Team gateway");
+        h.press("down");
+        paste(&mut h, "https://team.example.test/v1");
+        h.press("down");
+        h.press("down");
+        step(&mut h, "enter");
+        let request = asked_request(&h);
+        answer(&mut h, epoch, request, Ok(Answer::GatewayUnconfirmed));
+        assert_eq!(setup(&h), Setup::GatewayList);
+        let request = asked_request(&h);
+        answer(
+            &mut h,
+            epoch,
+            request,
+            Ok(Answer::Gateways(page(vec![
+                saved("office", "Office", None),
+                saved("team-gateway", "Team gateway", None),
+            ]))),
+        );
+        assert_eq!(
+            at(&mut h, 12),
+            "  Use a custom provider or gateway
+
+
+\u{203a} \u{25cb} Office                             office
+  \u{25cb} Team gateway                       team-gateway
+  Create a custom provider or gateway
+
+
+
+  Could not confirm the save. Check the provider list before adding it
+  again.
+  Press enter to use as default or esc to go back"
+        );
+    }
+
+    /// The server refuses to make the gateway the default: the picker stays
+    /// on the row with the message.
+    #[test]
+    fn a_refused_selection_keeps_the_picker_with_the_message() {
+        let (mut h, epoch) = launch();
+        picker(&mut h, epoch, vec![saved("office", "Office", None)]);
+        step(&mut h, "enter");
+        let request = asked_request(&h);
+        answer(
+            &mut h,
+            epoch,
+            request,
+            Err("The default cannot change.".into()),
+        );
+        let screen = h.t.screen();
+        assert!(
+            screen.contains("\u{203a} \u{25cb} Office")
+                && screen.contains("The default cannot change."),
+            "{screen}"
+        );
+        assert!(!screen.contains("Custom provider configured"));
+    }
+
+    /// Save asks for what is missing before it asks the server.
+    #[test]
+    fn save_names_the_field_that_is_missing() {
+        let (mut h, epoch) = launch();
+        picker(&mut h, epoch, vec![]);
+        step(&mut h, "enter");
+        h.t.resize(72, 12);
+        h.press("down");
+        h.press("down");
+        h.press("down");
+        let asked = logins(&h).len();
+        step(&mut h, "enter");
+        assert!(
+            h.t.screen().contains("Enter a provider name."),
+            "{}",
+            h.t.screen()
+        );
+        paste_into(&mut h, 0, "Team");
+        step(&mut h, "enter");
+        assert!(
+            h.t.screen().contains("Enter a base URL."),
+            "{}",
+            h.t.screen()
+        );
+        assert_eq!(logins(&h).len(), asked, "nothing is asked of the server");
+    }
+
+    fn paste_into(h: &mut Harness, field: usize, text: &str) {
+        // Up or Down to the field from where the mark is (Save).
+        for _ in 0..3usize.saturating_sub(field) {
+            h.press("up");
+        }
+        paste(h, text);
+        for _ in 0..3usize.saturating_sub(field) {
+            h.press("down");
+        }
+    }
+
+    /// Ctrl+Space completes the variable from the saved gateways' variables
+    /// (`ProviderForm::suggestion`); the keys line says so while one is
+    /// offered.
+    #[test]
+    fn ctrl_space_completes_a_saved_variable() {
+        let (mut h, epoch) = launch();
+        form(&mut h, epoch);
+        h.t.resize(72, 12);
+        h.press("down");
+        h.press("down");
+        paste(&mut h, "OFF");
+        assert!(
+            h.t.screen().contains("API key variable  $OFF"),
+            "{}",
+            h.t.screen()
+        );
+        assert!(h.t.screen().contains("space complete"), "{}", h.t.screen());
+        h.press("ctrl+space");
+        assert!(
+            h.t.screen().contains("API key variable  $OFFICE_KEY"),
+            "{}",
+            h.t.screen()
+        );
+        assert!(!h.t.screen().contains("space complete"), "{}", h.t.screen());
+        // Text that no saved variable starts with offers nothing.
+        paste(&mut h, "X");
+        assert!(!h.t.screen().contains("space complete"), "{}", h.t.screen());
+    }
+
+    /// Tab and Shift+Tab move the mark over the fields and Save; Enter in
+    /// a field goes on to the next.
+    #[test]
+    fn tab_moves_the_mark_and_enter_goes_on() {
+        let (mut h, epoch) = launch();
+        picker(&mut h, epoch, vec![]);
+        step(&mut h, "enter");
+        h.t.resize(72, 12);
+        let marked = |h: &Harness| -> String {
+            h.t.screen()
+                .lines()
+                .find(|row| row.starts_with('\u{203a}'))
+                .unwrap_or_default()
+                .trim_end()
+                .to_owned()
+        };
+        assert!(marked(&h).starts_with("\u{203a} Name*"));
+        key(&mut h, "tab");
+        assert!(
+            marked(&h).starts_with("\u{203a} Base URL*"),
+            "{}",
+            h.t.screen()
+        );
+        key(&mut h, "tab");
+        assert!(marked(&h).starts_with("\u{203a} API key variable"));
+        key(&mut h, "tab");
+        assert_eq!(marked(&h), "\u{203a} Save");
+        key(&mut h, "shift+tab");
+        assert!(marked(&h).starts_with("\u{203a} API key variable"));
+        key(&mut h, "shift+tab");
+        key(&mut h, "shift+tab");
+        assert!(marked(&h).starts_with("\u{203a} Name*"));
+        // Enter in a field: the next field.
+        step(&mut h, "enter");
+        assert!(
+            marked(&h).starts_with("\u{203a} Base URL*"),
+            "{}",
+            h.t.screen()
+        );
+    }
+
+    /// A tap on a row of the picker moves the cursor there; a tap on the
+    /// row the cursor is on does what Enter does (ADR-011).
+    #[test]
+    fn a_tap_on_a_picker_row_moves_the_cursor_then_accepts() {
+        let (mut h, epoch) = launch();
+        picker(&mut h, epoch, vec![saved("office", "Office", None)]);
+        let create = row_of(&h, "Create a custom");
+        h.t.click(6, create);
+        h.settle();
+        assert!(
+            h.t.screen()
+                .contains("\u{203a} Create a custom provider or gateway")
+                && h.t.screen().contains("Press enter to create"),
+            "{}",
+            h.t.screen()
+        );
+        // The cursor was on the create row: the next tap opens the form.
+        h.t.click(6, create);
+        h.settle();
+        assert!(h.t.screen().contains("* Required"), "{}", h.t.screen());
+        step(&mut h, "esc");
+        // A tap on the saved gateway (the cursor is on the create row): it
+        // is marked, the second tap selects it.
+        let office = row_of(&h, "\u{25cb} Office");
+        h.t.click(6, office);
+        h.settle();
+        assert!(
+            h.t.screen().contains("\u{203a} \u{25cb} Office"),
+            "{}",
+            h.t.screen()
+        );
+        assert_eq!(setup(&h), Setup::GatewayList);
+        h.t.click(6, office);
+        h.settle();
+        assert_eq!(setup(&h), Setup::GatewaySelect("office".into()));
+    }
+
+    /// A tap on a field marks it and types there; a tap on Save marks it, a
+    /// tap on the marked Save saves (ADR-011).
+    #[test]
+    fn a_tap_marks_a_field_and_save_saves_when_marked() {
+        let (mut h, epoch) = launch();
+        picker(&mut h, epoch, vec![]);
+        step(&mut h, "enter");
+        h.t.resize(72, 12);
+        paste(&mut h, "Team");
+        let url = row_of(&h, "Base URL*");
+        h.t.click(24, url);
+        h.settle();
+        assert!(
+            h.t.screen().contains("\u{203a} Base URL*"),
+            "{}",
+            h.t.screen()
+        );
+        paste(&mut h, "https://team.example.test/v1");
+        let asked = logins(&h).len();
+        let save = row_of(&h, "Save");
+        h.t.click(4, save);
+        h.settle();
+        assert!(h.t.screen().contains("\u{203a} Save"), "{}", h.t.screen());
+        assert_eq!(logins(&h).len(), asked, "the first tap marks");
+        h.t.click(4, save);
+        h.settle();
+        assert_eq!(
+            setup(&h),
+            Setup::GatewayWrite(Patch {
+                name: "Team".into(),
+                url: "https://team.example.test/v1".into(),
+                variable: None,
+            })
+        );
+    }
+
+    /// A tap on the load error's Back row goes back to the menu (ADR-011).
+    #[test]
+    fn a_tap_on_back_leaves_the_load_error() {
+        let (mut h, epoch) = launch();
+        let request = open(&mut h);
+        answer(&mut h, epoch, request, Err(POLICY.into()));
+        let back = row_of(&h, "1. Back");
+        h.t.click(6, back);
+        h.settle();
+        assert!(
+            h.t.screen().contains("Sign in another way"),
+            "{}",
+            h.t.screen()
+        );
     }
 }

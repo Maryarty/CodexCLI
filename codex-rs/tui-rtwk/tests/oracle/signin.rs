@@ -4,10 +4,10 @@
 //! Each screen is the startup page's sign-in step opened from a debug entry
 //! of the `onboarding` directory, over the fixture script that makes the
 //! oracle test's widget state (`src/pages/startup/onboarding/fixtures/`).
-//! The provider wizards (S03): Bedrock and Google Cloud are built, the
-//! states after a server's answer are compared in tests/pages/signin.rs and
-//! tests/pages/signin_wizards.rs; the GovCloud guidance view is built (its launch step is
-//! startup-finish's) and the gateway wizard is not built yet: their tests are written and pending.
+//! The provider wizards (S03): Bedrock, Google Cloud and the gateway wizard
+//! are built, the states after a server's answer are compared in
+//! tests/pages/signin.rs and tests/pages/signin_wizards.rs; the GovCloud
+//! guidance's launch step is startup-finish's.
 
 use crate::kit::{self, Owner, Screen};
 
@@ -243,37 +243,39 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
 // ORACLE onboarding/gateway_tests.rs:33 select_a_saved_gateway_during_sign_in kind=snap owner=onboarding snap=codex_tui__onboarding__auth__gateway_tests__gateway_empty_picker snap=codex_tui__onboarding__auth__gateway_tests__gateway_load_error snap=codex_tui__onboarding__auth__gateway_tests__gateway_saved_picker snap=codex_tui__onboarding__auth__gateway_tests__gateway_sign_in_menu
 #[test]
 fn select_a_saved_gateway_during_sign_in() {
-    kit::pending(
-        Owner::Onboarding,
-        "the gateway setup wizard (S03) is not built yet: the provider step is a placeholder",
-    );
+    // The menu, and the wizard that opens on the list it asks of the
+    // server; the pickers its answers show (empty, saved, the load error)
+    // and the selection are compared in tests/pages/signin_wizards.rs (same
+    // name): a fixture cannot answer a request.
     let mut s = open("sign_in_gateway", 72, 8);
     s.keys("3");
     s.assert_snap("gateway_sign_in_menu");
+    s.keys("4");
+    s.assert_row(0, "Loading gateways…");
 }
 
 // ORACLE onboarding/gateway_tests.rs:79 create_highlights_the_saved_gateway_until_explicitly_selected kind=snap owner=onboarding snap=codex_tui__onboarding__auth__gateway_tests__gateway_created_picker snap=codex_tui__onboarding__auth__gateway_tests__gateway_save_error_short snap=codex_tui__onboarding__auth__gateway_tests__gateway_save_focused_short snap=codex_tui__onboarding__auth__gateway_tests__gateway_validation_retry
 #[test]
 fn create_highlights_the_saved_gateway_until_explicitly_selected() {
-    kit::pending(
-        Owner::Onboarding,
-        "the gateway setup wizard (S03) is not built yet: the provider step is a placeholder",
-    );
+    // The picker, the form and its four snapshots (created_picker,
+    // save_error_short, save_focused_short, validation_retry) need the
+    // list and the save answered: tests/pages/signin_wizards.rs (same name).
+    // Here the way to them: the menu row opens the wizard on its load.
     let mut s = open("sign_in_gateway", 72, 8);
-    s.keys("3");
-    s.assert_snap("gateway_sign_in_menu");
+    s.keys("3 4");
+    s.assert_row(0, "Loading gateways…");
+    s.assert_row(1, "");
 }
 
 // ORACLE onboarding/gateway_tests.rs:184 gateway_oauth_displays_the_browser_link_and_retry_action kind=snap owner=onboarding snap=codex_tui__onboarding__auth__gateway_tests__gateway_oauth_browser snap=codex_tui__onboarding__auth__gateway_tests__gateway_oauth_failed
 #[test]
 fn gateway_oauth_displays_the_browser_link_and_retry_action() {
-    kit::pending(
-        Owner::Onboarding,
-        "the gateway setup wizard (S03) is not built yet: the provider step is a placeholder",
-    );
-    let mut s = open("sign_in_gateway", 72, 8);
-    s.keys("3");
-    s.assert_snap("gateway_sign_in_menu");
+    let s = open("gateway_oauth_starting", 72, 1);
+    s.assert_row(0, "Starting gateway sign-in…");
+    let s = open("gateway_oauth_browser", 72, 4);
+    s.assert_snap("gateway_oauth_browser");
+    let s = open("gateway_oauth_failed", 72, 4);
+    s.assert_snap("gateway_oauth_failed");
 }
 
 // ---- oracle: onboarding/gcp_tests.rs (1 screen-level tests here; 0 state tests left to onboarding)

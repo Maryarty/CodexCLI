@@ -98,12 +98,19 @@ pub(super) fn frame<S>(
     width: usize,
     height: i32,
 ) -> AnyWidget {
+    let footer = (!footer.is_empty()).then(|| sized(cx, footer, width));
+    frame_of(body, footer, height)
+}
+
+/// The same over a footer that is a widget (a note that wraps under its
+/// own inset, lines after it).
+pub(super) fn frame_of(body: AnyWidget, footer: Option<AnyWidget>, height: i32) -> AnyWidget {
     let mut column = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .main_axis_size(MainAxisSize::Max)
         .child(Expanded::new(1, body));
-    if !footer.is_empty() {
-        column = column.child(sized(cx, footer, width));
+    if let Some(footer) = footer {
+        column = column.child(footer);
     }
     SizedBox::new(None, Some(height), Some(column.into())).into()
 }

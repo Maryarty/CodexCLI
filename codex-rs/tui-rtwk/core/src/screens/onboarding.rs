@@ -1521,4 +1521,35 @@ mod tests {
             }))
         );
     }
+
+    #[test]
+    fn seeds_read_the_gateway_sign_in_states() {
+        assert_eq!(
+            seed(serde_json::json!({"sign_in_state": {"gateway_oauth": {"provider_id": "office"}}})),
+            Ok(Ev::SignInState(auth::State::GatewayOAuth {
+                provider_id: "office".into(),
+                url: None,
+            }))
+        );
+        assert_eq!(
+            seed(serde_json::json!({"sign_in_state": {"gateway_oauth": {
+                "provider_id": "office",
+                "url": "https://office.example.test/authorize",
+            }}})),
+            Ok(Ev::SignInState(auth::State::GatewayOAuth {
+                provider_id: "office".into(),
+                url: Some("https://office.example.test/authorize".into()),
+            }))
+        );
+        assert_eq!(
+            seed(serde_json::json!({"sign_in_state": {"gateway_oauth_failed": {
+                "provider_id": "office",
+                "message": "Gateway sign-in expired.",
+            }}})),
+            Ok(Ev::SignInState(auth::State::GatewayOAuthFailed {
+                provider_id: "office".into(),
+                message: "Gateway sign-in expired.".into(),
+            }))
+        );
+    }
 }

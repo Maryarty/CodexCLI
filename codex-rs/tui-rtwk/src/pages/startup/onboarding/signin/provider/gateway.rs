@@ -41,7 +41,7 @@ use codex_tui_core::screens::onboarding::auth::{self, provider};
 use provider::gateway::{FIELDS, Fields, Form, FormError, Gateway, Stage};
 
 use super::super::{Line, Look, guarded_keys, now, rows_of, width_of};
-use super::{frame, sized, strings};
+use super::{frame, frame_of, sized, strings};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::widgets::key_guard::{GuardKey, KeyGuard};
@@ -102,6 +102,9 @@ pub enum Msg {
     /// The view's node takes the focus once the frame mounted it, and the
     /// marked row is scrolled into view.
     Settle,
+    /// A new size of the form: the marked row is scrolled into view (the
+    /// focus is the model's to follow, not a layout's).
+    Reveal,
 }
 
 impl StatefulWidget for GatewayWizard {
@@ -140,6 +143,27 @@ fn list_len(stage: &Stage) -> usize {
 }
 
 impl GatewayState {
+    /// The form scrolled so that its marked row shows; false: there is no
+    /// form to scroll (`visible_layout`: Save shows what is below it as far
+    /// as the room goes, a field ends at the bottom).
+    fn reveal(&self, w: &GatewayWizard) -> bool {
+        let Stage::Editing { form, .. } = &w.gateway.stage else {
+            return false;
+        };
+        if !self.scroll.has_clients() {
+            return false;
+        }
+        let view = self.scroll.position().viewport_dimension();
+        let (marked, total) = (self.marked.get(), self.total.get());
+        let top = if form.on_save() {
+            (total - view).max(0).min(marked)
+        } else {
+            (marked + 1 - view).max(0)
+        };
+        self.scroll.jump_to(top);
+        true
+    }
+
     fn after_frame(cx: &mut Cx<'_, Self>) {
         if let Some(binding) = AppBinding::maybe_of(cx) {
             binding.add_post_frame_callback(cx.map(|_: Duration| Msg::Settle));
@@ -384,23 +408,13 @@ impl State for GatewayState {
                 if !self.nodes[node].has_focus() {
                     self.nodes[node].request_focus();
                 }
-                if let Stage::Editing { form, .. } = &w.gateway.stage
-                    && self.scroll.has_clients()
-                {
-                    // `visible_layout`: Save shows what is below it as far
-                    // as the room goes, a field ends at the bottom.
-                    let view = self.scroll.position().viewport_dimension();
-                    let (marked, total) = (self.marked.get(), self.total.get());
-                    let top = if form.on_save() {
-                        (total - view).max(0).min(marked)
-                    } else {
-                        (marked + 1 - view).max(0)
-                    };
-                    self.scroll.jump_to(top);
-                } else if len > 0 {
+                if !self.reveal(w) && len > 0 {
                     // The cursor on a row the last layout did not have yet.
                     self.options.set(self.options.cursor());
                 }
+            }
+            Msg::Reveal => {
+                self.reveal(w);
             }
             Msg::Quit => {
                 let hs = read::<Hs, _>(cx);
@@ -549,12 +563,24 @@ impl State for GatewayState {
                         .child(sized(cx, head, width))
                         .child(options.view_rich(rows.clone(), styles.clone(), 0))
                         .child(idle.clone());
-                    let mut footer: Vec<Line> = vec![Vec::new()];
+                    // The note wraps inside the two columns the list insets
+                    // (`footer_note_lines`), the hint follows it.
+                    let mut footer = Column::new()
+                        .main_axis_size(MainAxisSize::Min)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(sized(cx, vec![Vec::new()], width));
                     if let Some(notice) = &notice {
-                        footer.push(vec![Span::new([strings.indent, notice.as_str()].concat())]);
+                        footer = footer.child(Padding::new(
+                            EdgeInsets::only(2, 0, 0, 0),
+                            sized(
+                                cx,
+                                vec![vec![Span::new(notice.clone())]],
+                                width.saturating_sub(2),
+                            ),
+                        ));
                     }
-                    footer.push(hint.clone());
-                    frame(cx, content.into(), footer, width, constraints.max_height)
+                    footer = footer.child(sized(cx, vec![hint.clone()], width));
+                    frame_of(content.into(), Some(footer.into()), constraints.max_height)
                 })
                 .into()
             }
@@ -686,10 +712,10 @@ impl GatewayState {
             (self.marked.clone(), self.total.clone(), self.scroll.clone());
         // A new size settles the scroll too (the room is known only after
         // the layout: `addPostFrameCallback` from the builder).
-        let settle = cx.map(|_: Duration| Msg::Settle);
+        let reveal = cx.map(|_: Duration| Msg::Reveal);
         LayoutBuilder::new(move |cx, constraints| {
             if let Some(binding) = AppBinding::maybe_of(cx) {
-                binding.add_post_frame_callback(settle.clone());
+                binding.add_post_frame_callback(reveal.clone());
             }
             let width = width_of(constraints.max_width);
             let mut content = Column::new()
