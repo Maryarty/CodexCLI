@@ -4,6 +4,7 @@ pub mod age;
 pub mod composer_draft;
 pub mod dots;
 pub mod key_guard;
+pub mod markdown;
 pub mod measure;
 pub mod options;
 pub mod page_keys;

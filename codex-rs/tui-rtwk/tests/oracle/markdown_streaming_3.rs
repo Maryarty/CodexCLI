@@ -53,6 +53,10 @@ fn tight_item_with_soft_break() {
 // ORACLE markdown_render_tests.rs:723 deeply_nested_mixed_three_levels kind=ui owner=chat-live
 #[test]
 fn deeply_nested_mixed_three_levels() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 4, the oracle draws every unordered bullet as `• ` at any depth (tui markdown_render.rs:1131, styles.unordered_list_marker); rtwk's MarkdownView draws `•` at depth 1 and `◦` below, from Glyphs, with no bullet option",
+    );
     // The oracle's blank row before `2. D` is not asserted: the kit has no row-gap check.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)

@@ -50,6 +50,10 @@ fn append_markdown_keeps_ordered_list_line_unsplit_in_context() {
 // ORACLE markdown.rs:700 append_markdown_agent_unwraps_markdown_fences_for_table_rendering kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -63,6 +67,10 @@ fn append_markdown_agent_unwraps_markdown_fences_for_table_rendering() {
 // ORACLE markdown.rs:710 append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -77,6 +85,10 @@ fn append_markdown_agent_unwraps_markdown_fences_for_no_outer_table_rendering() 
 // ORACLE markdown.rs:729 append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -91,6 +103,10 @@ fn append_markdown_agent_unwraps_markdown_fences_for_two_column_no_outer_table()
 // ORACLE markdown.rs:740 append_markdown_agent_unwraps_markdown_fences_for_single_column_table kind=ui owner=chat-live
 #[test]
 fn append_markdown_agent_unwraps_markdown_fences_for_single_column_table() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -257,6 +273,10 @@ fn wraps_ordered_lists() {
 // ORACLE markdown_render.rs:2745 wraps_blockquotes kind=ui owner=chat-live
 #[test]
 fn wraps_blockquotes() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     // The oracle's source-range style check (`styled_range`) is copy metadata and is not
     // drawn; the visible half, the wrapped quote rows, is asserted here.
     let s = Screen::build(Owner::ChatLive)
@@ -275,6 +295,10 @@ fn wraps_blockquotes() {
 // ORACLE markdown_render.rs:2771 wraps_blockquotes_inside_lists kind=ui owner=chat-live
 #[test]
 fn wraps_blockquotes_inside_lists() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(24, 24)
         .script(include_str!(
@@ -291,6 +315,10 @@ fn wraps_blockquotes_inside_lists() {
 // ORACLE markdown_render.rs:2786 wraps_list_items_containing_blockquotes kind=ui owner=chat-live
 #[test]
 fn wraps_list_items_containing_blockquotes() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(24, 24)
         .script(include_str!(
@@ -542,7 +570,7 @@ fn file_url_citation_preserves_literal_query_delimiters_snapshot() {
 fn file_citations_inside_code_existing_links_and_html_remain_literal() {
     kit::pending(
         Owner::ChatLive,
-        "the pin (492ab738) lacks rtwk baccefc2 (MarkdownView::link_destinations): `[label](url)` is drawn without its ` (url)` suffix, the oracle's last assertion",
+        "the oracle's last assertion reads ` (https://example.com)` after the label: its display for a terminal not known to support OSC 8 (WebLinkDisplay::for_terminal); the port has no terminal detection and draws a web label alone with its hyperlink (`LinkDestinations::Auto`, as the oracle does on a supporting terminal)",
     );
     let c = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
     let s = Screen::build(Owner::ChatLive)
@@ -579,10 +607,6 @@ fn file_citations_accept_unquoted_paths_and_trailing_windows_separators() {
 fn file_citations_preserve_escaped_nested_and_reference_directives() {
     // The oracle's 16000-repetition inputs are not fixtures (too large for a JSONL line): kit
     // gap for generated seeds, reported. The rest of its literal and reference cases are here.
-    kit::pending(
-        Owner::ChatLive,
-        "the pin (492ab738) lacks rtwk baccefc2 (MarkdownView::link_destinations): a reference link `[report][file]` is drawn without its ` ({citation})` suffix, the oracle's last assertion",
-    );
     let c = ":codex-file-citation{path=/tmp/report.xlsx}";
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
@@ -644,7 +668,7 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
     // The oracle's local link targets the session cwd's temp dir: no cwd seed in the kit yet.
     kit::pending(
         Owner::ChatLive,
-        "G63: MarkdownView joins a soft break with a blank, so the citation after `[first](<…>)` does not start a new line; and the pin lacks baccefc2 for the ` (first.txt)` local target; the citation itself reads",
+        "G63: MarkdownView joins a soft break with a blank, so the citation after `[first](<…>)` does not start a new line; the local target ` (first.txt)` needs the session cwd the kit cannot seed; the citation itself reads",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)

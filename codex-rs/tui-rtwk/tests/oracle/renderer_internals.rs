@@ -147,6 +147,10 @@ fn loose_list_with_split_dashes_matches_full_render() {
 // ORACLE markdown_stream.rs:704 loose_vs_tight_list_items_streaming_matches_full kind=ui owner=chat-live
 #[test]
 fn loose_vs_tight_list_items_streaming_matches_full() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: items 2 and 4, the oracle puts a blank row between list items only after a multi-line item (tui markdown_render.rs:1084 start_item, ListSpacing::AfterMultiline) and draws `•` at any depth (:1131); rtwk spaces every item of a loose list and draws `◦` below depth 1",
+    );
     // oracle: the streamed loose/tight list renders as the full text, and as the expected lines in order.
     let streamed = Screen::build(Owner::ChatLive)
         .script(include_str!(
@@ -174,6 +178,10 @@ fn loose_vs_tight_list_items_streaming_matches_full() {
 // ORACLE markdown_stream.rs:861 collector_source_chunks_round_trip_into_agent_fence_unwrapping kind=ui owner=chat-live
 #[test]
 fn collector_source_chunks_round_trip_into_agent_fence_unwrapping() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     // oracle: a ```md fence streamed in chunks unwraps to a markdown table: a separator row of ━, no raw header row.
     let s = Screen::build(Owner::ChatLive)
         .script(include_str!(

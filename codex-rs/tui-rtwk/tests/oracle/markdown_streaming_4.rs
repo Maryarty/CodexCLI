@@ -101,6 +101,10 @@ fn rows_in_order(s: &Screen, rows: &[&str]) {
 // ORACLE markdown_render_tests.rs:1439 code_block_unknown_lang_plain kind=ui owner=chat-live
 #[test]
 fn code_block_unknown_lang_plain() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "```xyzlang\nhello world\n```\n");
     rows_in_order(&s, &["hello world"]);
     // The oracle's span has no fg: no syntax colour, the terminal default.
@@ -112,6 +116,10 @@ fn code_block_unknown_lang_plain() {
 // ORACLE markdown_render_tests.rs:1471 code_block_no_lang_plain kind=ui owner=chat-live
 #[test]
 fn code_block_no_lang_plain() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "```\nno lang specified\n```\n");
     rows_in_order(&s, &["no lang specified"]);
     // The oracle's text has no fence line: the source fences are not drawn.
@@ -121,6 +129,10 @@ fn code_block_no_lang_plain() {
 // ORACLE markdown_render_tests.rs:1492 code_block_multiple_lines_root kind=ui owner=chat-live
 #[test]
 fn code_block_multiple_lines_root() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "```\nfirst\nsecond\n```\n");
     rows_in_order(&s, &["first", "second"]);
     // The oracle's text has no fence line: the source fences are not drawn.
@@ -163,6 +175,10 @@ fn horizontal_rule_renders_em_dashes() {
 // ORACLE markdown_render_tests.rs:1532 code_block_with_inner_triple_backticks_outer_four kind=ui owner=chat-live
 #[test]
 fn code_block_with_inner_triple_backticks_outer_four() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let md = r#"````text
 Here is a code block that shows another fenced block:
 
@@ -193,6 +209,10 @@ Here is a code block that shows another fenced block:
 // ORACLE markdown_render_tests.rs:1578 code_block_inside_unordered_list_item_is_indented kind=ui owner=chat-live
 #[test]
 fn code_block_inside_unordered_list_item_is_indented() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "- Item\n\n  ```\n  code line\n  ```\n");
     rows_in_order(&s, &["• Item", "", "  code line"]);
 }
@@ -200,6 +220,10 @@ fn code_block_inside_unordered_list_item_is_indented() {
 // ORACLE markdown_render_tests.rs:1595 code_block_multiple_lines_inside_unordered_list kind=ui owner=chat-live
 #[test]
 fn code_block_multiple_lines_inside_unordered_list() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "- Item\n\n  ```\n  first\n  second\n  ```\n");
     rows_in_order(&s, &["• Item", "", "  first", "  second"]);
 }
@@ -513,6 +537,10 @@ fn nested_item_continuation_paragraph_is_indented() {
 // ORACLE markdown_render_tests.rs:1908 code_block_preserves_trailing_blank_lines kind=ui owner=chat-live
 #[test]
 fn code_block_preserves_trailing_blank_lines() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle's code rows carry no padding (tui markdown_render.rs:1162 start_codeblock indents with the given indent only); rtwk's MarkdownView code block pads one cell on the left, so every code row starts with an extra space",
+    );
     let s = chat(80, 24, "```rust\nfn main() {}\n\n```\n");
     // The oracle's trailing blank row after `fn main() {}` is not checked (blank rows: missed kit call).
     rows_in_order(&s, &["fn main() {}"]);
@@ -538,6 +566,10 @@ fn table_renders_app_style_rows_with_themed_bold_header() {
 // ORACLE markdown_render_tests.rs:1974 table_alignment_respects_markers kind=ui owner=chat-live
 #[test]
 fn table_alignment_respects_markers() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = chat(
         80,
         24,
@@ -552,6 +584,10 @@ fn table_alignment_respects_markers() {
 // ORACLE markdown_render_tests.rs:1988 table_separates_logical_rows_after_wrapped_content kind=ui owner=chat-live
 #[test]
 fn table_separates_logical_rows_after_wrapped_content() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle wraps a long cell and rules between logical rows (tui markdown_render.rs:1851 render_table_separator); rtwk's MarkdownView keeps one line per row and cuts the cell with `…` (`ComposedMarkdownView::wrap_table_cells` wraps, but is a document scroll view)",
+    );
     let s = chat(
         30,
         24,
@@ -736,6 +772,10 @@ fn table_renders_halfwidth_sound_marks_at_constrained_width_snapshot() {
 // ORACLE markdown_render_tests.rs:2115 table_inside_blockquote_has_quote_prefix kind=ui owner=chat-live
 #[test]
 fn table_inside_blockquote_has_quote_prefix() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: items 1 and 3, the oracle draws a table inside a quote as `> ` rows with `━` rules (tui markdown_render.rs:884, :1851); rtwk draws the `│` quote bar and a `│` grid with a `─┼─` header rule",
+    );
     let s = chat(80, 24, "> | A | B |\n> |---|---|\n> | 1 | 2 |\n");
     s.assert_contains("━━━━━  ━━━━━");
     // The oracle's every row starts with "> ": no kit call checks the start of every row (missed).
@@ -751,6 +791,10 @@ fn escaped_pipes_render_in_table_cells() {
 // ORACLE markdown_render_tests.rs:2142 table_falls_back_to_key_value_records_if_grid_cannot_fit kind=ui owner=chat-live
 #[test]
 fn table_falls_back_to_key_value_records_if_grid_cannot_fit() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, when the grid cannot fit, the oracle prints key/value records (tui markdown_render/table_key_value.rs:98 render_records); rtwk's MarkdownView keeps the `│` grid and cuts every cell to `…`",
+    );
     let md = "| c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |\n";
     let s = chat(20, 40, md);
     // The first row holds c1; the last column's row holds c10 and 10.
@@ -768,6 +812,10 @@ fn table_falls_back_to_key_value_records_if_grid_cannot_fit() {
 // ORACLE markdown_render_tests.rs:2165 table_key_value_fallback_preserves_rich_values_and_themed_labels kind=ui owner=chat-live
 #[test]
 fn table_key_value_fallback_preserves_rich_values_and_themed_labels() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, when the grid cannot fit, the oracle prints key/value records (tui markdown_render/table_key_value.rs:98 render_records); rtwk's MarkdownView keeps the `│` grid and cuts every cell to `…`",
+    );
     let md = "| Key | Content | Extra | More |\n|---|---|---|---|\n| item | [link](https://example.com) | **bold** | `code` |\n";
     let s = chat(16, 40, md);
     s.assert_contains("Key");

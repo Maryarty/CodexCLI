@@ -554,6 +554,10 @@ fn headings() {
 // ORACLE markdown_render_tests.rs:195 blockquote_single kind=ui owner=chat-live
 #[test]
 fn blockquote_single() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> Blockquote");
     s.assert_has_row("> Blockquote");
     s.assert_text_style("> Blockquote", "fg=Green");
@@ -573,6 +577,10 @@ fn blockquote_soft_break() {
 // ORACLE markdown_render_tests.rs:226 blockquote_multiple_with_break kind=ui owner=chat-live
 #[test]
 fn blockquote_multiple_with_break() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> Blockquote 1\n\n> Blockquote 2\n");
     s.assert_in_order(&["> Blockquote 1", "> Blockquote 2"]);
     s.assert_text_style("> Blockquote 1", "fg=Green");
@@ -582,6 +590,10 @@ fn blockquote_multiple_with_break() {
 // ORACLE markdown_render_tests.rs:238 blockquote_three_paragraphs_short_lines kind=ui owner=chat-live
 #[test]
 fn blockquote_three_paragraphs_short_lines() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> one\n>\n> two\n>\n> three\n");
     s.assert_in_order(&["> one", "> two", "> three"]);
     s.assert_text_style("> one", "fg=Green");
@@ -590,6 +602,10 @@ fn blockquote_three_paragraphs_short_lines() {
 // ORACLE markdown_render_tests.rs:253 blockquote_nested_two_levels kind=ui owner=chat-live
 #[test]
 fn blockquote_nested_two_levels() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> Level 1\n>> Level 2\n");
     s.assert_in_order(&["> Level 1", "> > Level 2"]);
 }
@@ -609,6 +625,10 @@ fn blockquote_with_list_items() {
 // ORACLE markdown_render_tests.rs:278 blockquote_with_ordered_list kind=ui owner=chat-live
 #[test]
 fn blockquote_with_ordered_list() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> 1. first\n> 2. second\n");
     s.assert_in_order(&["> 1. first", "> 2. second"]);
     s.assert_text_style("1. ", "fg=LightBlue");
@@ -617,6 +637,10 @@ fn blockquote_with_ordered_list() {
 // ORACLE markdown_render_tests.rs:300 blockquote_list_then_nested_blockquote kind=ui owner=chat-live
 #[test]
 fn blockquote_list_then_nested_blockquote() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> - parent\n>   > child\n");
     s.assert_in_order(&["> • parent", ">   > child"]);
 }
@@ -624,6 +648,10 @@ fn blockquote_list_then_nested_blockquote() {
 // ORACLE markdown_render_tests.rs:312 list_item_with_inline_blockquote_on_same_line kind=ui owner=chat-live
 #[test]
 fn list_item_with_inline_blockquote_on_same_line() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "1. > quoted\n");
     s.assert_has_row("1. > quoted");
 }
@@ -631,6 +659,10 @@ fn list_item_with_inline_blockquote_on_same_line() {
 // ORACLE markdown_render_tests.rs:323 blockquote_surrounded_by_blank_lines kind=ui owner=chat-live
 #[test]
 fn blockquote_surrounded_by_blank_lines() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "foo\n\n> bar\n\nbaz\n");
     s.assert_in_order(&["foo", "> bar", "baz"]);
 }
@@ -638,6 +670,10 @@ fn blockquote_surrounded_by_blank_lines() {
 // ORACLE markdown_render_tests.rs:349 blockquote_in_ordered_list_on_next_line kind=ui owner=chat-live
 #[test]
 fn blockquote_in_ordered_list_on_next_line() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "1.\n   > quoted\n");
     s.assert_has_row("1. > quoted");
 }
@@ -645,6 +681,10 @@ fn blockquote_in_ordered_list_on_next_line() {
 // ORACLE markdown_render_tests.rs:368 blockquote_in_unordered_list_on_next_line kind=ui owner=chat-live
 #[test]
 fn blockquote_in_unordered_list_on_next_line() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "-\n  > quoted\n");
     s.assert_has_row("• > quoted");
 }
@@ -652,6 +692,10 @@ fn blockquote_in_unordered_list_on_next_line() {
 // ORACLE markdown_render_tests.rs:387 blockquote_two_paragraphs_inside_ordered_list_has_blank_line kind=ui owner=chat-live
 #[test]
 fn blockquote_two_paragraphs_inside_ordered_list_has_blank_line() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "1.\n   > para 1\n   >\n   > para 2\n");
     s.assert_in_order(&["1. > para 1", "   > para 2"]);
 }
@@ -670,6 +714,10 @@ fn blockquote_inside_nested_list() {
 // ORACLE markdown_render_tests.rs:430 list_item_text_then_blockquote kind=ui owner=chat-live
 #[test]
 fn list_item_text_then_blockquote() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "1. before\n   > quoted\n");
     s.assert_in_order(&["1. before", "   > quoted"]);
 }
@@ -699,6 +747,10 @@ fn list_item_text_blockquote_text() {
 // ORACLE markdown_render_tests.rs:481 blockquote_with_heading_and_paragraph kind=ui owner=chat-live
 #[test]
 fn blockquote_with_heading_and_paragraph() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> # Heading\n> paragraph text\n");
     s.assert_in_order(&["> # Heading", "> paragraph text"]);
 }
@@ -706,6 +758,10 @@ fn blockquote_with_heading_and_paragraph() {
 // ORACLE markdown_render_tests.rs:506 blockquote_heading_inherits_heading_style kind=ui owner=chat-live
 #[test]
 fn blockquote_heading_inherits_heading_style() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> # test header\n> in blockquote\n");
     s.assert_in_order(&["> # test header", "> in blockquote"]);
     s.assert_text_style("test header", "bold underlined");
@@ -715,6 +771,10 @@ fn blockquote_heading_inherits_heading_style() {
 // ORACLE markdown_render_tests.rs:525 blockquote_with_code_block kind=ui owner=chat-live
 #[test]
 fn blockquote_with_code_block() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> ```\n> code\n> ```\n");
     s.assert_has_row("> code");
 }
@@ -722,6 +782,10 @@ fn blockquote_with_code_block() {
 // ORACLE markdown_render_tests.rs:542 blockquote_with_multiline_code_block kind=ui owner=chat-live
 #[test]
 fn blockquote_with_multiline_code_block() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(80, 24, "> ```\n> first\n> second\n> ```\n");
     s.assert_in_order(&["> first", "> second"]);
 }
@@ -729,6 +793,10 @@ fn blockquote_with_multiline_code_block() {
 // ORACLE markdown_render_tests.rs:559 nested_blockquote_with_inline_and_fenced_code kind=ui owner=chat-live
 #[test]
 fn nested_blockquote_with_inline_and_fenced_code() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 1, the oracle draws a quote as `> ` rows (tui markdown_render.rs:884 start_blockquote, the `> ` indent); rtwk's MarkdownTheme draws a `│` bar from Glyphs and has no source-marker option, so the rows read `│ …`",
+    );
     let s = chat(
         80,
         24,

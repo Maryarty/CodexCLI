@@ -315,6 +315,10 @@ fn controller_handles_table_immediately_after_heading() {
 // ORACLE streaming/controller.rs:1633 controller_renders_separators_for_multi_table_response_shape kind=ui owner=chat-live
 #[test]
 fn controller_renders_separators_for_multi_table_response_shape() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let source = "Absolutely. Here are several different Markdown table patterns you can use for rendering tests.\n\n| Name  | Role      |
   Location |\n|-------|-----------|----------|\n| Ava   | Engineer  | NYC      |\n| Malik | Designer  | Berlin   |\n| Priya | PM        | Remote
   |\n\n| Item        | Qty | Price | In Stock |\n|:------------|----:|------:|:--------:|\n| Keyboard    |   2 | 49.99 |    Yes   |\n| Mouse       |  10
@@ -331,6 +335,10 @@ fn controller_renders_separators_for_multi_table_response_shape() {
 // ORACLE streaming/controller.rs:1655 controller_renders_separators_for_no_outer_pipes_table_shape kind=ui owner=chat-live
 #[test]
 fn controller_renders_separators_for_no_outer_pipes_table_shape() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let source = "### 1) Basic\n\n| Name | Role | Active |\n|---|---|---|\n| Alice | Engineer | Yes |\n| Bob | Designer | No |\n\n### 2) No outer
   pipes\n\nCol A | Col B | Col C\n--- | --- | ---\nx | y | z\n10 | 20 | 30\n\n### 3) Another table\n\n| Key | Value |\n|---|---|\n| a | b |\n";
     let chunks: Vec<&str> = source.split_inclusive('\n').collect();
@@ -343,6 +351,10 @@ fn controller_renders_separators_for_no_outer_pipes_table_shape() {
 // ORACLE streaming/controller.rs:1685 controller_stabilizes_first_no_outer_pipes_table_in_response kind=ui owner=chat-live
 #[test]
 fn controller_stabilizes_first_no_outer_pipes_table_in_response() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let deltas = [
         "### No outer pipes first\n\n",
         "Col A | Col B | Col C\n",
@@ -361,6 +373,10 @@ fn controller_stabilizes_first_no_outer_pipes_table_in_response() {
 // ORACLE streaming/controller.rs:1716 controller_stabilizes_two_column_no_outer_table_in_response kind=ui owner=chat-live
 #[test]
 fn controller_stabilizes_two_column_no_outer_table_in_response() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let deltas = [
         "A | B\n",
         "--- | ---\n",

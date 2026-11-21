@@ -10,7 +10,7 @@ use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
 use rtwk::style::{Attrs, Style};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
-use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
+use rtwk_rich::markdown::MarkdownTheme;
 
 use crate::app::theme::Tokens;
 
@@ -62,7 +62,10 @@ impl StatelessWidget for ReasoningCell {
             ))
             .child(Expanded::new(
                 1,
-                MarkdownView::new(self.summary.as_str()).theme(theme),
+                crate::widgets::markdown::themed(
+                    crate::widgets::markdown::view(&self.summary),
+                    theme,
+                ),
             ))
             .into()
     }

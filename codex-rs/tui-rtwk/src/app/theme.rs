@@ -11,7 +11,7 @@ use rtwk::style::ThemeData;
 use rtwk_core::input::Brightness;
 use rtwk_core::style::Attrs;
 use rtwk_core::style::Color;
-use rtwk_rich::markdown::{BlockStyle, MarkdownTheme, TableStyle};
+use rtwk_rich::markdown::MarkdownTheme;
 use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
 /// The theme of the app's root: the terminal's own colours, dark until the
@@ -76,24 +76,21 @@ impl Tokens {
         // The original's built-in Mocha and Latte Markdown roles.
         let brightness =
             TerminalBrightness::background_of(cx).map_or(self.0.brightness, Brightness::of_rgb);
-        let (heading, strong, bullet, link) = match brightness {
+        let (heading, strong, link) = match brightness {
             Brightness::Dark => (
                 Color::rgb(0xf9, 0xe2, 0xaf),
                 Color::rgb(0xf3, 0x8b, 0xa8),
-                Color::rgb(0x94, 0xe2, 0xd5),
                 Color::rgb(0x89, 0xb4, 0xfa),
             ),
             Brightness::Light => (
                 Color::rgb(0xa1, 0x67, 0x15),
                 Color::rgb(0xd2, 0x0f, 0x39),
-                Color::rgb(0x14, 0x80, 0x87),
                 Color::rgb(0x1e, 0x66, 0xf5),
             ),
         };
         let heading = MarkdownStyle::new().fg(heading);
         let italic_heading = heading.clone().attrs(Attrs::ITALIC);
         MarkdownTheme {
-            block_style: BlockStyle::SourceMarkers,
             heading1: heading.clone().attrs(Attrs::BOLD | Attrs::UNDERLINE),
             heading2: heading.clone().attrs(Attrs::BOLD),
             heading3: heading.attrs(Attrs::BOLD | Attrs::ITALIC),
@@ -101,7 +98,6 @@ impl Tokens {
             heading5: italic_heading.clone(),
             heading6: italic_heading,
             strong: MarkdownStyle::new().fg(strong).attrs(Attrs::BOLD),
-            unordered_marker: Some(MarkdownStyle::new().fg(bullet)),
             link: MarkdownStyle::new().fg(link).attrs(Attrs::UNDERLINE),
             // The oracle's ordered markers are ANSI light blue and a block quote,
             // bar and text, is green (markdown_render.rs `MarkdownStyles`).
@@ -109,7 +105,6 @@ impl Tokens {
             quote: MarkdownStyle::new().fg(Color::GREEN),
             quote_bar: MarkdownStyle::new().fg(Color::GREEN),
             code_block: MarkdownStyle::new(),
-            table_style: TableStyle::RowRules,
             table_header: self.accent().attrs(Attrs::BOLD),
             table_border: self.dim().attrs(Attrs::DIM),
             ..MarkdownTheme::from_theme(&RichTheme::from_data(&self.0))

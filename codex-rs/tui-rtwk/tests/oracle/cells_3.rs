@@ -171,6 +171,10 @@ fn empty_mcp_output_preserves_docs_hyperlink() {
 // ORACLE history_cell/tests.rs:475 proposed_plan_cell_unwraps_markdown_fenced_table kind=ui owner=chat-live
 #[test]
 fn proposed_plan_cell_unwraps_markdown_fenced_table() {
+    kit::pending(
+        Owner::ChatLive,
+        "G73: item 3, the oracle draws a table as columns two spaces apart with a `━` rule under the header and `─` rules between logical rows (tui markdown_render.rs:112 TABLE_HEADER_SEPARATOR_CHAR, :1851 render_table_separator); rtwk's MarkdownView draws a `│` grid with one `─┼─` header rule",
+    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(

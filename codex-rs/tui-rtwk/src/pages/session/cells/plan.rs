@@ -27,9 +27,7 @@ pub fn proposed_plan(
             .style(tokens.dim().attrs(Attrs::DIM | Attrs::ITALIC))
             .into()
     } else {
-        super::citation::view(text, cwd)
-            .theme(markdown.clone())
-            .into()
+        crate::widgets::markdown::themed(super::citation::view(text, cwd), markdown.clone()).into()
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)

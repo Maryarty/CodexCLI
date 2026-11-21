@@ -19,10 +19,11 @@ use rtwk::layout::{
 };
 use rtwk::navigation::Navigator;
 use rtwk::provider::{read, select};
+use rtwk::scroll::{NeverScrollableScrollPhysics, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
+use rtwk_rich::markdown::MarkdownTheme;
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
@@ -399,10 +400,18 @@ impl Parts {
             Prompt::Migration(p) => {
                 let mut top = Vec::new();
                 if let Some(markdown) = p.filled_markdown() {
+                    // The body is clipped where the viewport is short (the
+                    // oracle's paragraph is): Flutter's `SingleChildScrollView`
+                    // that never scrolls and takes no focus lays the Markdown
+                    // out whole under a bounded column.
                     top.push(inset(
-                        MarkdownView::new(markdown)
-                            .theme(ink.markdown.clone())
-                            .into(),
+                        SingleChildScrollView::new(crate::widgets::markdown::themed(
+                            crate::widgets::markdown::view(&markdown),
+                            ink.markdown.clone(),
+                        ))
+                        .physics(Rc::new(NeverScrollableScrollPhysics))
+                        .can_request_focus(false)
+                        .into(),
                     ));
                 } else {
                     top.push(line(
