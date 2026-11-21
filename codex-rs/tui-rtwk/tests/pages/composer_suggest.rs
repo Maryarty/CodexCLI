@@ -124,7 +124,7 @@ fn escape_closes_the_popup_until_the_text_changes() {
     s.keys("esc");
     assert!(!popup_open(&s));
     s.assert_row(prompt(&s), "› /stat");
-    // an Enter now is the draft's, not a pick: it runs the line as typed
+    // a changed text opens it again
     s.type_text("u");
     assert!(popup_open(&s), "the text changed: the popup is back");
 }
@@ -164,4 +164,61 @@ fn up_and_down_are_the_drafts_again_once_the_popup_is_closed() {
     // closed: Up is the field's (the caret moves), Tab completes nothing
     assert!(!popup_open(&s));
     s.assert_row(prompt(&s), "› /stat");
+}
+
+#[test]
+fn tab_on_skills_runs_it_as_enter_does() {
+    // oracle `selected_command_dispatches_immediately_on_tab`: the one command Tab runs
+    let mut s = chat();
+    s.type_text("/skills");
+    s.keys("tab");
+    assert!(
+        s.rows().iter().any(|r| r.contains("settings (S15)")),
+        "{}",
+        s.rows().join("\n")
+    );
+    assert!(
+        s.rows()
+            .iter()
+            .any(|r| r.starts_with("› Ask Codex to do anything")),
+        "the draft is cleared:\n{}",
+        s.rows().join("\n")
+    );
+}
+
+#[test]
+fn a_mention_after_an_image_keeps_the_image() {
+    for pick in ["tab", "enter"] {
+        let mut s = skill();
+        let path = s.attach_image("mention.png");
+        s.type_text(" see $ru");
+        s.keys(pick);
+        s.assert_row_starts_with(prompt(&s), "› [Image #1] see $rustdoc");
+        s.keys("enter");
+        s.wait_for("see $rustdoc");
+        let turns = s.turns();
+        assert_eq!(turns.len(), 1, "{pick}");
+        assert_eq!(
+            turns[0]
+                .images
+                .iter()
+                .map(|i| i.path.clone())
+                .collect::<Vec<_>>(),
+            vec![path],
+            "{pick}: the image goes with the turn"
+        );
+    }
+}
+
+#[test]
+fn a_click_on_a_mention_row_after_an_image_keeps_the_image() {
+    let mut s = skill();
+    let path = s.attach_image("click.png");
+    s.type_text(" see $ru");
+    s.click_text("rustdoc");
+    s.keys("enter");
+    s.wait_for("see $rustdoc");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].images[0].path, path);
 }

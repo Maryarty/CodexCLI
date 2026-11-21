@@ -172,6 +172,24 @@ are pending with their reason (below), none loosened.
   slash-tab tests and `slash_key_completes_selected_slash_command_as_text`, composer_4
   `paste_burst_tab_does_not_accept_a_completion`; the click test of `composer_mouse` runs.
 
+- G68 route 2 not tried: the popup rows composed in the layout under the field from
+  `Row` / `SizedBox` name and description columns, a `›` `Text` and the hint line; the
+  oracle's look may need no rtwk change, the row stays until someone builds it.
+- Review fixes (phase 2): a pick rewrites only the word being completed (an image or large
+  paste before a `$`/`@` mention keeps its element and goes with the turn; page tests
+  `a_mention_after_an_image_keeps_the_image`, `a_click_on_a_mention_row_after_an_image_...`,
+  bite shown: with the old whole-prefix rewrite both fail); Tab on `/skills` runs it as Enter
+  does (oracle `selected_command_dispatches_immediately_on_tab`).
+- Not built, from the review: history recall does not restore images (`popovers.history` is
+  text only, shared with Ctrl+R search and the persisted history; chat_live_5
+  `ctrl_c_cleared_prompt_is_recoverable_via_history` is pending again with the image check
+  in its body); the popup's pick drops no draft tail but does not keep it as inline
+  arguments the oracle's way (`complete_selected_slash_command_preserving_existing_draft_tail_as_inline_args`);
+  the startup queue replays every item at the thread start, the oracle drains one item per
+  finished turn (the order is the same, a queued `!cmd` runs while the message before it
+  runs: the same rule as a shell during a turn); images are sniffed as PNG, JPEG, GIF and
+  WebP only (the oracle's `image_dimensions` reads more formats).
+
 ## Pending and why (the rest, none built here)
 - Paste burst, what stays pending: composer_3 `shortcut_modified_input_does_not_enter_paste_bursts`
   and `non_text_input_flushes_pending_paste_without_inserting_text` (the kit's `keys()` has no

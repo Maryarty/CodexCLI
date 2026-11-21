@@ -465,15 +465,32 @@ fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
 // ORACLE chatwidget/tests/review_mode.rs:1087 ctrl_c_cleared_prompt_is_recoverable_via_history kind=ui owner=chat-live
 #[test]
 fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
+    kit::pending(
+        Owner::ChatLive,
+        "history recall does not restore images: the prompt history is text only (`popovers.history: Vec<String>`, shared with Ctrl+R search and the persisted history), so after Up `[Image #1]` is plain text and Enter sends no image; the oracle's recalled draft carries `preview.png` (take_recent_submission_images)",
+    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("draft message ");
     // oracle: attach_image(/tmp/preview.png) appends "[Image #1]" to the draft
-    s.attach_image("preview.png");
+    let path = s.attach_image("preview.png");
     s.keys("ctrl+c");
     s.assert_absent("draft message");
     s.keys("up");
     // oracle: the recalled draft starts with "draft message " and ends with "[Image #1]".
     s.assert_in_order(&["draft message", "[Image #1]"]);
+    // oracle: and its image is back (take_recent_submission_images == [preview.png])
+    s.keys("enter");
+    s.wait_for("draft message");
+    let turns = s.turns();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(
+        turns[0]
+            .images
+            .iter()
+            .map(|i| i.path.clone())
+            .collect::<Vec<_>>(),
+        vec![path]
+    );
 }
 
 // ORACLE chatwidget/tests/review_mode.rs:1120 review_popup_custom_prompt_action_sends_event kind=ui owner=chat-live

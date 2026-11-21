@@ -149,6 +149,20 @@ impl Screen {
         path
     }
 
+    /// The messages the app has started turns with (what the backend was
+    /// asked), oldest first.
+    pub fn turns(&self) -> Vec<codex_tui_core::threads::UserMessage> {
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                codex_tui_core::app::Command::StartTurn { message, .. } => Some(message),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Pastes text as a terminal with bracketed paste does.
     pub fn paste(&mut self, text: &str) -> &mut Screen {
         self.h.t.paste(text);

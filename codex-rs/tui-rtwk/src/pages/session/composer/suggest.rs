@@ -8,7 +8,8 @@
 //! Oracle: `bottom_pane/chat_composer.rs` (`handle_key_event_with_slash_popup`,
 //! `handle_key_event_with_skill_popup`): Up and Down move the highlight,
 //! Enter picks it (a command runs, a mention is put in), Tab completes it as
-//! text (`/compact `), Esc closes the popup until the text changes.
+//! text (`/compact `; Tab on `/skills` runs it), Esc closes the popup until the
+//! text changes.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -121,8 +122,19 @@ impl Suggest {
     /// closes the popup; the text it put in.
     pub fn pick(&self, c: &TextEditingController, at: usize) -> Option<Rc<str>> {
         let item = self.0.borrow().items.get(at)?.clone();
+        let text = c.text();
         let caret = c.selection().extent_offset;
-        c.replace(0, caret, &item.text);
+        // Only the word being completed is rewritten, from where the pick
+        // and the text before the caret part: what stands before it (an
+        // image, a pasted placeholder) keeps its element.
+        let before = text.get(..caret).unwrap_or_default();
+        let shared = before
+            .char_indices()
+            .zip(item.text.chars())
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map_or(0, |((at, a), _)| at + a.len_utf8());
+        c.replace(shared, caret, &item.text[shared..]);
         self.hide(c.text());
         Some(Rc::from(&*item.text))
     }
@@ -197,6 +209,19 @@ impl Suggest {
                 return true;
             }
             (KeyCode::Tab, _) if plain => {
+                // `/skills` is the one command Tab runs, as Enter does
+                let runs = self
+                    .0
+                    .borrow()
+                    .items
+                    .get(at)
+                    .is_some_and(|i| &*i.text == "/skills");
+                if runs {
+                    if let Some(text) = self.pick(c, at) {
+                        tell(ComposerMsg::Picked(text));
+                    }
+                    return true;
+                }
                 if let Some(text) = self.complete(c, at) {
                     tell(ComposerMsg::Completed(text));
                 }
