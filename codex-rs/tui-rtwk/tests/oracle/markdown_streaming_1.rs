@@ -503,10 +503,6 @@ fn pipe_table_fallback_keeps_web_annotations() {
 // ORACLE markdown_render/file_citations_tests.rs:17 file_citation_paths_preserve_markdown_significant_characters kind=ui owner=chat-live
 #[test]
 fn file_citation_paths_preserve_markdown_significant_characters() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not render file citation directives: the path is drawn as the directive text",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
         .script(include_str!(
@@ -530,14 +526,15 @@ fn file_citation_paths_preserve_markdown_significant_characters() {
 #[test]
 fn file_url_citation_preserves_literal_query_delimiters_snapshot() {
     // The oracle's expected text is an inline snapshot (`report?final.xlsx`), not a .snap file.
-    // It runs under three session cwds (the temp dir, C:/repo): the session cwd is not seedable yet.
+    // It runs under three session cwds: the temp dir and `C:/repo` twice. A session cwd is an
+    // absolute path of the host (`AbsolutePathBuf`), so `C:/repo` cannot be seeded here: the
+    // temp-dir run is this one, the `C:/repo` runs are core/tests/citations.rs.
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
-        .script(include_str!(
-            "fixtures/markdown_streaming_1/file_url_citation_preserves_literal_query_delimiters_snapshot.jsonl"
-        ))
+        .agent_says(":codex-file-citation{path=\"file:///tmp/report?final.xlsx\"}\n")
+        .cwd("/tmp")
         .open();
-    s.assert_contains("report?final.xlsx");
+    s.assert_has_row("report?final.xlsx");
 }
 
 // ORACLE markdown_render/file_citations_tests.rs:51 file_citations_inside_code_existing_links_and_html_remain_literal kind=ui owner=chat-live
@@ -545,7 +542,7 @@ fn file_url_citation_preserves_literal_query_delimiters_snapshot() {
 fn file_citations_inside_code_existing_links_and_html_remain_literal() {
     kit::pending(
         Owner::ChatLive,
-        "the chat does not keep a citation literal inside code, HTML and links: citation rendering is not built",
+        "the pin (492ab738) lacks rtwk baccefc2 (MarkdownView::link_destinations): `[label](url)` is drawn without its ` (url)` suffix, the oracle's last assertion",
     );
     let c = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
     let s = Screen::build(Owner::ChatLive)
@@ -563,10 +560,6 @@ fn file_citations_inside_code_existing_links_and_html_remain_literal() {
 // ORACLE markdown_render/file_citations_tests.rs:76 file_citations_accept_unquoted_paths_and_trailing_windows_separators kind=ui owner=chat-live
 #[test]
 fn file_citations_accept_unquoted_paths_and_trailing_windows_separators() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not parse file citation directives (quoted, unquoted, Windows separators): citation rendering is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
@@ -588,7 +581,7 @@ fn file_citations_preserve_escaped_nested_and_reference_directives() {
     // gap for generated seeds, reported. The rest of its literal and reference cases are here.
     kit::pending(
         Owner::ChatLive,
-        "the chat does not render escaped, nested or reference citation directives: citation rendering is not built",
+        "the pin (492ab738) lacks rtwk baccefc2 (MarkdownView::link_destinations): a reference link `[report][file]` is drawn without its ` ({citation})` suffix, the oracle's last assertion",
     );
     let c = ":codex-file-citation{path=/tmp/report.xlsx}";
     let s = Screen::build(Owner::ChatLive)
@@ -610,17 +603,19 @@ fn file_citations_preserve_escaped_nested_and_reference_directives() {
 // ORACLE markdown_render/file_citations_tests.rs:140 multiple_file_citations_render_without_interpreting_encoded_source kind=ui owner=chat-live
 #[test]
 fn multiple_file_citations_render_without_interpreting_encoded_source() {
-    // The oracle's input names the temp dir (cwd-relative `second.xlsx`) and 512 citations are
-    // generated at run time: no fixture, and the session cwd is not seedable yet.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not render file citations against the session cwd, nor a generated run of 512 citations: no cwd seed and no generated seed",
-    );
+    // The oracle's cwd is the temp dir and its text is not wrapped (`rendered_text`): the
+    // terminal is wide enough for the 85-column row. The 512-citation run is
+    // core/tests/citations.rs (`malformed_runs_stay_inside_the_scan_budget_and_many_citations_stay_all_found`).
     let s = Screen::build(Owner::ChatLive)
-        .markdown(80, 24)
-        .live()
+        .markdown(100, 24)
+        .agent_says(concat!(
+            r#"&#58;codex-file-citation{path="ignored.xlsx"} "#,
+            r#":codex-file-citation{artifact_kind="workbook" path="reports/final%20report.xlsx" purpose="output" sheet="Dashboard" range="A1:D8"} "#,
+            r#"and ::codex-file-citation{path="/tmp/second.xlsx"}"#,
+        ))
+        .cwd("/tmp")
         .open();
-    s.assert_contains(
+    s.assert_has_row(
         r#":codex-file-citation{path="ignored.xlsx"} reports/final%20report.xlsx and second.xlsx"#,
     );
 }
@@ -630,7 +625,7 @@ fn multiple_file_citations_render_without_interpreting_encoded_source() {
 fn file_citations_preserve_adjacent_entities_and_escaped_punctuation() {
     kit::pending(
         Owner::ChatLive,
-        "the chat does not render citations next to entities, math and escaped punctuation: citation rendering is not built",
+        "G61: MarkdownView has no math renderer, so the first assertion (`$\\alpha$…$\\beta$` as `α/tmp/$x$/report.mdβ`) is drawn as source; the entity and escape cases hold (tests/pages/cells.rs citations)",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 40)
@@ -649,7 +644,7 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
     // The oracle's local link targets the session cwd's temp dir: no cwd seed in the kit yet.
     kit::pending(
         Owner::ChatLive,
-        "the chat does not resolve a local link against the session cwd, nor start a citation on a new line: no cwd seed",
+        "G63: MarkdownView joins a soft break with a blank, so the citation after `[first](<…>)` does not start a new line; and the pin lacks baccefc2 for the ` (first.txt)` local target; the citation itself reads",
     );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
@@ -661,14 +656,14 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
 // ORACLE markdown_render/file_citations_tests.rs:201 generic_markdown_keeps_assistant_directives_literal kind=ui owner=chat-live
 #[test]
 fn generic_markdown_keeps_assistant_directives_literal() {
-    // The generic renderer has no agent-message path on the screen: which chat item uses it is
-    // decided by the markdown slice.
-    let s = Screen::build(Owner::ChatLive)
+    // The generic renderer is the reasoning summary's (history_cell/messages.rs
+    // `ReasoningSummaryCell`, shown by the detailed transcript); the agent message reads
+    // citations. tests/pages/cells.rs holds the widget-level twin.
+    let mut s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
-        .script(include_str!(
-            "fixtures/markdown_streaming_1/generic_markdown_keeps_assistant_directives_literal.jsonl"
-        ))
+        .reasoning_says(r#":codex-file-citation{path="/tmp/report.xlsx"}"#)
         .open();
+    s.keys("ctrl+t");
     s.assert_contains(r#":codex-file-citation{path="/tmp/report.xlsx"}"#);
 }
 

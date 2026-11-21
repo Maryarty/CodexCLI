@@ -12,6 +12,7 @@ use codex_tui_core::screens::cells::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
+pub mod citation;
 pub mod markdown;
 pub mod notice;
 pub mod one_row;

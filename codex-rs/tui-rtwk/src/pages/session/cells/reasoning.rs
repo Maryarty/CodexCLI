@@ -3,7 +3,8 @@
 //! dim and italic over its own style (`span.patch_style(dim().italic())`).
 //! Flutter: a `Row` of the bullet `Text` and an `Expanded` `MarkdownView`; the
 //! dimming is the `MarkdownTheme`'s (a `DefaultTextStyle` above the view does
-//! not reach its paragraphs: gap G71).
+//! not reach its paragraphs: gap G71). The oracle renders this body with its
+//! generic renderer: a `:codex-file-citation` directive stays literal here.
 
 use rtwk::layout::{CrossAxisAlignment, Expanded, Row, SizedBox};
 use rtwk::style::{Attrs, Style};

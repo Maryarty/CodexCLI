@@ -8,6 +8,8 @@ pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
 mod cells;
+pub mod citations;
+pub mod directives;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};

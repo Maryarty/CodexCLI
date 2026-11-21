@@ -6,7 +6,7 @@ use rtwk::AnyWidget;
 use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::widgets::Text;
-use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
+use rtwk_rich::markdown::MarkdownTheme;
 
 use crate::app::theme::Tokens;
 
@@ -16,6 +16,7 @@ use super::strings::Strings;
 /// blank row above and below and two columns on each side.
 pub fn proposed_plan(
     text: &str,
+    cwd: Option<&str>,
     surface: Style,
     markdown: &MarkdownTheme,
     tokens: &Tokens,
@@ -26,7 +27,7 @@ pub fn proposed_plan(
             .style(tokens.dim().attrs(Attrs::DIM | Attrs::ITALIC))
             .into()
     } else {
-        MarkdownView::new(super::markdown::lift_markdown_fences(text).as_ref())
+        super::citation::view(text, cwd)
             .theme(markdown.clone())
             .into()
     };

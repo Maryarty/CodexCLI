@@ -194,15 +194,12 @@ fn finalized_markdown_reuses_rendered_transcript_lines() {
 // ORACLE history_cell/messages_tests.rs:278 finalized_assistant_file_citation_renders_as_local_path_snapshot kind=snap owner=chat-live
 #[test]
 fn finalized_assistant_file_citation_renders_as_local_path_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "G60: MarkdownView has no inline syntax extension, so the :codex-file-citation directive is drawn as its source, not as a local path label",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_2/finalized_assistant_file_citation_renders_as_local_path_snapshot.jsonl"
         ))
+        .cwd("/tmp")
         .open();
     s.assert_has_row("• Generated Quarterly Report.xlsx.");
 }
@@ -383,15 +380,12 @@ fn finalized_plan_reuses_rendered_transcript_lines() {
 // ORACLE history_cell/plans_tests.rs:28 finalized_plan_file_citation_renders_as_local_path_snapshot kind=snap owner=chat-live
 #[test]
 fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "G60: MarkdownView has no inline syntax extension, so the :codex-file-citation directive is drawn as its source, not as the file's name",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
             "fixtures/cells_2/finalized_plan_file_citation_renders_as_local_path_snapshot.jsonl"
         ))
+        .cwd("/tmp")
         .open();
     let top = row_of(&s, "• Proposed Plan");
     s.assert_row(top, "• Proposed Plan");

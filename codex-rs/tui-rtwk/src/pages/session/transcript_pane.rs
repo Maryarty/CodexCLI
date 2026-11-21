@@ -12,7 +12,7 @@ use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk_rich::markdown::{ListSpacing, MarkdownTheme, MarkdownView};
+use rtwk_rich::markdown::{ListSpacing, MarkdownTheme};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -171,11 +171,11 @@ impl State for ViewportState {
                     } else {
                         ListSpacing::Uniform
                     };
-                    let source = super::cells::markdown::lift_markdown_fences(text);
-                    let markdown = MarkdownView::new(source.as_ref()).theme(MarkdownTheme {
-                        list_spacing,
-                        ..markdown.clone()
-                    });
+                    let markdown =
+                        super::cells::citation::view(text, cwd.as_deref()).theme(MarkdownTheme {
+                            list_spacing,
+                            ..markdown.clone()
+                        });
                     Padding::new(
                         EdgeInsets::only(0, i32::from(separator), 1, 0),
                         Row::new()
@@ -234,6 +234,7 @@ impl State for ViewportState {
                     separator,
                     super::cells::plan::proposed_plan(
                         text,
+                        cwd.as_deref(),
                         prompt_surface.clone(),
                         &markdown,
                         &tokens,

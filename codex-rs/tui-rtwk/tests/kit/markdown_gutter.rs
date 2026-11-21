@@ -9,7 +9,7 @@
 //! speaks of the oracle's rows. Nothing else of the screen changes.
 
 use super::grid::Grid;
-use super::seed::Open;
+use super::seed::{Open, Seed};
 
 /// The agent cell's bullet column (history_cell/messages.rs).
 pub const GUTTER: u16 = 2;
@@ -23,6 +23,67 @@ impl Open {
         self.width = width + GUTTER + RESERVE;
         self.height = height;
         self.gutter = usize::from(GUTTER);
+        self
+    }
+
+    /// A session whose turn answers with `text` (a streamed agent message), for
+    /// the oracle tests that build their Markdown source at run time.
+    pub fn agent_says(mut self, text: &str) -> Open {
+        let delta = serde_json::json!({"step": "notify", "message": {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-1", "itemId": "msg-1", "delta": text}
+        }});
+        self.seed = Seed::Script(Self::turn(&delta));
+        self
+    }
+
+    /// A session whose turn holds a completed reasoning summary of `text`
+    /// (shown by the detailed transcript, ctrl+t).
+    pub fn reasoning_says(mut self, text: &str) -> Open {
+        let item = serde_json::json!({"step": "notify", "message": {
+            "method": "item/completed",
+            "params": {"item": {"type": "reasoning", "id": "r1", "summary": [text], "content": []},
+                "threadId": "thread-1", "turnId": "turn-1", "completedAtMs": 0}
+        }});
+        self.seed = Seed::Script(Self::turn(&item));
+        self
+    }
+
+    /// The script of one turn with `item` in it. Leaked: a test's script
+    /// lives for the process, as the `include_str!` ones do.
+    fn turn(item: &serde_json::Value) -> &'static str {
+        let started = r#"{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}"#;
+        let completed = r#"{"step":"notify","message":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":null,"completedAt":null,"durationMs":1000}}}}"#;
+        let seed = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+        Box::leak(format!("{seed}\n{started}\n{item}\n{completed}\n").into_boxed_str())
+    }
+
+    /// The session's working directory, as the app learns it: a
+    /// `thread/started` of `thread-1` after the script. The oracle's render
+    /// tests run in a directory of their own (`/tmp`), which a citation or a
+    /// local link is shown relative to.
+    pub fn cwd(mut self, cwd: &str) -> Open {
+        let started = serde_json::json!({
+            "step": "notify",
+            "message": {"method": "thread/started", "params": {"thread": {
+                "id": "thread-1", "environments": null, "extra": null, "sessionId": "thread-1",
+                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+                "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": cwd,
+                "cliVersion": "0.0.0", "originator": null, "source": "cli",
+                "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+                "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+                "turns": []
+            }}}
+        });
+        let script = match self.seed {
+            Seed::Script(script) => script,
+            _ => "",
+        };
+        // A test's script lives for the process, as the `include_str!` it extends does.
+        self.seed = Seed::Script(Box::leak(format!("{script}\n{started}\n").into_boxed_str()));
         self
     }
 }

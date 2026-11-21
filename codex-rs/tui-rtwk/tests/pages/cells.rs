@@ -273,3 +273,124 @@ mod reasoning_style {
         );
     }
 }
+
+// ---- file citations (oracle markdown_render/inline_directives.rs: the directive
+// reads as the file's name in the transcript's code style; code, HTML, link
+// text, escaped and nested directives stay literal) ----
+
+mod citations {
+    use codex_tui_rtwk::pages::session::cells::citation;
+
+    const C: &str = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
+
+    fn show(source: &str, cwd: Option<&str>) -> (rtwk_test::Tester, Vec<String>) {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 12));
+        t.pump_widget(citation::view(source, cwd));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        (t, rows)
+    }
+
+    #[test]
+    fn a_citation_reads_as_its_path_below_the_cwd_in_code_style() {
+        let source = r#"see :codex-file-citation{path="/work/repo/src/lib.rs"} now"#;
+        let (t, rows) = show(source, Some("/work/repo"));
+        assert_eq!(rows, ["see src/lib.rs now"]);
+        let style = |x| {
+            let cell = t.cell(x, 0);
+            (cell.fg, cell.bg, cell.attrs)
+        };
+        assert_ne!(style(4), style(0), "the path is drawn as code");
+        assert_eq!(style(4), style(10), "one style over the whole path");
+        assert_eq!(style(0), style(15), "the words around it are plain");
+    }
+
+    #[test]
+    fn citations_in_list_items_headings_emphasis_and_table_cells_read() {
+        let source = "- :codex-file-citation{path=/tmp/a.txt}\n\n# :codex-file-citation{path=/tmp/b.txt}\n\n*see :codex-file-citation{path=/tmp/c.txt}*\n\n| f |\n|---|\n| :codex-file-citation{path=/tmp/d.txt} |\n";
+        let (_, rows) = show(source, None);
+        let text = rows.join("\n");
+        for path in ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"] {
+            assert!(text.contains(path), "{path} in\n{text}");
+        }
+        assert!(!text.contains("codex-file-citation"), "{text}");
+    }
+
+    /// The oracle renders a reasoning summary with its generic renderer
+    /// (history_cell/messages.rs `ReasoningSummaryCell`), which keeps
+    /// directives literal (file_citations_tests.rs
+    /// `generic_markdown_keeps_assistant_directives_literal`).
+    #[test]
+    fn a_reasoning_summary_keeps_a_citation_literal() {
+        use codex_tui_rtwk::pages::session::cells::reasoning::ReasoningCell;
+
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(100, 4));
+        t.pump_widget(ReasoningCell { summary: C.into() });
+        let screen = t.screen();
+        let row = screen.lines().next().unwrap_or_default();
+        assert_eq!(row.trim_end(), format!("• {C}"));
+    }
+
+    #[test]
+    fn a_citation_in_code_html_or_a_link_text_stays_literal() {
+        for source in [
+            format!("`{C}`"),
+            format!("```text\n{C}\n```\n"),
+            format!("<span title='{C}'>"),
+            format!("<!-- {C} -->"),
+            format!("[{C}](https://example.com)"),
+        ] {
+            let (_, rows) = show(&source, None);
+            let text = rows.join("\n");
+            assert!(text.contains(C), "{source:?} shows {text:?}");
+            assert!(!text.contains("/tmp/report.xlsx\n"), "{text:?}");
+        }
+        let (_, rows) = show(&format!("`{C}`"), None);
+        assert_eq!(rows, [C]);
+        let (_, rows) = show(&format!("<span title='{C}'>"), None);
+        assert_eq!(rows, [format!("<span title='{C}'>")]);
+    }
+
+    #[test]
+    fn escaped_nested_and_colon_prefixed_directives_stay_literal_and_the_next_one_reads() {
+        let c = ":codex-file-citation{path=/tmp/report.xlsx}";
+        let (_, rows) = show(&format!(r"\{c} and {c}"), None);
+        assert_eq!(rows, [format!("{c} and /tmp/report.xlsx")]);
+        for literal in [format!(r#":unsupported{{value="{c}"}}"#), format!(":::{c}")] {
+            let (_, rows) = show(&literal, None);
+            assert_eq!(rows, [literal]);
+        }
+    }
+
+    #[test]
+    fn a_reference_definition_keeps_its_directive_and_the_text_after_it_reads() {
+        let c = ":codex-file-citation{path=/tmp/report.xlsx}";
+        let (_, rows) = show(
+            &format!("`{c}`\n\n[report][file]\n\n[file]: {c}\n\n{c}"),
+            None,
+        );
+        assert_eq!(rows.first().map(String::as_str), Some(c));
+        assert_eq!(rows.last().map(String::as_str), Some("/tmp/report.xlsx"));
+        assert!(rows.iter().any(|row| row.starts_with("report")), "{rows:?}");
+    }
+
+    #[test]
+    fn a_citation_next_to_entities_and_escapes_reads() {
+        let (_, rows) = show(
+            r#"Préface &amp;:codex-file-citation{path="first&amp;.txt"}&#x1F642;:codex-file-citation{path="second.txt"}&lt;fin&gt;"#,
+            Some("/tmp"),
+        );
+        assert_eq!(rows, ["Préface &first&amp;.txt🙂second.txt<fin>"]);
+        let (_, rows) = show(
+            r#"\[:codex-file-citation{path="first.txt"}\]\*:codex-file-citation{path="second.txt"}\!"#,
+            Some("/tmp"),
+        );
+        assert_eq!(rows, ["[first.txt]*second.txt!"]);
+    }
+}
