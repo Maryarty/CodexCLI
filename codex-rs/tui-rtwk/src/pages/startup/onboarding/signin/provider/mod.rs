@@ -20,6 +20,7 @@ use super::{Look, paragraph, rows_of};
 
 pub mod bedrock;
 pub mod gcp;
+pub mod gov_cloud;
 pub mod strings;
 
 /// The wizard of the provider chosen; none while its wizard is not built.

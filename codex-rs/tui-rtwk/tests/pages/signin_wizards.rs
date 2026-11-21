@@ -558,3 +558,177 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
   Press esc to go back",
     );
 }
+
+/// The GovCloud guidance (`onboarding/bedrock_tests.rs`): the widget alone
+/// over an app that counts its acknowledgments, as the launch step that
+/// shows it is the startup page's. The oracle's snapshots are written out
+/// (`bedrock__tests__gov_cloud_warning`, `..._short`).
+mod gov_cloud {
+    use codex_tui_rtwk::app::run::localized;
+    use codex_tui_rtwk::l10n::Lang;
+    use codex_tui_rtwk::pages::startup::onboarding::GovCloudGuidance;
+    use rtwk::AnyWidget;
+    use rtwk::app::{AppView, ViewCx};
+    use rtwk_core::input::{Mods, MouseKind};
+    use rtwk_test::{Options, Tester};
+
+    const URL: &str = "https://learn.chatgpt.com/docs/enterprise/govcloud-configuration";
+
+    #[derive(Default)]
+    struct Acknowledged(u32);
+
+    fn view(_: &Acknowledged, cx: &mut ViewCx<Acknowledged>) -> AnyWidget {
+        localized(
+            GovCloudGuidance {
+                acknowledge: cx.on(|app, _| app.0 += 1),
+            },
+            Lang::En,
+        )
+        .into()
+    }
+
+    fn open(width: u16, height: u16) -> Tester {
+        // The kitty keyboard protocol reports repeats.
+        let mut t = Tester::with(Options::new().size(width, height).kitty_keyboard(true));
+        t.pump_app(AppView::new(Acknowledged::default(), view));
+        t.pump();
+        t
+    }
+
+    /// A key, and the frame it leads to.
+    fn key(t: &mut Tester, keys: &str) {
+        t.press(keys);
+        t.pump_for(std::time::Duration::from_millis(50));
+    }
+
+    fn count(t: &Tester) -> u32 {
+        t.read_app(|app: &Acknowledged| app.0)
+    }
+
+    /// The screen's rows, trailing blanks and blank rows at the bottom cut.
+    fn visible(t: &Tester) -> String {
+        let mut rows: Vec<String> = t
+            .lines()
+            .iter()
+            .map(|row| row.trim_end().to_owned())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows.join("\n")
+    }
+
+    /// The link targets on the screen.
+    fn links(t: &Tester) -> Vec<String> {
+        let (width, height) = (
+            t.lines().first().map_or(0, |row| row.chars().count()),
+            t.lines().len(),
+        );
+        (0..height)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .filter_map(|(x, y)| t.cell(x, y).link)
+            .collect()
+    }
+
+    /// Oracle `gov_cloud_guidance_requires_acknowledgement`.
+    #[test]
+    fn gov_cloud_guidance_requires_acknowledgement() {
+        let mut t = open(72, 24);
+        assert_eq!(
+            visible(&t),
+            "\
+Using Codex with AWS GovCloud
+
+You are using Codex with AWS GovCloud. Please ensure you or your
+administrator have read the application configuration and security
+guidance before proceeding.
+
+> Acknowledge
+
+  Press enter to continue"
+        );
+        // A held Enter (a repeat) does not acknowledge; a press does.
+        t.input(b"\x1b[13;1:2u");
+        t.pump();
+        assert_eq!(count(&t), 0);
+        t.press("enter");
+        assert_eq!(count(&t), 1);
+        // The link to the guidance is on the screen.
+        assert!(links(&t).iter().any(|link| link == URL));
+    }
+
+    /// A tap on the row acknowledges as Enter does (ADR-011).
+    #[test]
+    fn a_tap_on_the_acknowledge_row_acknowledges() {
+        let mut t = open(72, 24);
+        t.click(3, 6);
+        t.pump();
+        assert_eq!(count(&t), 1);
+        // Elsewhere nothing happens.
+        t.click(3, 1);
+        t.pump();
+        assert_eq!(count(&t), 1);
+    }
+
+    /// Oracle `gov_cloud_guidance_scrolls_in_short_panes`.
+    #[test]
+    fn gov_cloud_guidance_scrolls_in_short_panes() {
+        let mut t = open(24, 6);
+        let initial = visible(&t);
+        assert_eq!(
+            initial,
+            "\
+Using Codex with AWS
+GovCloud
+
+You are using Codex with
+> Acknowledge
+\u{2191}/\u{2193} scroll \u{b7} enter"
+        );
+        // Even a one-row viewport exposes every line and the link.
+        for height in [6, 2] {
+            // (A resize to the same size clears the tester's emulator.)
+            if height != 6 {
+                t.resize(24, height);
+                t.pump();
+            }
+            let mut seen = String::new();
+            let mut linked = false;
+            for _ in 0..20 {
+                seen.push_str(&t.screen());
+                linked |= links(&t).iter().any(|link| link == URL);
+                assert!(visible(&t).contains("Acknowledge"), "\n{}", t.screen());
+                key(&mut t, "down");
+            }
+            assert!(seen.contains("Using Codex with AWS"));
+            assert!(seen.contains("proceeding."));
+            assert!(linked);
+            for _ in 0..20 {
+                key(&mut t, "up");
+            }
+            assert!(visible(&t).starts_with("Using Codex with AWS"));
+        }
+        t.resize(24, 6);
+        t.pump();
+        assert_eq!(visible(&t), initial);
+        // Down on a pane that fits scrolls nothing.
+        t.resize(72, 24);
+        t.pump();
+        let full = visible(&t);
+        key(&mut t, "down");
+        assert_eq!(visible(&t), full);
+        assert_eq!(count(&t), 0);
+    }
+
+    /// The wheel scrolls the text of a short pane (ADR-011).
+    #[test]
+    fn the_wheel_scrolls_a_short_pane() {
+        let mut t = open(24, 6);
+        t.mouse(MouseKind::WheelDown, 3, 1, 0, Mods::NONE);
+        t.pump();
+        assert!(!visible(&t).starts_with("Using Codex with AWS"));
+        t.mouse(MouseKind::WheelUp, 3, 1, 0, Mods::NONE);
+        t.pump();
+        assert!(visible(&t).starts_with("Using Codex with AWS"));
+    }
+}

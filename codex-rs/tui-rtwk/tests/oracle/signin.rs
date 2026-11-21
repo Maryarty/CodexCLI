@@ -6,8 +6,8 @@
 //! oracle test's widget state (`src/pages/startup/onboarding/fixtures/`).
 //! The provider wizards (S03): Bedrock and Google Cloud are built, the
 //! states after a server's answer are compared in tests/pages/signin.rs and
-//! tests/pages/signin_wizards.rs; the GovCloud launch step and the gateway
-//! wizard are not built yet: their tests are written and pending.
+//! tests/pages/signin_wizards.rs; the GovCloud guidance view is built (its launch step is
+//! startup-finish's) and the gateway wizard is not built yet: their tests are written and pending.
 
 use crate::kit::{self, Owner, Screen};
 
@@ -197,7 +197,7 @@ fn held_enter_requires_a_fresh_confirmation_to_save_a_prefilled_api_key() {
 fn gov_cloud_guidance_requires_acknowledgement() {
     kit::pending(
         Owner::Onboarding,
-        "the GovCloud launch step (S03, `check_gov_cloud` before the sign-in) is not built: no fixture `bedrock_gov_cloud`, no guidance view yet",
+        "the GovCloud launch step (startup-finish: the Facts flag, the step, the fixture `bedrock_gov_cloud`) is not built; the view `GovCloudGuidance` is compared with these snapshots in tests/pages/signin_wizards.rs (gov_cloud)",
     );
     let s = open("bedrock_gov_cloud", 80, 20);
     s.assert_snap("gov_cloud_warning");
@@ -208,7 +208,7 @@ fn gov_cloud_guidance_requires_acknowledgement() {
 fn gov_cloud_guidance_scrolls_in_short_panes() {
     kit::pending(
         Owner::Onboarding,
-        "the GovCloud launch step (S03, `check_gov_cloud` before the sign-in) is not built: no fixture `bedrock_gov_cloud`, no guidance view yet",
+        "the GovCloud launch step (startup-finish: the Facts flag, the step, the fixture `bedrock_gov_cloud`) is not built; the view `GovCloudGuidance` is compared with these snapshots in tests/pages/signin_wizards.rs (gov_cloud)",
     );
     let s = open("bedrock_gov_cloud", 80, 8);
     s.assert_snap("gov_cloud_warning_short");

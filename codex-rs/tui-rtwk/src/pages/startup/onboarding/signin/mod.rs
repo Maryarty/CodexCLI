@@ -51,7 +51,7 @@ use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
 use crate::widgets::options::{Options, Stacked, StackedRow};
 
-mod provider;
+pub mod provider;
 pub mod strings;
 use strings::Strings;
 

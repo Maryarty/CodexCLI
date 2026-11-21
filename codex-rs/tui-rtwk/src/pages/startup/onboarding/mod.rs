@@ -38,6 +38,10 @@ mod trust;
 mod update_prompt;
 mod welcome;
 
+/// The GovCloud guidance step's view (S03; the launch step that shows it is
+/// the startup page's).
+pub use signin::provider::gov_cloud::GovCloudGuidance;
+
 /// What the debug menu lists for this directory: the startup page on each
 /// state of its oracle tests.
 pub fn debug_entries() -> Vec<DebugEntry> {
