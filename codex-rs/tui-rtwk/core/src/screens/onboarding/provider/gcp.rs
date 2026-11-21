@@ -106,7 +106,7 @@ impl Gcp {
 
     /// `spawn_provider_setup`: the answer of the setup being configured; a
     /// refusal goes back to the credential file with its message.
-    pub fn answer(&mut self, request: Request, outcome: super::Outcome) -> bool {
+    pub fn answer(&mut self, request: Request, outcome: Result<(), String>) -> bool {
         if self.stage != Stage::Configuring(request) {
             return false;
         }

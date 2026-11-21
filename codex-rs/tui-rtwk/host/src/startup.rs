@@ -464,9 +464,14 @@ async fn fetch_latest(
     })
 }
 
-/// The S03 provider wizards exist (the `providers` task builds them). Until
-/// then none is offered: a sign-in choice must not lead to a missing screen.
-const WIZARDS_BUILT: bool = false;
+/// The S03 provider wizards built: one not built yet is not offered, a
+/// sign-in choice must not lead to a missing screen.
+fn wizard_built(feature: Feature) -> bool {
+    matches!(
+        feature,
+        Feature::BedrockSetupWizard | Feature::GcpSetupWizard
+    )
+}
 
 /// The login methods allowed and the provider wizards the configuration
 /// and the server offer (`OnboardingScreenArgs` in `run_ratatui_app`,
@@ -475,7 +480,7 @@ fn login_policy(startup: &Startup) -> wire::LoginPolicy {
     let config = &startup.config;
     let auth = config.auth_config();
     let wizard = |feature| {
-        WIZARDS_BUILT
+        wizard_built(feature)
             && startup.target.supports(feature)
             && config.features.enabled(feature)
             && (feature != Feature::GatewaySetupWizard
@@ -855,7 +860,7 @@ mod tests {
     // none, whatever the configuration and the server allow, so no sign-in
     // choice leads to a screen that does not exist.
     #[tokio::test]
-    async fn no_provider_wizard_is_offered_until_they_are_built() {
+    async fn only_the_built_provider_wizards_are_offered() {
         let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
         let config = Arc::get_mut(&mut startup.config).expect("one owner");
         for feature in [
@@ -865,10 +870,13 @@ mod tests {
         ] {
             config.features.enable(feature).expect("a feature");
         }
-        assert!(
-            !login_policy(&startup).wizards.any(),
-            "wizards offered: {:?}",
-            login_policy(&startup).wizards
+        assert_eq!(
+            login_policy(&startup).wizards,
+            Providers {
+                bedrock: true,
+                gcp: true,
+                gateway: false,
+            }
         );
     }
 

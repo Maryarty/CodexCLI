@@ -45,6 +45,8 @@ mod select;
 mod settings;
 #[path = "pages/signin.rs"]
 mod signin;
+#[path = "pages/signin_wizards.rs"]
+mod signin_wizards;
 #[path = "pages/startup.rs"]
 mod startup;
 #[path = "pages/status.rs"]

@@ -4,8 +4,10 @@
 //! Each screen is the startup page's sign-in step opened from a debug entry
 //! of the `onboarding` directory, over the fixture script that makes the
 //! oracle test's widget state (`src/pages/startup/onboarding/fixtures/`).
-//! The provider wizards (S03: Bedrock, Google Cloud, gateway) are not built
-//! yet: their tests are written and pending.
+//! The provider wizards (S03): Bedrock and Google Cloud are built, the
+//! states after a server's answer are compared in tests/pages/signin.rs and
+//! tests/pages/signin_wizards.rs; the GovCloud launch step and the gateway
+//! wizard are not built yet: their tests are written and pending.
 
 use crate::kit::{self, Owner, Screen};
 
@@ -195,7 +197,7 @@ fn held_enter_requires_a_fresh_confirmation_to_save_a_prefilled_api_key() {
 fn gov_cloud_guidance_requires_acknowledgement() {
     kit::pending(
         Owner::Onboarding,
-        "the Bedrock setup wizard (S03) is not built yet: the provider step is a placeholder",
+        "the GovCloud launch step (S03, `check_gov_cloud` before the sign-in) is not built: no fixture `bedrock_gov_cloud`, no guidance view yet",
     );
     let s = open("bedrock_gov_cloud", 80, 20);
     s.assert_snap("gov_cloud_warning");
@@ -206,7 +208,7 @@ fn gov_cloud_guidance_requires_acknowledgement() {
 fn gov_cloud_guidance_scrolls_in_short_panes() {
     kit::pending(
         Owner::Onboarding,
-        "the Bedrock setup wizard (S03) is not built yet: the provider step is a placeholder",
+        "the GovCloud launch step (S03, `check_gov_cloud` before the sign-in) is not built: no fixture `bedrock_gov_cloud`, no guidance view yet",
     );
     let s = open("bedrock_gov_cloud", 80, 8);
     s.assert_snap("gov_cloud_warning_short");
@@ -215,13 +217,22 @@ fn gov_cloud_guidance_scrolls_in_short_panes() {
 // ORACLE onboarding/bedrock_tests.rs:87 discovery_prioritizes_profiles_and_groups_other_sign_in_methods kind=snap owner=onboarding
 #[test]
 fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
-    kit::pending(
-        Owner::Onboarding,
-        "the Bedrock setup wizard (S03) is not built yet: the provider step is a placeholder",
-    );
-    let mut s = open("sign_in_bedrock", 80, 24);
+    // The wizard opens on the discovery it asks of the server; the lists
+    // its answers show are compared in tests/pages/signin_wizards.rs (same
+    // name): a fixture cannot answer a request.
+    let mut s = open("sign_in_bedrock", 72, 24);
     s.keys("3 2");
-    s.assert_contains("Amazon Bedrock");
+    for (row, text) in [
+        "> Set up Amazon Bedrock",
+        "",
+        "  Checking for existing AWS credentials...",
+        "",
+    ]
+    .iter()
+    .enumerate()
+    {
+        s.assert_row(row, text);
+    }
 }
 
 // ORACLE onboarding/bedrock_tests.rs:385 credential_entries_share_region_and_keep_aws_secrets_hidden kind=snap owner=onboarding
@@ -229,11 +240,11 @@ fn discovery_prioritizes_profiles_and_groups_other_sign_in_methods() {
 fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     kit::pending(
         Owner::Onboarding,
-        "the Bedrock setup wizard (S03) is not built yet: the provider step is a placeholder",
+        "G55: rtwk's `TextField.obscure_text` hides every character; the oracle's focused secret field shows its last one (`AWS secret access key: •••••••••••e`). The rest of this test passes in tests/pages/signin_wizards.rs (same name), which answers the discovery",
     );
-    let mut s = open("sign_in_bedrock", 80, 24);
+    let mut s = open("sign_in_bedrock", 72, 24);
     s.keys("3 2");
-    s.assert_contains("Amazon Bedrock");
+    s.assert_contains("> AWS secret access key: •••••••••••e");
 }
 
 // ---- oracle: onboarding/gateway_tests.rs (3 screen-level tests here; 0 state tests left to onboarding)

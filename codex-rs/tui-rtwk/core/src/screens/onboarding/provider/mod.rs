@@ -13,29 +13,44 @@
 use crate::screens::onboarding::Request;
 use crate::screens::onboarding::auth::Provider;
 
+pub mod bedrock;
 pub mod gcp;
+pub mod wire;
 
 /// A wizard's own state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wizard {
+    Bedrock(bedrock::Bedrock),
     Gcp(gcp::Gcp),
 }
 
 /// What a wizard asks the host to run (`Login::Provider`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Setup {
+    /// `account/bedrock/discover`: the AWS credentials the server finds.
+    BedrockDiscover,
+    Bedrock(bedrock::Params),
     Gcp(gcp::Params),
 }
 
-/// The answer to a `Setup`: the wizard's configuration was written, or the
-/// message the server refused it with.
-pub type Outcome = Result<(), String>;
+/// What the server answered a `Setup` with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The wizard's configuration was written.
+    Written,
+    /// The credentials found (`BedrockDiscover`).
+    Discovered(bedrock::Discovery),
+}
+
+/// The answer to a `Setup`, or the message the server refused it with.
+pub type Outcome = Result<Answer, String>;
 
 /// A wizard's intents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     /// A field's text changed (any key handled clears the error).
     Edited,
+    Bedrock(bedrock::Intent),
     Gcp(gcp::Intent),
 }
 
@@ -54,14 +69,16 @@ impl Wizard {
     /// The wizard of a provider; none for one not built yet.
     pub fn of(provider: Provider) -> Option<Wizard> {
         match provider {
+            Provider::Bedrock => Some(Wizard::Bedrock(bedrock::Bedrock::default())),
             Provider::Gcp => Some(Wizard::Gcp(gcp::Gcp::default())),
-            Provider::Bedrock | Provider::Gateway => None,
+            Provider::Gateway => None,
         }
     }
 
     /// A text field has the keys (`is_text_entry_active`).
     pub fn is_text_entry(&self) -> bool {
         match self {
+            Wizard::Bedrock(bedrock) => bedrock.is_text_entry(),
             Wizard::Gcp(gcp) => gcp.is_text_entry(),
         }
     }
@@ -70,6 +87,7 @@ impl Wizard {
     /// error to none after every key it handled).
     pub fn clear_error(&mut self) {
         match self {
+            Wizard::Bedrock(bedrock) => bedrock.error = None,
             Wizard::Gcp(gcp) => gcp.error = None,
         }
     }
@@ -77,6 +95,7 @@ impl Wizard {
     /// Esc: one stage back, or out of the wizard.
     pub fn back(&mut self) -> Effect {
         match self {
+            Wizard::Bedrock(bedrock) => bedrock.back(),
             Wizard::Gcp(gcp) => gcp.back(),
         }
     }
@@ -87,7 +106,11 @@ impl Wizard {
                 wizard.clear_error();
                 Effect::None
             }
+            (Wizard::Bedrock(bedrock), Intent::Bedrock(intent)) => bedrock.apply(intent, request),
             (Wizard::Gcp(gcp), Intent::Gcp(intent)) => gcp.apply(intent, request),
+            (Wizard::Bedrock(_), Intent::Gcp(_)) | (Wizard::Gcp(_), Intent::Bedrock(_)) => {
+                Effect::None
+            }
         }
     }
 
@@ -95,7 +118,8 @@ impl Wizard {
     /// configured; a refusal puts the wizard back where it can retry.
     pub fn answer(&mut self, request: Request, outcome: Outcome) -> bool {
         match self {
-            Wizard::Gcp(gcp) => gcp.answer(request, outcome),
+            Wizard::Bedrock(bedrock) => bedrock.answer(request, outcome),
+            Wizard::Gcp(gcp) => gcp.answer(request, outcome.map(|_| ())),
         }
     }
 }

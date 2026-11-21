@@ -9,7 +9,7 @@ use std::time::Duration;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::auth::provider::{Setup, gcp};
+use codex_tui_core::screens::onboarding::auth::provider::{Answer, Setup, gcp};
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Offer, Outcome, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, Welcome};
 
@@ -410,10 +410,10 @@ absolute path";
             })),
         }]
     );
-    h.fake.inject(epoch, answer(2, Ok(())));
+    h.fake.inject(epoch, answer(2, Ok(Answer::Written)));
     h.settle();
     assert!(!h.t.screen().contains("configured"), "stale");
-    h.fake.inject(epoch, answer(3, Ok(())));
+    h.fake.inject(epoch, answer(3, Ok(Answer::Written)));
     h.wait_for("the configured line", |s| {
         s.contains("\u{2713} Google Cloud Vertex AI configured")
     });

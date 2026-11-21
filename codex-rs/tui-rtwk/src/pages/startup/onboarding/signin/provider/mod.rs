@@ -18,12 +18,18 @@ use codex_tui_core::screens::onboarding::auth::{Provider, provider::Wizard};
 
 use super::{Look, paragraph, rows_of};
 
+pub mod bedrock;
 pub mod gcp;
 pub mod strings;
 
 /// The wizard of the provider chosen; none while its wizard is not built.
 pub(super) fn body(wizard: &Wizard, guard: &crate::widgets::key_guard::KeyGuard) -> AnyWidget {
     match wizard {
+        Wizard::Bedrock(model) => bedrock::BedrockWizard {
+            bedrock: model.clone(),
+            guard: guard.clone(),
+        }
+        .into(),
         Wizard::Gcp(model) => gcp::GcpWizard {
             gcp: model.clone(),
             guard: guard.clone(),
@@ -40,7 +46,8 @@ pub(super) fn configured(
 ) -> AnyWidget {
     let text = match provider {
         Provider::Gcp => strings.gcp_configured,
-        Provider::Bedrock | Provider::Gateway => return SizedBox::shrink().into(),
+        Provider::Bedrock => strings.bedrock_configured,
+        Provider::Gateway => return SizedBox::shrink().into(),
     };
     Text::rich([Span::styled(text, look.green.clone())]).into()
 }

@@ -299,6 +299,12 @@ pub fn apply_intent(
                 return;
             };
             let effect = wizard.back();
+            // Esc leaves what the wizard waited for: its answer is dropped
+            // (the wizard's view no longer holds the number) and the menu
+            // takes choices again.
+            if matches!(sign_in.awaiting, Some((_, Login::Provider(_)))) {
+                sign_in.awaiting = None;
+            }
             wizard_effect(sign_in, effect, asks);
         }
     }
@@ -1027,9 +1033,9 @@ mod tests {
             panic!("no retry asked");
         };
         assert_ne!(retry, request);
-        run.result(&mut sign_in, request, Outcome::Provider(Ok(())));
+        run.result(&mut sign_in, request, Outcome::Provider(Ok(provider::Answer::Written)));
         assert_eq!(sign_in.state, State::Provider(Provider::Gcp), "stale");
-        run.result(&mut sign_in, retry, Outcome::Provider(Ok(())));
+        run.result(&mut sign_in, retry, Outcome::Provider(Ok(provider::Answer::Written)));
         assert_eq!(sign_in.state, State::ProviderConfigured(Provider::Gcp));
         assert!(sign_in.done());
     }
