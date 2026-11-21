@@ -40,12 +40,12 @@ use codex_tui_core::screens::agents::{
 use super::help::{self, Ink};
 use super::path;
 use super::strings::Strings;
-use super::tabs::Tabs;
 use super::usage;
 use crate::app::theme::ThreadPalette;
 use crate::widgets::measure::{self as soft, Measure};
 use crate::widgets::options::{OptionRow, OptionStyles, Options};
 use crate::widgets::session_list::SessionList;
+use crate::widgets::tab_strip::Tabs;
 /// What the screen's own state decides the view shows (the model holds none
 /// of it): the status tab, the help, and the editing line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

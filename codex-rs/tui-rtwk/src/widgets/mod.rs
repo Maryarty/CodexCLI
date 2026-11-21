@@ -8,4 +8,5 @@ pub mod options;
 pub mod page_keys;
 pub mod session_list;
 pub mod status_line;
+pub mod tab_strip;
 pub mod thread_ui;
