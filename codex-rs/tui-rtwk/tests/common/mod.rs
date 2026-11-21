@@ -319,7 +319,11 @@ impl Harness {
         for ev in events {
             self.fake.inject(epoch, ev);
         }
-        let mark = self.t.read_app(|app: &UiApp| app.core.screens().agents.now) + 1;
+        // The shell's own first clock event comes from its thread too: let it
+        // land, or it could overwrite the mark after it was seen.
+        let clock = |h: &mut Harness| h.t.read_app(|app: &UiApp| app.core.screens().agents.now);
+        wait::wait_until(self, "the shell's clock", |h| clock(h) != 0);
+        let mark = clock(self) + 1;
         self.fake.inject(
             epoch,
             AppEv::Screen(ScreenEv::Agents(AgentsEv::Clock(mark))),
