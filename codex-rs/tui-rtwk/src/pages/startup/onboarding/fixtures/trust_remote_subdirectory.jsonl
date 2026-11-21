@@ -1,0 +1,2 @@
+# trust_directory.rs:374: a subdirectory of a remote Git root.
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/srv/remote/project/nested", "target": "/srv/remote/project", "cancel": "agents_overview"}}}

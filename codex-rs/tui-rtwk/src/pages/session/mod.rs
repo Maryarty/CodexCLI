@@ -7,7 +7,7 @@
 mod actions;
 mod activity;
 pub mod backtrack;
-mod blossom;
+pub(crate) mod blossom;
 pub mod cells;
 pub mod composer;
 mod external_writer;

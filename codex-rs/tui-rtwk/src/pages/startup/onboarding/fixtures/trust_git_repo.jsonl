@@ -1,0 +1,2 @@
+# trust_directory.rs:346 renders_snapshot_for_git_repo: the sandbox hint shown.
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project", "sandbox_hint": true}}}

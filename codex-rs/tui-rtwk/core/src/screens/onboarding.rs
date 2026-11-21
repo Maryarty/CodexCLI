@@ -244,8 +244,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
+        // The first choice ends the prompt: a key still buffered for it (an
+        // Enter after Esc) chooses nothing (onboarding_screen.rs:1064).
         Intent::ChooseUpdate(choice) => {
-            if let Some(u) = model.update.as_mut() {
+            if let Some(u) = model.update.as_mut().filter(|u| u.choice.is_none()) {
                 u.choice = Some(choice);
             }
         }
@@ -496,6 +498,22 @@ mod tests {
         assert!(m.done(Step::Update));
         assert!(!m.done(Step::Trust));
         assert!(!m.exit);
+    }
+
+    // onboarding_screen.rs:1064 buffered_enter_is_discarded_when_trust_step_becomes_active:
+    // the Enter that follows Esc in one burst reaches the prompt, not the
+    // trust step, and changes nothing there.
+    #[test]
+    fn buffered_enter_is_discarded_when_trust_step_becomes_active() {
+        let mut m = model(vec![update(), trust(false)]);
+        intent(&mut m, Intent::ChooseUpdate(UpdateChoice::Skip));
+        intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
+        assert_eq!(
+            m.update.as_ref().and_then(|u| u.choice),
+            Some(UpdateChoice::Skip)
+        );
+        assert_eq!(m.trust_write(), None);
+        assert!(!m.done(Step::Trust));
     }
 
     // onboarding_screen.rs:1130 restricted_acceptance_and_cancellation_do_not_persist_trust

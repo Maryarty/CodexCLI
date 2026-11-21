@@ -29,6 +29,19 @@ pub fn rows(seg: TextSegmenter, text: &str, width: usize) -> Vec<String> {
         .collect()
 }
 
+/// How many rows `text` takes at `width` cells when `Text` breaks it
+/// between any two graphemes (`TextWrap::Grapheme`: a path).
+pub fn grapheme_rows(seg: TextSegmenter, text: &str, width: usize) -> usize {
+    let width = i32::try_from(width).unwrap_or(i32::MAX);
+    text.split('\n')
+        .map(|part| {
+            break_lines(&seg, part, width, TextWrap::Grapheme)
+                .len()
+                .max(1)
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::rows;

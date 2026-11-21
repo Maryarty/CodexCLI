@@ -168,7 +168,7 @@ fn import_is_a_step_of_the_startup_page() {
         "{}",
         h.t.screen()
     );
-    assert_eq!(Step::Import.index(), 3);
+    assert_eq!(Step::Import.index(), 5);
     h.press("escape");
     h.t.pump_for(crate::common::ms(600));
     assert_eq!(page.count(&h.t), 0);

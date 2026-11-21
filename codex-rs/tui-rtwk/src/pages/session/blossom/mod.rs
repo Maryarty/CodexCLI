@@ -34,8 +34,25 @@ pub(super) fn welcome() -> AnyWidget {
         if height < 14 || height > constraints.max_height {
             return AnyWidget::default();
         }
-        Center::new(Blossom { width, height }).into()
+        Center::new(Blossom {
+            width,
+            height,
+            replay: None,
+        })
+        .into()
     })
+    .into()
+}
+
+/// The blossom on a fixed stage of `width` by `height` cells that plays as it
+/// is shown and again each time `replay` changes (the onboarding welcome:
+/// `welcome.rs`, its 60 by 21 stage and the replay key).
+pub(crate) fn stage(width: i32, height: i32, replay: u32) -> AnyWidget {
+    Blossom {
+        width,
+        height,
+        replay: Some(replay),
+    }
     .into()
 }
 
@@ -43,6 +60,8 @@ pub(super) fn welcome() -> AnyWidget {
 struct Blossom {
     width: i32,
     height: i32,
+    /// Plays at once and on each change; none plays on a tap only.
+    replay: Option<u32>,
 }
 
 #[derive(Default)]
@@ -63,9 +82,21 @@ impl State for BlossomState {
     type Widget = Blossom;
     type Msg = ();
 
-    fn init_state(&mut self, _: &Blossom, cx: &mut Cx<'_, Self>) {
-        self.animation =
-            Some(AnimationController::new(cx).with_duration(SPIN_DURATION + STATIC_FADE));
+    fn init_state(&mut self, w: &Blossom, cx: &mut Cx<'_, Self>) {
+        let animation = AnimationController::new(cx).with_duration(SPIN_DURATION + STATIC_FADE);
+        if w.replay.is_some() {
+            animation.forward(Some(0.0), cx);
+        }
+        self.animation = Some(animation);
+    }
+
+    fn did_update_widget(&mut self, old: &Blossom, w: &Blossom, cx: &mut Cx<'_, Self>) {
+        if w.replay.is_some()
+            && w.replay != old.replay
+            && let Some(animation) = &self.animation
+        {
+            animation.forward(Some(0.0), cx);
+        }
     }
 
     fn dispose(&mut self) {
@@ -90,10 +121,11 @@ impl State for BlossomState {
         let palette = Tokens::of(cx).blossom_palette();
         let renderer = self.renderer.clone();
         let (width, height) = (w.width, w.height);
+        let fresh = w.replay.is_some();
         let paint = AnimatedBuilder::new(animation, move |animation, _| {
             let time = animation.value() * (SPIN_DURATION + STATIC_FADE).as_secs_f64();
             let millis = (time * 1000.0).round() as u64;
-            let frame = if animation.is_animating() {
+            let frame = if fresh || animation.is_animating() {
                 millis / FRAME_MS
             } else {
                 0
@@ -102,6 +134,7 @@ impl State for BlossomState {
                 .size(width, height)
                 .painter(BlossomPaint {
                     frame,
+                    fresh,
                     palette,
                     renderer: renderer.clone(),
                 })
@@ -118,6 +151,9 @@ impl_widget!(stateful eq Blossom);
 
 struct BlossomPaint {
     frame: u64,
+    /// The welcome's fresh start (oracle `start_fresh`): the spin from the
+    /// intact mark at full opacity, not the replay from the settled blossom.
+    fresh: bool,
     palette: BlossomPalette,
     renderer: Rc<RefCell<Renderer>>,
 }
@@ -136,7 +172,9 @@ impl CellPainter for BlossomPaint {
             return;
         }
         let elapsed = Duration::from_millis(self.frame * FRAME_MS);
-        let (phase, opacity) = if elapsed >= SPIN_DURATION {
+        let (phase, opacity) = if self.fresh {
+            (elapsed.min(SPIN_DURATION).as_secs_f64() / LOOP_SECONDS, 1.0)
+        } else if elapsed >= SPIN_DURATION {
             (SETTLED_PHASE, static_opacity(elapsed - SPIN_DURATION, 1.0))
         } else {
             (
