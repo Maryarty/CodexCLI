@@ -134,9 +134,9 @@ fn compact(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidget
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(one_row(vec![
-            Span::styled(strings.bullet, tokens.dim()),
+            Span::styled(strings.bullet, tokens.dim().attrs(Attrs::DIM)),
             Span::styled(strings.updated_plan, tokens.bold()),
-            Span::styled(progress(update, strings), tokens.dim()),
+            Span::styled(progress(update, strings), tokens.dim().attrs(Attrs::DIM)),
         ]));
     let mut steps: Vec<&PlanStep> = update.steps.iter().collect();
     // In progress, then pending, then completed; the order inside each kept.
@@ -148,15 +148,15 @@ fn compact(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidget
     for (index, step) in steps.into_iter().take(PREVIEW_STEPS).enumerate() {
         let (mark, style) = marker(step, tokens);
         column = column.child(one_row(vec![
-            Span::styled(branch(index == 0, strings), tokens.dim()),
+            Span::styled(branch(index == 0, strings), tokens.dim().attrs(Attrs::DIM)),
             Span::styled(mark, style.clone()),
             Span::styled(one_line(&step.text), style),
         ]));
     }
     if update.steps.is_empty() {
         column = column.child(one_row(vec![
-            Span::styled(strings.plan_branch, tokens.dim()),
-            Span::styled(strings.no_steps, tokens.dim()),
+            Span::styled(strings.plan_branch, tokens.dim().attrs(Attrs::DIM)),
+            Span::styled(strings.no_steps, tokens.dim().attrs(Attrs::DIM)),
         ]));
     }
     column.into()
@@ -217,7 +217,7 @@ fn revealed(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidge
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::rich(vec![
-            Span::styled(strings.bullet, tokens.dim()),
+            Span::styled(strings.bullet, tokens.dim().attrs(Attrs::DIM)),
             Span::styled(strings.updated_plan, tokens.bold()),
         ]))
         .child(
@@ -226,7 +226,11 @@ fn revealed(update: &PlanUpdate, tokens: &Tokens, strings: &Strings) -> AnyWidge
                 .child(SizedBox::new(
                     Some(4),
                     None,
-                    Some(Text::new(strings.plan_branch).style(tokens.dim()).into()),
+                    Some(
+                        Text::new(strings.plan_branch)
+                            .style(tokens.dim().attrs(Attrs::DIM))
+                            .into(),
+                    ),
                 ))
                 .child(Expanded::new(1, body)),
         )

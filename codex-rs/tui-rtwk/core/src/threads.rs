@@ -15,8 +15,8 @@ mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
 pub use cells::{
-    Notice, PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
-    WebActivity,
+    HookEntry, HookEntryKind, HookRun, HookStatus, Notice, PatchActivity, PatchChange, PatchKind,
+    PlanStep, PlanUpdate, StepStatus, WebAction, WebActivity,
 };
 pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
@@ -97,6 +97,8 @@ pub enum Item {
     /// An `update_plan` report: the server has no item for it, so the
     /// transcript mints its key (`Transcript::mint`).
     PlanUpdate(Arc<PlanUpdate>),
+    /// A finished hook run with something to show.
+    Hook(Arc<HookRun>),
 }
 
 impl Item {
@@ -256,6 +258,11 @@ impl Transcript {
         if !was_live && before.is_none() {
             Rc::make_mut(&mut self.order).push(key);
         }
+    }
+
+    /// The turn of the last entry.
+    pub fn last_turn(&self) -> Option<&TurnId> {
+        self.order.last().map(|key| &key.turn)
     }
 
     /// The key of an entry the server has no item for (a plan update): the
@@ -515,6 +522,12 @@ pub enum ThreadEv {
     PlanUpdated {
         turn: TurnId,
         update: Arc<PlanUpdate>,
+    },
+    /// An entry the server has no item for (a hook run): after the last row,
+    /// in the turn it names, else the running turn, else the last row's.
+    Appended {
+        turn: Option<TurnId>,
+        item: Item,
     },
     AgentDelta {
         key: ItemKey,
@@ -1106,6 +1119,15 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 update: Arc::new(PlanUpdate::from_notification(n)),
             },
         )),
+        ServerNotification::HookCompleted(n) => HookRun::from_summary(&n.run).map(|run| {
+            (
+                ThreadId::new(&n.thread_id),
+                ThreadEv::Appended {
+                    turn: n.turn_id.as_deref().map(TurnId::new),
+                    item: Item::Hook(Arc::new(run)),
+                },
+            )
+        }),
         ServerNotification::AgentMessageDelta(n) => Some((
             ThreadId::new(&n.thread_id),
             ThreadEv::AgentDelta {
@@ -1408,6 +1430,17 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             let key = model.transcript.mint(turn);
             model.transcript.upsert(key, Item::PlanUpdate(update));
             apply_ev(model, ThreadEv::Screen(status), fx);
+        }
+        ThreadEv::Appended { turn, item } => {
+            let turn = turn
+                .or_else(|| match &model.turn {
+                    TurnState::Running(running) => Some(running.turn.clone()),
+                    TurnState::Idle => None,
+                })
+                .or_else(|| model.transcript.last_turn().cloned())
+                .unwrap_or_default();
+            let key = model.transcript.mint(turn);
+            model.transcript.upsert(key, item);
         }
         ThreadEv::AgentDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {

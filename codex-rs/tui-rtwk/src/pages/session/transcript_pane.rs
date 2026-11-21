@@ -246,6 +246,10 @@ impl State for ViewportState {
                         cells,
                     ),
                 ),
+                Item::Hook(run) => cell(
+                    separator,
+                    super::cells::hook::HookCell { run: run.clone() }.into(),
+                ),
                 Item::PlanUpdate(update) => cell(
                     separator,
                     super::cells::plan_update::PlanUpdateCell {

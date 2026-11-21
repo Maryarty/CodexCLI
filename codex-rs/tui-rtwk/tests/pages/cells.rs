@@ -940,6 +940,180 @@ mod plan_update {
     }
 }
 
+mod hook_cell {
+    use std::sync::Arc;
+
+    use codex_tui_core::threads::{HookEntry, HookEntryKind, HookRun, HookStatus};
+    use codex_tui_rtwk::pages::session::cells::hook::HookCell;
+    use rtwk::layout::Column;
+    use rtwk::style::{Attrs, Color};
+    use rtwk::widgets::Text;
+
+    use HookEntryKind::{Error, Feedback, Stop, Warning};
+    use HookStatus::{Blocked, Completed, Failed, Stopped};
+
+    fn show(
+        width: u16,
+        status: HookStatus,
+        entries: &[(HookEntryKind, &str)],
+    ) -> rtwk_test::Tester {
+        let run = Arc::new(HookRun {
+            status,
+            entries: entries
+                .iter()
+                .map(|(kind, text)| HookEntry {
+                    kind: *kind,
+                    text: (*text).to_owned(),
+                })
+                .collect(),
+        });
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 16));
+        t.pump_widget(HookCell { run });
+        t
+    }
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect::<Vec<_>>()
+    }
+
+    /// The drawn rows without the empty tail of the surface.
+    fn drawn(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows = rows(t);
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn a_completed_run_shows_its_system_message_after_a_dim_provenance() {
+        let t = show(80, Completed, &[(Warning, "Heads up from the hook")]);
+        assert_eq!(drawn(&t), ["↳ Hook · Heads up from the hook"]);
+        assert!(
+            t.cell(0, 0).attrs.intersects(Attrs::DIM),
+            "{:?}",
+            t.cell(0, 0)
+        );
+        let text = t.cell(10, 0);
+        assert!(!text.attrs.intersects(Attrs::DIM), "{text:?}");
+        assert_ne!(text.fg, Color::GREEN, "{text:?}");
+    }
+
+    #[test]
+    fn only_the_first_line_carries_the_provenance_and_a_final_newline_is_a_blank_row() {
+        let t = show(
+            80,
+            Completed,
+            &[(Warning, "Heads up\n\nReview generated files\n")],
+        );
+        assert_eq!(
+            drawn(&t),
+            ["↳ Hook · Heads up", "", "    Review generated files"]
+        );
+        // The trailing newline leaves a blank row that is part of the cell:
+        // what follows the cell starts a row below it.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 16));
+        t.pump_widget(
+            Column::new()
+                .child(HookCell {
+                    run: Arc::new(HookRun {
+                        status: Completed,
+                        entries: vec![HookEntry {
+                            kind: Warning,
+                            text: "Heads up\n\nReview generated files\n".to_owned(),
+                        }],
+                    }),
+                })
+                .child(Text::new("after")),
+        );
+        assert_eq!(
+            rows(&t).iter().position(|row| row.trim() == "after"),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn sgr_codes_in_the_system_message_read_as_styles() {
+        let t = show(
+            80,
+            Completed,
+            &[(
+                Warning,
+                "Styled \u{1b}[1;31moutput\u{1b}[0m\nacross lines plain",
+            )],
+        );
+        assert_eq!(
+            drawn(&t),
+            ["↳ Hook · Styled output", "    across lines plain"]
+        );
+        let styled = t.cell(17, 0);
+        assert!(styled.attrs.intersects(Attrs::BOLD), "{styled:?}");
+        assert_eq!(styled.fg, Color::RED, "{styled:?}");
+        let plain = t.cell(8, 1);
+        assert!(!plain.attrs.intersects(Attrs::BOLD), "{plain:?}");
+    }
+
+    #[test]
+    fn an_unsuccessful_run_has_a_bold_red_bullet_header_and_its_message_under_a_branch() {
+        for (status, header) in [
+            (Failed, "• Hook failed"),
+            (Blocked, "• Blocked by hook"),
+            (Stopped, "• Hook stopped"),
+        ] {
+            let t = show(80, status, &[(Warning, "Policy prevented this action.")]);
+            assert_eq!(
+                drawn(&t),
+                [header, "  └ Policy prevented this action."],
+                "{status:?}"
+            );
+            let bullet = t.cell(0, 0);
+            assert!(bullet.attrs.intersects(Attrs::BOLD), "{bullet:?}");
+            assert_eq!(bullet.fg, Color::RED, "{bullet:?}");
+        }
+    }
+
+    #[test]
+    fn a_completed_run_with_no_system_message_is_a_green_header() {
+        let t = show(80, Completed, &[(Error, "boom")]);
+        assert_eq!(drawn(&t), ["• Hook completed", "  └ boom"]);
+        let bullet = t.cell(0, 0);
+        assert!(bullet.attrs.intersects(Attrs::BOLD), "{bullet:?}");
+        assert_eq!(bullet.fg, Color::GREEN, "{bullet:?}");
+    }
+
+    #[test]
+    fn the_other_entries_are_drawn_whole_in_the_order_they_came() {
+        for kind in [Warning, Stop, Feedback, Error] {
+            let t = show(
+                20,
+                Stopped,
+                &[(kind, "first\nsecond\nthird\nfourth\nfifth")],
+            );
+            assert_eq!(
+                drawn(&t),
+                [
+                    "• Hook stopped",
+                    "  └ first",
+                    "    second",
+                    "    third",
+                    "    fourth",
+                    "    fifth",
+                ],
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_line_inside_an_entry_stays_blank() {
+        let t = show(40, Failed, &[(Stop, "one\n\ntwo")]);
+        assert_eq!(drawn(&t), ["• Hook failed", "  └ one", "", "    two"]);
+    }
+}
+
 mod plan_in_transcript {
     use codex_tui_core::fixtures::builders::turn_started;
     use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;

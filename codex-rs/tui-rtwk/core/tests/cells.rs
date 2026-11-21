@@ -10,8 +10,8 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app}
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
-    Item, Notice, PatchChange, PatchKind, PlanUpdate, StepStatus, ThreadEv, ToolStatus, WebAction,
-    WebActivity, project,
+    HookEntryKind, HookRun, HookStatus, Item, Notice, PatchChange, PatchKind, PlanUpdate,
+    StepStatus, ThreadEv, ToolStatus, WebAction, WebActivity, project,
 };
 use serde_json::{Value, json};
 
@@ -368,4 +368,122 @@ fn a_plan_update_of_another_turn_is_an_entry_of_that_turn() {
     plan_update(&mut app, "turn-2", None, &[("B", "pending")]);
     let turns: Vec<String> = plan_rows(&app).into_iter().map(|(turn, _)| turn).collect();
     assert_eq!(turns, ["turn-1", "turn-2"]);
+}
+
+fn hook_notification(turn: Option<&str>, status: &str, entries: Value) -> ServerNotification {
+    serde_json::from_value(json!({
+        "method": "hook/completed",
+        "params": {"threadId": "thread-1", "turnId": turn, "run": {
+            "id": "hook-1", "eventName": "sessionStart", "handlerType": "command",
+            "executionMode": "sync", "scope": "turn", "sourcePath": "/workspace/.codex/hooks.json",
+            "source": "user", "displayOrder": 0, "status": status, "statusMessage": null,
+            "startedAt": 0, "completedAt": 1, "durationMs": 1, "entries": entries}}
+    }))
+    .expect("hook notification")
+}
+
+fn hook_rows(app: &CodexApp) -> Vec<std::sync::Arc<HookRun>> {
+    app.active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Hook(run) => Some(run.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn hook_applied(app: &mut CodexApp, turn: Option<&str>, status: &str, entries: Value) {
+    apply_app(
+        app,
+        AppEv::Backend(BackendEv::Notification(Box::new(hook_notification(
+            turn, status, entries,
+        )))),
+        &mut AppFx::default(),
+    );
+}
+
+#[test]
+fn a_completed_hook_keeps_the_entries_the_screen_shows_and_never_its_context() {
+    // oracle hook_cell.rs: model-facing context never appears in the TUI.
+    let mut app = ready();
+    hook_applied(
+        &mut app,
+        Some("turn-1"),
+        "stopped",
+        json!([{"kind": "stop", "text": "first\nsecond"},
+            {"kind": "context", "text": "Private"}, {"kind": "warning", "text": "Heads up"}]),
+    );
+    let rows = hook_rows(&app);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].status, HookStatus::Stopped);
+    let entries: Vec<_> = rows[0]
+        .entries
+        .iter()
+        .map(|entry| (entry.kind, entry.text.as_str()))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (HookEntryKind::Stop, "first\nsecond"),
+            (HookEntryKind::Warning, "Heads up")
+        ]
+    );
+}
+
+#[test]
+fn a_quiet_hook_leaves_no_entry() {
+    // oracle `hook_run_is_quiet_success`: completed with context only (or nothing) is silent;
+    // a started or running hook is the activity line, not a row.
+    let mut app = ready();
+    hook_applied(
+        &mut app,
+        Some("turn-1"),
+        "completed",
+        json!([{"kind": "context", "text": "x"}]),
+    );
+    hook_applied(&mut app, Some("turn-1"), "completed", json!([]));
+    hook_applied(
+        &mut app,
+        Some("turn-1"),
+        "running",
+        json!([{"kind": "warning", "text": "w"}]),
+    );
+    assert!(hook_rows(&app).is_empty());
+    // A failed hook with nothing to say still says it failed.
+    hook_applied(&mut app, Some("turn-1"), "failed", json!([]));
+    let rows = hook_rows(&app);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].status, HookStatus::Failed);
+    assert!(rows[0].entries.is_empty());
+}
+
+#[test]
+fn a_hook_without_a_turn_follows_the_last_row() {
+    let mut app = ready();
+    send(
+        &mut app,
+        "item/completed",
+        json!({"type": "agentMessage", "id": "a1", "text": "Hello."}),
+    );
+    hook_applied(
+        &mut app,
+        None,
+        "blocked",
+        json!([{"kind": "feedback", "text": "no"}]),
+    );
+    let kinds: Vec<&str> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .map(|(key, item)| match item {
+            Item::Agent { .. } => "agent",
+            Item::Hook(_) => {
+                assert_eq!(key.turn.as_str(), "turn-1");
+                "hook"
+            }
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["agent", "hook"]);
 }

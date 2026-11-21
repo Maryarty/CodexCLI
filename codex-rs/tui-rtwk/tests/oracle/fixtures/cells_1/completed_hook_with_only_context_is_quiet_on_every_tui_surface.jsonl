@@ -1,4 +1,5 @@
-# oracle hook_cell.rs:594.
+# oracle hook_cell.rs:594. The user message is the anchor the test names (the oracle test builds none).
 {"step": "seed", "seed": "session", "thread": "thread-1"}
 {"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
+{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "userMessage", "id": "user-1", "clientId": null, "content": [{"type": "text", "text": "hello", "text_elements": []}], "startedAtMs": null, "completedAtMs": null}, "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
 {"step": "notify", "message": {"method": "hook/completed", "params": {"threadId": "thread-1", "turnId": "turn-1", "run": {"id": "hook-1", "eventName": "sessionStart", "handlerType": "command", "executionMode": "sync", "scope": "turn", "sourcePath": "/workspace/.codex/hooks.json", "source": "user", "displayOrder": 0, "status": "completed", "statusMessage": null, "startedAt": 0, "completedAt": 1, "durationMs": 1, "entries": [{"kind": "context", "text": "## Working Memory Recall\n\nSource: Codex compaction"}]}}}}

@@ -5,8 +5,8 @@
 //! reasoning, patches.rs, plans.rs, search.rs, notices.rs).
 
 use codex_app_server_protocol::{
-    PatchApplyStatus, PatchChangeKind, ThreadItemPayload, TurnPlanStepStatus,
-    TurnPlanUpdatedNotification,
+    HookOutputEntryKind, HookRunStatus, HookRunSummary, PatchApplyStatus, PatchChangeKind,
+    ThreadItemPayload, TurnPlanStepStatus, TurnPlanUpdatedNotification,
 };
 
 use super::ToolStatus;
@@ -138,6 +138,69 @@ impl PlanUpdate {
             .iter()
             .filter(|step| step.status == StepStatus::Completed)
             .count()
+    }
+}
+
+/// A completed hook run worth a row (oracle `HookCell`): how it ended and
+/// the output it has for the user. The model-facing context is dropped here,
+/// as the oracle never draws it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HookRun {
+    pub status: HookStatus,
+    pub entries: Vec<HookEntry>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HookStatus {
+    Completed,
+    Failed,
+    Blocked,
+    Stopped,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HookEntry {
+    pub kind: HookEntryKind,
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HookEntryKind {
+    Warning,
+    Stop,
+    Feedback,
+    Error,
+}
+
+impl HookRun {
+    /// The row of a finished run; a run still running and a quiet success
+    /// (completed with nothing but context) leave none (oracle
+    /// `hook_run_is_quiet_success`, `add_completed_run`).
+    pub(super) fn from_summary(run: &HookRunSummary) -> Option<Self> {
+        let status = match run.status {
+            HookRunStatus::Running => return None,
+            HookRunStatus::Completed => HookStatus::Completed,
+            HookRunStatus::Failed => HookStatus::Failed,
+            HookRunStatus::Blocked => HookStatus::Blocked,
+            HookRunStatus::Stopped => HookStatus::Stopped,
+        };
+        let entries: Vec<HookEntry> = run
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                Some(HookEntry {
+                    kind: match entry.kind {
+                        HookOutputEntryKind::Warning => HookEntryKind::Warning,
+                        HookOutputEntryKind::Stop => HookEntryKind::Stop,
+                        HookOutputEntryKind::Feedback => HookEntryKind::Feedback,
+                        HookOutputEntryKind::Error => HookEntryKind::Error,
+                        HookOutputEntryKind::Context => return None,
+                    },
+                    text: entry.text.clone(),
+                })
+            })
+            .collect();
+        (status != HookStatus::Completed || !entries.is_empty()).then_some(Self { status, entries })
     }
 }
 

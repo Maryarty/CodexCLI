@@ -717,11 +717,7 @@ fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
 // ORACLE history_cell/hook_cell.rs:545 completed_hook_system_message_uses_dim_provenance_and_hides_context kind=ui owner=chat-live
 #[test]
 fn completed_hook_system_message_uses_dim_provenance_and_hides_context() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 8).script(include_str!("fixtures/cells_1/completed_hook_system_message_uses_dim_provenance_and_hides_context.jsonl")).open();
+    let s = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/completed_hook_system_message_uses_dim_provenance_and_hides_context.jsonl")).open();
     s.assert_contains("↳ Hook · Heads up from the hook");
     s.assert_absent("Private model-facing");
     s.assert_text_style("↳ Hook ·", "dim");
@@ -731,12 +727,8 @@ fn completed_hook_system_message_uses_dim_provenance_and_hides_context() {
 // ORACLE history_cell/hook_cell.rs:571 completed_hook_system_message_renders_ansi_styles kind=snap owner=chat-live snap=completed_hook_system_message_ansi_styles
 #[test]
 fn completed_hook_system_message_renders_ansi_styles() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form; the snapshot is a Debug dump of the lines, not a screen",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_system_message_renders_ansi_styles.jsonl"
         ))
@@ -748,12 +740,8 @@ fn completed_hook_system_message_renders_ansi_styles() {
 // ORACLE history_cell/hook_cell.rs:594 completed_hook_with_only_context_is_quiet_on_every_tui_surface kind=ui owner=chat-live
 #[test]
 fn completed_hook_with_only_context_is_quiet_on_every_tui_surface() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_with_only_context_is_quiet_on_every_tui_surface.jsonl"
         ))
@@ -767,12 +755,8 @@ fn completed_hook_with_only_context_is_quiet_on_every_tui_surface() {
 // ORACLE history_cell/hook_cell.rs:661 completed_hook_non_context_entries_are_not_truncated kind=ui owner=chat-live
 #[test]
 fn completed_hook_non_context_entries_are_not_truncated() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form; the four kinds are four fixtures",
-    );
     let s_warning = Screen::build(Owner::ChatLive)
-        .size(20, 12)
+        .size(20, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_non_context_entries_are_not_truncated_warning.jsonl"
         ))
@@ -786,7 +770,7 @@ fn completed_hook_non_context_entries_are_not_truncated() {
         "fifth",
     ]);
     let s_stop = Screen::build(Owner::ChatLive)
-        .size(20, 12)
+        .size(20, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_non_context_entries_are_not_truncated_stop.jsonl"
         ))
@@ -800,7 +784,7 @@ fn completed_hook_non_context_entries_are_not_truncated() {
         "fifth",
     ]);
     let s_feedback = Screen::build(Owner::ChatLive)
-        .size(20, 12)
+        .size(20, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_non_context_entries_are_not_truncated_feedback.jsonl"
         ))
@@ -814,7 +798,7 @@ fn completed_hook_non_context_entries_are_not_truncated() {
         "fifth",
     ]);
     let s_error = Screen::build(Owner::ChatLive)
-        .size(20, 12)
+        .size(20, 24)
         .script(include_str!(
             "fixtures/cells_1/completed_hook_non_context_entries_are_not_truncated_error.jsonl"
         ))
@@ -832,17 +816,13 @@ fn completed_hook_non_context_entries_are_not_truncated() {
 // ORACLE history_cell/hook_cell.rs:686 unsuccessful_hooks_use_bold_red_bullets_and_actionable_details kind=ui owner=chat-live
 #[test]
 fn unsuccessful_hooks_use_bold_red_bullets_and_actionable_details() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form",
-    );
-    let s_failed = Screen::build(Owner::ChatLive).size(80, 8).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_failed.jsonl")).open();
+    let s_failed = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_failed.jsonl")).open();
     s_failed.assert_in_order(&["• Hook failed", "└ Policy prevented this action."]);
     s_failed.assert_text_style("•", "fg=Red bold");
-    let s_blocked = Screen::build(Owner::ChatLive).size(80, 8).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_blocked.jsonl")).open();
+    let s_blocked = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_blocked.jsonl")).open();
     s_blocked.assert_in_order(&["• Blocked by hook", "└ Policy prevented this action."]);
     s_blocked.assert_text_style("•", "fg=Red bold");
-    let s_stopped = Screen::build(Owner::ChatLive).size(80, 8).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_stopped.jsonl")).open();
+    let s_stopped = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/unsuccessful_hooks_use_bold_red_bullets_and_actionable_details_stopped.jsonl")).open();
     s_stopped.assert_in_order(&["• Hook stopped", "└ Policy prevented this action."]);
     s_stopped.assert_text_style("•", "fg=Red bold");
 }
@@ -850,11 +830,7 @@ fn unsuccessful_hooks_use_bold_red_bullets_and_actionable_details() {
 // ORACLE history_cell/hook_cell.rs:718 completed_stop_hook_multiline_system_message_prefixes_first_line_only kind=ui owner=chat-live
 #[test]
 fn completed_stop_hook_multiline_system_message_prefixes_first_line_only() {
-    kit::pending(
-        Owner::ChatLive,
-        "no hook cell in the S11 transcript: core ignores hook/completed notifications and the cells screen is an empty form",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 8).script(include_str!("fixtures/cells_1/completed_stop_hook_multiline_system_message_prefixes_first_line_only.jsonl")).open();
+    let s = Screen::build(Owner::ChatLive).size(80, 24).script(include_str!("fixtures/cells_1/completed_stop_hook_multiline_system_message_prefixes_first_line_only.jsonl")).open();
     s.assert_in_order(&["↳ Hook · Heads up", "Review generated files"]);
 }
 

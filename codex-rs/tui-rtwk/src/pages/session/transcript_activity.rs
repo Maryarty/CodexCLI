@@ -448,7 +448,7 @@ fn output_row(index: usize, line: &str, tokens: &Tokens, wrap: bool) -> Row {
             spans.push(Span::new(strings::LINE_BREAK));
         }
         spans.extend(parsed.into_iter().map(|mut span| {
-            span.style.attrs = span.style.attrs | Attrs::DIM;
+            span.style.attrs |= Attrs::DIM;
             span
         }));
     }
