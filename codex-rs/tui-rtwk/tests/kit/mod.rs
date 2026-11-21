@@ -207,6 +207,15 @@ impl Screen {
         self
     }
 
+    /// Waits until `ready` holds of the screen's cells (`Harness::wait_until`):
+    /// for what the app applies from another thread (an answer of the shell),
+    /// where `wait` would be a guess at how long that takes.
+    pub fn wait_until(&mut self, what: &str, ready: impl Fn(&Grid) -> bool) -> &mut Screen {
+        self.h
+            .wait_until(what, |h| h.t.with_screen(|s| ready(&Grid::of(s))));
+        self
+    }
+
     // ---- reading ----------------------------------------------------------
 
     /// The rows, trailing blanks of each cut.

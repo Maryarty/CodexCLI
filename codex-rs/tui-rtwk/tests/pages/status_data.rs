@@ -14,15 +14,18 @@ use crate::common::{Harness, start_sized};
 
 fn feed(h: &mut Harness, jsonl: &str) {
     h.wait_idle();
-    let epoch = h.fake.epoch().expect("connected");
-    for line in jsonl.lines().filter(|l| !l.trim().is_empty()) {
-        let v: serde_json::Value = serde_json::from_str(line).expect("json");
-        let dir = v["dir"].as_str().expect("dir");
-        let ev = seed_ev(dir, v["ev"].clone()).expect("seed");
-        h.fake.inject(epoch, AppEv::Screen(ev));
-    }
+    let events: Vec<AppEv> = jsonl
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|line| {
+            let v: serde_json::Value = serde_json::from_str(line).expect("json");
+            let dir = v["dir"].as_str().expect("dir");
+            AppEv::Screen(seed_ev(dir, v["ev"].clone()).expect("seed"))
+        })
+        .collect();
+    // Applied by the app, not merely sent: the screen below is read at once.
+    h.inject(events);
     h.advance(300);
-    h.quiesce();
 }
 
 fn session(width: u16, jsonl: &str) -> Harness {
@@ -208,10 +211,11 @@ fn no_warnings_no_notice() {
 fn f2_opens_the_retained_warnings_and_dismissal_updates_the_count() {
     let mut h = session(80, &retained(3));
     h.press("f2");
-    h.t.pump_for(crate::common::ms(500));
-    let screen = h.t.screen();
-    assert!(screen.contains("warning 1"), "{screen}");
+    h.wait_for("the viewer", |s| s.contains("warning 1"));
     h.press("escape");
+    h.wait_for("the count after the dismissal", |s| {
+        s.contains("⚠ 2 warnings · f2 to view")
+    });
     h.t.pump_for(crate::common::ms(500));
     let screen = h.t.screen();
     assert!(!screen.contains("warning 1"), "{screen}");
@@ -223,6 +227,6 @@ fn f2_opens_the_retained_warnings_and_dismissal_updates_the_count() {
 fn f2_without_warnings_shows_the_empty_viewer() {
     let mut h = session(80, "");
     h.press("f2");
-    h.t.pump_for(crate::common::ms(500));
+    h.wait_for("the empty viewer", |s| s.contains("No warnings"));
     assert!(h.t.screen().contains("No warnings"), "{}", h.t.screen());
 }

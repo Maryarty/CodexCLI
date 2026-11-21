@@ -33,6 +33,10 @@ use serde_json::{Value, json};
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
+#[allow(clippy::duplicate_mod)] // one helper, a module in each binary with a live app
+#[path = "../common/wait.rs"]
+mod wait;
+
 const TIMESTAMP: i64 = 1_700_000_000;
 const LOCAL: Facts = Facts {
     cloud: false,
@@ -691,7 +695,8 @@ mod live {
 
     impl Live {
         /// Lets everything that is ready run: the frame loop and the
-        /// shell's tasks, until a few rounds in a row change nothing.
+        /// shell's tasks, a few rounds. For "nothing more happens" only; what
+        /// a test expects to happen it waits for (`wait_until`).
         pub fn settle(&mut self) {
             for _ in 0..10 {
                 self.t.pump_for(ms(20));
@@ -699,41 +704,37 @@ mod live {
             }
         }
 
-        /// Waits for the app to end: the event travels through the fake's
-        /// task and the ingress subscription, which a fixed number of frames
-        /// of the fake clock does not wait for under load.
+        /// Frames until `ready` holds (`wait::wait_until`): the answer of the
+        /// shell's task is applied at some flush, whenever the machine gets
+        /// to it.
+        pub fn wait_until(&mut self, what: &str, ready: impl FnMut(&mut Live) -> bool) {
+            super::wait::wait_until(self, what, ready);
+        }
+
+        /// Waits for the app to end.
         pub fn wait_until_ended(&mut self) {
-            for _ in 0..400 {
-                self.t.pump_for(ms(20));
-                if !self.t.is_running() {
-                    return;
-                }
-                std::thread::sleep(ms(5));
-            }
-            panic!("the app never ended; the screen:\n{}", self.t.screen());
+            self.wait_until("the app to end", |h| !h.t.is_running());
         }
 
         /// Waits until the backend has been asked `method`.
         pub fn wait_for_request(&mut self, method: &str) {
-            for _ in 0..400 {
-                self.t.pump_for(ms(20));
-                if self.fake.requests().iter().any(|r| r["method"] == method) {
-                    return;
-                }
-                std::thread::sleep(ms(5));
-            }
-            panic!("never asked {method}; the screen:\n{}", self.t.screen());
+            self.wait_until(&format!("a request {method}"), |h| {
+                h.fake.requests().iter().any(|r| r["method"] == method)
+            });
         }
 
         pub fn wait_for(&mut self, what: &str, ready: impl Fn(&str) -> bool) {
-            for _ in 0..400 {
-                self.t.pump_for(ms(20));
-                if ready(&self.t.screen()) {
-                    return;
-                }
-                std::thread::sleep(ms(5));
-            }
-            panic!("never saw {what}; the screen:\n{}", self.t.screen());
+            self.wait_until(what, |h| ready(&h.t.screen()));
+        }
+    }
+
+    impl super::wait::Pumped for Live {
+        fn tester(&mut self) -> &mut Tester {
+            &mut self.t
+        }
+
+        fn pause(&mut self) {
+            std::thread::sleep(ms(5));
         }
     }
 }
@@ -795,6 +796,8 @@ fn the_picker_of_the_center_lists_the_sessions() {
             && s.contains("Interactive task")
             && s.contains("Exec task")
     });
+    // The listing is asked of the shell: it shows when the backend has it.
+    h.wait_until("the sessions listed again", |h| lists(h) > before);
     assert!(lists(&h) > before, "the picker lists the sessions again");
 }
 
@@ -805,12 +808,17 @@ fn the_picker_of_the_center_lists_the_sessions() {
 fn cancelling_resume_picker_preserves_command_center_state() {
     let mut h = live::start(server);
     h.wait_for("both tasks", |s| s.contains("Exec task"));
+    let ungrouped = h.t.screen();
     h.t.press("g");
+    h.wait_for("the grouping", |s| s != ungrouped);
     h.settle();
     let before = h.t.screen();
     h.t.press("o");
     h.wait_for("the picker", |s| s.contains("Resume a previous session"));
     h.t.press("escape");
+    h.wait_for("the center again", |s| {
+        !s.contains("Resume a previous session")
+    });
     h.settle();
     assert_eq!(h.t.screen(), before);
 }
@@ -847,6 +855,9 @@ fn a_hidden_task_comes_back_through_the_picker() {
     let mut h = live::start(server);
     h.wait_for("both tasks", |s| s.contains("Exec task"));
     h.t.press("h");
+    h.wait_for("one task hidden", |s| {
+        s.contains("Interactive task") != s.contains("Exec task")
+    });
     h.settle();
     let screen = h.t.screen();
     let hidden = if screen.contains("Interactive task") {
