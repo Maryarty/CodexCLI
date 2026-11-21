@@ -480,7 +480,9 @@ mod flow {
             "externalAgentConfig/detect" => {
                 let found = request["params"]["migrationSource"] == "claude-code";
                 let items = if found {
-                    vec![json!({"itemType":"CONFIG","description":"Import settings","cwd":null,"details":null})]
+                    vec![
+                        json!({"itemType":"CONFIG","description":"Import settings","cwd":null,"details":null}),
+                    ]
                 } else {
                     Vec::new()
                 };
@@ -539,6 +541,9 @@ mod flow {
             .collect();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0]["params"]["migrationSource"], "claude-code");
-        assert_eq!(sent[0]["params"]["migrationItems"][0]["description"], "Import settings");
+        assert_eq!(
+            sent[0]["params"]["migrationItems"][0]["description"],
+            "Import settings"
+        );
     }
 }

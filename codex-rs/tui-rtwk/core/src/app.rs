@@ -768,6 +768,17 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     fx,
                 );
             }
+            // The import flow: the completion of the import this client started.
+            if matches!(
+                &*notification,
+                ServerNotification::ExternalAgentConfigImportCompleted(_)
+            ) {
+                crate::screens::import::observe(
+                    &mut Rc::make_mut(&mut app.screens).import,
+                    &notification,
+                    fx,
+                );
+            }
             // `serverRequest/resolved`: the server answered or withdrew a
             // request first; it leaves the queue and nothing is rejected.
             if let ServerNotification::ServerRequestResolved(resolved) = &*notification {

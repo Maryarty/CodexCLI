@@ -23,6 +23,7 @@ use codex_tui_core::rpc::ServerError;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::agents::DirKeys;
 use codex_tui_core::screens::agents::Ev as AgentsEv;
+use codex_tui_core::screens::import::Places;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::services::agents::search::Gate;
@@ -36,6 +37,7 @@ use crate::services::agents::workspace::backend_ev;
 use crate::services::agents::workspace::directories;
 use crate::services::agents::workspace::save_grouping;
 use crate::services::agents::workspace::{bind_worktree, create_worktree};
+use crate::services::backend::import;
 use crate::services::backend::rpc::Ids;
 use crate::services::backend::rpc::answer;
 use crate::services::shell::IngressTx;
@@ -431,7 +433,26 @@ async fn run_as(
             | Command::InterruptTurn { .. } => {}
             // The scripted server has no launch facts: nothing is due.
             Command::Startup { .. } => {}
-            Command::Import { .. } => {}
+            // The import flow: answered as the responder scripts the
+            // `externalAgentConfig` requests; with none, or with none for
+            // them, the flow stays where it is (the oracle waits on the server).
+            Command::Import { ask, .. } => {
+                let responder = shared.lock().ok().and_then(|guard| guard.responder.clone());
+                let Some(responder) = responder else { continue };
+                let ingress = ingress.clone();
+                let ids = ids.clone();
+                let log = shared.clone();
+                tokio::spawn(async move {
+                    let site = import::Site {
+                        cwd: None,
+                        places: Box::new(|_| Places::default()),
+                    };
+                    let send = request_sender(log, responder);
+                    if let Some(ev) = import::run(ask, site, ids, send).await {
+                        let _ = ingress.send(Ingress::of(backend, epoch, ev));
+                    }
+                });
+            }
             Command::Directories { cwds, .. } => {
                 let workspace = server.workspace.clone();
                 let ingress = ingress.clone();

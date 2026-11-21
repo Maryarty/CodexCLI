@@ -427,10 +427,19 @@ fn asked(fx: &AppFx) -> Vec<Request> {
 fn opening_asks_every_source_about_the_project() {
     let mut model = Model::default();
     let mut fx = AppFx::default();
-    apply_intent(&mut model, Intent::Open { cwd: Some("/workspace/project".into()) }, &mut fx);
+    apply_intent(
+        &mut model,
+        Intent::Open {
+            cwd: Some("/workspace/project".into()),
+        },
+        &mut fx,
+    );
     assert_eq!(
         asked(&fx),
-        [Request::Detect { request: 1, cwd: Some("/workspace/project".into()) }]
+        [Request::Detect {
+            request: 1,
+            cwd: Some("/workspace/project".into())
+        }]
     );
 }
 
@@ -443,7 +452,11 @@ fn proceeding_asks_the_import_of_the_checked_items_of_the_source() {
     apply_intent(&mut model, Intent::Proceed, &mut fx);
     assert_eq!(
         asked(&fx),
-        [Request::Import { request: 1, source: "claude-code", items: items[1..].to_vec() }]
+        [Request::Import {
+            request: 1,
+            source: "claude-code",
+            items: items[1..].to_vec()
+        }]
     );
 }
 
@@ -460,8 +473,13 @@ fn a_flow_that_asks_nothing_makes_no_request() {
     // one import runs: the next `/import` is refused, nothing is asked
     let mut model = reviewing(sample_items(), None);
     send(&mut model, &[Intent::Proceed]);
-    let Some(Request::Import { request, .. }) = model.request() else { panic!("an import") };
-    let imported = Ev::Imported { request, result: Ok("import-1".into()) };
+    let Some(Request::Import { request, .. }) = model.request() else {
+        panic!("an import")
+    };
+    let imported = Ev::Imported {
+        request,
+        result: Ok("import-1".into()),
+    };
     apply(&mut model, imported, &mut fx);
     apply_intent(&mut model, Intent::Open { cwd: None }, &mut fx);
     assert_eq!(model.outcome, Some(Outcome::Failed(Failure::InProgress)));
@@ -470,8 +488,17 @@ fn a_flow_that_asks_nothing_makes_no_request() {
 
 fn started(model: &mut Model, id: &str) {
     send(model, &[Intent::Proceed]);
-    let Some(Request::Import { request, .. }) = model.request() else { panic!("an import") };
-    apply(model, Ev::Imported { request, result: Ok(id.into()) }, &mut AppFx::default());
+    let Some(Request::Import { request, .. }) = model.request() else {
+        panic!("an import")
+    };
+    apply(
+        model,
+        Ev::Imported {
+            request,
+            result: Ok(id.into()),
+        },
+        &mut AppFx::default(),
+    );
 }
 
 fn completion(id: &str) -> ServerNotification {
@@ -486,7 +513,11 @@ fn only_the_completion_of_our_import_is_taken() {
     // shared daemon broadcasts the completions of other clients' imports
     let mut model = reviewing(sample_items(), None);
     started(&mut model, "import-1");
-    observe(&mut model, &completion("someone-elses"), &mut AppFx::default());
+    observe(
+        &mut model,
+        &completion("someone-elses"),
+        &mut AppFx::default(),
+    );
     assert!(model.running, "another client's completion is not ours");
     assert_eq!(model.finished, None);
     observe(&mut model, &completion("import-1"), &mut AppFx::default());
@@ -521,10 +552,12 @@ fn detect_asks_the_home_and_the_project_for_the_source() {
 #[test]
 fn import_names_the_cli_and_the_source() {
     let items = sample_items();
-    let request =
-        serde_json::to_value(wire::import("claude-code", items.clone(), id(5))).unwrap();
+    let request = serde_json::to_value(wire::import("claude-code", items.clone(), id(5))).unwrap();
     assert_eq!(request["method"], "externalAgentConfig/import");
-    assert_eq!(request["params"]["migrationItems"], serde_json::to_value(&items).unwrap());
+    assert_eq!(
+        request["params"]["migrationItems"],
+        serde_json::to_value(&items).unwrap()
+    );
     assert_eq!(request["params"]["source"], "cli");
     assert_eq!(request["params"]["providerId"], "claude-code");
     assert_eq!(request["params"]["migrationSource"], "claude-code");
@@ -536,6 +569,9 @@ fn the_answers_are_read_as_items_and_an_import_id() {
     let answer = json!({"items": items, "connectors": []});
     assert_eq!(wire::found(answer).unwrap(), items);
     assert!(wire::found(json!({"items": 3})).is_err());
-    assert_eq!(wire::imported(json!({"importId": "import-9"})).unwrap(), "import-9");
+    assert_eq!(
+        wire::imported(json!({"importId": "import-9"})).unwrap(),
+        "import-9"
+    );
     assert!(wire::imported(json!({})).is_err());
 }
