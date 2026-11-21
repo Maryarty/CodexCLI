@@ -274,7 +274,10 @@ fn choose(
     mint: &mut dyn FnMut() -> Request,
     asks: &mut Vec<Ask>,
 ) {
-    if sign_in.state != State::Pick {
+    // A login asked and not answered yet keeps the state on the menu: a
+    // second activation within the round trip starts nothing (an Enter
+    // pressed twice must not start two logins).
+    if sign_in.state != State::Pick || sign_in.awaiting.is_some() {
         return;
     }
     match method {
@@ -340,7 +343,10 @@ fn cancel(sign_in: &mut SignIn, asks: &mut Vec<Ask>) {
                 });
             }
         }
-        State::ApiKey { .. } | State::Provider(_) => {}
+        // The key typed is forgotten with the attempt; the answer of a save
+        // still out is dropped (`apply_result`).
+        State::ApiKey { .. } => sign_in.awaiting = None,
+        State::Provider(_) => {}
         _ => return,
     }
     sign_in.state = State::Pick;
@@ -348,7 +354,7 @@ fn cancel(sign_in: &mut SignIn, asks: &mut Vec<Ask>) {
 }
 
 /// The answer of a login ask. One no longer awaited is dropped; a device
-/// code that came for an attempt left is cancelled.
+/// code or browser login that came for an attempt left is cancelled.
 pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask>) {
     let AuthResult { request, outcome } = result;
     let device = matches!(sign_in.state, State::DeviceCode { request: r, code: None } if r == request);
@@ -357,10 +363,14 @@ pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask
         .as_ref()
         .is_some_and(|(r, _)| *r == request);
     if !device && !awaited {
-        if let Outcome::DeviceCode(code) = outcome {
-            asks.push(Ask::CancelLogin {
+        // A login started for an attempt no longer awaited is cancelled
+        // (the browser one holds a local callback server).
+        match outcome {
+            Outcome::DeviceCode(code) => asks.push(Ask::CancelLogin {
                 login_id: code.login_id,
-            });
+            }),
+            Outcome::Browser { login_id, .. } => asks.push(Ask::CancelLogin { login_id }),
+            Outcome::ApiKeySaved | Outcome::Failed(_) => {}
         }
         return;
     }
