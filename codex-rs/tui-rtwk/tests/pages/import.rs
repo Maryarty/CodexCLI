@@ -414,6 +414,7 @@ mod flow {
             .fake
             .requests()
             .iter()
+            .filter(|r| r["method"] == "externalAgentConfig/detect")
             .map(|r| r["params"]["migrationSource"].clone())
             .collect();
         assert_eq!(sources, [json!("claude-code"), json!("cursor")]);
@@ -429,12 +430,7 @@ mod flow {
         h.press("enter");
         h.t.pump_for(ms(400));
         h.wait_for("the chat back", |screen| !screen.contains("Import setup"));
-        let sent: Vec<Value> = h
-            .fake
-            .requests()
-            .into_iter()
-            .filter(|r| r["method"] == "externalAgentConfig/import")
-            .collect();
+        let sent = sent_imports(&mut h);
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0]["params"]["migrationSource"], "claude-code");
         assert_eq!(
@@ -459,6 +455,25 @@ mod flow {
             }
             _ => answer(request),
         }
+    }
+
+    /// The import requests the server got: the page is gone once the flow
+    /// is, the request goes out on the shell's own thread, so wait for it.
+    fn sent_imports(h: &mut Harness) -> Vec<Value> {
+        for _ in 0..400 {
+            h.t.pump_for(ms(20));
+            let sent: Vec<Value> = h
+                .fake
+                .requests()
+                .into_iter()
+                .filter(|r| r["method"] == "externalAgentConfig/import")
+                .collect();
+            if !sent.is_empty() {
+                return sent;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        Vec::new()
     }
 
     fn review() -> Harness {
@@ -538,17 +553,14 @@ mod flow {
         h.press("c");
         h.wait_for("the checklist", |s| s.contains("› [x] Settings"));
         h.press("enter");
-        assert!(shows(&h, "Selected 1 of 2 items.") && shows(&h, "[ ] Settings"));
+        h.wait_for("the toggle", |s| {
+            s.contains("Selected 1 of 2 items.") && s.contains("[ ] Settings")
+        });
         h.press("b");
         h.wait_for("the summary", |s| s.contains("Import setup"));
         h.press("enter");
         h.wait_for("the chat", |s| !s.contains("Import setup"));
-        let sent: Vec<Value> = h
-            .fake
-            .requests()
-            .into_iter()
-            .filter(|r| r["method"] == "externalAgentConfig/import")
-            .collect();
+        let sent = sent_imports(&mut h);
         assert_eq!(sent.len(), 1);
         let items = sent[0]["params"]["migrationItems"]
             .as_array()

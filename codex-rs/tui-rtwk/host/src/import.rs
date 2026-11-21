@@ -42,7 +42,7 @@ where
 {
     let site = Site {
         cwd: Some(startup.config.cwd.display().to_string()),
-        places: Box::new(|dirs| places(dirs)),
+        places: Box::new(places),
     };
     run_flow(ask, site, ids, send).await
 }

@@ -26,6 +26,9 @@ pub const DETECT_FAILED: &str = "externalAgentConfig/detect failed during extern
 /// The same for a failed import.
 pub const IMPORT_FAILED: &str = "externalAgentConfig/import failed during external agent import";
 
+/// Reads the places for the paths of the detected items.
+pub type PlacesOf = Box<dyn FnOnce(&[String]) -> Places + Send>;
+
 /// What the host reads of the file system for a detection's answer.
 pub struct Site {
     /// The project directory of the session: asked when the flow names none
@@ -33,7 +36,7 @@ pub struct Site {
     pub cwd: Option<String>,
     /// The places the paths of the items are shown from (`~`, the repository
     /// roots of the project directories), read once the items are known.
-    pub places: Box<dyn FnOnce(&[String]) -> Places + Send>,
+    pub places: PlacesOf,
 }
 
 /// The event of `ask` through `send`.

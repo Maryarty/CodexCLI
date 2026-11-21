@@ -172,9 +172,7 @@ impl State for SourcePromptState {
             .child(blank())
             .child(Text::new(strings.source_title).style(tokens.bold()))
             .child(blank())
-            .child(inset(
-                Text::new(strings.source_subtitle).style(dim.clone()).into(),
-            ))
+            .child(inset(Text::new(strings.source_subtitle).style(dim).into()))
             .child(blank())
             .child(Flexible {
                 fit: FlexFit::Loose,

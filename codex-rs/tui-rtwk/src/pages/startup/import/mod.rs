@@ -141,7 +141,7 @@ pub struct Screen;
 pub struct ScreenState {
     list: ListController,
     view: View,
-    /// The review (`Model::review_id`) the page and the cursors are for.
+    /// The review the page and the cursors are for, by its number.
     review_for: u64,
     items: FocusNode,
     actions: FocusNode,
@@ -216,20 +216,14 @@ impl State for ScreenState {
     fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
         let screens = watch::<ScreenStates, _>(cx);
         let model = &screens.import;
-        match model.phase {
-            Phase::Done => {
-                Navigator::maybe_pop(cx);
+        if model.phase == Phase::Review {
+            if self.review_for != model.review_id {
+                // a review opens on its summary, the actions have the keys
+                self.review_for = model.review_id;
+                self.show(View::Summary, model);
             }
-            Phase::Review => {
-                if self.review_for != model.review_id {
-                    // a review opens on its summary, the actions have the keys
-                    self.review_for = model.review_id;
-                    self.show(View::Summary, model);
-                }
-                self.settle(model);
-                self.track(model, strings::of(cx), &shared::of(cx).num);
-            }
-            _ => {}
+            self.settle(model);
+            self.track(model, strings::of(cx), &shared::of(cx).num);
         }
     }
 

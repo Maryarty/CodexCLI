@@ -21,6 +21,7 @@ use rtwk::provider::{read, watch};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::screens::import::Phase as ImportPhase;
 use codex_tui_core::screens::onboarding::{
     self as core, ID, Intent, Model, NAME, TrustCancel, TrustDecision, UpdateChoice,
 };
@@ -212,6 +213,9 @@ impl StartupPage {
 pub struct StartupPageState {
     at: Option<Step>,
     replay: u32,
+    /// The import flow's request count when the page opened: the import step
+    /// is over once the flow is done at a later one.
+    import_from: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -227,6 +231,7 @@ impl StatefulWidget for StartupPage {
         StartupPageState {
             at: Some(self.step),
             replay: 0,
+            import_from: 0,
         }
     }
 }
@@ -237,11 +242,26 @@ impl State for StartupPageState {
     type Widget = StartupPage;
     type Msg = Msg;
 
+    fn init_state(&mut self, _: &StartupPage, cx: &mut Cx<'_, Self>) {
+        self.import_from = read::<ScreenStates, _>(cx).import.generation();
+    }
+
     fn did_change_dependencies(&mut self, _: &StartupPage, cx: &mut Cx<'_, Self>) {
         let Some(at) = self.at else {
             return;
         };
-        let next = current(at, &watch::<ScreenStates, _>(cx).onboarding);
+        let screens = watch::<ScreenStates, _>(cx);
+        let next = match at {
+            // the import step (`/import`) is run by the import flow: the page
+            // goes on, past its last step, when the flow it opened is done
+            Step::Import => {
+                let import = &screens.import;
+                let done =
+                    import.phase == ImportPhase::Done && import.generation() > self.import_from;
+                (!done).then_some(Step::Import)
+            }
+            _ => current(at, &screens.onboarding),
+        };
         self.at = next;
         if next.is_none() {
             let leave = cx.send(Msg::Leave);
