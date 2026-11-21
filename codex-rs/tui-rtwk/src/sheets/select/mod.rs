@@ -11,7 +11,7 @@ mod side;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
-use rtwk::overlay::{DialogResult, show_dialog};
+use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
@@ -22,7 +22,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 37] = [
+    let entries: [(&'static str, &'static str, &'static str); 38] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -97,6 +97,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "plugin_toggle",
             "a searchable row with a toggle",
             include_str!("fixtures/plugin_toggle.jsonl"),
+        ),
+        (
+            "multi_select",
+            "three checkbox rows, Enter confirms",
+            include_str!("fixtures/multi_select.jsonl"),
         ),
         (
             "single_line_long",
@@ -223,10 +228,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
 /// Opens the dialog from the widget that asks (`show_dialog`); it reads the
 /// menu the model holds, and a pick returns to the model as an intent.
 pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    // On the nearest navigator: the dialog is built under the providers of the
+    // screen that asks (a seeded debug entry provides its own model to its
+    // route only; the root navigator is above it).
     show_dialog(
         cx,
         move |_| dialog::MenuDialog.into(),
-        crate::sheets::sheet_options(),
+        DialogOptions {
+            use_root_navigator: false,
+            ..crate::sheets::sheet_options()
+        },
     )
 }
 

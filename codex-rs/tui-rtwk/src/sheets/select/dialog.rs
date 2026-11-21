@@ -59,7 +59,7 @@ pub struct MenuDialogState {
     flags: Rc<Cell<Flags>>,
     tab: Option<usize>,
     /// The tabs' selection (`TabController`): the bar and the arrow keys both set it,
-    /// and the dialog follows (`Msg::Tab`).
+    /// and the dialog follows through its own message.
     tabs: Option<TabController>,
     /// The highlighted item (an index into the tab's items).
     item: Option<usize>,
@@ -240,7 +240,7 @@ impl State for MenuDialogState {
             }
             Msg::Row(item) => {
                 self.item = Some(item);
-                self.accept(&list, cx);
+                self.pick(&list, cx);
             }
             Msg::Act(act) => self.act(act, &list, cx),
         }
@@ -492,6 +492,7 @@ impl MenuDialogState {
                 }
                 return;
             }
+            Act::Accept if list.multi => return self.confirm(cx),
             Act::Accept => return self.accept(list, cx),
             Act::Cancel => return self.close(cx),
             Act::Toggle => return self.toggle(list, cx),
@@ -499,7 +500,7 @@ impl MenuDialogState {
             Act::Shortcut(key) => {
                 if let Some(item) = browse.shortcut(key) {
                     self.item = Some(item);
-                    self.accept(list, cx);
+                    self.pick(list, cx);
                 }
                 return;
             }
@@ -512,6 +513,22 @@ impl MenuDialogState {
 
     fn id(&self, list: &List) -> Option<String> {
         self.item.map(|item| list.id_of(self.tab, item))
+    }
+
+    /// A click or a shortcut on a row: accepts it, and in a multi-select
+    /// flips it (the choice is made by `confirm`).
+    fn pick(&mut self, list: &List, cx: &mut Cx<'_, Self>) {
+        if list.multi {
+            self.toggle(list, cx);
+        } else {
+            self.accept(list, cx);
+        }
+    }
+
+    /// Enter on a multi-select: every toggled-on item is the answer.
+    fn confirm(&mut self, cx: &mut Cx<'_, Self>) {
+        let hs = read::<Hs, _>(cx);
+        cx.emit(&hs.screen, ScreenIntent::Select(Intent::Confirm));
     }
 
     fn accept(&mut self, list: &List, cx: &mut Cx<'_, Self>) {

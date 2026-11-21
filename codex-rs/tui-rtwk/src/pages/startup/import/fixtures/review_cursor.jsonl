@@ -1,0 +1,3 @@
+# `mod.rs` secondary_source_customize_snapshot: the one item of Cursor.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "import", "ev": {"detected": {"found": [{"source": "cursor", "items": [{"itemType": "CONFIG", "description": "Migrate /Users/alex/.cursor/cli-config.json into /Users/alex/.codex/config.toml", "cwd": null, "details": null}]}]}}}
