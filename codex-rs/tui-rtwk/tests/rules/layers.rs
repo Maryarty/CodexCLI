@@ -517,3 +517,31 @@ fn agents_read_the_apps_thread_state_and_ask_it_to_open_threads() {
         "thread opened or released outside the app: {found:#?}"
     );
 }
+
+/// The shared widgets sit below the pages (architecture.md: widgets are
+/// shared by more than one page): no file under `src/widgets` names a page.
+/// The composer's draft was the one upward import (`thread_ui` named
+/// `pages::session::composer::draft`); its type lives in
+/// `widgets/composer_draft.rs` now.
+#[test]
+fn widgets_never_import_pages() {
+    let files = sources_of("src/widgets");
+    assert!(!files.is_empty(), "src/widgets has no sources");
+    let found = scan(
+        &files,
+        &["crate::pages", "super::pages", "pages::session", "pages::agents"],
+        |_| false,
+    );
+    assert!(found.is_empty(), "a widget imports a page: {found:#?}");
+}
+
+/// The scan sees an upward import of any spelling.
+#[test]
+fn the_widgets_scan_sees_an_upward_import() {
+    let files = vec![(
+        "src/widgets/x.rs".to_string(),
+        "use crate::pages::session::composer::draft::ComposerDraft;\n".to_string(),
+    )];
+    let found = scan(&files, &["crate::pages", "super::pages"], |_| false);
+    assert_eq!(found.len(), 1, "{found:?}");
+}

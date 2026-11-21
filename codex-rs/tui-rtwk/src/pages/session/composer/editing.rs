@@ -14,7 +14,7 @@ use rtwk::focus::KeyPress;
 use rtwk::prelude::{KeyCode, Mods};
 
 use super::ComposerMsg;
-use super::draft::ComposerDraft;
+use crate::widgets::composer_draft::ComposerDraft;
 
 /// What the handler reads besides the controller: the draft of the same
 /// thread, the prompts history (newest last) and the composer to tell of a

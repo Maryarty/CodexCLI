@@ -1,5 +1,5 @@
 //! Per-thread UI controllers (R2, R14): the composer's text controller of
-//! each thread and its draft's elements (`composer::draft`). They are UI state, never seen by `apply`; `ingest` creates a
+//! each thread and its draft's elements (`widgets::composer_draft`). They are UI state, never seen by `apply`; `ingest` creates a
 //! thread's controllers after the thread appears.
 
 use std::collections::BTreeMap;
@@ -10,7 +10,7 @@ use rtwk::scroll::ListController;
 
 use codex_tui_core::ids::ThreadId;
 
-use crate::pages::session::composer::draft::ComposerDraft;
+use crate::widgets::composer_draft::ComposerDraft;
 
 /// The controllers of one thread.
 #[derive(Clone, Default, PartialEq)]

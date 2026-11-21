@@ -1,6 +1,7 @@
 //! The shared widgets: values and controls more than one page uses.
 
 pub mod age;
+pub mod composer_draft;
 pub mod dots;
 pub mod key_guard;
 pub mod measure;

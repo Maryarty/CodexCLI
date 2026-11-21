@@ -30,7 +30,6 @@ use crate::pages::session::popup;
 use crate::pages::session::strings as chat_strings;
 use crate::widgets::thread_ui::ThreadUi;
 
-pub mod draft;
 pub mod editing;
 pub mod footer;
 pub mod strings;
