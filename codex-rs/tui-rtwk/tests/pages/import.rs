@@ -1,6 +1,7 @@
 //! Screen tests of the `import` slot (S06): what the model's typed data is
 //! told as (the labels, the lines under an item, the notices of the history,
-//! the errors) and what the review's keys do (`Nav`). They carry the names of
+//! the errors) and what the review's keys do (`mod flow`, over the scripted
+//! backend; the oracle's key tests are in `tests/oracle/import.rs`). They carry the names of
 //! the oracle's tests (`flow_tests.rs`, `mod.rs` tests, `source_tests.rs`).
 //! The flow itself is `core/tests/import.rs`; the look is
 //! `tests/oracle/import.rs`; its snapshots are in `tests/snapshots/import/`.
@@ -9,10 +10,10 @@
 
 use codex_tui_core::app::AppFx;
 use codex_tui_core::screens::import::{
-    self as import, Failure, Intent, Mark, Model, Outcome, Phase, Source, apply, apply_intent,
+    self as import, Failure, Intent, Mark, Model, Outcome, Source, apply, apply_intent,
 };
+use codex_tui_rtwk::pages::startup::import::View;
 use codex_tui_rtwk::pages::startup::import::labels;
-use codex_tui_rtwk::pages::startup::import::nav::{Action, Focus, Key, Nav, View};
 use codex_tui_rtwk::pages::startup::import::notices::{self, Line, Tone};
 use codex_tui_rtwk::pages::startup::import::rows::{self, ReviewRow};
 use codex_tui_rtwk::pages::startup::import::strings::EN;
@@ -107,17 +108,6 @@ fn reviewing(items: Vec<serde_json::Value>, selected: Option<Vec<usize>>) -> Mod
     model
 }
 
-/// Keys of the review as the view sends them: through the `Nav` the view
-/// holds, the intent it returns applied to the model.
-fn press(model: &mut Model, nav: &mut Nav, keys: &[Key]) {
-    for key in keys {
-        if let Some(intent) = nav.key(model, *key) {
-            apply_intent(model, intent, &mut AppFx::default());
-        }
-        nav.settle(model);
-    }
-}
-
 // ---- the notices of the history (oracle: flow_tests.rs)
 
 fn texts(lines: &[Line]) -> String {
@@ -136,7 +126,7 @@ fn notices_of_the_flow() -> (import::Started, import::Finished) {
         &mut model,
         import::Ev::Imported {
             request,
-            result: Ok(()),
+            result: Ok("import-1".into()),
         },
         &mut AppFx::default(),
     );
@@ -311,100 +301,6 @@ fn external_agent_config_detection_failure_names_each_source() {
 // ---- the review (oracle: external_agent_config_migration/mod.rs tests)
 
 #[test]
-fn escape_skips_prompt() {
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Escape]);
-    assert_eq!(model.outcome, Some(Outcome::Cancelled));
-    assert_eq!(model.phase, Phase::Done);
-}
-
-#[test]
-fn numeric_shortcuts_follow_visible_actions_when_proceed_is_disabled() {
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(
-        &mut model,
-        &mut nav,
-        &[Key::Customize, Key::SelectNone, Key::Back],
-    );
-    assert_eq!(nav.actions(&model), [Action::Customize, Action::Skip]);
-    press(&mut model, &mut nav, &[Key::Number(1)]);
-    assert_eq!(nav.view, View::Customize);
-    assert_eq!(model.phase, Phase::Review);
-}
-
-#[test]
-fn empty_selection_enter_opens_customize_instead_of_proceeding() {
-    let mut model = reviewing(sample_items(), Some(Vec::new()));
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Confirm]);
-    assert_eq!(model.phase, Phase::Review);
-    assert_eq!(nav.view, View::Customize);
-}
-
-#[test]
-fn numeric_shortcuts_choose_actions() {
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Number(1)]);
-    assert_eq!(model.phase, Phase::Importing);
-
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Number(2)]);
-    assert_eq!(nav.view, View::Customize);
-    press(&mut model, &mut nav, &[Key::Number(1)]);
-    assert_eq!(nav.view, View::Summary);
-
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Number(3)]);
-    assert_eq!(model.outcome, Some(Outcome::Cancelled));
-}
-
-#[test]
-fn summary_does_not_toggle_selection() {
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    let before = model.clone();
-    press(&mut model, &mut nav, &[Key::Toggle]);
-    assert_eq!(model, before);
-}
-
-#[test]
-fn enter_proceeds_with_the_toggled_selection() {
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(
-        &mut model,
-        &mut nav,
-        &[Key::Customize, Key::Toggle, Key::Back, Key::Confirm],
-    );
-    assert_eq!(model.phase, Phase::Importing);
-    assert_eq!(model.selected_count(), 3);
-}
-
-#[test]
-fn the_focus_walks_the_items_and_the_actions() {
-    // Oracle: `move_up` and `move_down`.
-    let mut model = reviewing(sample_items(), None);
-    let mut nav = Nav::open(&model);
-    press(&mut model, &mut nav, &[Key::Customize]);
-    assert_eq!((nav.focus, nav.cursor), (Focus::Items, Some(0)));
-    press(&mut model, &mut nav, &[Key::Up]);
-    assert_eq!((nav.focus, nav.action), (Focus::Actions, Action::Back));
-    press(&mut model, &mut nav, &[Key::Down]);
-    assert_eq!((nav.focus, nav.cursor), (Focus::Items, Some(0)));
-    press(
-        &mut model,
-        &mut nav,
-        &[Key::Down, Key::Down, Key::Down, Key::Down],
-    );
-    assert_eq!(nav.focus, Focus::Actions);
-}
-
-#[test]
 fn the_checklist_and_summary_rows_are_the_oracles() {
     // Oracle: `build_summary_render_lines` and `build_customize_render_lines`
     // (the customize snapshot's text, the plugin lines, the descriptions).
@@ -464,4 +360,212 @@ fn the_checklist_and_summary_rows_are_the_oracles() {
     );
     assert_eq!(rows[0], Row::Section(None));
     assert_eq!(rows.iter().filter(|row| **row == Row::Gap).count(), 1);
+}
+
+// ---- the flow on the scripted backend: `/import` asks the sources and the
+// import through the shell (oracle: `flow.rs` `run_external_agent_config_migration_flow`)
+
+mod flow {
+    use codex_tui_core::rpc::ServerError;
+    use serde_json::{Value, json};
+
+    use crate::common::{Harness, ms, start};
+
+    fn answer(request: &Value) -> Option<Result<Value, ServerError>> {
+        match request["method"].as_str()? {
+            "externalAgentConfig/detect" => {
+                let found = request["params"]["migrationSource"] == "claude-code";
+                let items = if found {
+                    vec![
+                        json!({"itemType":"CONFIG","description":"Import settings","cwd":null,"details":null}),
+                    ]
+                } else {
+                    Vec::new()
+                };
+                Some(Ok(json!({"items": items, "connectors": []})))
+            }
+            "externalAgentConfig/import" => Some(Ok(json!({"importId": "import-1"}))),
+            _ => None,
+        }
+    }
+
+    fn methods(h: &Harness) -> Vec<String> {
+        h.fake
+            .requests()
+            .iter()
+            .filter_map(|r| r["method"].as_str().map(str::to_owned))
+            .filter(|m| m.starts_with("externalAgentConfig"))
+            .collect()
+    }
+
+    #[test]
+    fn slash_import_asks_every_source_and_reviews_what_one_found() {
+        let mut h = start();
+        h.fake.respond(answer);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        assert_eq!(
+            methods(&h),
+            ["externalAgentConfig/detect", "externalAgentConfig/detect"],
+            "one per source, in the oracle's order"
+        );
+        let sources: Vec<Value> = h
+            .fake
+            .requests()
+            .iter()
+            .filter(|r| r["method"] == "externalAgentConfig/detect")
+            .map(|r| r["params"]["migrationSource"].clone())
+            .collect();
+        assert_eq!(sources, [json!("claude-code"), json!("cursor")]);
+    }
+
+    #[test]
+    fn importing_sends_the_checked_items_and_leaves_the_page_for_the_chat() {
+        let mut h = start();
+        h.fake.respond(answer);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        h.press("enter");
+        h.t.pump_for(ms(400));
+        h.wait_for("the chat back", |screen| !screen.contains("Import setup"));
+        let sent = sent_imports(&mut h);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["params"]["migrationSource"], "claude-code");
+        assert_eq!(
+            sent[0]["params"]["migrationItems"][0]["description"],
+            "Import settings"
+        );
+    }
+
+    /// The detection finds two items in the first source.
+    fn answer_two(request: &Value) -> Option<Result<Value, ServerError>> {
+        match request["method"].as_str()? {
+            "externalAgentConfig/detect" => {
+                let items = if request["params"]["migrationSource"] == "claude-code" {
+                    vec![
+                        json!({"itemType":"CONFIG","description":"Import settings","cwd":null,"details":null}),
+                        json!({"itemType":"MEMORY","description":"Import memory","cwd":null,"details":{"memory":["a"]}}),
+                    ]
+                } else {
+                    Vec::new()
+                };
+                Some(Ok(json!({"items": items, "connectors": []})))
+            }
+            _ => answer(request),
+        }
+    }
+
+    /// The import requests the server got: the page is gone once the flow
+    /// is, the request goes out on the shell's own thread, so wait for it.
+    fn sent_imports(h: &mut Harness) -> Vec<Value> {
+        for _ in 0..400 {
+            h.t.pump_for(ms(20));
+            let sent: Vec<Value> = h
+                .fake
+                .requests()
+                .into_iter()
+                .filter(|r| r["method"] == "externalAgentConfig/import")
+                .collect();
+            if !sent.is_empty() {
+                return sent;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        Vec::new()
+    }
+
+    fn review() -> Harness {
+        let mut h = start();
+        h.fake.respond(answer_two);
+        h.t.type_text("/import");
+        h.press("enter");
+        h.wait_for("the review", |screen| screen.contains("Import setup"));
+        h
+    }
+
+    fn shows(h: &Harness, text: &str) -> bool {
+        h.t.screen().contains(text)
+    }
+
+    #[test]
+    fn the_summary_actions_go_round_with_up_and_down() {
+        let mut h = review();
+        h.wait_for("the first action chosen", |s| {
+            s.contains("› 1. Import selected")
+        });
+        h.press("up");
+        assert!(shows(&h, "› 3. Cancel"), "{}", h.t.screen());
+        h.press("down");
+        assert!(shows(&h, "› 1. Import selected"), "{}", h.t.screen());
+        h.press("down");
+        assert!(shows(&h, "› 2. Customize selection"), "{}", h.t.screen());
+    }
+
+    #[test]
+    fn the_focus_walks_the_checklist_and_the_actions() {
+        // oracle: `move_up` and `move_down`: the checklist and the one action
+        // under it are one ring
+        let mut h = review();
+        h.press("c");
+        h.wait_for("the checklist", |s| s.contains("› [x] Settings"));
+        assert!(shows(&h, "  1. Review selection") && !shows(&h, "› 1. Review"));
+        h.press("down");
+        assert!(shows(&h, "› [x] Memory"), "{}", h.t.screen());
+        h.press("up");
+        h.press("up");
+        assert!(
+            shows(&h, "› 1. Review selection") && !shows(&h, "› [x]"),
+            "{}",
+            h.t.screen()
+        );
+        h.press("down");
+        assert!(
+            shows(&h, "› [x] Settings") && !shows(&h, "› 1. Review"),
+            "{}",
+            h.t.screen()
+        );
+        h.press("down");
+        h.press("down");
+        assert!(shows(&h, "› 1. Review selection"), "{}", h.t.screen());
+        h.press("up");
+        assert!(
+            shows(&h, "› [x] Memory"),
+            "the last entry: {}",
+            h.t.screen()
+        );
+    }
+
+    #[test]
+    fn enter_on_the_back_action_returns_to_the_summary() {
+        let mut h = review();
+        h.press("c");
+        h.wait_for("the checklist", |s| s.contains("Choose what to import"));
+        h.press("up");
+        h.press("enter");
+        h.wait_for("the summary", |s| s.contains("Import setup"));
+    }
+
+    #[test]
+    fn enter_toggles_in_the_checklist_and_the_toggled_selection_is_imported() {
+        let mut h = review();
+        h.press("c");
+        h.wait_for("the checklist", |s| s.contains("› [x] Settings"));
+        h.press("enter");
+        h.wait_for("the toggle", |s| {
+            s.contains("Selected 1 of 2 items.") && s.contains("[ ] Settings")
+        });
+        h.press("b");
+        h.wait_for("the summary", |s| s.contains("Import setup"));
+        h.press("enter");
+        h.wait_for("the chat", |s| !s.contains("Import setup"));
+        let sent = sent_imports(&mut h);
+        assert_eq!(sent.len(), 1);
+        let items = sent[0]["params"]["migrationItems"]
+            .as_array()
+            .expect("items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["description"], "Import memory");
+    }
 }

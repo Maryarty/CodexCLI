@@ -532,6 +532,11 @@ pub(crate) fn work(
         Command::Startup { ask, .. } => {
             Box::pin(async move { crate::startup::run(startup?, ask, ids, send).await })
         }
+        // The import flow's asks; a backend with no startup side (Cloud)
+        // answers none.
+        Command::Import { ask, .. } => {
+            Box::pin(async move { crate::import::run(startup?, ask, ids, send).await })
+        }
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
         }

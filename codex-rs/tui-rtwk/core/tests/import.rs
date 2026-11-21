@@ -8,11 +8,13 @@
 
 use codex_app_server_protocol::ExternalAgentConfigImportCompletedNotification as Completed;
 use codex_app_server_protocol::ExternalAgentConfigMigrationItem as Item;
-use codex_tui_core::app::AppFx;
+use codex_app_server_protocol::ServerNotification;
+use codex_tui_core::app::{AppFx, Command};
+use codex_tui_core::protocol::import as wire;
 use codex_tui_core::screens::import::detect::{Detection, Outcome as Detected};
 use codex_tui_core::screens::import::{
     Ev, Failure, Found, Intent, ItemKind, Model, Outcome, Phase, Places, Request, Sel, Source,
-    apply, apply_intent,
+    apply, apply_intent, observe,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -325,7 +327,7 @@ fn a_failed_import_returns_to_the_review_with_the_selection_and_the_error() {
         &mut model,
         Ev::Imported {
             request: request + 1,
-            result: Ok(()),
+            result: Ok("import-1".into()),
         },
         &mut AppFx::default(),
     );
@@ -358,7 +360,7 @@ fn a_started_import_tells_what_remains_and_blocks_the_next_one() {
         &mut model,
         Ev::Imported {
             request,
-            result: Ok(()),
+            result: Ok("import-1".into()),
         },
         &mut AppFx::default(),
     );
@@ -407,4 +409,169 @@ fn no_items_and_a_total_failure_end_the_flow() {
             "down".into()
         )])))
     );
+}
+
+// ---- the requests the shell makes (oracle: `flow.rs`, `external_agent_config.rs`)
+
+fn asked(fx: &AppFx) -> Vec<Request> {
+    fx.commands()
+        .iter()
+        .map(|command| match command {
+            Command::Import { ask, .. } => ask.clone(),
+            other => panic!("not an import ask: {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn opening_asks_every_source_about_the_project() {
+    let mut model = Model::default();
+    let mut fx = AppFx::default();
+    apply_intent(
+        &mut model,
+        Intent::Open {
+            cwd: Some("/workspace/project".into()),
+        },
+        &mut fx,
+    );
+    assert_eq!(
+        asked(&fx),
+        [Request::Detect {
+            request: 1,
+            cwd: Some("/workspace/project".into())
+        }]
+    );
+}
+
+#[test]
+fn proceeding_asks_the_import_of_the_checked_items_of_the_source() {
+    let items = sample_items();
+    let mut model = reviewing(items.clone(), None);
+    let mut fx = AppFx::default();
+    apply_intent(&mut model, Intent::Toggle(0), &mut fx);
+    apply_intent(&mut model, Intent::Proceed, &mut fx);
+    assert_eq!(
+        asked(&fx),
+        [Request::Import {
+            request: 1,
+            source: "claude-code",
+            items: items[1..].to_vec()
+        }]
+    );
+}
+
+#[test]
+fn a_flow_that_asks_nothing_makes_no_request() {
+    // an empty selection does not proceed
+    let mut model = reviewing(sample_items(), Some(Vec::new()));
+    let mut fx = AppFx::default();
+    apply_intent(&mut model, Intent::Proceed, &mut fx);
+    // a cancelled flow, a toggle
+    apply_intent(&mut model, Intent::Toggle(0), &mut fx);
+    apply_intent(&mut model, Intent::Cancel, &mut fx);
+    assert_eq!(asked(&fx), Vec::<Request>::new());
+    // one import runs: the next `/import` is refused, nothing is asked
+    let mut model = reviewing(sample_items(), None);
+    send(&mut model, &[Intent::Proceed]);
+    let Some(Request::Import { request, .. }) = model.request() else {
+        panic!("an import")
+    };
+    let imported = Ev::Imported {
+        request,
+        result: Ok("import-1".into()),
+    };
+    apply(&mut model, imported, &mut fx);
+    apply_intent(&mut model, Intent::Open { cwd: None }, &mut fx);
+    assert_eq!(model.outcome, Some(Outcome::Failed(Failure::InProgress)));
+    assert_eq!(asked(&fx), Vec::<Request>::new());
+}
+
+fn started(model: &mut Model, id: &str) {
+    send(model, &[Intent::Proceed]);
+    let Some(Request::Import { request, .. }) = model.request() else {
+        panic!("an import")
+    };
+    apply(
+        model,
+        Ev::Imported {
+            request,
+            result: Ok(id.into()),
+        },
+        &mut AppFx::default(),
+    );
+}
+
+fn completion(id: &str) -> ServerNotification {
+    let mut done = completed();
+    done.import_id = id.to_owned();
+    ServerNotification::ExternalAgentConfigImportCompleted(done)
+}
+
+#[test]
+fn only_the_completion_of_our_import_is_taken() {
+    // oracle: `external_agent_config_migration_over_shared_transport`: a
+    // shared daemon broadcasts the completions of other clients' imports
+    let mut model = reviewing(sample_items(), None);
+    started(&mut model, "import-1");
+    observe(
+        &mut model,
+        &completion("someone-elses"),
+        &mut AppFx::default(),
+    );
+    assert!(model.running, "another client's completion is not ours");
+    assert_eq!(model.finished, None);
+    observe(&mut model, &completion("import-1"), &mut AppFx::default());
+    assert!(!model.running);
+    let finished = model.finished.take().expect("our completion");
+    assert_eq!((finished.imported(), finished.failed()), (4, 1));
+    // taken once: the id is consumed
+    observe(&mut model, &completion("import-1"), &mut AppFx::default());
+    assert_eq!(model.finished, None);
+}
+
+// ---- the wire (oracle: `flow.rs` detect params, `external_agent_config.rs`)
+
+fn id(n: i64) -> codex_app_server_protocol::RequestId {
+    codex_app_server_protocol::RequestId::Integer(n)
+}
+
+#[test]
+fn detect_asks_the_home_and_the_project_for_the_source() {
+    let request = serde_json::to_value(wire::detect(Source::Cursor, Some("/w"), id(3))).unwrap();
+    assert_eq!(request["method"], "externalAgentConfig/detect");
+    assert_eq!(request["id"], 3);
+    assert_eq!(request["params"]["includeHome"], true);
+    assert_eq!(request["params"]["cwds"], json!(["/w"]));
+    assert_eq!(request["params"]["migrationSource"], "cursor");
+    assert!(request["params"]["source"].is_null());
+    let request = serde_json::to_value(wire::detect(Source::Claude, None, id(4))).unwrap();
+    assert!(request["params"]["cwds"].is_null());
+    assert_eq!(request["params"]["migrationSource"], "claude-code");
+}
+
+#[test]
+fn import_names_the_cli_and_the_source() {
+    let items = sample_items();
+    let request = serde_json::to_value(wire::import("claude-code", items.clone(), id(5))).unwrap();
+    assert_eq!(request["method"], "externalAgentConfig/import");
+    assert_eq!(
+        request["params"]["migrationItems"],
+        serde_json::to_value(&items).unwrap()
+    );
+    assert_eq!(request["params"]["source"], "cli");
+    assert_eq!(request["params"]["providerId"], "claude-code");
+    assert_eq!(request["params"]["migrationSource"], "claude-code");
+}
+
+#[test]
+fn the_answers_are_read_as_items_and_an_import_id() {
+    let items = sample_items();
+    let answer = json!({"items": items, "connectors": []});
+    assert_eq!(wire::found(answer).unwrap(), items);
+    assert!(wire::found(json!({"items": 3})).is_err());
+    assert_eq!(
+        wire::imported(json!({"importId": "import-9"})).unwrap(),
+        "import-9"
+    );
+    assert!(wire::imported(json!({})).is_err());
 }

@@ -10,6 +10,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ExternalAgentConfigImportCompletedNotification as Completed;
 use codex_app_server_protocol::ExternalAgentConfigMigrationItem as Item;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
 use serde::Deserialize;
 
 use crate::app::AppFx;
@@ -140,6 +141,8 @@ pub struct Model {
     pub outcome: Option<Outcome>,
     /// An import started and has not completed yet.
     pub running: bool,
+    /// The id the server gave the import that runs: only its completion is ours.
+    pub import_id: Option<String>,
     /// What the last completed import finished with.
     pub finished: Option<Finished>,
 }
@@ -174,7 +177,7 @@ pub enum Ev {
         selected: Option<Vec<usize>>,
     },
     /// The import request was answered.
-    Imported { request: u64, result: Result<(), String> },
+    Imported { request: u64, result: Result<String, String> },
     /// The server's notice that an import finished.
     Completed(Box<Completed>),
 }
@@ -238,7 +241,8 @@ impl Model {
 
     fn start(&mut self, cwd: Option<String>) {
         let (generation, running, finished) = (self.generation + 1, self.running, self.finished.take());
-        *self = Model { generation, running, finished, cwd, ..Model::default() };
+        let import_id = self.import_id.take();
+        *self = Model { generation, running, finished, import_id, cwd, ..Model::default() };
         if self.running {
             self.end(Outcome::Failed(Failure::InProgress));
         } else {
@@ -308,6 +312,19 @@ fn finished(done: &Completed) -> Finished {
     }
 }
 
+/// A server notification the flow reads: the completion of the import it
+/// started.
+/// Only the one of the import this client started counts (a shared daemon
+/// tells every client of every import: oracle
+/// `consume_external_agent_config_import_completion`).
+pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut AppFx) {
+    if let ServerNotification::ExternalAgentConfigImportCompleted(done) = notification
+        && model.import_id.as_deref() == Some(done.import_id.as_str())
+    {
+        apply(model, Ev::Completed(Box::new(done.clone())), fx);
+    }
+}
+
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
@@ -352,7 +369,8 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 return;
             }
             match result {
-                Ok(()) => {
+                Ok(import_id) => {
+                    model.import_id = Some(import_id);
                     let remaining = model.items.len().saturating_sub(model.selected_count());
                     model.running = true;
                     model.end(Outcome::Started(Started { items: model.items.iter().filter(|sel| sel.enabled).cloned().collect(), remaining }));
@@ -369,15 +387,18 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Completed(done) => {
             model.finished = Some(finished(&done));
             model.running = false;
+            model.import_id = None;
         }
     }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
     let reviewing = model.phase == Phase::Review;
     match intent {
-        Intent::Open { cwd } => model.start(cwd),
+        Intent::Open { cwd } => {
+            model.start(cwd);
+            ask(model, fx);
+        }
         Intent::Source(id) => {
             if model.phase == Phase::Source {
                 match Source::of_id(&id) {
@@ -398,8 +419,16 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Proceed => {
             if model.proceed_enabled() {
                 model.proceed();
+                ask(model, fx);
             }
         }
+    }
+}
+
+/// Asks the shell for what the phase waits on (`Model::request`).
+fn ask(model: &Model, fx: &mut AppFx) {
+    if let Some(ask) = model.request() {
+        fx.commands.push(crate::app::Command::Import { ask });
     }
 }
 

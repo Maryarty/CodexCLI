@@ -5,8 +5,8 @@
 use codex_tui_core::screens::import::{Mark, Model};
 use rtwk::l10n::NumSyms;
 
+use super::View;
 use super::labels;
-use super::nav::View;
 use super::strings::Strings;
 
 /// One line of the review.
