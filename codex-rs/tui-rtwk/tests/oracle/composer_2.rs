@@ -97,10 +97,6 @@ fn mention_popup_type_prefixes_snapshot() {
 // ORACLE bottom_pane/chat_composer.rs:8082 shortcut_overlay_persists_while_task_running kind=ui owner=chat-live
 #[test]
 fn shortcut_overlay_persists_while_task_running() {
-    kit::pending(
-        Owner::ChatLive,
-        "no chat shortcut overlay: the port draws no '?' shortcut panel on the chat composer (\"Keyboard shortcuts\" exists only in the dialogs strings), so '?' types a literal character",
-    );
     let mut s = ready(100, 24);
     s.keys("?");
     s.assert_contains("Keyboard shortcuts");

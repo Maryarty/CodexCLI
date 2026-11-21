@@ -583,10 +583,6 @@ fn pasting_filepath_attaches_image() {
 // ORACLE bottom_pane/chat_composer.rs:11829 slash_path_input_submits_without_command_error kind=ui owner=chat-live
 #[test]
 fn slash_path_input_submits_without_command_error() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command dispatch on the chat composer: a '/' path submits as text, not as a command, and the composer is cleared",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the draft '/Users/example/project/src/main.rs', Enter
     s.type_text("/Users/example/project/src/main.rs");
@@ -598,10 +594,6 @@ fn slash_path_input_submits_without_command_error() {
 // ORACLE bottom_pane/chat_composer.rs:11866 slash_with_leading_space_submits_as_text kind=ui owner=chat-live
 #[test]
 fn slash_with_leading_space_submits_as_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "no slash-command dispatch on the chat composer: a draft with a leading space submits as text, not as a command",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: the draft ' /this-looks-like-a-command', Enter
     s.type_text(" /this-looks-like-a-command");
