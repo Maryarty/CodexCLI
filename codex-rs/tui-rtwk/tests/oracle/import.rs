@@ -217,10 +217,6 @@ fn summary_does_not_toggle_selection() {
 // ORACLE external_agent_config_migration/source_tests.rs:17 external_agent_config_source_prompt_snapshot kind=snap owner=routes-lists snap=external_agent_config_source_prompt
 #[test]
 fn external_agent_config_source_prompt_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "gap G47: the source prompt is the generic selection sheet (the brief); its frame is not the oracle's top-left screen: bottom anchored, title indented two cells, no blank between title and subtitle, two blanks before the list",
-    );
     let s = Screen::build(Owner::RoutesLists)
         .size(80, 12)
         .entry("import", "source_prompt")
