@@ -16,8 +16,9 @@ mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
 pub use cells::{
-    HookEntry, HookEntryKind, HookRun, HookStatus, Notice, PatchActivity, PatchChange, PatchKind,
-    PlanStep, PlanUpdate, StepStatus, WebAction, WebActivity,
+    DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
+    PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
+    WebActivity,
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
@@ -103,6 +104,10 @@ pub enum Item {
     Hook(Arc<HookRun>),
     /// A multi-agent call or a sub-agent's activity.
     Collab(Arc<CollabEvent>),
+    /// A message another task delegated to this thread.
+    Delegated(Arc<DelegatedMessage>),
+    /// A finished image generation call.
+    Generated(Arc<GeneratedImage>),
 }
 
 impl Item {

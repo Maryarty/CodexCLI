@@ -14,7 +14,9 @@ use crate::app::debug::DebugOpen;
 
 pub mod citation;
 pub mod collab;
+pub mod delegated;
 pub mod disclosure;
+pub mod generated_image;
 pub mod hook;
 pub mod markdown;
 pub mod notice;

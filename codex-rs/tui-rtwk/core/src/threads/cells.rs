@@ -212,6 +212,65 @@ pub enum Notice {
     ExitedReview(String),
 }
 
+/// A message another task delegated to this thread (oracle
+/// `DelegatedMessageCell`): the task it came from and its Markdown body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DelegatedMessage {
+    pub source: String,
+    pub markdown: String,
+}
+
+/// A finished image generation call (oracle `ImageGenerationHistoryCell`):
+/// the revised prompt (else the call id) and where the image was saved, as
+/// the row shows it (a `file://` URL when the path is absolute).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GeneratedImage {
+    pub failed: bool,
+    pub detail: String,
+    pub saved_to: Option<String>,
+}
+
+/// The namespaces and tools whose output carries a delegated message
+/// (oracle `dynamic_tools::parse_delegated_tool_output`).
+const DELEGATING_NAMESPACES: [&str; 2] = ["codex_tui", "codex_app"];
+const DELEGATING_TOOLS: [&str; 2] = ["create_thread", "send_message_to_thread"];
+
+/// Oracle `parse_delegated_prompt`: the XML-like wrapper the tool wrote.
+fn delegated(output: &str) -> Option<DelegatedMessage> {
+    let delegation = output.strip_prefix("<codex_delegation>\n  <source_thread_id>")?;
+    let (source, body) = delegation.split_once("</source_thread_id>\n  <input>")?;
+    let body = body.strip_suffix("</input>\n</codex_delegation>")?;
+    let unescape = |value: &str| {
+        value
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    };
+    Some(DelegatedMessage {
+        source: unescape(source),
+        markdown: unescape(body),
+    })
+}
+
+/// `Url::from_file_path` for an absolute Unix path: each segment percent
+/// encoded as a URL path segment; any other path is shown as it is.
+fn file_url(path: &str) -> String {
+    if !path.starts_with('/') {
+        return path.to_owned();
+    }
+    let mut url = String::from("file://");
+    for byte in path.bytes() {
+        let keep = byte == b'/'
+            || (byte.is_ascii() && !byte.is_ascii_control() && !b" \"#%<>?`{}".contains(&byte));
+        if keep {
+            url.push(char::from(byte));
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    url
+}
+
 /// The entries of this module for one protocol item; `completed` tells an
 /// `item/completed` (or a stored item) from an `item/started`.
 pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, super::Item)> {
@@ -286,6 +345,36 @@ pub(super) fn entry(payload: &ThreadItemPayload, completed: bool) -> Option<(Ite
         ThreadItemPayload::ExitedReviewMode { id, review } => (
             ItemId::new(id),
             Item::Notice(Notice::ExitedReview(review.clone())),
+        ),
+        ThreadItemPayload::FunctionCallOutput {
+            id,
+            name,
+            namespace,
+            output,
+        } if namespace
+            .as_deref()
+            .is_some_and(|namespace| DELEGATING_NAMESPACES.contains(&namespace))
+            && DELEGATING_TOOLS.contains(&name.as_str()) =>
+        {
+            let message = delegated(&output.to_text()?)?;
+            (
+                ItemId::new(id),
+                Item::Delegated(std::sync::Arc::new(message)),
+            )
+        }
+        ThreadItemPayload::ImageGeneration(image) if completed => (
+            ItemId::new(&image.id),
+            Item::Generated(std::sync::Arc::new(GeneratedImage {
+                failed: image.status == "failed",
+                detail: image
+                    .revised_prompt
+                    .clone()
+                    .unwrap_or_else(|| image.id.clone()),
+                saved_to: image
+                    .saved_path
+                    .as_ref()
+                    .map(|path| file_url(&path.as_path().to_string_lossy())),
+            })),
         ),
         _ => return None,
     })

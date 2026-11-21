@@ -10,9 +10,9 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app}
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
-    AgentOutcome, AgentRef, CollabEvent, HookEntryKind, HookRun, HookStatus, Item, Notice,
-    PatchChange, PatchKind, PlanUpdate, StepStatus, SubAgentKind, ThreadEv, ToolStatus, WebAction,
-    WebActivity, project,
+    AgentOutcome, AgentRef, CollabEvent, DelegatedMessage, GeneratedImage, HookEntryKind, HookRun,
+    HookStatus, Item, Notice, PatchChange, PatchKind, PlanUpdate, StepStatus, SubAgentKind,
+    ThreadEv, ToolStatus, WebAction, WebActivity, project,
 };
 use serde_json::{Value, json};
 
@@ -710,5 +710,117 @@ fn a_sub_agent_activity_is_a_row_with_its_path() {
             kind: SubAgentKind::Started,
             path: "/root/helper".into()
         }
+    );
+}
+
+// ---- delegated messages, generated images and the items the oracle shows nothing for ----
+
+fn completed_item(payload: Value) -> Option<Item> {
+    item("item/completed", payload)
+}
+
+fn delegated_output(name: &str, namespace: Option<&str>, output: &str) -> Value {
+    json!({"type": "functionCallOutput", "id": "out-1", "name": name,
+        "namespace": namespace, "output": output})
+}
+
+const DELEGATION: &str = "<codex_delegation>\n  <source_thread_id>other</source_thread_id>\n  <input>- One &amp; &lt;two&gt;</input>\n</codex_delegation>";
+
+#[test]
+fn a_delegation_the_task_tools_wrote_is_a_message_with_its_source() {
+    for (name, namespace) in [
+        ("create_thread", "codex_tui"),
+        ("send_message_to_thread", "codex_app"),
+    ] {
+        let Some(Item::Delegated(message)) =
+            completed_item(delegated_output(name, Some(namespace), DELEGATION))
+        else {
+            panic!("{name} in {namespace} is not delegated");
+        };
+        assert_eq!(
+            *message,
+            DelegatedMessage {
+                source: "other".into(),
+                markdown: "- One & <two>".into()
+            }
+        );
+    }
+}
+
+#[test]
+fn other_tool_output_is_not_a_delegation() {
+    for item in [
+        delegated_output("create_thread", None, DELEGATION),
+        delegated_output("create_thread", Some("other_namespace"), DELEGATION),
+        delegated_output("list_threads", Some("codex_tui"), DELEGATION),
+        delegated_output("create_thread", Some("codex_tui"), "plain text"),
+    ] {
+        assert_eq!(completed_item(item.clone()), None, "{item}");
+    }
+}
+
+fn image(status: &str, revised: Value, saved: Value, started: bool) -> Option<Item> {
+    let payload = json!({"type": "imageGeneration", "id": "call-image-generation",
+        "status": status, "revisedPrompt": revised, "savedPath": saved, "result": "aGk="});
+    item(
+        if started {
+            "item/started"
+        } else {
+            "item/completed"
+        },
+        payload,
+    )
+}
+
+#[test]
+fn a_finished_image_generation_shows_its_prompt_and_where_it_was_saved_as_a_url() {
+    let Some(Item::Generated(done)) = image(
+        "completed",
+        json!("A tiny blue square"),
+        json!("/tmp/my images/generated #1.png"),
+        false,
+    ) else {
+        panic!("no generated image");
+    };
+    assert_eq!(
+        *done,
+        GeneratedImage {
+            failed: false,
+            detail: "A tiny blue square".into(),
+            saved_to: Some("file:///tmp/my%20images/generated%20%231.png".into()),
+        }
+    );
+}
+
+#[test]
+fn a_failed_generation_without_a_prompt_names_the_call() {
+    let Some(Item::Generated(failed)) = image("failed", Value::Null, Value::Null, false) else {
+        panic!("no generated image");
+    };
+    assert_eq!(
+        *failed,
+        GeneratedImage {
+            failed: true,
+            detail: "call-image-generation".into(),
+            saved_to: None
+        }
+    );
+}
+
+#[test]
+fn a_generation_still_running_leaves_no_row() {
+    assert_eq!(image("inProgress", Value::Null, Value::Null, true), None);
+}
+
+#[test]
+fn sleep_and_hook_prompt_items_leave_no_row() {
+    // oracle replay.rs handle_thread_item: `Sleep(_) => {}`, `HookPrompt { .. } => {}`.
+    assert_eq!(
+        completed_item(json!({"type": "sleep", "id": "sleep-1", "durationMs": 1500})),
+        None
+    );
+    assert_eq!(
+        completed_item(json!({"type": "hookPrompt", "id": "hook-1", "fragments": []})),
+        None
     );
 }

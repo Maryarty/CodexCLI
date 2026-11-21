@@ -203,12 +203,13 @@ fn structured_tool_cell_renders_raw_plain_text_without_prefix_or_style() {
 // ORACLE history_cell/tests.rs:522 delegated_message_list_spacing_in_scrollback_and_transcript kind=snap owner=chat-live snap=delegated_message_list_spacing_in_scrollback_and_transcript
 #[test]
 fn delegated_message_list_spacing_in_scrollback_and_transcript() {
-    kit::pending(
-        Owner::ChatLive,
-        "no delegated-message cell on S11: the sub-agent message is not mapped to a cell and no fixture step seeds it; the oracle joins two states (scrollback, then the redrawable transcript overlay)",
-    );
-    let s = Screen::build(Owner::ChatLive).size(32, 20).live().open();
-    // Scrollback state: the header, the three list items with their wrapped line.
+    let s = Screen::build(Owner::ChatLive)
+        .size(32, 20)
+        .script(include_str!("fixtures/cells_3/delegated_message.jsonl"))
+        .open();
+    // The chat shows the redrawable transcript's half: the header, the three
+    // list items with their wrapped line (the scrollback half joins the same
+    // rows, minus the blank rows between the items).
     s.assert_in_order(&[
         "Sent by Codex from task other",
         "• One",
@@ -241,12 +242,8 @@ fn raw_mode_toggle_transcript_snapshot() {
 // ORACLE history_cell/tests.rs:600 image_generation_call_renders_saved_path kind=ui owner=chat-live
 #[test]
 fn image_generation_call_renders_saved_path() {
-    kit::pending(
-        Owner::ChatLive,
-        "no image-generation cell on S11: the cells screen draws no imageGeneration item yet",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_3/image_generation_saved_path.jsonl"
         ))

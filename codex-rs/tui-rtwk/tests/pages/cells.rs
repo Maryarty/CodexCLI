@@ -1409,6 +1409,128 @@ mod collab_cell {
     }
 }
 
+mod delegated_and_generated {
+    use std::sync::Arc;
+
+    use codex_tui_core::threads::{DelegatedMessage, GeneratedImage};
+    use codex_tui_rtwk::pages::session::cells::delegated::DelegatedCell;
+    use codex_tui_rtwk::pages::session::cells::generated_image::GeneratedImageCell;
+    use rtwk::style::{Attrs, Color};
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn a_delegated_message_has_an_attribution_and_an_indented_body_with_uniform_list_spacing() {
+        // oracle snapshots/..delegated_message_list_spacing_in_scrollback_and_transcript.snap,
+        // the "Redrawable transcript" half: the chat's.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(32, 16));
+        t.pump_widget(DelegatedCell {
+            message: Arc::new(DelegatedMessage {
+                source: "other".into(),
+                markdown: "- One\n- This item has enough words to wrap\n- Three".into(),
+            }),
+        });
+        assert_eq!(
+            rows(&t),
+            [
+                "• Sent by Codex from task other",
+                "  • One",
+                "",
+                "  • This item has enough words",
+                "    to wrap",
+                "",
+                "  • Three",
+            ]
+        );
+        let bullet = t.cell(0, 0);
+        assert!(bullet.attrs.intersects(Attrs::DIM), "{bullet:?}");
+    }
+
+    #[test]
+    fn a_long_attribution_wraps_under_the_text_and_not_the_bullet() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(20, 8));
+        t.pump_widget(DelegatedCell {
+            message: Arc::new(DelegatedMessage {
+                source: "0123456789abcdef".into(),
+                markdown: "Body".into(),
+            }),
+        });
+        // Word wrap: `task` and the 16-column id do not fit in the 18 columns
+        // beside the bullet, and the continuation sits under the text.
+        assert_eq!(
+            rows(&t),
+            [
+                "• Sent by Codex from",
+                "  task",
+                "  0123456789abcdef",
+                "  Body"
+            ]
+        );
+    }
+
+    fn generated(failed: bool, detail: &str, saved: Option<&str>) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(60, 8));
+        t.pump_widget(GeneratedImageCell {
+            image: Arc::new(GeneratedImage {
+                failed,
+                detail: detail.into(),
+                saved_to: saved.map(str::to_owned),
+            }),
+        });
+        t
+    }
+
+    #[test]
+    fn a_generated_image_shows_its_prompt_and_where_it_was_saved() {
+        let t = generated(
+            false,
+            "A tiny blue square",
+            Some("file:///tmp/generated-image.png"),
+        );
+        assert_eq!(
+            rows(&t),
+            [
+                "• Generated Image:",
+                "  └ A tiny blue square",
+                "  └ Saved to: file:///tmp/generated-image.png",
+            ]
+        );
+        assert!(t.cell(0, 0).attrs.intersects(Attrs::DIM));
+        assert!(t.cell(2, 0).attrs.intersects(Attrs::BOLD));
+        assert!(
+            t.cell(4, 1).attrs.intersects(Attrs::DIM),
+            "the prompt is dim"
+        );
+        assert!(
+            t.cell(4, 2).attrs.intersects(Attrs::DIM),
+            "`Saved to:` is dim"
+        );
+        assert!(
+            !t.cell(14, 2).attrs.intersects(Attrs::DIM),
+            "the URL is not"
+        );
+    }
+
+    #[test]
+    fn a_failed_generation_has_a_red_bold_cross_and_no_saved_row_without_a_path() {
+        let t = generated(true, "call-1", None);
+        assert_eq!(rows(&t), ["✗ Image generation failed", "  └ call-1"]);
+        let cross = t.cell(0, 0);
+        assert_eq!(cross.fg, Color::RED, "{cross:?}");
+        assert!(cross.attrs.intersects(Attrs::BOLD), "{cross:?}");
+    }
+}
+
 mod plan_in_transcript {
     use codex_tui_core::fixtures::builders::turn_started;
     use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;

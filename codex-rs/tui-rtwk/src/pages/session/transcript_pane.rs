@@ -246,6 +246,20 @@ impl State for ViewportState {
                         cells,
                     ),
                 ),
+                Item::Delegated(message) => cell(
+                    separator,
+                    super::cells::delegated::DelegatedCell {
+                        message: message.clone(),
+                    }
+                    .into(),
+                ),
+                Item::Generated(image) => cell(
+                    separator,
+                    super::cells::generated_image::GeneratedImageCell {
+                        image: image.clone(),
+                    }
+                    .into(),
+                ),
                 Item::Collab(event) => cell(
                     separator,
                     super::cells::collab::CollabCell {

@@ -1,0 +1,4 @@
+# oracle history_cell/tests.rs:522 delegated_message_list_spacing_in_scrollback_and_transcript: the tool output the oracle test wraps in DelegatedMessageCell::new("other", ..).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"functionCallOutput","id":"delegated-1","name":"create_thread","namespace":"codex_tui","output":"<codex_delegation>\n  <source_thread_id>other</source_thread_id>\n  <input>- One\n- This item has enough words to wrap\n- Three</input>\n</codex_delegation>"},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}
