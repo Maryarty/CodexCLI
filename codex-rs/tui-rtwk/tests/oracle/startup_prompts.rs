@@ -8,7 +8,7 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE cwd_prompt.rs:378 cwd_prompt_snapshot kind=snap owner=startup-prompts snap=cwd_prompt_modal
 #[test]
 fn cwd_prompt_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_resume")
         .open();
@@ -18,7 +18,7 @@ fn cwd_prompt_snapshot() {
 // ORACLE cwd_prompt.rs:389 cwd_prompt_fork_snapshot kind=snap owner=startup-prompts snap=cwd_prompt_fork_modal
 #[test]
 fn cwd_prompt_fork_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_fork")
         .open();
@@ -28,7 +28,7 @@ fn cwd_prompt_fork_snapshot() {
 // ORACLE cwd_prompt.rs:407 cwd_prompt_remote_exec_snapshot kind=snap owner=startup-prompts snap=cwd_prompt_remote_exec_modal
 #[test]
 fn cwd_prompt_remote_exec_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 13)
         .entry("startup", "cwd_remote_exec")
         .open();
@@ -38,7 +38,7 @@ fn cwd_prompt_remote_exec_snapshot() {
 // ORACLE cwd_prompt.rs:431 cwd_prompt_remembered_current_snapshot kind=snap owner=startup-prompts snap=cwd_prompt_remembered_current_modal
 #[test]
 fn cwd_prompt_remembered_current_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_remembered_current")
         .open();
@@ -48,7 +48,7 @@ fn cwd_prompt_remembered_current_snapshot() {
 // ORACLE cwd_prompt.rs:455 cwd_prompt_selects_session_by_default kind=ui owner=startup-prompts
 #[test]
 fn cwd_prompt_selects_session_by_default() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_resume")
         .open();
@@ -60,7 +60,7 @@ fn cwd_prompt_selects_session_by_default() {
 // ORACLE cwd_prompt.rs:462 cwd_prompt_can_select_current kind=ui owner=startup-prompts
 #[test]
 fn cwd_prompt_can_select_current() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_resume")
         .open();
@@ -73,7 +73,7 @@ fn cwd_prompt_can_select_current() {
 // ORACLE cwd_prompt.rs:470 narrow_picker_keeps_selected_choice_and_escape_uses_session kind=snap owner=startup-prompts
 #[test]
 fn narrow_picker_keeps_selected_choice_and_escape_uses_session() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(40, 16)
         .entry("startup", "cwd_long_paths")
         .open();
@@ -81,7 +81,7 @@ fn narrow_picker_keeps_selected_choice_and_escape_uses_session() {
     s.assert_contains("› 4. Always use current directory");
     s.assert_contains("esc use session");
     kit::pending(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "G49: rtwk's `TextWrap::Word` never breaks after `/`; the oracle's picker rows do (`› 4. Always use current directory (/` / `     Users/example/current)`), ours moves `(/Users/example/current)` whole to the next row. The window (rows 3 and 4 only, `↑` above) and the hanging indent are drawn as the oracle's",
     );
     s.assert_snap("cwd_picker_selected_40x16");
@@ -92,7 +92,7 @@ fn narrow_picker_keeps_selected_choice_and_escape_uses_session() {
 // ORACLE cwd_prompt.rs:490 cwd_prompt_omits_unusable_remembered_current_choice kind=ui owner=startup-prompts
 #[test]
 fn cwd_prompt_omits_unusable_remembered_current_choice() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 13)
         .entry("startup", "cwd_remote_exec")
         .open();
@@ -105,7 +105,7 @@ fn cwd_prompt_omits_unusable_remembered_current_choice() {
 // ORACLE cwd_prompt.rs:507 cwd_prompt_ctrl_c_exits_instead_of_selecting kind=ui owner=startup-prompts
 #[test]
 fn cwd_prompt_ctrl_c_exits_instead_of_selecting() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 14)
         .entry("startup", "cwd_resume")
         .open();
@@ -119,7 +119,7 @@ fn cwd_prompt_remembered_choices_select_and_persist_matching_directory() {
     // The config.toml write is the host's (no screen shows it); what shows is
     // that the number key takes the row and the prompt closes.
     for key in ["3", "4"] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(80, 14)
             .entry("startup", "cwd_resume")
             .open();
@@ -132,10 +132,10 @@ fn cwd_prompt_remembered_choices_select_and_persist_matching_directory() {
 #[test]
 fn cwd_prompt_persistence_failure_snapshot() {
     kit::pending(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "no entry for the history line `Failed to save working directory preference.`: the host inserts it into the scrollback after the prompt closes (its config write is not built in this slice)",
     );
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(100, 1)
         .entry("startup", "cwd_persistence_failure")
         .open();
@@ -146,12 +146,12 @@ fn cwd_prompt_persistence_failure_snapshot() {
 // ORACLE model_migration.rs:426 prompt_snapshot kind=snap owner=startup-prompts snap=model_migration_prompt
 #[test]
 fn prompt_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(60, 28)
         .entry("startup", "migration_opt_out")
         .open();
     kit::pending(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "G48: rtwk's `TextWrap::Word` breaks after the hyphen of `gpt-5.1-codex-max.` (`Codex just got an upgrade. Introducing gpt-5.1-codex-` / `max.`); the oracle's `Paragraph` wraps at blanks only (the heading moves whole to the next row), and no `TextWrap` breaks at blanks only",
     );
     s.assert_snap("model_migration_prompt");
@@ -160,7 +160,7 @@ fn prompt_snapshot() {
 // ORACLE model_migration.rs:460 prompt_snapshot_gpt5_family kind=snap owner=startup-prompts snap=model_migration_prompt_gpt5_family
 #[test]
 fn prompt_snapshot_gpt5_family() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(65, 22)
         .entry("startup", "migration_gpt5_family")
         .open();
@@ -170,7 +170,7 @@ fn prompt_snapshot_gpt5_family() {
 // ORACLE model_migration.rs:487 escape_key_accepts_prompt kind=ui owner=startup-prompts
 #[test]
 fn escape_key_accepts_prompt() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(60, 28)
         .entry("startup", "migration_opt_out")
         .open();
@@ -181,7 +181,7 @@ fn escape_key_accepts_prompt() {
 // ORACLE model_migration.rs:516 selecting_use_existing_model_rejects_upgrade kind=ui owner=startup-prompts
 #[test]
 fn selecting_use_existing_model_rejects_upgrade() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(60, 28)
         .entry("startup", "migration_opt_out")
         .open();
@@ -194,7 +194,7 @@ fn selecting_use_existing_model_rejects_upgrade() {
 // ORACLE model_migration.rs:548 markdown_prompt_keeps_long_url_tail_visible_when_narrow kind=ui owner=startup-prompts
 #[test]
 fn markdown_prompt_keeps_long_url_tail_visible_when_narrow() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(40, 16)
         .entry("startup", "migration_markdown_url")
         .open();
@@ -204,7 +204,7 @@ fn markdown_prompt_keeps_long_url_tail_visible_when_narrow() {
 // ORACLE model_migration.rs:578 migration_choice_and_hints_stay_visible_in_a_short_viewport kind=snap owner=startup-prompts
 #[test]
 fn migration_choice_and_hints_stay_visible_in_a_short_viewport() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(28, 12)
         .entry("startup", "migration_markdown")
         .open();
@@ -220,7 +220,7 @@ fn migration_choice_and_hints_stay_visible_in_a_short_viewport() {
 // ORACLE startup_hooks_review.rs:434 fragmented_terminal_response_cannot_grant_startup_hook_trust kind=ui owner=startup-prompts
 #[test]
 fn fragmented_terminal_response_cannot_grant_startup_hook_trust() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 24)
         .entry("startup", "hooks_review")
         .open();
@@ -236,7 +236,7 @@ fn fragmented_terminal_response_cannot_grant_startup_hook_trust() {
 #[test]
 fn non_trust_startup_hook_shortcuts_remain_immediate() {
     for key in ["1", "3"] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(80, 24)
             .entry("startup", "hooks_review")
             .open();
@@ -248,7 +248,7 @@ fn non_trust_startup_hook_shortcuts_remain_immediate() {
 // ORACLE startup_hooks_review.rs:484 renders_prompt kind=snap owner=startup-prompts snap=startup_hooks_review_prompt
 #[test]
 fn renders_prompt() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(40, 24)
         .entry("startup", "hooks_review")
         .open();
@@ -258,7 +258,7 @@ fn renders_prompt() {
 // ORACLE startup_hooks_review.rs:502 renders_prompt_with_trust_error kind=snap owner=startup-prompts snap=startup_hooks_review_prompt_with_trust_error
 #[test]
 fn renders_prompt_with_trust_error() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(62, 24)
         .entry("startup", "hooks_review_error")
         .open();
@@ -268,7 +268,7 @@ fn renders_prompt_with_trust_error() {
 // ORACLE startup_hooks_review.rs:522 picker_progress_blocks_selection kind=snap owner=startup-prompts snap=startup_hooks_picker_progress_40
 #[test]
 fn picker_progress_blocks_selection() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(40, 24)
         .entry("startup", "hooks_trusting")
         .open();
@@ -281,7 +281,7 @@ fn picker_progress_blocks_selection() {
 // ORACLE unarchive_prompt_tests.rs:32 resume_prompt_snapshot kind=snap owner=startup-prompts
 #[test]
 fn resume_prompt_snapshot() {
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 10)
         .entry("startup", "unarchive_resume")
         .open();
@@ -297,7 +297,7 @@ fn resume_prompt_snapshot() {
 // ORACLE unarchive_prompt_tests.rs:49 fork_prompt_cancel_snapshot kind=snap owner=startup-prompts
 #[test]
 fn fork_prompt_cancel_snapshot() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 10)
         .entry("startup", "unarchive_fork")
         .open();
@@ -317,14 +317,14 @@ fn fork_prompt_cancel_snapshot() {
 #[test]
 fn confirmation_requires_an_accept_key() {
     for key in ["esc", "n", "2", "ctrl+c", "ctrl+d"] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(80, 10)
             .entry("startup", "unarchive_fork")
             .open();
         s.keys(key);
         s.assert_absent("This conversation is archived");
     }
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 10)
         .entry("startup", "unarchive_fork")
         .open();
@@ -337,10 +337,10 @@ fn confirmation_requires_an_accept_key() {
 #[test]
 fn inline_prompt_preserves_shell_context_snapshot() {
     kit::pending(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "inline presentation: the shell row `$ codex fork saved-session` above the panel is the terminal's scrollback; the debug route is full screen",
     );
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(80, 12)
         .entry("startup", "unarchive_fork")
         .open();
@@ -351,10 +351,10 @@ fn inline_prompt_preserves_shell_context_snapshot() {
 #[test]
 fn narrow_inline_prompt_wraps_snapshot() {
     kit::pending(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "inline presentation: the shell row `$ codex fork saved-session` above the panel is the terminal's scrollback; the debug route is full screen",
     );
-    let s = Screen::build(Owner::DialogsPane)
+    let s = Screen::build(Owner::StartupPrompts)
         .size(28, 12)
         .entry("startup", "unarchive_fork")
         .open();
@@ -365,7 +365,7 @@ fn narrow_inline_prompt_wraps_snapshot() {
 #[test]
 fn inline_prompt_only_claims_content_height() {
     kit::na(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "asserts the Tui viewport rect of the inline guard, not visible",
     );
 }
@@ -374,7 +374,7 @@ fn inline_prompt_only_claims_content_height() {
 #[test]
 fn alternate_prompt_restores_original_viewport() {
     kit::na(
-        Owner::DialogsPane,
+        Owner::StartupPrompts,
         "asserts the Tui viewport rect after the guard drops, not visible",
     );
 }
@@ -383,7 +383,7 @@ fn alternate_prompt_restores_original_viewport() {
 // ORACLE oss_selection.rs:399 ctrl_h_l_move_provider_selection kind=ui owner=startup-prompts
 #[test]
 fn ctrl_h_l_move_provider_selection() {
-    let mut s = Screen::build(Owner::DialogsPane)
+    let mut s = Screen::build(Owner::StartupPrompts)
         .size(80, 24)
         .entry("startup", "oss_unknown")
         .open();
@@ -403,7 +403,7 @@ fn provider_picker_snapshots() {
         ("oss_unknown", 40, 16, "", "oss_providers_unknown_narrow"),
         ("oss_mixed", 28, 12, "down", "oss_providers_mixed_short"),
     ] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(width, height)
             .entry("startup", entry)
             .open();
@@ -423,7 +423,7 @@ fn provider_picker_snapshots() {
         }
         if snap == "oss_providers_mixed_short" {
             kit::pending(
-                Owner::DialogsPane,
+                Owner::StartupPrompts,
                 "G50: at 28x12 the free space is 2 rows for five flex children; the oracle's `FlexRenderable` gives it to its LAST flex child (no top blank row, no subtitle), rtwk's `Flexible` loose hands the remainder to the first ones (a blank row and `Choose a local AI server` stay). The label hanging indent is drawn as the oracle's",
             );
         }
@@ -435,7 +435,7 @@ fn provider_picker_snapshots() {
 #[test]
 fn navigation_wraps_without_confirming() {
     for key in ["up", "down", "j", "k"] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(80, 24)
             .entry("startup", "oss_running")
             .open();
@@ -451,7 +451,7 @@ fn navigation_wraps_without_confirming() {
 #[test]
 fn shortcuts_select_the_provider_even_when_unavailable() {
     for key in ["1", "2"] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(80, 24)
             .entry("startup", "oss_stopped")
             .open();
@@ -473,14 +473,14 @@ fn daemon_recovery_requires_explicit_restart_and_defaults_to_cancel() {
             false,
         ),
     ] {
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(90, 24)
             .entry("startup", entry)
             .open();
         s.assert_snap(snap);
         s.keys("enter");
         s.assert_absent("background server");
-        let mut s = Screen::build(Owner::DialogsPane)
+        let mut s = Screen::build(Owner::StartupPrompts)
             .size(90, 24)
             .entry("startup", entry)
             .open();
