@@ -18,6 +18,7 @@ use codex_tui_core::screens::startup::{Intent, Prompt};
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::view::Hs;
 
+mod keys;
 mod panel;
 pub mod strings;
 

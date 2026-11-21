@@ -2,9 +2,10 @@
 
 Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Options` list
 (`src/widgets/options.rs`). Code: `core/src/screens/startup.rs` (pure: `Prompt`, `Model`,
-`Ev::Asked`/`HooksTrusted`, `Intent::{Ask, Answer, TrustHooks}`, `apply`, the key table
-`Prompt::on_key`), `src/pages/startup/prompts/` (`panel.rs` the widget, `strings.rs` words,
-`mod.rs` the entry points, `fixtures/*.jsonl` 21 mock scripts through core `apply`).
+`Ev::Asked`/`HooksTrusted`, `Intent::{Ask, Answer, TrustHooks}`, `apply`, and what a step, a
+number or a taken row does: `Prompt::{rows, step, number, take}`), `src/pages/startup/prompts/`
+(`panel.rs` the widget, `keys.rs` the key bindings, `strings.rs` words, `mod.rs` the entry
+points, `fixtures/*.jsonl` 21 mock scripts through core `apply`).
 
 ## Prompts
 
@@ -16,9 +17,42 @@ Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Option
 | unarchive_prompt.rs (resume / fork) | `Prompt::Unarchive` | ported |
 | oss_selection.rs (LM Studio / Ollama and their status) | `Prompt::Oss` | ported |
 | daemon_recovery.rs | `Prompt::Daemon` | ported |
-| chatwidget/windows_sandbox_prompts.rs | not done | next slice |
-| security_setup.rs (`Notice::valid`), startup_error.rs | not done / n-a (plain stderr text) | |
-| startup_orchestration.rs (order and conditions) | not done: the launcher (startup-flow) decides | its logic tests (`bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass`, `localhost_probe_succeeds_with_invalid_inherited_ca_bundle`, `security_setup_rejects_unsafe_actions_and_terminal_controls`) are not in this shard |
+| chatwidget/windows_sandbox_prompts.rs | not built here (see "Scope of the rest") | dialogs-pane |
+| security_setup.rs (`Notice::valid`, `prefetch`) | not built here | chat banner (dialogs-pane); the pure check needs `url` |
+| startup_error.rs (`LocalStateDbStartupError`) | not built here | reuse-carry (a REUSE row: framework-free, no screen) |
+| startup_orchestration.rs (order and conditions) | not done: the launcher (startup-orchestration) decides | its logic tests (`bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass`, `localhost_probe_succeeds_with_invalid_inherited_ca_bundle`, `security_setup_rejects_unsafe_actions_and_terminal_controls`) are not in this shard |
+
+## Keys
+
+The oracle's `handle_key` of each prompt is `src/pages/startup/prompts/keys.rs`: `bindings(&Prompt)`
+returns `(KeyPress, Cmd)` pairs (the page's `Shortcuts`), the panel binds them on its `Focus`
+and answers a `Cmd` with `Cmd::react`, which asks core (`Prompt::step` / `number` / `take`)
+what it comes to. Core has no key type; `Intent::Answer` is validated there (`takes`: an
+answer another prompt owns, or any answer while the trust write runs, is dropped).
+The tests of the oracle's key rules are in `keys.rs` (the 16 ported names plus
+`a_migration_without_opt_out_reads_only_accept_and_quit`), the cursor rules in core
+(`step_wraps_round_the_ends...`, `a_number_takes_a_plain_row...`,
+`the_cwd_prompt_has_no_fourth_row...`).
+
+Ctrl+C in the hooks review does nothing in the oracle (`startup_hooks_review.rs` handles Esc,
+Enter, Up/Down, digits only, and nothing at all while trusting); `bindings` has no Ctrl+C
+for it either, and none at all while the trust write runs (`picker_progress_blocks_selection`).
+
+## Scope of the rest (Windows sandbox, security_setup, startup_error)
+
+Decided by what each is, not built in this slice:
+
+* Windows sandbox prompts (enable / fallback / status): bottom-pane selection views of the
+  chat, behind `cfg(target_os = "windows")` in the oracle; their oracle tests are
+  `chat_popups_2.rs` (`startup_prompts_for_windows_sandbox_when_agent_requested`, pending
+  `NO_WINDOWS`, owner dialogs-pane). They belong to the chat popups, not to the full-screen
+  startup prompts.
+* `security_setup.rs`: a chat banner fed by an RPC (`prefetch`); its screen tests are in
+  `chat_popups_4.rs` (owner dialogs-pane). `Notice::valid` is pure but needs the `url` crate and
+  core's dependency list is fixed (`tests/layers.rs`): a change of that list is the person's
+  or the orchestrator's, with the banner's task.
+* `startup_error.rs`: framework-free (a `thiserror` type over `codex_state`), no screen: a
+  REUSE row for the reuse-carry slice.
 
 ## How startup-flow calls the prompts
 
@@ -37,7 +71,7 @@ Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Option
 
 ## Oracle tests (`tests/oracle/startup_prompts.rs`, profile `oracle`)
 
-34 tests: 25 green, 7 pending, 2 n/a (the shard file's red = pending count
+34 tests: 26 green, 6 pending, 2 n/a (the shard file's red = pending count
 in the oracle profile: pending panics as `PENDING[..]`). Expected text is the oracle's
 snapshots through the replay helper.
 
@@ -49,12 +83,12 @@ snapshots through the replay helper.
 | cwd_prompt.rs::cwd_prompt_remembered_current_snapshot | `cwd_prompt_remembered_current_snapshot` | green |  |
 | cwd_prompt.rs::cwd_prompt_selects_session_by_default | `cwd_prompt_selects_session_by_default` | green |  |
 | cwd_prompt.rs::cwd_prompt_can_select_current | `cwd_prompt_can_select_current` | green |  |
-| cwd_prompt.rs::narrow_picker_keeps_selected_choice_and_escape_uses_session | `narrow_picker_keeps_selected_choice_and_escape_uses_session` | pending | scrolled window with `↑` needs Options::scroll() and the hanging indent (shared options.rs) |
+| cwd_prompt.rs::narrow_picker_keeps_selected_choice_and_escape_uses_session | `narrow_picker_keeps_selected_choice_and_escape_uses_session` | pending | G49: the window (`↑`, rows 3 and 4) and the hanging indent are the oracle's; `TextWrap::Word` does not break after `/` (`(/` / `Users/example/current)`) |
 | cwd_prompt.rs::cwd_prompt_omits_unusable_remembered_current_choice | `cwd_prompt_omits_unusable_remembered_current_choice` | green |  |
 | cwd_prompt.rs::cwd_prompt_ctrl_c_exits_instead_of_selecting | `cwd_prompt_ctrl_c_exits_instead_of_selecting` | green |  |
 | cwd_prompt.rs::cwd_prompt_remembered_choices_select_and_persist_matching_directory | `cwd_prompt_remembered_choices_select_and_persist_matching_directory` | green |  |
 | cwd_prompt.rs::cwd_prompt_persistence_failure_snapshot | `cwd_prompt_persistence_failure_snapshot` | pending | the history line is inserted by the host after the prompt closes; its config write is not built here |
-| model_migration.rs::prompt_snapshot | `prompt_snapshot` | green |  |
+| model_migration.rs::prompt_snapshot | `prompt_snapshot` | pending | G48: hyphen wrap of the heading |
 | model_migration.rs::prompt_snapshot_gpt5_family | `prompt_snapshot_gpt5_family` | green |  |
 | model_migration.rs::escape_key_accepts_prompt | `escape_key_accepts_prompt` | green |  |
 | model_migration.rs::selecting_use_existing_model_rejects_upgrade | `selecting_use_existing_model_rejects_upgrade` | green |  |
@@ -62,9 +96,9 @@ snapshots through the replay helper.
 | model_migration.rs::migration_choice_and_hints_stay_visible_in_a_short_viewport | `migration_choice_and_hints_stay_visible_in_a_short_viewport` | green |  |
 | startup_hooks_review.rs::fragmented_terminal_response_cannot_grant_startup_hook_trust | `fragmented_terminal_response_cannot_grant_startup_hook_trust` | green |  |
 | startup_hooks_review.rs::non_trust_startup_hook_shortcuts_remain_immediate | `non_trust_startup_hook_shortcuts_remain_immediate` | green |  |
-| startup_hooks_review.rs::renders_prompt | `renders_prompt` | pending | hanging indent of a wrapped label (shared options.rs) |
+| startup_hooks_review.rs::renders_prompt | `renders_prompt` | green |  |
 | startup_hooks_review.rs::renders_prompt_with_trust_error | `renders_prompt_with_trust_error` | green |  |
-| startup_hooks_review.rs::picker_progress_blocks_selection | `picker_progress_blocks_selection` | pending | hanging indent of a wrapped label (shared options.rs) |
+| startup_hooks_review.rs::picker_progress_blocks_selection | `picker_progress_blocks_selection` | green |  |
 | unarchive_prompt_tests.rs::resume_prompt_snapshot | `resume_prompt_snapshot` | green |  |
 | unarchive_prompt_tests.rs::fork_prompt_cancel_snapshot | `fork_prompt_cancel_snapshot` | green |  |
 | unarchive_prompt_tests.rs::confirmation_requires_an_accept_key | `confirmation_requires_an_accept_key` | green |  |
@@ -73,7 +107,7 @@ snapshots through the replay helper.
 | unarchive_prompt_tests.rs::inline_prompt_only_claims_content_height | `inline_prompt_only_claims_content_height` | n/a | asserts the Tui viewport rect: no counterpart (rtwk owns the viewport) |
 | unarchive_prompt_tests.rs::alternate_prompt_restores_original_viewport | `alternate_prompt_restores_original_viewport` | n/a | asserts the Tui viewport rect: no counterpart |
 | oss_selection.rs::ctrl_h_l_move_provider_selection | `ctrl_h_l_move_provider_selection` | green |  |
-| oss_selection_tests.rs::provider_picker_snapshots | `provider_picker_snapshots` | pending | case 4 (28x12): hanging indent plus the oracle gives the slack of a short viewport to its last flex child; cases 1-3 are green |
+| oss_selection_tests.rs::provider_picker_snapshots | `provider_picker_snapshots` | pending | case 4 (28x12): G50, the oracle gives the slack of a short viewport to its last flex child; cases 1-3 are green, with the oracle's label styles (underlined hotkey, green / red / yellow status) asserted |
 | oss_selection_tests.rs::navigation_wraps_without_confirming | `navigation_wraps_without_confirming` | green |  |
 | oss_selection_tests.rs::shortcuts_select_the_provider_even_when_unavailable | `shortcuts_select_the_provider_even_when_unavailable` | green |  |
 | daemon_recovery_tests.rs::daemon_recovery_requires_explicit_restart_and_defaults_to_cancel | `daemon_recovery_requires_explicit_restart_and_defaults_to_cancel` | green |  |
@@ -89,23 +123,36 @@ snapshots through the replay helper.
 ## Wraps and shelves
 
 * The migration heading (`gpt-5.1-codex-max.`) breaks only at spaces in the oracle;
-  rtwk's `TextWrap::Word` also breaks after a hyphen. Composed as a `Wrap` of one `Text`
-  per word (a word wider than the line would not be split). No gaps row: composition works.
+  rtwk's `TextWrap::Word` also breaks after a hyphen: gap G48 (`rtwk-gaps.md`), the heading is
+  a plain `Text` and `prompt_snapshot` is pending(G48). (An earlier one-`Text`-per-word
+  `Wrap` workaround was removed: process.md §5.)
 * Short viewports: the migration body gives way as one clipped block (`Column`
   with `overflow_intended`, leading blank inside it); OSS notes and blanks give way one by
   one. The oracle's `FlexRenderable` first satisfies every flex child that needs less than
   its share and gives the slack to the last one; rtwk's `Flexible` loose gives each child
   its share. They agree unless the free space is under about three rows.
 
+## Shared `Options` (src/widgets/options.rs)
+
+* `RichRow { prefix, label: Vec<Span>, description }` and `Options::view_rich`: the mark and
+  the prefix (`1. `, or blanks) in a fixed grid track, the label (spans: the OSS rows' underlined
+  hotkey and green / red / yellow status) in the next, so a wrapped label hangs under its first
+  cell as the oracle's `wrap_indent` does. `OptionRow` and `Options::view` are unchanged.
+* One `Options::scroll()` and `Options::arrow(above, mark, style)`: the `↑` / `↓` rows follow
+  the scroll (the panel's top and bottom rows of the list, blank while nothing is hidden).
+* The window goes by whole rows as the oracle's (`adjust_start_for_wrapped_selection_visibility`):
+  the first row shown goes on one by one until the cursor row fits whole; the content has room
+  under it for the last row at the top (the oracle leaves blank lines there).
+
 ## Needed elsewhere (not rtwk gaps)
 
-* `src/widgets/options.rs` (shared, not this slice's): (a) a hanging indent for a wrapped
-  label (`OptionRow` field; Row of the mark and an `Expanded` label) - 3 pending tests;
-  (b) `scroll()` (startup-flow's branch) so the arrow rows above and below the window can be
-  drawn (`ListenableBuilder` on it, as `update_prompt.rs`): the arrow rows are blank here;
-  (c) a rich label (the oracle's OSS rows carry an underlined hotkey letter and
-  colour-coded status; `OptionRow.label` is a `String`): a delta today.
-* `tests/oracle.rs`: the `startup_prompts` module line; `shards.py` / `test-shards.md` rule
-  and a kit `Owner::StartupPrompts` (the shard runs as `Owner::DialogsPane` for now).
-* Not covered: the hooks Ctrl+C mapping is unverified against the oracle; the Windows
-  sandbox prompts.
+* Nothing outstanding: the `startup_prompts` module line is in `tests/oracle.rs`, the kit has
+  `Owner::StartupPrompts` (slice `startup-prompts`), and `shards.py` maps the seven oracle files to
+  the shard (`shards.py --check`: 0 stale).
+* The launch wiring (which prompt, in which order, with which conditions) is startup-orchestration.
+
+## Checks that were red on arrival
+
+* `chat::transitions::slash_import_opens_the_import` and
+  `navigation::import_is_a_step_of_the_startup_page` (tests/pages) fail on the base commit
+  `f51e15937` too (a blank frame, `RenderList ... given 0 rows`); not this slice's.

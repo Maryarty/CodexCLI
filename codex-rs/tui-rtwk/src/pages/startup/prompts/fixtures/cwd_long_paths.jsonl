@@ -1,5 +1,6 @@
 # The cwd prompt with long paths (narrow screens)
-# Oracle data: cwd_prompt.rs:470 (the oracle sets long paths after the labels are built:
-# the rows keep `new_prompt`'s paths, as its snapshot shows)
+# Oracle data: cwd_prompt.rs:470 (the oracle sets the long paths on the prompt before it draws,
+# and builds its labels at draw time: rows 1 and 2 carry them, row 4 the remembered
+# directory of `new_prompt`, which now differs from the current one)
 {"step": "seed", "seed": "session", "thread": "thread-1"}
-{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "resume", "current": "/Users/example/current", "session": "/Users/example/session", "remembered_current": "/Users/example/current", "allow_remember_current": true}}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "resume", "current": "/workspace/projects/design-system/Português/current", "session": "/workspace/projects/design-system/日本語/session", "remembered_current": "/Users/example/current", "allow_remember_current": true}}

@@ -24,6 +24,7 @@ pub enum Owner {
     Mouse,
     ReuseCarry,
     StartupFlow,
+    StartupPrompts,
     Onboarding,
 }
 
@@ -39,6 +40,7 @@ impl Owner {
             Owner::Mouse => "mouse",
             Owner::ReuseCarry => "reuse-carry",
             Owner::StartupFlow => "startup-flow",
+            Owner::StartupPrompts => "startup-prompts",
             Owner::Onboarding => "onboarding",
         }
     }

@@ -5,20 +5,19 @@
 //! In Flutter: a `Column(min)` on the menu surface: a blank row, the prompt's
 //! own lines, the choices (the shared `Options` controller: cursor and
 //! scroll, the room the rest leaves), the key hint and a blank row; the keys
-//! are a `Focus` with bindings, mapped to core's `Key` and answered by
-//! core's `Prompt::on_key` (what a key does is the oracle's, tested in
-//! core). The prompt is read from the model (`ScreenStates.startup.open`);
+//! are a `Focus` with the bindings of `keys.rs` (key -> `Cmd`), answered by
+//! core's `Prompt::{step, number, take}` (what a key does is the oracle's,
+//! tested in `keys.rs` and core). The prompt is read from the model (`ScreenStates.startup.open`);
 //! the widget keeps the cursor only (ADR-003).
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::Focus;
 use rtwk::layout::{
     Align, Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible,
-    MainAxisSize, Padding, SizedBox, Wrap,
+    MainAxisSize, Padding, SizedBox,
 };
 use rtwk::navigation::Navigator;
-use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::style::{Attrs, Span, Style, Theme};
 use rtwk::text::Text;
@@ -27,13 +26,14 @@ use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::startup::{Action, Intent, Key, Prompt, Reaction, Status, Trust};
+use codex_tui_core::screens::startup::{Action, Intent, Prompt, Reaction, Status, Trust};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
-use crate::widgets::options::{OptionRow, OptionStyles, Options};
+use crate::widgets::options::{OptionStyles, Options, RichRow};
 
+use super::keys::{self, Cmd};
 use super::strings::{self, Strings};
 
 /// The panel over the prompt the model has open.
@@ -42,7 +42,7 @@ pub struct Panel;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Msg {
-    Key(Key),
+    Cmd(Cmd),
 }
 
 /// Widget state: the cursor and the scroll of the choices (R14).
@@ -88,11 +88,11 @@ impl State for PanelState {
     }
 
     fn update(&mut self, msg: Msg, _: &Panel, cx: &mut Cx<'_, Self>) -> Rebuild {
-        let Msg::Key(key) = msg;
+        let Msg::Cmd(cmd) = msg;
         let Some(prompt) = open(cx) else {
             return Rebuild::No;
         };
-        match prompt.on_key(self.options.cursor(), key) {
+        match cmd.react(&prompt, self.options.cursor()) {
             Reaction::Nothing => Rebuild::No,
             Reaction::Cursor(row) => {
                 self.options.set(row);
@@ -127,17 +127,21 @@ impl State for PanelState {
             dim: tokens.dim(),
             bold: tokens.bold(),
             accent: tokens.accent(),
+            success: tokens.success(),
             warning,
             error: tokens.error(),
             markdown: tokens.transcript_markdown(cx),
         };
         let parts = Parts::of(&prompt, strings, &num, &ink, self.options.cursor());
-        let rows: Rc<Vec<OptionRow>> = Rc::new(parts.rows);
+        let rows: Rc<Vec<RichRow>> = Rc::new(parts.rows);
         let picker = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(blank())
-            .child(self.options.view(
+            .child(
+                self.options
+                    .arrow(true, strings.more_above, ink.accent.clone()),
+            )
+            .child(self.options.view_rich(
                 rows,
                 OptionStyles {
                     cursor: tokens.selected(),
@@ -146,7 +150,7 @@ impl State for PanelState {
                 },
                 0,
             ))
-            .child(blank());
+            .child(self.options.arrow(false, strings.more_below, ink.accent));
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -218,30 +222,9 @@ impl State for PanelState {
         let panel = BoxWidget::new()
             .style(tokens.prompt_surface(cx, false))
             .child(column);
-        let ctrl = |c: char| KeyPress::char(c).with_mods(Mods::CTRL);
-        let mut bindings = vec![
-            (KeyPress::UP, Key::Up),
-            (KeyPress::DOWN, Key::Down),
-            (KeyPress::LEFT, Key::Left),
-            (KeyPress::RIGHT, Key::Right),
-            (KeyPress::ENTER, Key::Enter),
-            (KeyPress::ESC, Key::Esc),
-            (ctrl('c'), Key::Ctrl('c')),
-            (ctrl('d'), Key::Ctrl('d')),
-            (
-                KeyPress::code(KeyCode::Backspace).with_mods(Mods::CTRL),
-                Key::Ctrl('h'),
-            ),
-            (ctrl('l'), Key::Ctrl('l')),
-        ];
-        bindings.extend(
-            "123456789kjynYNloLO"
-                .chars()
-                .map(|c| (KeyPress::char(c), Key::Char(c))),
-        );
         let mut focus = Focus::new(Align::new(Alignment::TOP_LEFT, panel)).autofocus();
-        for (press, key) in bindings {
-            focus = focus.bind(press, cx.send(Msg::Key(key)));
+        for (press, cmd) in keys::bindings(&prompt) {
+            focus = focus.bind(press, cx.send(Msg::Cmd(cmd)));
         }
         focus.into()
     }
@@ -252,6 +235,7 @@ struct Ink {
     dim: Style,
     bold: Style,
     accent: Style,
+    success: Style,
     warning: Style,
     error: Style,
     markdown: MarkdownTheme,
@@ -275,7 +259,7 @@ struct Parts {
     /// header gap).
     gap: bool,
     has_rows: bool,
-    rows: Vec<OptionRow>,
+    rows: Vec<RichRow>,
     after: Vec<AnyWidget>,
     hint: Option<AnyWidget>,
     /// The oracle's `FlexRenderable` shelf (OSS): the notes and the blanks
@@ -294,16 +278,6 @@ fn inset(child: AnyWidget) -> AnyWidget {
 
 fn line(text: impl Into<String>, style: &Style) -> AnyWidget {
     inset(Text::new(text.into()).style(style.clone()).into())
-}
-
-/// A line that breaks at spaces only (the oracle's wrap keeps `gpt-5.1-codex-max`
-/// whole; `TextWrap::Word` also breaks after a hyphen): one `Text` per word in a `Wrap`.
-fn words(text: &str, style: &Style) -> AnyWidget {
-    let mut wrap = Wrap::new().spacing(1);
-    for word in text.split(' ') {
-        wrap = wrap.child(Text::new(word.to_owned()).style(style.clone()));
-    }
-    inset(wrap.into())
 }
 
 fn hint(spans: Vec<Span>) -> AnyWidget {
@@ -343,12 +317,13 @@ impl Parts {
         ink: &Ink,
         cursor: usize,
     ) -> Parts {
-        let numbered = |labels: Vec<String>| -> Vec<OptionRow> {
+        let numbered = |labels: Vec<String>| -> Vec<RichRow> {
             labels
                 .into_iter()
                 .enumerate()
-                .map(|(at, label)| OptionRow {
-                    label: s.numbered(at + 1, &label, num),
+                .map(|(at, label)| RichRow {
+                    prefix: s.numbered(at + 1, "", num),
+                    label: vec![Span::new(label)],
                     description: None,
                 })
                 .collect()
@@ -391,8 +366,8 @@ impl Parts {
                             .into(),
                     ));
                 } else {
-                    top.push(words(
-                        &s.migration_heading(&p.target_display_name, num),
+                    top.push(line(
+                        s.migration_heading(&p.target_display_name, num),
                         &ink.bold,
                     ));
                     top.push(blank());
@@ -472,12 +447,13 @@ impl Parts {
                     .hooks_choices
                     .iter()
                     .enumerate()
-                    .map(|(at, label)| OptionRow {
-                        label: if trusting {
-                            format!("   {label}")
+                    .map(|(at, label)| RichRow {
+                        prefix: if trusting {
+                            "   ".to_owned()
                         } else {
-                            s.numbered(at + 1, label, num)
+                            s.numbered(at + 1, "", num)
                         },
+                        label: vec![Span::new(*label)],
                         description: None,
                     })
                     .collect();
@@ -507,32 +483,32 @@ impl Parts {
                 squeeze: Give::Fixed,
             },
             Prompt::Oss(p) => {
+                // The oracle: the first letter of the provider underlined (its
+                // key), then ` · ` dim and the status in green, red or yellow.
                 let label = |at: usize, status: Status| {
-                    let state = match status {
-                        Status::Running => 0,
-                        Status::NotRunning => 1,
-                        Status::Unknown => 2,
+                    let (state, colour) = match status {
+                        Status::Running => (0, &ink.success),
+                        Status::NotRunning => (1, &ink.error),
+                        Status::Unknown => (2, &ink.warning),
                     };
-                    s.numbered(
-                        at + 1,
-                        &[s.oss_providers[at], s.oss_separator, s.oss_statuses[state]].concat(),
-                        num,
-                    )
+                    let name = s.oss_providers[at];
+                    let first = name.chars().next().map_or(0, char::len_utf8);
+                    RichRow {
+                        prefix: s.numbered(at + 1, "", num),
+                        label: vec![
+                            Span::styled(&name[..first], Style::new().attrs(Attrs::UNDERLINE)),
+                            Span::new(&name[first..]),
+                            Span::styled(s.oss_separator, ink.dim.clone()),
+                            Span::styled(s.oss_statuses[state], colour.clone()),
+                        ],
+                        description: None,
+                    }
                 };
                 Parts {
                     top: vec![line(s.oss_title, &ink.bold), line(s.oss_subtitle, &ink.dim)],
                     gap: false,
                     has_rows: true,
-                    rows: vec![
-                        OptionRow {
-                            label: label(0, p.lmstudio),
-                            description: None,
-                        },
-                        OptionRow {
-                            label: label(1, p.ollama),
-                            description: None,
-                        },
-                    ],
+                    rows: vec![label(0, p.lmstudio), label(1, p.ollama)],
                     after: vec![line(s.oss_descriptions[cursor.min(1)], &ink.dim), blank()],
                     hint: Some(key_hint(&s.oss_hint, &ink.dim)),
                     squeeze: Give::Notes,
@@ -567,13 +543,14 @@ impl Parts {
                 let mut number = 0;
                 let mut row = |label: String, reason: Option<&'static str>| {
                     let disabled = reason.is_some();
-                    OptionRow {
-                        label: if disabled {
-                            format!("   {label}")
+                    RichRow {
+                        prefix: if disabled {
+                            "   ".to_owned()
                         } else {
                             number += 1;
-                            s.numbered(number, &label, num)
+                            s.numbered(number, "", num)
                         },
+                        label: vec![Span::new(label)],
                         description: reason.map(str::to_owned),
                     }
                 };

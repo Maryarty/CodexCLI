@@ -252,19 +252,6 @@ impl Prompt {
     }
 }
 
-/// A key a prompt reads (the view maps rtwk's key presses onto these).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key {
-    Up,
-    Down,
-    Left,
-    Right,
-    Enter,
-    Esc,
-    Ctrl(char),
-    Char(char),
-}
-
 /// A row of a prompt's choice list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Row {
@@ -280,7 +267,9 @@ const PLAIN: Row = Row {
     explicit: false,
 };
 
-/// What a key does to a prompt.
+/// What taking a row, a digit or a step does to a prompt: the view's key
+/// bindings (`pages/startup/prompts/keys.rs`) choose which one a key is, the
+/// prompt answers what it comes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reaction {
     Nothing,
@@ -334,8 +323,8 @@ impl Prompt {
         }
     }
 
-    /// What taking `row` returns.
-    fn take(&self, row: usize) -> Reaction {
+    /// What taking `row` returns (Enter on the cursor row, a hotkey).
+    pub fn take(&self, row: usize) -> Reaction {
         let answer = match self {
             Prompt::Cwd(p) => p.choices().get(row).copied().map(Answer::Cwd),
             Prompt::Migration(_) => match row {
@@ -371,7 +360,7 @@ impl Prompt {
 
     /// The cursor one row on (`delta` 1) or back, round the ends, over the
     /// rows that are not disabled.
-    fn step(&self, cursor: usize, delta: i64) -> Reaction {
+    pub fn step(&self, cursor: usize, delta: i64) -> Reaction {
         let rows = self.rows();
         let len = i64::try_from(rows.len()).unwrap_or(0);
         let mut at = i64::try_from(cursor).unwrap_or(0);
@@ -385,8 +374,9 @@ impl Prompt {
         Reaction::Nothing
     }
 
-    /// A number key: the n-th row that is not disabled.
-    fn number(&self, cursor: usize, n: usize) -> Reaction {
+    /// A number key: the n-th row that is not disabled (an explicit row only
+    /// takes the cursor, it needs Enter).
+    pub fn number(&self, n: usize) -> Reaction {
         let rows = self.rows();
         let Some(row) = rows
             .iter()
@@ -400,83 +390,7 @@ impl Prompt {
         if rows[row].explicit {
             return Reaction::Cursor(row);
         }
-        let _ = cursor;
         self.take(row)
-    }
-
-    /// What `key` does with the cursor on `cursor` (the oracle's `handle_key`
-    /// of each prompt).
-    pub fn on_key(&self, cursor: usize, key: Key) -> Reaction {
-        let quit = matches!(key, Key::Ctrl('c' | 'd'));
-        let digit = |c: char| c.to_digit(10).map(|d| d as usize);
-        match self {
-            Prompt::Cwd(_) => match key {
-                _ if quit => Reaction::Answer(Answer::CwdExit),
-                Key::Up | Key::Char('k') => self.step(cursor, -1),
-                Key::Down | Key::Char('j') => self.step(cursor, 1),
-                Key::Char(c @ '1'..='4') => self.number(cursor, digit(c).unwrap_or(0)),
-                Key::Enter => self.take(cursor),
-                Key::Esc => Reaction::Answer(Answer::Cwd(CwdSelection::Session)),
-                _ => Reaction::Nothing,
-            },
-            Prompt::Migration(p) => match key {
-                _ if quit => Reaction::Answer(Answer::Migration(MigrationOutcome::Exit)),
-                Key::Enter | Key::Esc if !p.can_opt_out => {
-                    Reaction::Answer(Answer::Migration(MigrationOutcome::Accepted))
-                }
-                _ if !p.can_opt_out => Reaction::Nothing,
-                Key::Up | Key::Char('k') => Reaction::Cursor(0),
-                Key::Down | Key::Char('j') => Reaction::Cursor(1),
-                Key::Char(c @ ('1' | '2')) => self.number(cursor, digit(c).unwrap_or(0)),
-                Key::Enter | Key::Esc => self.take(cursor),
-                _ => Reaction::Nothing,
-            },
-            Prompt::Hooks(_) => {
-                if self.rows().iter().all(|row| row.disabled) {
-                    return Reaction::Nothing;
-                }
-                match key {
-                    Key::Up | Key::Char('k') => self.step(cursor, -1),
-                    Key::Down | Key::Char('j') => self.step(cursor, 1),
-                    Key::Char(c @ '1'..='9') => self.number(cursor, digit(c).unwrap_or(0)),
-                    Key::Enter => self.take(cursor),
-                    Key::Esc => Reaction::Answer(Answer::Hooks(HooksChoice::Skip)),
-                    _ => Reaction::Nothing,
-                }
-            }
-            Prompt::Unarchive(_) => match key {
-                _ if quit => Reaction::Answer(Answer::Unarchive(UnarchiveChoice::Quit)),
-                Key::Up | Key::Down | Key::Char('k' | 'j') => self.step(cursor, 1),
-                Key::Char('1' | 'y' | 'Y') => self.take(0),
-                Key::Esc | Key::Char('2' | 'n' | 'N') => self.take(1),
-                Key::Enter => self.take(cursor),
-                _ => Reaction::Nothing,
-            },
-            Prompt::Oss(_) => match key {
-                Key::Ctrl('c') => Reaction::Answer(Answer::OssCancelled),
-                Key::Left | Key::Up | Key::Ctrl('h') | Key::Char('k') => self.step(cursor, -1),
-                Key::Right | Key::Down | Key::Ctrl('l') | Key::Char('j') => self.step(cursor, 1),
-                Key::Enter => self.take(cursor),
-                Key::Esc => self.take(0),
-                Key::Char('1') => self.take(0),
-                Key::Char('2') => self.take(1),
-                Key::Char(c) => match c.to_ascii_lowercase() {
-                    'l' => self.take(0),
-                    'o' => self.take(1),
-                    _ => Reaction::Nothing,
-                },
-                _ => Reaction::Nothing,
-            },
-            Prompt::Daemon(_) => match key {
-                _ if quit => Reaction::Answer(Answer::DaemonQuit),
-                Key::Up | Key::Char('k') => self.step(cursor, -1),
-                Key::Down | Key::Char('j') => self.step(cursor, 1),
-                Key::Char(c @ '1'..='9') => self.number(cursor, digit(c).unwrap_or(0)),
-                Key::Enter => self.take(cursor),
-                Key::Esc => self.take(2),
-                _ => Reaction::Nothing,
-            },
-        }
     }
 }
 
@@ -765,246 +679,48 @@ mod tests {
         })
     }
 
-    /// Plays keys the way a view does: the cursor follows `Cursor`, the first
-    /// answer ends it.
-    fn play(prompt: &Prompt, keys: &[Key]) -> (usize, Option<Reaction>) {
-        let mut cursor = prompt.initial_cursor();
-        for key in keys {
-            match prompt.on_key(cursor, *key) {
-                Reaction::Nothing => {}
-                Reaction::Cursor(row) => cursor = row,
-                other => return (cursor, Some(other)),
-            }
-        }
-        (cursor, None)
-    }
-
-    fn answer(answer: Answer) -> Option<Reaction> {
-        Some(Reaction::Answer(answer))
-    }
-
     #[test]
-    fn cwd_prompt_selects_session_by_default() {
-        assert_eq!(
-            play(&cwd(true), &[Key::Enter]).1,
-            answer(Answer::Cwd(CwdSelection::Session))
-        );
-    }
-
-    #[test]
-    fn cwd_prompt_can_select_current() {
-        assert_eq!(
-            play(&cwd(true), &[Key::Down, Key::Enter]).1,
-            answer(Answer::Cwd(CwdSelection::Current))
-        );
-    }
-
-    #[test]
-    fn cwd_prompt_omits_unusable_remembered_current_choice() {
-        let prompt = cwd(false);
-        assert_eq!(play(&prompt, &[Key::Char('4')]), (0, None));
-        assert_eq!(play(&prompt, &[Key::Up]), (2, None));
-    }
-
-    #[test]
-    fn cwd_prompt_ctrl_c_exits_instead_of_selecting() {
-        assert_eq!(play(&cwd(true), &[Key::Ctrl('c')]).1, answer(Answer::CwdExit));
-    }
-
-    #[test]
-    fn cwd_prompt_remembered_choices_select_matching_directory() {
-        assert_eq!(
-            play(&cwd(true), &[Key::Char('3')]).1,
-            answer(Answer::Cwd(CwdSelection::SessionAndRemember))
-        );
-        assert_eq!(
-            play(&cwd(true), &[Key::Char('4')]).1,
-            answer(Answer::Cwd(CwdSelection::CurrentAndRemember))
-        );
-        assert!(CwdSelection::CurrentAndRemember.remembers());
-    }
-
-    #[test]
-    fn narrow_picker_escape_uses_session() {
-        assert_eq!(
-            play(&cwd(true), &[Key::Up, Key::Esc]).1,
-            answer(Answer::Cwd(CwdSelection::Session))
-        );
-        assert_eq!(play(&cwd(true), &[Key::Up]), (3, None));
-    }
-
-    fn migration(can_opt_out: bool) -> Prompt {
-        Prompt::Migration(MigrationPrompt {
-            current_model: "gpt-old".into(),
-            target_model: "gpt-new".into(),
-            target_display_name: "gpt-new".into(),
-            target_description: None,
-            copy: None,
-            link: None,
-            markdown: None,
-            can_opt_out,
-        })
-    }
-
-    #[test]
-    fn escape_key_accepts_prompt() {
-        assert_eq!(
-            play(&migration(true), &[Key::Esc]).1,
-            answer(Answer::Migration(MigrationOutcome::Accepted))
-        );
-        assert_eq!(
-            play(&migration(false), &[Key::Esc]).1,
-            answer(Answer::Migration(MigrationOutcome::Accepted))
-        );
-    }
-
-    #[test]
-    fn selecting_use_existing_model_rejects_upgrade() {
-        assert_eq!(
-            play(&migration(true), &[Key::Down, Key::Enter]).1,
-            answer(Answer::Migration(MigrationOutcome::Rejected))
-        );
-        assert_eq!(
-            play(&migration(true), &[Key::Ctrl('c')]).1,
-            answer(Answer::Migration(MigrationOutcome::Exit))
-        );
-    }
-
-    fn hooks_idle() -> Prompt {
-        Prompt::Hooks(HooksPrompt {
-            count: 2,
-            trust: Trust::Idle,
-        })
-    }
-
-    #[test]
-    fn fragmented_terminal_response_cannot_grant_startup_hook_trust() {
-        let prompt = hooks_idle();
-        let mut cursor = 0;
-        for c in "20;rgb:2222/ffff/ffff".chars() {
-            let reaction = prompt.on_key(cursor, Key::Char(c));
-            assert_ne!(reaction, Reaction::TrustAll);
-            if let Reaction::Cursor(row) = reaction {
-                cursor = row;
-            }
-        }
-        assert_eq!(cursor, 1);
-        assert_eq!(prompt.on_key(cursor, Key::Enter), Reaction::TrustAll);
-    }
-
-    #[test]
-    fn non_trust_startup_hook_shortcuts_remain_immediate() {
-        assert_eq!(
-            play(&hooks_idle(), &[Key::Char('1')]).1,
-            answer(Answer::Hooks(HooksChoice::Review))
-        );
-        assert_eq!(
-            play(&hooks_idle(), &[Key::Char('3')]).1,
-            answer(Answer::Hooks(HooksChoice::Skip))
-        );
-    }
-
-    #[test]
-    fn picker_progress_blocks_selection() {
-        let prompt = Prompt::Hooks(HooksPrompt {
-            count: 2,
-            trust: Trust::Trusting(1),
-        });
-        assert!(prompt.rows().iter().all(|row| row.disabled));
-        assert_eq!(play(&prompt, &[Key::Enter, Key::Char('1'), Key::Esc]), (0, None));
-    }
-
-    #[test]
-    fn confirmation_requires_an_accept_key() {
-        let prompt = Prompt::Unarchive(UnarchivePrompt {
-            thread: "t".into(),
-            action: Action::Fork,
-        });
-        let cancel = answer(Answer::Unarchive(UnarchiveChoice::Cancel));
-        for key in [Key::Esc, Key::Char('n'), Key::Char('2')] {
-            assert_eq!(prompt.on_key(0, key), cancel.unwrap());
-        }
-        for c in ['c', 'd'] {
-            assert_eq!(
-                prompt.on_key(0, Key::Ctrl(c)),
-                Reaction::Answer(Answer::Unarchive(UnarchiveChoice::Quit))
-            );
-        }
-        assert_eq!(
-            play(&prompt, &[Key::Enter]).1,
-            answer(Answer::Unarchive(UnarchiveChoice::Unarchive))
-        );
-        assert_eq!(
-            play(&prompt, &[Key::Down, Key::Enter]).1,
-            cancel
-        );
-    }
-
-    fn oss() -> Prompt {
-        Prompt::Oss(OssPrompt {
+    fn step_wraps_round_the_ends_over_the_rows_that_are_not_disabled() {
+        let oss = Prompt::Oss(OssPrompt {
             lmstudio: Status::Unknown,
             ollama: Status::Unknown,
-        })
-    }
-
-    #[test]
-    fn ctrl_h_l_move_provider_selection() {
-        assert_eq!(play(&oss(), &[Key::Ctrl('l')]), (1, None));
-        assert_eq!(play(&oss(), &[Key::Ctrl('l'), Key::Ctrl('h')]), (0, None));
-    }
-
-    #[test]
-    fn navigation_wraps_without_confirming() {
-        assert_eq!(play(&oss(), &[Key::Up]), (1, None));
-        assert_eq!(play(&oss(), &[Key::Down, Key::Down]), (0, None));
-    }
-
-    #[test]
-    fn shortcuts_select_the_provider_even_when_unavailable() {
-        for (key, provider) in [
-            (Key::Char('l'), Provider::LmStudio),
-            (Key::Char('O'), Provider::Ollama),
-            (Key::Char('2'), Provider::Ollama),
-            (Key::Esc, Provider::LmStudio),
-        ] {
-            assert_eq!(play(&oss(), &[key]).1, answer(Answer::Oss(provider)));
-        }
-        assert_eq!(
-            play(&oss(), &[Key::Ctrl('c')]).1,
-            answer(Answer::OssCancelled)
-        );
-    }
-
-    fn daemon(managed: bool, restartable: bool) -> Prompt {
-        Prompt::Daemon(DaemonPrompt {
+        });
+        assert_eq!(oss.step(0, -1), Reaction::Cursor(1));
+        assert_eq!(oss.step(1, 1), Reaction::Cursor(0));
+        let daemon = Prompt::Daemon(DaemonPrompt {
             reason: "r".into(),
-            restart_features: restartable.then(|| vec![("a".into(), true)]),
-            managed,
-        })
+            restart_features: None,
+            managed: true,
+        });
+        // The disabled middle row is skipped.
+        assert_eq!(daemon.step(2, -1), Reaction::Cursor(0));
+        assert_eq!(daemon.step(0, 1), Reaction::Cursor(2));
+        let trusting = Prompt::Hooks(HooksPrompt {
+            count: 1,
+            trust: Trust::Trusting(1),
+        });
+        assert_eq!(trusting.step(0, 1), Reaction::Nothing);
     }
 
     #[test]
-    fn daemon_recovery_requires_explicit_restart_and_defaults_to_cancel() {
-        for (managed, restartable) in [(true, true), (false, true), (true, false)] {
-            let prompt = daemon(managed, restartable);
-            assert_eq!(
-                play(&prompt, &[Key::Enter]).1,
-                answer(Answer::Daemon(DaemonChoice::Cancel))
-            );
-            if managed && restartable {
-                assert_eq!(play(&prompt, &[Key::Char('2')]), (1, None));
-                assert_eq!(
-                    play(&prompt, &[Key::Char('2'), Key::Enter]).1,
-                    answer(Answer::Daemon(DaemonChoice::Restart))
-                );
-            } else {
-                // The disabled row has no number: `2` is Cancel.
-                assert_eq!(
-                    play(&prompt, &[Key::Char('2')]).1,
-                    answer(Answer::Daemon(DaemonChoice::Cancel))
-                );
-                assert_eq!(play(&prompt, &[Key::Up]), (0, None));
-            }
-        }
+    fn a_number_takes_a_plain_row_and_only_moves_to_an_explicit_one() {
+        let hooks = hooks(Trust::Idle).open.unwrap();
+        assert_eq!(
+            hooks.number(1),
+            Reaction::Answer(Answer::Hooks(HooksChoice::Review))
+        );
+        assert_eq!(hooks.number(2), Reaction::Cursor(1));
+        assert_eq!(hooks.number(4), Reaction::Nothing);
+        assert_eq!(hooks.take(1), Reaction::TrustAll);
+    }
+
+    #[test]
+    fn the_cwd_prompt_has_no_fourth_row_without_the_remembered_current() {
+        assert_eq!(cwd(false).number(4), Reaction::Nothing);
+        assert_eq!(
+            cwd(true).number(4),
+            Reaction::Answer(Answer::Cwd(CwdSelection::CurrentAndRemember))
+        );
+        assert!(CwdSelection::CurrentAndRemember.remembers());
     }
 }
