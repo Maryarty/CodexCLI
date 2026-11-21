@@ -55,6 +55,9 @@ pub enum Msg {
     First,
     Cancel,
     Confirm,
+    /// A tap on the selected row or a double tap (ADR-011): the row is
+    /// chosen as Enter would choose it.
+    Accept(usize),
 }
 
 /// Widget state: the cursor of the two choices, the shared `Options`
@@ -97,6 +100,14 @@ impl State for TrustState {
                 self.options.set(CHOICES - 1);
                 Some(Intent::CancelTrust)
             }
+            Msg::Accept(row) => {
+                self.options.set(row.min(CHOICES - 1));
+                Some(if row == 0 {
+                    Intent::Trust
+                } else {
+                    Intent::CancelTrust
+                })
+            }
             Msg::Confirm => Some(if self.options.cursor() == 0 {
                 Intent::Trust
             } else {
@@ -135,7 +146,7 @@ impl State for TrustState {
             })
             .collect(),
         );
-        let options = self.options.clone();
+        let options = self.options.on_accept(cx.map(Msg::Accept));
         let error = ask
             .error
             .as_deref()

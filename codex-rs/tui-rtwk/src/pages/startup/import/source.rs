@@ -44,6 +44,9 @@ pub enum Key {
     Enter,
     /// Esc, Ctrl+C and Ctrl+D.
     Cancel,
+    /// A tap on the selected row or a double tap (ADR-011): the source at
+    /// that row is taken, as Enter takes it.
+    Accept(usize),
 }
 
 /// Widget state: the cursor and the scroll of the choices (R14).
@@ -115,6 +118,11 @@ impl State for SourcePromptState {
                 take(self.options.cursor(), cx);
                 Rebuild::No
             }
+            Key::Accept(row) => {
+                self.options.set(row);
+                take(row, cx);
+                Rebuild::No
+            }
             Key::Cancel => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.screen, ScreenIntent::Import(Intent::Cancel));
@@ -157,7 +165,7 @@ impl State for SourcePromptState {
         let choices = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(self.options.view(
+            .child(self.options.on_accept(cx.map(Key::Accept)).view(
                 Rc::new(rows),
                 OptionStyles {
                     cursor: tokens.selected(),

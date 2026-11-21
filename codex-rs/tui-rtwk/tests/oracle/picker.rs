@@ -957,7 +957,7 @@ fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
     kit::pending(
         Owner::UiPane,
-        "G-clear (select-dialog.md): the oracle's `Style::default().fg(Reset).bg(Reset)` resets the cells under the tab; rtwk's `Style` has no explicit reset (a Text with no colour blends the cell beneath, `ColoredBox(Color::DEFAULT)` resets only the bg), so the blank of the tab keeps the fg (and underline colour) of what the dialog covers; the sheet's strip is bold and underlined as the oracle's fallback",
+        "G54 (select-dialog.md): the oracle's `Style::default().fg(Reset).bg(Reset)` resets the cells under the tab; rtwk's `Style` has no explicit reset (a Text with no colour blends the cell beneath, `ColoredBox(Color::DEFAULT)` resets only the bg), so the blank of the tab keeps the fg (and underline colour) of what the dialog covers; the sheet's strip is bold and underlined as the oracle's fallback",
     );
     let s = Screen::build(Owner::UiPane)
         .size(20, 6)
