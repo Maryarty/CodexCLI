@@ -66,7 +66,7 @@ fn signin_a_click_on_the_selected_row_accepts_it() {
     let mut s = onboarding("sign_in_menu", 76, 19);
     s.click_text("3. Sign in another way");
     // The first click only selects.
-    s.assert_absent("Use an OpenAI API key");
+    s.assert_absent("Press esc to go back");
     assert!(marked(&s, "> ").contains("3. Sign in another way"));
     s.click_text("3. Sign in another way");
     s.assert_contains("> 1. Use an OpenAI API key");
