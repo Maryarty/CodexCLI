@@ -5,8 +5,7 @@
 //! composer clears on its own submit; here the thread decides, so the draft
 //! of a submit it did not take has to stay as it was.
 
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};

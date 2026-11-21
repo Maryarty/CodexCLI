@@ -42,7 +42,11 @@ fn unlisted(dir: &str, root_file: &str) -> Vec<String> {
         .iter()
         .map(|path| stem(path))
         .filter(|name| {
-            format!("{name}.rs") != Path::new(root_file).file_name().unwrap().to_string_lossy()
+            format!("{name}.rs")
+                != Path::new(root_file)
+                    .file_name()
+                    .expect("a root file")
+                    .to_string_lossy()
         })
         .filter(|name| {
             !root

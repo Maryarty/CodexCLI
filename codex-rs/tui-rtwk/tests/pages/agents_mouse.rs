@@ -5,8 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use codex_app_server_protocol::Thread;
 use codex_tui_core::app::{AppEv, Command};

@@ -6,10 +6,7 @@
 //! `startup`), with the kit's mouse events. With the mouse unused every
 //! screen equals the oracle's: the oracle shards say so.
 
-#[path = "../common/mod.rs"]
-mod common;
-#[path = "../kit/mod.rs"]
-mod kit;
+use crate::kit;
 
 use kit::{Owner, Screen};
 
