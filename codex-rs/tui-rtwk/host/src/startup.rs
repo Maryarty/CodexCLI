@@ -115,6 +115,9 @@ pub struct Updates {
     pub enabled: bool,
     /// `CODEX_CLI_VERSION`: a source build (`0.0.0`) is never offered one.
     pub version: String,
+    /// What updates this install (`get_update_action`): none for a build the
+    /// installer does not know.
+    pub action: Option<UpdateAction>,
     /// The latest release for the install method; a seam so a test fetches
     /// nothing over the network.
     pub fetch: Fetch,
@@ -127,6 +130,7 @@ impl Updates {
         Updates {
             enabled: !cfg!(debug_assertions),
             version: env!("CARGO_PKG_VERSION").to_owned(),
+            action: update_action(InstallContext::current()),
             fetch: Arc::new(move |action| {
                 let factory = factory.clone();
                 Box::pin(async move {
@@ -218,7 +222,7 @@ where
             let _ = dismiss_version(&version_file(&startup.config), &version);
             return None;
         }
-        Ask::RunUpdate => {
+        Ask::RunUpdate { request: _ } => {
             if let Ok(mut slot) = startup.update.lock() {
                 *slot = update_action(InstallContext::current());
             }
@@ -682,6 +686,7 @@ mod tests {
             updates: Updates {
                 enabled: false,
                 version: "1.0.0".to_owned(),
+                action: None,
                 fetch: Arc::new(|_| Box::pin(std::future::ready(Err("no network".to_owned())))),
             },
             target,
@@ -923,6 +928,7 @@ mod tests {
         startup.updates = Updates {
             enabled: true,
             version: version.to_owned(),
+            action: None,
             fetch,
         };
         let file = version_file(&startup.config);
@@ -1208,6 +1214,31 @@ mod tests {
         assert_eq!(
             trust_of(ev).map(|trust| trust.cwd),
             Some("/srv/app".to_owned())
+        );
+    }
+
+    // R-F1: the update chosen is stored before the answer that lets the page
+    // leave (and the app end) is sent.
+    #[tokio::test]
+    async fn the_update_is_stored_before_it_is_acknowledged() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        startup.updates.action = Some(UpdateAction::NpmGlobalLatest);
+        let ev = run(
+            startup.clone(),
+            Ask::RunUpdate { request: 4 },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::UpdateQueued {
+                request: 4
+            })))
+        ));
+        assert_eq!(
+            *startup.update.lock().unwrap(),
+            Some(UpdateAction::NpmGlobalLatest)
         );
     }
 }

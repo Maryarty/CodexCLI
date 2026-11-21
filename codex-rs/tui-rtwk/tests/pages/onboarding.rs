@@ -24,7 +24,9 @@ fn onboarding_lists_the_startup_page_states() {
 
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
+use codex_tui_core::screens::onboarding::{
+    Ask, Ev, Facts, TrustAsk, TrustCancel, UpdateOffer, Welcome,
+};
 
 fn asks(h: &crate::common::Harness) -> Vec<Ask> {
     h.fake
@@ -133,4 +135,49 @@ fn the_trust_cursor_stays_at_the_ends() {
     h.press("up");
     h.settle();
     assert!(h.t.screen().contains("› 1. Trust and continue"));
+}
+
+fn update_facts() -> Facts {
+    Facts {
+        update: Some(UpdateOffer {
+            current: "1.0.0".into(),
+            latest: "9.9.9".into(),
+            command: "npm install -g @openai/codex".into(),
+            choice: None,
+        }),
+        ..Facts::default()
+    }
+}
+
+/// R-F1: choosing "Update now" asks the host to store the update; the page
+/// stays until the host acknowledges, then the app quits (the oracle
+/// returns `RunUpdate` and exits). Quitting first would end the app before
+/// the host held the update.
+#[test]
+fn update_now_quits_the_app_only_after_the_host_stored_the_update() {
+    let mut h = crate::common::start_quittable(false);
+    h.wait_idle();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::Facts {
+            request: 1,
+            facts: update_facts(),
+        })),
+    );
+    h.wait_for("the update prompt", |s| s.contains("Update available"));
+    h.press("1");
+    h.settle();
+    assert_eq!(
+        asks(&h),
+        [Ask::Facts { request: 1 }, Ask::RunUpdate { request: 2 }]
+    );
+    assert!(h.t.is_running(), "waits for the host");
+    assert!(h.t.screen().contains("Update available"));
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::UpdateQueued { request: 2 })),
+    );
+    h.settle();
+    assert!(!h.t.is_running(), "quits once the update is stored");
 }

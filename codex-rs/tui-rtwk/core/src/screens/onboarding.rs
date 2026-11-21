@@ -82,8 +82,10 @@ pub enum Ask {
     WriteTrust { request: Request, target: String },
     /// Do not offer `version` again (`updates::dismiss_version`); not answered.
     DismissUpdate { version: String },
-    /// Run the offered update once the app has ended (`UpdateAction`).
-    RunUpdate,
+    /// Run the offered update once the app has ended (`UpdateAction`),
+    /// answered with `Ev::UpdateQueued`: the page leaves only then, so the
+    /// host has the update stored before the app ends.
+    RunUpdate { request: Request },
     /// Start a login (`account/login/start`), answered with
     /// `Ev::Auth(AuthResult { request, .. })`; ChatGPT's opens the browser
     /// on a local server.
@@ -273,6 +275,10 @@ pub enum Ev {
     TrustSaved {
         request: Request,
     },
+    /// The answer to `Ask::RunUpdate { request }`: the update is stored.
+    UpdateQueued {
+        request: Request,
+    },
     /// The trust write `request` failed with this message.
     TrustFailed {
         request: Request,
@@ -423,6 +429,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
         }
         Ev::Trust(ask) => model.trust = Some(ask),
+        Ev::UpdateQueued { .. } => {}
         Ev::TrustSaved { request } => {
             if model.writing != Some(request) {
                 return;
@@ -465,7 +472,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             if let Some(u) = model.update.as_mut().filter(|u| u.choice.is_none()) {
                 u.choice = Some(choice);
                 match choice {
-                    UpdateChoice::UpdateNow => ask(fx, Ask::RunUpdate),
+                    UpdateChoice::UpdateNow => {
+                        let request = mint(model);
+                        ask(fx, Ask::RunUpdate { request });
+                    }
                     UpdateChoice::Skip => {}
                     UpdateChoice::SkipUntilNextVersion => ask(
                         fx,
@@ -988,8 +998,34 @@ mod tests {
         let mut m = model(vec![update()]);
         assert_eq!(
             intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow)),
-            [Ask::RunUpdate]
+            [Ask::RunUpdate { request: 1 }]
         );
+    }
+
+    // The update to run is stored by the host before the page leaves (and
+    // the app ends): the prompt is not done until the host says it is queued,
+    // and only for the run it asked for.
+    #[test]
+    fn the_update_prompt_waits_for_the_update_to_be_queued() {
+        let mut m = model(vec![update()]);
+        intent(&mut m, Intent::ChooseUpdate(UpdateChoice::UpdateNow));
+        assert!(!m.done(Stage::Update));
+        assert!(m.due());
+        assert_eq!(answered(&mut m, Ev::UpdateQueued { request: 9 }), []);
+        assert!(!m.done(Stage::Update), "a stale answer");
+        answered(&mut m, Ev::UpdateQueued { request: 1 });
+        assert!(m.done(Stage::Update));
+        assert!(!m.due());
+    }
+
+    // Skipping needs no host: the prompt is done at once.
+    #[test]
+    fn skipping_the_update_is_done_at_once() {
+        for choice in [UpdateChoice::Skip, UpdateChoice::SkipUntilNextVersion] {
+            let mut m = model(vec![update()]);
+            intent(&mut m, Intent::ChooseUpdate(choice));
+            assert!(m.done(Stage::Update), "{choice:?}");
+        }
     }
 
     fn answered(model: &mut Model, ev: Ev) -> Vec<Ask> {
