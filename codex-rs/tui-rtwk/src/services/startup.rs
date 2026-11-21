@@ -47,34 +47,81 @@ pub const VERSION_REFRESH_AFTER_HOURS: i64 = 20;
 
 /// Whether the cache at `file` needs a refresh at `now` (`read_version_info`
 /// fails, or `last_checked_at < now - 20 h`).
-pub fn version_cache_is_stale(_file: &Path, _now: DateTime<Utc>) -> bool {
-    unimplemented!("version_cache_is_stale")
+pub fn version_cache_is_stale(file: &Path, now: DateTime<Utc>) -> bool {
+    let checked = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .filter(|info| info["latest_version"].is_string())
+        .and_then(|info| {
+            info["last_checked_at"]
+                .as_str()?
+                .parse::<DateTime<Utc>>()
+                .ok()
+        });
+    checked
+        .is_none_or(|checked| checked < now - chrono::Duration::hours(VERSION_REFRESH_AFTER_HOURS))
 }
 
 /// `update_versions.rs::extract_version_from_latest_tag`: the release tag of
 /// the GitHub release is `rust-v<version>`.
-pub fn latest_from_release_tag(_tag: &str) -> Result<String, String> {
-    unimplemented!("latest_from_release_tag")
+pub fn latest_from_release_tag(tag: &str) -> Result<String, String> {
+    tag.strip_prefix("rust-v")
+        .map(str::to_owned)
+        .ok_or_else(|| format!("Failed to parse latest tag name '{tag}'"))
 }
 
 /// `npm_registry.rs::ensure_version_ready`: the npm package's `latest`
 /// dist-tag is the GitHub release and that version has its tarball and
 /// integrity.
-pub fn ensure_npm_version_ready(
-    _package: &serde_json::Value,
-    _version: &str,
-) -> Result<(), String> {
-    unimplemented!("ensure_npm_version_ready")
+pub fn ensure_npm_version_ready(package: &serde_json::Value, version: &str) -> Result<(), String> {
+    let version = version.trim();
+    match package["dist-tags"]["latest"].as_str() {
+        Some(latest) if latest == version => {}
+        Some(latest) => {
+            return Err(format!(
+                "npm latest dist-tag points to {latest}, expected GitHub release {version}"
+            ));
+        }
+        None => return Err("npm package is missing latest dist-tag".to_owned()),
+    }
+    let info = package["versions"]
+        .get(version)
+        .ok_or_else(|| format!("npm package version {version} is missing"))?;
+    let Some(dist) = info.get("dist").filter(|dist| !dist.is_null()) else {
+        return Err(format!(
+            "npm package version {version} is missing dist metadata"
+        ));
+    };
+    let has = |key: &str| dist[key].as_str().is_some_and(|text| !text.is_empty());
+    if !has("tarball") {
+        return Err(format!(
+            "npm package version {version} is missing dist.tarball"
+        ));
+    }
+    if !has("integrity") {
+        return Err(format!(
+            "npm package version {version} is missing dist.integrity"
+        ));
+    }
+    Ok(())
 }
 
 /// `updates.rs::check_for_update`'s write: the cache with `latest` checked at
 /// `now`, keeping a dismissed version.
-pub fn write_version_cache(
-    _file: &Path,
-    _latest: &str,
-    _now: DateTime<Utc>,
-) -> std::io::Result<()> {
-    unimplemented!("write_version_cache")
+pub fn write_version_cache(file: &Path, latest: &str, now: DateTime<Utc>) -> std::io::Result<()> {
+    let dismissed = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|info| info["dismissed_version"].as_str().map(str::to_owned));
+    let line = serde_json::json!({
+        "latest_version": latest,
+        "last_checked_at": now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+        "dismissed_version": dismissed,
+    });
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(file, format!("{line}\n"))
 }
 
 /// `update_action.rs::UpdateAction` without the daemon's (the local daemon

@@ -26,9 +26,13 @@ use codex_core::config::Config;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_git_utils::resolve_root_git_project_for_trust;
+use codex_http_client::ClientRouteClass;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::RouteAwareClientPool;
 use codex_install_context::InstallContext;
 use codex_install_context::InstallMethod;
 use codex_install_context::StandalonePlatform;
+use codex_login::default_client::default_headers;
 use codex_login::read_openai_api_key_from_env;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_tui_core::app::AppEv;
@@ -41,7 +45,11 @@ use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel,
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::startup::UpdateAction;
 use codex_tui_rtwk::services::startup::dismiss_version;
+use codex_tui_rtwk::services::startup::ensure_npm_version_ready;
+use codex_tui_rtwk::services::startup::latest_from_release_tag;
 use codex_tui_rtwk::services::startup::read_version_cache;
+use codex_tui_rtwk::services::startup::version_cache_is_stale;
+use codex_tui_rtwk::services::startup::write_version_cache;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
 /// The update the user chose to run, kept for `main` to run after the
@@ -93,11 +101,19 @@ pub struct Updates {
 
 impl Updates {
     /// The running build's check.
-    pub fn system(_config: &Config) -> Self {
+    pub fn system(config: &Config) -> Self {
+        let factory = config.http_client_factory();
         Updates {
             enabled: !cfg!(debug_assertions),
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            fetch: Arc::new(|_| Box::pin(std::future::ready(Err("not fetched yet".to_owned())))),
+            fetch: Arc::new(move |action| {
+                let factory = factory.clone();
+                Box::pin(async move {
+                    fetch_latest(factory, action)
+                        .await
+                        .map_err(|error| error.to_string())
+                })
+            }),
         }
     }
 }
@@ -234,12 +250,31 @@ where
     let config = &startup.config;
     // `updates.rs` is compiled out of debug builds: no offer there.
     let updates = &startup.updates;
-    let update = if !updates.enabled || !config.check_for_update_on_startup {
-        None
-    } else {
+    let checks = updates.enabled
+        && config.check_for_update_on_startup
+        && updates.version.trim() != SOURCE_BUILD;
+    let update = if checks {
+        let file = version_file(config);
+        let action = update_action(InstallContext::current());
+        // Refresh the cached latest version in the background so the launch
+        // is not blocked by a network call: this run reads the previous
+        // value, the next one shows the offer.
+        if version_cache_is_stale(&file, chrono::Utc::now()) {
+            let fetch = updates.fetch.clone();
+            tokio::spawn(async move {
+                if let Err(error) = refresh_version_cache(&file, action, &fetch).await {
+                    tracing::error!("Failed to update version: {error}");
+                }
+            });
+        }
         let cache = read_version_cache(&version_file(config));
-        let command = update_action(InstallContext::current()).map(UpdateAction::command_str);
-        wire::update_offer(&updates.version, cache.as_ref(), command)
+        wire::update_offer(
+            &updates.version,
+            cache.as_ref(),
+            action.map(UpdateAction::command_str),
+        )
+    } else {
+        None
     };
     // `get_login_status`: a failed read ends the launch.
     let account = send(wire::account_read(ids.next()))
@@ -263,6 +298,78 @@ where
         }),
         sign_in,
         trust,
+    })
+}
+
+/// `is_source_build_version`: no release is compared against a source build.
+const SOURCE_BUILD: &str = "0.0.0";
+
+/// `updates.rs::check_for_update`: fetches the latest version and writes the
+/// cache, keeping a dismissed version.
+async fn refresh_version_cache(
+    file: &Path,
+    action: Option<UpdateAction>,
+    fetch: &Fetch,
+) -> Result<(), String> {
+    let latest = fetch(action).await?;
+    write_version_cache(file, &latest, chrono::Utc::now()).map_err(|error| error.to_string())
+}
+
+// The homebrew cask is the latest for a brew install: it can lag behind the
+// release.
+const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
+const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const NPM_PACKAGE_URL: &str = "https://registry.npmjs.org/@openai%2fcodex";
+
+/// `updates.rs::check_for_update`'s network side: the latest version for the
+/// install method.
+async fn fetch_latest(
+    factory: HttpClientFactory,
+    action: Option<UpdateAction>,
+) -> anyhow::Result<String> {
+    let pool =
+        RouteAwareClientPool::with_chatgpt_cloudflare_cookies(factory, ClientRouteClass::Other)
+            .with_legacy_custom_ca_fallback();
+    let get = |url: &'static str| pool.get(url).headers(default_headers()).send();
+    let release = || async {
+        let release = get(LATEST_RELEASE_URL)
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        let tag = release["tag_name"].as_str().unwrap_or_default();
+        latest_from_release_tag(tag).map_err(anyhow::Error::msg)
+    };
+    Ok(match action {
+        Some(UpdateAction::BrewUpgrade) => {
+            let cask = get(HOMEBREW_CASK_API_URL)
+                .await?
+                .error_for_status()?
+                .json::<serde_json::Value>()
+                .await?;
+            cask["version"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow::anyhow!("the cask has no version"))?
+        }
+        Some(
+            UpdateAction::NpmGlobalLatest
+            | UpdateAction::BunGlobalLatest
+            | UpdateAction::VitePlusGlobalLatest
+            | UpdateAction::PnpmGlobalLatest,
+        ) => {
+            let latest = release().await?;
+            let package = get(NPM_PACKAGE_URL)
+                .await?
+                .error_for_status()?
+                .json::<serde_json::Value>()
+                .await?;
+            ensure_npm_version_ready(&package, &latest).map_err(anyhow::Error::msg)?;
+            latest
+        }
+        Some(UpdateAction::StandaloneUnix | UpdateAction::StandaloneWindows) | None => {
+            release().await?
+        }
     })
 }
 
