@@ -128,10 +128,7 @@ fn controller_live_tail_rerenders_table_tail_after_resize() {
 #[test]
 fn controller_set_width_preserves_in_flight_tail() {
     // The oracle's rows keep the agent's `• ` bullet, so this screen is read whole.
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
-        .live()
-        .open();
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&answer_chunks(&["tail without newline"]));
     s.resize(24, 24);
     s.assert_contains("• tail without newline");
