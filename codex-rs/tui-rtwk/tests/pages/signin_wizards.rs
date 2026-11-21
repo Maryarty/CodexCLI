@@ -1587,6 +1587,8 @@ mod gateway_oauth {
     fn quitting_cancels_the_sign_in() {
         let (mut h, _, _) = signing_in();
         h.press("ctrl+c");
+        // The cancel ask reaches the fake on the runtime thread: settle first.
+        h.settle();
         assert_eq!(cancelled(&h), 1);
     }
 }
