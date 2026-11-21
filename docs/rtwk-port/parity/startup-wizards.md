@@ -128,7 +128,7 @@ the composer, `gpt-6.2-sol default`); the oracle does too. The chat rows differ 
 chat page's own task: the oracle's release-notes box, the path of the temp dir, the model).
 Device code, binary run (`/tmp/gwdev`: a fake RFC 8628 server on 127.0.0.1, `SSH_CONNECTION` set,
 80x16): the oracle shows the screen every time and Esc/Ctrl+C leave it; ours reached it in one
-of 8 runs (the race above): `01_device` EQUAL with the oracle row for row, Ctrl+C leaves. Esc, q,
+of 8 runs before the thread-order fix (see "Thread order"): `01_device` EQUAL with the oracle row for row, Ctrl+C leaves. Esc, q,
 the tap on the cancel line, and the success path are therefore the page, core and host tests'
 only (`tests/pages/signin_wizards.rs` `mod gateway_device`, core `tests/onboarding/device.rs`,
 host `gateway.rs` / `startup.rs`).
@@ -177,14 +177,25 @@ host `gateway.rs` / `startup.rs`).
 
 ## Handover
 
-- The device-code sign-in is built (core, host, page; rows above). One finding for the
-  orchestrator, outside this task's area: `AppEv::Connected` starts the chat thread at once
-  (`core/src/app.rs`, `start_thread_on_connect`), while the oracle starts it after the startup
-  screens. With a gateway that needs sign-in the server's thread start opens the BROWSER login
-  (stderr "Authorize the model provider by opening this URL", the browser) before our host's
-  `GatewayOAuthLogin{device_auth}` is asked, and the device screen is then not reached. Seen in
-  the binary: of 8 runs one reached the device screen (equal to the oracle's), the others went
-  to the browser login. The fix is a gate: the thread start waits for `Ev::Launched` when the
-  host answers the startup facts (`with_awaited_facts`), one line in `src/app/mod.rs` plus a
-  deferred `Command::StartThread` in `core/src/app.rs`. Not done here: it changes when every
-  thread starts.
+- The device-code sign-in is built (core, host, page; rows above). Its finding (the thread
+  started on `AppEv::Connected`, so the server's browser login pre-empted the device screen) is
+  fixed by `startup-rest` item 1, see "Thread order" below.
+
+## Thread order (`startup-rest` item 1)
+
+The oracle creates its session after onboarding, trust and the launch prompts; ours started the
+thread on `AppEv::Connected`. `UiApp::with_awaited_facts(true)` (the host answers the startup
+facts) now also sets `CodexApp::with_start_after_launch(true)`: `Connected` asks the facts and
+holds the first `Command::StartThread` (`start_held`); it goes out when the startup page applies
+`Ev::Launched` (`core/src/app.rs`, after `screens::apply_ev`), and at once on a reconnect after
+the launch is known. A cancelled trust or a quit never gets a thread. Without the flag (every
+core test, `codex agents`) nothing changes. The composer's asks before the first thread
+(`BeforeThread`) wait as before and drain in order when the thread starts. Tests: core
+`core/tests/app.rs` (7: no start on connect when gated, start at `Launched` with and without a
+step, stale launch answer, cancelled trust, queue order, reconnect; the gate mutation red in 3),
+page `tests/pages/startup.rs` `gate::the_thread_starts_after_the_startup_screens` and
+`with_nothing_due_the_thread_starts_when_the_launch_is_known`. The first frame is the startup
+page's and does not wait for the thread; the thread now starts one facts read and one launch read
+later (local host reads).
+Binary (`/tmp/gwdev` drive2.py, fake RFC 8628 gateway, 80x16): the device-code screen shows in 8
+of 8 runs (before: 1 of 8) and `01_device` is EQUAL with the oracle's.
