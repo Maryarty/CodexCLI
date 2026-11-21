@@ -97,6 +97,12 @@ impl<T> HandBack<T> {
     pub fn set(&mut self, value: T) {
         self.value = Some(value);
     }
+
+    /// Puts `value` in place of the held one and hands the old one back
+    /// (a restart: the caller shuts it down).
+    pub fn replace(&mut self, value: T) -> Option<T> {
+        self.value.replace(value)
+    }
 }
 
 impl<T> Drop for HandBack<T> {
@@ -270,7 +276,7 @@ async fn run(
     };
     // The server, and whether its workspace is this machine's (oracle:
     // `worktrees_enabled`: a local workspace, and no cloud list).
-    let (client, local) = match connect_first(&mode, &config, arg0_paths).await {
+    let (client, local) = match connect_first(&mode, &config, arg0_paths.clone()).await {
         Ok(connected) => connected,
         Err(error) => return fail(error),
     };
@@ -291,7 +297,10 @@ async fn run(
     }));
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
     // The startup page's asks: the trust is a local folder's question.
+    let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<Arc<Config>>();
     let startup = crate::startup::Startup {
+        current: Arc::new(tokio::sync::RwLock::new(config.clone())),
+        restart,
         config: config.clone(),
         connected: !matches!(mode, Mode::Embedded),
         check_trust: !agents,
@@ -359,6 +368,9 @@ async fn run(
         // The connection ended: restored or not, decided after the select,
         // when the client is no longer borrowed.
         let mut lost = false;
+        // The provider changed with the reload: the server is started again
+        // after the select, when the client is no longer borrowed.
+        let mut restart: Option<Arc<Config>> = None;
         tokio::select! {
             event = client.next_event() => match event {
                 None | Some(AppServerEvent::Disconnected { .. }) => lost = true,
@@ -402,11 +414,26 @@ async fn run(
                     inflight.push(latest.wrap(&command, job));
                 }
             },
+            // The reloaded config changed the provider: the embedded server
+            // starts again with it (lib.rs:2079-2110).
+            Some(config) = restarts.recv() => restart = Some(config),
             Some(done) = inflight.next(), if !inflight.is_empty() => {
                 if let Some(ev) = done {
                     emit(&ingress, epoch, ev);
                 }
             }
+        }
+        if let Some(config) = restart.take() {
+            match connect_first(&mode, &config, arg0_paths.clone()).await {
+                Ok((restarted, _)) => {
+                    handle = restarted.request_handle();
+                    if let Some(old) = held.replace(restarted) {
+                        let _ = old.shutdown().await;
+                    }
+                }
+                Err(error) => emit(&ingress, epoch, AppEv::StartFailed(error)),
+            }
+            continue;
         }
         if !lost {
             continue;

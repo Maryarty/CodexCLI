@@ -19,7 +19,7 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::Mods;
 use rtwk::provider::{read, watch};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::import::Phase as ImportPhase;
 use codex_tui_core::screens::onboarding::{
@@ -121,6 +121,9 @@ pub enum Step {
     Trust,
     Migration,
     Import,
+    /// The launch's startup prompts (S05), asked one after the other once
+    /// the steps above are over: the page shows the open one.
+    Prompts,
 }
 
 impl Step {
@@ -133,6 +136,7 @@ impl Step {
             Step::Trust => 3,
             Step::Migration => 4,
             Step::Import => 5,
+            Step::Prompts => 6,
         }
     }
 
@@ -143,7 +147,7 @@ impl Step {
             Step::SignIn => Some(core::Stage::SignIn),
             Step::Provider => Some(core::Stage::Provider),
             Step::Trust => Some(core::Stage::Trust),
-            Step::Migration | Step::Import => None,
+            Step::Migration | Step::Import | Step::Prompts => None,
         }
     }
 
@@ -198,12 +202,18 @@ fn overview(model: &Model) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupPage {
     pub step: Step,
+    /// Told once the page popped back to the home (Flutter: the `onDone`
+    /// of a route): the home waits for it to mount a start page.
+    pub left: Option<Handler<()>>,
 }
 
 impl StartupPage {
     /// The page as the app opens on it: at the first step due.
     pub fn launch() -> StartupPage {
-        StartupPage { step: Step::Update }
+        StartupPage {
+            step: Step::Update,
+            left: None,
+        }
     }
 }
 
@@ -216,6 +226,11 @@ pub struct StartupPageState {
     /// The import flow's request count when the page opened: the import step
     /// is over once the flow is done at a later one.
     import_from: u64,
+    /// The startup prompts' answers when the page opened: an exit among the
+    /// later ones quits the app.
+    answers_from: usize,
+    /// A startup prompt was asked and is not on screen yet.
+    asking: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -232,6 +247,8 @@ impl StatefulWidget for StartupPage {
             at: Some(self.step),
             replay: 0,
             import_from: 0,
+            answers_from: 0,
+            asking: false,
         }
     }
 }
@@ -243,7 +260,9 @@ impl State for StartupPageState {
     type Msg = Msg;
 
     fn init_state(&mut self, _: &StartupPage, cx: &mut Cx<'_, Self>) {
-        self.import_from = read::<ScreenStates, _>(cx).import.generation();
+        let screens = read::<ScreenStates, _>(cx);
+        self.import_from = screens.import.generation();
+        self.answers_from = screens.startup.answers.len();
     }
 
     fn did_change_dependencies(&mut self, _: &StartupPage, cx: &mut Cx<'_, Self>) {
@@ -260,7 +279,12 @@ impl State for StartupPageState {
                     import.phase == ImportPhase::Done && import.generation() > self.import_from;
                 (!done).then_some(Step::Import)
             }
-            _ => current(at, &screens.onboarding),
+            Step::Prompts => self.prompts(&screens, cx),
+            _ => match current(at, &screens.onboarding) {
+                Some(step) => Some(step),
+                // Past the steps: the launch's startup prompts.
+                None => self.prompts(&screens, cx),
+            },
         };
         self.at = next;
         if next.is_none() {
@@ -269,11 +293,19 @@ impl State for StartupPageState {
         }
     }
 
-    fn update(&mut self, msg: Msg, _: &StartupPage, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, w: &StartupPage, cx: &mut Cx<'_, Self>) -> Rebuild {
         match msg {
             Msg::Leave => {
-                let model = &watch::<ScreenStates, _>(cx).onboarding;
-                let quit = quits(model);
+                let screens = watch::<ScreenStates, _>(cx);
+                let model = &screens.onboarding;
+                let answers = screens.startup.answers.get(self.answers_from..);
+                let quit = quits(model) || answers.is_some_and(|a| a.iter().any(|a| exits(*a)));
+                // A quit leaves from the page: no frame of what lies under it.
+                if quit {
+                    let hs = read::<Hs, _>(cx);
+                    cx.emit(&hs.quit, ());
+                    return Rebuild::No;
+                }
                 // The trust prompt cancelled at launch opens the agents
                 // overview instead of the folder (lib.rs: `should_exit`).
                 if overview(model) {
@@ -283,10 +315,9 @@ impl State for StartupPageState {
                     ));
                 } else {
                     Navigator::maybe_pop(cx);
-                }
-                if quit {
-                    let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.quit, ());
+                    if let Some(left) = &w.left {
+                        cx.emit(left, ());
+                    }
                 }
                 Rebuild::No
             }
@@ -331,6 +362,7 @@ impl State for StartupPageState {
                 .into(),
             },
             Some(Step::Import) => crate::pages::startup::import::Screen.into(),
+            Some(Step::Prompts) => crate::pages::startup::prompts::Panel { embedded: true }.into(),
             Some(Step::Migration) => Screen.into(),
         };
         // The welcome heads the sign-in screen only: the trust prompt at
@@ -381,6 +413,48 @@ impl State for StartupPageState {
     }
 }
 
+impl StartupPageState {
+    /// The launch's startup prompts step (oracle `run_ratatui_app`: the
+    /// hooks review, then the model migration as the app starts): on while a
+    /// prompt is open or due, or while the host reads which are due; it asks
+    /// the first one due of the startup screen. None once they are answered
+    /// (or for a launch that ends with its steps, or a fixture that read no
+    /// facts).
+    fn prompts(&mut self, screens: &ScreenStates, cx: &mut Cx<'_, Self>) -> Option<Step> {
+        let model = &screens.onboarding;
+        if screens.startup.open.is_some() {
+            self.asking = false;
+            return Some(Step::Prompts);
+        }
+        if self.asking || model.awaits_launch() {
+            return Some(Step::Prompts);
+        }
+        let first = model.prompts.first()?.clone();
+        self.asking = true;
+        let hs = read::<Hs, _>(cx);
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::Startup(codex_tui_core::screens::startup::Intent::Ask(first)),
+        );
+        cx.emit(&hs.screen, ScreenIntent::Onboarding(Intent::PromptAsked));
+        Some(Step::Prompts)
+    }
+}
+
+/// Whether a startup prompt's answer ends the app (Ctrl-C on a prompt, the
+/// migration's exit, the unarchive prompt's quit).
+fn exits(answer: codex_tui_core::screens::startup::Answer) -> bool {
+    use codex_tui_core::screens::startup::{Answer, MigrationOutcome, UnarchiveChoice};
+    matches!(
+        answer,
+        Answer::CwdExit
+            | Answer::OssCancelled
+            | Answer::DaemonQuit
+            | Answer::Migration(MigrationOutcome::Exit)
+            | Answer::Unarchive(UnarchiveChoice::Quit)
+    )
+}
+
 /// A step another task fills (sign-in, provider: task `onboarding`): it
 /// draws nothing yet, and Enter marks it done.
 #[derive(Clone, Debug, PartialEq)]
@@ -425,7 +499,18 @@ impl State for SlotState {
 /// The route of the startup page on `step`, pushed by the widget that opens
 /// it (`Navigator::of(cx).push`).
 pub fn route(step: Step) -> PageRoute<()> {
-    PageRoute::new(move |_| StartupPage { step }.into())
+    PageRoute::new(move |_| StartupPage { step, left: None }.into())
+}
+
+/// The page at `step`, telling `left` once it popped back.
+pub fn route_then(step: Step, left: Handler<()>) -> PageRoute<()> {
+    PageRoute::new(move |_| {
+        StartupPage {
+            step,
+            left: Some(left.clone()),
+        }
+        .into()
+    })
 }
 
 /// Opens the startup page on the live model (debug menu).

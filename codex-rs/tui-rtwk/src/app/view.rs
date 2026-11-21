@@ -96,9 +96,10 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
     } else {
         StartupGate {
             child,
-            // A start page of the command line is pushed at mount, so the
-            // prompt cannot go first under it: those homes open at once.
-            awaits_facts: app.ui.awaits_facts && !app.ui.start_agents && !app.ui.start_resume,
+            awaits_facts: app.ui.awaits_facts,
+            // A start page of the command line is pushed at mount: it waits
+            // for the startup page to pop.
+            holds_child: app.ui.start_agents || app.ui.start_resume,
         }
         .into()
     };

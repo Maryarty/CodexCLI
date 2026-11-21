@@ -37,8 +37,14 @@ use super::keys::{self, Cmd};
 use super::strings::{self, Strings};
 
 /// The panel over the prompt the model has open.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Panel;
+///
+/// `embedded`: the body of the startup page, which asks the launch's
+/// prompts one after the other and leaves when they are answered; else a
+/// route of its own, popped when its prompt is answered.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Panel {
+    pub embedded: bool,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Msg {
@@ -48,8 +54,9 @@ pub enum Msg {
 /// Widget state: the cursor and the scroll of the choices (R14).
 pub struct PanelState {
     options: Options,
-    /// Whether the cursor stands on the prompt's first row yet.
-    placed: bool,
+    /// The prompt the cursor was placed for, by the number of answers before
+    /// it: a new prompt (after an answer) places it again.
+    placed: Option<usize>,
 }
 
 impl StatefulWidget for Panel {
@@ -58,7 +65,7 @@ impl StatefulWidget for Panel {
     fn create_state(&self) -> PanelState {
         PanelState {
             options: Options::new(),
-            placed: false,
+            placed: None,
         }
     }
 }
@@ -74,20 +81,23 @@ impl State for PanelState {
     type Msg = Msg;
 
     fn did_change_dependencies(&mut self, _: &Panel, cx: &mut Cx<'_, Self>) {
-        if self.placed {
+        let Some(prompt) = open(cx) else {
             return;
-        }
-        if let Some(prompt) = open(cx) {
-            self.placed = true;
+        };
+        // The same prompt with a new trust state (the hooks review writing)
+        // keeps its cursor; another prompt starts on its first row.
+        let answered = read::<ScreenStates, _>(cx).startup.answers.len();
+        if self.placed != Some(answered) {
             self.options.set(prompt.initial_cursor());
         }
+        self.placed = Some(answered);
     }
 
     fn dispose(&mut self) {
         self.options.dispose();
     }
 
-    fn update(&mut self, msg: Msg, _: &Panel, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, msg: Msg, w: &Panel, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Cmd(cmd) = msg;
         let Some(prompt) = open(cx) else {
             return Rebuild::No;
@@ -102,7 +112,9 @@ impl State for PanelState {
             Reaction::Answer(answer) => {
                 let hs = read::<Hs, _>(cx);
                 cx.emit(&hs.screen, ScreenIntent::Startup(Intent::Answer(answer)));
-                Navigator::maybe_pop(cx);
+                if !w.embedded {
+                    Navigator::maybe_pop(cx);
+                }
                 Rebuild::No
             }
             Reaction::TrustAll => {

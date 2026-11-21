@@ -20,7 +20,7 @@ points, `fixtures/*.jsonl` 21 mock scripts through core `apply`).
 | chatwidget/windows_sandbox_prompts.rs | not built here (see "Scope of the rest") | dialogs-pane |
 | security_setup.rs (`Notice::valid`, `prefetch`) | not built here | chat banner (dialogs-pane); the pure check needs `url` |
 | startup_error.rs (`LocalStateDbStartupError`) | not built here | reuse-carry (a REUSE row: framework-free, no screen) |
-| startup_orchestration.rs (order and conditions) | not done: the launcher (startup-orchestration) decides | its logic tests (`bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass`, `localhost_probe_succeeds_with_invalid_inherited_ca_bundle`, `security_setup_rejects_unsafe_actions_and_terminal_controls`) are not in this shard |
+| startup_orchestration.rs, lib.rs `run_ratatui_app` (order and conditions) | startup-finish: core `screens::startup::launch` (`review_is_needed`, `hooks_prompt`, `should_show_model_migration_prompt`, `migration_prompt`, `due`: hooks review, then the model migration); the host reads hooks/list and model/list from the config reloaded after the trust or the sign-in (`host/src/launch.rs`, `Ask::Launch`) and writes the answers (`Ask::TrustHooks`: `hooks.state` upsert; `Ask::SaveMigration`: `record_model_migration_seen` + `set_model`); the StartupPage shows them embedded (`Step::Prompts`) | ported: `bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass` and the migration decision tests of `app/tests/model_catalog.rs` (`model_migration_prompt_only_shows_for_deprecated_models`, `retired_model_migration_respects_catalog_metadata`, `model_migration_prompt_respects_hide_flag_and_self_target`, `model_migration_prompt_skips_when_target_missing_or_hidden`, `model_migration_prompt_shows_for_hidden_model`) are unit tests of `launch.rs` on a synthetic catalog (the oracle's read the builtin presets). Not launch prompts of the rtwk binary: cwd (no resume/fork by id), unarchive, OSS (no `--oss`), daemon recovery; `localhost_probe_*` and `security_setup_*` stay with dialogs-pane |
 
 ## Keys
 
@@ -95,7 +95,7 @@ snapshots through the replay helper.
 | cwd_prompt.rs::cwd_prompt_omits_unusable_remembered_current_choice | `cwd_prompt_omits_unusable_remembered_current_choice` | green |  |
 | cwd_prompt.rs::cwd_prompt_ctrl_c_exits_instead_of_selecting | `cwd_prompt_ctrl_c_exits_instead_of_selecting` | green |  |
 | cwd_prompt.rs::cwd_prompt_remembered_choices_select_and_persist_matching_directory | `cwd_prompt_remembered_choices_select_and_persist_matching_directory` | green |  |
-| cwd_prompt.rs::cwd_prompt_persistence_failure_snapshot | `cwd_prompt_persistence_failure_snapshot` | pending | the history line is inserted by the host after the prompt closes; its config write is not built here |
+| cwd_prompt.rs::cwd_prompt_persistence_failure_snapshot | `cwd_prompt_persistence_failure_snapshot` | pending | the cwd prompt has no caller in the rtwk binary yet (no resume/fork by id), so its write and failure line have none; earlier reason: the history line is inserted by the host after the prompt closes; its config write is not built here |
 | model_migration.rs::prompt_snapshot | `prompt_snapshot` | pending | G48: hyphen wrap of the heading |
 | model_migration.rs::prompt_snapshot_gpt5_family | `prompt_snapshot_gpt5_family` | green |  |
 | model_migration.rs::escape_key_accepts_prompt | `escape_key_accepts_prompt` | green |  |
@@ -157,7 +157,7 @@ snapshots through the replay helper.
 * Nothing outstanding: the `startup_prompts` module line is in `tests/oracle.rs`, the kit has
   `Owner::StartupPrompts` (slice `startup-prompts`), and `shards.py` maps the seven oracle files to
   the shard (`shards.py --check`: 0 stale).
-* The launch wiring (which prompt, in which order, with which conditions) is startup-orchestration.
+* The launch wiring of the hooks review and the model migration is done (startup-finish); the cwd, unarchive, OSS and daemon prompts wait for the CLI paths that ask them (resume/fork by id, `--oss`, the daemon start).
 
 ## Checks that were red on arrival
 

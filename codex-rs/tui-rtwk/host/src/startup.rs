@@ -101,6 +101,11 @@ pub struct Startup {
     /// folder is trusted, so its project config applies
     /// (`load_config_or_exit_with_fallback_cwd`).
     pub reload: Reload,
+    /// The session's config as it stands: `config`, replaced by a reload.
+    pub current: crate::launch::ConfigSlot,
+    /// Restarts the embedded server with a reloaded config whose provider
+    /// changed (lib.rs: `config.model_provider_id != previous_provider`).
+    pub restart: tokio::sync::mpsc::UnboundedSender<Arc<Config>>,
 }
 
 /// Loads the config as the launch did; the text of the error when it fails.
@@ -257,8 +262,18 @@ where
             if startup.target.remote_workspace() {
                 return None;
             }
+            // Held while the config loads: the launch's prompts, asked
+            // after, read the new one.
+            let mut slot = startup.current.write().await;
             return Some(match (startup.reload)().await {
                 Ok(config) => {
+                    let previous = slot.model_provider_id.clone();
+                    let config = Arc::new(config);
+                    *slot = config.clone();
+                    drop(slot);
+                    if config.model_provider_id != previous && startup.target == Target::Embedded {
+                        let _ = startup.restart.send(config.clone());
+                    }
                     let status = crate::facts::status(&config).await;
                     AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status))))
                 }
@@ -276,6 +291,32 @@ where
             {
                 tracing::warn!("{error}");
             }
+            return None;
+        }
+        Ask::Launch { request } => {
+            let config = startup.current.read().await.clone();
+            let cwd = startup
+                .remote_cwd
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| config.cwd.display().to_string());
+            let prompts = crate::launch::prompts(&config, cwd, false, &ids, &send).await;
+            Ev::Launched { request, prompts }
+        }
+        Ask::TrustHooks { request, updates } => {
+            let failure = crate::launch::trust_hooks(&updates, &ids, &send).await;
+            return Some(AppEv::Screen(ScreenEv::Startup(
+                codex_tui_core::screens::startup::Ev::HooksTrusted { request, failure },
+            )));
+        }
+        Ask::SaveMigration {
+            from,
+            to,
+            accepted,
+            effort,
+        } => {
+            let config = startup.current.read().await.clone();
+            crate::launch::save_migration(&config, &from, &to, accepted, effort).await;
             return None;
         }
         Ask::CancelLogin { login_id } => {
@@ -681,8 +722,12 @@ mod tests {
             .build()
             .await
             .expect("a config");
+        let config = Arc::new(config);
         let startup = Startup {
-            config: Arc::new(config),
+            // A copy: a test may still change `config` alone.
+            current: Arc::new(tokio::sync::RwLock::new(Arc::new((*config).clone()))),
+            restart: tokio::sync::mpsc::unbounded_channel().0,
+            config,
             connected: false,
             check_trust: true,
             remote_cwd: None,

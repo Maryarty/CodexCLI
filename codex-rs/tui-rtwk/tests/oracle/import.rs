@@ -30,10 +30,6 @@ fn prompt_snapshot() {
 // ORACLE external_agent_config_migration/mod.rs:875 customize_snapshot kind=snap owner=routes-lists snap=external_agent_config_migration_customize snap=external_agent_config_migration_customize_windows
 #[test]
 fn customize_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "rtwk gap N1: `TextOverflow::Ellipsis` drops the blank before the `…`; the plugins detail row (`(4 marketplaces, 6 …`) differs by that one blank",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(80, 34)
         .entry("import", "review_with_memory")
@@ -57,10 +53,6 @@ fn secondary_source_customize_snapshot() {
 // ORACLE external_agent_config_migration/mod.rs:921 customize_action_snapshot kind=snap owner=routes-lists snap=external_agent_config_migration_customize_action snap=external_agent_config_migration_customize_action_windows
 #[test]
 fn customize_action_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "rtwk gap N1: `TextOverflow::Ellipsis` drops the blank before the `…`; the plugins detail row (`(4 marketplaces, 6 …`) differs by that one blank",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(80, 30)
         .entry("import", "review_sample")
@@ -72,10 +64,6 @@ fn customize_action_snapshot() {
 // ORACLE external_agent_config_migration/mod.rs:943 action_rows_keep_single_line_allocation_and_focus_style kind=ui owner=routes-lists
 #[test]
 fn action_rows_keep_single_line_allocation_and_focus_style() {
-    kit::pending(
-        Owner::RoutesLists,
-        "rtwk gap G46: a blank cell never carries DIM in rtwk (Text and BoxWidget probes, tests/rtwk_g46.rs); the oracle's `set_style(area, dim)` dims the blank at cell 2 of the action row",
-    );
     // the action row is row 23 of the customize view of the sample items (the
     // customize_action snapshot); one row, and dim while the items have the focus
     for width in [30, 80] {
@@ -85,14 +73,15 @@ fn action_rows_keep_single_line_allocation_and_focus_style() {
             .open();
         items.keys("c");
         items.assert_text_at(2, 23, "  1. Review selection");
-        items.assert_style(2, 23, "dim");
+        // The buffer's attribute (G46: the terminal drops DIM on a blank).
+        items.assert_painted(2, 23, "dim");
         let mut actions = Screen::build(Owner::RoutesLists)
             .size(width, 30)
             .entry("import", "review_sample")
             .open();
         actions.keys("c up");
         actions.assert_text_at(2, 23, "› 1. Review selection");
-        actions.assert_style(2, 23, "!dim");
+        actions.assert_painted(2, 23, "!dim");
     }
 }
 

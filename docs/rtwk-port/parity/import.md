@@ -42,15 +42,15 @@ request id (`Request::{Detect, Import}.request`), a stale answer is dropped.
 
 ## Oracle tests (shard `tests/oracle/import.rs`, profile `oracle`)
 
-17 oracle tests: 13 green, 1 n/a, 3 pending (N1 x2, G46), 0 red.
+17 oracle tests: 16 green, 1 n/a, 0 pending, 0 red (startup-finish turned on N1 x2 and G46).
 
 | oracle (file::name) | ours | status |
 |---|---|---|
 | flow_tests.rs::external_agent_config_migration_messages_snapshot | `tests/pages/import.rs::external_agent_config_migration_messages_snapshot` (the kit renders screens; the notices are history lines) | n/a to the kit, green as a view test |
 | flow_tests.rs: 5 state tests | `core/tests/import.rs` (detection x3, the flow) | green |
 | mod.rs::prompt_snapshot, secondary_source_customize_snapshot | `tests/oracle/import.rs` | green |
-| mod.rs::customize_snapshot, customize_action_snapshot | same | pending N1 |
-| mod.rs::action_rows_keep_single_line_allocation_and_focus_style | same | pending G46 |
+| mod.rs::customize_snapshot, customize_action_snapshot | same | green: the detail rows are `dots_end` (N1 is not a gap) |
+| mod.rs::action_rows_keep_single_line_allocation_and_focus_style | same | green: the kit reads the painted surface (`Screen::assert_painted`), G46 closed |
 | mod.rs: proceed_returns_selected_items, toggle_item_then_proceed_keeps_remaining_selection, escape_skips_prompt, numeric_shortcuts_*, empty_selection_enter_*, control_exit_shortcuts_*, summary_does_not_toggle_selection | same | green |
 | source_tests.rs::external_agent_config_source_prompt_snapshot | same | green (import-rest I1) |
 | source_tests.rs::..._selects_highlighted_source, ..._can_cancel | same | green |
@@ -60,10 +60,14 @@ the oracle's names.
 
 ## Deltas and gaps
 
-* N1 (rtwk, existing row, extended): `TextOverflow::Ellipsis` drops the blank before the `…`;
-  the plugins detail row of the customize view differs by one blank (2 snapshots pending).
-* G46 (new row): a blank cell never carries DIM in rtwk; the oracle's `set_style(area, dim)`
-  dims the blank at cell 2 of the action row (probe `tests/rtwk_g46.rs`, green).
+* N1 (not a gap): the detail rows go through `widgets/dots.rs` `dots_end`, which keeps the
+  blank before the `…` (startup-finish).
+* G46 (closed, not a gap): the painted surface keeps DIM on a blank, the presenter leaves it
+  out on the terminal; the kit reads the surface (`assert_painted`, probe
+  `probe_g46_the_painted_surface_keeps_dim_on_the_blank`).
+* Mouse (ADR-011, startup-finish): a tap on a checklist item moves the cursor there, a tap on
+  the item under the cursor toggles it; the same for the actions (a tap on the action under
+  the cursor runs it). Tests: `tests/pages/startup_mouse.rs` `import_review_*`.
 * G45 (select-dialog, earlier commit e3e98f3c6): `TabBar` cuts a tab at the edge; pending, no workaround.
 * The review is composed in the page from rtwk primitives (Column, SizedBox, `Focus` +
   `KeyBindings` per region, `ListView` with a `ListController`, Text with ellipsis); it does

@@ -8,10 +8,14 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
+use crate::app::Command as AppCommand;
+use crate::screens::onboarding;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
+
+pub mod launch;
 
 pub const NAME: &str = "startup";
 pub const ID: &str = "S05";
@@ -94,6 +98,9 @@ pub struct MigrationPrompt {
     #[serde(default)]
     pub markdown: Option<String>,
     pub can_opt_out: bool,
+    /// The target's default reasoning effort, saved with it on accept.
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 impl MigrationPrompt {
@@ -135,6 +142,16 @@ pub struct HooksPrompt {
     pub count: usize,
     #[serde(default)]
     pub trust: Trust,
+    /// The hooks "Trust all" trusts, at their hashes (`HookTrustUpdate`).
+    #[serde(default)]
+    pub updates: Vec<HookTrust>,
+}
+
+/// One hook to trust at its current hash (`HookTrustUpdate`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct HookTrust {
+    pub key: String,
+    pub hash: String,
 }
 
 /// What the hooks review returns.
@@ -455,7 +472,6 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = fx;
     match intent {
         Intent::Ask(prompt) => model.open = Some(prompt),
         Intent::Answer(answer) => {
@@ -467,6 +483,21 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             // disables the rows).
             if matches!(prompt, Prompt::Hooks(h) if matches!(h.trust, Trust::Trusting(_))) {
                 return;
+            }
+            // The migration's answer is saved (`PersistModelMigrationPromptAcknowledged`,
+            // accepted: `PersistModelSelection` too); an exit saves nothing.
+            if let (Prompt::Migration(m), Answer::Migration(outcome)) = (prompt, answer)
+                && outcome != MigrationOutcome::Exit
+            {
+                let accepted = outcome == MigrationOutcome::Accepted;
+                fx.commands.push(AppCommand::Startup {
+                    ask: onboarding::Ask::SaveMigration {
+                        from: m.current_model.clone(),
+                        to: m.target_model.clone(),
+                        accepted,
+                        effort: m.effort.clone().filter(|_| accepted),
+                    },
+                });
             }
             model.open = None;
             model.answers.push(answer);
@@ -480,6 +511,12 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
             model.next_request += 1;
             hooks.trust = Trust::Trusting(model.next_request);
+            fx.commands.push(AppCommand::Startup {
+                ask: onboarding::Ask::TrustHooks {
+                    request: model.next_request,
+                    updates: hooks.updates.clone(),
+                },
+            });
         }
     }
 }
@@ -547,7 +584,14 @@ mod tests {
 
     fn hooks(trust: Trust) -> Model {
         Model {
-            open: Some(Prompt::Hooks(HooksPrompt { count: 2, trust })),
+            open: Some(Prompt::Hooks(HooksPrompt {
+                count: 2,
+                trust,
+                updates: vec![HookTrust {
+                    key: "k".into(),
+                    hash: "h".into(),
+                }],
+            })),
             ..Model::default()
         }
     }
@@ -586,7 +630,8 @@ mod tests {
             model.open,
             Some(Prompt::Hooks(HooksPrompt {
                 count: 2,
-                trust: Trust::Failed("boom".into())
+                trust: Trust::Failed("boom".into()),
+                updates: vec![HookTrust { key: "k".into(), hash: "h".into() }],
             }))
         );
     }
@@ -614,6 +659,78 @@ mod tests {
         assert_eq!(model.next_request, 1);
         fx_apply(&mut model, Intent::Answer(Answer::Hooks(HooksChoice::Skip)));
         assert!(model.open.is_some() && model.answers.is_empty());
+    }
+
+    fn asks_of(model: &mut Model, intent: Intent) -> Vec<onboarding::Ask> {
+        let mut fx = AppFx::default();
+        apply_intent(model, intent, &mut fx);
+        fx.into_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                AppCommand::Startup { ask } => Some(ask),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // write_hook_trusts: "Trust all and continue" writes every hook of the
+    // review at its current hash.
+    #[test]
+    fn trusting_the_hooks_asks_for_their_trust_write() {
+        let mut model = hooks(Trust::Idle);
+        assert_eq!(
+            asks_of(&mut model, Intent::TrustHooks),
+            [onboarding::Ask::TrustHooks {
+                request: 1,
+                updates: vec![HookTrust {
+                    key: "k".into(),
+                    hash: "h".into(),
+                }],
+            }]
+        );
+    }
+
+    fn migration() -> Model {
+        Model {
+            open: Some(Prompt::Migration(MigrationPrompt {
+                current_model: "gpt-old".into(),
+                target_model: "gpt-new".into(),
+                target_display_name: "GPT New".into(),
+                target_description: None,
+                copy: None,
+                link: None,
+                markdown: None,
+                can_opt_out: true,
+                effort: Some("high".into()),
+            })),
+            ..Model::default()
+        }
+    }
+
+    // handle_model_migration_prompt_if_needed: an accepted or rejected
+    // migration is recorded as seen, an accepted one also switches the
+    // model (with the target's default effort); an exit writes nothing.
+    #[test]
+    fn a_migration_answer_asks_for_its_config_write() {
+        let save = |accepted, effort: Option<&str>| onboarding::Ask::SaveMigration {
+            from: "gpt-old".into(),
+            to: "gpt-new".into(),
+            accepted,
+            effort: effort.map(str::to_owned),
+        };
+        let answer = |o| Intent::Answer(Answer::Migration(o));
+        assert_eq!(
+            asks_of(&mut migration(), answer(MigrationOutcome::Accepted)),
+            [save(true, Some("high"))]
+        );
+        assert_eq!(
+            asks_of(&mut migration(), answer(MigrationOutcome::Rejected)),
+            [save(false, None)]
+        );
+        assert_eq!(
+            asks_of(&mut migration(), answer(MigrationOutcome::Exit)),
+            []
+        );
     }
 
     #[test]
@@ -650,6 +767,7 @@ mod tests {
             link: None,
             markdown: Some("# {model_to} from {model_from}".into()),
             can_opt_out: true,
+            effort: None,
         };
         assert_eq!(
             prompt.filled_markdown().as_deref(),
@@ -664,7 +782,8 @@ mod tests {
             ev,
             Ev::Asked(Prompt::Hooks(HooksPrompt {
                 count: 3,
-                trust: Trust::Idle
+                trust: Trust::Idle,
+                updates: Vec::new(),
             }))
         );
     }
@@ -698,6 +817,7 @@ mod tests {
         let trusting = Prompt::Hooks(HooksPrompt {
             count: 1,
             trust: Trust::Trusting(1),
+            updates: Vec::new(),
         });
         assert_eq!(trusting.step(0, 1), Reaction::Nothing);
     }

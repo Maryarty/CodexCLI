@@ -149,17 +149,13 @@ fn welcome_skips_animation_below_height_breakpoint() {
 // ORACLE onboarding/welcome.rs:199 welcome_logo_layout kind=snap owner=startup-flow
 #[test]
 fn welcome_logo_layout() {
-    kit::pending(
-        Owner::StartupFlow,
-        "the frame at zero elapsed time: opening a debug entry costs the kit 100 ms of fake time (the Enter of open_debug_row), so the first frame it can read is the logo 2 frames into its spin; the app paints the oracle's frame first (seen with the phase held at 0). Needs a kit seed that reads an entry's first frame",
-    );
     // The first draw shows the intact logo at zero elapsed time. insta keeps
     // the snapshot without its two leading blank rows (the stage is 21 rows,
     // the welcome line on row 22), so the snapshot is the screen from row 2.
     let s = Screen::build(Owner::StartupFlow)
         .size(160, 48)
         .entry("onboarding", "welcome")
-        .early()
+        .first_frame()
         .open();
     s.assert_row(0, "");
     s.assert_row(1, "");

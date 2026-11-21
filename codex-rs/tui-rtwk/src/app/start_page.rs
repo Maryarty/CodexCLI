@@ -72,11 +72,24 @@ impl State for StartPageState {
 /// after the first frame, so the gate watches the model; it pushes once.
 /// With `awaits_facts` the home shows nothing until the facts are read, and
 /// then the chat or, with a step due, the page alone: the oracle draws no
-/// chat before its prompt.
+/// chat before its prompt. A start page of the command line (`--agents`,
+/// `resume`) pushes its route as it mounts, so with `holds_child` the home
+/// mounts only once the startup page has popped (Flutter: `await
+/// Navigator.push(..)`, then `setState`): the prompts go first.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StartupGate {
     pub child: AnyWidget,
     pub awaits_facts: bool,
+    pub holds_child: bool,
+}
+
+/// What the gate does next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GateMsg {
+    /// Push the startup page.
+    Push,
+    /// The startup page popped.
+    Popped,
 }
 
 /// Whether the gate has pushed the page and whether the home may draw its
@@ -101,21 +114,32 @@ impl_widget!(stateful eq StartupGate);
 
 impl State for StartupGateState {
     type Widget = StartupGate;
-    type Msg = ();
+    type Msg = GateMsg;
 
     fn did_change_dependencies(&mut self, _: &StartupGate, cx: &mut Cx<'_, Self>) {
         let onboarding = &watch::<ScreenStates, _>(cx).onboarding;
         if !self.pushed && onboarding.due() {
             self.pushed = true;
-            let push = cx.send(());
+            let push = cx.send(GateMsg::Push);
             cx.emit(&push, ());
         } else if !self.pushed && onboarding.settled() {
             self.open = true;
         }
     }
 
-    fn update(&mut self, _: (), _: &StartupGate, cx: &mut Cx<'_, Self>) -> Rebuild {
-        drop(Navigator::of(cx).push::<()>(onboarding::route(onboarding::Step::Update)));
+    fn update(&mut self, msg: GateMsg, w: &StartupGate, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            GateMsg::Push => {
+                let step = onboarding::Step::Update;
+                if w.holds_child {
+                    let left = cx.send(GateMsg::Popped);
+                    drop(Navigator::of(cx).push::<()>(onboarding::route_then(step, left)));
+                    return Rebuild::No;
+                }
+                drop(Navigator::of(cx).push::<()>(onboarding::route(step)));
+            }
+            GateMsg::Popped => {}
+        }
         self.open = true;
         Rebuild::Yes
     }

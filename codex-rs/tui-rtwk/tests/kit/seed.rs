@@ -42,6 +42,7 @@ pub struct Open {
     pub(super) height: u16,
     pub(super) seed: Seed,
     pub(super) early: bool,
+    pub(super) first_frame: bool,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
 }
 
@@ -55,6 +56,7 @@ impl Screen {
             height: crate::common::HEIGHT,
             seed: Seed::Live,
             early: false,
+            first_frame: false,
             keymap: None,
         }
     }
@@ -91,6 +93,14 @@ impl Open {
     /// (`Loading sessions…` before the list). `Screen::wait_for(..)` runs on.
     pub fn early(mut self) -> Open {
         self.early = true;
+        self
+    }
+
+    /// An entry's very first frame, at zero elapsed time: the Enter that
+    /// opens it runs one frame, without the 100 ms the kit lets pass after a
+    /// key (an animation's frame 0, the oracle's first draw).
+    pub fn first_frame(mut self) -> Open {
+        self.first_frame = true;
         self
     }
 
@@ -137,8 +147,17 @@ impl Open {
             );
         }
         let mut h = crate::common::start_driven(true, self.width, self.height);
-        h.open_debug_row(dir, Some(entry));
-        if self.early {
+        if self.first_frame {
+            for _ in 0..crate::common::debug_row(dir, Some(entry)) {
+                h.press("down");
+            }
+            h.t.press("enter");
+            h.t.pump();
+        } else {
+            h.open_debug_row(dir, Some(entry));
+        }
+        if self.first_frame {
+        } else if self.early {
             h.t.pump_for(ms(20));
         } else {
             h.advance(800);
