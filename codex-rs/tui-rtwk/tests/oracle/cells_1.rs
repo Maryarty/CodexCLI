@@ -373,7 +373,7 @@ fn update_diff_preserves_multiline_highlight_state_within_hunk() {
 fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the retained raw line of the oracle's transcript_lines is not on the screen",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -407,7 +407,7 @@ fn user_shell_output_is_limited_by_screen_lines() {
 fn truncate_lines_middle_keeps_omitted_count_in_line_units() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle's max_rows and the omitted count are helper arguments, the screen's own limit must give the same hint",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 12)
@@ -423,7 +423,7 @@ fn truncate_lines_middle_keeps_omitted_count_in_line_units() {
 fn output_lines_ellipsis_includes_transcript_hint() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle's line_limit is 2, the screen's output limit is its own",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
@@ -439,7 +439,7 @@ fn output_lines_ellipsis_includes_transcript_hint() {
 fn output_lines_handles_newline_dense_output_without_materializing_every_line() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the 100000-newline output is built at run time; the no-materialize half is not a screen fact",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     let item = format!(
@@ -455,7 +455,7 @@ fn output_lines_handles_newline_dense_output_without_materializing_every_line() 
 fn streamed_output_renders_head_tail_previews() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the 160 streamed lines are the fixture's one delta",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -473,11 +473,11 @@ fn streamed_output_renders_head_tail_previews() {
 fn truncated_live_output_preview_and_transcript_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle snapshot is a Debug dump of (preview, compact, transcript), not a screen; the 300000-escape output is built at run time",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let mut s = Screen::build(Owner::ChatLive).size(60, 24).live().open();
     let hidden = "\\u001b[2m".repeat(300_000);
-    let item = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-id","command":"bash -lc echo output","cwd":"/workspace","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+    let item = r#"{"step":"notify","message":{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call-id","command":"bash -lc 'echo output'","cwd":"/workspace","processId":null,"source":"agent","status":"inProgress","commandActions":[],"aggregatedOutput":null,"exitCode":null,"durationMs":null},"threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
     let out = format!(
         r#"{{"step":"notify","message":{{"method":"item/commandExecution/outputDelta","params":{{"threadId":"thread-1","turnId":"turn-1","itemId":"call-id","delta":"\u001b[31mhead error that wraps onto the next row\u001b[0m{hidden}\u001b[32mtail output that also wraps\u001b[0m"}}}}}}"#
     );
@@ -490,12 +490,8 @@ fn truncated_live_output_preview_and_transcript_snapshot() {
 // ORACLE exec_cell/render.rs:1157 powershell_skill_read_snapshot kind=snap owner=chat-live
 #[test]
 fn powershell_skill_read_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form",
-    );
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 6)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/powershell_skill_read_snapshot.jsonl"
         ))
@@ -508,7 +504,7 @@ fn powershell_skill_read_snapshot() {
 fn command_truncation_ellipsis_does_not_include_transcript_hint() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle's keep-2 limit is a helper argument",
+        "the oracle checks the inline `display_lines` preview (head and tail with `… +N lines (⌃t to view transcript)`); the chat shows the owned transcript's compact preview (last three rows, `+ N lines (⌃t to expand)`), equal to the oracle's rows in the pty scenario exec-command",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
@@ -525,10 +521,10 @@ fn command_truncation_ellipsis_does_not_include_transcript_hint() {
 fn command_display_does_not_split_long_url_token() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form",
+        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(36, 12)
+        .size(36, 24)
         .script(include_str!(
             "fixtures/cells_1/command_display_does_not_split_long_url_token.jsonl"
         ))
@@ -541,10 +537,10 @@ fn command_display_does_not_split_long_url_token() {
 fn active_command_without_animations_is_stable() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form",
+        "the oracle compares the cell alone; the chat's `Working` indicator spins, so whole-screen rows change within a second while the cell's bullet row is static (page test exec_bullet_is_static)",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 6)
+        .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/active_command_without_animations_is_stable.jsonl"
         ))
@@ -560,10 +556,10 @@ fn active_command_without_animations_is_stable() {
 fn exploring_display_does_not_split_long_url_like_search_query() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form",
+        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(36, 12)
+        .size(36, 24)
         .script(include_str!(
             "fixtures/cells_1/exploring_display_does_not_split_long_url_like_search_query.jsonl"
         ))
@@ -576,9 +572,9 @@ fn exploring_display_does_not_split_long_url_like_search_query() {
 fn output_display_does_not_split_long_url_like_token_without_scheme() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form",
+        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
     );
-    let s = Screen::build(Owner::ChatLive).size(36, 12).script(include_str!("fixtures/cells_1/output_display_does_not_split_long_url_like_token_without_scheme.jsonl")).open();
+    let s = Screen::build(Owner::ChatLive).size(36, 24).script(include_str!("fixtures/cells_1/output_display_does_not_split_long_url_like_token_without_scheme.jsonl")).open();
     s.assert_contains("example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/session_id=abc123def456ghi789jkl012mno345pqr678");
 }
 
@@ -587,10 +583,10 @@ fn output_display_does_not_split_long_url_like_token_without_scheme() {
 fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle renders the TranscriptView into a 36x16 buffer, the screen is the transcript overlay",
+        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(36, 16)
+        .size(36, 24)
         .script(include_str!(
             "fixtures/cells_1/transcript_view_renders_wrapped_url_like_rows_without_clipping.jsonl"
         ))

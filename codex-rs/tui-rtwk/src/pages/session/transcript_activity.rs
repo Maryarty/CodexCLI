@@ -441,7 +441,18 @@ fn output_row(index: usize, line: &str, tokens: &Tokens, wrap: bool) -> Row {
     } else {
         line.to_owned()
     };
-    let line = Text::new(line).style(dim.clone());
+    // oracle exec_cell/render.rs `dimmed_output_line`: the output's own SGR colours, every span dimmed
+    let mut spans: Vec<Span> = Vec::new();
+    for (index, parsed) in rtwk::ansi::parse_ansi(&line).into_iter().enumerate() {
+        if index != 0 {
+            spans.push(Span::new(strings::LINE_BREAK));
+        }
+        spans.extend(parsed.into_iter().map(|mut span| {
+            span.style.attrs = span.style.attrs | Attrs::DIM;
+            span
+        }));
+    }
+    let line = Text::rich(spans);
     branch_row(
         index,
         if wrap {

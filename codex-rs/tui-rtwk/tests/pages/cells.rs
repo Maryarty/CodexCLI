@@ -544,3 +544,82 @@ mod citations {
         assert_eq!(rows, ["[first.txt]*second.txt!"]);
     }
 }
+
+// ---- the command cell (oracle exec_cell/render.rs `dimmed_output_line`: the
+// output's own SGR codes colour its rows, they are never drawn as text; the
+// bullet of a running command is static without animations) ----
+
+mod command_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common;
+
+    fn item(method: &str, payload: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": method,
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1", "startedAtMs": 0,
+                "completedAtMs": 0, "item": payload}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn command(status: &str, output: Option<&str>) -> serde_json::Value {
+        json!({"type": "commandExecution", "id": "c", "command": "bash -lc 'echo done'",
+            "cwd": "/workspace", "processId": null, "source": "agent", "status": status,
+            "commandActions": [], "aggregatedOutput": output,
+            "exitCode": if output.is_some() { json!(0) } else { json!(null) }, "durationMs": null})
+    }
+
+    #[test]
+    fn output_colours_are_styles_not_text() {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            item(
+                "item/completed",
+                command("completed", Some("\u{1b}[31mred words\u{1b}[0m plain")),
+            ),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the command output", |s| s.contains("red words plain"));
+        let screen = h.t.screen();
+        assert!(!screen.contains("[31m"), "{screen}");
+        let y = screen
+            .lines()
+            .position(|row| row.contains("red words"))
+            .expect("the output row");
+        let x = screen.lines().nth(y).and_then(|row| row.find("red")).expect("column");
+        let (red, plain) = (h.t.cell(x, y), h.t.cell(x + 10, y));
+        assert_ne!(red.fg, plain.fg, "the red word is coloured, the rest is not");
+    }
+
+    #[test]
+    fn a_running_commands_bullet_row_is_stable() {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            item("item/started", command("inProgress", None)),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the running command", |s| s.contains("Running echo done"));
+        let row = |s: &str| {
+            s.lines()
+                .find(|row| row.contains("Running echo done"))
+                .map(str::to_owned)
+        };
+        let before = row(&h.t.screen());
+        h.advance(1000);
+        assert_eq!(before, row(&h.t.screen()));
+        assert!(before.is_some_and(|row| row.starts_with('•')));
+    }
+}
