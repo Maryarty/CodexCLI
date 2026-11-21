@@ -24,11 +24,11 @@ fn resume_search_error_snapshot() {
 
 /// Oracle: `resume_picker.rs` `mixed_backend_resume_table_snapshot`: the oracle
 /// selects the second row; its snapshot is the list region of the screen (our
-/// screen is 82 wide: the list starts two columns in, at screen row 6).
+/// screen is 84 wide: the list starts two columns in, at screen row 6).
 #[test]
 fn mixed_backend_resume_table_snapshot() {
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("down");
@@ -156,7 +156,7 @@ fn keys_and_text_reach_the_live_chat() {
 #[test]
 fn mouse_helpers_deliver() {
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.click_text("Explain the codebase");
@@ -515,7 +515,7 @@ fn feed_applies_more_of_a_script_to_an_open_screen() {
 #[should_panic(expected = "feed works on a script() or live() screen")]
 fn feed_on_an_entry_screen_says_it_cannot() {
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.feed(include_str!("kit/fixtures/typed.jsonl"));

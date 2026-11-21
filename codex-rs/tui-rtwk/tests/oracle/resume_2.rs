@@ -138,7 +138,7 @@ fn session_list_more_indicators_snapshot() {
     // Five rows (item-0..item-4); the oracle selects the third and the list
     // scrolls to it. The list is six rows at row 6 of a 16-row screen.
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 16)
+        .size(84, 16)
         .entry("resume", "more_indicators")
         .open();
     s.keys("down down");

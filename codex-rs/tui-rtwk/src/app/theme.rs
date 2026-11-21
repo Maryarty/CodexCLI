@@ -56,6 +56,29 @@ impl Tokens {
         Style::new().bg(Color::lerp(bg, toward, strength))
     }
 
+    /// A tint of the terminal's own background: `dark_by` toward white on a
+    /// dark terminal, `light_by` toward black on a light one (the resume
+    /// picker's zebra rows and loading overlay; oracle `color::blend` of the
+    /// default background). No fill when the terminal's background is unknown.
+    pub(crate) fn tint<S>(&self, cx: &mut Cx<'_, S>, dark_by: f64, light_by: f64) -> Style {
+        let Some(bg) = TerminalBrightness::background_of(cx) else {
+            return Style::new();
+        };
+        let [_, r, g, b] = bg.to_be_bytes();
+        let (toward, strength) = if self.0.brightness == Brightness::Light {
+            (Color::rgb(0, 0, 0), light_by)
+        } else {
+            (Color::rgb(255, 255, 255), dark_by)
+        };
+        Style::new().bg(Color::lerp(Color::rgb(r, g, b), toward, strength))
+    }
+
+    /// The colour a thing that needs attention is marked with (the unread dot
+    /// of a saved session; the oracle's blue).
+    pub fn attention(&self) -> Style {
+        self.0.primary.clone()
+    }
+
     pub(crate) fn history_prompt_mark(&self) -> Style {
         self.0.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
     }

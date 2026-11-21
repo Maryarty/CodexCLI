@@ -93,6 +93,9 @@ pub struct Model {
     pub status: Status,
     pub sort: Sort,
     pub density: Density,
+    /// The clock the expanded details write times with (oracle:
+    /// `ClockFormat`): the 24-hour one, else the 12-hour one.
+    pub clock_24h: bool,
     /// The typed search (oracle: `query`).
     pub query: String,
     pub listing: Listing,
@@ -113,8 +116,8 @@ pub struct Model {
 pub enum Problem {
     /// The row has no readable thread id.
     NoThreadId,
-    /// The row's session cannot be resumed.
-    NoMetadata,
+    /// The row's session cannot be resumed; the rollout file it names, if any.
+    NoMetadata(Option<String>),
     /// The row has no transcript to open.
     NoTranscript,
     /// The transcript could not be read.
@@ -168,6 +171,11 @@ pub struct Row {
 }
 
 impl Row {
+    /// The name the thread was given, when it has one.
+    pub fn name(&self) -> Option<&str> {
+        self.thread_name.as_deref()
+    }
+
     /// Oracle: `Row::display_preview`: the thread's name when it has one.
     pub fn display_preview(&self) -> &str {
         self.thread_name.as_deref().unwrap_or(&self.preview)
@@ -257,6 +265,17 @@ pub enum Ev {
     Listed(Vec<Row>),
     /// The reference time of the ages.
     Clock(i64),
+    /// The clock the details write times with: `true` for the 24-hour one.
+    Clock24(bool),
+    /// The conversation preview of a row (a script's seed of an answered
+    /// `ThreadAsk::History`).
+    Previewed {
+        key: Key,
+        lines: Vec<PreviewLine>,
+    },
+    /// What the line under the list reports (a script's seed of a failure the
+    /// app's answers make).
+    Problem(Problem),
     /// A listing started.
     Loading,
     /// A listing failed with this message.
@@ -416,11 +435,32 @@ impl Model {
     /// The rows the list shows: the directory filter, then the query
     /// (oracle: `apply_filter`).
     pub fn visible(&self) -> Vec<&Row> {
-        let query = self.query.to_lowercase();
+        self.visible_for(&self.query)
+    }
+
+    /// The rows the list would show for another query (the page keeps the
+    /// cursor on its row when a search is cleared).
+    pub fn visible_for(&self, query: &str) -> Vec<&Row> {
+        self.visible_indices_for(query)
+            .into_iter()
+            .map(|at| &self.rows[at])
+            .collect()
+    }
+
+    /// Where in `rows` the rows the list shows are.
+    pub fn visible_indices(&self) -> Vec<usize> {
+        self.visible_indices_for(&self.query)
+    }
+
+    /// Where in `rows` the rows a query would show are.
+    pub fn visible_indices_for(&self, query: &str) -> Vec<usize> {
+        let query = query.to_lowercase();
         self.rows
             .iter()
-            .filter(|row| self.in_scope(row))
-            .filter(|row| query.is_empty() || row.matches_query(&query))
+            .enumerate()
+            .filter(|(_, row)| self.in_scope(row))
+            .filter(|(_, row)| query.is_empty() || row.matches_query(&query))
+            .map(|(at, _)| at)
             .collect()
     }
 
@@ -458,6 +498,18 @@ impl Model {
     /// Whether another page is loading or could be read (the list's `↓ more`).
     pub fn has_more(&self) -> bool {
         self.listing.has_more()
+    }
+
+    /// Whether a row's meta line names its directory: unless the list is
+    /// already that directory's (oracle: `show_cwd` in
+    /// `render_comfortable_session_lines`).
+    pub fn shows_cwd(&self, row: &Row) -> bool {
+        self.filter == Filter::All
+            || row
+                .cwd
+                .as_deref()
+                .zip(self.scope.cwd.as_deref())
+                .is_some_and(|(row, cwd)| !same_dir(row, cwd))
     }
 
     /// The archive shortcut is offered when resuming active sessions
@@ -599,6 +651,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             model.load = Load::Idle;
         }
         Ev::Clock(secs) => model.clock = secs,
+        Ev::Clock24(on) => model.clock_24h = on,
+        Ev::Previewed { key, lines } => {
+            model.previews.insert(key, Preview::Loaded(lines));
+        }
+        Ev::Problem(problem) => model.inline_error = Some(problem),
         Ev::Loading => model.load = Load::Loading,
         Ev::Failed(message) => model.load = Load::Failed(message),
         Ev::Scope(scope) => {
@@ -642,17 +699,10 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
         }
         Intent::Resume(id) => resume(model, &id),
         Intent::Query(query) => model.set_query(query),
-        Intent::Paste(text) => {
-            let Some(text) = paste_query(&text) else {
-                return Vec::new();
-            };
-            let mut query = model.query.clone();
-            if !query.is_empty() && !query.ends_with(char::is_whitespace) {
-                query.push(' ');
-            }
-            query.push_str(&text);
-            model.set_query(query)
-        }
+        Intent::Paste(text) => match pasted(&model.query, &text) {
+            Some(query) => model.set_query(query),
+            None => Vec::new(),
+        },
         Intent::ClearQuery => {
             model.query.clear();
             model.listing.search = None;
@@ -699,11 +749,20 @@ pub fn update(model: &mut Model, intent: Intent) -> Vec<Out> {
     }
 }
 
-/// Oracle: `normalize_pasted_search_query`: the paste's whitespace folded
-/// into single spaces; nothing is left of a blank paste.
-fn paste_query(text: &str) -> Option<String> {
+/// Oracle: `normalize_pasted_search_query` and `handle_paste`: the paste's
+/// whitespace folded into single spaces, put after the query (one space
+/// between them); `None` for a blank paste, which changes nothing.
+pub fn pasted(query: &str, text: &str) -> Option<String> {
     let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!folded.is_empty()).then_some(folded)
+    if folded.is_empty() {
+        return None;
+    }
+    let mut query = query.to_owned();
+    if !query.is_empty() && !query.ends_with(char::is_whitespace) {
+        query.push(' ');
+    }
+    query.push_str(&folded);
+    Some(query)
 }
 
 fn change(model: &mut Model, control: Control, dir: Dir) -> Vec<Out> {
@@ -729,8 +788,8 @@ fn resume(model: &mut Model, id: &ThreadId) -> Vec<Out> {
     if !matches!(model.archive, ArchiveState::Idle) {
         return Vec::new();
     }
-    let Some(row) = model.row_or_error(id, Problem::NoMetadata)
-    else {
+    let path = model.row(id).and_then(|row| row.path.clone());
+    let Some(row) = model.row_or_error(id, Problem::NoMetadata(path)) else {
         return Vec::new();
     };
     if model.status == Status::Archived {
@@ -1037,6 +1096,19 @@ enum SeedEv {
     Listed { rows: Vec<RolloutSeed> },
     /// The reference time, epoch seconds.
     Clock(i64),
+    /// The clock the details write times with.
+    Clock24(bool),
+    /// The conversation preview of a listed row: `{"id": .., "backend": ..,
+    /// "lines": [{"speaker": "user", "text": ..}]}`.
+    Preview {
+        id: String,
+        #[serde(default)]
+        backend: u32,
+        lines: Vec<PreviewSeed>,
+    },
+    /// What the line under the list reports: `one_backend`, `more_failed`,
+    /// `no_transcript`, `no_thread_id`, `current_session`.
+    Problem(String),
     Loading(()),
     Failed(String),
     Scope {
@@ -1061,6 +1133,12 @@ enum SeedEv {
         #[serde(default)]
         next: Option<String>,
     },
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct PreviewSeed {
+    speaker: String,
+    text: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -1117,6 +1195,33 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     Ok(match seed {
         SeedEv::Listed { rows } => Ev::Listed(rows.into_iter().map(RolloutSeed::row).collect()),
         SeedEv::Clock(secs) => Ev::Clock(secs),
+        SeedEv::Clock24(on) => Ev::Clock24(on),
+        SeedEv::Preview { id, backend, lines } => Ev::Previewed {
+            key: (BackendId(backend), ThreadId::new(id)),
+            lines: lines
+                .into_iter()
+                .map(|line| PreviewLine {
+                    speaker: if line.speaker == "assistant" {
+                        Speaker::Assistant
+                    } else {
+                        Speaker::User
+                    },
+                    text: line.text,
+                })
+                .collect(),
+        },
+        SeedEv::Problem(name) => Ev::Problem(match name.as_str() {
+            "one_backend" => Problem::OneBackend,
+            "more_failed" => Problem::MoreFailed,
+            "no_transcript" => Problem::NoTranscript,
+            "no_thread_id" => Problem::NoThreadId,
+            "current_session" => Problem::CurrentSession,
+            other => {
+                return Err(crate::screens::SeedError::Bad(format!(
+                    "unknown problem {other}"
+                )));
+            }
+        }),
         SeedEv::Loading(()) => Ev::Loading,
         SeedEv::Failed(message) => Ev::Failed(message),
         SeedEv::Scope { cwd, repo_cwds } => Ev::Scope(Scope { cwd, repo_cwds }),

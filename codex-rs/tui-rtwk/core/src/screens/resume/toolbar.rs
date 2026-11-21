@@ -96,6 +96,16 @@ pub enum Control {
 }
 
 impl Control {
+    /// The controls Tab visits, in order: the status control exists only
+    /// when resuming. A view holds which one has the focus as an index into
+    /// this (a `TabController`), never as a `Control`.
+    pub fn all(action: Action) -> &'static [Control] {
+        match action {
+            Action::Resume => &[Self::Filter, Self::Status, Self::Sort],
+            Action::Fork => &[Self::Filter, Self::Sort],
+        }
+    }
+
     /// Tab (oracle: `ToolbarControl::next`): the status control exists only
     /// when resuming.
     pub fn next(self, action: Action) -> Self {

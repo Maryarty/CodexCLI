@@ -39,8 +39,9 @@ fn inset(rows: Vec<String>, by: usize) -> Vec<String> {
 // with up to three one-row gaps while the list keeps six rows.
 const LIST_AT_22: usize = 6;
 // The oracle renders the list into an 80-cell area; our list is the screen
-// less its two-cell inset, so the screen is 82 cells wide.
-const WIDE_FOR_80_LIST: u16 = 82;
+// less its two-cell inset on each side (`PICKER_LIST_HORIZONTAL_INSET` is 4),
+// so the screen is 84 cells wide.
+const WIDE_FOR_80_LIST: u16 = 84;
 const LIST_AT_13: usize = 3;
 
 #[test]

@@ -29,42 +29,6 @@ pub fn progress_label(position: usize, total: &str, percent: u8, w: usize) -> St
     .unwrap_or_default()
 }
 
-/// One run of the toolbar: its text and whether it is the active value.
-pub type Run = (String, bool);
-
-/// The toolbar (oracle: `toolbar_for_width`): the full strip, else the
-/// compact one.
-pub fn toolbar(strings: &super::strings::Strings, w: usize) -> Vec<Run> {
-    let full = |compact: bool| -> Vec<Run> {
-        let value = |text: &str, active: bool| (format!(" {text} "), active);
-        let label = |text: &str, gap: &str| (format!("{text}{gap}"), false);
-        let sep = || ("   ".to_string(), false);
-        let gap = if compact { "" } else { " " };
-        let mut line = vec![
-            label(strings.filter, gap),
-            value(strings.filter_all, true),
-            sep(),
-        ];
-        line.push(label(strings.status, gap));
-        line.push(value(strings.status_active, true));
-        if !compact {
-            line.push(value(strings.status_archived, false));
-        }
-        line.push(sep());
-        line.push(label(strings.sort, gap));
-        line.push(value(strings.sort_updated, true));
-        if !compact {
-            line.push(value(strings.sort_created, false));
-        }
-        line
-    };
-    let wide = full(false);
-    if wide.iter().map(|(text, _)| width(text)).sum::<usize>() <= w {
-        return wide;
-    }
-    full(true)
-}
-
 /// One footer hint (oracle: `PickerFooterHint`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hint {
@@ -115,23 +79,78 @@ pub fn hint_variants(hints: &[Hint]) -> Vec<Variant> {
     out
 }
 
+/// What the hint rows depend on (oracle: `footer_hint_lines`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HintFacts {
+    /// A transcript is loading: the rows say so and take nothing else.
+    pub loading: bool,
+    pub fork: bool,
+    pub archived: bool,
+    /// The search has text: esc clears it.
+    pub searching: bool,
+    /// Opened from a running session: esc and ctrl+c leave the picker.
+    pub in_session: bool,
+    pub dense: bool,
+    /// The archive key is offered: rows to act on and active sessions.
+    pub archive: bool,
+}
+
 /// The footer's two hint rows' spellings (oracle: `footer_hint_lines`).
-pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
+pub fn hint_rows(strings: &Strings, facts: HintFacts) -> [Vec<Variant>; 2] {
     let hint = |key: &str, wide: &str, compact: &str, priority| Hint {
         key: key.to_string(),
         wide: wide.to_string(),
         compact: compact.to_string(),
         priority,
     };
-    let first = [
-        hint(strings.key_accept, strings.accept, strings.accept, 0),
-        hint(
-            strings.key_cancel,
-            strings.cancel_wide,
-            strings.cancel_compact,
-            1,
-        ),
-        hint(strings.key_quit, strings.quit, strings.quit, 2),
+    if facts.loading {
+        let first = [
+            hint(
+                strings.key_loading,
+                strings.loading_transcript,
+                strings.loading_transcript,
+                0,
+            ),
+            hint(strings.key_quit, strings.quit, strings.quit, 1),
+        ];
+        return [hint_variants(&first), Vec::new()];
+    }
+    let accept = if facts.archived {
+        strings.accept_restore
+    } else if facts.fork {
+        strings.accept_fork
+    } else {
+        strings.accept
+    };
+    let (cancel_wide, cancel_compact) = if facts.searching {
+        (strings.cancel_clear, strings.cancel_clear_compact)
+    } else if facts.in_session {
+        (strings.exit, strings.exit)
+    } else {
+        (strings.cancel_wide, strings.cancel_compact)
+    };
+    let quit = if facts.in_session {
+        strings.exit
+    } else {
+        strings.quit
+    };
+    let (density_wide, density_compact) = if facts.dense {
+        (strings.density_comfy_wide, strings.density_comfy_compact)
+    } else {
+        (strings.density_wide, strings.density_compact)
+    };
+    let mut first = vec![hint(strings.key_accept, accept, accept, 0)];
+    if facts.archive {
+        first.push(hint(
+            strings.key_archive,
+            strings.archive,
+            strings.archive,
+            2,
+        ));
+    }
+    first.extend([
+        hint(strings.key_cancel, cancel_wide, cancel_compact, 1),
+        hint(strings.key_quit, quit, quit, 2),
         hint(
             strings.key_focus,
             strings.focus_wide,
@@ -144,14 +163,9 @@ pub fn hint_rows(strings: &Strings) -> [Vec<Variant>; 2] {
             strings.option_compact,
             8,
         ),
-    ];
+    ]);
     let second = [
-        hint(
-            strings.key_density,
-            strings.density_wide,
-            strings.density_compact,
-            3,
-        ),
+        hint(strings.key_density, density_wide, density_compact, 3),
         hint(
             strings.key_transcript,
             strings.transcript_wide,

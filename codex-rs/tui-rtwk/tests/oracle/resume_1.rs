@@ -21,7 +21,7 @@ fn linked_worktree_sessions_follow_directory_scope() {
         .entry("resume", "linked_worktree")
         .open();
     s.keys("tab right");
-    // The list is the screen less its two-cell inset, at row 6 (the toolbar and
+    // The list is the screen less its two-cell inset on each side, at row 6 (the toolbar and
     // search line above it); the oracle's snapshot is its two list rows.
     s.assert_snap_region("resume_picker_linked_worktree", 6, 2);
 }
@@ -36,7 +36,7 @@ fn local_db_first_falls_back_when_initial_db_page_is_empty() {
     // The oracle's two states, loading then the repaired rows; the screen shows
     // the second one (the listing of the fallback source is the loader's).
     let s = Screen::build(Owner::RoutesLists)
-        .size(82, 12)
+        .size(84, 12)
         .entry("resume", "db_fallback")
         .open();
     s.assert_snap_section("resume_picker_db_fallback_transition", "repaired results");
@@ -165,10 +165,10 @@ fn footer_omits_cwd_when_hidden() {
 // ORACLE resume_picker.rs:5037 mixed_backend_resume_table_snapshot kind=snap owner=routes-lists snap=resume_picker_table
 #[test]
 fn mixed_backend_resume_table_snapshot() {
-    // Our screen is 82 wide (the list is the screen less its two-cell inset); the
+    // Our screen is 84 wide (the list is the screen less its two-cell inset on each side); the
     // oracle's test selects the second row.
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("down");
@@ -275,7 +275,7 @@ fn ctrl_o_toggles_density_without_typing_into_search() {
         "no seed for the density toggle on the picker with an entry (query 'pick')",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.type_text("pick");
@@ -294,7 +294,7 @@ fn ctrl_t_requests_selected_session_transcript() {
         "no seed for a transcript loader that never answers; ctrl+t shows the loading footer",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -310,7 +310,7 @@ fn transcript_loading_consumes_picker_input() {
         "no entry with two rows and a transcript that never finishes loading",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -330,7 +330,7 @@ fn escape_cancels_transcript_loading_and_restores_picker_navigation() {
         "no entry with two rows and a transcript that never finishes loading",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -362,7 +362,7 @@ fn transcript_loading_overlay_snapshot() {
     // The oracle's 80-cell list with the loading overlay on the second row; the
     // list is at row 6 of the screen, its five snapshot rows.
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 15)
+        .size(84, 15)
         .entry("resume", "transcript_loading")
         .open();
     s.keys("ctrl+t");
@@ -377,7 +377,7 @@ fn raw_ctrl_t_requests_selected_session_transcript() {
         "no seed for a transcript loader that never answers; the raw control byte 0x14 shows the loading footer",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -392,7 +392,7 @@ fn ctrl_t_on_row_without_thread_id_shows_inline_error() {
         "a listed row always carries its thread id (core Row.id), so the state cannot be seeded; the inline error is drawn",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -407,7 +407,7 @@ fn loaded_transcript_waits_for_loading_frame_before_opening_overlay() {
         "no entry with a row whose transcript has loaded (user, assistant, 'BAtail' text)",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -427,7 +427,7 @@ fn cached_transcript_still_shows_loading_frame_before_opening_overlay() {
         "no entry with a row whose transcript is already cached",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+t");
@@ -445,7 +445,7 @@ fn ctrl_o_persists_density_preference() {
         "no seed with a view-mode preference store; the saved value is not drawn",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+o");
@@ -461,7 +461,7 @@ fn ctrl_o_keeps_toggled_density_when_persistence_fails() {
         "no seed with a view-mode preference store that fails to save",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+o");
@@ -478,7 +478,7 @@ fn raw_ctrl_o_toggles_density_without_typing_into_search() {
         "no seed for the density toggle with the raw control byte 0x0f; the query is 'pick'",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.type_text("pick");
@@ -495,7 +495,7 @@ fn space_appends_to_search_query() {
         "no seed with a search query 'resize'; space must reach the search line and not expand the row",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.type_text("resize");
@@ -514,7 +514,7 @@ fn ctrl_e_toggles_selected_session_expansion() {
         "no seed for a row with a thread id and a transcript loader",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+e");
@@ -533,7 +533,7 @@ fn raw_ctrl_e_toggles_selected_session_expansion() {
         "no seed for a row with a thread id; the raw control byte 0x05",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(82, 22)
+        .size(84, 22)
         .entry("resume", "table")
         .open();
     s.keys("ctrl+e");

@@ -167,9 +167,7 @@ fn turns_asked(fx: &AppFx) -> Vec<(Ticket, String)> {
             Command::Screen {
                 ticket,
                 command:
-                    ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::History {
-                        thread, ..
-                    })),
+                    ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::History { thread, .. })),
                 ..
             } => Some((*ticket, thread.clone())),
             _ => None,
@@ -472,10 +470,7 @@ fn a_failed_later_page_is_an_inline_error_and_the_rows_stay() {
     let fx = intent(&mut app, ResumeIntent::End);
     let (ticket, _) = only(&fx);
     fail(&mut app, ticket, "boom");
-    assert_eq!(
-        app.screens().resume.inline_error,
-        Some(Problem::MoreFailed)
-    );
+    assert_eq!(app.screens().resume.inline_error, Some(Problem::MoreFailed));
     assert_eq!(names(&app), vec!["a"]);
     assert!(
         asked(&intent(&mut app, ResumeIntent::End)).is_empty(),
@@ -530,7 +525,10 @@ fn an_empty_later_page_of_the_index_ends_the_list() {
     answer(&mut app, ticket, page(&[("a", 1)], Some("c1")));
     let (ticket, _) = only(&intent(&mut app, ResumeIntent::End));
     let fx = answer(&mut app, ticket, page(&[], None));
-    assert!(asked(&fx).is_empty(), "no fallback after the index had rows");
+    assert!(
+        asked(&fx).is_empty(),
+        "no fallback after the index had rows"
+    );
     assert_eq!(names(&app), vec!["a"]);
 }
 
@@ -568,7 +566,10 @@ fn the_toolbar_changes_restart_the_listing_with_what_they_ask_for() {
         ResumeIntent::Change(Control::Status, Dir::Next),
     ));
     assert_eq!(app.screens().resume.status, Status::Archived);
-    assert!(matches!(command, ResumeCommand::List { archived: true, .. }));
+    assert!(matches!(
+        command,
+        ResumeCommand::List { archived: true, .. }
+    ));
 }
 
 #[test]
@@ -760,7 +761,10 @@ fn a_row_that_is_not_listed_opens_nothing_and_says_so() {
     let mut app = listed(&["a"], None);
     let fx = intent(&mut app, ResumeIntent::Resume(ThreadId::new("ghost")));
     assert_eq!(resumed_thread(&fx), None);
-    assert_eq!(app.screens().resume.inline_error, Some(Problem::NoMetadata));
+    assert_eq!(
+        app.screens().resume.inline_error,
+        Some(Problem::NoMetadata(None))
+    );
 }
 
 #[test]
