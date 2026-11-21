@@ -123,42 +123,35 @@ pub struct Row {
     pub value: Value,
 }
 
-/// The configuration panel (`config_panel/`): one group at a time, or every
-/// group while a search is typed.
+/// The configuration panel (`config_panel/`): the rows of the catalogue. The
+/// group shown, the highlighted row and the search text are the view's
+/// (`TabController`, `SelectionController`, `TextEditingController`); what
+/// they leave visible is a function of them (`visible`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigPanel {
     pub rows: Vec<Row>,
-    /// The group shown, an index into `Section::ALL`.
-    pub tab: usize,
-    /// The highlighted row, an index into `visible()`.
-    pub cursor: usize,
-    pub query: String,
 }
 
 impl ConfigPanel {
     pub fn new(rows: Vec<Row>) -> Self {
-        Self {
-            rows,
-            tab: 0,
-            cursor: 0,
-            query: String::new(),
-        }
+        Self { rows }
     }
 
-    /// The group shown.
-    pub fn section(&self) -> Section {
-        Section::ALL[self.tab]
+    /// The row editing `id`.
+    pub fn row(&self, id: SettingId) -> Option<&Row> {
+        self.rows.iter().find(|row| row.id == id)
     }
 
-    /// The rows shown, as indices into `rows`.
-    pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.trim().to_lowercase();
+    /// The rows of `section`, or, while `query` has text, every row that
+    /// matches it; as indices into `rows`.
+    pub fn visible(&self, section: Section, query: &str) -> Vec<usize> {
+        let query = query.trim().to_lowercase();
         self.rows
             .iter()
             .enumerate()
             .filter(|(_, row)| {
                 if query.is_empty() {
-                    row.section == self.section()
+                    row.section == section
                 } else {
                     // `config_panel/render.rs`: the row's `search_value`.
                     format!(
@@ -183,9 +176,19 @@ impl ConfigPanel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThemePicker {
     pub themes: Vec<String>,
-    pub cursor: usize,
-    /// The theme to restore when the picker is cancelled.
+    /// The theme to restore when the picker is cancelled; the row the cursor
+    /// starts on.
     pub original: Option<String>,
+}
+
+impl ThemePicker {
+    /// The row the cursor starts on: the theme in force.
+    pub fn initial(&self) -> usize {
+        self.original
+            .as_ref()
+            .and_then(|name| self.themes.iter().position(|theme| theme == name))
+            .unwrap_or(0)
+    }
 }
 
 /// The id of the status-line setup's first row, "Use theme colors"
@@ -205,51 +208,93 @@ pub struct SetupItem {
     pub placeholder: String,
 }
 
-/// The status-line setup (`bottom_pane/status_line_setup.rs`).
+/// Which surface a setup configures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupKind {
+    /// `bottom_pane/status_line_setup.rs`.
+    StatusLine,
+    /// `bottom_pane/title_setup.rs`: the terminal title.
+    Title,
+}
+
+/// The status-line and terminal-title setups: `MultiSelectPicker` with the
+/// items of the surface. The highlighted row and the search text are the
+/// view's; the order and the checks are the model's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StatusLineSetup {
+pub struct Setup {
+    pub kind: SetupKind,
     pub items: Vec<SetupItem>,
     /// Runtime values of the items, by id.
     pub values: BTreeMap<String, String>,
-    pub cursor: usize,
-    pub query: String,
 }
 
-impl StatusLineSetup {
-    /// The rows shown, as indices into `items`.
-    pub fn visible(&self) -> Vec<usize> {
-        let query: Vec<char> = self.query.trim().to_lowercase().chars().collect();
-        self.items
+/// The id of the title's activity item, the one that needs spaces around it.
+pub const ACTIVITY: &str = "activity";
+
+/// What the preview of a title with `activity` starts with
+/// (`ACTION_REQUIRED_PREVIEW_PREFIX`).
+pub const ACTION_REQUIRED_PREFIX: &str = "[ ! ] Action Required";
+
+impl Setup {
+    /// The rows a search leaves, as indices into `items`: a fuzzy match on the
+    /// id, best score first, ties by name (`MultiSelectPicker::apply_filter`);
+    /// every row in order while the search is empty.
+    pub fn visible(&self, query: &str) -> Vec<usize> {
+        let query = query.trim();
+        if query.is_empty() {
+            return (0..self.items.len()).collect();
+        }
+        let mut found: Vec<(usize, i32)> = self
+            .items
             .iter()
             .enumerate()
-            .filter(|(_, item)| {
-                // `multi_select_picker.rs`: a fuzzy match on the name.
-                let name = item.id.replace('_', " ").to_lowercase();
-                let mut rest = query.iter().peekable();
-                for c in name.chars() {
-                    if rest.peek() == Some(&&c) {
-                        rest.next();
-                    }
-                }
-                rest.peek().is_none()
+            .filter_map(|(index, item)| {
+                crate::commands::fuzzy_match(&item.id, query).map(|(_, score)| (index, score))
             })
-            .map(|(index, _)| index)
-            .collect()
+            .collect();
+        found.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| self.items[a.0].id.cmp(&self.items[b.0].id))
+        });
+        found.into_iter().map(|(index, _)| index).collect()
     }
 
-    /// The status line the enabled items make, in order (`status_line_for_items`).
+    /// The item `id`, as an index into `items`.
+    pub fn position(&self, id: &str) -> Option<usize> {
+        self.items.iter().position(|item| item.id == id)
+    }
+
+    /// The line the enabled items make, in order: the status line joins the
+    /// values with ` · ` (`status_line_for_items`); the title with ` | `, and
+    /// leads with the action-required prefix when it holds the activity item
+    /// (`preview_line_for_title_items`).
     pub fn preview(&self) -> String {
-        self.items
+        let values = self
+            .items
             .iter()
-            .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
+            .filter(|item| item.enabled && item.id != USE_THEME_COLORS && item.id != ACTIVITY)
             .map(|item| {
                 self.values
                     .get(&item.id)
                     .unwrap_or(&item.placeholder)
                     .as_str()
             })
-            .collect::<Vec<_>>()
-            .join(" · ")
+            .filter(|value| !value.is_empty());
+        match self.kind {
+            SetupKind::StatusLine => values.collect::<Vec<_>>().join(" · "),
+            SetupKind::Title => {
+                let activity = self
+                    .items
+                    .iter()
+                    .any(|item| item.enabled && item.id == ACTIVITY);
+                let mut parts: Vec<&str> = Vec::new();
+                if activity {
+                    parts.push(ACTION_REQUIRED_PREFIX);
+                }
+                parts.extend(values);
+                parts.join(" | ")
+            }
+        }
     }
 }
 
@@ -284,25 +329,17 @@ pub struct KeymapTab {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeymapPicker {
     pub tabs: Vec<KeymapTab>,
-    pub tab: usize,
-    /// The highlighted row, an index into `visible()`.
-    pub cursor: usize,
-    pub query: String,
 }
 
 impl KeymapPicker {
-    /// The actions of the tab shown.
-    pub fn items(&self) -> &[ActionItem] {
-        &self.tabs[self.tab].items
-    }
-
-    /// The rows shown, as indices into `items()`: those whose search text
-    /// holds every word typed (the oracle ranks by fuzzy match; here a
-    /// plain match in the catalogue's order).
-    pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.trim().to_lowercase();
+    /// The rows of `tab` a search leaves, as indices into its items: those
+    /// whose search text holds every word typed (the oracle ranks by fuzzy
+    /// match; here a plain match in the catalogue's order).
+    pub fn visible(&self, tab: usize, query: &str) -> Vec<usize> {
+        let query = query.trim().to_lowercase();
         let words: Vec<&str> = query.split_whitespace().collect();
-        self.items()
+        self.tabs[tab]
+            .items
             .iter()
             .enumerate()
             .filter(|(_, item)| {
@@ -319,7 +356,7 @@ impl KeymapPicker {
 pub enum Open {
     Config(ConfigPanel),
     Theme(ThemePicker),
-    StatusLine(StatusLineSetup),
+    Setup(Setup),
     Keymap(KeymapPicker),
 }
 
@@ -333,12 +370,13 @@ pub enum Edit {
     Editor(SettingId),
     /// `SyntaxThemeSelected`.
     ThemeSelected(String),
-    /// `StatusLineSetup`: the enabled items in order.
-    StatusLineSaved {
+    /// `StatusLineSetup` / `TerminalTitleSetup`: the enabled items in order.
+    SetupSaved {
+        kind: SetupKind,
         items: Vec<String>,
         use_theme_colors: bool,
     },
-    StatusLineCancelled,
+    SetupCancelled(SetupKind),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
 }
@@ -361,21 +399,27 @@ pub enum Ev {
     Opened(Open),
 }
 
-/// The intents of this screen; a variant of the root `ScreenIntent`.
+/// The intents of this screen; a variant of the root `ScreenIntent`. The
+/// cursor, the group tab and the search text are the view's controllers; an
+/// intent names what it acts on by id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Left / Right: the group of the panel, the tab of the keymap picker.
-    Tab(i32),
-    /// Up / Down: the highlighted row; wraps.
-    Move(i32),
-    /// The search text changed.
-    Search(String),
-    /// Enter.
-    Activate,
-    /// Space in the status-line setup.
-    Toggle,
-    /// Left / Right in the status-line setup: move the row among the orderable.
-    Reorder(i32),
+    /// Enter on a row of the panel: flips a toggle, opens the editor of the
+    /// row, sends the test notification.
+    Activate(SettingId),
+    /// The cursor of the theme picker is on this theme: it is shown.
+    Preview(String),
+    /// Enter in the theme picker.
+    Pick(String),
+    /// Space in a setup: flips the item.
+    Toggle(String),
+    /// Left / Right in a setup: moves the item one step among the orderable
+    /// ones.
+    Move { id: String, delta: i32 },
+    /// Enter in a setup.
+    Save,
+    /// Enter in the keymap picker.
+    KeymapPick(String),
     /// Esc.
     Close,
 }
@@ -392,65 +436,16 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     }
 }
 
-/// `index + delta` on a ring of `len` rows.
-fn wrap(index: usize, delta: i32, len: usize) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    (index as i64 + i64::from(delta)).rem_euclid(len as i64) as usize
-}
-
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     let Some(open) = &mut model.open else {
         return;
     };
     match (open, intent) {
-        (Open::Config(panel), Intent::Tab(delta)) => {
-            panel.tab = wrap(panel.tab, delta, Section::ALL.len());
-            panel.cursor = 0;
-        }
-        (Open::Keymap(picker), Intent::Tab(delta)) => {
-            picker.tab = wrap(picker.tab, delta, picker.tabs.len());
-            picker.cursor = 0;
-        }
-        (Open::Config(panel), Intent::Move(delta)) => {
-            panel.cursor = wrap(panel.cursor, delta, panel.visible().len());
-        }
-        (Open::Theme(picker), Intent::Move(delta)) => {
-            picker.cursor = wrap(picker.cursor, delta, picker.themes.len());
-            if let Some(theme) = picker.themes.get(picker.cursor) {
-                model.syntax_theme = Some(theme.clone());
-            }
-        }
-        (Open::StatusLine(setup), Intent::Move(delta)) => {
-            setup.cursor = wrap(setup.cursor, delta, setup.visible().len());
-        }
-        (Open::Keymap(picker), Intent::Move(delta)) => {
-            picker.cursor = wrap(picker.cursor, delta, picker.visible().len());
-        }
-        (Open::Config(panel), Intent::Search(query)) => {
-            panel.query = query;
-            panel.cursor = 0;
-        }
-        (Open::StatusLine(setup), Intent::Search(query)) => {
-            setup.query = query;
-            setup.cursor = 0;
-        }
-        (Open::Keymap(picker), Intent::Search(query)) => {
-            picker.query = query;
-            picker.cursor = 0;
-        }
-        (Open::Config(panel), Intent::Activate) => {
-            let Some(row) = panel
-                .visible()
-                .get(panel.cursor)
-                .copied()
-                .and_then(|index| panel.rows.get_mut(index))
-            else {
+        (Open::Config(panel), Intent::Activate(id)) => {
+            let Some(row) = panel.rows.iter_mut().find(|row| row.id == id) else {
                 return;
             };
-            let id = row.id;
             match &mut row.value {
                 Value::Toggle(enabled) => {
                     *enabled = !*enabled;
@@ -461,14 +456,37 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 Value::Unavailable => {}
             }
         }
-        (Open::Theme(picker), Intent::Activate) => {
-            if let Some(theme) = picker.themes.get(picker.cursor).cloned() {
+        (Open::Theme(picker), Intent::Preview(theme)) => {
+            if picker.themes.contains(&theme) {
+                model.syntax_theme = Some(theme);
+            }
+        }
+        (Open::Theme(picker), Intent::Pick(theme)) => {
+            if picker.themes.contains(&theme) {
                 model.syntax_theme = Some(theme.clone());
                 model.edits.push(Edit::ThemeSelected(theme));
                 model.open = None;
             }
         }
-        (Open::StatusLine(setup), Intent::Activate) => {
+        (Open::Setup(setup), Intent::Toggle(id)) => {
+            if let Some(item) = setup.items.iter_mut().find(|item| item.id == id) {
+                item.enabled = !item.enabled;
+            }
+        }
+        (Open::Setup(setup), Intent::Move { id, delta }) => {
+            let Some(at) = setup.position(&id) else {
+                return;
+            };
+            let to = match at.checked_add_signed(delta.signum() as isize) {
+                Some(to) if to < setup.items.len() => to,
+                _ => return,
+            };
+            // A row that is not orderable neither moves nor is crossed.
+            if setup.items[at].orderable && setup.items[to].orderable {
+                setup.items.swap(at, to);
+            }
+        }
+        (Open::Setup(setup), Intent::Save) => {
             let items = setup
                 .items
                 .iter()
@@ -479,67 +497,31 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 .items
                 .iter()
                 .any(|item| item.id == USE_THEME_COLORS && item.enabled);
-            model.edits.push(Edit::StatusLineSaved {
+            model.edits.push(Edit::SetupSaved {
+                kind: setup.kind,
                 items,
                 use_theme_colors,
             });
             model.open = None;
         }
-        (Open::Keymap(picker), Intent::Activate) => {
-            let at = picker.visible().get(picker.cursor).copied();
-            if let Some(item) = at.and_then(|index| picker.items().get(index)) {
-                model.edits.push(Edit::KeymapPicked(item.name.clone()));
-            }
-        }
-        (Open::StatusLine(setup), Intent::Toggle) => {
-            // An item with an action of its own is not a toggle; none here.
-            if let Some(item) = setup
-                .visible()
-                .get(setup.cursor)
-                .copied()
-                .and_then(|index| setup.items.get_mut(index))
+        (Open::Keymap(picker), Intent::KeymapPick(name)) => {
+            if picker
+                .tabs
+                .iter()
+                .any(|tab| tab.items.iter().any(|item| item.name == name))
             {
-                item.enabled = !item.enabled;
-            }
-        }
-        (Open::StatusLine(setup), Intent::Reorder(delta)) => {
-            if !setup.query.trim().is_empty() {
-                return;
-            }
-            let at = setup.cursor;
-            let to = match at.checked_add_signed(delta.signum() as isize) {
-                Some(to) if to < setup.items.len() => to,
-                _ => return,
-            };
-            if setup.items[at].orderable && setup.items[to].orderable {
-                setup.items.swap(at, to);
-                setup.cursor = to;
-            }
-        }
-        (Open::Config(panel), Intent::Close) => {
-            if panel.query.is_empty() {
-                model.open = None;
-            } else {
-                panel.query.clear();
-                panel.cursor = 0;
+                model.edits.push(Edit::KeymapPicked(name));
             }
         }
         (Open::Theme(picker), Intent::Close) => {
             model.syntax_theme = picker.original.clone();
             model.open = None;
         }
-        (Open::StatusLine(_), Intent::Close) => {
-            model.edits.push(Edit::StatusLineCancelled);
+        (Open::Setup(setup), Intent::Close) => {
+            model.edits.push(Edit::SetupCancelled(setup.kind));
             model.open = None;
         }
-        (Open::Keymap(picker), Intent::Close) => {
-            if picker.query.is_empty() {
-                model.open = None;
-            } else {
-                picker.query.clear();
-                picker.cursor = 0;
-            }
-        }
+        (_, Intent::Close) => model.open = None,
         _ => {}
     }
 }
@@ -593,8 +575,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// One action of the status-line catalogue (`StatusLineItem` with its
-/// description and preview placeholder).
+/// One item of a setup's catalogue (`StatusLineItem` / `TerminalTitleItem`
+/// with its description and preview placeholder).
 #[derive(Clone, Debug, serde::Deserialize)]
 struct CatalogueItem {
     id: String,
@@ -605,7 +587,8 @@ struct CatalogueItem {
 /// The seed forms of this screen's events (`kind`): `config_panel` with its
 /// `rows`; `theme_picker` with `themes` and the `current` one;
 /// `status_line` with `use_theme_colors`, the `selected` ids in order, the
-/// `catalogue` and the runtime `values`; `keymap` with its `tabs`.
+/// `catalogue` and the runtime `values`; `title` the same without the colour
+/// preference; `keymap` with its `tabs`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -624,27 +607,38 @@ enum SeedEv {
         #[serde(default)]
         values: BTreeMap<String, String>,
     },
+    Title {
+        selected: Vec<String>,
+        catalogue: Vec<CatalogueItem>,
+        #[serde(default)]
+        values: BTreeMap<String, String>,
+    },
     Keymap {
         tabs: Vec<KeymapTab>,
     },
 }
 
-/// `StatusLineSetupView::new`: the selected items first, in order and
-/// enabled, then the rest disabled; "use theme colors" leads.
-fn status_line(
-    use_theme_colors: bool,
+/// `StatusLineSetupView::new` / `TerminalTitleSetupView::new`: the selected
+/// items first, in order and enabled, then the rest disabled; the status
+/// line's "use theme colors" leads.
+fn setup(
+    kind: SetupKind,
+    use_theme_colors: Option<bool>,
     selected: &[String],
     catalogue: Vec<CatalogueItem>,
     values: BTreeMap<String, String>,
-) -> StatusLineSetup {
-    let mut items = vec![SetupItem {
-        id: USE_THEME_COLORS.to_string(),
-        description: String::new(),
-        enabled: use_theme_colors,
-        orderable: false,
-        section_break_after: true,
-        placeholder: String::new(),
-    }];
+) -> Setup {
+    let mut items = Vec::new();
+    if let Some(enabled) = use_theme_colors {
+        items.push(SetupItem {
+            id: USE_THEME_COLORS.to_string(),
+            description: String::new(),
+            enabled,
+            orderable: false,
+            section_break_after: true,
+            placeholder: String::new(),
+        });
+    }
     let item = |entry: &CatalogueItem, enabled: bool| SetupItem {
         id: entry.id.clone(),
         description: entry.description.clone(),
@@ -668,11 +662,10 @@ fn status_line(
             items.push(item(entry, false));
         }
     }
-    StatusLineSetup {
+    Setup {
+        kind,
         items,
         values,
-        cursor: 0,
-        query: String::new(),
     }
 }
 
@@ -682,33 +675,39 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
         SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
-        SeedEv::ThemePicker { themes, current } => {
-            let cursor = current
-                .as_ref()
-                .and_then(|name| themes.iter().position(|theme| theme == name))
-                .unwrap_or(0);
-            Open::Theme(ThemePicker {
-                themes,
-                cursor,
-                original: current,
-            })
-        }
+        SeedEv::ThemePicker { themes, current } => Open::Theme(ThemePicker {
+            themes,
+            original: current,
+        }),
         SeedEv::StatusLine {
             use_theme_colors,
             selected,
             catalogue,
             values,
-        } => Open::StatusLine(status_line(use_theme_colors, &selected, catalogue, values)),
+        } => Open::Setup(setup(
+            SetupKind::StatusLine,
+            Some(use_theme_colors),
+            &selected,
+            catalogue,
+            values,
+        )),
+        SeedEv::Title {
+            selected,
+            catalogue,
+            values,
+        } => Open::Setup(setup(
+            SetupKind::Title,
+            None,
+            &selected,
+            catalogue,
+            values,
+        )),
         SeedEv::Keymap { tabs } => {
             if tabs.is_empty() {
                 return Err(crate::screens::SeedError::Bad("no tabs".into()));
             }
-            Open::Keymap(KeymapPicker {
-                tabs,
-                tab: 0,
-                cursor: 0,
-                query: String::new(),
-            })
+            Open::Keymap(KeymapPicker { tabs })
         }
     }))
 }
+
