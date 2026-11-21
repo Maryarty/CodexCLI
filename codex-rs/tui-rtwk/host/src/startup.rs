@@ -429,6 +429,32 @@ where
             .await;
             Ev::GatewayOAuth { request, result }
         }
+        Ask::GatewayDevice { request } => {
+            // `lib.rs`: `!uses_remote_workspace` gates the whole sign-in.
+            if startup.target.remote_workspace() {
+                return Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+                    request,
+                    code: None,
+                })));
+            }
+            let provider = explicit_provider(&*startup.current.read().await);
+            match crate::gateway::start_device(
+                provider.as_deref(),
+                &ids,
+                &send,
+                crate::gateway::prefer_device_login(),
+            )
+            .await
+            {
+                Ok(code) => Ev::GatewayDevice { request, code },
+                // `run_ratatui_app` returns the error.
+                Err(message) => return Some(fail_launch(&startup, message)),
+            }
+        }
+        Ask::FailLaunch { message } => {
+            // `run_gateway_device_login` returns the sign-in's error.
+            return Some(fail_launch(&startup, message));
+        }
         Ask::CancelGatewayOAuth => {
             // `authenticate_gateway`: the oracle ignores the answer.
             let _ = send(wire::gateway_oauth_cancel(ids.next())).await;
@@ -615,6 +641,28 @@ fn login_policy(startup: &Startup) -> wire::LoginPolicy {
         },
         env_api_key: read_openai_api_key_from_env(),
     }
+}
+
+/// `explicit_provider`: the provider the invocation (a session flag) or a
+/// named profile chose, none when the config's own default stands. The
+/// harness's `--oss` override is not carried over.
+fn explicit_provider(config: &Config) -> Option<String> {
+    config
+        .config_layer_stack
+        .layers_high_to_low()
+        .into_iter()
+        .find(|layer| layer.config.get("model_provider").is_some())
+        .filter(|layer| {
+            matches!(
+                layer.name,
+                ConfigLayerSource::SessionFlags
+                    | ConfigLayerSource::User {
+                        profile: Some(_),
+                        ..
+                    }
+            )
+        })
+        .map(|_| config.model_provider_id.clone())
 }
 
 /// `client_provider_override_for_new_chats` is some: the launch chose a
@@ -1335,6 +1383,115 @@ mod tests {
             matches!(ev, Some(AppEv::StartFailed(ref text)) if text == "Error loading configuration: no reload"),
             "{ev:?}"
         );
+    }
+
+    // `lib.rs`: a remote workspace shows no gateway sign-in, and asks the
+    // server nothing; the page is told there is no code.
+    #[tokio::test]
+    async fn a_remote_workspace_has_no_gateway_device_code() {
+        let (startup, _dir) = startup_with(Target::Remote, system_browser()).await;
+        let ev = run(
+            startup,
+            Ask::GatewayDevice { request: 2 },
+            Ids::default(),
+            |request: ClientRequest| async move { panic!("asked {request:?}") },
+        )
+        .await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+                request: 2,
+                code: None
+            })))
+        ));
+    }
+
+    // A server that has no sign-in to start answers with no code, the config's
+    // own provider is read for (none named).
+    #[tokio::test]
+    async fn a_gateway_without_a_sign_in_answers_no_code() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = {
+            let asked = asked.clone();
+            move |request: ClientRequest| {
+                let asked = asked.clone();
+                async move {
+                    if let ClientRequest::GatewayOAuthRead { params, .. } = &request {
+                        asked.lock().unwrap().push(params.is_some());
+                    }
+                    Ok::<_, ServerError>(serde_json::json!({
+                        "providerId": "openai",
+                        "providerName": "OpenAI",
+                        "required": false,
+                        "supportsDeviceAuth": false,
+                        "status": null,
+                        "error": null,
+                    }))
+                }
+            }
+        };
+        let ev = run(
+            startup,
+            Ask::GatewayDevice { request: 2 },
+            Ids::default(),
+            record,
+        )
+        .await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+                request: 2,
+                code: None
+            })))
+        ));
+        assert_eq!(*asked.lock().unwrap(), [false]);
+    }
+
+    // `run_ratatui_app` returns the error of the read: the launch ends with
+    // the client's text, in the slot `main` reads.
+    #[tokio::test]
+    async fn a_failed_read_ends_the_launch_with_its_text() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = run(
+            startup.clone(),
+            Ask::GatewayDevice { request: 2 },
+            Ids::default(),
+            |_: ClientRequest| async {
+                Err::<serde_json::Value, _>(ServerError {
+                    code: Some(-32603),
+                    message: "account/gatewayOAuth/read failed: boom (code -32603)".into(),
+                })
+            },
+        )
+        .await;
+        let text = "account/gatewayOAuth/read failed: boom (code -32603)";
+        assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if message == text));
+        assert_eq!(startup.failure.lock().unwrap().as_deref(), Some(text));
+    }
+
+    // The sign-in that failed ends the launch with the server's message.
+    #[tokio::test]
+    async fn the_failed_sign_in_ends_the_launch_with_its_message() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = run(
+            startup.clone(),
+            Ask::FailLaunch {
+                message: "Denied".into(),
+            },
+            Ids::default(),
+            nothing,
+        )
+        .await;
+        assert!(matches!(&ev, Some(AppEv::StartFailed(message)) if message == "Denied"));
+        assert_eq!(startup.failure.lock().unwrap().as_deref(), Some("Denied"));
+    }
+
+    // Nothing names a provider on a plain config.
+    #[tokio::test]
+    async fn a_plain_config_names_no_provider() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        assert_eq!(explicit_provider(&startup.config), None);
     }
 
     // `start_gateway_oauth`'s answer reaches the page as its result, and the

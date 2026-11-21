@@ -191,6 +191,39 @@ pub fn gateway_server_without_device(probe: &Value) -> bool {
     })
 }
 
+const GATEWAY_READ: &str = "account/gatewayOAuth/read";
+
+/// The server's own words of a refusal: the client's text is
+/// `<method> failed: <source.message> (code n)`.
+fn gateway_read_source(error: &ServerError) -> &str {
+    let text = error
+        .message
+        .strip_prefix(GATEWAY_READ)
+        .and_then(|rest| rest.strip_prefix(" failed: "))
+        .unwrap_or(&error.message);
+    text.rsplit_once(" (code ").map_or(text, |(source, _)| source)
+}
+
+/// `is_method_not_found` of `account/gatewayOAuth/read`: a server without the
+/// gateway sign-in, which has nothing to show (older ones report an unknown
+/// method as an invalid request, naming it).
+pub fn gateway_read_missing(error: &ServerError) -> bool {
+    error.code == Some(-32601)
+        || (error.code == Some(-32600) && {
+            let source = gateway_read_source(error);
+            source.contains(GATEWAY_READ)
+                && (source.contains("unknown variant") || source.contains("unknown method"))
+        })
+}
+
+/// A read for a named provider the server refused as an invalid request
+/// (`start_if_needed` then asks without a provider to recognise a server
+/// that does not take the name). The oracle also requires that the refusal
+/// carry no `data`; the client's text does not carry it.
+pub fn gateway_named_read_refused(error: &ServerError) -> bool {
+    error.code == Some(-32600)
+}
+
 /// `account/gatewayOAuth/login` asking for the device code of the provider
 /// (`start_if_needed`).
 pub fn gateway_device_login(provider_id: &str, request_id: RequestId) -> ClientRequest {
@@ -474,6 +507,81 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn refusal(code: i64, message: &str) -> ServerError {
+        ServerError {
+            code: Some(code),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn a_gateway_read_the_server_does_not_know_is_missing() {
+        assert!(gateway_read_missing(&refusal(
+            -32601,
+            "account/gatewayOAuth/read failed: Method not found (code -32601)"
+        )));
+        assert!(gateway_read_missing(&refusal(
+            -32600,
+            "account/gatewayOAuth/read failed: Invalid request: unknown variant `account/gatewayOAuth/read`, expected one of `initialize` (code -32600)"
+        )));
+        assert!(gateway_read_missing(&refusal(
+            -32600,
+            "account/gatewayOAuth/read failed: unknown method account/gatewayOAuth/read (code -32600)"
+        )));
+    }
+
+    #[test]
+    fn another_refusal_is_not_a_missing_method() {
+        // The method named in the client's frame is not the server's.
+        assert!(!gateway_read_missing(&refusal(
+            -32600,
+            "account/gatewayOAuth/read failed: Invalid request: missing field `x` (code -32600)"
+        )));
+        assert!(!gateway_read_missing(&refusal(
+            -32600,
+            "account/gatewayOAuth/read failed: unknown variant `other/method` (code -32600)"
+        )));
+        assert!(!gateway_read_missing(&refusal(
+            -32603,
+            "account/gatewayOAuth/read failed: boom (code -32603)"
+        )));
+        assert!(gateway_named_read_refused(&refusal(-32600, "x")));
+        assert!(!gateway_named_read_refused(&refusal(-32603, "x")));
+    }
+
+    #[test]
+    fn the_device_login_asks_for_the_code_and_reads_it_back() {
+        let ClientRequest::GatewayOAuthLogin { params, .. } =
+            gateway_device_login("office", RequestId::Integer(1))
+        else {
+            panic!("a login");
+        };
+        let params = params.unwrap();
+        assert!(params.device_auth);
+        assert_eq!(params.model_provider.as_deref(), Some("office"));
+        let prompt = json!({"prompt": {"loginId": "l1", "verificationUrl": "https://v", "userCode": "AB-CD"}});
+        assert_eq!(
+            gateway_device_prompt(prompt),
+            Ok(Some(DeviceCode {
+                login_id: "l1".into(),
+                url: "https://v".into(),
+                code: "AB-CD".into(),
+            }))
+        );
+        assert_eq!(gateway_device_prompt(json!({"prompt": null})), Ok(None));
+        assert!(gateway_device_prompt(json!({"prompt": 3})).is_err());
+    }
+
+    #[test]
+    fn only_a_server_naming_a_provider_without_device_support_is_older() {
+        assert!(gateway_server_without_device(&json!({"providerId": "x"})));
+        assert!(!gateway_server_without_device(
+            &json!({"providerId": "x", "supportsDeviceAuth": false})
+        ));
+        assert!(!gateway_server_without_device(&json!({})));
+        assert!(!gateway_server_without_device(&json!("x")));
+    }
 
     fn roots(projectless: bool) -> LocalRoots {
         LocalRoots {
