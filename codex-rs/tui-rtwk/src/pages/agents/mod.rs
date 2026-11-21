@@ -40,7 +40,7 @@ mod dialogs;
 mod help;
 mod keys;
 mod opening;
-mod path;
+pub(crate) mod path;
 mod state;
 pub mod strings;
 mod tabs;

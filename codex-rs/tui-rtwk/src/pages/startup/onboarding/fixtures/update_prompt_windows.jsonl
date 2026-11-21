@@ -1,0 +1,2 @@
+# The update prompt with the standalone Windows command (update_prompt.rs:349).
+{"step": "screen", "dir": "onboarding", "ev": {"update": {"current": "0.0.0", "latest": "9.9.9", "command": "powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex'"}}}

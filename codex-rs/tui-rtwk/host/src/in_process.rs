@@ -183,6 +183,10 @@ pub struct InProcess {
     /// ends the process with this error (the oracle's `run_main_inner`
     /// returns it).
     pub failed: oneshot::Sender<String>,
+    /// `codex agents`: the overview opens, no folder trust is asked.
+    pub agents: bool,
+    /// Where the startup page leaves the update to run after the app ends.
+    pub update: crate::startup::UpdateSlot,
 }
 
 impl Connector for InProcess {
@@ -213,6 +217,8 @@ async fn run(
         config_overrides,
         startup_warning,
         failed,
+        agents,
+        update,
     } = spec;
     // A start that fails ends the app: `main` reports `error` once the
     // terminal is restored.
@@ -264,6 +270,13 @@ async fn run(
         details,
     }));
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
+    // The startup page's asks: the trust is a local folder's question.
+    let startup = crate::startup::Startup {
+        config: config.clone(),
+        connected: !matches!(mode, Mode::Embedded),
+        check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
+        update,
+    };
     let show_version = config.tui_show_server_version_notice;
     let mut held = HandBack::new(client, done);
     emit(&ingress, epoch, AppEv::Connected);
@@ -351,6 +364,7 @@ async fn run(
                         facts,
                         workspace.clone(),
                         model.clone(),
+                        Some(startup.clone()),
                     );
                     inflight.push(latest.wrap(&command, job));
                 }
@@ -504,9 +518,15 @@ pub(crate) fn work(
     facts: Facts,
     workspace: Arc<dyn Workspace>,
     model: Option<String>,
+    startup: Option<crate::startup::Startup>,
 ) -> Boxed<Option<AppEv>> {
     let send = sender(handle);
     match command {
+        // The startup page's asks; a backend with no startup side (Cloud)
+        // answers none.
+        Command::Startup { ask, .. } => {
+            Box::pin(async move { crate::startup::run(startup?, ask, ids, send).await })
+        }
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
         }

@@ -1,0 +1,3 @@
+# The update prompt, then the trust step (onboarding_screen.rs:1064).
+{"step": "screen", "dir": "onboarding", "ev": {"update": {"current": "0.0.0", "latest": "9.9.9", "command": "npm install -g @openai/codex"}}}
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project"}}}

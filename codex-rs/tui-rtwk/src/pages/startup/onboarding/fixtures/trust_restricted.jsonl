@@ -1,0 +1,2 @@
+# trust_directory.rs:402: a restricted folder.
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project", "restricted": true, "cancel": "agents_overview"}}}

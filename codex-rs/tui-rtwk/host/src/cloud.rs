@@ -153,6 +153,7 @@ async fn run(
                         facts,
                         workspace.clone(),
                         spec.model.clone(),
+                        None,
                     );
                     inflight.push(latest.wrap(&command, job));
                 }

@@ -99,6 +99,12 @@ impl Options {
         self.set(usize::try_from((from + delta).rem_euclid(len)).unwrap_or(0));
     }
 
+    /// The scroll of the rows, for what shows whether rows are hidden above
+    /// or below (the oracle's picker arrows).
+    pub fn scroll(&self) -> ScrollController {
+        self.scroll.clone()
+    }
+
     pub fn dispose(&self) {
         self.selection.dispose();
     }
@@ -154,7 +160,9 @@ impl Options {
                         GridTrack::content().within(0, i32::try_from(cap).unwrap_or(1)),
                         GridTrack::fr(1),
                     ])
-                    .column_gap(2);
+                    // Rows without descriptions give the labels the whole
+                    // room: no gap before an empty column.
+                    .column_gap(if described { 2 } else { 0 });
                 for (index, row) in rows.iter().enumerate() {
                     let at = i32::try_from(index).unwrap_or(0);
                     let (label, description) = (row.label.clone(), row.description.clone());

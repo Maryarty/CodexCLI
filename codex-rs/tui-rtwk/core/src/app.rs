@@ -272,6 +272,13 @@ pub enum Command {
     /// screen's `Ev::Notice`.
     #[non_exhaustive]
     SaveGrouping { grouping: String },
+    /// An ask of the startup page the host runs (its facts, the trust
+    /// write, the update's dismissal and run), answered with the page's
+    /// events under the ask's number (`onboarding::Ask`).
+    #[non_exhaustive]
+    Startup {
+        ask: crate::screens::onboarding::Ask,
+    },
     /// An RPC of a screen slot (`ThreadFx::request`).
     #[non_exhaustive]
     Screen {
@@ -519,6 +526,8 @@ impl CodexApp {
             Command::StartThread { backend, .. } | Command::ReadRateLimits { backend, .. } => {
                 *backend
             }
+            // The startup page reads and writes this machine's first backend.
+            Command::Startup { .. } => BackendId::default(),
             Command::Screen { thread, .. } if !thread.as_str().is_empty() => {
                 agents.owner_of(thread.as_str())
             }
@@ -674,8 +683,16 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         }
         AppEv::Connected if !app.start_thread_on_connect => {
             Rc::make_mut(&mut app.session).status = Session::Ready;
+            crate::screens::onboarding::connected(
+                &mut Rc::make_mut(&mut app.screens).onboarding,
+                fx,
+            );
         }
         AppEv::Connected => {
+            crate::screens::onboarding::connected(
+                &mut Rc::make_mut(&mut app.screens).onboarding,
+                fx,
+            );
             let ticket = app.mint.next();
             app.outgoing
                 .insert(ticket, AppCtx::StartThread { switch: None });

@@ -18,7 +18,7 @@ use codex_tui_core::screens::ScreenIntent;
 
 use crate::app::UiApp;
 use crate::app::debug::menu::DebugMenu;
-use crate::app::start_page::{Start, StartPage};
+use crate::app::start_page::{Start, StartPage, StartupGate};
 use crate::pages;
 use crate::sheets::presenter::home_node;
 
@@ -90,6 +90,11 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .into()
     } else {
         pages::session::home(app)
+    };
+    let child: AnyWidget = if app.ui.debug {
+        child
+    } else {
+        StartupGate { child }.into()
     };
     let home = cx.memo((app.ui.presenter.place(), child), home_node);
     let tree = MultiProvider::new()

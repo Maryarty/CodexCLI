@@ -6,6 +6,7 @@
 //! events in `threads::project` and `app::pending_request`.
 
 pub(crate) mod agents;
+pub mod onboarding;
 pub(crate) mod requests;
 pub(crate) mod targets;
 
@@ -76,7 +77,8 @@ pub fn client_request(
         | Command::CreateWorktree { .. }
         | Command::BindWorktree { .. }
         | Command::Directories { .. }
-        | Command::SaveGrouping { .. } => None,
+        | Command::SaveGrouping { .. }
+        | Command::Startup { .. } => None,
     }
 }
 
@@ -142,7 +144,8 @@ pub fn reply(
         | Command::CreateWorktree { .. }
         | Command::BindWorktree { .. }
         | Command::Directories { .. }
-        | Command::SaveGrouping { .. } => None,
+        | Command::SaveGrouping { .. }
+        | Command::Startup { .. } => None,
     }
 }
 

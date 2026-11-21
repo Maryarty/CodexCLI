@@ -118,6 +118,11 @@ impl Tokens {
         self.0.info.clone()
     }
 
+    /// The theme's warning colour (the oracle's yellow notes).
+    pub fn warning(&self) -> Style {
+        self.0.warning.clone()
+    }
+
     /// The theme's success colour (the oracle's green accents).
     pub fn success(&self) -> Style {
         self.0.success.clone()

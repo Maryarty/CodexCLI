@@ -1,0 +1,2 @@
+# trust_directory.rs:360: the cancel keeps the current directory.
+{"step": "screen", "dir": "onboarding", "ev": {"trust": {"cwd": "/workspace/project", "cancel": "current_task"}}}
