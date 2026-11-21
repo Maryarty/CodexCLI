@@ -72,7 +72,13 @@ mod patch_disclosure {
         t.click(6, y as u16);
         t.pump();
         let shown = rows(&t);
-        assert!(shown.iter().any(|row| row == "    − Hide details"), "{shown:#?}");
-        assert!(shown.iter().any(|row| row.contains("4 +four")), "{shown:#?}");
+        assert!(
+            shown.iter().any(|row| row == "    − Hide details"),
+            "{shown:#?}"
+        );
+        assert!(
+            shown.iter().any(|row| row.contains("4 +four")),
+            "{shown:#?}"
+        );
     }
 }
