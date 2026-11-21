@@ -133,11 +133,19 @@ fn slash_keymap_debug_can_inspect_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2561 slash_keymap_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_invalid_args_show_usage() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "the chat composer has no prompt history: after /keymap nope (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/keymap nope\", recorded on submit)",
+    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap nope");
     s.keys("enter");
     s.assert_contains("Usage: /keymap [debug]");
-    // The oracle then recalls "/keymap nope" into the composer after clearing it: the composer row is checked when the recall exists.
+    // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    s.keys("ctrl+u");
+    s.assert_composer("");
+    s.keys("up");
+    s.assert_composer("/keymap nope");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2581 copy_shortcut_can_be_remapped kind=ui owner=chat-nav-pane
@@ -231,17 +239,22 @@ fn slash_clear_with_name_requests_named_session() {
 // ORACLE chatwidget/tests/slash_commands.rs:2894 slash_clear_after_ctrl_c_keeps_stashed_draft_recallable kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "no Ctrl+C draft stash and no prompt history on the chat composer: Ctrl+C leaves the draft in the composer (oracle: composer empty, draft recorded), Up recalls nothing",
+    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("ok");
     s.keys("enter");
     s.type_text("explain why history recall lost this draft");
     s.keys("ctrl+c");
+    s.assert_composer("");
     s.type_text("/clear");
     s.keys("enter");
     s.keys("up");
-    s.assert_contains("explain why history recall lost this draft");
+    s.assert_composer("explain why history recall lost this draft");
     s.keys("up");
-    s.assert_contains("ok");
+    s.assert_composer("ok");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2926 slash_clear_is_disabled_while_task_running kind=ui owner=chat-nav-pane
@@ -292,11 +305,19 @@ fn slash_memory_maintenance_reports_stubbed_feature() {
 // ORACLE chatwidget/tests/slash_commands.rs:3041 slash_mcp_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_mcp_invalid_args_show_usage() {
+    kit::pending(
+        Owner::ChatNavPane,
+        "the chat composer has no prompt history: after /mcp full (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/mcp full\", recorded on submit)",
+    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/mcp full");
     s.keys("enter");
     s.assert_contains("Usage: /mcp [verbose | login <name>]");
-    // The oracle then recalls "/mcp full" into the composer: the composer row is checked when the recall exists.
+    // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    s.keys("ctrl+u");
+    s.assert_composer("");
+    s.keys("up");
+    s.assert_composer("/mcp full");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3061 slash_memories_opens_memory_menu kind=ui owner=chat-nav-pane
