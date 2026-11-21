@@ -3638,6 +3638,7 @@ dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-cli",
  "codex-utils-path",
+ "codex-utils-path-uri",
  "codex-worktree",
  "dunce",
  "futures",

@@ -30,6 +30,7 @@ codex-install-context = { path = "../../install-context" }
 codex-login = { path = "../../login" }
 codex-protocol = { path = "../../protocol" }
 codex-utils-absolute-path = { path = "../../utils/absolute-path" }
+codex-utils-path-uri = { path = "../../utils/path-uri" }
 codex-utils-cli = { path = "../../utils/cli" }
 codex-utils-path = { path = "../../utils/path-utils" }
 codex-worktree = { path = "../../worktree" }

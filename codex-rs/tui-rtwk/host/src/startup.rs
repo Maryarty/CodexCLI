@@ -17,12 +17,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::EnvironmentInfoParams;
 use codex_config::ConfigLayerSource;
 use codex_config::default_project_root_markers;
 use codex_config::loader::discover_project_root;
 use codex_config::loader::normalized_project_trust_keys;
 use codex_config::loader::project_trust_key;
 use codex_core::config::Config;
+use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_git_utils::resolve_root_git_project_for_trust;
@@ -52,6 +54,9 @@ use codex_tui_rtwk::services::startup::read_version_cache;
 use codex_tui_rtwk::services::startup::version_cache_is_stale;
 use codex_tui_rtwk::services::startup::write_version_cache;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathConvention;
+use codex_utils_path_uri::PathUri;
 
 /// The update the user chose to run, kept for `main` to run after the
 /// terminal is restored.
@@ -320,8 +325,11 @@ where
         };
         format!("account/read failed: {text}")
     })?;
-    let trust = if startup.check_trust {
-        trust(config, ids, send).await?
+    // `(!uses_remote_workspace || remote_cwd_override.is_some())`.
+    let asks_trust =
+        startup.check_trust && (!startup.target.remote_workspace() || startup.remote_cwd.is_some());
+    let trust = if asks_trust {
+        trust(startup, ids, send).await?
     } else {
         None
     };
@@ -457,8 +465,43 @@ fn provider_flag(startup: &Startup) -> bool {
 }
 
 /// The folder trust to ask at launch (`check_directory_trust` with its
-/// defaults: no resumed task, the agents overview as the cancel).
-async fn trust<F, Fut>(config: &Config, ids: &Ids, send: &F) -> Result<Option<TrustAsk>, String>
+/// defaults: no resumed task, the agents overview as the cancel): the local
+/// folder, or the remote workspace's `--cd` folder.
+async fn trust<F, Fut>(startup: &Startup, ids: &Ids, send: &F) -> Result<Option<TrustAsk>, String>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let lookup = match startup
+        .remote_cwd
+        .as_deref()
+        .filter(|_| startup.target.remote_workspace())
+    {
+        Some(cwd) => remote_lookup(cwd, ids, send).await?,
+        None => local_lookup(&startup.config, ids, send).await?,
+    };
+    Ok(lookup.map(|lookup| TrustAsk {
+        cwd: lookup.cwd,
+        target: lookup.target,
+        restricted: lookup.restricted,
+        existing_task: false,
+        cancel: TrustCancel::AgentsOverview,
+        sandbox_hint: false,
+        error: None,
+        decision: None,
+    }))
+}
+
+fn trust_read_error(error: ServerError) -> String {
+    format!("config/read failed while checking remote project trust: {error}")
+}
+
+/// `read_remote_project_trust` for the local host.
+async fn local_lookup<F, Fut>(
+    config: &Config,
+    ids: &Ids,
+    send: &F,
+) -> Result<Option<wire::Lookup>, String>
 where
     F: Fn(ClientRequest) -> Fut,
     Fut: Future<Output = Result<serde_json::Value, ServerError>>,
@@ -470,29 +513,90 @@ where
         .to_owned();
     let response = send(wire::trust_read(&cwd_text, ids.next()))
         .await
-        .map_err(|error| {
-            format!("config/read failed while checking remote project trust: {error}")
-        })?;
+        .map_err(trust_read_error)?;
     let roots = local_roots(&config.cwd, &response).await?;
-    let Some(lookup) = wire::trust_lookup(
+    Ok(wire::trust_lookup(
         &response,
         &cwd_text,
         &normalized_project_trust_keys(cwd),
         roots.as_ref(),
         cfg!(windows),
-    ) else {
+    ))
+}
+
+/// `read_remote_project_trust` for a remote host, and what
+/// `check_directory_trust` makes of it: a saved untrusted folder is not asked
+/// (the existing behaviour of remote connections).
+async fn remote_lookup<F, Fut>(
+    cwd: &Path,
+    ids: &Ids,
+    send: &F,
+) -> Result<Option<wire::Lookup>, String>
+where
+    F: Fn(ClientRequest) -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, ServerError>>,
+{
+    let cwd_text = cwd
+        .to_str()
+        .ok_or("Cannot check folder trust: directory path is not valid UTF-8")?
+        .to_owned();
+    let uri = match LegacyAppPathString::from_string(cwd_text.clone()).to_inferred_path_uri() {
+        Some(uri) => uri,
+        // A relative folder: the environment's cwd is its base.
+        None => {
+            let info = send(ClientRequest::EnvironmentInfo {
+                request_id: ids.next(),
+                params: EnvironmentInfoParams {
+                    environment_id: LOCAL_ENVIRONMENT_ID.to_string(),
+                },
+            })
+            .await
+            .map_err(|error| {
+                format!("environment/info failed while resolving remote project trust: {error}")
+            })?;
+            let base = serde_json::from_value::<Option<PathUri>>(info["cwd"].clone())
+                .ok()
+                .flatten()
+                .ok_or("remote app server did not provide a cwd")?;
+            base.join(&cwd_text).map_err(|error| {
+                format!("failed to resolve the remote project directory: {error}")
+            })?
+        }
+    };
+    let cwd = uri.inferred_native_path_string();
+    let response = send(wire::trust_read(&cwd, ids.next()))
+        .await
+        .map_err(trust_read_error)?;
+    let windows = uri.infer_path_convention() == Some(PathConvention::Windows);
+    let key = if windows {
+        cwd.to_ascii_lowercase()
+    } else {
+        cwd.clone()
+    };
+    let Some(lookup) = wire::trust_lookup(&response, &cwd, &[key], None, windows) else {
         return Ok(None);
     };
-    Ok(Some(TrustAsk {
-        cwd: lookup.cwd,
-        target: lookup.target,
-        restricted: lookup.restricted,
-        existing_task: false,
-        cancel: TrustCancel::AgentsOverview,
-        sandbox_hint: false,
-        error: None,
-        decision: None,
-    }))
+    let has_project_layer = response["layers"].as_array().is_some_and(|layers| {
+        layers
+            .iter()
+            .any(|layer| layer["name"]["type"] == "project")
+    });
+    let inside_untrusted = !lookup.restricted
+        && !has_project_layer
+        && response["config"]["projects"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .any(|(path, project)| {
+                project["trust_level"].as_str() == Some("untrusted")
+                    && LegacyAppPathString::from_string(path.clone())
+                        .to_inferred_path_uri()
+                        .is_some_and(|project| uri.starts_with(&project))
+            });
+    if inside_untrusted {
+        return Err("remote project directory is inside an explicitly untrusted project; pass the repository root explicitly with --cd".to_owned());
+    }
+    Ok((!lookup.restricted).then_some(lookup))
 }
 
 /// The project and repository roots of `cwd` on this machine: read only
@@ -1050,6 +1154,7 @@ mod tests {
             Some(TrustAsk {
                 cwd: "/srv/app".into(),
                 target: "/srv/app".into(),
+                cancel: TrustCancel::AgentsOverview,
                 ..TrustAsk::default()
             })
         );
