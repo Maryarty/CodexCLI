@@ -141,11 +141,28 @@ impl ComposerDraft {
         label: impl Fn(usize) -> String,
     ) -> bool {
         let pasted = pasted.replace("\r\n", "\n").replace('\r', "\n");
-        let Some(chars) = composer::large_paste(&pasted) else {
+        // a multiline paste after `> ` goes in quoted, and the caret leaves
+        // the quote (`apply_paste`); shell input stays literal
+        let quoted = (!self.shell())
+            .then(|| {
+                let at = c.selection().start();
+                let before = &c.text()[..at];
+                let line = before.rsplit('\n').next().unwrap_or_default();
+                composer::blockquote_paste(line, &pasted)
+            })
+            .flatten();
+        let text = quoted.as_deref().unwrap_or(&pasted);
+        if let Some(chars) = composer::large_paste(text) {
+            let label = self.next_label(c, &label(chars));
+            self.insert_element(c, &label, text);
+        } else if quoted.is_some() {
+            c.insert(text);
+        } else {
             return false;
-        };
-        let label = self.next_label(c, &label(chars));
-        self.insert_element(c, &label, &pasted);
+        }
+        if quoted.is_some() {
+            c.insert("\n\n");
+        }
         true
     }
 

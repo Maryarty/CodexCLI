@@ -28,11 +28,15 @@ fn cell(row: usize) -> u16 {
 const PLACEHOLDER: &str = "› Ask Codex to do anything";
 
 /// The draft's rows from the prompt down: the first line after `› `, the others after two spaces.
+/// A draft that begins with `!` is a shell command: the `!` is the prompt (`! ` and the rest).
 fn draft_rows(s: &Screen, text: &str) {
     let p = prompt(s);
     for (i, line) in text.split('\n').enumerate() {
         let row = if i == 0 {
-            format!("› {line}")
+            match line.strip_prefix('!') {
+                Some(command) => format!("! {command}"),
+                None => format!("› {line}"),
+            }
         } else {
             format!("  {line}")
         };
@@ -40,11 +44,12 @@ fn draft_rows(s: &Screen, text: &str) {
     }
 }
 
-/// Types a draft, one line per `ctrl+j` (a newline in the composer).
+/// Types a draft, one line per `alt+enter`: the oracle's newline is Ctrl+J, which rtwk's input
+/// reads as Enter (LF is Enter, G66), so the draft's lines are broken with the chord rtwk tells apart.
 fn type_lines(s: &mut Screen, text: &str) {
     for (i, line) in text.split('\n').enumerate() {
         if i > 0 {
-            s.keys("ctrl+j");
+            s.keys("alt+enter");
         }
         s.type_text(line);
     }
@@ -77,10 +82,6 @@ fn rich_draft(s: &mut Screen) {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:9 blockquote_paste_continues_current_line_prefix kind=ui owner=chat-live
 #[test]
 fn blockquote_paste_continues_current_line_prefix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no blockquote continuation on the chat composer: a paste after `> ` does not re-quote its lines with `> `",
-    );
     for (draft, pasted, expected) in [
         ("> ", "first\nsecond", "> first\n> second\n\n"),
         ("> ", "first\n", "> first\n\n"),
@@ -111,10 +112,6 @@ fn blockquote_paste_continues_current_line_prefix() {
 // ORACLE bottom_pane/chat_composer/blockquote_paste_tests.rs:39 blockquote_paste_uses_cursor_line_and_preserves_suffix kind=ui owner=chat-live
 #[test]
 fn blockquote_paste_uses_cursor_line_and_preserves_suffix() {
-    kit::pending(
-        Owner::ChatLive,
-        "no blockquote continuation and no caret-line paste on the chat composer: the paste is not quoted on the caret's `> ` line",
-    );
     let mut s = chat(100, 24);
     type_lines(&mut s, "intro\n> suffix\nend");
     // the caret after `intro\n> `
@@ -130,7 +127,7 @@ fn blockquote_paste_uses_cursor_line_and_preserves_suffix() {
 fn blockquote_paste_large_expands_quoted_text_on_submit() {
     kit::pending(
         Owner::ChatLive,
-        "no blockquote quoting and no large-paste placeholder on the chat composer: the paste is drawn in full, not as `[Pasted Content 1009 chars]`",
+        "the sent user message is drawn as Markdown, so `> x` / `> second` is one quote paragraph (the oracle prints the typed lines): the user message cell, chat-cells",
     );
     let mut s = chat(100, 24);
     s.type_text("> ");
@@ -149,7 +146,7 @@ fn blockquote_paste_large_expands_quoted_text_on_submit() {
 fn blockquote_paste_rendered() {
     kit::pending(
         Owner::ChatLive,
-        "the oracle's snapshot is the composer alone at 60 columns (the chat screen draws its header and footer around it), and no blockquote continuation",
+        "the footer of a non-empty draft is `100% context left` at the right (footer modes), not built; the oracle snapshot is the composer alone at 60 columns",
     );
     let mut s = chat(60, 9);
     type_lines(&mut s, "Please explain:\n> ");
@@ -482,7 +479,7 @@ fn draft_handoff_preserves_newline_after_short_unicode_prefix() {
     );
     let mut s = chat(100, 24);
     s.type_text("猫");
-    s.keys("ctrl+j");
+    s.keys("alt+enter");
     s.type_text("犬");
     draft_rows(&s, "猫\n犬");
     let mut s = chat(100, 24);

@@ -28,6 +28,22 @@ pub fn large_paste(pasted: &str) -> Option<usize> {
     (chars > LARGE_PASTE_CHAR_THRESHOLD).then_some(chars)
 }
 
+/// The blockquote rule of `apply_paste` (`chat_composer/paste_input.rs`):
+/// a multiline paste on a line that begins with `> ` continues the quote
+/// after every newline, a single trailing newline not counting. `current_line`
+/// is the draft's line up to where the paste goes; `pasted` has its newlines
+/// normalised. None when the paste is not quoted.
+pub fn blockquote_paste(current_line: &str, pasted: &str) -> Option<String> {
+    if !current_line.starts_with("> ") || !pasted.contains('\n') {
+        return None;
+    }
+    let body = pasted
+        .strip_suffix('\n')
+        .filter(|body| !body.is_empty())
+        .unwrap_or(pasted);
+    Some(body.replace('\n', "\n> "))
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {}
