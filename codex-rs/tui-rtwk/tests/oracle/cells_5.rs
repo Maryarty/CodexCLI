@@ -12,7 +12,7 @@ const REASONING_CELL: &str = "no reasoning-summary cell in S11: the transcript d
 const PLAN_DISPLAY: &str = "the snapshot is the plan cell's inline `display_lines` (`• Updated Plan`, no count); a plan that fits (no note, three steps or fewer, no clipped step) shows in the chat only compact (`• Updated Plan · 0/2 complete`), the oracle's own transcript view";
 const PLAN_FRAMES: &str = "the kit cannot address the snapshot's bare-label frames `Compact` and `Full` (oracle_snap::frames reads dashed headers, `N columns:`, `width=` and labels above `Buffer {`; tests/kit is not this slice's); the same rows are checked against the snapshot's text in tests/pages/cells.rs plan_update::the_oracle_snapshot_compact_rows (passes) and the_oracle_snapshot_full_rows (pending G49: no break after a slash)";
 const PLAN_URL_TOKENS: &str = "the oracle wraps a URL token whole (adaptive_wrap_hyperlink_lines keeps it on one row even wider than the screen); a grid chat breaks it at the width, so the contiguous literal is never on one row";
-const NOTICE_CELL: &str = "no deprecation-notice cell in S11: deprecationNotice is not projected into a transcript cell with a warning mark and details";
+const NOTICE_CELL: &str = "the cell is built (DeprecationCell, core `project_unrouted`) but the app does not hand the thread-less `deprecationNotice` to the displayed thread, and core/src/app.rs still shows its summary as the `backend_notices` banner line; the ready patch (parity/cells.md) passes this test, core/src/app.rs is claimed by startup-device-code";
 const WARNING_CELL: &str = "the visible usage warning is the rate-limit snapshot's (rate_limits.rs `new_visible_warning_event`), which the port does not derive from `account/rateLimits/updated` yet; a `warning` notification is the hidden diagnostic (WarningCell, Ctrl+T only), while the kit feeds one and expects it on the chat screen";
 
 // ---- oracle: history_cell/tests.rs (39 screen-level tests here; 3 state tests left to chat-live)
@@ -526,9 +526,16 @@ fn legacy_zsh_migration_notice_snapshot() {
         ))
         .open();
     // The oracle's cell is built from the feature registry's legacy usage (core); the kit feeds its
-    // summary and details as a deprecation notice. The transcript view (Ctrl+T) shows its rows at the top.
+    // summary and details as a deprecation notice.
     s.keys("ctrl+t");
-    s.assert_snap_region("legacy_zsh_migration_notice_snapshot", 0, 0);
+    // The detailed transcript is the chat's own mode, bottom-aligned: the cell stands where its
+    // last row meets the status row, not at the top.
+    let row = s
+        .rows()
+        .iter()
+        .position(|row| row.starts_with("⚠ `[features]"))
+        .expect("the notice");
+    s.assert_snap_region("legacy_zsh_migration_notice_snapshot", row, 0);
 }
 
 // ORACLE history_cell/tests.rs:3009 agent_markdown_cell_renders_source_at_different_widths kind=ui owner=chat-live

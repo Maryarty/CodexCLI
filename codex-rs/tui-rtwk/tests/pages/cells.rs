@@ -1585,6 +1585,76 @@ mod error_and_warning {
     }
 }
 
+mod deprecation_cell {
+    use codex_tui_rtwk::pages::session::cells::deprecation::DeprecationCell;
+    use rtwk::style::{Attrs, Color};
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    fn zsh() -> DeprecationCell {
+        DeprecationCell {
+            summary: "`[features].shell_zsh_fork` is deprecated and ignored.".into(),
+            details: Some(
+                "The patched zsh backend has been removed. Shell commands now use the standard \
+shell executor. Remove `shell_zsh_fork` from [features] in config.toml or profile configuration \
+files."
+                    .into(),
+            ),
+        }
+    }
+
+    #[test]
+    fn the_summary_and_the_details_wrap_four_columns_short_and_flush_left() {
+        // oracle snapshots/..legacy_zsh_migration_notice_snapshot.snap (transcript_lines(80)).
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 8));
+        t.pump_widget(zsh());
+        assert_eq!(
+            rows(&t),
+            [
+                "⚠ `[features].shell_zsh_fork` is deprecated and ignored.",
+                "The patched zsh backend has been removed. Shell commands now use the",
+                "standard shell executor. Remove `shell_zsh_fork` from [features] in",
+                "config.toml or profile configuration files.",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_mark_is_bold_red_the_summary_red_and_the_details_dim() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 8));
+        t.pump_widget(zsh());
+        let mark = t.cell(0, 0);
+        assert_eq!(mark.fg, Color::RED);
+        assert!(mark.attrs.intersects(Attrs::BOLD), "{mark:?}");
+        let summary = t.cell(2, 0);
+        assert_eq!(summary.fg, Color::RED);
+        assert!(!summary.attrs.intersects(Attrs::BOLD), "{summary:?}");
+        let details = t.cell(0, 1);
+        assert!(details.attrs.intersects(Attrs::DIM), "{details:?}");
+        assert_ne!(details.fg, Color::RED);
+    }
+
+    #[test]
+    fn a_notice_without_details_is_the_summary_alone() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 4));
+        t.pump_widget(DeprecationCell {
+            summary: "Feature flag `foo`".into(),
+            details: None,
+        });
+        assert_eq!(rows(&t), ["⚠ Feature flag `foo`"]);
+    }
+}
+
 mod errors_and_warnings_in_the_chat {
     use codex_app_server_protocol::{ServerNotification, WarningNotification};
     use codex_tui_core::app::BackendEv;

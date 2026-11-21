@@ -286,6 +286,14 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
+                Item::Deprecation { summary, details } => cell(
+                    separator,
+                    super::cells::deprecation::DeprecationCell {
+                        summary: summary.clone(),
+                        details: details.clone(),
+                    }
+                    .into(),
+                ),
                 Item::Warning { message } => cell(
                     separator,
                     super::cells::warning::WarningCell {

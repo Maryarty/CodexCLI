@@ -12,7 +12,7 @@ use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
     AgentOutcome, AgentRef, CollabEvent, DelegatedMessage, GeneratedImage, HookEntryKind, HookRun,
     HookStatus, Item, Notice, PatchChange, PatchKind, PlanUpdate, StepStatus, SubAgentKind,
-    ThreadEv, ToolStatus, WebAction, WebActivity, project,
+    ThreadEv, ToolStatus, WebAction, WebActivity, project, project_unrouted,
 };
 use serde_json::{Value, json};
 
@@ -967,21 +967,6 @@ fn a_warning_notification_is_a_detailed_transcript_row() {
 }
 
 #[test]
-fn a_warning_without_a_thread_is_the_backends_not_a_row() {
-    let mut app = ready();
-    notified(
-        &mut app,
-        json!({"method": "warning", "params": {"message": "Backend warning."}}),
-    );
-    assert!(
-        app.active_thread()
-            .transcript()
-            .iter()
-            .all(|(_, item)| !matches!(item, Item::Warning { .. }))
-    );
-}
-
-#[test]
 fn a_loaded_failed_turn_shows_its_error_after_its_items() {
     // oracle thread_transcript.rs: `turn.error` is a cell after the turn's items.
     let mut app = ready();
@@ -1009,4 +994,76 @@ fn a_loaded_failed_turn_shows_its_error_after_its_items() {
         })
         .collect();
     assert_eq!(kinds, ["Before the failure", "error: Quota exceeded."]);
+}
+
+fn unrouted(notification: Value) -> Option<ThreadEv> {
+    let notification: ServerNotification =
+        serde_json::from_value(notification).expect("notification");
+    project_unrouted(&notification)
+}
+
+#[test]
+fn a_deprecation_notice_is_a_detailed_row_of_the_thread_the_app_picks() {
+    // oracle chatwidget/protocol_requests.rs on_deprecation_notice: `new_deprecation_notice`, whose
+    // `display_lines` is empty and whose `transcript_lines` is the `⚠ ` summary and the details.
+    let ev = unrouted(json!({"method": "deprecationNotice", "params": {
+        "summary": "Feature flag `foo`", "details": "Use flag `bar` instead."}}))
+    .expect("an event for the active thread");
+    let mut app = ready();
+    codex_tui_core::app::apply_thread(
+        &mut app,
+        &ThreadId::new("thread-1"),
+        ev,
+        &mut AppFx::default(),
+    );
+    let rows: Vec<_> = app
+        .active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Deprecation { summary, details } => {
+                Some((summary.clone(), details.clone(), item.is_detailed_only()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [(
+            "Feature flag `foo`".to_string(),
+            Some("Use flag `bar` instead.".to_string()),
+            true
+        )]
+    );
+}
+
+#[test]
+fn a_deprecation_notice_without_details_has_none() {
+    let ev = unrouted(json!({"method": "deprecationNotice", "params": {
+        "summary": "Old flag", "details": null}}))
+    .expect("an event");
+    assert!(matches!(
+        ev,
+        ThreadEv::Appended {
+            turn: None,
+            item: Item::Deprecation { details: None, .. }
+        }
+    ));
+}
+
+#[test]
+fn a_notification_with_a_thread_is_the_threads_not_the_actives() {
+    assert!(
+        unrouted(json!({"method": "warning", "params": {
+            "threadId": "thread-2", "message": "Careful."}}))
+        .is_none()
+    );
+    // Without one, the app's active thread shows it (oracle: the chat widget's warning).
+    assert!(matches!(
+        unrouted(json!({"method": "warning", "params": {"message": "Careful."}})),
+        Some(ThreadEv::Appended {
+            item: Item::Warning { .. },
+            ..
+        })
+    ));
 }

@@ -117,13 +117,22 @@ pub enum Item {
     Warning {
         message: String,
     },
+    /// A deprecation notice; shown only in the detailed transcript (oracle
+    /// `DeprecationNoticeCell`: no display lines, a `⚠ ` summary and details).
+    Deprecation {
+        summary: String,
+        details: Option<String>,
+    },
 }
 
 impl Item {
     /// Entries only the detailed transcript (Ctrl+T) shows: the reasoning
-    /// summary and the server's warnings.
+    /// summary, the server's warnings and its deprecation notices.
     pub fn is_detailed_only(&self) -> bool {
-        matches!(self, Self::Reasoning { .. } | Self::Warning { .. })
+        matches!(
+            self,
+            Self::Reasoning { .. } | Self::Warning { .. } | Self::Deprecation { .. }
+        )
     }
 
     /// An exploration can share one visible section with its neighbors.
@@ -1237,6 +1246,23 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
     transcript.or_else(|| {
         screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
     })
+}
+
+/// What the server sends without a thread and the chat shows in the thread
+/// the app displays (oracle: the chat widget's `on_warning` and
+/// `on_deprecation_notice`). The app picks the thread and applies the event.
+pub fn project_unrouted(notification: &ServerNotification) -> Option<ThreadEv> {
+    let item = match notification {
+        ServerNotification::Warning(n) if n.thread_id.is_none() => Item::Warning {
+            message: n.message.clone(),
+        },
+        ServerNotification::DeprecationNotice(n) => Item::Deprecation {
+            summary: n.summary.clone(),
+            details: n.details.clone(),
+        },
+        _ => return None,
+    };
+    Some(ThreadEv::Appended { turn: None, item })
 }
 
 fn turn_end(status: &TurnStatus) -> Option<TurnEnd> {
