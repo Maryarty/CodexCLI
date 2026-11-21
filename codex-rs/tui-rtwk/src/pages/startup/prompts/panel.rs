@@ -141,15 +141,23 @@ impl State for PanelState {
                 self.options
                     .arrow(true, strings.more_above, ink.accent.clone()),
             )
-            .child(self.options.view_rich(
-                rows,
-                OptionStyles {
-                    cursor: tokens.selected(),
-                    label: Style::new(),
-                    description: Style::new(),
-                },
-                0,
-            ))
+            .child(
+                // A tap on the row the cursor is on (or a double tap) is
+                // Enter's action at that row (`Cmd::Take`); a tap that moves
+                // the cursor tells the panel, as the arrows do (`Cmd::Cursor`).
+                self.options
+                    .on_accept(cx.map(|row: usize| Msg::Cmd(Cmd::Take(row))))
+                    .on_move(cx.map(|row: usize| Msg::Cmd(Cmd::Cursor(row))))
+                    .view_rich(
+                        rows,
+                        OptionStyles {
+                            cursor: tokens.selected(),
+                            label: Style::new(),
+                            description: Style::new(),
+                        },
+                        0,
+                    ),
+            )
             .child(self.options.arrow(false, strings.more_below, ink.accent));
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)

@@ -14,14 +14,14 @@
 //! `InputListener::with_raw_key_repeats` around it. What the step does is
 //! an intent to core (`Intent::SignIn`); the logins run in the host.
 //!
-//! The menu's rows are text under the oracle's wrapping paragraph (a number
-//! and a label, the description under it, the caret `>`), so they are not
-//! `widgets::options`' two columns; what the menu shares with it is the
-//! cursor: `Options` keeps the highlighted row and its `step` wraps round the
-//! ends. In a short pane the descriptions and gaps give way to keep every
-//! option and the hint in view (`compact_options`): no rtwk widget picks a
-//! child by whether it fits, so the page measures its lines
-//! (`widgets::measure`) in a `LayoutBuilder`.
+//! The menu is `Options::view_stacked` between the lines around it: its rows
+//! are what the oracle's wrapping paragraph shows (a number and a label, the
+//! description under it, the caret `>`), and `Options` keeps the highlighted
+//! row (an index into the rows shown, a disabled row skipped by `step`), takes
+//! the taps (a tap selects, a tap on the highlighted row or a double tap
+//! accepts: `Msg::Accept`, ADR-011) and drops the descriptions and gaps when
+//! the room the `Column` leaves it is short (`compact`), so every option and
+//! the hint stay in view.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -30,8 +30,8 @@ use rtwk::binding::{AppBinding, InputListener};
 use rtwk::editing::{TextEditingController, TextField, copy_to_clipboard};
 use rtwk::focus::{Focus, FocusNode, FocusOnKeyEventCallback, KeyEventResult, KeyPress};
 use rtwk::layout::{
-    Alignment, Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment,
-    MainAxisSize, OverflowBox, SizedBox,
+    Alignment, Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment, FlexFit,
+    Flexible, MainAxisSize, OverflowBox, SizedBox,
 };
 use rtwk::prelude::Mods;
 use rtwk::provider::read;
@@ -49,7 +49,7 @@ use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
-use crate::widgets::options::Options;
+use crate::widgets::options::{Options, Stacked, StackedRow};
 
 mod provider;
 pub mod strings;
@@ -118,12 +118,18 @@ fn rows(offer: &auth::Offer, menu: ShownMenu) -> Vec<Row> {
     rows
 }
 
-/// The rows the highlight moves over (`move_highlight`).
-fn reachable(rows: &[Row]) -> Vec<MenuRow> {
+/// The rows the highlight moves over (`move_highlight`): their places in the
+/// rows shown.
+fn reachable(rows: &[Row]) -> Vec<usize> {
     rows.iter()
-        .filter(|row| row.enabled)
-        .map(|row| row.choice)
+        .enumerate()
+        .filter(|(_, row)| row.enabled)
+        .map(|(at, _)| at)
         .collect()
+}
+
+fn first_reachable(rows: &[Row]) -> usize {
+    reachable(rows).first().copied().unwrap_or(0)
 }
 
 /// The oracle's `.is_alternative()`: a row of "Sign in another way".
@@ -138,6 +144,8 @@ pub enum Msg {
     /// A digit (or `y`/`n`): the option at the index, pressed as `key`.
     Index(usize, char),
     Confirm,
+    /// A tap on the highlighted row, or a double tap: Enter at that row.
+    Accept(usize),
     Cancel,
     CopyLink,
     Submitted(Rc<str>),
@@ -151,7 +159,7 @@ pub enum Msg {
 /// activation guard (R14).
 pub struct SignInState {
     menu: ShownMenu,
-    /// The highlighted row of the menu: an index into its reachable rows.
+    /// The highlighted row of the menu: an index into the rows shown.
     cursor: Options,
     field: TextEditingController,
     field_node: FocusNode,
@@ -166,11 +174,16 @@ impl StatefulWidget for SignInStep {
     type State = SignInState;
 
     fn create_state(&self) -> SignInState {
+        let cursor = Options::new();
+        // ChatGPT is the first row, or the other-ways row when its login is
+        // not allowed (the row stays shown, not reachable).
+        cursor.set(first_reachable(&rows(
+            &self.sign_in.offer,
+            ShownMenu::First,
+        )));
         SignInState {
             menu: ShownMenu::First,
-            // ChatGPT is the first row, or the other-ways row when its
-            // login is not allowed (not reachable then).
-            cursor: Options::new(),
+            cursor,
             field: TextEditingController::default(),
             field_node: FocusNode::new(),
             node: FocusNode::new(),
@@ -236,25 +249,35 @@ impl SignInState {
 
     /// The row the highlight is on.
     fn highlighted(&self, w: &SignInStep) -> Option<MenuRow> {
-        reachable(&rows(&w.sign_in.offer, self.menu))
+        rows(&w.sign_in.offer, self.menu)
             .get(self.cursor.cursor())
-            .copied()
+            .filter(|row| row.enabled)
+            .map(|row| row.choice)
     }
 
     /// The highlight goes to `choice` (a digit chose it).
     fn highlight(&self, choice: MenuRow, w: &SignInStep) {
-        if let Some(at) = reachable(&rows(&w.sign_in.offer, self.menu))
+        if let Some(at) = rows(&w.sign_in.offer, self.menu)
             .iter()
-            .position(|row| *row == choice)
+            .position(|row| row.choice == choice)
         {
             self.cursor.set(at);
         }
     }
 
-    /// `activate_highlighted_mode` and `handle_sign_in_option`.
-    fn activate(&mut self, choice: MenuRow, key: GuardKey, w: &SignInStep, cx: &mut Cx<'_, Self>) {
+    /// `activate_highlighted_mode` and `handle_sign_in_option`; `key` is the
+    /// key that chose (a click has none: nothing is held to guard).
+    fn activate(
+        &mut self,
+        choice: MenuRow,
+        key: Option<GuardKey>,
+        w: &SignInStep,
+        cx: &mut Cx<'_, Self>,
+    ) {
         self.highlight(choice, w);
-        if choice == MenuRow::Other || is_alternative(choice) {
+        if let Some(key) = key
+            && (choice == MenuRow::Other || is_alternative(choice))
+        {
             self.guard.arm(key, now(cx));
         }
         match choice {
@@ -272,11 +295,27 @@ impl SignInState {
         }
     }
 
-    /// `move_highlight`: round the ends (`Options::step`), past ChatGPT when
-    /// its login is not allowed.
+    /// `move_highlight`: round the ends, past ChatGPT when its login is not
+    /// allowed (the rows `reachable` names).
     fn step(&self, delta: i64, w: &SignInStep) {
-        self.cursor
-            .step(delta, reachable(&rows(&w.sign_in.offer, self.menu)).len());
+        let reach = reachable(&rows(&w.sign_in.offer, self.menu));
+        let Ok(len) = i64::try_from(reach.len()) else {
+            return;
+        };
+        if len == 0 {
+            return;
+        }
+        let from = reach
+            .iter()
+            .position(|at| *at == self.cursor.cursor())
+            .and_then(|at| i64::try_from(at).ok())
+            .unwrap_or(0);
+        if let Some(to) = usize::try_from((from + delta).rem_euclid(len))
+            .ok()
+            .and_then(|at| reach.get(at))
+        {
+            self.cursor.set(*to);
+        }
     }
 }
 
@@ -355,13 +394,21 @@ impl State for SignInState {
                 if let Some(row) = rows(&w.sign_in.offer, self.menu).get(index).copied()
                     && row.enabled
                 {
-                    self.activate(row.choice, GuardKey::Char(key), w, cx);
+                    self.activate(row.choice, Some(GuardKey::Char(key)), w, cx);
+                }
+            }
+            Msg::Accept(index) => {
+                if *state == auth::State::Pick
+                    && let Some(row) = rows(&w.sign_in.offer, self.menu).get(index).copied()
+                    && row.enabled
+                {
+                    self.activate(row.choice, None, w, cx);
                 }
             }
             Msg::Confirm => match state {
                 auth::State::Pick => {
                     if let Some(choice) = self.highlighted(w) {
-                        self.activate(choice, GuardKey::Enter, w, cx);
+                        self.activate(choice, Some(GuardKey::Enter), w, cx);
                     }
                 }
                 auth::State::SuccessMessage => Self::emit(cx, auth::Intent::Continue),
@@ -426,20 +473,15 @@ impl State for SignInState {
             .focus_node(self.node.clone())
             .autofocus();
         let body: AnyWidget = match &w.sign_in.state {
-            auth::State::Pick => {
-                let pick = Pick {
-                    offer: w.sign_in.offer.clone(),
-                    menu: self.menu,
-                    highlighted: self.highlighted(w),
-                    error,
-                };
-                LayoutBuilder::new(move |cx, constraints| {
-                    let width = width_of(constraints.max_width);
-                    let height = usize::try_from(constraints.max_height).unwrap_or(usize::MAX);
-                    paragraph(pick.lines(cx, strings, &look, &num, width, height))
-                })
-                .into()
-            }
+            auth::State::Pick => pick(
+                &self.cursor.on_accept(cx.map(Msg::Accept)),
+                &w.sign_in.offer,
+                self.menu,
+                error,
+                strings,
+                &look,
+                &num,
+            ),
             auth::State::Browser { url, .. } => {
                 focus = focus.bind(KeyPress::char('c'), cx.send(Msg::CopyLink));
                 let lines = browser_lines(strings, &look, url, self.copied);
@@ -593,24 +635,30 @@ pub(crate) fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> us
         .sum()
 }
 
+/// The lines as a column of their own height: each wraps where it stands, a
+/// blank line is a row.
+fn column_of(lines: &[Line]) -> Column {
+    let mut column = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for line in lines.iter().cloned() {
+        column = if line.is_empty() {
+            column.child(SizedBox::new(None, Some(1), None))
+        } else if one_word(&text_of(&line)) {
+            column.child(Text::rich(line).wrap(TextWrap::Grapheme))
+        } else {
+            column.child(Text::rich(line))
+        };
+    }
+    column
+}
+
 /// The lines as a paragraph that wraps them and is cut off at the bottom of
 /// its room (`Paragraph::wrap(Wrap { trim: false })`).
 pub(crate) fn paragraph(lines: Vec<Line>) -> AnyWidget {
     LayoutBuilder::new(move |cx, constraints| {
         let rows = rows_of(cx, &lines, width_of(constraints.max_width));
-        let mut column = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        for line in lines.iter().cloned() {
-            column = if line.is_empty() {
-                column.child(SizedBox::new(None, Some(1), None))
-            } else if one_word(&text_of(&line)) {
-                column.child(Text::rich(line).wrap(TextWrap::Grapheme))
-            } else {
-                column.child(Text::rich(line))
-            };
-        }
-        OverflowBox::new(column)
+        OverflowBox::new(column_of(&lines))
             .max_height(i32::try_from(rows).unwrap_or(i32::MAX))
             .alignment(Alignment::TOP_LEFT)
             .into()
@@ -627,50 +675,45 @@ fn hint(strings: &Strings, look: &Look, key: &'static str, what: &'static str) -
     ]
 }
 
-/// The menu (`render_pick_mode`).
-struct Pick {
-    offer: auth::Offer,
+/// The menu (`render_pick_mode`): the heading, the rows (`Options`, which
+/// takes the room the lines around it leave), the note, the hints and the
+/// error.
+fn pick(
+    options: &Options,
+    offer: &auth::Offer,
     menu: ShownMenu,
-    highlighted: Option<MenuRow>,
     error: Option<String>,
-}
-
-impl Pick {
-    fn lines<S>(
-        &self,
-        cx: &mut Cx<'_, S>,
-        strings: &'static Strings,
-        look: &Look,
-        num: &rtwk::l10n::NumSyms,
-        width: usize,
-        height: usize,
-    ) -> Vec<Line> {
-        let providers = self.offer.providers.any();
-        let mut lines: Vec<Line> = if self.menu == ShownMenu::Another {
-            vec![vec![
-                Span::new(strings.indent),
-                Span::new(strings.heading_other),
-            ]]
-        } else if providers {
-            vec![vec![
-                Span::new(strings.indent),
-                Span::new(strings.heading_providers),
-            ]]
-        } else {
-            strings
-                .heading_plain
-                .iter()
-                .map(|text| vec![Span::new(strings.indent), Span::new(*text)])
-                .collect()
-        };
-        lines.push(Vec::new());
-        let start = lines.len();
-        let mut compact = Vec::new();
-        for (index, Row { choice, .. }) in rows(&self.offer, self.menu).into_iter().enumerate() {
+    strings: &'static Strings,
+    look: &Look,
+    num: &rtwk::l10n::NumSyms,
+) -> AnyWidget {
+    let providers = offer.providers.any();
+    let mut head: Vec<Line> = if menu == ShownMenu::Another {
+        vec![vec![
+            Span::new(strings.indent),
+            Span::new(strings.heading_other),
+        ]]
+    } else if providers {
+        vec![vec![
+            Span::new(strings.indent),
+            Span::new(strings.heading_providers),
+        ]]
+    } else {
+        strings
+            .heading_plain
+            .iter()
+            .map(|text| vec![Span::new(strings.indent), Span::new(*text)])
+            .collect()
+    };
+    head.push(Vec::new());
+    let menu_rows: Vec<StackedRow> = rows(offer, menu)
+        .into_iter()
+        .enumerate()
+        .map(|(index, Row { choice, enabled })| {
             let (label, description) = match choice {
                 MenuRow::ChatGpt => (
                     strings.chatgpt,
-                    if self.offer.chatgpt {
+                    if offer.chatgpt {
                         strings.chatgpt_description
                     } else {
                         strings.chatgpt_disabled
@@ -694,56 +737,56 @@ impl Pick {
                     (strings.gateway, strings.gateway_description)
                 }
             };
-            let on = Some(choice) == self.highlighted;
-            let number = strings.option_number(index + 1, on, num);
-            let (first, second) = if on {
-                let cyan_dim = look.cyan.clone().merge(&look.dim);
-                (
-                    vec![
-                        Span::styled(number, cyan_dim.clone()),
-                        Span::styled(label, look.cyan.clone()),
-                    ],
-                    vec![Span::styled(
-                        [strings.description_indent, description].concat(),
-                        cyan_dim,
-                    )],
-                )
-            } else {
-                (
-                    vec![Span::new([number.as_str(), label].concat())],
-                    vec![Span::styled(
-                        [strings.description_indent, description].concat(),
-                        look.dim.clone(),
-                    )],
-                )
-            };
-            compact.push(first.clone());
-            lines.push(first);
-            lines.push(second);
-            lines.push(Vec::new());
-        }
-        let end = lines.len();
-        if !self.offer.api_key {
-            lines.push(vec![Span::styled(
-                strings.api_login_disabled_note,
-                look.dim.clone(),
-            )]);
-            lines.push(Vec::new());
-        }
-        lines.push(hint(strings, look, strings.enter, strings.to_continue));
-        if self.menu == ShownMenu::Another {
-            lines.push(hint(strings, look, strings.esc, strings.to_go_back));
-        }
-        if let Some(error) = &self.error {
-            lines.push(Vec::new());
-            lines.push(vec![Span::styled(error.clone(), look.red.clone())]);
-        }
-        // Keep the options and the hint in view in a short pane.
-        if rows_of(cx, &lines, width) > height {
-            lines.splice(start..end, compact);
-        }
-        lines
+            StackedRow {
+                lead_on: strings.option_number(index + 1, true, num),
+                lead_off: strings.option_number(index + 1, false, num),
+                label: label.to_owned(),
+                description: description.to_owned(),
+                enabled,
+            }
+        })
+        .collect();
+    let cyan_dim = look.cyan.clone().merge(&look.dim);
+    let stacked = Stacked {
+        indent: strings.description_indent,
+        cursor_lead: cyan_dim.clone(),
+        cursor_label: look.cyan.clone(),
+        cursor_description: cyan_dim,
+        label: Style::new(),
+        description: look.dim.clone(),
+    };
+    let mut tail: Vec<Line> = Vec::new();
+    if !offer.api_key {
+        tail.push(vec![Span::styled(
+            strings.api_login_disabled_note,
+            look.dim.clone(),
+        )]);
+        tail.push(Vec::new());
     }
+    tail.push(hint(strings, look, strings.enter, strings.to_continue));
+    if menu == ShownMenu::Another {
+        tail.push(hint(strings, look, strings.esc, strings.to_go_back));
+    }
+    if let Some(error) = error {
+        tail.push(Vec::new());
+        tail.push(vec![Span::styled(error, look.red.clone())]);
+    }
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(column_of(&head))
+        .child(Flexible {
+            fit: FlexFit::Loose,
+            ..Flexible::new(
+                1,
+                Column::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(options.view_stacked(Rc::new(menu_rows), stacked)),
+            )
+        })
+        .child(column_of(&tail))
+        .into()
 }
 
 /// `render_continue_in_browser`.
