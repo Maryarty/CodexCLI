@@ -325,22 +325,26 @@ fn compact_patches_retain_full_changes_and_failure_details() {
 // ORACLE history_cell/patches_tests.rs:45 viewed_image_retains_original_path_in_details kind=ui owner=chat-live
 #[test]
 fn viewed_image_retains_original_path_in_details() {
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle's transcript lines (width 200) are what the control reveals in place.
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details.jsonl"
         ))
         .open();
     s.assert_has_row("• Viewed image example.png");
-    // Not ported: the transcript view at width 200 shows `• Viewed image /workspace/assets/example.png`
-    // (the full path lives in the transcript overlay, not built), and the raw row.
-    let w = Screen::build(Owner::ChatLive)
+    s.click_text("+ Show details");
+    s.assert_has_row("• Viewed image /workspace/assets/example.png");
+    // Not ported: the raw row (raw scrollback, not built).
+    let mut w = Screen::build(Owner::ChatLive)
         .size(80, 8)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details_windows.jsonl"
         ))
         .open();
     w.assert_has_row("• Viewed image example.png");
+    w.click_text("+ Show details");
+    w.assert_has_row(r"• Viewed image C:\workspace\assets\example.png");
 }
 
 // ORACLE history_cell/patches_tests.rs:74 viewed_image_narrow_summary kind=snap owner=chat-live snap=viewed_image_narrow_summary

@@ -83,6 +83,96 @@ mod patch_disclosure {
     }
 }
 
+// ---- the viewed image's disclosure (oracle transcript_view/layout.rs `activity_layout`: compact
+// `• Viewed image example.png` and `+ Show details`; expanded the transcript lines, the full path
+// with a two-column hanging indent, and `− Hide details`; the detailed transcript shows the
+// full path and no control) ----
+
+mod viewed_image_disclosure {
+    use codex_tui_rtwk::pages::session::cells::viewed_image::ViewedImageCell;
+
+    const PATH: &str = "/workspace/assets/example.png";
+
+    fn cell(detailed: bool) -> ViewedImageCell {
+        ViewedImageCell {
+            name: "example.png".into(),
+            path: PATH.into(),
+            detailed,
+        }
+    }
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    fn control_row(t: &rtwk_test::Tester, text: &str) -> u16 {
+        t.screen()
+            .lines()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no `{text}`: {:#?}", rows(t))) as u16
+    }
+
+    #[test]
+    fn compact_is_the_summary_row_and_an_indented_control() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 6));
+        t.pump_widget(cell(false));
+        assert_eq!(
+            rows(&t),
+            ["• Viewed image example.png", "    + Show details"]
+        );
+    }
+
+    #[test]
+    fn tapping_the_control_reveals_the_full_path_and_tapping_again_hides_it() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 6));
+        t.pump_widget(cell(false));
+        let y = control_row(&t, "+ Show details");
+        t.click(6, y);
+        t.pump();
+        assert_eq!(
+            rows(&t),
+            [
+                format!("• Viewed image {PATH}"),
+                "    − Hide details".to_owned()
+            ]
+        );
+        let y = control_row(&t, "− Hide details");
+        t.click(6, y);
+        t.pump();
+        assert_eq!(
+            rows(&t),
+            ["• Viewed image example.png", "    + Show details"]
+        );
+    }
+
+    #[test]
+    fn the_detailed_transcript_shows_the_full_path_and_no_control() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 6));
+        t.pump_widget(cell(true));
+        assert_eq!(rows(&t), [format!("• Viewed image {PATH}")]);
+    }
+
+    #[test]
+    fn a_long_path_wraps_under_a_two_column_hanging_indent() {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(24, 8));
+        t.pump_widget(cell(true));
+        let shown = rows(&t);
+        assert!(shown.len() >= 2, "{shown:#?}");
+        // The label stays whole; the path, too long for a row, breaks at the width.
+        assert_eq!(shown[0], "• Viewed image", "{shown:#?}");
+        assert!(
+            shown[1..].iter().all(|row| row.starts_with("  ")),
+            "{shown:#?}"
+        );
+        let text: String = shown[1..].iter().map(|row| row.trim_start()).collect();
+        assert_eq!(text, PATH);
+    }
+}
+
 // ---- the compact patch preview (oracle diff_render.rs
 // `create_diff_preview_with_links`: the gutter is measured over every hunk
 // line, the context is then left out, and a file stops at three screen rows) ----

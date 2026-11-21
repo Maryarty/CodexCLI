@@ -219,9 +219,14 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
-                Item::ImageView { name, .. } => cell(
+                Item::ImageView { name, path } => cell(
                     separator,
-                    super::cells::viewed_image::ViewedImageCell { name: name.clone() }.into(),
+                    super::cells::viewed_image::ViewedImageCell {
+                        name: name.clone(),
+                        path: path.clone(),
+                        detailed,
+                    }
+                    .into(),
                 ),
                 Item::Notice(notice) => cell(
                     separator,
