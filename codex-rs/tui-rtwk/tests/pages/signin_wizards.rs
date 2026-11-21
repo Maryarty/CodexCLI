@@ -925,11 +925,11 @@ Enter the environment variable name on the app server.
 tab move \u{b7} enter next/save \u{b7} esc back"
         );
         paste(&mut h, "Team gateway");
-        h.press("down");
+        key(&mut h, "down");
         paste(&mut h, "https://team.example.test/v1?");
-        h.press("down");
+        key(&mut h, "down");
         paste(&mut h, "TEAM_KEY-");
-        h.press("down");
+        key(&mut h, "down");
         // Save marked, the pane four rows: the feedback follows it.
         assert_eq!(
             at(&mut h, 4),
@@ -949,9 +949,9 @@ Enter an environment variable name such as TEAM_API_KEY.
 
 * Required"
         );
-        h.press("up");
-        h.press("backspace");
-        h.press("down");
+        key(&mut h, "up");
+        key(&mut h, "backspace");
+        key(&mut h, "down");
         step(&mut h, "enter");
         assert_eq!(
             setup(&h),
@@ -983,11 +983,11 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         );
 
         // Correct the URL, keep the other fields.
-        h.press("up");
-        h.press("up");
-        h.press("backspace");
-        h.press("down");
-        h.press("down");
+        key(&mut h, "up");
+        key(&mut h, "up");
+        key(&mut h, "backspace");
+        key(&mut h, "down");
+        key(&mut h, "down");
         step(&mut h, "enter");
         assert_eq!(
             setup(&h),
@@ -1104,10 +1104,10 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         let (mut h, epoch) = launch();
         form(&mut h, epoch);
         paste(&mut h, "Team gateway");
-        h.press("down");
+        key(&mut h, "down");
         paste(&mut h, "https://team.example.test/v1");
-        h.press("down");
-        h.press("down");
+        key(&mut h, "down");
+        key(&mut h, "down");
         step(&mut h, "enter");
         let request = asked_request(&h);
         answer(&mut h, epoch, request, Ok(Answer::GatewayUnconfirmed));
@@ -1169,9 +1169,9 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         picker(&mut h, epoch, vec![]);
         step(&mut h, "enter");
         h.t.resize(72, 12);
-        h.press("down");
-        h.press("down");
-        h.press("down");
+        key(&mut h, "down");
+        key(&mut h, "down");
+        key(&mut h, "down");
         let asked = logins(&h).len();
         step(&mut h, "enter");
         assert!(
@@ -1192,11 +1192,11 @@ tab move \u{b7} enter next/save \u{b7} esc back"
     fn paste_into(h: &mut Harness, field: usize, text: &str) {
         // Up or Down to the field from where the mark is (Save).
         for _ in 0..3usize.saturating_sub(field) {
-            h.press("up");
+            key(h, "up");
         }
         paste(h, text);
         for _ in 0..3usize.saturating_sub(field) {
-            h.press("down");
+            key(h, "down");
         }
     }
 
@@ -1208,8 +1208,8 @@ tab move \u{b7} enter next/save \u{b7} esc back"
         let (mut h, epoch) = launch();
         form(&mut h, epoch);
         h.t.resize(72, 12);
-        h.press("down");
-        h.press("down");
+        key(&mut h, "down");
+        key(&mut h, "down");
         paste(&mut h, "OFF");
         assert!(
             h.t.screen().contains("API key variable  $OFF"),
@@ -1217,7 +1217,7 @@ tab move \u{b7} enter next/save \u{b7} esc back"
             h.t.screen()
         );
         assert!(h.t.screen().contains("space complete"), "{}", h.t.screen());
-        h.press("ctrl+space");
+        key(&mut h, "ctrl+space");
         assert!(
             h.t.screen().contains("API key variable  $OFFICE_KEY"),
             "{}",

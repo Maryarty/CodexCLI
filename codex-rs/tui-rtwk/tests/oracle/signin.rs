@@ -195,14 +195,14 @@ fn held_enter_requires_a_fresh_confirmation_to_save_a_prefilled_api_key() {
 // ORACLE onboarding/bedrock_tests.rs:6 gov_cloud_guidance_requires_acknowledgement kind=snap owner=onboarding snap=gov_cloud_warning
 #[test]
 fn gov_cloud_guidance_requires_acknowledgement() {
-    let s = open("bedrock_gov_cloud", 80, 20);
+    let s = open("bedrock_gov_cloud", 72, 24);
     s.assert_snap("gov_cloud_warning");
 }
 
 // ORACLE onboarding/bedrock_tests.rs:28 gov_cloud_guidance_scrolls_in_short_panes kind=snap owner=onboarding snap=gov_cloud_warning_short
 #[test]
 fn gov_cloud_guidance_scrolls_in_short_panes() {
-    let s = open("bedrock_gov_cloud", 80, 8);
+    let s = open("bedrock_gov_cloud", 24, 6);
     s.assert_snap("gov_cloud_warning_short");
 }
 

@@ -141,6 +141,10 @@ fn saved(provider: ModelProviderSummary) -> Saved {
     }
 }
 
+/// What the list refusal and the unreadable list start with (the oracle's
+/// words, named like `POLICY`: a message is a value of the answer).
+const LIST_FAILED: &str = "Could not load model providers: ";
+
 /// `rpc::request_error`.
 fn list_failure(error: &ServerError) -> String {
     let unknown = error.code == Some(-32600)
@@ -150,7 +154,7 @@ fn list_failure(error: &ServerError) -> String {
     if error.code == Some(-32601) || unknown {
         "Update the connected app server to browse model providers.".into()
     } else {
-        format!("Could not load model providers: {}", error.message)
+        format!("{LIST_FAILED}{}", error.message)
     }
 }
 
@@ -159,7 +163,7 @@ fn list_failure(error: &ServerError) -> String {
 fn gateways(result: Result<Value, ServerError>) -> Outcome {
     let value = result.map_err(|error| list_failure(&error))?;
     let page = serde_json::from_value::<ModelProviderListResponse>(value)
-        .map_err(|error| format!("Could not load model providers: {error}"))?;
+        .map_err(|error| format!("{LIST_FAILED}{error}"))?;
     if !page.can_change_default {
         return Err(POLICY.into());
     }
