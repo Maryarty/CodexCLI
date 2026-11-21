@@ -137,37 +137,28 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 name = "screens"
 path = "tests/screens.rs"
 
-[[test]]
-name = "rtwk_g9"
-path = "tests/rtwk_g9.rs"
+# The test targets. Every [[test]] is a binary (a rustc run and a link of the whole
+# dependency set, ~3 s each, relinked after every edit of the library), so files are
+# modules of a few roots instead of a target each (docs/rtwk-port/build-speed.md):
+#   screens  tests/screens.rs        the page, sheet and app tests (a new tests/{pages,sheets,app}
+#                                    file is a `#[path]` module there)
+#   pages    tests/pages.rs          mouse, composer draft, the rtwk gap probes
+#   shell    tests/shell.rs          the services/shell tests
+#   rules    tests/rules/main.rs     the static rules (pin, layers, theme, fixtures, carried, ...)
+#   kit_proof, oracle, scenarios     as before
+# tests/rules/registration.rs fails for a test file that no root lists.
 
 [[test]]
-name = "rtwk_g46"
-path = "tests/rtwk_g46.rs"
+name = "pages"
+path = "tests/pages.rs"
 
 [[test]]
-name = "rtwk_g49_g51"
-path = "tests/rtwk_g49_g51.rs"
-
-[[test]]
-name = "pin"
-path = "tests/rules/pin.rs"
-
-[[test]]
-name = "layers"
-path = "tests/rules/layers.rs"
+name = "shell"
+path = "tests/shell.rs"
 
 [[test]]
 name = "rules"
-path = "tests/rules/rules.rs"
-
-[[test]]
-name = "theme"
-path = "tests/rules/theme.rs"
-
-[[test]]
-name = "fixtures"
-path = "tests/rules/fixtures.rs"
+path = "tests/rules/main.rs"
 
 # The pty scenarios: both binaries against one mocked model, compared at
 # checkpoints. Opt-in (every scenario test is #[ignore]); see
@@ -188,42 +179,6 @@ path = "tests/kit_proof.rs"
 [[test]]
 name = "oracle"
 path = "tests/oracle.rs"
-
-[[test]]
-name = "carried"
-path = "tests/rules/carried.rs"
-
-[[test]]
-name = "agents_mouse"
-path = "tests/pages/agents_mouse.rs"
-
-[[test]]
-name = "startup_mouse"
-path = "tests/pages/startup_mouse.rs"
-
-[[test]]
-name = "composer_mouse"
-path = "tests/pages/composer_mouse.rs"
-
-[[test]]
-name = "composer_draft"
-path = "tests/pages/composer_draft.rs"
-
-[[test]]
-name = "shell_agents"
-path = "tests/services/shell_agents.rs"
-
-[[test]]
-name = "shell_backends"
-path = "tests/services/shell_backends.rs"
-
-[[test]]
-name = "shell_cycle"
-path = "tests/services/shell_cycle.rs"
-
-[[test]]
-name = "shell_connection"
-path = "tests/services/shell_connection.rs"
 
 # Release builds strip symbols (the person, 2026-11-19): -84 MB, and rtwk's atexit/dladdr scan
 # at terminal open costs ~3.5 ms only in an unstripped binary (perf-size research).
