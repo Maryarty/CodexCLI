@@ -694,7 +694,6 @@ fn table_renders_halfwidth_sound_marks_at_constrained_width_snapshot() {
 // ORACLE markdown_render_tests.rs:2115 table_inside_blockquote_has_quote_prefix kind=ui owner=chat-live
 #[test]
 fn table_inside_blockquote_has_quote_prefix() {
-    kit::pending(Owner::ChatLive, MD);
     let s = chat(80, 24, "> | A | B |\n> |---|---|\n> | 1 | 2 |\n");
     s.assert_contains("━━━━━  ━━━━━");
     // The oracle's every row starts with "> ": no kit call checks the start of every row (missed).
@@ -727,7 +726,6 @@ fn table_falls_back_to_key_value_records_if_grid_cannot_fit() {
 // ORACLE markdown_render_tests.rs:2165 table_key_value_fallback_preserves_rich_values_and_themed_labels kind=ui owner=chat-live
 #[test]
 fn table_key_value_fallback_preserves_rich_values_and_themed_labels() {
-    kit::pending(Owner::ChatLive, MD);
     let md = "| Key | Content | Extra | More |\n|---|---|---|---|\n| item | [link](https://example.com) | **bold** | `code` |\n";
     let s = chat(16, 40, md);
     s.assert_contains("Key");
@@ -803,7 +801,6 @@ fn long_open_fence_retains_its_rendered_prefix() {
 // ORACLE streaming/code_fence_render_tests.rs:77 ambiguous_and_normalized_fences_use_canonical_semantics kind=ui owner=chat-live
 #[test]
 fn ambiguous_and_normalized_fences_use_canonical_semantics() {
-    kit::pending(Owner::ChatLive, MD);
     let streams: &[&[&str]] = &[
         &["```rust\n", "x\n", "``", "`\n"],
         &["```rust\n", "x\n", "```\t\n", "after\n"],
@@ -834,7 +831,6 @@ fn ambiguous_and_normalized_fences_use_canonical_semantics() {
 // ORACLE streaming/code_fence_render_tests.rs:109 crossing_a_highlight_limit_removes_previously_highlighted_colors kind=ui owner=chat-live
 #[test]
 fn crossing_a_highlight_limit_removes_previously_highlighted_colors() {
-    kit::pending(Owner::ChatLive, MD);
     // One line past the oracle's MAX_HIGHLIGHT_LINE_BYTES (render/highlight.rs:658, 4 * 1024).
     let long = format!("{}\n", "x".repeat(4 * 1024 + 1));
     assert_streams_like_whole(

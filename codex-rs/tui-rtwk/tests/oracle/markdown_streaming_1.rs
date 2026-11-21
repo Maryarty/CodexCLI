@@ -384,10 +384,6 @@ fn fenced_code_info_string_with_metadata_highlights() {
     // The oracle checks an Rgb foreground on some span for each info string. No kit call says
     // "some cell has an Rgb foreground", and the oracle sets the terminal default colours
     // (`with_test_default_colors`) that the highlight depends on: kit gaps, reported.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no syntax-highlighted fenced code block (info string with metadata): no highlighter and no default-colour seed",
-    );
     let comma = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -414,10 +410,6 @@ fn fenced_code_info_string_with_metadata_highlights() {
 // ORACLE markdown_render.rs:2852 crlf_code_block_no_extra_blank_lines kind=ui owner=chat-live
 #[test]
 fn crlf_code_block_no_extra_blank_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no fenced code block: code lines are not drawn as a block with no blank rows between them",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -476,10 +468,6 @@ fn wrapped_table_url_fragments_keep_complete_web_destination() {
     // The oracle asserts every linked row of the wrapped URL points at the full destination.
     // The wrapped fragments' texts are not in the oracle, and no kit call checks every linked
     // cell of a wrapped row against a destination: kit gap, reported.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no table: a URL wrapped over table rows is not drawn with its link destination",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(32, 24)
         .script(include_str!(
@@ -577,10 +565,6 @@ fn file_citation_paths_preserve_markdown_significant_characters() {
 fn file_url_citation_preserves_literal_query_delimiters_snapshot() {
     // The oracle's expected text is an inline snapshot (`report?final.xlsx`), not a .snap file.
     // It runs under three session cwds (the temp dir, C:/repo): the session cwd is not seedable yet.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat does not resolve a file:// citation against the session cwd: no cwd seed in the kit",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -707,10 +691,6 @@ fn file_citation_after_local_link_soft_break_starts_a_new_line_snapshot() {
 fn generic_markdown_keeps_assistant_directives_literal() {
     // The generic renderer has no agent-message path on the screen: which chat item uses it is
     // decided by the markdown slice.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws the directive as its agent text, not through the generic markdown renderer: the literal path is not chosen yet",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -750,10 +730,6 @@ fn followups_preserve_literal_and_malformed_source() {
     // The oracle asserts the internal `InlineDirectives` text equals the source for eight forms.
     // Its visible half: the malformed forms (no close, unfinished prompt, two prompts) stay as
     // typed in the transcript. The other forms (code, fence, HTML, link) change on render.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no follow-up directive parser: malformed directives are drawn as ordinary text, but the parser is not built",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -791,10 +767,6 @@ fn list_spacing_is_uniform_per_list_and_preserves_item_paragraphs() {
 fn list_spacing_preserves_links_and_source_when_removing_separators() {
     // The oracle asserts Compact and Uniform render equal (two renders, not a screen); the
     // visible half, the links survive the list, is asserted here.
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws an agent list with no links: list items are not drawn with OSC 8 links",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .script(include_str!(

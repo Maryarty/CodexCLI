@@ -43,7 +43,6 @@ fn loose_list_item_multiple_paragraphs() {
 // ORACLE markdown_render_tests.rs:711 tight_item_with_soft_break kind=ui owner=chat-live
 #[test]
 fn tight_item_with_soft_break() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
@@ -117,7 +116,6 @@ fn ordered_item_with_indented_continuation_is_tight() {
 // ORACLE markdown_render_tests.rs:771 inline_code kind=ui owner=chat-live
 #[test]
 fn inline_code() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     // The code span's style is `MarkdownStyles::default().code`, a theme value with no literal in the test: not asserted.
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -532,7 +530,6 @@ fn consecutive_unordered_list_local_file_links_do_not_detach_paths() {
 // ORACLE markdown_render_tests.rs:1406 code_block_known_lang_has_syntax_colors kind=ui owner=chat-live
 #[test]
 fn code_block_known_lang_has_syntax_colors() {
-    kit::pending(Owner::ChatLive, PENDING_MD);
     // The oracle asserts that some span has a foreground colour; the kit has no any-coloured check, so the colour is not asserted.
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
