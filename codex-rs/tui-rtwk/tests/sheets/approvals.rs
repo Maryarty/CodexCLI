@@ -217,3 +217,190 @@ fn a_digit_answers_its_row() {
     h.t.pump_for(ms(800));
     assert!(!h.t.screen().contains("Yes, proceed"), "{}", h.t.screen());
 }
+
+/// The cell of the first row holding `needle`, clicked.
+fn tap(h: &mut Harness, needle: &str) {
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(needle))
+        .unwrap_or_else(|| panic!("no row holds {needle:?}:\n{screen}"));
+    let x = line.find(needle).map_or(0, |at| at as u16);
+    h.t.click(x, y as u16);
+    h.t.pump_for(ms(200));
+}
+
+fn shows(h: &Harness, what: &str) -> bool {
+    h.t.screen().contains(what)
+}
+
+/// Family B (MCP elicitation form), the field keys of the oracle's
+/// `handle_key_event`: ctrl+p / ctrl+n, PageUp / PageDown and, on a select
+/// field, Left / h and Right / l move between fields.
+#[test]
+fn form_field_keys_move_between_fields() {
+    let mut h = open(100, 20, "mcp_two_booleans");
+    assert!(shows(&h, "Field 1/2"), "{}", h.t.screen());
+    for (key, field) in [
+        ("ctrl+n", "Field 2/2"),
+        ("ctrl+p", "Field 1/2"),
+        ("pagedown", "Field 2/2"),
+        ("pageup", "Field 1/2"),
+        ("right", "Field 2/2"),
+        ("left", "Field 1/2"),
+        ("l", "Field 2/2"),
+        ("h", "Field 1/2"),
+    ] {
+        h.press(key);
+        assert!(shows(&h, field), "after {key}:\n{}", h.t.screen());
+    }
+}
+
+/// A digit picks the row, commits it and moves to the next field; the
+/// last field's digit submits the form (the dialog closes).
+#[test]
+fn form_digits_commit_and_the_last_one_submits() {
+    let mut h = open(100, 20, "mcp_two_booleans");
+    h.press("1");
+    assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
+    assert!(
+        shows(&h, "Choose values"),
+        "the form stays: {}",
+        h.t.screen()
+    );
+    h.press("2");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Choose values"), "{}", h.t.screen());
+}
+
+/// Submitting with a required field unanswered names the error and jumps to
+/// that field (`Answer required fields before submitting.`).
+#[test]
+fn form_submit_with_an_unanswered_field_jumps_back_to_it() {
+    let mut h = open(100, 20, "mcp_two_booleans");
+    h.press("ctrl+n");
+    h.press("enter");
+    assert!(
+        shows(&h, "Answer required fields before submitting."),
+        "{}",
+        h.t.screen()
+    );
+    assert!(shows(&h, "Field 1/2"), "{}", h.t.screen());
+    assert!(shows(&h, "Choose values"), "{}", h.t.screen());
+}
+
+/// A text field: Enter with nothing typed is the same error, typed text
+/// commits and (the only field) submits; Esc cancels.
+#[test]
+fn form_text_field_enter_submits_the_typed_answer() {
+    let mut h = open(100, 20, "mcp_text_chords");
+    h.press("enter");
+    assert!(
+        shows(&h, "Answer required fields before submitting."),
+        "{}",
+        h.t.screen()
+    );
+    h.t.type_text("Ada");
+    h.t.pump_for(ms(100));
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Enter a name"), "{}", h.t.screen());
+}
+
+/// Ctrl+C on a text field clears the typed text first; a second one cancels.
+#[test]
+fn form_ctrl_c_clears_the_text_then_cancels() {
+    let mut h = open(100, 20, "mcp_text_chords");
+    h.t.type_text("Ada");
+    h.t.pump_for(ms(100));
+    assert!(shows(&h, "Ada"), "{}", h.t.screen());
+    h.press("ctrl+c");
+    assert!(!shows(&h, "Ada"), "{}", h.t.screen());
+    assert!(shows(&h, "Enter a name"), "{}", h.t.screen());
+    h.press("ctrl+c");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Enter a name"), "{}", h.t.screen());
+}
+
+#[test]
+fn form_escape_cancels() {
+    let mut h = open(100, 20, "mcp_two_booleans");
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Choose values"), "{}", h.t.screen());
+}
+
+/// ADR-011 (beyond the oracle): a tap on an option row moves the cursor
+/// there, a second tap commits it and moves to the next field.
+#[test]
+fn form_a_tap_moves_the_cursor_and_a_second_tap_commits() {
+    let mut h = open(100, 20, "mcp_two_booleans");
+    tap(&mut h, "2. False");
+    assert!(shows(&h, "› 2. False"), "{}", h.t.screen());
+    assert!(shows(&h, "Field 1/2"), "the first tap only moves");
+    tap(&mut h, "2. False");
+    assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
+    // the cursor of the last field is on its first row: a tap there submits
+    tap(&mut h, "1. True");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Choose values"), "{}", h.t.screen());
+}
+
+/// The approval actions of a message-only form answer by a digit or two taps.
+#[test]
+fn message_only_form_actions_answer_by_digit_and_by_tap() {
+    let mut h = open(100, 16, "mcp_message_only");
+    assert!(shows(&h, "1. Allow"), "{}", h.t.screen());
+    h.press("2");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "1. Allow"), "{}", h.t.screen());
+    let mut h = open(100, 16, "mcp_message_only");
+    tap(&mut h, "3. Cancel");
+    assert!(shows(&h, "› 3. Cancel"), "{}", h.t.screen());
+    tap(&mut h, "3. Cancel");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "1. Allow"), "{}", h.t.screen());
+}
+
+/// On a text field ctrl+n and ctrl+p change the field (the text area would move its cursor).
+#[test]
+fn form_ctrl_n_and_ctrl_p_change_field_on_a_text_field() {
+    let mut h = open(100, 20, "mcp_two_strings");
+    h.t.type_text("Ada");
+    h.t.pump_for(ms(100));
+    h.press("ctrl+n");
+    assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
+    h.press("ctrl+p");
+    assert!(shows(&h, "Field 1/2"), "{}", h.t.screen());
+    assert!(
+        shows(&h, "Ada"),
+        "the first answer is kept: {}",
+        h.t.screen()
+    );
+    h.press("pagedown");
+    assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
+}
+
+/// An answer over the input limit flashes the length error under the field
+/// and does not commit; switching fields clears the flash.
+#[test]
+fn form_text_over_the_limit_flashes_the_length_error_until_the_field_changes() {
+    let limit = codex_tui_core::screens::composer::MAX_INPUT_CHARS;
+    let mut h = open(100, 20, "mcp_two_strings");
+    h.t.paste(&"x".repeat(limit + 1));
+    h.t.pump_for(ms(300));
+    h.press("enter");
+    assert!(
+        shows(
+            &h,
+            &format!("Message exceeds the maximum length of {limit}")
+        ),
+        "{}",
+        h.t.screen()
+    );
+    assert!(shows(&h, "Field 1/2"), "{}", h.t.screen());
+    h.press("ctrl+n");
+    assert!(shows(&h, "Field 2/2"), "{}", h.t.screen());
+    assert!(!shows(&h, "Message exceeds"), "{}", h.t.screen());
+}

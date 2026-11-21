@@ -1,0 +1,5 @@
+# A form with one required text field.
+# Oracle data: bottom_pane/mcp_server_elicitation.rs:2278 text_fields_inherit_composer_chord_context_and_submit_binding
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Enter a name", "requestedSchema": {"type": "object", "properties": {"name": {"type": "string", "title": "Name"}}, "required": ["name"]}, "_meta": null}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Enter a name", "requestedSchema": {"type": "object", "properties": {"name": {"type": "string", "title": "Name"}}, "required": ["name"]}, "_meta": null}}}}

@@ -1,5 +1,5 @@
-# An MCP tool-call approval form without a schema.
-# Oracle data: bottom_pane/mcp_server_elicitation.rs:2712 approval_form_tool_approval_snapshot (empty object schema, tool approval)
-{"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"request","message":{"method":"mcpServer/elicitation/request","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","serverName":"test-server","environmentId":null,"mode":"form","message":"Allow this request?","requestedSchema":{"type":"object","properties":{}},"_meta":null}}}
-{"step":"screen","dir":"approvals","ev":{"kind":"request","request":{"method":"mcpServer/elicitation/request","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","serverName":"test-server","environmentId":null,"mode":"form","message":"Allow this request?","requestedSchema":{"type":"object","properties":{}},"_meta":null}}}}
+# An MCP tool-call approval without a schema: the approval fallback.
+# Oracle data: bottom_pane/mcp_server_elicitation.rs:2711 approval_form_tool_approval_snapshot (tool_approval_meta(&[], None, None))
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {}}, "_meta": {"codex_approval_kind": "mcp_tool_call"}}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {}}, "_meta": {"codex_approval_kind": "mcp_tool_call"}}}}}

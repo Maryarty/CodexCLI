@@ -6,11 +6,13 @@
 
 mod dialog;
 mod dismiss;
+mod form;
 mod present;
 
+use rtwk::layout::SizedBox;
 use rtwk::overlay::{Dialog, DialogResult, show_dialog};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::approvals::{ID, NAME};
 
@@ -101,6 +103,56 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/mcp_elicitation.jsonl"),
         ),
         (
+            "mcp_tool_persist",
+            "approval_form_tool_approval_with_persist_options_snapshot",
+            include_str!("fixtures/mcp_tool_persist.jsonl"),
+        ),
+        (
+            "mcp_param_summary",
+            "approval_form_tool_approval_with_param_summary_snapshot",
+            include_str!("fixtures/mcp_param_summary.jsonl"),
+        ),
+        (
+            "mcp_message_only",
+            "message_only_form_snapshot",
+            include_str!("fixtures/mcp_message_only.jsonl"),
+        ),
+        (
+            "mcp_message_only_persist",
+            "message_only_form_with_persist_options_snapshot",
+            include_str!("fixtures/mcp_message_only_persist.jsonl"),
+        ),
+        (
+            "mcp_boolean_form",
+            "boolean_form_snapshot",
+            include_str!("fixtures/mcp_boolean_form.jsonl"),
+        ),
+        (
+            "mcp_two_booleans",
+            "horizontal_list_keys_move_between_select_fields",
+            include_str!("fixtures/mcp_two_booleans.jsonl"),
+        ),
+        (
+            "mcp_two_strings",
+            "switching_fields_clears_length_validation_flash",
+            include_str!("fixtures/mcp_two_strings.jsonl"),
+        ),
+        (
+            "mcp_text_chords",
+            "text_fields_inherit_composer_chord_context_and_submit_binding",
+            include_str!("fixtures/mcp_text_chords.jsonl"),
+        ),
+        (
+            "mcp_wrapped_url_form",
+            "form_prompt_preserves_the_complete_wrapped_url_destination",
+            include_str!("fixtures/mcp_wrapped_url_form.jsonl"),
+        ),
+        (
+            "mcp_select",
+            "an enum, a oneOf, an optional text and a boolean field",
+            include_str!("fixtures/mcp_select.jsonl"),
+        ),
+        (
             "user_input",
             "request_user_input_options: a question with options",
             include_str!("fixtures/user_input.jsonl"),
@@ -112,9 +164,25 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Dialog(head_dialog),
+            // The oracle's form snapshots render the overlay into a buffer taller than its
+            // desired height, and the form fills it; the debug menu is that frame.
+            open: EntryOpen::Dialog(if name.starts_with("mcp_") {
+                framed_dialog
+            } else {
+                head_dialog
+            }),
         })
         .collect()
+}
+
+/// The head's dialog in a frame as tall as the screen (the oracle snapshot tests' buffer): the
+/// form's footer stays at the foot and its input takes the rows between.
+fn framed_dialog(seeded: &Seeded) -> AnyWidget {
+    let dialog = head_dialog(seeded);
+    LayoutBuilder::new(move |_, constraints| {
+        SizedBox::new(None, Some(constraints.max_height), Some(dialog.clone())).into()
+    })
+    .into()
 }
 
 /// The dialog of the head of the seeded queue.

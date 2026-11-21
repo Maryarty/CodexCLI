@@ -260,29 +260,30 @@ fn build(prompt: &Prompt, s: &Strings) -> Body {
                 form: false,
             }
         }
-        Prompt::Elicitation(elicitation) => Body {
-            title: None,
-            header: vec![plain(s.field_progress), plain(elicitation.message.clone())],
-            options: vec![
-                Choice {
-                    decision: Decision::Accept,
-                    label: s.elicit_allow.to_string(),
-                    key: None,
-                    key_label: None,
-                    description: Some(s.elicit_allow_description.to_string()),
-                },
-                Choice {
-                    decision: Decision::Cancel,
-                    label: s.elicit_cancel.to_string(),
-                    key: None,
-                    key_label: None,
-                    description: Some(s.elicit_cancel_description.to_string()),
-                },
-            ],
-            hint: dim(s.elicit_hint),
-            open_thread: false,
-            form: true,
-        },
+        Prompt::Elicitation(elicitation) => {
+            // Only an elicitation the form cannot take comes here: the oracle's approval
+            // overlay (`ApprovalRequest::McpElicitation`).
+            let mut header = Vec::new();
+            if let Some(thread) = &elicitation.thread_label {
+                header.push(labelled(s.thread, thread, Tone::Bold));
+                header.push(Line::Blank);
+            }
+            header.push(labelled(s.server, &elicitation.server, Tone::Bold));
+            header.push(Line::Blank);
+            header.push(plain(elicitation.message.clone()));
+            Body {
+                title: Some(s.elicit_title(&elicitation.server).to_string()),
+                header,
+                options: prompt
+                    .decisions()
+                    .iter()
+                    .filter_map(|decision| approval_option(decision, s, Flavour::Elicitation))
+                    .collect(),
+                hint: approval_hint(s, elicitation.thread_label.is_some()),
+                open_thread: elicitation.thread_label.is_some(),
+                form: false,
+            }
+        }
         Prompt::UserInput(input) => {
             let question = input.questions.first();
             let mut options: Vec<Choice> = question
@@ -352,6 +353,7 @@ enum Flavour {
     Exec { network: bool, permissions: bool },
     Patch,
     Permissions,
+    Elicitation,
 }
 
 /// The label and shortcut of a decision (`exec_options`, `patch_options`,
@@ -368,6 +370,9 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
     );
     let patch = matches!(flavour, Flavour::Patch);
     let (label, key) = match decision {
+        Decision::Accept if matches!(flavour, Flavour::Elicitation) => {
+            (s.elicit_accept.to_string(), Some('y'))
+        }
         Decision::Accept if network => (s.accept_network.to_string(), Some('y')),
         Decision::Accept => (s.accept.to_string(), Some('y')),
         Decision::AcceptWithPrefix(prefix) => {
@@ -385,7 +390,13 @@ fn approval_option(decision: &Decision, s: &Strings, flavour: Flavour) -> Option
         Decision::AllowHost => (s.allow_host.to_string(), Some('p')),
         Decision::NetworkRule { allow: true, .. } => (s.allow_host.to_string(), Some('p')),
         Decision::NetworkRule { allow: false, .. } => (s.block_host.to_string(), Some('d')),
+        Decision::Decline if matches!(flavour, Flavour::Elicitation) => {
+            (s.elicit_decline.to_string(), Some('d'))
+        }
         Decision::Decline => (s.decline.to_string(), Some('d')),
+        Decision::Cancel if matches!(flavour, Flavour::Elicitation) => {
+            (s.elicit_cancel.to_string(), None)
+        }
         Decision::Cancel => (s.cancel.to_string(), None),
         Decision::GrantForTurn => (s.grant_turn.to_string(), Some('y')),
         Decision::GrantForTurnStrict => (s.grant_turn_strict.to_string(), Some('r')),

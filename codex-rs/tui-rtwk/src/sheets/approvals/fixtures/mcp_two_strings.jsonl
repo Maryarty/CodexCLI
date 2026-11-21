@@ -1,0 +1,5 @@
+# A form with two required string fields.
+# Oracle data: bottom_pane/mcp_server_elicitation.rs:2250 switching_fields_clears_length_validation_flash
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Two fields", "requestedSchema": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}}, "required": ["a", "b"]}, "_meta": null}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Two fields", "requestedSchema": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}}, "required": ["a", "b"]}, "_meta": null}}}}

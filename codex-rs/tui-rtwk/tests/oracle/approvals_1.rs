@@ -704,7 +704,7 @@ fn oversized_question_ids_keep_questions_answerable_without_echoing_the_id() {
 fn horizontal_list_keys_move_between_select_fields() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (list.accept cleared) and no entry with the form Choose values with two boolean fields First and Second (the slice registers it as approvals/mcp_two_booleans)",
+        "no keymap seed (`.keymap` is missing until the port reads key bindings: list.accept cleared); the entry approvals/mcp_two_booleans exists and the default h/l and Left/Right keys are pinned in tests/sheets/approvals.rs",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "mcp_two_booleans")
@@ -720,14 +720,11 @@ fn horizontal_list_keys_move_between_select_fields() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2250 switching_fields_clears_length_validation_flash kind=ui owner=dialogs-pane
 #[test]
 fn switching_fields_clears_length_validation_flash() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the two-string-field form a and b, and no paste of MAX_USER_INPUT_TEXT_CHARS + 1 characters (the slice registers it as approvals/mcp_two_strings)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .entry("approvals", "mcp_two_strings")
         .open();
-    s.paste(&"x".repeat(5000));
+    // The oracle pastes one character over the input limit: Enter flashes the length error, ctrl+n goes on.
+    s.paste(&"x".repeat(codex_tui_core::screens::composer::MAX_INPUT_CHARS + 1));
     s.keys("enter");
     s.keys("ctrl+n");
     // The oracle's frame delay and the flash timing are not drawn; the composer is empty after the switch, so no x run is on the screen.
@@ -739,7 +736,7 @@ fn switching_fields_clears_length_validation_flash() {
 fn text_fields_inherit_composer_chord_context_and_submit_binding() {
     kit::pending(
         Owner::DialogsPane,
-        "no keymap seed (composer.submit = ctrl-x enter) and no entry with the text form Enter a name (field Name, required) (the slice registers it as approvals/mcp_text_chords)",
+        "no keymap seed (`.keymap` is missing until the port reads key bindings: composer.submit = ctrl-x enter); the entry approvals/mcp_text_chords exists and its default Enter submit is pinned in tests/sheets/approvals.rs",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 10)
@@ -757,7 +754,7 @@ fn text_fields_inherit_composer_chord_context_and_submit_binding() {
 fn form_prompt_preserves_the_complete_wrapped_url_destination() {
     kit::pending(
         Owner::DialogsPane,
-        "no entry with the form Review https://github.com/openai/codex/pull/12345?diff=split before choosing. and a boolean Continue, drawn at 40 columns (the slice registers it as approvals/mcp_wrapped_url_form)",
+        "G49 + G72: the entry approvals/mcp_wrapped_url_form exists and every row but the message equals the oracle snapshot; rtwk Text does not break after a slash (the oracle breaks `https://github.com/openai/` / `codex/pull/12345?diff=split before`) and the URL is plain text, so no cell carries its OSC 8 link",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 20)
@@ -773,10 +770,6 @@ fn form_prompt_preserves_the_complete_wrapped_url_destination() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2674 boolean_form_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_boolean_form
 #[test]
 fn boolean_form_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the boolean form Allow this request? (field Confirm with the description Approve the pending action.), drawn at 120 by 16 (the slice registers it as approvals/mcp_boolean_form)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_boolean_form")
@@ -787,10 +780,6 @@ fn boolean_form_snapshot() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2711 approval_form_tool_approval_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_approval_form_without_schema
 #[test]
 fn approval_form_tool_approval_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the entry mcp_elicitation (src/screens/approvals/fixtures/mcp_elicitation.jsonl) carries _meta null; the oracle's tool_approval_meta(&[], None, None) is not in it, so the tool-approval fallback is not the same request",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_elicitation")
@@ -801,10 +790,6 @@ fn approval_form_tool_approval_snapshot() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2742 message_only_form_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_message_only_form
 #[test]
 fn message_only_form_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the message-only form Boolean elicit MCP example: do you confirm? and an empty object schema (the slice registers it as approvals/mcp_message_only)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_message_only")
@@ -815,10 +800,6 @@ fn message_only_form_snapshot() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2765 message_only_form_with_persist_options_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_message_only_form_with_persist_options
 #[test]
 fn message_only_form_with_persist_options_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the message-only form and the session and always persist options (the slice registers it as approvals/mcp_message_only_persist)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_message_only_persist")
@@ -829,10 +810,6 @@ fn message_only_form_with_persist_options_snapshot() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2793 approval_form_tool_approval_with_persist_options_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_approval_form_with_session_persist
 #[test]
 fn approval_form_tool_approval_with_persist_options_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the tool-approval fallback Allow this request? carrying the session and always persist options (the slice registers it as approvals/mcp_tool_persist)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_tool_persist")
@@ -843,10 +820,6 @@ fn approval_form_tool_approval_with_persist_options_snapshot() {
 // ORACLE bottom_pane/mcp_server_elicitation.rs:2823 approval_form_tool_approval_with_param_summary_snapshot kind=snap owner=dialogs-pane snap=mcp_server_elicitation_approval_form_with_param_summary
 #[test]
 fn approval_form_tool_approval_with_param_summary_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry with the tool approval Allow Calendar to create an event and the four params calendar_id, title, notes and ignored_after_limit (the slice registers it as approvals/mcp_param_summary)",
-    );
     Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .entry("approvals", "mcp_param_summary")

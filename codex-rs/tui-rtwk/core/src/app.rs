@@ -1274,6 +1274,15 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 );
             }
         }
+        Intent::Screen(ScreenIntent::Approvals(approvals::Intent::Respond { key, answer })) => {
+            if resolve_request(app, key.clone(), answer.clone(), fx) {
+                approvals::apply_intent(
+                    &mut Rc::make_mut(&mut app.screens).approvals,
+                    approvals::Intent::Respond { key, answer },
+                    fx,
+                );
+            }
+        }
         Intent::Screen(ScreenIntent::Agents(agents::Intent::CancelOpen)) => {
             if let Some(id) = Rc::make_mut(&mut app.screens).agents.opening.take() {
                 set_open_cancelled(app, &id, true);

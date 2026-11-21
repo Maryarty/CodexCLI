@@ -74,13 +74,50 @@ pub struct Strings {
     pub hint_or: &'static str,
     pub key_open: &'static str,
     pub hint_open: &'static str,
-    // bottom_pane/mcp_server_elicitation.rs: the approval form.
-    pub field_progress: &'static str,
-    pub elicit_allow: &'static str,
-    pub elicit_allow_description: &'static str,
+    // approval_overlay.rs: the plain approval of an elicitation that has no form
+    // (`elicitation_options`, `build_header`).
+    pub elicit_title: Msg<1>,
+    pub server: &'static str,
+    pub elicit_accept: &'static str,
+    pub elicit_decline: &'static str,
     pub elicit_cancel: &'static str,
-    pub elicit_cancel_description: &'static str,
-    pub elicit_hint: &'static str,
+    // bottom_pane/mcp_server_elicitation.rs: the form (`render`, `footer_tips`).
+    pub field_progress: Msg<2>,
+    pub required_unanswered: Msg<1>,
+    pub no_fields: &'static str,
+    pub answer_placeholder: &'static str,
+    pub optional_answer_placeholder: &'static str,
+    pub answer_required: &'static str,
+    pub tip_submit: &'static str,
+    pub tip_submit_all: &'static str,
+    pub tip_submit_answer: &'static str,
+    pub tip_arrows: &'static str,
+    pub tip_navigate: &'static str,
+    pub tip_change_field_keys: &'static str,
+    pub tip_change_field: &'static str,
+    pub tip_cancel: &'static str,
+    pub tip_separator: &'static str,
+    pub composer_prompt: &'static str,
+    pub too_long: Msg<2>,
+    /// The choices of the approval fallback (`approval_choice_options`, `tool_approval_options`) and
+    /// of a boolean field.
+    pub act_allow: &'static str,
+    pub act_allow_session: &'static str,
+    pub act_always_allow: &'static str,
+    pub act_deny: &'static str,
+    pub act_cancel: &'static str,
+    pub allow_tool: &'static str,
+    pub allow_request: &'static str,
+    pub session_tool: &'static str,
+    pub session_request: &'static str,
+    pub always_tool: &'static str,
+    pub always_request: &'static str,
+    pub deny_request: &'static str,
+    pub cancel_tool: &'static str,
+    pub cancel_request: &'static str,
+    pub bool_true: &'static str,
+    pub bool_false: &'static str,
+    pub param_line: Msg<2>,
     // bottom_pane/request_user_input: the options form.
     pub question_progress: Msg<3>,
     pub none_of_the_above: &'static str,
@@ -134,12 +171,45 @@ pub const EN: Strings = Strings {
     hint_or: " or ",
     key_open: "o",
     hint_open: " to open thread",
-    field_progress: "Field 1/1",
-    elicit_allow: "Allow",
-    elicit_allow_description: "Run the tool and continue",
-    elicit_cancel: "Cancel",
-    elicit_cancel_description: "Cancel this tool call",
-    elicit_hint: "enter to submit | esc to cancel",
+    elicit_title: msg!("{0} needs your approval."),
+    server: "Server: ",
+    elicit_accept: "Yes, provide the requested info",
+    elicit_decline: "No, but continue without it",
+    elicit_cancel: "Cancel this request",
+    field_progress: msg!("Field {0}/{1}"),
+    required_unanswered: msg!(" ({0} required unanswered)"),
+    no_fields: "No fields",
+    answer_placeholder: "Type your answer",
+    optional_answer_placeholder: "Type your answer (optional)",
+    answer_required: "Answer required fields before submitting.",
+    tip_submit: "to submit",
+    tip_submit_all: "to submit all",
+    tip_submit_answer: "to submit answer",
+    tip_arrows: "←/→",
+    tip_navigate: "to navigate fields",
+    tip_change_field_keys: "⌃p / ⌃n",
+    tip_change_field: "change field",
+    tip_cancel: "to cancel",
+    tip_separator: " | ",
+    composer_prompt: "› ",
+    too_long: msg!("Message exceeds the maximum length of {0} characters ({1} provided)."),
+    act_allow: "Allow",
+    act_allow_session: "Allow for this session",
+    act_always_allow: "Always allow",
+    act_deny: "Deny",
+    act_cancel: "Cancel",
+    allow_tool: "Run the tool and continue",
+    allow_request: "Allow this request and continue",
+    session_tool: "Run the tool and remember this choice for this session",
+    session_request: "Allow this request and remember this choice for this session",
+    always_tool: "Run the tool and remember this choice for future tool calls",
+    always_request: "Allow this request and remember this choice for future requests",
+    deny_request: "Decline this request and continue",
+    cancel_tool: "Cancel this tool call",
+    cancel_request: "Cancel this request",
+    bool_true: "True",
+    bool_false: "False",
+    param_line: msg!("{0}: {1}"),
     question_progress: msg!("Question {0}/{1} ({2} unanswered)"),
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
@@ -166,6 +236,33 @@ impl Strings {
 
     pub fn accept_prefix<'a>(&'a self, prefix: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.accept_prefix, [Arg::Text(prefix)], &self.num)
+    }
+
+    pub fn elicit_title<'a>(&'a self, server: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.elicit_title, [Arg::Text(server)], &self.num)
+    }
+
+    pub fn field_progress(&self, index: usize, total: usize) -> Fmt<'_, 2> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.field_progress, [int(index), int(total)], &self.num)
+    }
+
+    pub fn required_unanswered(&self, count: usize) -> Fmt<'_, 1> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.required_unanswered, [int(count)], &self.num)
+    }
+
+    pub fn too_long(&self, limit: usize, actual: usize) -> Fmt<'_, 2> {
+        let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(self.too_long, [int(limit), int(actual)], &self.num)
+    }
+
+    pub fn param_line<'a>(&'a self, name: &'a str, value: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.param_line,
+            [Arg::Text(name), Arg::Text(value)],
+            &self.num,
+        )
     }
 
     pub fn question_progress(&self, index: usize, total: usize, unanswered: usize) -> Fmt<'_, 3> {

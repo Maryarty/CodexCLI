@@ -119,7 +119,7 @@ pub(crate) fn answer(
                     },
                     D::Accept,
                 ) if requested_schema.properties.is_empty() => Some(serde_json::json!({})),
-                (_, D::Decline | D::Cancel) => None,
+                (_, D::Accept | D::Decline | D::Cancel) => None,
                 _ => return None,
             };
             elicitation(choice, content, None)

@@ -1,0 +1,5 @@
+# A form with one boolean field.
+# Oracle data: bottom_pane/mcp_server_elicitation.rs:2674 boolean_form_snapshot
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {"confirmed": {"type": "boolean", "title": "Confirm", "description": "Approve the pending action."}}, "required": ["confirmed"]}, "_meta": null}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {"confirmed": {"type": "boolean", "title": "Confirm", "description": "Approve the pending action."}}, "required": ["confirmed"]}, "_meta": null}}}}

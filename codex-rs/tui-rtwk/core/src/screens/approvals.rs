@@ -14,6 +14,10 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod form;
+
+pub use form::{Entered, Form};
+
 pub const NAME: &str = "approvals";
 pub const ID: &str = "S13";
 pub const KIND: Kind = Kind::Sheet;
@@ -84,6 +88,9 @@ pub struct ElicitationPrompt {
     pub thread_label: Option<String>,
     pub server: String,
     pub message: String,
+    /// The form the request's schema asks (`Form::parse`); none: the oracle's plain approval
+    /// (Server, message, and Accept / Decline / Cancel).
+    pub form: Option<Form>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -171,7 +178,7 @@ impl Prompt {
                 Decision::GrantForSession,
                 Decision::DenyPermissions,
             ],
-            Prompt::Elicitation(_) => vec![Decision::Accept, Decision::Cancel],
+            Prompt::Elicitation(_) => vec![Decision::Accept, Decision::Decline, Decision::Cancel],
             Prompt::UserInput(input) => {
                 let count = input
                     .questions
@@ -228,6 +235,10 @@ pub enum Ev {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     Answer { key: RequestKey, decision: Decision },
+    /// An answer with content (a form's values, a user-input answer): checked against the
+    /// pending request like `Answer`; one that does not fit, or for a request no longer queued,
+    /// is dropped.
+    Respond { key: RequestKey, answer: RequestAnswer },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -255,6 +266,23 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     thread: key.thread,
                     id: key.id,
                     decision,
+                });
+            }
+        }
+        Intent::Respond { key, answer } => {
+            let before = model.entries.len();
+            model
+                .entries
+                .retain(|e| !(e.thread == key.thread && e.id == key.id));
+            if model.entries.len() != before {
+                model.answered.push(Answered {
+                    thread: key.thread,
+                    id: key.id,
+                    decision: match answer {
+                        RequestAnswer::Choice(decision)
+                        | RequestAnswer::Elicitation { decision, .. } => decision,
+                        RequestAnswer::UserInput(_) => Decision::Accept,
+                    },
                 });
             }
         }
@@ -402,11 +430,20 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             environment: text("environmentId"),
             rule: rule_of(params.get("permissions")),
         }),
-        "mcpServer/elicitation/request" => Prompt::Elicitation(ElicitationPrompt {
-            thread_label: None,
-            server: text("serverName").unwrap_or_default(),
-            message: text("message").unwrap_or_default(),
-        }),
+        "mcpServer/elicitation/request" => {
+            if params.get("mode").and_then(|m| m.as_str()) != Some("form") {
+                return None;
+            }
+            Prompt::Elicitation(ElicitationPrompt {
+                thread_label: None,
+                server: text("serverName").unwrap_or_default(),
+                message: text("message").unwrap_or_default(),
+                form: Form::parse(
+                    params.get("_meta").filter(|meta| !meta.is_null()),
+                    params.get("requestedSchema").unwrap_or(&serde_json::Value::Null),
+                ),
+            })
+        }
         "item/tool/requestUserInput" => Prompt::UserInput(UserInputPrompt {
             questions: params
                 .get("questions")

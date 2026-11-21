@@ -326,3 +326,319 @@ fn a_seeded_label_reaches_the_prompt_the_queue_holds() {
     let prompt = head.prompt.as_ref().expect("a prompt");
     assert_eq!(prompt.thread_label(), Some("Robie [explorer]"));
 }
+
+// ---- family B: the form of an MCP elicitation (`screens::approvals::form`) ----
+
+mod forms {
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::screens::ScreenIntent;
+    use codex_tui_core::screens::approvals::form::{Action, Entered, FieldInput, Form, Mode};
+    use codex_tui_core::screens::approvals::{Decision, Intent as ApprovalIntent, RequestAnswer};
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+
+    fn actions(form: &Form) -> Vec<Action> {
+        match &form.fields[0].input {
+            FieldInput::Actions(actions) => actions.clone(),
+            other => panic!("not the approval fallback: {other:?}"),
+        }
+    }
+
+    fn tool_meta(extra: Value) -> Value {
+        let mut meta = json!({ "codex_approval_kind": "mcp_tool_call" });
+        meta.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        meta
+    }
+
+    /// `elicitation_options`: a request with no fields asks Allow, Deny, Cancel.
+    #[test]
+    fn a_message_only_form_offers_allow_deny_cancel() {
+        let form = Form::parse(None, &json!({ "type": "object", "properties": {} })).unwrap();
+        assert_eq!(form.mode, Mode::Approval);
+        assert_eq!(
+            actions(&form),
+            [Action::Allow, Action::Deny, Action::Cancel]
+        );
+        let form = Form::parse(None, &Value::Null).unwrap();
+        assert_eq!(form.mode, Mode::Approval);
+    }
+
+    /// A tool approval has no Deny; the persist choices are the ones its meta offers.
+    #[test]
+    fn a_tool_approval_offers_the_persist_choices_its_meta_lists() {
+        let empty = json!({ "type": "object", "properties": {} });
+        let plain = Form::parse(Some(&tool_meta(json!({}))), &empty).unwrap();
+        assert_eq!(actions(&plain), [Action::Allow, Action::Cancel]);
+        let both = Form::parse(
+            Some(&tool_meta(json!({ "persist": ["session", "always"] }))),
+            &empty,
+        )
+        .unwrap();
+        assert_eq!(
+            actions(&both),
+            [
+                Action::Allow,
+                Action::AllowForSession,
+                Action::AlwaysAllow,
+                Action::Cancel
+            ]
+        );
+        let one = Form::parse(Some(&tool_meta(json!({ "persist": "always" }))), &empty).unwrap();
+        assert_eq!(
+            actions(&one),
+            [Action::Allow, Action::AlwaysAllow, Action::Cancel]
+        );
+        // a persist choice of a request that is no tool approval joins Deny
+        let other = Form::parse(Some(&json!({ "persist": "session" })), &empty).unwrap();
+        assert_eq!(
+            actions(&other),
+            [
+                Action::Allow,
+                Action::AllowForSession,
+                Action::Deny,
+                Action::Cancel
+            ]
+        );
+    }
+
+    /// A number or a multi-select is not a form field: the plain approval stays.
+    #[test]
+    fn a_schema_with_a_field_the_form_cannot_take_has_no_form() {
+        let number = json!({ "type": "object", "properties": { "n": { "type": "number" } } });
+        assert_eq!(Form::parse(None, &number), None);
+        let multi = json!({
+            "type": "object",
+            "properties": { "m": { "type": "array", "items": { "enum": ["a", "b"] } } }
+        });
+        assert_eq!(Form::parse(None, &multi), None);
+        let suggestion = json!({ "codex_approval_kind": "tool_suggestion" });
+        assert_eq!(
+            Form::parse(
+                Some(&suggestion),
+                &json!({ "type": "object", "properties": {} })
+            ),
+            None
+        );
+    }
+
+    fn content_form() -> Form {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "title": "Name" },
+                "tier": { "type": "string", "oneOf": [
+                    { "const": "free", "title": "Free" }, { "const": "pro", "title": "Pro" } ] },
+                "dry": { "type": "boolean", "title": "Dry run", "default": false }
+            },
+            "required": ["name", "tier"]
+        });
+        Form::parse(None, &schema).unwrap()
+    }
+
+    /// The answer of a content form: the typed text trimmed, the option's value and the
+    /// boolean; a default counts as answered only when the schema gave it.
+    #[test]
+    fn the_answer_of_a_content_form_is_its_typed_values() {
+        let form = content_form();
+        assert_eq!(form.mode, Mode::Content);
+        assert_eq!(form.fields.len(), 3);
+        // the fields follow the schema's order, so look them up by id
+        let at = |id: &str| form.fields.iter().position(|f| f.id == id).unwrap();
+        let mut entered: Vec<Option<Entered>> = vec![None; 3];
+        entered[at("name")] = Some(Entered::Text("  Ada  ".into()));
+        entered[at("tier")] = Some(Entered::Choice(1));
+        entered[at("dry")] = Some(Entered::Choice(1));
+        assert_eq!(
+            form.answer(&entered),
+            Ok(RequestAnswer::Elicitation {
+                decision: Decision::Accept,
+                content: Some(json!({ "name": "Ada", "tier": "pro", "dry": false })),
+                meta: None,
+            })
+        );
+    }
+
+    /// Submitting with a required field without a value names the first such field; blank
+    /// text is no value.
+    #[test]
+    fn a_required_field_without_a_value_stops_the_submit_at_the_first() {
+        let form = content_form();
+        let at = |id: &str| form.fields.iter().position(|f| f.id == id).unwrap();
+        let mut entered: Vec<Option<Entered>> = vec![None; 3];
+        assert_eq!(form.answer(&entered), Err(at("name").min(at("tier"))));
+        assert_eq!(form.unanswered(&entered), 2);
+        entered[at("name")] = Some(Entered::Text("   ".into()));
+        entered[at("tier")] = Some(Entered::Choice(0));
+        assert_eq!(form.first_unanswered(&entered), Some(at("name")));
+        assert_eq!(form.unanswered(&entered), 1);
+    }
+
+    /// The approval actions answer with the decision and the meta the oracle sends.
+    #[test]
+    fn approval_actions_answer_with_the_decision_and_the_meta_of_the_oracle() {
+        let empty = json!({ "type": "object", "properties": {} });
+        let meta = tool_meta(json!({ "persist": ["session", "always"] }));
+        let form = Form::parse(Some(&meta), &empty).unwrap();
+        let answer = |choice: usize| form.answer(&[Some(Entered::Choice(choice))]).unwrap();
+        let elicitation = |decision, meta| RequestAnswer::Elicitation {
+            decision,
+            content: None,
+            meta,
+        };
+        assert_eq!(answer(0), elicitation(Decision::Accept, None));
+        assert_eq!(
+            answer(1),
+            elicitation(Decision::Accept, Some(json!({ "persist": "session" })))
+        );
+        assert_eq!(
+            answer(2),
+            elicitation(Decision::Accept, Some(json!({ "persist": "always" })))
+        );
+        let user = Some(json!({ "codex_approval_cancellation_reason": "user" }));
+        assert_eq!(answer(3), elicitation(Decision::Cancel, user.clone()));
+        // Esc and ctrl+c cancel the same way
+        assert_eq!(form.cancel(), elicitation(Decision::Cancel, user));
+        // a request that is no tool approval cancels without the reason
+        let plain = Form::parse(None, &empty).unwrap();
+        assert_eq!(plain.cancel(), elicitation(Decision::Cancel, None));
+        assert_eq!(
+            plain.answer(&[Some(Entered::Choice(1))]),
+            Ok(elicitation(Decision::Decline, None))
+        );
+    }
+
+    /// The prompt lists the first three parameters, long values cut at sixty with `...`,
+    /// white space collapsed.
+    #[test]
+    fn the_parameter_summary_lists_three_and_cuts_long_values() {
+        let long = "x".repeat(80);
+        let meta = tool_meta(json!({ "tool_params": {
+            "b": "two  words\n", "a": 1, "c": long, "d": "never shown" } }));
+        let form =
+            Form::parse(Some(&meta), &json!({ "type": "object", "properties": {} })).unwrap();
+        let summary: Vec<(String, String)> = form
+            .summary
+            .iter()
+            .map(|p| (p.name.clone(), p.value.clone()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("a".to_string(), "1".to_string()),
+                ("b".to_string(), "two words".to_string()),
+                ("c".to_string(), format!("{}...", "x".repeat(57))),
+            ]
+        );
+    }
+
+    fn request(schema: Value, meta: Value, id: u64) -> AppEv {
+        let request = serde_json::from_value(json!({
+            "method": "mcpServer/elicitation/request",
+            "id": id,
+            "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server",
+                "environmentId": null, "mode": "form", "message": "Choose values",
+                "requestedSchema": schema, "_meta": meta
+            }
+        }))
+        .expect("request");
+        AppEv::Backend(BackendEv::Request(Box::new(request)))
+    }
+
+    fn respond(app: &CodexApp, answer: RequestAnswer) -> AppEv {
+        let key = app.requests().head().expect("a request").key.clone();
+        AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
+            ApprovalIntent::Respond { key, answer },
+        )))
+    }
+
+    /// The form's answer resolves the request on the wire with the typed content, once; a
+    /// second answer for the same key is stale and sends nothing.
+    #[test]
+    fn a_form_answer_goes_out_once_and_a_stale_answer_sends_nothing() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "name": { "type": "string" } },
+            "required": ["name"]
+        });
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(schema, Value::Null, 1), &mut fx);
+        assert_eq!(app.requests().entries.len(), 1);
+        let answer = RequestAnswer::Elicitation {
+            decision: Decision::Accept,
+            content: Some(json!({ "name": "Ada" })),
+            meta: None,
+        };
+        let ev = respond(&app, answer);
+        apply_app(&mut app, ev.clone(), &mut fx);
+        apply_app(&mut app, ev, &mut fx);
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(
+            *result,
+            json!({ "action": "accept", "content": { "name": "Ada" }, "_meta": null })
+        );
+    }
+
+    /// A schema the form cannot take (a number) falls back to the plain approval: its
+    /// Accept answers by a choice and sends no content.
+    #[test]
+    fn a_schema_without_a_form_is_the_plain_approval_and_answers_by_choice() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "n": { "type": "number" } },
+            "required": ["n"]
+        });
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(schema, Value::Null, 1), &mut fx);
+        let key = app.requests().head().unwrap().key.clone();
+        apply_app(
+            &mut app,
+            AppEv::Intent(Intent::AnswerRequest {
+                key,
+                answer: RequestAnswer::Choice(Decision::Accept),
+            }),
+            &mut fx,
+        );
+        assert!(app.requests().entries.is_empty());
+        let [Command::ResolveRequest { result, .. }] = fx.commands() else {
+            panic!("expected one answer: {:?}", fx.commands());
+        };
+        assert_eq!(
+            *result,
+            json!({ "action": "accept", "content": null, "_meta": null })
+        );
+    }
+
+    /// A request arriving while a form is open queues behind it: answering the head does
+    /// not touch the one behind, which comes up next with its own prompt.
+    #[test]
+    fn a_request_arriving_while_a_form_is_open_waits_its_turn() {
+        let schema = json!({ "type": "object", "properties": {} });
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, request(schema.clone(), Value::Null, 1), &mut fx);
+        let first = app.requests().head().unwrap().key.clone();
+        apply_app(&mut app, request(schema, Value::Null, 2), &mut fx);
+        assert_eq!(app.requests().entries.len(), 2);
+        assert_eq!(app.requests().head().unwrap().key, first);
+        let ev = respond(
+            &app,
+            RequestAnswer::Elicitation {
+                decision: Decision::Cancel,
+                content: None,
+                meta: None,
+            },
+        );
+        apply_app(&mut app, ev, &mut fx);
+        assert_eq!(app.requests().entries.len(), 1);
+        assert_ne!(app.requests().head().unwrap().key, first);
+        assert_eq!(fx.commands().len(), 1);
+    }
+}

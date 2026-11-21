@@ -22,6 +22,7 @@ use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
 use super::dismiss::DismissDialog;
+use super::form::FormView;
 use super::present::{self, Body, Line, Piece, Tone};
 use super::strings;
 use crate::app::theme;
@@ -137,6 +138,14 @@ impl State for RequestDialogState {
         let Some(prompt) = prompt_of(&w.key, cx) else {
             return DismissDialog { key: w.key.clone() }.into();
         };
+        // An elicitation whose schema the form takes is the form's dialog.
+        if matches!(&*prompt, Prompt::Elicitation(elicitation) if elicitation.form.is_some()) {
+            return FormView {
+                key: w.key.clone(),
+                prompt,
+            }
+            .into();
+        }
         let tokens = theme::Tokens::of(cx);
         let syntax = SyntaxTheme::of(cx);
         let s = strings::of(cx);

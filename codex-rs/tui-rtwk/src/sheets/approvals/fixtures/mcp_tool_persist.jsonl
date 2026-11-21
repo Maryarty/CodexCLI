@@ -1,0 +1,5 @@
+# An MCP tool-call approval offering session and always persistence.
+# Oracle data: bottom_pane/mcp_server_elicitation.rs:2793 approval_form_tool_approval_with_persist_options_snapshot
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "request", "message": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {}}, "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": ["session", "always"]}}}}
+{"step": "screen", "dir": "approvals", "ev": {"kind": "request", "request": {"method": "mcpServer/elicitation/request", "id": 1, "params": {"threadId": "thread-1", "turnId": "turn-1", "serverName": "test-server", "environmentId": null, "mode": "form", "message": "Allow this request?", "requestedSchema": {"type": "object", "properties": {}}, "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": ["session", "always"]}}}}}
