@@ -74,7 +74,43 @@ pub struct Startup {
     /// Opens a URL in the user's browser (`webbrowser::open`); a seam so a
     /// test opens none.
     pub browser: Browser,
+    /// The update check: whether it runs, which version is running, and how
+    /// the latest release is fetched.
+    pub updates: Updates,
 }
+
+/// `updates.rs`: the update check of a launch.
+#[derive(Clone)]
+pub struct Updates {
+    /// `updates.rs` is compiled out of debug builds: no offer, no refresh.
+    pub enabled: bool,
+    /// `CODEX_CLI_VERSION`: a source build (`0.0.0`) is never offered one.
+    pub version: String,
+    /// The latest release for the install method; a seam so a test fetches
+    /// nothing over the network.
+    pub fetch: Fetch,
+}
+
+impl Updates {
+    /// The running build's check.
+    pub fn system(_config: &Config) -> Self {
+        Updates {
+            enabled: !cfg!(debug_assertions),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            fetch: Arc::new(|_| Box::pin(std::future::ready(Err("not fetched yet".to_owned())))),
+        }
+    }
+}
+
+/// Fetches the latest released version (`check_for_update`): the text of the
+/// error when it fails.
+pub type Fetch = Arc<
+    dyn Fn(
+            Option<UpdateAction>,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Opens a URL in the user's browser; blocking.
 pub type Browser = Arc<dyn Fn(&str) -> std::io::Result<()> + Send + Sync>;
@@ -197,12 +233,13 @@ where
 {
     let config = &startup.config;
     // `updates.rs` is compiled out of debug builds: no offer there.
-    let update = if cfg!(debug_assertions) || !config.check_for_update_on_startup {
+    let updates = &startup.updates;
+    let update = if !updates.enabled || !config.check_for_update_on_startup {
         None
     } else {
         let cache = read_version_cache(&version_file(config));
         let command = update_action(InstallContext::current()).map(UpdateAction::command_str);
-        wire::update_offer(env!("CARGO_PKG_VERSION"), cache.as_ref(), command)
+        wire::update_offer(&updates.version, cache.as_ref(), command)
     };
     // `get_login_status`: a failed read ends the launch.
     let account = send(wire::account_read(ids.next()))
@@ -395,6 +432,11 @@ mod tests {
             check_trust: true,
             update: UpdateSlot::default(),
             failure: FailureSlot::default(),
+            updates: Updates {
+                enabled: false,
+                version: "1.0.0".to_owned(),
+                fetch: Arc::new(|_| Box::pin(std::future::ready(Err("no network".to_owned())))),
+            },
             target,
             browser,
         };
@@ -614,5 +656,123 @@ mod tests {
             Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { .. })))
         ));
         assert!(startup.failure.lock().unwrap().is_none());
+    }
+
+    fn fetching(calls: &Arc<AtomicUsize>, latest: Result<&str, &str>) -> Fetch {
+        let calls = calls.clone();
+        let latest = latest.map(str::to_owned).map_err(str::to_owned);
+        Arc::new(move |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(std::future::ready(latest.clone()))
+        })
+    }
+
+    async fn launch_with(
+        startup: &mut Startup,
+        fetch: Fetch,
+        cache: Option<&str>,
+        version: &str,
+    ) -> std::path::PathBuf {
+        startup.updates = Updates {
+            enabled: true,
+            version: version.to_owned(),
+            fetch,
+        };
+        let file = version_file(&startup.config);
+        if let Some(cache) = cache {
+            std::fs::write(&file, cache).expect("the cache");
+        }
+        let config = serde_json::json!({"config": {}, "layers": []});
+        facts_ask(startup, serve(Ok(signed_out()), Ok(config))).await;
+        file
+    }
+
+    async fn settled(calls: &Arc<AtomicUsize>, wanted: usize) {
+        for _ in 0..200 {
+            if calls.load(Ordering::SeqCst) >= wanted {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    // `get_upgrade_version`: no cache -> refreshed in the background; the
+    // launch reads the cache as it was (none), the next run reads the new one.
+    #[tokio::test]
+    async fn a_missing_cache_is_refreshed_in_the_background() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let file = launch_with(&mut startup, fetching(&calls, Ok("9.9.9")), None, "1.0.0").await;
+        settled(&calls, 1).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            read_version_cache(&file).map(|cache| cache.latest),
+            Some("9.9.9".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cache_older_than_twenty_hours_is_refreshed() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
+        let file = launch_with(
+            &mut startup,
+            fetching(&calls, Ok("2.1.0")),
+            Some(old),
+            "1.0.0",
+        )
+        .await;
+        settled(&calls, 1).await;
+        assert_eq!(
+            read_version_cache(&file).map(|cache| cache.latest),
+            Some("2.1.0".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fresh_cache_is_not_refreshed() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fresh = format!(
+            r#"{{"latest_version":"2.0.0","last_checked_at":"{}"}}"#,
+            chrono::Utc::now().to_rfc3339()
+        );
+        launch_with(
+            &mut startup,
+            fetching(&calls, Ok("2.1.0")),
+            Some(&fresh),
+            "1.0.0",
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn a_failed_fetch_leaves_the_cache_as_it_was() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let old = r#"{"latest_version":"2.0.0","last_checked_at":"2020-01-01T00:00:00Z"}"#;
+        let file = launch_with(
+            &mut startup,
+            fetching(&calls, Err("offline")),
+            Some(old),
+            "1.0.0",
+        )
+        .await;
+        settled(&calls, 1).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(std::fs::read_to_string(&file).expect("the cache"), old);
+    }
+
+    #[tokio::test]
+    async fn a_source_build_checks_nothing() {
+        let (mut startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        launch_with(&mut startup, fetching(&calls, Ok("2.1.0")), None, "0.0.0").await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }

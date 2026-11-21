@@ -281,6 +281,7 @@ async fn run(
         update,
         failure: startup_failure,
         browser: crate::startup::system_browser(),
+        updates: crate::startup::Updates::system(&config),
         target: match mode {
             Mode::Embedded => crate::startup::Target::Embedded,
             Mode::Daemon | Mode::Remote { daemon: true, .. } => crate::startup::Target::LocalDaemon,
