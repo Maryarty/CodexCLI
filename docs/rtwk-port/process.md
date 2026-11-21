@@ -487,7 +487,15 @@ R-rule tables and tests extended: …; ADR-002 conditions: how each is met
 > The ADR guard (every review checks ADR conformance) holds for LIGHT and
 > FULL; the ADR check at landing (§A6) holds for every tier. When unsure,
 > the higher tier. Examples: stale-pending TRIVIAL, composer-asserts LIGHT,
-> startup-deltas FULL.
+> startup-deltas FULL (before the rule below).
+>
+> **StartupPage is LIGHT (the person, 2026-11-21: "Да, переведи стартовые
+> экраны на LIGHT").** StartupPage screens, their sheets/lists and dialogs
+> are LIGHT whatever they touch: one Sonnet pass, landing does not wait, and
+> a fix round opens only on a real defect ("doesn't work", an ADR broken).
+> Wording and 1-2 cell differences go to notes or a small later task. FULL
+> stays only for the risky list above (streaming, composer, transcript,
+> approvals, pager, inline mode: most of the chat).
 
 What does **not** block landing: visual deltas of a decided kind, deltas
 proposed as accepted (they stay `built`, not `parity-accepted`), rtwk gaps
