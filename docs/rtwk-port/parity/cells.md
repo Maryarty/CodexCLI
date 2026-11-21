@@ -107,3 +107,99 @@ Left (in order): the exec cell off `ToolRow` (~14 cells_1 tests, reasons say cor
 sub-agent, sleep, image-generation (cells_3: "draws no imageGeneration item yet"), warning/error (cells_5), deprecation, plan-update and
 session-info cells (core `Item` variants projected in core/src/threads/cells.rs, one widget per file, tests first); the 315 pending tests carry
 the probe's first difference or a named kit reason: trace them cell kind by cell kind; the image link and preview (services effect, above).
+
+## chat-cells-2 phase 2 (2026-11-21, rebased onto e8524be63; items 1-10 of the LEFT list)
+Shard counts (summary.py, oracle profile, stdout in a file): cells_1 16/0/44 · cells_2 10/1/22 · cells_3 5/0/34 · cells_4 7/0/32 · cells_5 16/1/24 ·
+markdown_streaming_1 27/4/27 · _2 29/1/30 · _3 12/0/28 · _4 20/0/23 · _5 22/3/33 · renderer_internals 12/2/5 —
+total 176 pass / 12 n/a / 302 pending / 0 red of 490 (phase 1: 163 / 12 / 315). Probe (KIT_PROBE_PENDING=1): 23 stale, the same 23 as before,
+each reason says "probe: stale, vacuous" (an absence check); `--check` of shards.py 55 shards, 0 files stale.
+Checks: fmt clean, clippy `--workspace --all-targets -D warnings` clean, whole nextest 1347 pass / 15 skipped.
+Items (commits after the rebase; tests first, one widget per file in `src/pages/session/cells/`):
+- 1 exec (5f3ed35a7 off ToolRow in phase 1 of this list, da105ca13 after the rebase): command output rows read their SGR codes as styles
+  (`transcript_activity.rs`), the command fixtures quote the script as the server does, `powershell_skill_read` is un-pended, the exec tests that read the
+  inline `display_lines` get their true reason (the chat shows no inline cell). Left: the `cells/exec.rs` extraction (the rows are still drawn by
+  `transcript_activity.rs`) and an un-clipped user-shell display.
+- 2 hook (55dca9ead): `Item::Hook(HookRun)` (entries by kind), a minted key (the server has no item for a finished hook run), cell `hook.rs`; a
+  quiet hook draws nothing; hook-prompt and sleep are rowless in the oracle. S11 windows of the hook and image tests are 24 rows.
+- 3 collab, 4 sub-agent (aacf0df39, 2e03990ab): `Item::Collab(CollabEvent)` (spawn, sent input, wait, resume, close, sub-agent activity) with the oracle's
+  labels, states and previews, `Item::Delegated(DelegatedMessage)` (`Sent by Codex from task …`), cells `collab.rs`, `delegated.rs`; check.py multi-agent (MOCK_AGENT_API=v2)
+  rows equal on both binaries (below). The agents' nickname and role feed for labels is not built (rows show the thread id); the spawn-request cache is
+  not implemented; previews are cut by chars, not graphemes.
+- 5 sleep: rowless (oracle: `on_sleep` adds nothing). 6 image generation: `Item::Generated(GeneratedImage)` and `generated_image.rs`; the terminal preview of the file is the
+  debt task `chat-cells-debt-viewed-image` (services effect), as for the viewed image.
+- 7 warning and error (9e89120e0): `Item::Error` / `Item::Warning`; an error notification is a red `■ message` row, once per turn (a failed turn that carries
+  the same message does not draw it twice, a failed turn without a message draws nothing: oracle `turn_runtime`); `Item::is_detailed_only` (Reasoning, Warning,
+  Deprecation) drives the pane's row filter; the protocol `warning` shows in the detailed transcript only, the visible warnings of the oracle are the
+  rate-limit snapshots (not built). `Transcript::replace_turn` now keeps minted rows (hook, plan update, error survive a Full snapshot); core/tests/model.rs
+  (area widened) has the two failed-turn tests rewritten. `Failure::TurnFailed`, `strings.chat.turn_failed` and the `failure_text` arm are unused now:
+  cleanup for the orchestrator (outside the area).
+- 8 deprecation (f1abd9093): `Item::Deprecation{summary, details}`, detailed-only `⚠` cell; `core::threads::project_unrouted` turns what the server sends
+  without a thread into the displayed thread's event. The routing arm is in core/src/app.rs, claimed by startup-device-code, so it is NOT applied: both cells_5
+  notice tests stay pending with that reason. The patch below was proven (both tests pass, then reverted), `git apply --check` passes on this tip:
+```diff
+diff --git a/codex-rs/tui-rtwk/core/src/app.rs b/codex-rs/tui-rtwk/core/src/app.rs
+index fa3d5ff56..37c68b8fe 100644
+--- a/codex-rs/tui-rtwk/core/src/app.rs
++++ b/codex-rs/tui-rtwk/core/src/app.rs
+@@ -745,21 +745,11 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
+                     }
+                     return;
+                 }
+-                ServerNotification::Warning(note) if note.thread_id.is_none() => {
+-                    Rc::make_mut(&mut app.session)
+-                        .backend_notices
+-                        .insert(origin, note.message.clone());
+-                }
+                 ServerNotification::ConfigWarning(note) => {
+                     Rc::make_mut(&mut app.session)
+                         .backend_notices
+                         .insert(origin, note.summary.clone());
+                 }
+-                ServerNotification::DeprecationNotice(note) => {
+-                    Rc::make_mut(&mut app.session)
+-                        .backend_notices
+-                        .insert(origin, note.summary.clone());
+-                }
+                 _ => {}
+             }
+             // The startup page's sign-in: a login completed, the account.
+@@ -839,6 +829,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
+                     agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
+                 send_agents(app, outs, fx);
+             }
++            // What the server sends without a thread (a deprecation notice) is
++            // the displayed thread's: the chat shows it in the detailed transcript.
++            if active_backend(app) == origin
++                && let Some(ev) = threads::project_unrouted(&notification)
++                && let Some(thread) = app.session.active.clone()
++            {
++                apply_thread(app, &thread, ev, fx);
++            }
+             if let Some((thread, ev)) = threads::project(&notification) {
+                 if app.threads.contains(&thread) {
+                     apply_thread(app, &thread, ev, fx);
+```
+- 9 plan update (177af1d09): `Item::PlanUpdate` with a minted key, the status line follows the same report (core/src/screens/chat.rs: the
+  `TurnPlanUpdated` projection arm is gone, `plan_progress` reads the transcript); cell `plan_update.rs` (compact rows with the steps done, the disclosure control the
+  oracle's `activity_disclosure` asks for, note and steps revealed); the dim of the step rows is `Attrs::DIM`. Frames `Compact` and `Full` of the oracle are
+  bare labels the kit cannot address; the rows are compared in tests/pages/cells.rs plan_update (`the_oracle_snapshot_full_rows` pending G49: no break after
+  a slash).
+- 10 session info (73798f4f4): the three `session_header_*` tests run on a `{"step":"screen","dir":"chat","ev":{"status":{...}}}` seed (cwd, profile, approval
+  policy, version): YOLO and narrow pass on the existing `transcript_header.rs` (no code change), the halfwidth directory stays pending on G44 (the sound mark
+  clusters into one cell). Not built (the pending reasons say so): the startup card of the oracle (`new_session_info`: help lines of the first session and one
+  `Tip:` row, `show_tooltips`, tips catalog, model-availability NUX) is a feature of its own (core needs a first-session fact, the setting, the catalog;
+  the host reads the config), and the history paging states of the session-information tests (the header is hidden while `can_load_history`; the kit has no
+  `thread/turns/list` script step). The state tests `yolo_mode_includes_managed_full_access_profiles` / `..._excludes_external_sandbox_profiles` belong to
+  the host (`Profile` is produced there; the port has no External variant).
+Binary (mock-model check.py, pty, rtwk and oracle, rows replayed through /tmp/chat-cells-vt.py): PASS on both for multi-agent (v2), plan-tool,
+image-generation, error-fatal, error-stream-closed, exec-command, web-search, view-image; error-context-window is the known red on both. Transcript rows
+equal for: multi-agent (`Started /root/helper`, `Waiting for agents`, `Completed /root/helper`, `Finished waiting`, `└ No agents completed yet`), plan-tool
+(three `Updated Plan` cells and the `+ Show details` control), exec-command, error-fatal (`■ Quota exceeded. Check your plan and billing details.`).
+Differences outside this area: the footer (model name casing `GPT-6-Sol`, `fast`, the `scenario` title row, `⚠ N warning · f2 to view`).
+FINDING for chat-live (streaming, not cells): error-retry. The oracle's final screen drops the cut-off first attempt; rtwk keeps its streamed text as a row
+(`• This answer is cut off by`) above `• Second try worked.` (the item the server started never completed; the oracle shows only the completed one).
+Mouse: tests/pages/cells.rs (disclosure taps of the viewed image and the plan cell). The collab and error cells are not selectable: no new mouse path.
+Handover list: G44 (halfwidth), G48 (hyphen break), G49 (no break after a slash), G71 (inherited text style); the kit lacks bare-label frames; oracle magenta is the
+theme accent (`tokens.accent()`); middle truncation by screen rows and unbroken wide URL tokens may be gaps (not pinned); chat_live_1 WARN_PENDING /
+ERR_PENDING / COLLAB_PENDING tests are chat-live's (some may pass now: not probed); an incident of disk full (ENOSPC) in phase 1 was cleared by pruning ~18 GB
+of this worktree's own target artifacts.
