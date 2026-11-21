@@ -705,25 +705,97 @@ mod tests {
     fn stale_auth_results_are_dropped() {
         let mut sign_in = SignIn::new(offer());
         let mut run = Run::new();
-        // A browser login started, then another: the first answer is stale.
-        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        // A browser login started; an answer under another request is stale.
         run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
         run.result(
             &mut sign_in,
-            1,
+            9,
             Outcome::Browser {
                 login_id: "old".into(),
                 url: "https://old".into(),
             },
         );
         assert_eq!(sign_in.state, State::Pick);
-        run.result(&mut sign_in, 2, Outcome::Failed(Error::Server("x".into())));
+        run.result(&mut sign_in, 1, Outcome::Failed(Error::Server("x".into())));
         assert_eq!(sign_in.error, Some(Error::Server("x".into())));
         // An API key answer after the step moved on is dropped too.
         sign_in.error = None;
         run.result(&mut sign_in, 7, Outcome::ApiKeySaved);
         assert_eq!(sign_in.state, State::Pick);
         assert_eq!(sign_in.error, None);
+    }
+
+    /// Review O1: Enter twice within the round trip of the ChatGPT login
+    /// (state still `Pick`, the ask out) starts one login, not two.
+    #[test]
+    fn second_choose_while_a_login_is_awaited_is_ignored() {
+        let mut sign_in = SignIn::new(offer());
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        run.intent(&mut sign_in, Intent::Choose(Method::ChatGpt));
+        assert_eq!(
+            run.asks,
+            vec![Ask::Login {
+                request: 1,
+                login: Login::ChatGpt
+            }]
+        );
+        // The one answer is the one awaited.
+        run.result(
+            &mut sign_in,
+            1,
+            Outcome::Browser {
+                login_id: "L".into(),
+                url: "https://u".into(),
+            },
+        );
+        assert_eq!(
+            sign_in.state,
+            State::Browser {
+                login_id: "L".into(),
+                url: "https://u".into()
+            }
+        );
+        assert_eq!(run.asks.len(), 1);
+    }
+
+    /// Review O1: a browser login answered under a request no longer
+    /// awaited is cancelled, as a stale device code is.
+    #[test]
+    fn stale_browser_outcome_cancels_the_login() {
+        let mut sign_in = SignIn::new(offer());
+        let mut run = Run::new();
+        run.result(
+            &mut sign_in,
+            4,
+            Outcome::Browser {
+                login_id: "orphan".into(),
+                url: "https://o".into(),
+            },
+        );
+        assert_eq!(sign_in.state, State::Pick);
+        assert_eq!(
+            run.asks,
+            vec![Ask::CancelLogin {
+                login_id: "orphan".into()
+            }]
+        );
+    }
+
+    /// Review O1 (secrets): Esc on the API key entry while the save is out
+    /// forgets the pending key; its late answer is dropped.
+    #[test]
+    fn cancel_forgets_the_pending_api_key() {
+        let mut sign_in = SignIn::new(offer());
+        sign_in.state = State::ApiKey { prefill: None };
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::SaveApiKey("sk-secret".into()));
+        assert!(sign_in.awaiting().is_some());
+        run.intent(&mut sign_in, Intent::Cancel);
+        assert_eq!(sign_in.awaiting(), None);
+        assert_eq!(sign_in.state, State::Pick);
+        run.result(&mut sign_in, 1, Outcome::ApiKeySaved);
+        assert_eq!(sign_in.state, State::Pick);
     }
 
     /// `handle_api_key_entry_key_event`: an empty key is refused; a key is
