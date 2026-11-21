@@ -187,6 +187,8 @@ pub struct InProcess {
     pub agents: bool,
     /// Where the startup page leaves the update to run after the app ends.
     pub update: crate::startup::UpdateSlot,
+    /// Where the startup page leaves the error of a launch it failed.
+    pub startup_failure: crate::startup::FailureSlot,
 }
 
 impl Connector for InProcess {
@@ -219,6 +221,7 @@ async fn run(
         failed,
         agents,
         update,
+        startup_failure,
     } = spec;
     // A start that fails ends the app: `main` reports `error` once the
     // terminal is restored.
@@ -276,6 +279,7 @@ async fn run(
         connected: !matches!(mode, Mode::Embedded),
         check_trust: !agents && !matches!(mode, Mode::Remote { daemon: false, .. }),
         update,
+        failure: startup_failure,
         browser: crate::startup::system_browser(),
         target: match mode {
             Mode::Embedded => crate::startup::Target::Embedded,

@@ -66,6 +66,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
     // The update the startup page's prompt chose: run once the terminal is
     // restored (the oracle's `UpdatePromptOutcome::RunUpdate`).
     let update = startup::UpdateSlot::default();
+    let startup_failure = startup::FailureSlot::default();
     let cloud = cloud::Cloud {
         id: codex_tui_rtwk::services::shell::CLOUD_BACKEND,
         mode: mode.clone(),
@@ -84,6 +85,7 @@ async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()>
         failed: failed_tx,
         agents: cli.agents,
         update: update.clone(),
+        startup_failure: startup_failure.clone(),
     }));
     // The Cloud connection next to the first, when the oracle's gate lets it
     // be tried (it decides inside, once the config is read).

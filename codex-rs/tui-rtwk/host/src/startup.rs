@@ -47,6 +47,11 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 /// terminal is restored.
 pub type UpdateSlot = Arc<Mutex<Option<UpdateAction>>>;
 
+/// The message a launch that failed ends with, kept for `main` to print once
+/// the terminal is restored (as `update`: set before the event that ends the
+/// app is sent, so it is there when the app is gone).
+pub type FailureSlot = Arc<Mutex<Option<String>>>;
+
 /// What the startup asks need of the host.
 #[derive(Clone)]
 pub struct Startup {
@@ -59,6 +64,9 @@ pub struct Startup {
     /// does not open a workspace").
     pub check_trust: bool,
     pub update: UpdateSlot,
+    /// A launch fact that could not be read ends the launch with its error
+    /// (`get_login_status(..)?`, `check_directory_trust(..)?`).
+    pub failure: FailureSlot,
     /// Which server the TUI talks to: what the provider wizards and the
     /// browser login are offered for (`AppServerTarget`).
     pub target: Target,
@@ -352,6 +360,7 @@ mod tests {
             connected: false,
             check_trust: true,
             update: UpdateSlot::default(),
+            failure: FailureSlot::default(),
             target,
             browser,
         };
@@ -482,5 +491,94 @@ mod tests {
             "wizards offered: {:?}",
             login_policy(&startup).wizards
         );
+    }
+
+    /// The server answers `account/read` and `config/read` as given.
+    fn serve(
+        account: Result<serde_json::Value, ServerError>,
+        config: Result<serde_json::Value, ServerError>,
+    ) -> impl Fn(ClientRequest) -> std::future::Ready<Result<serde_json::Value, ServerError>> {
+        move |request| {
+            std::future::ready(match request {
+                ClientRequest::GetAccount { .. } => account.clone(),
+                ClientRequest::ConfigRead { .. } => config.clone(),
+                other => panic!("unexpected request {other:?}"),
+            })
+        }
+    }
+
+    fn signed_out() -> serde_json::Value {
+        serde_json::json!({"account": null, "requiresOpenaiAuth": false})
+    }
+
+    fn refused(message: &str) -> ServerError {
+        ServerError {
+            code: Some(-32603),
+            message: message.to_owned(),
+        }
+    }
+
+    async fn facts_ask(
+        startup: &Startup,
+        send: impl Fn(ClientRequest) -> std::future::Ready<Result<serde_json::Value, ServerError>>,
+    ) -> Option<AppEv> {
+        run(
+            startup.clone(),
+            Ask::Facts { request: 1 },
+            Ids::default(),
+            send,
+        )
+        .await
+    }
+
+    // oracle `get_login_status(..)?`: a failed `account/read` ends the launch
+    // with `account/read failed: <error>`.
+    #[tokio::test]
+    async fn an_account_read_error_fails_the_launch() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = facts_ask(
+            &startup,
+            serve(Err(refused("no account")), Ok(serde_json::json!({}))),
+        )
+        .await;
+        let Some(AppEv::StartFailed(message)) = ev else {
+            panic!("expected StartFailed, got {ev:?}");
+        };
+        assert_eq!(message, "account/read failed: no account");
+        assert_eq!(
+            startup.failure.lock().unwrap().as_deref(),
+            Some(message.as_str())
+        );
+    }
+
+    // oracle `read_remote_project_trust`: `config/read failed while checking
+    // remote project trust` ends the launch.
+    #[tokio::test]
+    async fn a_trust_read_error_fails_the_launch() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let ev = facts_ask(&startup, serve(Ok(signed_out()), Err(refused("no config")))).await;
+        let Some(AppEv::StartFailed(message)) = ev else {
+            panic!("expected StartFailed, got {ev:?}");
+        };
+        assert_eq!(
+            message,
+            "config/read failed while checking remote project trust: no config"
+        );
+        assert_eq!(
+            startup.failure.lock().unwrap().as_deref(),
+            Some(message.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn facts_that_read_fine_leave_the_launch_alone() {
+        let (startup, _dir) = startup_with(Target::Embedded, system_browser()).await;
+        let config = serde_json::json!({"config": {}, "layers": []});
+        let ev = facts_ask(&startup, serve(Ok(signed_out()), Ok(config))).await;
+        assert!(matches!(
+            ev,
+            Some(AppEv::Screen(ScreenEv::Onboarding(Ev::Facts { .. })))
+        ));
+        assert!(startup.failure.lock().unwrap().is_none());
     }
 }
