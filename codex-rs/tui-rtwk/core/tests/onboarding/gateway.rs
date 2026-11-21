@@ -158,7 +158,7 @@ fn a_gateway_that_needs_no_login_goes_on_to_the_launch() {
     );
     assert!(matches!(
         asks.as_slice(),
-        [Ask::ReloadConfig, Ask::Launch { .. }]
+        [Ask::ReloadConfig, Ask::GatewayDevice { .. }]
     ));
     assert!(onboarding(&app).done(Stage::SignIn));
 }
@@ -184,7 +184,7 @@ fn the_gateways_oauth_succeeds_and_the_launch_follows() {
     assert_eq!(state(&app), State::GatewayConfigured);
     assert!(matches!(
         asks.as_slice(),
-        [Ask::ReloadConfig, Ask::Launch { .. }]
+        [Ask::ReloadConfig, Ask::GatewayDevice { .. }]
     ));
 }
 
@@ -377,7 +377,7 @@ fn an_api_key_is_asked_when_chatgpt_is_not_allowed() {
     );
     assert!(matches!(
         asks.as_slice(),
-        [Ask::ReloadConfig, Ask::Launch { .. }]
+        [Ask::ReloadConfig, Ask::GatewayDevice { .. }]
     ));
 }
 

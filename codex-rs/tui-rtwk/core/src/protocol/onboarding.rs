@@ -13,6 +13,7 @@ use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::GatewayOAuthLoginParams;
+use codex_app_server_protocol::GatewayOAuthLoginResponse;
 use codex_app_server_protocol::GatewayOAuthReadParams;
 use codex_app_server_protocol::GatewayOAuthReadResponse;
 use codex_app_server_protocol::GatewayOAuthStatus;
@@ -167,6 +168,52 @@ pub fn gateway_oauth_read(provider_id: &str, request_id: RequestId) -> ClientReq
             model_provider: Some(provider_id.to_owned()),
         }),
     }
+}
+
+/// `account/gatewayOAuth/read` as `device_login::start_if_needed` makes it:
+/// for the provider the launch names, or for none (the server's own).
+pub fn gateway_oauth_read_of(provider_id: Option<&str>, request_id: RequestId) -> ClientRequest {
+    ClientRequest::GatewayOAuthRead {
+        request_id,
+        params: provider_id.map(|id| GatewayOAuthReadParams {
+            model_provider: Some(id.to_owned()),
+        }),
+    }
+}
+
+/// An answer of a server that has the gateway OAuth read but not the device
+/// code (`start_if_needed`'s probe without a provider): it names the
+/// provider and lacks `supportsDeviceAuth`, which servers with the device
+/// login always include.
+pub fn gateway_server_without_device(probe: &Value) -> bool {
+    probe.as_object().is_some_and(|state| {
+        state.contains_key("providerId") && !state.contains_key("supportsDeviceAuth")
+    })
+}
+
+/// `account/gatewayOAuth/login` asking for the device code of the provider
+/// (`start_if_needed`).
+pub fn gateway_device_login(provider_id: &str, request_id: RequestId) -> ClientRequest {
+    ClientRequest::GatewayOAuthLogin {
+        request_id,
+        params: Some(GatewayOAuthLoginParams {
+            device_auth: true,
+            model_provider: Some(provider_id.to_owned()),
+        }),
+    }
+}
+
+/// The one-time code the login answered with, none when the server signed
+/// in without one; the decoder's own text of the error (the host frames
+/// it).
+pub fn gateway_device_prompt(value: Value) -> Result<Option<DeviceCode>, String> {
+    let response: GatewayOAuthLoginResponse =
+        serde_json::from_value(value).map_err(|error| error.to_string())?;
+    Ok(response.prompt.map(|prompt| DeviceCode {
+        login_id: prompt.login_id,
+        url: prompt.verification_url,
+        code: prompt.user_code,
+    }))
 }
 
 /// `account/gatewayOAuth/login` for the provider: the browser way (the

@@ -8,10 +8,12 @@
 //! the sign-in step (S02) is `auth`.
 
 pub mod auth;
+pub mod device;
 pub mod gateway;
 
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::GatewayOAuthStatus;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use serde::Deserialize;
@@ -81,6 +83,12 @@ pub struct Model {
     /// The selected gateway's own sign-in, run after the steps
     /// (`authenticate_gateway`).
     gateway: gateway::Phase,
+    /// The config was reloaded after the steps (asked once; asked again with
+    /// a new connection).
+    reloaded: bool,
+    /// The gateway's device code, asked for once the steps are over and
+    /// before the launch's prompts (`device_login::start_if_needed`).
+    device: device::Phase,
 }
 
 /// The number of an ask of this page to the host (`Ask`): its answer carries
@@ -170,6 +178,14 @@ pub enum Ask {
     /// Cancel the gateway sign-in on the way out
     /// (`GatewayOAuthCancel`); not answered.
     CancelGatewayOAuth,
+    /// Start the gateway's device code if the session's gateway needs a
+    /// sign-in and a device code is the way (`device_login::start_if_needed`),
+    /// answered with `Ev::GatewayDevice`. A read that fails ends the launch
+    /// with its message.
+    GatewayDevice { request: Request },
+    /// End the launch with `message` (the oracle returns the error from
+    /// `run_ratatui_app`); not answered.
+    FailLaunch { message: String },
     /// Refresh the update cache over the network (`check_for_update`), asked
     /// once after the facts that found it stale; not answered, a failure is
     /// only logged.
@@ -315,7 +331,18 @@ impl Model {
     /// Whether the app opens on the startup page: a step is not finished,
     /// or a startup prompt is due.
     pub fn due(&self) -> bool {
-        self.steps().into_iter().any(|step| !self.done(step)) || !self.prompts.is_empty()
+        self.steps().into_iter().any(|step| !self.done(step))
+            || !self.prompts.is_empty()
+            || self.device_code().is_some()
+    }
+
+    /// The gateway's one-time code on screen (the launch waits for that
+    /// attempt to end); none once the app is leaving.
+    pub fn device_code(&self) -> Option<&auth::DeviceCode> {
+        if self.ends() {
+            return None;
+        }
+        self.device.code()
     }
 
     /// Whether the launch ends with the steps: a quit, an update to run, the
@@ -432,6 +459,18 @@ pub enum Ev {
         provider_id: String,
         auth_url: Option<String>,
     },
+    /// The answer to `Ask::GatewayDevice { request }`: the code to show, or
+    /// none when the launch goes on without a prompt.
+    GatewayDevice {
+        request: Request,
+        code: Option<auth::DeviceCode>,
+    },
+    /// `account/gatewayOAuth/changed` for an attempt (`login_id`) that
+    /// ended.
+    GatewayDeviceChanged {
+        login_id: String,
+        change: device::Change,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -473,10 +512,31 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
                 )
             ),
         },
-        ServerNotification::GatewayOAuthChanged(change) => Ev::GatewayOAuthChanged {
-            provider_id: change.provider_id.clone(),
-            auth_url: change.auth_url.clone(),
-        },
+        ServerNotification::GatewayOAuthChanged(change) => {
+            // The device login's attempt that ended
+            // (`handle_event_during_device_login`).
+            if let Some(login_id) = change.login_id.clone() {
+                let ended = match change.status {
+                    GatewayOAuthStatus::Succeeded => Some(device::Change::Succeeded),
+                    GatewayOAuthStatus::Failed | GatewayOAuthStatus::NotReady => {
+                        Some(device::Change::Failed(
+                            change
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Gateway sign-in failed".into()),
+                        ))
+                    }
+                    GatewayOAuthStatus::Started => None,
+                };
+                if let Some(change) = ended {
+                    apply(model, Ev::GatewayDeviceChanged { login_id, change }, fx);
+                }
+            }
+            Ev::GatewayOAuthChanged {
+                provider_id: change.provider_id.clone(),
+                auth_url: change.auth_url.clone(),
+            }
+        }
         _ => return,
     };
     apply(model, ev, fx);
@@ -502,7 +562,9 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 /// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
     model.launching = None;
+    model.reloaded = false;
     gateway::lost(model);
+    device::lost(model);
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -552,6 +614,10 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::GatewayStarted { request } => gateway::started(model, request, fx),
         Ev::GatewayLogins { request, logins } => gateway::logins(model, request, logins, fx),
         Ev::GatewayOAuth { request, result } => gateway::oauth(model, request, result),
+        Ev::GatewayDevice { request, code } => device::answered(model, request, code, fx),
+        Ev::GatewayDeviceChanged { login_id, change } => {
+            device::changed(model, login_id, change, fx);
+        }
         Ev::GatewayOAuthChanged {
             provider_id,
             auth_url,
@@ -757,6 +823,7 @@ fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::RetryGatewayOAuth => gateway::retry(model, fx),
         Intent::Exit => {
             gateway::exit(model, fx);
+            device::exit(model, fx);
             // `cancel_auth_if_active`: a login started is cancelled on the
             // way out.
             if let Some(sign_in) = model.sign_in.as_mut().filter(|s| !s.done()) {
@@ -783,12 +850,20 @@ fn follow_launch(model: &mut Model, fx: &mut AppFx) {
     {
         return;
     }
-    let trusted = model
-        .trust
-        .as_ref()
-        .is_some_and(|t| t.decision == Some(TrustDecision::Trusted));
-    if trusted || model.sign_in.is_some() {
-        ask(fx, Ask::ReloadConfig);
+    if !model.reloaded {
+        model.reloaded = true;
+        let trusted = model
+            .trust
+            .as_ref()
+            .is_some_and(|t| t.decision == Some(TrustDecision::Trusted));
+        if trusted || model.sign_in.is_some() {
+            ask(fx, Ask::ReloadConfig);
+        }
+    }
+    // The gateway's device code comes before the prompts
+    // (`device_login::start_if_needed` before the models are read).
+    if !device::follow(model, fx) {
+        return;
     }
     let request = mint(model);
     model.launching = Some(request);
@@ -1385,7 +1460,7 @@ mod tests {
         // reloaded config.
         assert_eq!(
             answered(&mut m, Ev::TrustSaved { request: 2 }),
-            [Ask::ReloadConfig, Ask::Launch { request: 3 }]
+            [Ask::ReloadConfig, Ask::GatewayDevice { request: 3 }]
         );
         // A repeated or stale answer asks nothing more.
         assert_eq!(answered(&mut m, Ev::TrustSaved { request: 2 }), []);
@@ -1408,18 +1483,30 @@ mod tests {
         })
     }
 
-    // run_ratatui_app: with no step due the app reads the launch's prompts
+    /// The host found no gateway sign-in to show (`Ask::GatewayDevice`,
+    /// request `request`): the launch's prompts are asked next.
+    fn no_device_code(m: &mut Model, request: Request) -> Vec<Ask> {
+        answered(m, Ev::GatewayDevice {
+            request,
+            code: None,
+        })
+    }
+
+    // run_ratatui_app: with no step due the app asks for the gateway's device
+    // code (`device_login::start_if_needed`), then reads the launch's prompts
     // (the hooks review, the model migration) before the first frame; the
     // page waits for them and is not settled until they are known.
     #[test]
     fn a_launch_with_no_step_due_asks_for_its_startup_prompts() {
         let (mut m, asked) = read(Facts::default());
-        assert_eq!(asked, [Ask::Launch { request: 2 }]);
+        assert_eq!(asked, [Ask::GatewayDevice { request: 2 }]);
+        assert!(m.awaits_launch() && !m.settled() && !m.due());
+        assert_eq!(no_device_code(&mut m, 2), [Ask::Launch { request: 3 }]);
         assert!(m.awaits_launch() && !m.settled() && !m.due());
         ev(
             &mut m,
             Ev::Launched {
-                request: 2,
+                request: 3,
                 prompts: Vec::new(),
             },
         );
@@ -1429,10 +1516,11 @@ mod tests {
     #[test]
     fn launched_prompts_keep_the_page_due_until_asked() {
         let (mut m, _) = read(Facts::default());
+        no_device_code(&mut m, 2);
         ev(
             &mut m,
             Ev::Launched {
-                request: 2,
+                request: 3,
                 prompts: vec![hooks_due()],
             },
         );
@@ -1446,14 +1534,15 @@ mod tests {
     #[test]
     fn a_launch_ask_lost_with_the_connection_is_asked_again() {
         let (mut m, _) = read(Facts::default());
+        no_device_code(&mut m, 2);
         disconnected(&mut m);
         let mut fx = AppFx::default();
         connected(&mut m, &mut fx);
-        assert_eq!(asks(fx), [Ask::Launch { request: 3 }]);
+        assert_eq!(asks(fx), [Ask::Launch { request: 4 }]);
         ev(
             &mut m,
             Ev::Launched {
-                request: 2,
+                request: 3,
                 prompts: vec![hooks_due()],
             },
         );
@@ -1461,7 +1550,7 @@ mod tests {
         ev(
             &mut m,
             Ev::Launched {
-                request: 3,
+                request: 4,
                 prompts: Vec::new(),
             },
         );
@@ -1523,7 +1612,7 @@ mod tests {
         // (No step is due: the launch's prompts are asked after it.)
         assert_eq!(
             answered(&mut m, facts(true)),
-            [Ask::RefreshUpdateCache, Ask::Launch { request: 2 }]
+            [Ask::RefreshUpdateCache, Ask::GatewayDevice { request: 2 }]
         );
         // The answer was taken: a repeat asks nothing more.
         assert_eq!(answered(&mut m, facts(true)), []);
@@ -1531,7 +1620,7 @@ mod tests {
         connected(&mut m, &mut AppFx::default());
         assert_eq!(
             answered(&mut m, facts(false)),
-            [Ask::Launch { request: 2 }]
+            [Ask::GatewayDevice { request: 2 }]
         );
     }
 

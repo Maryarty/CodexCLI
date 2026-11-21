@@ -778,6 +778,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 &*notification,
                 ServerNotification::AccountLoginCompleted(_)
                     | ServerNotification::AccountUpdated(_)
+                    | ServerNotification::GatewayOAuthChanged(_)
             ) {
                 crate::screens::onboarding::observe(
                     &mut Rc::make_mut(&mut app.screens).onboarding,
