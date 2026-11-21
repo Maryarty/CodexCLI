@@ -220,6 +220,66 @@ mod patch_in_transcript {
     }
 }
 
+// ---- web search: item/completed after item/started leaves both rows (oracle
+// tool_lifecycle.rs: `handle_thread_item` runs `on_web_search_begin`, which
+// commits the started cell, then `on_web_search_end`; the oracle's pty capture of
+// the web-search scenario reads `• Browsing the web` above `• Searched the web for …`) ----
+
+mod web_search_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common;
+
+    fn item(method: &str, payload: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": method,
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1", "startedAtMs": 0,
+                "completedAtMs": 0, "item": payload}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    #[test]
+    fn a_completed_search_follows_the_browsing_row() {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            item(
+                "item/started",
+                json!({"type": "webSearch", "id": "w", "query": ""}),
+            ),
+            item(
+                "item/completed",
+                json!({"type": "webSearch", "id": "w", "query": "rtwk",
+                    "action": {"type": "search", "query": "rtwk"}}),
+            ),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the completed search", |s| {
+            s.contains("Searched the web for rtwk")
+        });
+        let rows: Vec<String> =
+            h.t.screen()
+                .lines()
+                .map(|r| r.trim_end().to_string())
+                .collect();
+        let at = |text: &str| rows.iter().position(|row| row.contains(text));
+        let (browsing, searched) = (at("• Browsing the web"), at("• Searched the web for rtwk"));
+        assert!(
+            browsing.is_some() && searched.is_some() && browsing < searched,
+            "{rows:#?}"
+        );
+    }
+}
+
 // ---- the reasoning summary: every span dim and italic (oracle
 // `ReasoningSummaryCell::lines`, `span.patch_style(dim().italic())`) ----
 

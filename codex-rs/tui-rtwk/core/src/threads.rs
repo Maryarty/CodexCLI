@@ -219,8 +219,18 @@ impl Transcript {
             .or_else(|| self.items.get(key).map(Rc::as_ref))
     }
 
-    /// Inserts or replaces the entry; a replaced entry keeps its place.
-    pub fn upsert(&mut self, key: ItemKey, mut item: Item) {
+    /// Inserts or replaces the entry; a replaced entry keeps its place. A web
+    /// search that completes after its start does not replace it: the oracle's
+    /// `item/completed` runs `on_web_search_begin`, which commits the cell
+    /// `item/started` left (`• Browsing the web`), and then the end commits the
+    /// completed one, so the completed search is an entry after the started one.
+    pub fn upsert(&mut self, mut key: ItemKey, mut item: Item) {
+        if matches!(&item, Item::Web(web) if web.completed)
+            && matches!(self.item(&key), Some(Item::Web(started)) if !started.completed)
+        {
+            // The second entry of the item: its id and `#2`.
+            key.item = ItemId::new(format!("{}#2", key.item.as_str()));
+        }
         if self.item(&key).map(Item::is_exploration) != Some(item.is_exploration()) {
             self.layout_revision += 1;
         }

@@ -6,6 +6,9 @@
 #![allow(clippy::expect_used)]
 
 use codex_app_server_protocol::ServerNotification;
+use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+use codex_tui_core::ids::{ThreadId, Ticket};
+use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
     Item, Notice, PatchChange, PatchKind, ThreadEv, ToolStatus, WebAction, WebActivity, project,
 };
@@ -175,4 +178,100 @@ fn plan_image_view_and_notices_are_entries() {
         completed(json!({"type": "enteredReviewMode", "id": "e", "review": "current changes"})),
         Item::Notice(Notice::EnteredReview("current changes".into()))
     );
+}
+
+/// The app with its thread `thread-1` started, as after `Connected` and the reply.
+fn ready() -> CodexApp {
+    let mut app = CodexApp::new();
+    let mut fx = AppFx::default();
+    apply_app(&mut app, AppEv::Connected, &mut fx);
+    let ticket: Ticket = fx
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::StartThread { ticket, .. } => Some(*ticket),
+            _ => None,
+        })
+        .expect("a StartThread command");
+    apply_app(
+        &mut app,
+        AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-1"))),
+        &mut AppFx::default(),
+    );
+    app
+}
+
+fn send(app: &mut CodexApp, method: &str, item: Value) {
+    let notification: ServerNotification = serde_json::from_value(json!({
+        "method": method,
+        "params": {"item": item, "threadId": "thread-1", "turnId": "turn-1",
+            "completedAtMs": 0, "startedAtMs": 0}
+    }))
+    .expect("item notification");
+    apply_app(
+        app,
+        AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        &mut AppFx::default(),
+    );
+}
+
+fn web_rows(app: &CodexApp) -> Vec<WebActivity> {
+    app.active_thread()
+        .transcript()
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Web(web) => Some(web.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_completed_web_search_follows_the_row_its_start_left() {
+    // oracle tool_lifecycle.rs: item/completed runs `on_web_search_begin` (which commits the
+    // cell item/started left active: `• Browsing the web`) and then `on_web_search_end`
+    // (the completed cell, committed after it).
+    let search =
+        |action: Value| json!({"type": "webSearch", "id": "w", "query": "rust", "action": action});
+    let mut app = ready();
+    send(
+        &mut app,
+        "item/started",
+        json!({"type": "webSearch", "id": "w", "query": ""}),
+    );
+    assert_eq!(web_rows(&app).len(), 1);
+    send(
+        &mut app,
+        "item/completed",
+        search(json!({"type": "search", "query": "rust"})),
+    );
+    let rows = web_rows(&app);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(!rows[0].completed);
+    assert_eq!(rows[0].action, WebAction::Search { known: false });
+    assert_eq!(rows[0].detail, "");
+    assert!(rows[1].completed);
+    assert_eq!(rows[1].detail, "rust");
+    // The same completion again changes the completed row, not the count.
+    send(
+        &mut app,
+        "item/completed",
+        search(json!({"type": "search", "query": "rust again"})),
+    );
+    let rows = web_rows(&app);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].detail, "rust again");
+}
+
+#[test]
+fn a_completed_web_search_without_a_start_is_one_row() {
+    // oracle replay (a stored thread): begin then end of one item leaves the completed cell only.
+    let mut app = ready();
+    send(
+        &mut app,
+        "item/completed",
+        json!({"type": "webSearch", "id": "w", "query": "rust",
+            "action": {"type": "search", "query": "rust"}}),
+    );
+    assert_eq!(web_rows(&app).len(), 1);
 }
