@@ -1,0 +1,4 @@
+# The hooks review while the trust is written
+# Oracle data: startup_hooks_review.rs:522
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "hooks", "count": 2, "trust": {"trusting": 1}}}

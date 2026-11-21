@@ -1,0 +1,4 @@
+# The cwd prompt where remembering current is not allowed
+# Oracle data: cwd_prompt.rs:407
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "resume", "current": "/Users/example/current", "session": "/Users/example/session", "remembered_current": "/Users/example/current", "allow_remember_current": false}}

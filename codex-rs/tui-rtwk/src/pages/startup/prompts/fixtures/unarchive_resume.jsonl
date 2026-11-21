@@ -1,0 +1,4 @@
+# The unarchive prompt on resume
+# Oracle data: unarchive_prompt_tests.rs:32
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "unarchive", "thread": "019e72f4-e09a-70f2-b2c2-a153a57b8cc0", "action": "resume"}}

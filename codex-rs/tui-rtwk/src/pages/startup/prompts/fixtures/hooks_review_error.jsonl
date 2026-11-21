@@ -1,0 +1,4 @@
+# The hooks review after a failed trust
+# Oracle data: startup_hooks_review.rs:502
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "hooks", "count": 2, "trust": {"failed": "config/batchWrite failed in TUI: Invalid configuration: features.fast_mode=true is not supported; allowed set [fast_mode=false]"}}}

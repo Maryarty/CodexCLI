@@ -1,0 +1,4 @@
+# The migration prompt from a markdown template
+# Oracle data: model_migration.rs:578
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "migration", "current_model": "gpt-old", "target_model": "gpt-new", "target_display_name": "GPT New", "markdown": "# Introducing {model_to}\n\nA faster coding model with better reasoning.\n\nYou can keep using {model_from} if you prefer.", "can_opt_out": true}}

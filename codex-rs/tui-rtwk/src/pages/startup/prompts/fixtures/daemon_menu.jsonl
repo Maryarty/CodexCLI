@@ -1,0 +1,4 @@
+# The recovery menu of a managed daemon
+# Oracle data: daemon_recovery_tests.rs:11
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "daemon", "reason": "This session requires api_key_model_discovery to be enabled", "restart_features": [["api_key_model_discovery", true], ["code_mode_host", true], ["instant_interrupt", true], ["mcp_oauth_refresh_coordination", false]], "managed": true}}

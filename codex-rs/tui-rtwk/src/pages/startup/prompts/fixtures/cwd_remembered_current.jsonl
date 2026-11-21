@@ -1,0 +1,4 @@
+# The cwd prompt whose remembered current differs
+# Oracle data: cwd_prompt.rs:431
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "resume", "current": "/Users/example/current", "session": "/Users/example/session", "remembered_current": "/Users/example/launched", "allow_remember_current": true}}

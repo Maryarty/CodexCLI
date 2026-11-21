@@ -1,0 +1,4 @@
+# The provider picker, LM Studio not_running, Ollama running
+# Oracle data: oss_selection_tests.rs:9
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "oss", "lmstudio": "not_running", "ollama": "running"}}

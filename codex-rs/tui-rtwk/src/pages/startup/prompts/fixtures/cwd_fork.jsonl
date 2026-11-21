@@ -1,0 +1,4 @@
+# The cwd prompt on fork
+# Oracle data: cwd_prompt.rs:389
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"prompt": "cwd", "action": "fork", "current": "/Users/example/current", "session": "/Users/example/session", "remembered_current": "/Users/example/current", "allow_remember_current": true}}
