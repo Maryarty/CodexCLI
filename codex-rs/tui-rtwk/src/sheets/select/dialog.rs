@@ -30,6 +30,7 @@ use codex_tui_core::screens::select::{Intent, Menu};
 
 use super::lists;
 use super::rows::{RowStyles, Rows};
+use super::side;
 use super::strings;
 use crate::app::theme;
 use crate::app::view::Hs;
@@ -368,6 +369,14 @@ impl State for SelectSheetState {
             );
         }
         pane = pane.child(arrow(end < rows.len(), s.more_below));
+        let mut body: AnyWidget = pane.into();
+        if let Some(side) = list.side.clone() {
+            body = side::with_preview(body, side, Style::new());
+        }
+        let mut pane = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(body);
         if let Some(note) = list.footer_note.clone() {
             pane = pane.child(inset(Text::new(note).wrap(TextWrap::Word).into()));
         }
@@ -526,7 +535,7 @@ impl SelectSheetState {
         let mut row = Row::new();
         for (index, tab) in list.tabs.iter().enumerate() {
             let style = if Some(index) == self.tab {
-                tokens.bold().attrs(Attrs::REVERSE)
+                tokens.bold().attrs(Attrs::UNDERLINE)
             } else {
                 tokens.dim()
             };

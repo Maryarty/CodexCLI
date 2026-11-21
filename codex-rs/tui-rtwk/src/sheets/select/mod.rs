@@ -7,6 +7,7 @@
 mod dialog;
 mod lists;
 mod rows;
+mod side;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
@@ -21,7 +22,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 29] = [
+    let entries: [(&'static str, &'static str, &'static str); 31] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -146,6 +147,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "halfwidth_marks",
             "two rows with halfwidth sound marks",
             include_str!("fixtures/halfwidth_marks.jsonl"),
+        ),
+        (
+            "stacked_side_content",
+            "one item with a preview too wide to sit beside the rows: the stacked one shows",
+            include_str!("fixtures/stacked_side_content.jsonl"),
+        ),
+        (
+            "side_content",
+            "one item with a preview beside the rows",
+            include_str!("fixtures/side_content.jsonl"),
         ),
         (
             "col_width_auto_visible",

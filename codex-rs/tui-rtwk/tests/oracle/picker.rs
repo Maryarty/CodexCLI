@@ -86,7 +86,7 @@ fn theme_picker_subtitle_uses_fallback_text_in_94x35_terminal() {
 fn preserve_side_content_bg_keeps_rendered_background_colors() {
     kit::pending(
         Owner::UiPane,
-        "no entry with side content (a one-row marker `+` on a blue background, half width): the select screen has no side content slot",
+        "the preview keeps the dialog surface; no side-content background colour (a blue-background marker) is carried into the sheet yet",
     );
     let s = Screen::build(Owner::UiPane)
         .size(120, 35)
@@ -508,10 +508,6 @@ fn auto_all_rows_col_width_does_not_shift_when_scrolling() {
 // ORACLE bottom_pane/list_selection_view.rs:3375 stacked_side_content_is_used_when_side_by_side_does_not_fit kind=ui owner=ui-pane
 #[test]
 fn stacked_side_content_is_used_when_side_by_side_does_not_fit() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with side content (`W`) and stacked side content (`N`) at width 70: the select screen has no side content slot",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(70, 8)
         .entry("select", "stacked_side_content")
@@ -525,7 +521,7 @@ fn stacked_side_content_is_used_when_side_by_side_does_not_fit() {
 fn side_content_clearing_resets_symbols_and_style() {
     kit::pending(
         Owner::UiPane,
-        "no entry with side content (`W`) at width 120 over a pre-filled buffer: the kit cannot paint the screen behind the widget first (no red-filled X cells)",
+        "the sheet draws the preview beside the rows (side_content fixture, tests/sheets/select.rs); the kit cannot paint the screen behind the widget first (no red-filled X cells) to prove the clearing",
     );
     let s = Screen::build(Owner::UiPane)
         .size(120, 8)
@@ -541,7 +537,7 @@ fn side_content_clearing_resets_symbols_and_style() {
 fn side_content_clearing_handles_non_zero_buffer_origin() {
     kit::pending(
         Owner::UiPane,
-        "no entry with side content laid out at row 20 (a non-zero buffer origin): the select screen cannot be placed at a row offset",
+        "the sheet is bottom-aligned in the screen; the kit cannot place it at a row offset",
     );
     let s = Screen::build(Owner::UiPane)
         .size(120, 40)
@@ -943,7 +939,7 @@ fn choice_labels_and_descriptions_keep_complete_url_destinations() {
 fn filled_tabs_window_around_active_tab() {
     kit::pending(
         Owner::UiPane,
-        "no entry with the filled tab strip (All, Common, Customized (3), Unbound (4), App, Composer, Debug) at width 30 with the active tab at 0, 2 and 6: the select screen has no tab strip",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the kit cannot address one frame per active tab",
     );
     let s = Screen::build(Owner::UiPane)
         .size(30, 3)
@@ -958,7 +954,7 @@ fn filled_tabs_window_around_active_tab() {
 fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
     kit::pending(
         Owner::UiPane,
-        "no entry with the tab strip All, `文件系统 plugins`, Debug at widths 1, 4, 9 and 16 (active tab 1): the select screen has no tab strip",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the kit cannot address one frame per width",
     );
     let s = Screen::build(Owner::UiPane)
         .size(16, 4)
@@ -973,7 +969,7 @@ fn filled_tabs_truncate_unicode_without_hiding_active_tab() {
 fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
     kit::pending(
         Owner::UiPane,
-        "no entry with the tab strip All at width 5 on the unprobed default palette: the select screen has no tab strip",
+        "G45: rtwk's TabBar scrolls by columns and cuts a tab at the edge, the oracle's strip (render_filled_tab_bar) shows whole tabs, keeps the active one and reserves two cells per arrow (probe: tests/sheets/select.rs probe_g45_tab_bar_cuts_a_tab_at_the_edge); the sheet draws its tabs as a plain row of the oracle's labels; and the strip is drawn inside the dialog, not alone at 5x1 (the kit screen is the whole dialog)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(5, 1)

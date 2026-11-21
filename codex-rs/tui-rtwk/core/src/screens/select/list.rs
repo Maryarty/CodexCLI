@@ -109,6 +109,36 @@ impl Default for Side {
     }
 }
 
+/// Cells between the rows and a side preview (`SIDE_CONTENT_GAP`).
+pub const SIDE_GAP: u16 = 2;
+/// The rows keep at least this many cells beside a preview
+/// (`MIN_LIST_WIDTH_FOR_SIDE`).
+pub const MIN_LIST_WIDTH_FOR_SIDE: u16 = 40;
+
+impl Side {
+    /// The width of the preview when it sits beside the rows in a popup whose
+    /// content (inside its insets) is `content_width` cells wide; none when it
+    /// does not fit and the stacked preview takes its place
+    /// (`side_by_side_layout_widths`).
+    pub fn beside(&self, content_width: u16) -> Option<u16> {
+        let width = match self.width {
+            SideWidth::Fixed(0) => return None,
+            SideWidth::Fixed(width) => width,
+            SideWidth::Half => content_width.saturating_sub(SIDE_GAP) / 2,
+        };
+        if width < self.min_width {
+            return None;
+        }
+        let list = content_width.saturating_sub(SIDE_GAP + width);
+        (list >= MIN_LIST_WIDTH_FOR_SIDE).then_some(width)
+    }
+
+    /// The lines shown below the rows when the preview does not fit beside.
+    pub fn below(&self) -> &[String] {
+        self.stacked.as_deref().unwrap_or(&self.lines)
+    }
+}
+
 /// The whole list (`SelectionViewParams`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default)]
@@ -589,6 +619,20 @@ mod tests {
         assert_eq!(window_top(0, Some(8), 20, 8), 1);
         assert_eq!(window_top(5, Some(2), 20, 8), 2);
         assert_eq!(window_top(30, None, 20, 8), 19);
+    }
+
+    #[test]
+    fn a_preview_sits_beside_the_rows_only_when_both_fit() {
+        let side = |width, min_width| Side { width, min_width, ..Side::default() };
+        // `side_layout_width_half_uses_exact_split`: half of what the gap leaves
+        assert_eq!(side(SideWidth::Half, 10).beside(120), Some(59));
+        // `side_layout_width_half_falls_back_when_list_would_be_too_narrow`
+        assert_eq!(side(SideWidth::Half, 50).beside(80), None);
+        assert_eq!(side(SideWidth::Fixed(70), 0).beside(100), None);
+        assert_eq!(side(SideWidth::Fixed(0), 0).beside(100), None);
+        assert_eq!(side(SideWidth::Fixed(30), 0).beside(100), Some(30));
+        // the stacked fixture: a 70 wide popup, half is 33 < min 60
+        assert_eq!(side(SideWidth::Half, 60).beside(66), None);
     }
 
     #[test]

@@ -184,3 +184,59 @@ fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
         ],
     );
 }
+
+/// Probe of rtwk gap G45 (`filled_tabs_window_around_active_tab`): rtwk's
+/// `TabBar` scrolls by columns and cuts the tab at the edge; the oracle's
+/// strip (`render_filled_tab_bar`) shows whole tabs only, keeps the active one,
+/// and reserves two cells for each arrow (the probe asserts what rtwk draws:
+/// the third tab whole where the oracle drops it, and at the end the cut `nd (4)`):
+/// `" All   Common                ›"`,
+/// `"‹  Common   Customized (3)   ›"`, `"‹  App   Composer   Debug"`.
+#[test]
+fn probe_g45_tab_bar_cuts_a_tab_at_the_edge() {
+    use rtwk::controls::{TabBar, TabController};
+    use rtwk_test::{Options, Tester};
+    let labels = [
+        "All",
+        "Common",
+        "Customized (3)",
+        "Unbound (4)",
+        "App",
+        "Composer",
+        "Debug",
+    ];
+    let strip = |active: usize| {
+        let mut t = Tester::with(Options::new().size(30, 1));
+        t.pump_widget(TabBar::new(
+            TabController::with_initial_index(7, active),
+            labels,
+        ));
+        t.screen()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .to_string()
+    };
+    assert_eq!(
+        [strip(0), strip(2), strip(6)],
+        [
+            " All  Common  Customized (3) \u{203a}".to_string(),
+            " All  Common  Customized (3) \u{203a}".to_string(),
+            "\u{2039}nd (4)  App  Composer  Debug".to_string(),
+        ]
+    );
+}
+
+// The oracle's `side_layout_width_half_uses_exact_split` as rows: at 120 cells
+// the content is 116 wide, the preview half of what the gap leaves (57), and
+// it starts at 120 - 2 - 57 = 61.
+#[test]
+fn a_preview_sits_beside_the_rows_when_it_fits() {
+    let h = open_sized(120, 8, "side_content");
+    let have = rows(&h);
+    let at = |text: &str| have.iter().find_map(|row| row.find(text));
+    assert_eq!(at("W"), Some(61), "the screen:\n{}", h.t.screen());
+    assert_eq!(at("N"), None);
+    assert_eq!(at("1. Item 1"), Some(4));
+}
