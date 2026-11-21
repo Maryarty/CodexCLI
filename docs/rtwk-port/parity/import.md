@@ -9,17 +9,19 @@ It is a step of the startup page (`onboarding::Step::Import` renders `import::Sc
 | layer | files |
 |---|---|
 | core (no rtwk, no words) | `core/src/screens/import/mod.rs` (Model, Phase, Intent, Ev, Request, Outcome, Failure, Started, Finished, `apply`, `seed`), `detect.rs` (Source, Detection), `item.rs` (typed projections of the items: Kind, GroupKind, Sel methods, Places) |
-| view | `src/pages/startup/import/mod.rs` (the step: `Screen`, the review), `source.rs` (the source prompt: `SourcePrompt` over the shared `Options`, the startup prompts' look), `nav.rs` (Nav: page, focus, cursor, action; Key), `rows.rs` (the review's lines), `labels.rs` (labels, details, descriptions, failures), `notices.rs` (the history lines of a started and a finished import), `strings.rs` (words, English `EN`), `fixtures/*.jsonl` (mock data through core `apply`) |
+| view | `src/pages/startup/import/mod.rs` (the step: `Screen`, the review on rtwk `Focus` nodes and a `ListController`), `source.rs` (the source prompt: `SourcePrompt` over the shared `Options`, the startup prompts' look), `rows.rs` (the review's lines), `labels.rs` (labels, details, descriptions, failures), `notices.rs` (the history lines of a started and a finished import), `strings.rs` (words, English `EN`), `fixtures/*.jsonl` (mock data through core `apply`) |
 | generic sheet | multi-select in `core/src/screens/select{,/list}.rs` and `src/sheets/select/` |
-| tests | `core/tests/import.rs` (flow), `tests/pages/import.rs` (words and keys), `tests/oracle/import.rs` (the oracle's screen tests, shard `import`), `tests/rtwk_g46.rs` (probe) |
+| services | `src/services/backend/import.rs` (the runner of the flow's RPCs, shared by the fake and the host), `src/services/backend/fake.rs` (the `Command::Import` arm), `host/src/import.rs` + one arm in `host/src/in_process.rs` (the real server, the places of the paths) |
+| tests | `core/tests/import.rs` (flow), `tests/pages/import.rs` (words, keys, `mod flow`: the flow through the shell on the scripted backend, the focus walk), `tests/oracle/import.rs` (the oracle's screen tests, shard `import`), `tests/rtwk_g46.rs` (probe) |
 
 Layers: core holds the flow as typed data (`Phase`, `Outcome::{Started, NoItems, Cancelled,
 Failed(Failure)}`, `Group { kind }`, `Finished { by_type }`, `Model::error` is the server's raw
 text); every word (group and item labels, nouns, detail lines, the notices of the history, the
 errors, the source names) is told in the view from that data (ADR-010). The review's navigation
-(page, focus, cursor, highlighted action) is the view's own state (`Nav` in the widget state),
-never a field of the model; `Model::review_id` counts the reviews opened so a `Nav` is for the
-review it opened on. ADR-003: one model, changed only by `apply`; the view emits intents
+(summary or checklist, the cursor, the highlighted action) is the view's own state (widget
+state of `Screen`; focus is two `FocusNode`s, the checklist and the actions, with `KeyBindings`
+layers), never a field of the model; `Model::review_id` counts the reviews opened so the state
+is for the review it opened on. ADR-003: one model, changed only by `apply`; the view emits intents
 (`Open`, `Source(id)`, `Toggle(index)`, `SetAll`, `Proceed`, `Cancel`); answers carry the
 request id (`Request::{Detect, Import}.request`), a stale answer is dropped.
 
@@ -38,7 +40,7 @@ request id (`Request::{Detect, Import}.request`), a stale answer is dropped.
 
 ## Oracle tests (shard `tests/oracle/import.rs`, profile `oracle`)
 
-17 oracle tests: 13 green, 1 n/a, 3 pending, 0 red.
+17 oracle tests: 13 green, 1 n/a, 3 pending (N1 x2, G46), 0 red.
 
 | oracle (file::name) | ours | status |
 |---|---|---|
@@ -61,21 +63,49 @@ the oracle's names.
 * G46 (new row): a blank cell never carries DIM in rtwk; the oracle's `set_style(area, dim)`
   dims the blank at cell 2 of the action row (probe `tests/rtwk_g46.rs`, green).
 * G45 (select-dialog, earlier commit e3e98f3c6): `TabBar` cuts a tab at the edge; pending, no workaround.
-* The review is composed in the page from rtwk primitives (Column, SizedBox, ListView with a
-  `ListController`, Text with ellipsis); it does not use the sheet's grid.
+* The review is composed in the page from rtwk primitives (Column, SizedBox, `Focus` +
+  `KeyBindings` per region, `ListView` with a `ListController`, Text with ellipsis); it does
+  not use the sheet's grid. Not `SelectionList` and not the startup prompts' `Panel`, by a
+  probe of the rows (decisions, not rtwk gaps): `SelectionList` draws a one-cell cursor
+  (`Marks::CURSOR`) before the mark and a fixed mark style, the oracle's row is `› [x] Label`
+  with the checkbox part of the highlighted text; the `Panel` indents its titles and is bound
+  to the startup model's prompts.
+* Focus keys (I3): Up/Down move in the checklist and walk into the actions past its ends (and
+  back), Tab is rtwk's own; Enter toggles in the checklist and runs in the actions.
 * Behaviour added beyond the oracle: Escape and Ctrl+C during the detection and in the source
   prompt cancel the flow (the oracle has no key while it asks the server).
 
+## Wiring (import-rest I2, I3, (3))
+
+* The flow runs through `fx.commands`: `apply` pushes `Command::Import { ask }` (the `Request`
+  with the request number, `Model::generation`); the shell sends it to the backend (the fake:
+  answers only when a responder is scripted, else the flow stays where it is as the oracle
+  waits on the server; the host: the real server) and the answer returns as
+  `AppEv::Screen(ScreenEv::Import(Ev::Detected | Imported))`; a stale answer is dropped by
+  `apply`. The server's completion notification (`ExternalAgentConfigImportCompleted`) is matched
+  on `import_id` by `screens::import::observe` (a shared daemon broadcasts other clients'
+  completions) and feeds `Ev::Completed`.
+* The StartupPage pops (Msg::Leave) when the flow is Done at a later request number than when
+  the page opened on the import step; the import `Screen` no longer pops itself.
+* Tests added: `core/tests/import.rs` (flow, import id), `tests/pages/import.rs` `mod flow`
+  (`slash_import_asks_every_source_and_reviews_what_one_found`,
+  `importing_sends_the_checked_items_and_leaves_the_page_for_the_chat`, the focus walk, back and
+  toggle tests), the source prompt snapshot (I1).
+
 ## What others must do (outside this slice)
 
-* Root wiring: a root `Command`/`AppCtx` handler in `core/src/app.rs`, `wire`/`decode`, the fake
-  backend and the shell must send what `Model::request()` derives (`Detect` with the request id
-  and `cwd`, `Import` with source id and items) and feed `Ev::Detected`/`Ev::Imported`/
-  `Ev::Completed` back; the shell also supplies `Places` (home, repository roots).
 * The chat cells show `Outcome::Started` and `Model::finished` through `notices::started` and
   `notices::finished` (`Outcome::Failed(Failure)` through `labels::failure`, `NoItems` through
-  `strings.no_items`).
-* startup-flow advances or pops on `Phase::Done` (the page does `Navigator::maybe_pop`).
-* Edits outside the area: `tests/oracle.rs`, `tests/oracle/tools/shards.py`,
-  `docs/rtwk-port/test-shards.md` (shard registration), `docs/rtwk-port/rtwk-gaps.md` (N1, G46), `Cargo.toml` (`rtwk_g46` test), `tests/app/navigation.rs` (the placeholder assertion of
-  `import_is_a_step_of_the_startup_page`), `tests/pages/import.rs` (the slot test file).
+  `strings.no_items`). Not done (import-rest (2)): the chat's transcript cells are an empty
+  stub and `ThreadEv` has no history-notice event; owned by `chat-cells`. The interface is ready.
+* Known limitation: the oracle's remote-cwd override is not applied; the detection asks with
+  `config.cwd`.
+* Edits outside the area: `host/src/import.rs`, one arm in `host/src/in_process.rs`,
+  `mod import;` in `host/src/main.rs` (startup-deltas' area, to be merged together),
+  `tests/oracle.rs`, `tests/oracle/tools/shards.py`, `docs/rtwk-port/test-shards.md`,
+  `docs/rtwk-port/rtwk-gaps.md` (N1, G46), `Cargo.toml` (`rtwk_g46` test), `tests/app/navigation.rs`,
+  `src/pages/startup/onboarding/mod.rs` (the Done step, `StartupPageState.import_from`; startup-flow's area).
+* Flaky tests, not from this slice: `slash_import_opens_the_import` and
+  `import_is_a_step_of_the_startup_page` press Escape after `pump_for`, before the shell has applied
+  the page's `Open` (real-thread timing; Escape then finds the phase Idle and does nothing);
+  `status_data::*` fail the same way on load.
