@@ -191,8 +191,11 @@ impl State for DebugMenuState {
         )
         .on_submitted(cx.map(move |index| MenuMsg::Open(index, lang)))
         .autofocus(true);
+        // A route the menu opens may run at a few cells (the textarea's
+        // oracle rects): the menu under it is clipped then, as meant.
         Focus::new(
             Column::new()
+                .overflow_intended(true)
                 .child(Text::new(strings.debug.title).style(tokens.accent()))
                 .child(Text::new(hint).style(tokens.dim()))
                 .child(Expanded::new(1, list)),

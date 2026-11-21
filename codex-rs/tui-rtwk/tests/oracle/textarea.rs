@@ -7,7 +7,7 @@
 use crate::kit::{self, Owner, Screen};
 
 // Reasons shared by several tests: what the port's chat composer does not have yet.
-const BARE: &str = "the bare seed is the debug entry composer/textarea, but at the oracle's small rects the debug menu under that route overflows (its title and hint wrap; src/app/debug/menu.rs, outside the composer area), and rtwk TextArea's wrap and caret rows are not yet compared against the oracle's rows one by one";
+const WRAP: &str = "G55: rtwk TextArea wraps and places the caret differently from the oracle's textarea at full rows (a caret after a full row, wide and half-width graphemes), on hanging spaces and tabs, and does not clear its rect's cells or keep its scroll as the oracle does";
 const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) has no vim bindings and no seed turns them on";
 const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
 const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
@@ -43,7 +43,7 @@ fn step(s: &mut Screen, from: usize, to: usize) {
 // ORACLE bottom_pane/textarea.rs:2544 delete_backward_removes_thai_marks_one_at_a_time kind=snap owner=chat-live snap=textarea_thai_backspace_preserves_remaining_marks
 #[test]
 fn delete_backward_removes_thai_marks_one_at_a_time() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: an 8x1 rect, "ที่" with one backspace shows "ที" (the snapshot); two more leave "ท", then "".
     let mut s = draft(8, 1, "ที่");
     s.keys("backspace");
@@ -113,16 +113,17 @@ fn kill_whole_line_keymap_dispatch_uses_linewise_kill() {
 // ORACLE bottom_pane/textarea.rs:3840 wrapping_and_cursor_positions kind=ui owner=chat-live
 #[test]
 fn wrapping_and_cursor_positions() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "hello world here" in a 6-wide rect wraps to rows "hello", "world", "here"; the caret on "world" is on row 1.
-    let s = draft(6, 10, "hello world here");
+    let mut s = draft(6, 10, "hello world here");
     s.assert_in_order(&["hello", "world", "here"]);
+    step(&mut s, 16, 6);
+    s.assert_cursor(0, 1);
 }
 
 // ORACLE bottom_pane/textarea.rs:3868 cursor_wraps_after_filling_the_final_line kind=ui owner=chat-live
 #[test]
 fn cursor_wraps_after_filling_the_final_line() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: each text fills the first row of a 4x2 rect at (2, 3); the caret after it is at (2, 4).
     for text in ["abad", "界界", "abｶﾞ"] {
         let s = draft(4, 2, text);
@@ -134,7 +135,7 @@ fn cursor_wraps_after_filling_the_final_line() {
 // ORACLE bottom_pane/textarea.rs:3880 full_non_final_lines_reserve_visible_cursor_rows kind=ui owner=chat-live
 #[test]
 fn full_non_final_lines_reserve_visible_cursor_rows() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: each text with "\nef" in a 4x3 rect: the caret on the newline is at (0, 1), after it at (0, 2).
     for text in ["abad\nef", "界界\nef", "abｶﾞ\nef"] {
         let mut s = draft(4, 3, text);
@@ -148,7 +149,7 @@ fn full_non_final_lines_reserve_visible_cursor_rows() {
 // ORACLE bottom_pane/textarea.rs:3897 full_non_final_line_cursor_snapshot kind=snap owner=chat-live snap=textarea_full_non_final_line_has_a_visible_cursor_row
 #[test]
 fn full_non_final_line_cursor_snapshot() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad\nef" with the caret on byte 4 (the newline) in a 4x3 rect: the snapshot shows the cursor row.
     let mut s = draft(4, 3, "abad\nef");
     step(&mut s, 7, 4);
@@ -158,7 +159,7 @@ fn full_non_final_line_cursor_snapshot() {
 // ORACLE bottom_pane/textarea.rs:3916 trailing_spaces_wrap_without_letting_the_cursor_escape kind=snap owner=chat-live snap=textarea_trailing_spaces_wrap_without_cursor_overflow
 #[test]
 fn trailing_spaces_wrap_without_letting_the_cursor_escape() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad" and eight spaces in a 5x3 rect, the caret at the end: three rows, the caret stays inside.
     let s = draft(5, 3, "abad        ");
     s.assert_snap("textarea_trailing_spaces_wrap_without_cursor_overflow");
@@ -167,7 +168,7 @@ fn trailing_spaces_wrap_without_letting_the_cursor_escape() {
 // ORACLE bottom_pane/textarea.rs:3936 separator_after_full_line_hangs_before_following_text kind=snap owner=chat-live snap=textarea_separator_after_full_line_hangs_before_following_text
 #[test]
 fn separator_after_full_line_hangs_before_following_text() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad a" in a 4x2 rect with the caret at the end is at (1, 1); the same holds for the three other texts.
     let s = draft(4, 2, "abad a");
     s.assert_cursor(1, 1);
@@ -181,7 +182,7 @@ fn separator_after_full_line_hangs_before_following_text() {
 // ORACLE bottom_pane/textarea.rs:3965 breakable_unicode_space_hangs_before_following_text kind=snap owner=chat-live snap=textarea_breakable_unicode_space_hangs_before_following_text
 #[test]
 fn breakable_unicode_space_hangs_before_following_text() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad" + U+3000 + "abcde" in a 4x3 rect: the caret at the end is at (1, 2).
     let s = draft(4, 3, "abad\u{3000}abcde");
     s.assert_cursor(1, 2);
@@ -191,7 +192,7 @@ fn breakable_unicode_space_hangs_before_following_text() {
 // ORACLE bottom_pane/textarea.rs:3986 leading_space_reflows_across_following_wrapped_fragments kind=snap owner=chat-live snap=textarea_leading_space_reflows_across_following_wrapped_fragments
 #[test]
 fn leading_space_reflows_across_following_wrapped_fragments() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad abcde wxyz" in a 4x5 rect: the carets 11, 14 and 15 are at (0, 3), (3, 3) and (0, 4).
     let mut s = draft(4, 5, "abad abcde wxyz");
     let mut at = 15;
@@ -225,7 +226,7 @@ fn leading_space_reflows_across_following_wrapped_fragments() {
 // ORACLE bottom_pane/textarea.rs:4029 reflow_keeps_fitting_remainder_on_current_row kind=snap owner=chat-live snap=textarea_reflow_keeps_fitting_remainder_on_current_row
 #[test]
 fn reflow_keeps_fitting_remainder_on_current_row() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: four texts, each with the caret at its end in a rect of its own width and height, with the caret cells listed; then "p     a b" in a 5x2 rect is the snapshot.
     for (text, width, height, x, y) in [
         ("  -", 1, 4, 0, 3),
@@ -243,7 +244,7 @@ fn reflow_keeps_fitting_remainder_on_current_row() {
 // ORACLE bottom_pane/textarea.rs:4068 reflow_preserves_hyphenated_word_breakpoint_when_rendering kind=snap owner=chat-live snap=textarea_reflow_preserves_hyphenated_word_breakpoint
 #[test]
 fn reflow_preserves_hyphenated_word_breakpoint_when_rendering() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "a foo-barbaz" in a 10x2 rect: the hyphen is a break point, and the snapshot shows the wrap.
     let s = draft(10, 2, "a foo-barbaz");
     s.assert_snap("textarea_reflow_preserves_hyphenated_word_breakpoint");
@@ -252,7 +253,6 @@ fn reflow_preserves_hyphenated_word_breakpoint_when_rendering() {
 // ORACLE bottom_pane/textarea.rs:4087 space_runs_hang_before_later_text kind=ui owner=chat-live
 #[test]
 fn space_runs_hang_before_later_text() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "abad     next" in a 4x3 rect: every caret from byte 4 to 9 (the space run) is at (0, 1).
     let mut s = draft(4, 3, "abad     next");
     let mut at = 13;
@@ -266,7 +266,7 @@ fn space_runs_hang_before_later_text() {
 // ORACLE bottom_pane/textarea.rs:4100 full_final_line_scrolls_to_its_visible_cursor_row kind=snap owner=chat-live snap=textarea_full_final_line_scrolls_to_visible_cursor_row
 #[test]
 fn full_final_line_scrolls_to_its_visible_cursor_row() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abcdefgh" in a 4x2 rect with the caret at the end: the view scrolls to the caret's row; the snapshot shows the scroll and the cursor.
     let s = draft(4, 2, "abcdefgh");
     s.assert_snap("textarea_full_final_line_scrolls_to_visible_cursor_row");
@@ -275,7 +275,7 @@ fn full_final_line_scrolls_to_its_visible_cursor_row() {
 // ORACLE bottom_pane/textarea.rs:4125 text_rendering_does_not_overwrite_cells_outside_the_textarea kind=ui owner=chat-live
 #[test]
 fn text_rendering_does_not_overwrite_cells_outside_the_textarea() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad     next" in a 4x3 rect over an 8x3 buffer whose columns 4.. are red: the cell at column 4 keeps its red style.
     let s = draft(8, 3, "abad     next");
     s.assert_style(4, 0, "fg=Red");
@@ -287,7 +287,7 @@ fn styled_text_rendering_does_not_overwrite_cells_outside_the_textarea() {
     kit::pending(
         Owner::ChatLive,
         &format!(
-            "{BARE}; no element or highlight seed: the port's composer makes an atomic element only from a pasted attachment, and no seed sets a highlight range"
+            "{WRAP}; no element or highlight seed: the port's composer makes an atomic element only from a pasted attachment, and no seed sets a highlight range"
         ),
     );
     // oracle: "abad     next" in a 4x3 rect over a red "KEEP" at column 4, once with the element 0..9 and once with a magenta highlight 0..9; the snapshot joins both frames, and one screen is one frame in the kit.
@@ -300,9 +300,7 @@ fn styled_text_rendering_does_not_overwrite_cells_outside_the_textarea() {
 fn render_highlights_apply_style_without_mutating_text() {
     kit::pending(
         Owner::ChatLive,
-        &format!(
-            "{BARE}; no highlight seed: the port's composer applies no highlight range to its text"
-        ),
+        "no highlight seed: the port's composer applies no highlight range to its text",
     );
     // oracle: "hello world" in a 20x1 rect with "world" (bytes 6..11) reversed; the text is unchanged. The oracle's check that column 0 is not reversed has no kit form and is not written.
     let s = draft(20, 1, "hello world");
@@ -313,7 +311,7 @@ fn render_highlights_apply_style_without_mutating_text() {
 // ORACLE bottom_pane/textarea.rs:4235 tabs_render_as_spaces_and_align_with_cursor_snapshot kind=snap owner=chat-live snap=textarea_tabs_render_as_spaces_and_align_with_cursor
 #[test]
 fn tabs_render_as_spaces_and_align_with_cursor_snapshot() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: a line with tabs and an emoji in a 100x1 terminal: the tabs draw as spaces and the caret aligns with them (the snapshot).
     let s = draft(
         100,
@@ -326,7 +324,6 @@ fn tabs_render_as_spaces_and_align_with_cursor_snapshot() {
 // ORACLE bottom_pane/textarea.rs:4262 tabs_wrap_at_their_rendered_width kind=ui owner=chat-live
 #[test]
 fn tabs_wrap_at_their_rendered_width() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "1234\t5" in a 5x2 rect: the tab fills to column 4 and "5" wraps to row 1: the caret is at (1, 1) and cell (0, 1) reads "5".
     let s = draft(5, 2, "1234\t5");
     s.assert_cursor(1, 1);
@@ -336,7 +333,7 @@ fn tabs_wrap_at_their_rendered_width() {
 // ORACLE bottom_pane/textarea.rs:4277 halfwidth_sound_marks_wrap_and_align_with_the_cursor kind=snap owner=chat-live snap=textarea_halfwidth_sound_marks_wrap_and_align_with_cursor
 #[test]
 fn halfwidth_sound_marks_wrap_and_align_with_the_cursor() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: three half-width sound-mark texts, each with the caret at its end in its own rect: the caret and the cells listed. The oracle joins the three frames in one snapshot; one screen is one frame in the kit, so the snapshot is not compared here.
     for (text, width, height, x, y, cells) in [
         ("12ｶﾞx", 4, 2, 1, 1, vec![(2, 0, "ｶﾞ"), (0, 1, "x")]),
@@ -354,7 +351,7 @@ fn halfwidth_sound_marks_wrap_and_align_with_the_cursor() {
 // ORACLE bottom_pane/textarea.rs:4327 masked_graphemes_align_with_the_cursor kind=snap owner=chat-live snap=textarea_masked_graphemes_align_with_cursor
 #[test]
 fn masked_graphemes_align_with_the_cursor() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "界ﾞa" in a 4x2 rect with the caret at the end: the caret is at (0, 1); the snapshot shows the masked grapheme.
     let s = draft(4, 2, "界ﾞa");
     s.assert_cursor(0, 1);
@@ -364,7 +361,7 @@ fn masked_graphemes_align_with_the_cursor() {
 // ORACLE bottom_pane/textarea.rs:4351 overwide_halfwidth_sound_marks_keep_the_final_cursor_visible kind=ui owner=chat-live
 #[test]
 fn overwide_halfwidth_sound_marks_keep_the_final_cursor_visible() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "ｶﾞﾞab" and "界ﾞab" in a 2x3 rect: the caret at the end is at (0, 2); after the first grapheme it is at (0, 1).
     for grapheme in ["ｶﾞﾞ", "界ﾞ"] {
         let mut s = draft(2, 3, &format!("{grapheme}ab"));
@@ -377,7 +374,6 @@ fn overwide_halfwidth_sound_marks_keep_the_final_cursor_visible() {
 // ORACLE bottom_pane/textarea.rs:4368 tall_draft_height_saturates_at_the_terminal_limit kind=ui owner=chat-live
 #[test]
 fn tall_draft_height_saturates_at_the_terminal_limit() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: 65535 newlines and an "x" in a 32x2 rect: the "x" is drawn at (0, 1) and the caret at (1, 1).
     let text = "\n".repeat(usize::from(u16::MAX)) + "x";
     let s = draft(32, 2, &text);
@@ -388,7 +384,6 @@ fn tall_draft_height_saturates_at_the_terminal_limit() {
 // ORACLE bottom_pane/textarea.rs:4390 cursor_pos_with_state_basic_and_scroll_behaviors kind=ui owner=chat-live
 #[test]
 fn cursor_pos_with_state_basic_and_scroll_behaviors() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: case 1, "hello world" with the caret on byte 3 in a rect at (2, 5): the caret is at (5, 5) whatever the state's scroll. Cases 2 and 3 assert the row only (bottom row, then top row); the kit has no row-only caret form, so they are not written here.
     let mut s = draft(20, 3, "hello world");
     step(&mut s, 11, 3);
@@ -399,7 +394,6 @@ fn cursor_pos_with_state_basic_and_scroll_behaviors() {
 // ORACLE bottom_pane/textarea.rs:4438 wrapped_navigation_across_visual_lines kind=ui owner=chat-live
 #[test]
 fn wrapped_navigation_across_visual_lines() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "abcdefghij" at width 4 wraps to "abcd", "efgh", "ij": from byte 0 down is byte 4, at (0, 1) in a 4x10 rect. From byte 6, up keeps the column (byte 2) and down returns to byte 6; down again clamps to the end. The last three caret cells are derived from those byte asserts.
     let mut s = draft(4, 10, "abcdefghij");
     step(&mut s, 10, 0);
@@ -417,7 +411,6 @@ fn wrapped_navigation_across_visual_lines() {
 // ORACLE bottom_pane/textarea.rs:4476 cursor_pos_with_state_after_movements kind=ui owner=chat-live
 #[test]
 fn cursor_pos_with_state_after_movements() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "abcdefghij" at width 4 in a 4x2 rect: from the start the caret is (0, 0); down to the second visual line (0, 1); down again the view scrolls and the caret stays on the bottom row (0, 1); up is the top row (0, 0); from byte 2, down keeps column 2: (2, 0) then (2, 1).
     let mut s = draft(4, 2, "abcdefghij");
     step(&mut s, 10, 0);
@@ -437,7 +430,6 @@ fn cursor_pos_with_state_after_movements() {
 // ORACLE bottom_pane/textarea.rs:4520 wrapped_navigation_with_newlines_and_spaces kind=ui owner=chat-live
 #[test]
 fn wrapped_navigation_with_newlines_and_spaces() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "word1  word2\nword3" at width 6 with the caret on byte 8 (column 1 of word2): up is byte 1, down returns to byte 8, down crosses the newline to byte 14. The caret cells are derived from the wrapped rows.
     let mut s = draft(6, 10, "word1  word2\nword3");
     step(&mut s, 18, 8);
@@ -452,7 +444,7 @@ fn wrapped_navigation_with_newlines_and_spaces() {
 // ORACLE bottom_pane/textarea.rs:4545 wrapped_navigation_with_wide_graphemes kind=ui owner=chat-live
 #[test]
 fn wrapped_navigation_with_wide_graphemes() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: four thumbs-up (two cells each) at width 3, the caret after the second: down moves on, and up returns to the caret after the second. The caret cell (2, 1) is derived: one emoji per row at width 3.
     let mut s = draft(3, 4, "👍👍👍👍");
     step(&mut s, 16, 8);
@@ -729,7 +721,6 @@ fn find_and_navigation_have_visual_snapshot_coverage() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:25 vertical_navigation_preserves_destination_tab_columns kind=ui owner=chat-live
 #[test]
 fn vertical_navigation_preserves_destination_tab_columns() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "a\tb\nxyz" in an 8x2 rect with the caret on byte 5: up is byte 1 (after the "a") at (1, 0), and down is byte 5 at (1, 1).
     let mut s = draft(8, 2, "a\tb\nxyz");
     step(&mut s, 7, 5);
@@ -742,7 +733,7 @@ fn vertical_navigation_preserves_destination_tab_columns() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:38 mandatory_breaks_keep_distinct_cursor_positions kind=snap owner=chat-live snap=mandatory_break_cursor
 #[test]
 fn mandatory_breaks_keep_distinct_cursor_positions() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abad" + each mandatory break + "next" in a 4x3 rect: the rows are "abad", "<break>nex", "t"; the caret at byte 4 is at (0, 1), after the break at (1, 1), and left returns. The U+2028 case is the snapshot.
     for separator in ["\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}", "\r"] {
         let text = format!("abad{separator}next");
@@ -765,7 +756,6 @@ fn mandatory_breaks_keep_distinct_cursor_positions() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:147 hanging_spaces_preserve_source_editing_and_visual_navigation kind=ui owner=chat-live
 #[test]
 fn hanging_spaces_preserve_source_editing_and_visual_navigation() {
-    kit::pending(Owner::ChatLive, BARE);
     // oracle: "abad  next" in a 4x3 rect: the carets 4..=6 are all at (0, 1); left is byte 5, up is byte 0, down is byte 6; one backspace leaves "abad next" and another "abadnext", the caret at (0, 1) each time.
     let mut s = draft(4, 3, "abad  next");
     let mut at = 10;
@@ -787,7 +777,7 @@ fn hanging_spaces_preserve_source_editing_and_visual_navigation() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:174 hanging_tabs_keep_cursor_scrolling_and_navigation_aligned kind=snap owner=chat-live snap=hanging_tab_cursor_and_scroll
 #[test]
 fn hanging_tabs_keep_cursor_scrolling_and_navigation_aligned() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abc\t a" in a 4x2 rect: the carets 0..=6 are at (0, 0), (1, 0), (2, 0), (3, 0), (0, 1), (0, 1), (1, 1); the caret on byte 4 scrolls the view to row 0 (snapshot); up is (0, 0), and down is (0, 1).
     let mut s = draft(4, 2, "abc\t a");
     let mut at = 6;
@@ -816,7 +806,7 @@ fn hanging_tabs_keep_cursor_scrolling_and_navigation_aligned() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:217 vertical_navigation_clamps_saved_column_after_resize kind=snap owner=chat-live snap=vertical_navigation_after_resize
 #[test]
 fn vertical_navigation_clamps_saved_column_after_resize() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: "abcdefghij\nabcd  xyz": up at width 10 is byte 10 at (0, 1); resized to width 4 the same byte is at (2, 2); down is byte 14 at (3, 3), down again byte 20 at (3, 4), and up byte 14 at (3, 3). The snapshot shows the last width.
     let mut s = draft(10, 6, "abcdefghij\nabcd  xyz");
     s.keys("up");
@@ -835,7 +825,7 @@ fn vertical_navigation_clamps_saved_column_after_resize() {
 // ORACLE bottom_pane/textarea/wrapping_tests.rs:272 typing_after_eol_spaces_reflows_without_changing_text kind=snap owner=chat-live snap=typing_after_eol_spaces
 #[test]
 fn typing_after_eol_spaces_reflows_without_changing_text() {
-    kit::pending(Owner::ChatLive, BARE);
+    kit::pending(Owner::ChatLive, WRAP);
     // oracle: typing in a 4x2 rect: "abad" leaves the caret at (0, 1), three spaces at (3, 1), "x" at (1, 1), and one backspace at (3, 1); the text is "abad   ". The snapshot joins the four frames; one screen is one frame in the kit.
     let mut s = draft(4, 2, "");
     s.type_text("abad");
