@@ -7,12 +7,12 @@
 use crate::kit::{self, Owner, Screen};
 
 // Reasons shared by several tests: what the port's chat composer does not have yet.
-const WRAP: &str = "G55: rtwk TextArea wraps and places the caret differently from the oracle's textarea at full rows (a caret after a full row, wide and half-width graphemes), on hanging spaces and tabs, and does not clear its rect's cells or keep its scroll as the oracle does";
+const WRAP: &str = "G65: rtwk TextArea wraps and places the caret differently from the oracle's textarea at full rows (a caret after a full row, wide and half-width graphemes), on hanging spaces and tabs, and does not clear its rect's cells or keep its scroll as the oracle does";
 const VIM: &str = "no vim mode in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) has no vim bindings and no seed turns them on";
 const KILL: &str = "no kill-line command in the port's composer: rtwk's TextArea (rtwk-editing/src/text_area.rs) binds no kill_current_line, and no key reaches it";
 const KEYMAP: &str = "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the kill_whole_line binding of the test cannot be set";
 const LINK: &str = "the port's composer draws no OSC 8 links for URLs (rtwk-editing has no hyperlink annotation) and keeps no link cache to reuse";
-const MOUSE: &str = "the bare text area takes the mouse (a drag selects, a tap places the caret), but these rows are the oracle's wrap of the rect (G55), and its rect offsets (a 1-row rect at y 1, a resize mid-test) have no kit seed yet";
+const MOUSE: &str = "the bare text area takes the mouse (a drag selects, a tap places the caret), but these rows are the oracle's wrap of the rect (G65), and its rect offsets (a 1-row rect at y 1, a resize mid-test) have no kit seed yet";
 
 const URL_PR: &str = "https://github.com/openai/codex/pull/20252";
 const URL_LONG: &str = "https://example.test/alpha/beta/gamma/delta/epsilon";

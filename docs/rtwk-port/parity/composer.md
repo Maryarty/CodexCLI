@@ -43,7 +43,7 @@ history search styling and paste, skill completion) are not yet checked against 
   `light_red()`): startup-finish's area; the lander resolves.
 
 ## Gap rows
-- G55 (new): rtwk `TextArea` wrap and caret at full rows, wide/half-width graphemes,
+- G65 (new): rtwk `TextArea` wrap and caret at full rows, wide/half-width graphemes,
   hanging spaces and tabs, rect clearing and scroll (21 textarea tests).
 
 ## Pending and why
