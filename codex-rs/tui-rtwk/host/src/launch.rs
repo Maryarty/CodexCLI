@@ -41,7 +41,8 @@ where
     // The GovCloud check (`check_gov_cloud_guidance`), asked beside the
     // hooks read as the oracle does.
     let gov_cloud = async {
-        providers::gov_cloud_check_due(config, target) && providers::check_gov_cloud(ids, send).await
+        providers::gov_cloud_check_due(config, target)
+            && providers::check_gov_cloud(ids, send).await
     };
     // `load_startup_hooks_review_entry`: a failed read reviews nothing.
     let hooks = async {

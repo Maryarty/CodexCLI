@@ -26,9 +26,7 @@ use rtwk_rich::markdown::{MarkdownTheme, MarkdownView};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::startup::{
-    Action, Answer, Intent, Prompt, Reaction, Status, Trust,
-};
+use codex_tui_core::screens::startup::{Action, Answer, Intent, Prompt, Reaction, Status, Trust};
 
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
