@@ -1095,8 +1095,10 @@ mod tests {
         };
         assert_eq!(
             answered(&mut m, browser(request + 1)),
-            [],
-            "an answer to an ask not awaited opens nothing"
+            [Ask::CancelLogin {
+                login_id: "login-1".into()
+            }],
+            "an answer to an ask not awaited opens no browser; its stale login is cancelled (O1)"
         );
         assert_eq!(
             answered(&mut m, browser(request)),
