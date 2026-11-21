@@ -690,7 +690,7 @@ row is what the oracle's code does, and what the port writes instead.
 | `"─".repeat(width)`, a `│` per row | `Divider`, `VerticalDivider`, or `Border::new().bottom(style)` / `left(style)` on a `BoxWidget` |
 | `Paragraph::new(..).wrap(..)`, `word_wrap_lines` | `Text::new(..)` (`TextWrap::Word` by default), `max_lines` |
 | `truncate_text`, `format!("{}…", ..)` | `Text::line(..)`, `.overflow(TextOverflow::Ellipsis)`; `TextOverflow::Ellipsis` drops the blanks next to `…` (N1), so where the oracle keeps them: `widgets/dots.rs` `dots_end` (a composition, see the cookbook) |
-| `center_truncate_path`, keep-the-end cuts | `TextOverflow::EllipsisMiddle`, `TextOverflow::EllipsisStart`; the mark is the `ellipsis` field of `Glyphs`; `TextOverflow::EllipsisMiddle` cuts inside segments, so a path that keeps its first and last segments is `pages/agents/path.rs` (G37, a closed row) |
+| `center_truncate_path`, keep-the-end cuts | `TextOverflow::EllipsisMiddle`, `TextOverflow::EllipsisStart`; the mark is the `ellipsis` field of `Glyphs`; `TextOverflow::EllipsisMiddle` cuts inside segments, so a path that keeps its first and last segments is `pages/agents/path.rs` (G37, a closed row: carried oracle logic, not a model to copy) |
 | `UnicodeWidthStr::width`, `chars().count()`, padding with spaces | none: `Row` with `SizedBox` widths and `Expanded`; a number only where unavoidable: `rtwk_core::unicode::string_width` |
 | `Line::from(vec![Span::styled(..)])`, `.cyan().dim()` | `Text::rich([Span::new(..).fg(..).dim()])`, colours from `Theme::of(cx)` tokens |
 | `List` + `ListState` + `ScrollState` (selected index, `scroll_top`, `ensure_visible`) | `SelectionList` + `SelectionController` (`cursor`, `set_cursor`, `selected`); whole-row scroll with ↑/↓ more: `widgets/session_list.rs` (`ListView::builder` + `ListController` + `SelectionController`, G35/G42) |
@@ -734,7 +734,7 @@ re-measuring strings yourself is the workaround (process.md section 5). Grep
 | `ｶﾞ` as two cells (oracle counts code points) | a test setting: `TextMode::Legacy` in the test terminal (`Options::terminal`, G44) |
 | DIM asserted on a blank cell | the presenter drops an invisible DIM (`Attrs::VISIBLE_ON_BLANK`): assert the app surface's style, `frame_loop().styles().attrs_of(surface.style(x, y))` (G46) |
 | `Wrap { trim: false }` breaking at blanks only | a real gap (G48): `pending`, no `Wrap` of words |
-| a path cut that keeps its first and last segments | `pages/agents/path.rs` (G37, closed as ours, held to the oracle's tests) |
+| a path cut that keeps its first and last segments | `pages/agents/path.rs` (G37, closed as ours, held to the oracle's tests; carried oracle logic, not a model to copy) |
 | selected-row fill under blanks | `Container::color` or `ColoredBox` (G22) |
 | a prompt `"› "` with its trailing blank | `Text::new("› ").wrap(TextWrap::None)` (G26) |
 
