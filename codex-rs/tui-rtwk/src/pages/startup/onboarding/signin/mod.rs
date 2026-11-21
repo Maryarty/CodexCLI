@@ -51,6 +51,7 @@ use crate::widgets::key_guard::{GuardKey, KeyGuard};
 use crate::widgets::measure;
 use crate::widgets::options::Options;
 
+mod provider;
 pub mod strings;
 use strings::Strings;
 
@@ -186,6 +187,30 @@ fn now<S: State>(cx: &Cx<'_, S>) -> Duration {
     AppBinding::maybe_of(cx).map_or(Duration::ZERO, |binding| binding.clock().now())
 }
 
+/// What every key press meets first, on a node of the step or of a field in
+/// it: the activation guard (a held Enter acts once), then the quit keys
+/// (`keys::QUIT`: Ctrl+C and Ctrl+D, and a `q` unless `typing` says it is
+/// text). The provider wizards' fields use it too.
+pub(crate) fn guarded_keys(
+    guard: KeyGuard,
+    now: Rc<dyn Fn() -> Duration>,
+    typing: Rc<dyn Fn() -> bool>,
+    quit: Rc<dyn Fn()>,
+) -> FocusOnKeyEventCallback {
+    Rc::new(move |_, key| {
+        if guard.press(GuardKey::of_press(&key), now()) {
+            return KeyEventResult::Handled;
+        }
+        let chord = key.mods == Mods::CTRL && matches!(key.ch, Some('c' | 'd'));
+        let q = key.mods == Mods::NONE && key.ch == Some('q');
+        if chord || (q && !typing()) {
+            quit();
+            return KeyEventResult::Handled;
+        }
+        KeyEventResult::Ignored
+    })
+}
+
 impl SignInState {
     fn emit(cx: &mut Cx<'_, Self>, intent: auth::Intent) {
         let hs = read::<Hs, _>(cx);
@@ -282,27 +307,24 @@ impl State for SignInState {
         // Every key press meets the guard first, on the step's node and on
         // the key entry's (whose field takes Enter and the arrows).
         let clock = AppBinding::maybe_of(cx).map(|binding| binding.clock());
+        let now: Rc<dyn Fn() -> Duration> =
+            Rc::new(move || clock.as_ref().map_or(Duration::ZERO, |clock| clock.now()));
         let send = cx.local_sender();
         let on_key = |typing: Option<TextEditingController>| -> FocusOnKeyEventCallback {
-            let (guard, clock, send) = (self.guard.clone(), clock.clone(), send.clone());
-            Rc::new(move |_, key| {
-                let now = clock.as_ref().map_or(Duration::ZERO, |clock| clock.now());
-                if guard.press(GuardKey::of_press(&key), now) {
-                    return KeyEventResult::Handled;
-                }
-                // `keys::QUIT`; a `q` is text once the key entry holds some
-                // (`suppress_quit_while_typing`).
-                let chord = key.mods == Mods::CTRL && matches!(key.ch, Some('c' | 'd'));
-                let q = key.mods == Mods::NONE && key.ch == Some('q');
-                let typed = typing
+            // `suppress_quit_while_typing`: a `q` is text once the key
+            // entry holds some.
+            let typed: Rc<dyn Fn() -> bool> = Rc::new(move || {
+                typing
                     .as_ref()
-                    .is_some_and(|field| !field.text().is_empty());
-                if chord || (q && !typed) {
-                    send(Msg::Quit);
-                    return KeyEventResult::Handled;
-                }
-                KeyEventResult::Ignored
-            })
+                    .is_some_and(|field| !field.text().is_empty())
+            });
+            let send = send.clone();
+            guarded_keys(
+                self.guard.clone(),
+                now.clone(),
+                typed,
+                Rc::new(move || send(Msg::Quit)),
+            )
         };
         self.node.set_on_key_event(Some(on_key(None)));
         self.field_node
@@ -353,6 +375,8 @@ impl State for SignInState {
                     self.menu = ShownMenu::First;
                     self.highlight(MenuRow::Other, w);
                     Self::emit(cx, auth::Intent::Menu);
+                } else if matches!(state, auth::State::Provider(_)) {
+                    Self::emit(cx, auth::Intent::ProviderBack);
                 } else {
                     Self::emit(cx, auth::Intent::Cancel);
                 }
@@ -462,9 +486,15 @@ impl State for SignInState {
                         .on_submitted(cx.map(Msg::Submitted)),
                 )
             }
-            // The provider's setup (S03) is not built yet: its place is
-            // empty, and Esc comes back to the menu.
-            auth::State::Provider(_) => SizedBox::shrink().into(),
+            // The provider's wizard (S03); one whose wizard is not built
+            // has an empty place, and Esc comes back to the menu.
+            auth::State::Provider(_) => match &w.sign_in.wizard {
+                Some(wizard) => provider::body(wizard, &self.guard),
+                None => SizedBox::shrink().into(),
+            },
+            auth::State::ProviderConfigured(chosen) => {
+                provider::configured(*chosen, &look, provider::strings::of(cx))
+            }
         };
         focus.child = body;
         for (key, msg) in [
@@ -518,18 +548,18 @@ impl State for SignInState {
 
 /// The styles of the step.
 #[derive(Clone)]
-struct Look {
-    dim: Style,
+pub(crate) struct Look {
+    pub(crate) dim: Style,
     /// A key's name in a hint (`key_hint_style`: bold, not dim).
-    key: Style,
-    cyan: Style,
-    green: Style,
-    red: Style,
+    pub(crate) key: Style,
+    pub(crate) cyan: Style,
+    pub(crate) green: Style,
+    pub(crate) red: Style,
 }
 
-type Line = Vec<Span>;
+pub(crate) type Line = Vec<Span>;
 
-fn width_of(max_width: i32) -> usize {
+pub(crate) fn width_of(max_width: i32) -> usize {
     usize::try_from(max_width).unwrap_or(0)
 }
 
@@ -547,7 +577,7 @@ fn one_word(text: &str) -> bool {
 }
 
 /// The rows the lines take at `width`.
-fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
+pub(crate) fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
     let seg = segmenter_of(cx);
     let width = width.max(1);
     lines
@@ -565,7 +595,7 @@ fn rows_of<S>(cx: &mut Cx<'_, S>, lines: &[Line], width: usize) -> usize {
 
 /// The lines as a paragraph that wraps them and is cut off at the bottom of
 /// its room (`Paragraph::wrap(Wrap { trim: false })`).
-fn paragraph(lines: Vec<Line>) -> AnyWidget {
+pub(crate) fn paragraph(lines: Vec<Line>) -> AnyWidget {
     LayoutBuilder::new(move |cx, constraints| {
         let rows = rows_of(cx, &lines, width_of(constraints.max_width));
         let mut column = Column::new()

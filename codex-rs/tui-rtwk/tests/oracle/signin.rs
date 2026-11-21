@@ -277,10 +277,6 @@ fn gateway_oauth_displays_the_browser_link_and_retry_action() {
 // ORACLE onboarding/gcp_tests.rs:16 gcp_menu_gating_and_setup_flow kind=snap owner=onboarding snap=codex_tui__onboarding__auth__gcp_tests__gcp_configured snap=codex_tui__onboarding__auth__gcp_tests__gcp_configuring snap=codex_tui__onboarding__auth__gcp_tests__gcp_credentials_entry snap=codex_tui__onboarding__auth__gcp_tests__gcp_location_entry snap=codex_tui__onboarding__auth__gcp_tests__gcp_project_entry snap=codex_tui__onboarding__auth__gcp_tests__gcp_setup_error_narrow snap=codex_tui__onboarding__auth__gcp_tests__gcp_sign_in_menu snap=codex_tui__onboarding__auth__gcp_tests__gcp_sign_in_menu_short snap=codex_tui__onboarding__auth__gcp_tests__sign_in_menu_short_without_cloud_wizards
 #[test]
 fn gcp_menu_gating_and_setup_flow() {
-    kit::pending(
-        Owner::Onboarding,
-        "the Google Cloud setup wizard (S03) is not built yet: the provider step is a placeholder; the menu snapshots before it are held by the sign-in tests",
-    );
     let s = open("sign_in_menu", 76, 8);
     s.assert_snap("sign_in_menu_short_without_cloud_wizards");
     let mut s = open("sign_in_cloud", 76, 21);
@@ -292,6 +288,31 @@ fn gcp_menu_gating_and_setup_flow() {
     s.assert_snap("gcp_sign_in_menu_short");
     s.keys("esc 3 1 esc 3 esc enter");
     s.assert_contains("Google Cloud project");
+    // The wizard: an empty project is refused, the text is edited (a paste
+    // drops its newline, the cursor moves, a second paste lands inside it).
+    s.resize(76, 12);
+    // The Enter that opened it is held back a second (a terminal that
+    // reports no releases); the oracle's test sends the release.
+    s.wait(1100);
+    s.keys("enter");
+    s.assert_contains("Enter a Google Cloud project ID.");
+    s.keys("q backspace");
+    s.paste("test-ject\n");
+    s.keys("left left left left");
+    s.paste("pro");
+    s.assert_snap("gcp_project_entry");
+    s.keys("enter");
+    s.assert_snap("gcp_location_entry");
+    // Location accepts text normally, and Esc keeps it for the next visit.
+    s.paste("us-central1");
+    s.keys("esc enter ctrl+u enter");
+    s.assert_snap("gcp_credentials_entry");
+    // A relative credential path is what the app server refuses (the
+    // answer is the app test's: this screen has no host).
+    s.paste("relative-adc.json");
+    s.keys("enter");
+    s.keys("esc enter");
+    s.assert_snap("gcp_configuring");
 }
 
 // Part of ORACLE onboarding/gcp_tests.rs:16 and gateway_tests.rs:33: the

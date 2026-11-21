@@ -9,7 +9,8 @@ use std::time::Duration;
 use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::ids::ConnEpoch;
 use codex_tui_core::screens::ScreenEv;
-use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Offer, Outcome};
+use codex_tui_core::screens::onboarding::auth::provider::{Setup, gcp};
+use codex_tui_core::screens::onboarding::auth::{AuthResult, Login, Offer, Outcome, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, Welcome};
 
 use crate::common::Harness;
@@ -302,4 +303,118 @@ fn the_welcome_logo_stops_and_fades_while_the_api_key_is_typed() {
         logo_rows(&h.t.screen())
     });
     assert_ne!(before, after, "the logo plays again");
+}
+
+/// The rows of the screen with their trailing blanks cut, as the oracle's
+/// snapshots hold them.
+fn rows(screen: &str) -> Vec<String> {
+    screen
+        .lines()
+        .map(|line| line.trim_end().to_owned())
+        .collect()
+}
+
+/// Google Cloud (oracle `gcp_menu_gating_and_setup_flow`, its host half):
+/// the credentials' Enter asks the host to set it up under a number with
+/// what the fields hold; the server's refusal returns to the credentials
+/// with its message under the narrow screen's text (`gcp_setup_error_narrow`);
+/// the answer under the new number configures it (`gcp_configured`).
+#[test]
+fn gcp_setup_is_asked_of_the_host_refused_and_retried() {
+    let (mut h, epoch) = launch(Offer {
+        providers: Providers {
+            gcp: true,
+            ..Providers::default()
+        },
+        ..offer()
+    });
+    h.press("3");
+    h.settle();
+    h.press("2");
+    h.wait_for("the project entry", |s| {
+        s.contains("Google Cloud project ID")
+    });
+    // The Enter that opened it is held back a second.
+    h.t.pump_for(Duration::from_millis(1100));
+    input(&mut h, b"test-project");
+    h.press("enter enter");
+    h.wait_for("the credentials", |s| s.contains("Credential file"));
+    input(&mut h, b"relative-adc.json");
+    h.t.resize(40, 18);
+    h.press("enter");
+    h.settle();
+    let setup = |project: &str, credential: &str| Ask::Login {
+        request: 2,
+        login: Login::Provider(Setup::Gcp(gcp::Params {
+            project_id: project.into(),
+            location: None,
+            credential_file: Some(credential.into()),
+        })),
+    };
+    assert_eq!(logins(&h), [setup("test-project", "relative-adc.json")]);
+    assert!(
+        h.t.screen().contains("Validating credentials and saving"),
+        "{}",
+        h.t.screen()
+    );
+    let answer = |request, outcome| {
+        ev(Ev::Auth(AuthResult {
+            request,
+            outcome: Outcome::Provider(outcome),
+        }))
+    };
+    h.fake.inject(
+        epoch,
+        answer(
+            2,
+            Err("provider credential_file must be an absolute path".into()),
+        ),
+    );
+    h.wait_for("the refusal", |s| s.contains("absolute path"));
+    // gcp_setup_error_narrow.snap
+    let want = "\
+> Set up Google Cloud Vertex AI
+
+  Enter an absolute file path on the
+host running Codex, or press Enter to
+use Application Default Credentials
+(ADC).
+
+  Credential file (optional): -adc.json
+
+  To set up ADC with the Google Cloud
+CLI, run
+  gcloud auth application-default login
+
+
+  enter set up \u{b7} esc back
+
+provider credential_file must be an
+absolute path";
+    let got = rows(&h.t.screen());
+    let want: Vec<String> = want.lines().map(str::to_owned).collect();
+    assert_eq!(got[..want.len()], want[..], "{}", h.t.screen());
+    // Retry with the cleared field: a new number; the stale answer of the
+    // first is dropped, the second's configures.
+    h.press("ctrl+u");
+    h.press("enter");
+    h.settle();
+    assert_eq!(
+        logins(&h)[1..],
+        [Ask::Login {
+            request: 3,
+            login: Login::Provider(Setup::Gcp(gcp::Params {
+                project_id: "test-project".into(),
+                location: None,
+                credential_file: None,
+            })),
+        }]
+    );
+    h.fake.inject(epoch, answer(2, Ok(())));
+    h.settle();
+    assert!(!h.t.screen().contains("configured"), "stale");
+    h.fake.inject(epoch, answer(3, Ok(())));
+    h.wait_for("the configured line", |s| {
+        s.contains("\u{2713} Google Cloud Vertex AI configured")
+    });
 }

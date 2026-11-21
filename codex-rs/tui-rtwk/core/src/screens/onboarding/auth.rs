@@ -16,6 +16,9 @@
 
 use super::{Ask, Request};
 
+#[path = "provider/mod.rs"]
+pub mod provider;
+
 /// What the sign-in step offers, read by the host at launch
 /// (`OnboardingScreenArgs`, `AuthConfig::is_login_method_allowed`,
 /// `should_show_provider_setup_wizard`).
@@ -94,8 +97,11 @@ pub enum State {
     ApiKey { prefill: Option<String> },
     /// The API key is saved.
     ApiKeyConfigured,
-    /// A provider's setup is chosen: the provider step (S03) runs it.
+    /// A provider's setup is chosen: the provider step (S03) runs it
+    /// (`SignIn::wizard`).
     Provider(Provider),
+    /// A provider's setup is written (`BedrockConfigured`, `GcpConfigured`).
+    ProviderConfigured(Provider),
 }
 
 /// A device code to enter (`ContinueWithDeviceCodeState::ready`).
@@ -132,6 +138,9 @@ pub struct SignIn {
     pub chatgpt_account: bool,
     /// The browser login or API key save awaited.
     awaiting: Option<(Request, Login)>,
+    /// The provider wizard the sign-in is in (`State::Provider`); none for a
+    /// provider whose wizard is not built.
+    pub wizard: Option<provider::Wizard>,
 }
 
 /// What the host is asked to log in with (`LoginAccountParams`).
@@ -140,6 +149,8 @@ pub enum Login {
     ChatGpt,
     DeviceCode,
     ApiKey(String),
+    /// A provider wizard's setup: written by the app server.
+    Provider(provider::Setup),
 }
 
 impl std::fmt::Debug for Login {
@@ -149,6 +160,8 @@ impl std::fmt::Debug for Login {
             Login::DeviceCode => f.write_str("DeviceCode"),
             // The key stays out of logs.
             Login::ApiKey(_) => f.write_str("ApiKey(..)"),
+            // Its fields hold paths and names, no secrets for GCP.
+            Login::Provider(setup) => write!(f, "Provider({setup:?})"),
         }
     }
 }
@@ -171,6 +184,8 @@ pub enum Outcome {
     ApiKeySaved,
     /// The login could not start or the key not be saved.
     Failed(Error),
+    /// A provider setup was written, or refused with a message.
+    Provider(provider::Outcome),
 }
 
 /// The sign-in intents.
@@ -186,6 +201,10 @@ pub enum Intent {
     SaveApiKey(String),
     /// Enter on the success message.
     Continue,
+    /// A key of the provider wizard.
+    Provider(provider::Intent),
+    /// Esc in the provider wizard: one stage back.
+    ProviderBack,
 }
 
 impl SignIn {
@@ -202,7 +221,10 @@ impl SignIn {
     pub fn done(&self) -> bool {
         matches!(
             self.state,
-            State::Success | State::ApiKeyConfigured | State::Provider(_)
+            State::Success
+                | State::ApiKeyConfigured
+                | State::Provider(_)
+                | State::ProviderConfigured(_)
         )
     }
 
@@ -219,6 +241,7 @@ impl SignIn {
     /// The API key entry is the step's body (`is_text_entry_active`).
     pub fn is_text_entry(&self) -> bool {
         matches!(self.state, State::ApiKey { .. })
+            || self.wizard.as_ref().is_some_and(provider::Wizard::is_text_entry)
     }
 
     /// `disallow_api_login`.
@@ -263,6 +286,38 @@ pub fn apply_intent(
             if sign_in.state == State::SuccessMessage {
                 sign_in.state = State::Success;
             }
+        }
+        Intent::Provider(intent) => {
+            let Some(wizard) = sign_in.wizard.as_mut() else {
+                return;
+            };
+            let effect = wizard.apply(intent, mint);
+            wizard_effect(sign_in, effect, asks);
+        }
+        Intent::ProviderBack => {
+            let Some(wizard) = sign_in.wizard.as_mut() else {
+                return;
+            };
+            let effect = wizard.back();
+            wizard_effect(sign_in, effect, asks);
+        }
+    }
+}
+
+/// What a wizard's intent asks of the step: leave to the menu, or run its
+/// setup (`spawn_provider_setup`); a key of the wizard clears the error.
+fn wizard_effect(sign_in: &mut SignIn, effect: provider::Effect, asks: &mut Vec<Ask>) {
+    match effect {
+        provider::Effect::None => {}
+        provider::Effect::Leave => {
+            sign_in.wizard = None;
+            sign_in.state = State::Pick;
+            sign_in.error = None;
+        }
+        provider::Effect::Ask(request, setup) => {
+            let login = Login::Provider(setup);
+            sign_in.awaiting = Some((request, login.clone()));
+            asks.push(Ask::Login { request, login });
         }
     }
 }
@@ -324,6 +379,7 @@ fn choose(
                 sign_in.disallow_api_login();
             } else if sign_in.offer.providers.offers(provider) {
                 sign_in.error = None;
+                sign_in.wizard = provider::Wizard::of(provider);
                 sign_in.state = State::Provider(provider);
             }
         }
@@ -346,7 +402,7 @@ fn cancel(sign_in: &mut SignIn, asks: &mut Vec<Ask>) {
         // The key typed is forgotten with the attempt; the answer of a save
         // still out is dropped (`apply_result`).
         State::ApiKey { .. } => sign_in.awaiting = None,
-        State::Provider(_) => {}
+        State::Provider(_) => sign_in.wizard = None,
         _ => return,
     }
     sign_in.state = State::Pick;
@@ -370,7 +426,7 @@ pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask
                 login_id: code.login_id,
             }),
             Outcome::Browser { login_id, .. } => asks.push(Ask::CancelLogin { login_id }),
-            Outcome::ApiKeySaved | Outcome::Failed(_) => {}
+            Outcome::ApiKeySaved | Outcome::Failed(_) | Outcome::Provider(_) => {}
         }
         return;
     }
@@ -411,6 +467,22 @@ pub fn apply_result(sign_in: &mut SignIn, result: AuthResult, asks: &mut Vec<Ask
         }
         (Some(Login::ChatGpt | Login::DeviceCode), other) => {
             sign_in.state = State::Pick;
+            sign_in.error = Some(Error::Unexpected(format!("{other:?}")));
+        }
+        // `spawn_provider_setup`: written, or back where it can retry.
+        (Some(Login::Provider(_)), Outcome::Provider(result)) => {
+            let State::Provider(provider) = sign_in.state else {
+                return;
+            };
+            let Some(wizard) = sign_in.wizard.as_mut() else {
+                return;
+            };
+            if wizard.answer(request, result) {
+                sign_in.wizard = None;
+                sign_in.state = State::ProviderConfigured(provider);
+            }
+        }
+        (Some(Login::Provider(_)), other) => {
             sign_in.error = Some(Error::Unexpected(format!("{other:?}")));
         }
         (None, _) => {}
@@ -896,5 +968,80 @@ mod tests {
         assert!(sign_in.done());
         run.intent(&mut sign_in, Intent::Cancel);
         assert_eq!(sign_in.state, State::Pick);
+    }
+
+    fn gcp_sign_in() -> SignIn {
+        SignIn::new(Offer {
+            providers: Providers {
+                gcp: true,
+                ..Providers::default()
+            },
+            ..offer()
+        })
+    }
+
+    fn gcp_next(sign_in: &mut SignIn, run: &mut Run, project: &str) {
+        let fields = provider::gcp::Fields {
+            project: project.into(),
+            ..provider::gcp::Fields::default()
+        };
+        run.intent(
+            sign_in,
+            Intent::Provider(provider::Intent::Gcp(provider::gcp::Intent::Next(fields))),
+        );
+    }
+
+    /// gcp_tests.rs gcp_menu_gating_and_setup_flow: choosing Google Cloud
+    /// opens its wizard; the credentials stage asks the setup and waits;
+    /// the answer writes it.
+    #[test]
+    fn the_gcp_wizard_runs_its_setup_through_an_ask() {
+        let mut sign_in = gcp_sign_in();
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        assert_eq!(sign_in.state, State::Provider(Provider::Gcp));
+        assert!(sign_in.is_text_entry());
+        for _ in 0..3 {
+            gcp_next(&mut sign_in, &mut run, "test-project");
+        }
+        let (request, setup) = match run.asks.last() {
+            Some(Ask::Login {
+                request,
+                login: Login::Provider(setup),
+            }) => (*request, setup.clone()),
+            other => panic!("no setup asked: {other:?}"),
+        };
+        assert!(matches!(setup, provider::Setup::Gcp(ref gcp) if gcp.project_id == "test-project"));
+        assert!(!sign_in.is_text_entry(), "no keys while it is configured");
+        // A refusal returns to the credentials with its message; the retry
+        // asks again and the answer under the new number configures it.
+        run.result(
+            &mut sign_in,
+            request,
+            Outcome::Provider(Err("must be absolute".into())),
+        );
+        assert_eq!(sign_in.state, State::Provider(Provider::Gcp));
+        assert!(sign_in.is_text_entry());
+        gcp_next(&mut sign_in, &mut run, "test-project");
+        let Some(Ask::Login { request: retry, .. }) = run.asks.last().cloned() else {
+            panic!("no retry asked");
+        };
+        assert_ne!(retry, request);
+        run.result(&mut sign_in, request, Outcome::Provider(Ok(())));
+        assert_eq!(sign_in.state, State::Provider(Provider::Gcp), "stale");
+        run.result(&mut sign_in, retry, Outcome::Provider(Ok(())));
+        assert_eq!(sign_in.state, State::ProviderConfigured(Provider::Gcp));
+        assert!(sign_in.done());
+    }
+
+    /// Esc on the first stage leaves the wizard for the menu.
+    #[test]
+    fn esc_on_the_first_gcp_stage_returns_to_the_menu() {
+        let mut sign_in = gcp_sign_in();
+        let mut run = Run::new();
+        run.intent(&mut sign_in, Intent::Choose(Method::Provider(Provider::Gcp)));
+        run.intent(&mut sign_in, Intent::ProviderBack);
+        assert_eq!(sign_in.state, State::Pick);
+        assert_eq!(sign_in.wizard, None);
     }
 }

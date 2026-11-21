@@ -65,6 +65,16 @@ struct Guarded {
 #[derive(Clone, Debug, Default)]
 pub struct KeyGuard(Rc<Cell<Option<Guarded>>>);
 
+/// Two handles are equal when they are the same guard: a widget that holds
+/// one rebuilds only when it is handed another.
+impl PartialEq for KeyGuard {
+    fn eq(&self, other: &KeyGuard) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for KeyGuard {}
+
 impl KeyGuard {
     /// `key` just acted: it is held back from `now` on.
     pub fn arm(&self, key: GuardKey, now: Duration) {
