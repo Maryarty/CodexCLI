@@ -108,7 +108,37 @@ pub async fn prefer_device_login() -> bool {
     ) {
         return true;
     }
-    !codex_tui_rtwk::services::startup::browser_available(webbrowser::Browser::is_available).await
+    #[cfg(not(windows))]
+    let browser_available: fn() -> bool = webbrowser::Browser::is_available;
+    // Windows: whether a program is registered for `http`
+    // (`webbrowser`'s check finds no default browser there).
+    #[cfg(windows)]
+    let browser_available: fn() -> bool = has_http_handler;
+    !codex_tui_rtwk::services::startup::browser_available(browser_available).await
+}
+
+/// The registered command of the `http` protocol exists (the oracle's
+/// `has_http_handler`).
+#[cfg(windows)]
+fn has_http_handler() -> bool {
+    use windows_sys::Win32::Foundation::S_FALSE;
+    use windows_sys::Win32::UI::Shell::ASSOCF_IS_PROTOCOL;
+    use windows_sys::Win32::UI::Shell::ASSOCSTR_COMMAND;
+    use windows_sys::Win32::UI::Shell::AssocQueryStringW;
+
+    let mut chars = 0;
+    // A null output buffer asks Windows for the size of the registered HTTP command.
+    let result = unsafe {
+        AssocQueryStringW(
+            ASSOCF_IS_PROTOCOL,
+            ASSOCSTR_COMMAND,
+            windows_sys::w!("http"),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            &mut chars,
+        )
+    };
+    result == S_FALSE && chars > 1
 }
 
 /// The environment's part of the preference: an SSH session, or Linux

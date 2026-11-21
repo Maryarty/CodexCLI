@@ -3651,6 +3651,7 @@ dependencies = [
  "url",
  "webbrowser",
  "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
