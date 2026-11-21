@@ -1,6 +1,6 @@
 ---
 name: codex-porter
-description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a slice of codex-tui carried onto rtwk, a reference generator, a fix, docs). Lean tool list and the fleet's rules built in. Use for every implementation agent in this repository; architecture and risky reviews use codex-reviewer with model opus instead.
+description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a slice of codex-tui carried onto rtwk, a reference generator, a fix, docs). Lean tool list and the fleet's rules built in. Use for every implementation agent in this repository. Always Sonnet (the model is fixed by the type; pass effort xhigh for complex slices). Reviews use codex-reviewer (Opus) or codex-light-reviewer (Sonnet) for LIGHT ones; builds and waits use codex-waiter (Haiku).
 tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims
 model: sonnet
 effort: high

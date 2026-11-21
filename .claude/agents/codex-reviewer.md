@@ -1,8 +1,8 @@
 ---
 name: codex-reviewer
-description: CodexCLI agent for one review (a slice's commits, a wave, an ADR's conformance) or one research question (codex-tui internals, rtwk API, a design choice with evidence). Reads code, runs tests, reads tm; writes only its research directory or nothing. Use it instead of general-purpose for every review and research agent in this repository; pass model opus for architecture, wave reviews and the review of a risky slice (docs/rtwk-port/process.md §A5: skeleton, session core, streaming, the composer, the transcript, approvals, the pager, inline mode, performance claims).
+description: CodexCLI agent for one review (a slice's commits, a wave, an ADR's conformance) or one research question (codex-tui internals, rtwk API, a design choice with evidence). Reads code, runs tests, reads tm; writes only its research directory or nothing. Always Opus (the model is fixed by the type). Use it instead of general-purpose for every review and research agent in this repository; FULL and wave reviews per docs/rtwk-port/process.md §A5; LIGHT reviews use codex-light-reviewer (Sonnet).
 tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__memory_retrieve, mcp__tm__kg_search, mcp__tm__active_claims
-model: sonnet
+model: opus
 effort: high
 autoCompactWindow: 250000
 ---

@@ -238,7 +238,8 @@ What carried over and why is said where it applies.
 | the person | accepts tasks in tm (review mode `human`); decides delta kinds, architecture changes, scope, refs bumps, anything outward (§A9) | — |
 | orchestrator (Opus, main session) | keeps the front moving: writes briefs into tm, launches agents, rejects in tm on a FIX verdict, builds and lands candidates, rebuilds the registry, runs the wave-end checklist, hands over | writes slice code; accepts in tm; pushes |
 | `codex-porter` (Sonnet, worktree) | one tm task: tests first, the slice, the parity pack, `task_done` | edits outside its area; merges; touches codex-tui |
-| `codex-reviewer` (Sonnet; Opus where §A5 says) | one review or one research question; verdict + findings | writes in the repository; accepts or rejects in tm |
+| `codex-reviewer` (Opus) | a FULL or wave review, architecture, research that picks a direction; verdict + findings | writes in the repository; accepts or rejects in tm |
+| `codex-light-reviewer` (Sonnet) | a LIGHT review, a short fact-finding question; verdict + findings | writes in the repository; accepts or rejects in tm |
 | `codex-waiter` (Haiku) | one long command: a candidate check, the scenario suite, a perf run, a cold build | edits, commits, tm writes |
 
 ## A2. Branches and worktrees
@@ -409,8 +410,8 @@ Rows for the lander: shard registration, gap rows (when another task owns
 | tier | what | review | landing |
 |---|---|---|---|
 | TRIVIAL | markers, docs, packs, gap rows, renames | none: the orchestrator checks the diff scope (no `src/`, `core/`, `host/`, manifest change) | fast-forward or the next candidate |
-| LIGHT (default for pages, sheets, dialogs, StartupPage, settings, pickers) | one page's views, core state and host/services | one Sonnet `codex-reviewer` pass over the page's diff, after it lands | does not wait |
-| FULL | the risky list: session-core, chat-cells' streaming tail, composer, transcript, approvals, pager, inline mode, perf claims | `codex-reviewer` with `model: opus`, before landing | waits for the verdict |
+| LIGHT (default for pages, sheets, dialogs, StartupPage, settings, pickers) | one page's views, core state and host/services | one `codex-light-reviewer` pass over the page's diff, after it lands | does not wait |
+| FULL | the risky list: session-core, chat-cells' streaming tail, composer, transcript, approvals, pager, inline mode, perf claims | `codex-reviewer`, before landing | waits for the verdict |
 | wave | the wave's diff on the integration branch | Opus: drift from the architecture or rtwk's standard means; the R-rule audit | the next wave |
 
 A review returns FIX only for:
@@ -553,9 +554,9 @@ rounds 1–2, batching follow-ups.
 From the economy rules (memory `codex-economy-rules`, task `token-economy`)
 and rtwk's measurement:
 
-- **Models.** Porters on Sonnet by default; the orchestrator may pass Opus
-  for a large page (no hook refuses it since 2026-11-18). Opus reviewers only
-  for FULL and wave reviews. Haiku waiters for every wait over ~4 min.
+- **Models.** Fixed by the agent type (the person, 2026-11-21): porters Sonnet,
+  `codex-reviewer` Opus (FULL, wave), `codex-light-reviewer` Sonnet (LIGHT), waiters Haiku; `.claude/hooks/agent_models.py`
+  refuses a `model` on an Agent call. Haiku waiters for every wait over ~4 min.
 - **Agent size.** ~100 turns / ~250k context, then `task_checkpoint` +
   `HANDOFF:`; rtwk: turns past 100 were 59 % of implementation cost, so
   slices are sized to fit (§A3) instead of chained.

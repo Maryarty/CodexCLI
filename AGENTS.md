@@ -83,10 +83,11 @@ command center bypassed ADR-003 and hit "thread already has an active writer").
   task carries it (process.md A4.1 "ADR departures").
 
 ## Agents and tokens
-- Implementation: agent type `codex-porter` (Sonnet by default; a model override
-  is allowed — the person removed the guard hook 2026-11-18). Reviews and research: `codex-reviewer` (Sonnet; `model: opus`
-  only for architecture and risky reviews). Long waits: `codex-waiter`
-  (Haiku). Shared fleet rules: `.tm/fleet-brief.md`.
+- Implementation: agent type `codex-porter` (always Sonnet). Reviews and research:
+  `codex-reviewer` (Opus: FULL and wave reviews, architecture) and
+  `codex-light-reviewer` (Sonnet: LIGHT reviews, short questions). Long waits and builds: `codex-waiter` (Haiku). The
+  type fixes the model: the hook `.claude/hooks/agent_models.py` refuses `model` on
+  an Agent call and general-purpose agents (the person, 2026-11-21). Shared fleet rules: `.tm/fleet-brief.md`.
 - Briefs carry only the task: name sections and `file:line` ranges, grep
   every name before writing it into a brief.
 - Cargo through `~/.cache/rtwk/acargo`, quiet output (`-q`, nextest
