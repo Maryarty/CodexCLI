@@ -416,7 +416,9 @@ fn completed_mcp_tool_call_multiple_outputs_inline_snapshot() {
 fn session_header_clamps_to_narrow_width() {
     let s = Screen::build(Owner::ChatLive)
         .size(44, 12)
-        .script(include_str!("fixtures/cells_4/session_header_clamps_to_narrow_width.jsonl"))
+        .script(include_str!(
+            "fixtures/cells_4/session_header_clamps_to_narrow_width.jsonl"
+        ))
         .open();
     s.assert_snap_region("session_header_clamps_to_narrow_width", 0, 0);
 }
@@ -426,7 +428,9 @@ fn session_header_clamps_to_narrow_width() {
 fn session_header_indicates_yolo_mode() {
     let s = Screen::build(Owner::ChatLive)
         .size(80, 12)
-        .script(include_str!("fixtures/cells_4/session_header_indicates_yolo_mode.jsonl"))
+        .script(include_str!(
+            "fixtures/cells_4/session_header_indicates_yolo_mode.jsonl"
+        ))
         .open();
     s.assert_snap_region("session_header_indicates_yolo_mode", 0, 0);
 }
@@ -437,7 +441,9 @@ fn session_header_truncates_halfwidth_directory() {
     kit::pending(Owner::ChatLive, HALFWIDTH_HEADER);
     let s = Screen::build(Owner::ChatLive)
         .size(42, 24)
-        .script(include_str!("fixtures/cells_4/session_header_truncates_halfwidth_directory.jsonl"))
+        .script(include_str!(
+            "fixtures/cells_4/session_header_truncates_halfwidth_directory.jsonl"
+        ))
         .open();
     s.assert_snap_region("session_header_halfwidth_directory", 0, 0);
 }
