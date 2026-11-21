@@ -15,7 +15,7 @@ use std::rc::Rc;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{
     Align, Alignment, BoxWidget, Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible,
-    MainAxisSize, Padding, SizedBox, Wrap,
+    MainAxisSize, Padding, SizedBox,
 };
 use rtwk::navigation::Navigator;
 use rtwk::prelude::{KeyCode, Mods};
@@ -296,16 +296,6 @@ fn line(text: impl Into<String>, style: &Style) -> AnyWidget {
     inset(Text::new(text.into()).style(style.clone()).into())
 }
 
-/// A line that breaks at spaces only (the oracle's wrap keeps `gpt-5.1-codex-max`
-/// whole; `TextWrap::Word` also breaks after a hyphen): one `Text` per word in a `Wrap`.
-fn words(text: &str, style: &Style) -> AnyWidget {
-    let mut wrap = Wrap::new().spacing(1);
-    for word in text.split(' ') {
-        wrap = wrap.child(Text::new(word.to_owned()).style(style.clone()));
-    }
-    inset(wrap.into())
-}
-
 fn hint(spans: Vec<Span>) -> AnyWidget {
     Text::rich(spans).into()
 }
@@ -391,8 +381,8 @@ impl Parts {
                             .into(),
                     ));
                 } else {
-                    top.push(words(
-                        &s.migration_heading(&p.target_display_name, num),
+                    top.push(line(
+                        s.migration_heading(&p.target_display_name, num),
                         &ink.bold,
                     ));
                     top.push(blank());

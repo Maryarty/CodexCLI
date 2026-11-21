@@ -37,7 +37,7 @@ Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Option
 
 ## Oracle tests (`tests/oracle/startup_prompts.rs`, profile `oracle`)
 
-34 tests: 25 green, 7 pending, 2 n/a (the shard file's red = pending count
+34 tests: 24 green, 8 pending, 2 n/a (the shard file's red = pending count
 in the oracle profile: pending panics as `PENDING[..]`). Expected text is the oracle's
 snapshots through the replay helper.
 
@@ -54,7 +54,7 @@ snapshots through the replay helper.
 | cwd_prompt.rs::cwd_prompt_ctrl_c_exits_instead_of_selecting | `cwd_prompt_ctrl_c_exits_instead_of_selecting` | green |  |
 | cwd_prompt.rs::cwd_prompt_remembered_choices_select_and_persist_matching_directory | `cwd_prompt_remembered_choices_select_and_persist_matching_directory` | green |  |
 | cwd_prompt.rs::cwd_prompt_persistence_failure_snapshot | `cwd_prompt_persistence_failure_snapshot` | pending | the history line is inserted by the host after the prompt closes; its config write is not built here |
-| model_migration.rs::prompt_snapshot | `prompt_snapshot` | green |  |
+| model_migration.rs::prompt_snapshot | `prompt_snapshot` | pending | G48: hyphen wrap of the heading |
 | model_migration.rs::prompt_snapshot_gpt5_family | `prompt_snapshot_gpt5_family` | green |  |
 | model_migration.rs::escape_key_accepts_prompt | `escape_key_accepts_prompt` | green |  |
 | model_migration.rs::selecting_use_existing_model_rejects_upgrade | `selecting_use_existing_model_rejects_upgrade` | green |  |
@@ -89,8 +89,9 @@ snapshots through the replay helper.
 ## Wraps and shelves
 
 * The migration heading (`gpt-5.1-codex-max.`) breaks only at spaces in the oracle;
-  rtwk's `TextWrap::Word` also breaks after a hyphen. Composed as a `Wrap` of one `Text`
-  per word (a word wider than the line would not be split). No gaps row: composition works.
+  rtwk's `TextWrap::Word` also breaks after a hyphen: gap G48 (`rtwk-gaps.md`), the heading is
+  a plain `Text` and `prompt_snapshot` is pending(G48). (An earlier one-`Text`-per-word
+  `Wrap` workaround was removed: process.md §5.)
 * Short viewports: the migration body gives way as one clipped block (`Column`
   with `overflow_intended`, leading blank inside it); OSS notes and blanks give way one by
   one. The oracle's `FlexRenderable` first satisfies every flex child that needs less than
