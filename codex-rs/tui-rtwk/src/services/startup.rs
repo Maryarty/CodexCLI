@@ -26,6 +26,13 @@ pub async fn open_in_browser(browser: Browser, url: String) -> Result<(), String
     }
 }
 
+/// Whether a browser can be opened (`webbrowser::Browser::is_available`);
+/// blocking, so it runs off the async workers like the open (R1). A check
+/// that did not finish counts as no browser.
+pub async fn browser_available(check: fn() -> bool) -> bool {
+    tokio::task::spawn_blocking(check).await.unwrap_or(false)
+}
+
 /// The update cache at `file`: the latest release and the one dismissed.
 pub fn read_version_cache(file: &Path) -> Option<VersionCache> {
     let info: serde_json::Value =

@@ -29,11 +29,11 @@ use std::time::Duration;
 use rtwk::binding::{AppBinding, InputListener};
 use rtwk::editing::{TextEditingController, TextField, copy_to_clipboard};
 use rtwk::focus::{Focus, FocusNode, FocusOnKeyEventCallback, KeyEventResult, KeyPress};
+use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
     Alignment, Border, BorderTitle, BorderType, BoxWidget, Column, CrossAxisAlignment, FlexFit,
     Flexible, MainAxisSize, OverflowBox, SizedBox,
 };
-use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::prelude::{HitTestBehavior, Mods};
 use rtwk::provider::read;
 use rtwk::style::{Attrs, Span, Style};
@@ -564,14 +564,12 @@ impl State for SignInState {
             auth::State::GatewayOAuth { url, .. } => {
                 provider::gateway_login::browser(provider::strings::of(cx), &look, url.as_deref())
             }
-            auth::State::GatewayOAuthFailed { message, .. } => {
-                provider::gateway_login::failed(
-                    provider::strings::of(cx),
-                    &look,
-                    message,
-                    cx.map(|_| Msg::Retry),
-                )
-            }
+            auth::State::GatewayOAuthFailed { message, .. } => provider::gateway_login::failed(
+                provider::strings::of(cx),
+                &look,
+                message,
+                cx.map(|_| Msg::Retry),
+            ),
         };
         focus.child = body;
         for (key, msg) in [

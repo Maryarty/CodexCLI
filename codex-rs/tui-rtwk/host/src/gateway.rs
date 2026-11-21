@@ -30,7 +30,9 @@ where
     let value = send(wire::gateway_oauth_read(provider_id, ids.next()))
         .await
         .map_err(|error| error.message)?;
-    let state = wire::gateway_oauth_state(value)?;
+    // The text the oracle shows when the answer does not decode.
+    let state = wire::gateway_oauth_state(value)
+        .map_err(|error| format!("account/gatewayOAuth/read response decode error: {error}"))?;
     if state.provider_id != provider_id {
         return Err("The selected gateway changed during sign-in.".to_owned());
     }
@@ -56,9 +58,7 @@ pub async fn prefer_device_login() -> bool {
     ) {
         return true;
     }
-    !tokio::task::spawn_blocking(webbrowser::Browser::is_available)
-        .await
-        .unwrap_or(false)
+    !codex_tui_rtwk::services::startup::browser_available(webbrowser::Browser::is_available).await
 }
 
 /// The environment's part of the preference: an SSH session, or Linux
@@ -194,6 +194,18 @@ mod tests {
             Err("The selected gateway changed during sign-in.".to_owned())
         );
         assert_eq!(server.asked(), ["account/gatewayOAuth/read"]);
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_does_not_decode_is_framed_as_the_oracle_does() {
+        let server = Server::answering(json!({"providerId": "office"}));
+        let Err(text) = run(&server, false).await else {
+            panic!("an incomplete answer decoded");
+        };
+        assert!(
+            text.starts_with("account/gatewayOAuth/read response decode error: missing field"),
+            "{text}"
+        );
     }
 
     // The failure text is the client's own (`err.to_string()`), as the

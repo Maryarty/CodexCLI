@@ -190,10 +190,9 @@ pub fn gateway_oauth_cancel(request_id: RequestId) -> ClientRequest {
 }
 
 /// Where the provider's sign-in stands, out of `account/gatewayOAuth/read`'s
-/// result; the text of the error as the oracle shows it.
+/// result; the decoder's own text of the error (the host frames it).
 pub fn gateway_oauth_state(value: Value) -> Result<GatewayOAuthReadResponse, String> {
-    serde_json::from_value(value)
-        .map_err(|error| format!("account/gatewayOAuth/read response decode error: {error}"))
+    serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
 /// `needs_device_login` but for the preference, which is asked of the

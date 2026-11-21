@@ -1385,6 +1385,15 @@ mod gateway_oauth {
         asks(h).iter().filter_map(kind).collect()
     }
 
+    /// The number of the last ask of one kind.
+    #[track_caller]
+    fn last(h: &Harness, kind: fn(&Ask) -> Option<u64>, what: &str) -> u64 {
+        match requests(h, kind).last() {
+            Some(request) => *request,
+            None => panic!("{what}"),
+        }
+    }
+
     fn select(ask: &Ask) -> Option<u64> {
         match ask {
             Ask::SelectGateway { request, .. } => Some(*request),
@@ -1429,13 +1438,9 @@ mod gateway_oauth {
             epoch,
             Ev::SignInState(State::GatewaySelected("office".into())),
         );
-        let request = *requests(&h, select)
-            .last()
-            .expect("the gateway's start is asked");
+        let request = last(&h, select, "the gateway's start is asked");
         inject(&mut h, epoch, Ev::GatewayStarted { request });
-        let request = *requests(&h, logins_read)
-            .last()
-            .expect("the logins are read");
+        let request = last(&h, logins_read, "the logins are read");
         inject(
             &mut h,
             epoch,
@@ -1448,7 +1453,7 @@ mod gateway_oauth {
                 },
             },
         );
-        let request = *requests(&h, sign_in).last().expect("the sign-in is asked");
+        let request = last(&h, sign_in, "the sign-in is asked");
         (h, epoch, request)
     }
 

@@ -395,7 +395,10 @@ where
                     let (RpcError::Remote(text) | RpcError::Malformed(text)) = &error else {
                         return Some(fail_launch(&startup, "account/read failed".to_owned()));
                     };
-                    return Some(fail_launch(&startup, format!("account/read failed: {text}")));
+                    return Some(fail_launch(
+                        &startup,
+                        format!("account/read failed: {text}"),
+                    ));
                 }
             };
             let auth = config.auth_config();
@@ -1231,24 +1234,26 @@ mod tests {
         );
     }
 
-    /// Answers every restart of the server as the pump does once the new
-    /// handle is the app's: the provider it was started for, then the ack.
+    /// The restarts the host asks of the server: the receiving end, which
+    /// `restarted` answers as the pump does once the new handle is the app's.
     fn restarting() -> (
         tokio::sync::mpsc::UnboundedSender<Restart>,
-        tokio::task::JoinHandle<Vec<String>>,
+        tokio::sync::mpsc::UnboundedReceiver<Restart>,
     ) {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Restart>();
-        let seen = tokio::spawn(async move {
-            let mut providers = Vec::new();
-            while let Some(restart) = rx.recv().await {
-                providers.push(restart.config.model_provider_id.clone());
-                if let Some(done) = restart.done {
-                    let _ = done.send(());
-                }
+        tokio::sync::mpsc::unbounded_channel()
+    }
+
+    /// The provider each restart was for, acknowledged in order; ends when
+    /// the host has dropped its sender.
+    async fn restarted(mut rx: tokio::sync::mpsc::UnboundedReceiver<Restart>) -> Vec<String> {
+        let mut providers = Vec::new();
+        while let Some(restart) = rx.recv().await {
+            providers.push(restart.config.model_provider_id.clone());
+            if let Some(done) = restart.done {
+                let _ = done.send(());
             }
-            providers
-        });
-        (tx, seen)
+        }
+        providers
     }
 
     // `lib.rs` after `selected_gateway`: the config is read again, it must
@@ -1260,25 +1265,27 @@ mod tests {
         let config = (*startup.config).clone();
         let id = config.model_provider_id.clone();
         startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
-        let (restart, seen) = restarting();
+        let (restart, receiver) = restarting();
         startup.restart = restart;
-        let ev = run(
-            startup,
-            Ask::SelectGateway {
-                request: 4,
-                provider_id: id.clone(),
-            },
-            Ids::default(),
-            nothing,
-        )
-        .await;
+        let (ev, seen) = tokio::join!(
+            run(
+                startup,
+                Ask::SelectGateway {
+                    request: 4,
+                    provider_id: id.clone(),
+                },
+                Ids::default(),
+                nothing,
+            ),
+            restarted(receiver)
+        );
         assert!(matches!(
             ev,
             Some(AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayStarted {
                 request: 4
             })))
         ));
-        assert_eq!(seen.await.expect("the receiver"), [id]);
+        assert_eq!(seen, [id]);
     }
 
     // The reloaded config must select that gateway: another provider ends
@@ -1289,24 +1296,26 @@ mod tests {
         let config = (*startup.config).clone();
         startup.reload = Arc::new(move || Box::pin(std::future::ready(Ok(config.clone()))));
         let failure = startup.failure.clone();
-        let (restart, seen) = restarting();
+        let (restart, receiver) = restarting();
         startup.restart = restart;
-        let ev = run(
-            startup,
-            Ask::SelectGateway {
-                request: 1,
-                provider_id: "office".into(),
-            },
-            Ids::default(),
-            nothing,
-        )
-        .await;
+        let (ev, seen) = tokio::join!(
+            run(
+                startup,
+                Ask::SelectGateway {
+                    request: 1,
+                    provider_id: "office".into(),
+                },
+                Ids::default(),
+                nothing,
+            ),
+            restarted(receiver)
+        );
         let Some(AppEv::StartFailed(text)) = ev else {
             panic!("the start fails: {ev:?}");
         };
         assert!(text.ends_with("instead of office."), "{text}");
         assert_eq!(failure.lock().unwrap().as_deref(), Some(text.as_str()));
-        assert!(seen.await.expect("the receiver").is_empty());
+        assert!(seen.is_empty());
     }
 
     #[tokio::test]
@@ -1368,13 +1377,7 @@ mod tests {
                 result: Ok(())
             })))
         ));
-        let ev = run(
-            startup,
-            Ask::CancelGatewayOAuth,
-            Ids::default(),
-            record,
-        )
-        .await;
+        let ev = run(startup, Ask::CancelGatewayOAuth, Ids::default(), record).await;
         assert!(ev.is_none());
         assert_eq!(
             *asked.lock().unwrap(),
