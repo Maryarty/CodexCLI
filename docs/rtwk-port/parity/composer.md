@@ -18,18 +18,15 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## Shard counts (pass / n/a / pending / red of total), at the fix round (rebased on 13670e134)
+## Shard counts (pass / n/a / pending / red of total), composer-2 third run (paste burst in)
 - composer_1: 8 / 1 / 41 / 0 of 50
-- composer_2: 19 / 4 / 27 / 0 of 50
-- composer_3: 17 / 2 / 37 / 0 of 56
-- composer_4: 8 / 0 / 65 / 0 of 73
-- composer_popups: 11 / 0 / 32 / 0 of 43
+- composer_2: 24 / 4 / 22 / 0 of 50
+- composer_3: 20 / 2 / 34 / 0 of 56
+- composer_4: 11 / 2 / 60 / 0 of 73
+- composer_popups: 12 / 0 / 31 / 0 of 43
 - textarea: 11 / 2 / 46 / 0 of 59
-- total 74 pass, 9 n/a, 248 pending, 0 red, 0 stale (68 pass at the second handoff).
-composer-2, at its first handoff (shell command, input limit, REVERSED, word select, the
-widgets import; open: paste burst, images, editor, startup draft, G68-G70): composer_2
-21 / 4 / 25 / 0, composer_4 9 / 1 / 63 / 0, the others unchanged; total 77 pass, 10 n/a,
-244 pending, 0 red (summary.py --run of the six shards).
+- total 86 pass, 11 n/a, 234 pending, 0 red, 0 stale (77 pass at the first handoff, 74 at
+  the fix round of the first run). `summary.py --run` of the six shards.
 `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole default nextest
 (`--workspace`): 1058 passed, 15 skipped, 0 failed (including `composer_draft` 5,
 `composer_mouse` 2 + 1 ignored, the sanitize unit test). fmt `--check` and clippy
@@ -43,6 +40,32 @@ completion cases (separator space, punctuation, skills under `@`), the
 are pending with their reason (below), none loosened.
 
 ## Decisions
+- Paste burst (composer-2, third run). Core `screens/composer/paste_burst.rs` is the oracle's
+  `bottom_pane/paste_burst.rs` carried as it is (REUSE; `Instant` became a `Duration` on the
+  app clock, R11; the oracle's 5 unit tests are kept). The view side: `ComposerDraft` holds
+  the machine, `pages/session/composer/burst.rs` asks it before the field does (the
+  `EditingKeys` door: `take_key` runs `burst::take`, then `edit_key`): a plain char is held
+  9 ms (`RetainFirstChar`) or joins a burst, Enter and Tab inside a burst are `\n` and `\t` of
+  the paste, a shortcut or navigation key flushes what is held first. What is held is
+  flushed by an app timer (`AppBinding::start_timer`, `ComposerMsg::BurstDue`): every
+  accepted key arms its own 9 ms timer, an early one finds nothing due. A real paste event
+  flushes the held keys first and ends the window (`clear_after_explicit_paste`). The page's
+  `?` and `Left` shortcuts of an empty prompt wait while `ComposerDraft::in_burst`
+  (`is_in_paste_burst`). A `!` paste at the start enters shell mode before the text
+  changes (`absorb_shell_prefix` sets the mode first: the command popup reads it on the
+  change, a `!/diff` paste must not open it).
+- Kit pacing (tests/kit/mod.rs, tests/common/mod.rs): the keys of a person are
+  `KEY_PACE_MS` = 10 ms apart: `Screen::type_text` and now `Screen::keys` (token by token),
+  and `Harness::press` waits 10 ms before the key (a `type_text` then `press("enter")`
+  must not be one burst). `Screen::type_burst(text)` is a terminal without bracketed paste:
+  a key per char 1 ms apart (`\n` is Enter, `\t` Tab), nothing waits after the last. The
+  app draws one frame per 16.7 ms, so the screen right after `type_burst` shows the state
+  at the first key: tests read it after `wait` (the oracle's "the draft is empty while the
+  burst holds" is the core unit test of the machine). Raw `Tester::type_text` in other
+  tests is one instant: `tests/services/shell_cycle.rs` got a `pump_for(50)` after its
+  typing (the page's Ctrl+X chord does not flush a held burst) and
+  `tests/pages/composer_draft.rs` waits for the shell command to reach the fake
+  (`wait_idle` was true before it arrived: a flake of the first run).
 - Placeholders are atomic elements through the controller (EditingKeys and a
   controller listener), the person's decision on chat-composer 2026-11-19. Not a gap.
 - Shell mode (`is_bash_mode`) is UI state in `ComposerDraft`: a `!` typed at the
@@ -151,11 +174,14 @@ are pending with their reason (below), none loosened.
   `a_click_on_a_popup_row_picks_it`, `#[ignore]`d as pending(G70)).
 
 ## Pending and why (the rest, none built here)
-- Paste burst (composer_2 non_ascii_burst_*, ascii_burst_*; composer_3 burst_*; composer_4
-  paste_burst_*, newline_suppression_*; composer_popups `..._before_a_punctuation_paste_burst`):
-  the oracle's heuristic (3 characters 8 ms apart, 120 ms Enter suppression) reads a
-  clock the kit's `type_text` does not give it (all characters at one instant, then 100 ms).
-  Needs the kit to pace typed text first.
+- Paste burst, what stays pending: composer_3 `shortcut_modified_input_does_not_enter_paste_bursts`
+  and `non_text_input_flushes_pending_paste_without_inserting_text` (the kit's `keys()` has no
+  SUPER modifier: the kit does not enable the kitty keyboard protocol),
+  composer_3 `plain_and_shift_spaces_insert_normally` (the oracle's snapshot is the composer
+  alone with its own `100% context left` footer; the typing is the page test
+  `composer_burst a_space_inside_a_burst_is_kept`),
+  composer_2 `ascii_burst_treats_enter_as_newline_even_when_parent_owned` (no parent-owned
+  thread seed), composer_4 `paste_burst_tab_does_not_accept_a_completion` (G69).
 - Images `[Image #N]`: core `StartTurn` is text only (no attachment in the protocol
   mapping), and the kit has no `attach_image` seed.
 - Vim mode, reverse history search (Ctrl+R), shortcut chords from the keymap, rebindable
@@ -182,6 +208,12 @@ are pending with their reason (below), none loosened.
   they need rect offsets (a 1-row rect at y 1, a resize mid-test) the kit cannot seed.
 
 ## Unit tests
+- `core screens::composer::paste_burst::tests` (the oracle's five), page tests
+  `tests/pages/composer_burst.rs` (9: Enter in a burst, `?` in a burst, `?` alone, Left
+  behind a held char, a lone char after 9 ms, a space in a burst, a space at a person's pace, `keys("h i enter")`
+  submits, a large burst is one placeholder). Bite shown once: with the page's
+  `in_burst()` check off the `?` and Left tests fail; with the Enter arm off the Enter test
+  fails.
 - `composer::editing::tests`: the oracle's kill and yank state tests, plus the atomic
   placeholder keys. Bite shown: breaking the EOL kill and the yank turns them red.
 - `widgets::composer_draft` tests (moved with the file).
@@ -197,6 +229,13 @@ it (`â€º hello X`). Bite shown: without the click and the drag the rows read `â€
 A click on a popup row is G70 (rtwk). In the oracle shards: composer_4
 blockquote_paste_replacing_selected_*, backspace_deletes_a_body_selection_*, composer_3 a click
 inside a placeholder snaps the caret to its end, textarea target_replaces_*.
+
+## Binary run (composer-2 third run, paste burst in; debug build)
+`check.py --bin rtwk --bin oracle --only multi-turn,interrupted --capture-dir /tmp/composer2-cap`:
+4/4 PASS again (multi-turn 15.0 s rtwk / 14.0 s oracle, interrupted: Esc disconnects the
+stream in 0.47 s rtwk / 0.33 s oracle). The scenario's typed text and Enter go through the
+paste detector in the real binary and the three turns still submit. The text of the previous
+run below still holds for the rows.
 
 ## Binary run (fix round, debug build)
 `check.py --bin rtwk --bin oracle --only multi-turn,interrupted --capture-dir /tmp/composer-cap`:

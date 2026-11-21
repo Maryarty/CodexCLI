@@ -596,7 +596,7 @@ fn shortcut_modified_input_does_not_enter_paste_bursts() {
 fn plain_and_shift_spaces_insert_normally() {
     kit::pending(
         Owner::ChatLive,
-        "the chat screen is not the composer alone: the oracle's snapshot is the composer's region with its own footer ('100% context left'); the typing itself ('a b' typed fast reads as typing, the space kept) is the page test paste_burst_typing_keeps_the_space",
+        "the chat screen is not the composer alone: the oracle's snapshot is the composer's region with its own footer ('100% context left'); the typing itself ('a b' typed fast reads as typing, the space kept) is the page test composer_burst a_space_inside_a_burst_is_kept",
     );
     // oracle snapshot plain_space_is_rendered: 'a', ' ', 'b' typed fast, then the flush
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();

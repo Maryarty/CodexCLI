@@ -79,6 +79,14 @@ fn a_char_nothing_follows_goes_in_as_typing_after_nine_milliseconds() {
 }
 
 #[test]
+fn a_space_inside_a_burst_is_kept() {
+    let mut s = chat();
+    s.type_burst("a b");
+    s.wait(50);
+    s.assert_row(prompt(&s), "› a b");
+}
+
+#[test]
 fn typed_at_a_persons_pace_a_space_is_a_space() {
     let mut s = chat();
     s.type_text("a b");
