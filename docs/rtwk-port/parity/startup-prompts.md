@@ -2,9 +2,10 @@
 
 Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Options` list
 (`src/widgets/options.rs`). Code: `core/src/screens/startup.rs` (pure: `Prompt`, `Model`,
-`Ev::Asked`/`HooksTrusted`, `Intent::{Ask, Answer, TrustHooks}`, `apply`, the key table
-`Prompt::on_key`), `src/pages/startup/prompts/` (`panel.rs` the widget, `strings.rs` words,
-`mod.rs` the entry points, `fixtures/*.jsonl` 21 mock scripts through core `apply`).
+`Ev::Asked`/`HooksTrusted`, `Intent::{Ask, Answer, TrustHooks}`, `apply`, and what a step, a
+number or a taken row does: `Prompt::{rows, step, number, take}`), `src/pages/startup/prompts/`
+(`panel.rs` the widget, `keys.rs` the key bindings, `strings.rs` words, `mod.rs` the entry
+points, `fixtures/*.jsonl` 21 mock scripts through core `apply`).
 
 ## Prompts
 
@@ -16,9 +17,42 @@ Slice S05: the startup prompts of codex-tui, one `Panel` over the shared `Option
 | unarchive_prompt.rs (resume / fork) | `Prompt::Unarchive` | ported |
 | oss_selection.rs (LM Studio / Ollama and their status) | `Prompt::Oss` | ported |
 | daemon_recovery.rs | `Prompt::Daemon` | ported |
-| chatwidget/windows_sandbox_prompts.rs | not done | next slice |
-| security_setup.rs (`Notice::valid`), startup_error.rs | not done / n-a (plain stderr text) | |
-| startup_orchestration.rs (order and conditions) | not done: the launcher (startup-flow) decides | its logic tests (`bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass`, `localhost_probe_succeeds_with_invalid_inherited_ca_bundle`, `security_setup_rejects_unsafe_actions_and_terminal_controls`) are not in this shard |
+| chatwidget/windows_sandbox_prompts.rs | not built here (see "Scope of the rest") | dialogs-pane |
+| security_setup.rs (`Notice::valid`, `prefetch`) | not built here | chat banner (dialogs-pane); the pure check needs `url` |
+| startup_error.rs (`LocalStateDbStartupError`) | not built here | reuse-carry (a REUSE row: framework-free, no screen) |
+| startup_orchestration.rs (order and conditions) | not done: the launcher (startup-orchestration) decides | its logic tests (`bypass_hook_trust_suppresses_startup_review`, `untrusted_hooks_need_review_without_bypass`, `localhost_probe_succeeds_with_invalid_inherited_ca_bundle`, `security_setup_rejects_unsafe_actions_and_terminal_controls`) are not in this shard |
+
+## Keys
+
+The oracle's `handle_key` of each prompt is `src/pages/startup/prompts/keys.rs`: `bindings(&Prompt)`
+returns `(KeyPress, Cmd)` pairs (the page's `Shortcuts`), the panel binds them on its `Focus`
+and answers a `Cmd` with `Cmd::react`, which asks core (`Prompt::step` / `number` / `take`)
+what it comes to. Core has no key type; `Intent::Answer` is validated there (`takes`: an
+answer another prompt owns, or any answer while the trust write runs, is dropped).
+The tests of the oracle's key rules are in `keys.rs` (the 16 ported names plus
+`a_migration_without_opt_out_reads_only_accept_and_quit`), the cursor rules in core
+(`step_wraps_round_the_ends...`, `a_number_takes_a_plain_row...`,
+`the_cwd_prompt_has_no_fourth_row...`).
+
+Ctrl+C in the hooks review does nothing in the oracle (`startup_hooks_review.rs` handles Esc,
+Enter, Up/Down, digits only, and nothing at all while trusting); `bindings` has no Ctrl+C
+for it either, and none at all while the trust write runs (`picker_progress_blocks_selection`).
+
+## Scope of the rest (Windows sandbox, security_setup, startup_error)
+
+Decided by what each is, not built in this slice:
+
+* Windows sandbox prompts (enable / fallback / status): bottom-pane selection views of the
+  chat, behind `cfg(target_os = "windows")` in the oracle; their oracle tests are
+  `chat_popups_2.rs` (`startup_prompts_for_windows_sandbox_when_agent_requested`, pending
+  `NO_WINDOWS`, owner dialogs-pane). They belong to the chat popups, not to the full-screen
+  startup prompts.
+* `security_setup.rs`: a chat banner fed by an RPC (`prefetch`); its screen tests are in
+  `chat_popups_4.rs` (owner dialogs-pane). `Notice::valid` is pure but needs the `url` crate and
+  core's dependency list is fixed (`tests/layers.rs`): a change of that list is the person's
+  or the orchestrator's, with the banner's task.
+* `startup_error.rs`: framework-free (a `thiserror` type over `codex_state`), no screen: a
+  REUSE row for the reuse-carry slice.
 
 ## How startup-flow calls the prompts
 
@@ -112,5 +146,13 @@ snapshots through the replay helper.
 
 ## Needed elsewhere (not rtwk gaps)
 
-* `tests/oracle.rs`: the `startup_prompts` module line; a kit `Owner::StartupPrompts` (the shard
-  runs as `Owner::DialogsPane` for now).
+* Nothing outstanding: the `startup_prompts` module line is in `tests/oracle.rs`, the kit has
+  `Owner::StartupPrompts` (slice `startup-prompts`), and `shards.py` maps the seven oracle files to
+  the shard (`shards.py --check`: 0 stale).
+* The launch wiring (which prompt, in which order, with which conditions) is startup-orchestration.
+
+## Checks that were red on arrival
+
+* `chat::transitions::slash_import_opens_the_import` and
+  `navigation::import_is_a_step_of_the_startup_page` (tests/pages) fail on the base commit
+  `f51e15937` too (a blank frame, `RenderList ... given 0 rows`); not this slice's.
