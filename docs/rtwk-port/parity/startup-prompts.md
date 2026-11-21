@@ -54,6 +54,14 @@ Decided by what each is, not built in this slice:
 * `startup_error.rs`: framework-free (a `thiserror` type over `codex_state`), no screen: a
   REUSE row for the reuse-carry slice.
 
+Owners (batch review fix round 1, startup-fix-2): item (1) of the brief, the three of them,
+is owned by tm task `startup-orchestration` (its description lists "windows sandbox /
+security_setup / startup_error" among what it wires into the launch order, and the logic tests of
+`startup_orchestration.rs`). The split above stays: the screens of the Windows sandbox prompts
+and of the security banner are the chat popups' (dialogs-pane, `chat_popups_2` / `chat_popups_4`);
+`startup_error.rs` is carried by reuse-carry as a REUSE row; `startup-orchestration` decides
+when each is shown, and builds a screen only where none of those owners has one.
+
 ## How startup-flow calls the prompts
 
 * `prompts::ask(cx, Prompt::..)` emits `Intent::Ask` (core stores the prompt in

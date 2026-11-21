@@ -5,10 +5,26 @@
 //! `updates_cache.rs`, `update_action.rs`, the CLI's `run_update_action`.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::Utc;
 use codex_tui_core::protocol::onboarding::VersionCache;
+
+/// Opens a URL in the user's browser (`webbrowser::open`); blocking.
+pub type Browser = Arc<dyn Fn(&str) -> std::io::Result<()> + Send + Sync>;
+
+/// `show_chatgpt_login_in_browser`: opens `url` with `browser`. The open may
+/// start a process and wait, so it runs off the async workers (R1: the
+/// blocking pool is the services', not the host's). A failure is returned
+/// for the caller to log, never answered to the page.
+pub async fn open_in_browser(browser: Browser, url: String) -> Result<(), String> {
+    match tokio::task::spawn_blocking(move || browser(&url)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(format!("failed to open the login URL: {error}")),
+        Err(error) => Err(format!("the browser open did not finish: {error}")),
+    }
+}
 
 /// The update cache at `file`: the latest release and the one dismissed.
 pub fn read_version_cache(file: &Path) -> Option<VersionCache> {

@@ -362,17 +362,22 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 
 /// The connection was lost: a trust write still awaited will not be
 /// answered, so the step is open again (`CancelTrust` is not held back by
-/// `Saving`) and a late answer to that write is dropped.
+/// `Saving`) and a late answer to that write is dropped. The same for the
+/// update to run: its ack (`UpdateQueued`) is lost with the connection, so
+/// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
-    if model.writing.take().is_none() {
-        return;
-    }
-    if let Some(t) = model
-        .trust
-        .as_mut()
-        .filter(|t| t.decision == Some(TrustDecision::Saving))
+    if model.writing.take().is_some()
+        && let Some(t) = model
+            .trust
+            .as_mut()
+            .filter(|t| t.decision == Some(TrustDecision::Saving))
     {
         t.decision = None;
+    }
+    if model.running.take().is_some()
+        && let Some(u) = model.update.as_mut()
+    {
+        u.choice = None;
     }
 }
 

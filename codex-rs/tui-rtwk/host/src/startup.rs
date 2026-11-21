@@ -46,10 +46,12 @@ use codex_tui_core::screens::chat::Ev as ChatEv;
 use codex_tui_core::screens::onboarding::auth::{AuthResult, Providers};
 use codex_tui_core::screens::onboarding::{Ask, Ev, Facts, TrustAsk, TrustCancel, Welcome};
 use codex_tui_rtwk::services::backend::rpc::Ids;
+pub use codex_tui_rtwk::services::startup::Browser;
 use codex_tui_rtwk::services::startup::UpdateAction;
 use codex_tui_rtwk::services::startup::dismiss_version;
 use codex_tui_rtwk::services::startup::ensure_npm_version_ready;
 use codex_tui_rtwk::services::startup::latest_from_release_tag;
+use codex_tui_rtwk::services::startup::open_in_browser;
 use codex_tui_rtwk::services::startup::read_version_cache;
 use codex_tui_rtwk::services::startup::store_latest_version;
 use codex_tui_rtwk::services::startup::version_cache_needs_refresh;
@@ -152,9 +154,6 @@ pub type Fetch = Arc<
         + Send
         + Sync,
 >;
-
-/// Opens a URL in the user's browser; blocking.
-pub type Browser = Arc<dyn Fn(&str) -> std::io::Result<()> + Send + Sync>;
 
 /// The system's browser (`webbrowser::open`, as the oracle opens it).
 pub fn system_browser() -> Browser {
@@ -270,17 +269,12 @@ where
             });
         }
         Ask::OpenBrowser { url } => {
-            // `show_chatgpt_login_in_browser`: only for a local workspace; the
-            // open may start a process and wait, so it runs off the async
-            // workers, and a failure is logged, not answered.
-            if !startup.target.remote_workspace() {
-                let open = startup.browser.clone();
-                let opened = tokio::task::spawn_blocking(move || open(&url)).await;
-                match opened {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!("failed to open the login URL: {error}"),
-                    Err(error) => tracing::warn!("the browser open did not finish: {error}"),
-                }
+            // `show_chatgpt_login_in_browser`: only for a local workspace; a
+            // failure is logged, not answered.
+            if !startup.target.remote_workspace()
+                && let Err(error) = open_in_browser(startup.browser.clone(), url).await
+            {
+                tracing::warn!("{error}");
             }
             return None;
         }

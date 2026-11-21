@@ -98,6 +98,7 @@ fn r1_spawn_paths_are_the_shells() {
         &[
             "thread::spawn",
             "tokio::spawn",
+            "spawn_blocking(",
             "spawn_tokio",
             ".subscribe(",
             "subscribe_with",
@@ -148,7 +149,15 @@ fn r1_the_host_neither_spawns_nor_allows() {
     for path in files {
         let text = std::fs::read_to_string(&path).expect("read");
         for (index, line) in code_lines(&text) {
-            for pattern in ["spawn(", "#![allow", "#[allow", "block_in_place"] {
+            // `spawn_blocking(` does not contain `spawn(`: a blocking open
+            // on the host was missed (startup-fix-2); services do the IO.
+            for pattern in [
+                "spawn(",
+                "spawn_blocking(",
+                "#![allow",
+                "#[allow",
+                "block_in_place",
+            ] {
                 assert!(
                     !line.contains(pattern),
                     "R1: {}:{}: {line}",

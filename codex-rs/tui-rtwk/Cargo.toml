@@ -140,6 +140,10 @@ name = "rtwk_g46"
 path = "tests/rtwk_g46.rs"
 
 [[test]]
+name = "rtwk_g49_g51"
+path = "tests/rtwk_g49_g51.rs"
+
+[[test]]
 name = "pin"
 path = "tests/rules/pin.rs"
 

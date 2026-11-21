@@ -81,16 +81,23 @@ Own tests:
 
 - Provider facts are always false (task `onboarding`).
 - The login-time config reload (`show_login_screen`) and the restart of the embedded server after a provider change are not ported; only the trust reload is.
-- A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update, as the oracle's debug build.
+- A source build (`CARGO_PKG_VERSION` 0.0.0) never offers or refreshes an update: `SOURCE_BUILD` (`host/src/startup.rs`) is that version, and the oracle's own source build has the same 0.0.0, so the update prompt does not show in either (the oracle's `updates.rs` is also compiled out of debug builds). Not a defect; the prompt is reached through the debug entry `update_prompt`.
 - `agents` and `resume` start pages open before the facts are read (see Launch order): with a step due, their page shows for a frame before the prompt.
 - Flex: a loose `Flexible` lays out as in Flutter (G51 below).
 
 ## rtwk gaps
 
-- G51 (`rtwk-gaps.md`): a column's flex children share the space unlike the oracle's `FlexRenderable`, so a long path pushes the disclosure and choices off a short screen; the three long-path snapshots are the pending test.
+- G51 (`rtwk-gaps.md`): a column's flex children share the space unlike the oracle's `FlexRenderable`, so a long path pushes the disclosure and choices off a short screen; the three long-path snapshots are the pending test (they were green before F2; see Checks). G52: the path cut to one line by segments (`trust.rs` `path()` still uses the carried `center_truncate_path` and `measure::grapheme_rows`, G37's closed exception).
 
-## Checks (2026-11-21)
+## Checks (2026-11-21, startup-fix-2 after fix round 1)
 
-- `clippy --workspace --all-targets -D warnings`: clean.
-- `nextest --workspace`: 825 of 830 passed. The 5 failures are timing flakes in `screens::status_data` and `shell_agents`. They pass on rerun and still fail with this slice's launch edits disabled (StartupGate unwrapped, the Connected ask removed: 6 runs each).
-- Oracle shard: 20 green, 1 pending.
+Run in the worktree of startup-fix-2 (branch from `6b1fb3955`):
+
+- `fmt --check`: clean. `clippy --workspace --all-targets -D warnings`: clean (rc 0; the warnings printed are the pin's and the backend's, not the workspace's).
+- `nextest --workspace`: 1018 run, 1011 passed, 7 failed, all timing flakes of the known kind, none touching this task: `screens::status_data` (3 to 4 of them, a different one each run, also with `--test-threads 1`), `shell_agents` (3), `navigation::import_is_a_step_of_the_startup_page` (task flaky-apply-wait). The core crate (452 tests, delta 5 included) and the rules (R1 with `spawn_blocking(`) pass; `rtwk_g49_g51` 11 of 11 (probes).
+- `shards.py --check`: 55 shards, 0 files stale.
+- Red then green: R1 red at `ce48b6c8a` (host/src/startup.rs:278), green at `d35c68b24`; delta 5 red at `ffbc70d91` (2 of the 3 tests), green at `9ef1bfa9b`.
+
+- Delta 5 is extended: `disconnected` also resets `running` and reopens the update prompt (core test `a_connection_lost_while_the_update_is_stored_opens_the_prompt_again`, `a_late_ack_of_the_update_of_a_lost_connection_is_dropped`, `a_lost_connection_leaves_a_stored_update_alone`; red first).
+- The browser open runs from `src/services/startup.rs` `open_in_browser`; the host calls it and spawns nothing; rule R1 now also greps `spawn_blocking(` in the host.
+- G51: the three long-path snapshots (`long_checkout_40x13`, `long_repository_root_40x17`, `only_repository_root_fits_40x16`) were GREEN before startup-deltas F2, when the trust step computed the reserved rows from `measure::rows` (the oracle does the same arithmetic, `trust_directory.rs:190-200`); F2 removed it as a workaround and they are pending G51. The row now carries the three routes (Column alone, a height-keyed variant picker, a Grid) and probes; the cut-to-one-line path is G52.
