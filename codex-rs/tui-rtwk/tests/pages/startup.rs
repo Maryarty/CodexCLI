@@ -35,13 +35,21 @@ mod gate {
         );
     }
 
-    /// The host's answer to the launch's ask (`Ask::Launch`, request 2:
-    /// the first after the facts').
+    /// The host's answers to the asks that follow the facts: no gateway
+    /// device code (`Ask::GatewayDevice`, request 2), then the launch's
+    /// (`Ask::Launch`, request 3).
     fn launched(h: &Harness, prompts: Vec<startup::Prompt>) {
         inject(
             h,
-            Ev::Launched {
+            Ev::GatewayDevice {
                 request: 2,
+                code: None,
+            },
+        );
+        inject(
+            h,
+            Ev::Launched {
+                request: 3,
                 prompts,
             },
         );

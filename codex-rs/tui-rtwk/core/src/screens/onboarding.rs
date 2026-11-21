@@ -465,6 +465,9 @@ pub enum Ev {
         request: Request,
         code: Option<auth::DeviceCode>,
     },
+    /// The gateway's code on screen, the state the oracle's snapshot test
+    /// starts from (fixtures).
+    GatewayDeviceState(auth::DeviceCode),
     /// `account/gatewayOAuth/changed` for an attempt (`login_id`) that
     /// ended.
     GatewayDeviceChanged {
@@ -615,6 +618,7 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::GatewayLogins { request, logins } => gateway::logins(model, request, logins, fx),
         Ev::GatewayOAuth { request, result } => gateway::oauth(model, request, result),
         Ev::GatewayDevice { request, code } => device::answered(model, request, code, fx),
+        Ev::GatewayDeviceState(code) => model.device = device::Phase::Waiting(code),
         Ev::GatewayDeviceChanged { login_id, change } => {
             device::changed(model, login_id, change, fx);
         }
@@ -946,6 +950,11 @@ enum SeedEv {
     },
     SignIn(Option<SeedSignIn>),
     SignInState(SeedSignInState),
+    /// The gateway's device code shown.
+    GatewayDeviceState {
+        url: String,
+        code: String,
+    },
     Trust(SeedTrust),
 }
 
@@ -1072,6 +1081,11 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 provider_id,
                 message,
             },
+        }),
+        SeedEv::GatewayDeviceState { url, code } => Ev::GatewayDeviceState(auth::DeviceCode {
+            login_id: "login-1".into(),
+            url,
+            code,
         }),
         SeedEv::Trust(t) => Ev::Trust(TrustAsk {
             target: t.target.unwrap_or_else(|| t.cwd.clone()),
@@ -1693,6 +1707,21 @@ mod tests {
                 ..auth::Offer::default()
             }))
         );
+    }
+
+    #[test]
+    fn a_seed_shows_the_gateways_device_code() {
+        let Ok(seeded) = seed(serde_json::json!({"gateway_device_state": {
+            "url": "https://login.example.com/device",
+            "code": "ABCD-EFGH",
+        }})) else {
+            panic!("the seed was refused");
+        };
+        let mut m = Model::default();
+        ev(&mut m, seeded);
+        let code = m.device_code().expect("a code");
+        assert_eq!(code.code, "ABCD-EFGH");
+        assert!(m.due(), "the page opens for it");
     }
 
     #[test]

@@ -472,15 +472,7 @@ impl State for SignInState {
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
         let tokens = Tokens::of(cx);
-        let look = Look {
-            // The oracle's `.dim()`: the attribute on the terminal's colour
-            // (the theme's `dim` is a grey of its own).
-            dim: Style::new().attrs(Attrs::DIM),
-            key: tokens.bold(),
-            cyan: tokens.info(),
-            green: tokens.success(),
-            red: tokens.error(),
-        };
+        let look = Look::of(&tokens);
         let error = w.sign_in.error.as_ref().map(|error| match error {
             auth::Error::ApiKeyDisabled => strings.api_key_disabled.to_owned(),
             auth::Error::EmptyApiKey => strings.empty_api_key.to_owned(),
@@ -630,6 +622,21 @@ pub(crate) struct Look {
     pub(crate) cyan: Style,
     pub(crate) green: Style,
     pub(crate) red: Style,
+}
+
+impl Look {
+    /// The step's styles from the theme.
+    pub(crate) fn of(tokens: &Tokens) -> Look {
+        Look {
+            // The oracle's `.dim()`: the attribute on the terminal's colour
+            // (the theme's `dim` is a grey of its own).
+            dim: Style::new().attrs(Attrs::DIM),
+            key: tokens.bold(),
+            cyan: tokens.info(),
+            green: tokens.success(),
+            red: tokens.error(),
+        }
+    }
 }
 
 pub(crate) type Line = Vec<Span>;
@@ -897,13 +904,26 @@ fn device_code_lines(
     } else {
         strings.preparing_device_code
     };
+    device_lines(strings, look, banner, strings.device_code_steps, code)
+}
+
+/// `render_device_code_prompt`: the heading, the link and the code under
+/// their steps (or the request under way), the warning and how to cancel;
+/// the ChatGPT login and the gateway's device code draw the same.
+pub(crate) fn device_lines(
+    strings: &'static Strings,
+    look: &Look,
+    heading: &'static str,
+    steps: [&'static str; 2],
+    code: Option<&auth::DeviceCode>,
+) -> Vec<Line> {
     let mut lines = vec![
-        vec![Span::new(strings.indent), Span::new(banner)],
+        vec![Span::new(strings.indent), Span::new(heading)],
         Vec::new(),
     ];
     match code {
         Some(code) => {
-            let [open, enter] = strings.device_code_steps;
+            let [open, enter] = steps;
             lines.push(vec![Span::new(open)]);
             lines.push(Vec::new());
             lines.push(vec![

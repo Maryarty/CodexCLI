@@ -541,13 +541,14 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
     };
     answer(&mut h, epoch, request, Ok(Answer::Written));
     // The oracle's `{Bedrock,Gcp}Configured` completes the step: the screen
-    // ends and the launch is asked (its configured line is not kept).
-    h.wait_until("the launch is asked", |h| {
+    // ends and the launch goes on, the gateway device code first (its
+    // configured line is not kept).
+    h.wait_until("the device code is asked", |h| {
         h.fake.commands().iter().any(|command| {
             matches!(
                 command,
                 Command::Startup {
-                    ask: Ask::Launch { .. },
+                    ask: Ask::GatewayDevice { .. },
                     ..
                 }
             )
@@ -1573,7 +1574,7 @@ mod gateway_oauth {
         let all = asks(&h);
         assert!(all.contains(&Ask::ReloadConfig), "{all:?}");
         assert!(
-            all.iter().any(|ask| matches!(ask, Ask::Launch { .. })),
+            all.iter().any(|ask| matches!(ask, Ask::GatewayDevice { .. })),
             "{all:?}"
         );
         assert_eq!(cancelled(&h), 0);
@@ -1585,6 +1586,194 @@ mod gateway_oauth {
     fn quitting_cancels_the_sign_in() {
         let (mut h, _, _) = signing_in();
         h.press("ctrl+c");
+        assert_eq!(cancelled(&h), 1);
+    }
+}
+
+/// The gateway's device code at the end of the launch
+/// (`device_login::start_if_needed`, `run_gateway_device_login`): the screen
+/// the oracle draws (`device_login_tests.rs`, 80x16), the asks it makes, and
+/// how it ends: the attempt's end, Esc / Ctrl+C / `q`, a tap on the cancel
+/// line (ADR-011).
+mod gateway_device {
+    use super::*;
+    use codex_app_server_protocol::{
+        GatewayOAuthChangedNotification, GatewayOAuthStatus, ServerNotification,
+    };
+    use codex_tui_core::app::BackendEv;
+    use codex_tui_core::screens::onboarding::auth::DeviceCode;
+
+    fn asks(h: &Harness) -> Vec<Ask> {
+        h.fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Startup { ask, .. } => Some(ask),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn cancelled(h: &Harness) -> usize {
+        asks(h)
+            .iter()
+            .filter(|ask| matches!(ask, Ask::CancelGatewayOAuth))
+            .count()
+    }
+
+    fn inject(h: &mut Harness, epoch: ConnEpoch, event: AppEv) {
+        h.fake.inject(epoch, event);
+        h.settle();
+    }
+
+    fn changed(status: GatewayOAuthStatus, error: Option<&str>) -> AppEv {
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::GatewayOAuthChanged(GatewayOAuthChangedNotification {
+                login_id: Some("attempt".into()),
+                auth_url: None,
+                provider_id: "office".into(),
+                status,
+                error: error.map(str::to_owned),
+            }),
+        )))
+    }
+
+    /// The app at the oracle's 80x16 with the launch's facts read (no step
+    /// due): the host is asked for the gateway's device code (request 2).
+    fn asked() -> (Harness, ConnEpoch) {
+        let mut h = crate::common::start();
+        h.settle();
+        let Some(epoch) = h.fake.epoch() else {
+            panic!("the app attached no backend");
+        };
+        h.t.resize(80, 16);
+        inject(
+            &mut h,
+            epoch,
+            ev(Ev::Facts {
+                request: 1,
+                facts: Facts::default(),
+            }),
+        );
+        (h, epoch)
+    }
+
+    /// The same with the code on screen.
+    fn showing() -> (Harness, ConnEpoch) {
+        let (mut h, epoch) = asked();
+        inject(
+            &mut h,
+            epoch,
+            ev(Ev::GatewayDevice {
+                request: 2,
+                code: Some(DeviceCode {
+                    login_id: "attempt".into(),
+                    url: "https://login.example.com/device".into(),
+                    code: "ABCD-EFGH".into(),
+                }),
+            }),
+        );
+        h.wait_for("the device code", |s| s.contains("ABCD-EFGH"));
+        (h, epoch)
+    }
+
+    /// The oracle's snapshot
+    /// (`device_prompt_shows_where_to_enter_the_code_and_how_to_cancel`): the
+    /// warning wraps without the indent the other rows keep.
+    const SCREEN: &str = "  Sign in to your gateway
+
+  1. Open this link in a browser
+
+  https://login.example.com/device
+
+  2. Enter this one-time code when prompted
+
+  ABCD-EFGH
+
+  Continue only if you started this login in Codex. If a website or another
+person gave you this code, cancel.
+
+  Press esc to cancel";
+
+    // `lib.rs`: the code is asked once the facts are read, before the
+    // launch's prompts.
+    #[test]
+    fn the_device_code_is_asked_once_the_facts_are_read() {
+        let (h, _) = asked();
+        assert!(
+            asks(&h).contains(&Ask::GatewayDevice { request: 2 }),
+            "{:?}",
+            asks(&h)
+        );
+    }
+
+    #[test]
+    fn the_screen_is_the_oracles() {
+        let (h, _) = showing();
+        assert_visible(&h, SCREEN);
+    }
+
+    // `handle_event_during_device_login`: the attempt that succeeded goes on
+    // to the launch's prompts, the page leaves.
+    #[test]
+    fn the_attempt_succeeding_goes_on_to_the_launch() {
+        let (mut h, epoch) = showing();
+        inject(&mut h, epoch, changed(GatewayOAuthStatus::Succeeded, None));
+        assert!(
+            asks(&h).contains(&Ask::Launch { request: 3 }),
+            "{:?}",
+            asks(&h)
+        );
+        assert!(!h.t.screen().contains("ABCD-EFGH"), "\n{}", h.t.screen());
+        assert_eq!(cancelled(&h), 0);
+    }
+
+    #[test]
+    fn the_attempt_failing_ends_the_launch_with_the_servers_message() {
+        let (mut h, epoch) = showing();
+        inject(
+            &mut h,
+            epoch,
+            changed(GatewayOAuthStatus::Failed, Some("Denied")),
+        );
+        let all = asks(&h);
+        assert!(
+            all.contains(&Ask::FailLaunch {
+                message: "Denied".into()
+            }),
+            "{all:?}"
+        );
+    }
+
+    // Starting is not ending: the code stays.
+    #[test]
+    fn a_start_changes_nothing() {
+        let (mut h, epoch) = showing();
+        inject(&mut h, epoch, changed(GatewayOAuthStatus::Started, None));
+        assert_visible(&h, SCREEN);
+    }
+
+    // `keys::CANCEL` and `keys::QUIT` quit this screen
+    // (`run_gateway_device_login` cancels the attempt on the way out).
+    #[test]
+    fn esc_and_the_quit_keys_cancel_the_attempt() {
+        for key in ["esc", "ctrl+c", "ctrl+d", "q"] {
+            let (mut h, _) = showing();
+            h.press(key);
+            assert_eq!(cancelled(&h), 1, "{key}");
+        }
+    }
+
+    // ADR-011: the cancel line is a tap target, as Esc is.
+    #[test]
+    fn a_tap_on_the_cancel_line_cancels_the_attempt() {
+        let (mut h, _) = showing();
+        // The code is not a target.
+        h.t.click(4, 8);
+        h.settle();
+        assert_eq!(cancelled(&h), 0);
+        h.t.click(4, 13);
+        h.settle();
         assert_eq!(cancelled(&h), 1);
     }
 }

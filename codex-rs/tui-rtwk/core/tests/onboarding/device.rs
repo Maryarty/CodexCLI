@@ -204,6 +204,14 @@ fn quitting_cancels_the_attempt() {
     assert_eq!(asks, [Ask::CancelGatewayOAuth]);
     assert!(onboarding(&app).ends());
     assert_eq!(onboarding(&app).device_code(), None, "the page leaves");
+    // A second quit (a held key) cancels nothing more.
+    let asks = asks_of(
+        &mut app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Onboarding(
+            StartupIntent::Exit,
+        ))),
+    );
+    assert_eq!(asks, []);
 }
 
 // The answer of a ask no longer awaited is dropped; a connection lost asks

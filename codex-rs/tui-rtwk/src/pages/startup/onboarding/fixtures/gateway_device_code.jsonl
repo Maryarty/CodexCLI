@@ -1,0 +1,2 @@
+# The gateway's device code at launch (device_prompt_shows_where_to_enter_the_code_and_how_to_cancel).
+{"step": "screen", "dir": "onboarding", "ev": {"gateway_device_state": {"url": "https://login.example.com/device", "code": "ABCD-EFGH"}}}

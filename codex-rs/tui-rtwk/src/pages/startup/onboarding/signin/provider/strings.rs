@@ -126,6 +126,10 @@ pub struct Strings {
     pub gateway_oauth_browser: &'static str,
     pub gateway_oauth_quit: &'static str,
     pub gateway_oauth_retry: &'static str,
+    /// The gateway's device code (`render_gateway_device_prompt`): the
+    /// heading and the two steps.
+    pub gateway_device_heading: &'static str,
+    pub gateway_device_steps: [&'static str; 2],
 }
 
 pub static EN: Strings = Strings {
@@ -239,6 +243,11 @@ pub static EN: Strings = Strings {
     gateway_oauth_browser: "Finish signing in to your gateway in the browser.",
     gateway_oauth_quit: "Press Ctrl+C to quit.",
     gateway_oauth_retry: "Press Enter to retry or Ctrl+C to quit.",
+    gateway_device_heading: "Sign in to your gateway",
+    gateway_device_steps: [
+        "  1. Open this link in a browser",
+        "  2. Enter this one-time code when prompted",
+    ],
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

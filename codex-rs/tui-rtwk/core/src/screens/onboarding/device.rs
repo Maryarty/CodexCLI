@@ -39,8 +39,9 @@ pub enum Phase {
     },
     /// The code is on screen; the attempt's end is awaited.
     Waiting(DeviceCode),
-    /// The attempt failed: the launch ends with the message (asked of the
-    /// host), the code stays until it does.
+    /// The attempt failed (the launch ends with the message, asked of the
+    /// host) or was cancelled on the way out: nothing more is asked, the code
+    /// stays until the app ends.
     Failed(DeviceCode),
     /// Nothing (more) to sign in to: the launch goes on.
     Done,
@@ -136,8 +137,9 @@ fn settle(model: &mut Model, change: Change, fx: &mut AppFx) {
 
 /// Quitting with the code on screen cancels the attempt
 /// (`run_gateway_device_login`: `device_login::cancel`).
-pub(super) fn exit(model: &Model, fx: &mut AppFx) {
-    if matches!(model.device, Phase::Waiting(_)) {
+pub(super) fn exit(model: &mut Model, fx: &mut AppFx) {
+    if let Phase::Waiting(code) = model.device.clone() {
+        model.device = Phase::Failed(code);
         ask(fx, Ask::CancelGatewayOAuth);
     }
 }

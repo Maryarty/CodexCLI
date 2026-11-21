@@ -32,6 +32,7 @@ use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
 use crate::app::theme::Tokens;
 use crate::app::view::Hs;
 
+mod device;
 mod signin;
 pub mod strings;
 mod trust;
@@ -126,6 +127,10 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         entry!("success_message", "sign-in: signed in with ChatGPT"),
         entry!("device_code", "sign-in: the device code shown"),
         entry!(
+            "gateway_device_code",
+            "the gateway's device code at launch"
+        ),
+        entry!(
             "device_code_requesting",
             "sign-in: the device code requested"
         ),
@@ -141,6 +146,9 @@ pub enum Step {
     Trust,
     Migration,
     Import,
+    /// The gateway's device code (`run_gateway_device_login`), shown once
+    /// the steps above are over until its attempt ends.
+    Device,
     /// The launch's startup prompts (S05), asked one after the other once
     /// the steps above are over: the page shows the open one.
     Prompts,
@@ -156,7 +164,8 @@ impl Step {
             Step::Trust => 3,
             Step::Migration => 4,
             Step::Import => 5,
-            Step::Prompts => 6,
+            Step::Device => 6,
+            Step::Prompts => 7,
         }
     }
 
@@ -167,7 +176,7 @@ impl Step {
             Step::SignIn => Some(core::Stage::SignIn),
             Step::Provider => Some(core::Stage::Provider),
             Step::Trust => Some(core::Stage::Trust),
-            Step::Migration | Step::Import | Step::Prompts => None,
+            Step::Migration | Step::Import | Step::Device | Step::Prompts => None,
         }
     }
 
@@ -299,11 +308,12 @@ impl State for StartupPageState {
                     import.phase == ImportPhase::Done && import.generation() > self.import_from;
                 (!done).then_some(Step::Import)
             }
-            Step::Prompts => self.prompts(&screens, cx),
+            Step::Device | Step::Prompts => self.after_steps(&screens, cx),
             _ => match current(at, &screens.onboarding) {
                 Some(step) => Some(step),
-                // Past the steps: the launch's startup prompts.
-                None => self.prompts(&screens, cx),
+                // Past the steps: the gateway's device code, then the
+                // launch's startup prompts.
+                None => self.after_steps(&screens, cx),
             },
         };
         self.at = next;
@@ -381,6 +391,13 @@ impl State for StartupPageState {
                 }
                 .into(),
             },
+            // The device code is a screen of its own, no welcome header.
+            Some(Step::Device) => match model.device_code() {
+                Some(code) => {
+                    return device::GatewayDevice { code: code.clone() }.into();
+                }
+                None => AnyWidget::default(),
+            },
             Some(Step::Import) => crate::pages::startup::import::Screen.into(),
             Some(Step::Prompts) => crate::pages::startup::prompts::Panel { embedded: true }.into(),
             Some(Step::Migration) => Screen.into(),
@@ -434,6 +451,15 @@ impl State for StartupPageState {
 }
 
 impl StartupPageState {
+    /// Past the steps (`run_ratatui_app`): the gateway's device code while
+    /// it is shown, then the launch's startup prompts.
+    fn after_steps(&mut self, screens: &ScreenStates, cx: &mut Cx<'_, Self>) -> Option<Step> {
+        if screens.onboarding.device_code().is_some() {
+            return Some(Step::Device);
+        }
+        self.prompts(screens, cx)
+    }
+
     /// The launch's startup prompts step (oracle `run_ratatui_app`: the
     /// hooks review, then the model migration as the app starts): on while a
     /// prompt is open or due, or while the host reads which are due; it asks
