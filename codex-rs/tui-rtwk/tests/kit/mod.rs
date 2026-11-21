@@ -347,6 +347,35 @@ impl Screen {
         self.grid().assert_style(x, y, spec);
     }
 
+    /// The oracle asserts an attribute (`dim`, `bold`, `italic`, `!dim`, ...)
+    /// of the cell at `(x, y)` as its buffer holds it. Read from the painted
+    /// surface, not the terminal: the presenter writes a blank without the
+    /// attributes that do not show on it (DIM, BOLD, ITALIC), where the
+    /// oracle's `Buffer` keeps them (G46).
+    pub fn assert_painted(&self, x: usize, y: usize, spec: &str) {
+        use rtwk::style::Attrs;
+        let frame = self.h.t.frame_loop();
+        let attrs = frame.styles().attrs_of(frame.surface().style(x, y));
+        for token in spec.split_whitespace() {
+            let (negate, name) = match token.strip_prefix('!') {
+                Some(name) => (true, name),
+                None => (false, token),
+            };
+            let attr = match name {
+                "dim" => Attrs::DIM,
+                "bold" => Attrs::BOLD,
+                "italic" => Attrs::ITALIC,
+                other => panic!("assert_painted reads dim, bold, italic; not `{other}`"),
+            };
+            assert_eq!(
+                attrs.intersects(attr),
+                !negate,
+                "cell ({x}, {y}) against `{token}`:\n{}",
+                self.h.t.screen()
+            );
+        }
+    }
+
     /// The oracle asserts the style of every cell of the first `text` on the
     /// screen.
     pub fn assert_text_style(&self, text: &str, spec: &str) {

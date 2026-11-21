@@ -17,6 +17,7 @@ use serde::Deserialize;
 
 use crate::app::AppFx;
 use crate::app::Command as AppCommand;
+use crate::screens::startup;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
@@ -69,6 +70,13 @@ pub struct Model {
     update_queued: bool,
     /// The last request number minted.
     minted: Request,
+    /// The launch's startup prompts asked for (`Ask::Launch`), awaited.
+    launching: Option<Request>,
+    /// The launch's startup prompts are known (`Ev::Launched`).
+    launched: bool,
+    /// The startup prompts due at launch not asked yet, in order (S05:
+    /// the hooks review, the model migration).
+    pub prompts: Vec<startup::Prompt>,
 }
 
 /// The number of an ask of this page to the host (`Ask`): its answer carries
@@ -110,6 +118,25 @@ pub enum Ask {
     /// workspace (`consent.directory_trust_persisted && !uses_remote_workspace`).
     /// Its answer, if any, is an event of the app.
     ReloadConfig,
+    /// The startup prompts due now that the steps are over (S05; the hooks
+    /// of the trusted folder, the model migration), answered with
+    /// `Ev::Launched`. The host reads them after a reload asked before it.
+    Launch { request: Request },
+    /// Trust the reviewed hooks (`write_hook_trusts`), answered with the
+    /// startup screen's `Ev::HooksTrusted` under `request`.
+    TrustHooks {
+        request: u64,
+        updates: Vec<startup::HookTrust>,
+    },
+    /// Save the answer to the model migration (`record_model_migration_seen`;
+    /// accepted, also the model and its effort: `PersistModelSelection`);
+    /// not answered, a failure is only logged.
+    SaveMigration {
+        from: String,
+        to: String,
+        accepted: bool,
+        effort: Option<String>,
+    },
     /// Refresh the update cache over the network (`check_for_update`), asked
     /// once after the facts that found it stale; not answered, a failure is
     /// only logged.
@@ -242,16 +269,46 @@ impl Model {
         }
     }
 
-    /// Whether the app opens on the startup page: a step is not finished.
+    /// Whether the app opens on the startup page: a step is not finished,
+    /// or a startup prompt is due.
     pub fn due(&self) -> bool {
-        self.steps().into_iter().any(|step| !self.done(step))
+        self.steps().into_iter().any(|step| !self.done(step)) || !self.prompts.is_empty()
+    }
+
+    /// Whether the launch ends with the steps: a quit, an update to run, the
+    /// trust prompt cancelled (the oracle exits or opens the overview, and
+    /// asks no startup prompt).
+    pub fn ends(&self) -> bool {
+        self.exit
+            || self
+                .update
+                .as_ref()
+                .is_some_and(|u| u.choice == Some(UpdateChoice::UpdateNow))
+            || self
+                .trust
+                .as_ref()
+                .is_some_and(|t| t.decision == Some(TrustDecision::Cancelled))
+    }
+
+    /// Whether the launch's startup prompts are known (`Ev::Launched`).
+    pub fn launched(&self) -> bool {
+        self.launched
+    }
+
+    /// Whether the steps are over and the launch's startup prompts are
+    /// asked of the host but not known yet: the page waits for them.
+    pub fn awaits_launch(&self) -> bool {
+        self.read
+            && !self.launched
+            && !self.ends()
+            && self.steps().into_iter().all(|s| self.done(s))
     }
 
     /// Whether the launch is decided: the facts were read, or a step is due
     /// without them (a fixture). Until then the app does not know whether
     /// the chat or the startup page comes first.
     pub fn settled(&self) -> bool {
-        self.read || self.due()
+        self.due() || (self.read && (self.launched || self.ends()))
     }
 
     /// The write the trust step waits for: the folder to save as trusted.
@@ -308,6 +365,11 @@ pub enum Ev {
         request: Request,
         message: String,
     },
+    /// The answer to `Ask::Launch { request }`: the startup prompts due.
+    Launched {
+        request: Request,
+        prompts: Vec<startup::Prompt>,
+    },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -324,6 +386,9 @@ pub enum Intent {
     SignIn(auth::Intent),
     /// Quit from a step.
     Exit,
+    /// The first startup prompt due was put on screen (the page asked it
+    /// of the startup screen): it leaves the queue.
+    PromptAsked,
 }
 
 /// A server notification the sign-in reads (`handle_app_server_notification`):
@@ -353,6 +418,8 @@ pub fn observe(model: &mut Model, notification: &ServerNotification, fx: &mut Ap
 /// ask replaces one still awaited.
 pub fn connected(model: &mut Model, fx: &mut AppFx) {
     if model.read {
+        // A launch ask lost with the connection is asked again.
+        follow_launch(model, fx);
         return;
     }
     let request = mint(model);
@@ -366,6 +433,7 @@ pub fn connected(model: &mut Model, fx: &mut AppFx) {
 /// update to run: its ack (`UpdateQueued`) is lost with the connection, so
 /// the prompt is open again instead of waiting for it for good.
 pub fn disconnected(model: &mut Model) {
+    model.launching = None;
     if model.writing.take().is_some()
         && let Some(t) = model
             .trust
@@ -391,7 +459,20 @@ fn ask(fx: &mut AppFx, ask: Ask) {
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
+    apply_ev(model, ev, fx);
+    follow_launch(model, fx);
+}
+
+fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
+        Ev::Launched { request, prompts } => {
+            if model.launching != Some(request) {
+                return;
+            }
+            model.launching = None;
+            model.launched = true;
+            model.prompts = prompts;
+        }
         Ev::Facts { request, facts } => {
             if model.asked != Some(request) {
                 return;
@@ -477,9 +558,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
                 .as_mut()
                 .filter(|t| t.decision == Some(TrustDecision::Saving))
             {
+                // The folder is trusted: the project's config applies (the
+                // reload is asked with the launch's prompts).
                 t.decision = Some(TrustDecision::Trusted);
-                // The folder is trusted: the project's config applies.
-                ask(fx, Ask::ReloadConfig);
             }
         }
         // onboarding_screen.rs `persist_selected_trust`: the step stays, with
@@ -502,7 +583,17 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
+    apply_intent_inner(model, intent, fx);
+    follow_launch(model, fx);
+}
+
+fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
+        Intent::PromptAsked => {
+            if !model.prompts.is_empty() {
+                model.prompts.remove(0);
+            }
+        }
         // The first choice ends the prompt: a key still buffered for it (an
         // Enter after Esc) chooses nothing (onboarding_screen.rs:1064).
         Intent::ChooseUpdate(choice) => {
@@ -582,6 +673,32 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.exit = true;
         }
     }
+}
+
+/// The steps are over (the facts read, every step done, the launch going
+/// on): the config is reloaded where the oracle reloads it (after a sign-in
+/// screen, `lib.rs` "reloaded_config"; after the trust was saved,
+/// `consent.directory_trust_persisted`), then the startup prompts due are
+/// asked for, once.
+fn follow_launch(model: &mut Model, fx: &mut AppFx) {
+    if !model.read
+        || model.launched
+        || model.launching.is_some()
+        || model.ends()
+        || model.steps().into_iter().any(|s| !model.done(s))
+    {
+        return;
+    }
+    let trusted = model
+        .trust
+        .as_ref()
+        .is_some_and(|t| t.decision == Some(TrustDecision::Trusted));
+    if trusted || model.sign_in.is_some() {
+        ask(fx, Ask::ReloadConfig);
+    }
+    let request = mint(model);
+    model.launching = Some(request);
+    ask(fx, Ask::Launch { request });
 }
 
 /// The provider step runs while the sign-in has a provider chosen: it is
@@ -1142,14 +1259,122 @@ mod tests {
     // reloads the config: only a trust that was written and confirmed asks.
     #[test]
     fn a_confirmed_trust_write_asks_for_the_config_reload() {
-        let mut m = model(vec![trust(false)]);
+        let (mut m, _) = read(Facts {
+            trust: Some(TrustAsk {
+                cwd: "/workspace/project".into(),
+                target: "/workspace/project".into(),
+                ..TrustAsk::default()
+            }),
+            ..Facts::default()
+        });
         intent(&mut m, Intent::Trust);
+        // The reload comes first: the launch's prompts are read from the
+        // reloaded config.
         assert_eq!(
-            answered(&mut m, Ev::TrustSaved { request: 1 }),
-            [Ask::ReloadConfig]
+            answered(&mut m, Ev::TrustSaved { request: 2 }),
+            [Ask::ReloadConfig, Ask::Launch { request: 3 }]
         );
         // A repeated or stale answer asks nothing more.
-        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 1 }), []);
+        assert_eq!(answered(&mut m, Ev::TrustSaved { request: 2 }), []);
+    }
+
+    /// A model that read `facts` (the ask of the first connection), and
+    /// what the answer asked.
+    fn read(facts: Facts) -> (Model, Vec<Ask>) {
+        let mut m = Model::default();
+        connected(&mut m, &mut AppFx::default());
+        let asked = answered(&mut m, Ev::Facts { request: 1, facts });
+        (m, asked)
+    }
+
+    fn hooks_due() -> startup::Prompt {
+        startup::Prompt::Hooks(startup::HooksPrompt {
+            count: 1,
+            trust: startup::Trust::Idle,
+            updates: Vec::new(),
+        })
+    }
+
+    // run_ratatui_app: with no step due the app reads the launch's prompts
+    // (the hooks review, the model migration) before the first frame; the
+    // page waits for them and is not settled until they are known.
+    #[test]
+    fn a_launch_with_no_step_due_asks_for_its_startup_prompts() {
+        let (mut m, asked) = read(Facts::default());
+        assert_eq!(asked, [Ask::Launch { request: 2 }]);
+        assert!(m.awaits_launch() && !m.settled() && !m.due());
+        ev(
+            &mut m,
+            Ev::Launched {
+                request: 2,
+                prompts: Vec::new(),
+            },
+        );
+        assert!(!m.awaits_launch() && m.settled() && !m.due());
+    }
+
+    #[test]
+    fn launched_prompts_keep_the_page_due_until_asked() {
+        let (mut m, _) = read(Facts::default());
+        ev(
+            &mut m,
+            Ev::Launched {
+                request: 2,
+                prompts: vec![hooks_due()],
+            },
+        );
+        assert!(m.due());
+        assert_eq!(intent(&mut m, Intent::PromptAsked), []);
+        assert!(m.prompts.is_empty() && !m.due() && m.settled());
+    }
+
+    // A launch ask lost with the connection is asked again; the answer to
+    // the lost one is dropped.
+    #[test]
+    fn a_launch_ask_lost_with_the_connection_is_asked_again() {
+        let (mut m, _) = read(Facts::default());
+        disconnected(&mut m);
+        let mut fx = AppFx::default();
+        connected(&mut m, &mut fx);
+        assert_eq!(asks(fx), [Ask::Launch { request: 3 }]);
+        ev(
+            &mut m,
+            Ev::Launched {
+                request: 2,
+                prompts: vec![hooks_due()],
+            },
+        );
+        assert!(!m.launched() && m.prompts.is_empty());
+        ev(
+            &mut m,
+            Ev::Launched {
+                request: 3,
+                prompts: Vec::new(),
+            },
+        );
+        assert!(m.launched());
+    }
+
+    // The launch's prompts are read once the steps are over, after the
+    // sign-in's reload; a launch that ends with its steps reads none.
+    #[test]
+    fn the_launch_waits_for_the_steps_and_skips_a_launch_that_ends() {
+        let (m, asked) = read(Facts {
+            sign_in: Some(auth::Offer::default()),
+            ..Facts::default()
+        });
+        assert_eq!(asked, []);
+        assert!(!m.awaits_launch());
+        let (mut m2, _) = read(Facts {
+            trust: Some(TrustAsk {
+                cwd: "/w".into(),
+                target: "/w".into(),
+                ..TrustAsk::default()
+            }),
+            ..Facts::default()
+        });
+        assert_eq!(intent(&mut m2, Intent::CancelTrust), []);
+        assert!(m2.settled() && !m2.awaits_launch());
     }
 
     #[test]
@@ -1182,12 +1407,19 @@ mod tests {
                 ..Facts::default()
             },
         };
-        assert_eq!(answered(&mut m, facts(true)), [Ask::RefreshUpdateCache]);
+        // (No step is due: the launch's prompts are asked after it.)
+        assert_eq!(
+            answered(&mut m, facts(true)),
+            [Ask::RefreshUpdateCache, Ask::Launch { request: 2 }]
+        );
         // The answer was taken: a repeat asks nothing more.
         assert_eq!(answered(&mut m, facts(true)), []);
         let mut m = Model::default();
         connected(&mut m, &mut AppFx::default());
-        assert_eq!(answered(&mut m, facts(false)), []);
+        assert_eq!(
+            answered(&mut m, facts(false)),
+            [Ask::Launch { request: 2 }]
+        );
     }
 
     // A quit from a step ends the page and the app (`should_exit`).

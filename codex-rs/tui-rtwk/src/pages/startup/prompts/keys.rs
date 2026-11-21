@@ -282,6 +282,7 @@ mod tests {
             link: None,
             markdown: None,
             can_opt_out,
+            effort: None,
         })
     }
 
@@ -323,6 +324,7 @@ mod tests {
         Prompt::Hooks(HooksPrompt {
             count: 2,
             trust: Trust::Idle,
+            updates: Vec::new(),
         })
     }
 
@@ -358,6 +360,7 @@ mod tests {
         let prompt = Prompt::Hooks(HooksPrompt {
             count: 2,
             trust: Trust::Trusting(1),
+            updates: Vec::new(),
         });
         assert!(prompt.rows().iter().all(|row| row.disabled));
         assert!(bindings(&prompt).is_empty());

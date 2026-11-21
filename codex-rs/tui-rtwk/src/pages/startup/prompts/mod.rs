@@ -26,7 +26,7 @@ pub use panel::Panel;
 
 /// The route of the prompt the model has open.
 pub fn route() -> PageRoute<()> {
-    PageRoute::new(|_| Panel.into())
+    PageRoute::new(|_| Panel::default().into())
 }
 
 /// Puts `prompt` on screen and pushes its route: what the flow calls to ask.
@@ -152,12 +152,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name,
             description,
             script,
-            open: EntryOpen::Route(|_| Panel.into()),
+            open: EntryOpen::Route(|_| Panel::default().into()),
         })
         .collect()
 }
 
 /// Opens the empty form of this slot (debug menu): no prompt is open.
 pub fn open_empty() -> DebugOpen {
-    DebugOpen::Route(|_| Panel.into())
+    DebugOpen::Route(|_| Panel::default().into())
 }

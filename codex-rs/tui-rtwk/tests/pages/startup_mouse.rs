@@ -226,3 +226,106 @@ fn oss_prompt_a_click_moves_the_description_with_the_cursor() {
     s.assert_contains("Local Ollama server (Responses API, default port 11434)");
     s.assert_absent("Local LM Studio server");
 }
+
+// ---- the trust step (S04) ----
+
+#[test]
+fn trust_a_click_selects_the_row() {
+    let mut s = onboarding("trust_git_repo", 80, 20);
+    s.assert_contains("› 1. Trust and continue");
+    s.click_text("2. Quit");
+    assert!(marked(&s, "›").contains("2. Quit"), "{}", s.text());
+    s.assert_contains("Trust and continue");
+}
+
+#[test]
+fn trust_a_click_on_the_selected_row_accepts_it() {
+    let mut s = onboarding("trust_git_repo", 80, 20);
+    s.click_text("1. Trust and continue");
+    s.assert_absent("Trust and continue");
+}
+
+#[test]
+fn trust_a_double_click_accepts_the_row() {
+    let mut s = onboarding("trust_git_repo", 80, 20);
+    s.double_click_text("1. Trust and continue");
+    s.assert_absent("Trust and continue");
+}
+
+// ---- the import (S06): the source picker and the review ----
+
+fn import(entry: &'static str, width: u16, height: u16) -> Screen {
+    Screen::build(Owner::RoutesLists)
+        .size(width, height)
+        .entry("import", entry)
+        .open()
+}
+
+#[test]
+fn import_source_a_click_selects_the_row() {
+    let mut s = import("source_prompt", 80, 16);
+    s.assert_contains("› 1. Claude Code");
+    s.click_text("2. Cursor");
+    assert!(marked(&s, "›").contains("2. Cursor"), "{}", s.text());
+}
+
+#[test]
+fn import_source_a_double_click_accepts_the_row() {
+    let mut s = import("source_prompt", 80, 16);
+    s.double_click_text("2. Cursor");
+    s.assert_absent("1. Claude Code");
+}
+
+#[test]
+fn import_review_a_click_moves_the_cursor_to_the_item() {
+    let mut s = import("review_sample", 80, 30);
+    // The customize view lists the items (`c`).
+    s.keys("c");
+    let before = marked(&s, "›");
+    s.click_text("[x] Instructions");
+    let after = marked(&s, "›");
+    assert!(after.contains("Instructions"), "{before} -> {}", s.text());
+}
+
+#[test]
+fn import_review_a_click_on_the_item_under_the_cursor_toggles_it() {
+    let mut s = import("review_sample", 80, 30);
+    // The customize view lists the items (`c`).
+    s.keys("c");
+    s.click_text("[x] Instructions");
+    s.click_text("[x] Instructions");
+    s.assert_contains("[ ] Instructions");
+}
+
+#[test]
+fn import_review_a_click_on_the_action_selects_it() {
+    let mut s = import("review_sample", 80, 30);
+    // The customize view lists the items (`c`).
+    s.keys("c");
+    s.click_text("1. Review selection");
+    assert!(marked(&s, "›").contains("Review selection"), "{}", s.text());
+}
+
+// ---- the other startup prompts (S05): hooks, unarchive, daemon ----
+
+#[test]
+fn hooks_prompt_a_double_click_accepts_the_row() {
+    let mut s = prompts("hooks_review", 80, 20);
+    s.assert_contains("3. ");
+    s.double_click_text("3. ");
+    s.assert_absent("1. ");
+}
+
+#[test]
+fn unarchive_prompt_a_click_selects_the_row() {
+    let mut s = prompts("unarchive_resume", 80, 16);
+    s.click_text("2. ");
+    assert!(marked(&s, "›").contains("2. "), "{}", s.text());
+}
+
+#[test]
+fn daemon_prompt_a_click_selects_the_row() {
+    let mut s = prompts("daemon_menu", 80, 20);
+    s.click_text("2. ");
+    assert!(marked(&s, "›").contains("2. "), "{}", s.text());
+}

@@ -11,10 +11,12 @@ use std::rc::Rc;
 use rtwk::controls::SelectionController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings};
 use rtwk::foundation::ListenableBuilder;
+use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::layout::{
     Column, CrossAxisAlignment, EdgeInsets, FlexFit, Flexible, MainAxisSize, Padding, SizedBox,
 };
 use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::prelude::HitTestBehavior;
 use rtwk::provider::{read, watch};
 use rtwk::scroll::{ListController, ListView};
 use rtwk::style::{Attrs, Span, Style};
@@ -31,6 +33,7 @@ use crate::app::debug::seeded::Seeded;
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
+use crate::widgets::dots::dots_end;
 use crate::widgets::session_list::{Move, target};
 
 pub mod labels;
@@ -183,6 +186,12 @@ pub enum Msg {
     Escape,
     /// An intent of the flow (cancel).
     Intent(ImportIntent),
+    /// A tap on the checklist's item (ADR-011): the cursor moves to it, a
+    /// tap on the item under the cursor toggles it.
+    TapItem(usize),
+    /// A tap on an action: the cursor moves to it, a tap on the action under
+    /// the cursor runs it.
+    TapAction(usize),
 }
 
 impl StatefulWidget for Screen {
@@ -249,6 +258,23 @@ impl State for ScreenState {
                 intent = customize.then_some(ImportIntent::Toggle(self.item.cursor().unwrap_or(0)))
             }
             Msg::Run => intent = self.run(model),
+            Msg::TapItem(at) => {
+                if !customize {
+                } else if self.items.has_focus() && self.item.cursor() == Some(at) {
+                    intent = Some(ImportIntent::Toggle(at));
+                } else {
+                    self.item.set_cursor(Some(at));
+                    self.items.request_focus();
+                }
+            }
+            Msg::TapAction(at) => {
+                if self.actions.has_focus() && self.action.cursor() == Some(at) {
+                    intent = self.run(model);
+                } else {
+                    self.action.set_cursor(Some(at));
+                    self.actions.request_focus();
+                }
+            }
             Msg::Number(number) => {
                 let at = usize::from(number).checked_sub(1);
                 if let Some(at) = at.filter(|at| *at < actions(self.view, model).len()) {
@@ -347,6 +373,12 @@ impl State for ScreenState {
             checklist,
             buttons,
             focus: (cx.map(Msg::Focus), cx.map(Msg::Focus)),
+            item_taps: (0..self.item_count(&screens.import))
+                .map(|at| cx.map(move |_: PointerEvent| Msg::TapItem(at)))
+                .collect(),
+            action_taps: (0..actions(self.view, &screens.import).len())
+                .map(|at| cx.map(move |_: PointerEvent| Msg::TapAction(at)))
+                .collect(),
         };
         let body = review(
             &look,
@@ -485,6 +517,9 @@ struct Regions {
     checklist: Vec<(&'static str, Handler<()>)>,
     buttons: Vec<(&'static str, Handler<()>)>,
     focus: (Handler<bool>, Handler<bool>),
+    /// The taps of the checklist's items and of the actions, by index.
+    item_taps: Vec<Handler<PointerEvent>>,
+    action_taps: Vec<Handler<PointerEvent>>,
 }
 
 /// What the review draws with.
@@ -554,7 +589,10 @@ fn review(
     let rows = Rc::new(rows);
     let builder = {
         let (rows, look, item) = (rows.clone(), look.clone(), regions.item.clone());
-        move |at: usize| -> AnyWidget { row(&look, strings, &num, &rows[at], items_focus, &item) }
+        let taps = Rc::new(regions.item_taps.clone());
+        move |at: usize| -> AnyWidget {
+            row(&look, strings, &num, &rows[at], items_focus, &item, &taps)
+        }
     };
     let list = ListView::builder(rows.len(), builder)
         .item_extent(1)
@@ -591,27 +629,32 @@ fn review(
             Act::Skip => strings.action_skip,
             Act::Back => strings.action_back,
         };
-        buttons = buttons.child(ListenableBuilder::new(
-            regions.action.listenable(),
-            move |_, _| {
-                let chosen = actions_focus && action.cursor() == Some(at);
-                let marker = if chosen { "›" } else { " " };
-                let style = if chosen {
-                    look.selected.clone()
-                } else if actions_focus {
-                    Style::new()
-                } else {
-                    look.dim.clone()
-                };
-                let text = format!("{marker} {}. {label}", at + 1);
-                Text::new(text)
-                    .style(style)
-                    .wrap(TextWrap::None)
-                    .max_lines(1)
-                    .overflow(TextOverflow::Ellipsis)
-                    .into()
-            },
-        ));
+        let button = ListenableBuilder::new(regions.action.listenable(), move |_, _| {
+            let chosen = actions_focus && action.cursor() == Some(at);
+            let marker = if chosen { "›" } else { " " };
+            let style = if chosen {
+                look.selected.clone()
+            } else if actions_focus {
+                Style::new()
+            } else {
+                look.dim.clone()
+            };
+            let text = format!("{marker} {}. {label}", at + 1);
+            Text::new(text)
+                .style(style)
+                .wrap(TextWrap::None)
+                .max_lines(1)
+                .overflow(TextOverflow::Ellipsis)
+                .into()
+        });
+        buttons = buttons.child(match regions.action_taps.get(at) {
+            Some(tap) => GestureDetector::new()
+                .behavior(HitTestBehavior::Opaque)
+                .on_tap(tap.clone())
+                .child(button)
+                .into(),
+            None => AnyWidget::from(button),
+        });
     }
     let buttons = KeyBindings::new(
         regions.buttons.clone(),
@@ -634,15 +677,10 @@ fn row(
     row: &ReviewRow,
     items_focus: bool,
     item: &SelectionController<usize>,
+    taps: &[Handler<PointerEvent>],
 ) -> AnyWidget {
-    let line = |text: String, style: Style| -> AnyWidget {
-        Text::new(text)
-            .style(style)
-            .wrap(TextWrap::None)
-            .max_lines(1)
-            .overflow(TextOverflow::Ellipsis)
-            .into()
-    };
+    // The oracle's cut keeps the blank before the `…` (N1: `dots_end`).
+    let line = |text: String, style: Style| -> AnyWidget { dots_end(text, style) };
     let check = |mark: Mark| match mark {
         Mark::All => strings.check_all,
         Mark::Some => strings.check_some,
@@ -652,7 +690,8 @@ fn row(
     // `ListenableBuilder` over `SelectionController.isSelected`).
     let entry = |index: usize, body: String| -> AnyWidget {
         let (look, strings, item) = (look.clone(), strings, item.clone());
-        ListenableBuilder::new(item.listenable(), move |_, _| {
+        let tap = taps.get(index).cloned();
+        let entry = ListenableBuilder::new(item.listenable(), move |_, _| {
             let text = |mark: &str| format!("{mark}{body}");
             let (text, style) = if items_focus && item.cursor() == Some(index) {
                 (text(strings.cursor), look.selected.clone())
@@ -665,8 +704,15 @@ fn row(
                 .max_lines(1)
                 .overflow(TextOverflow::Ellipsis)
                 .into()
-        })
-        .into()
+        });
+        match tap {
+            Some(tap) => GestureDetector::new()
+                .behavior(HitTestBehavior::Opaque)
+                .on_tap(tap)
+                .child(entry)
+                .into(),
+            None => entry.into(),
+        }
     };
     match row {
         ReviewRow::Group { index, mark, label } => {
