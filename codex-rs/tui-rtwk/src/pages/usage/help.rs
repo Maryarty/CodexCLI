@@ -52,6 +52,12 @@ pub(super) fn lines(
         out.push(strings.help_toggle.to_owned());
     }
     out.push(strings.help_close(&hint(keys::CANCEL), &interrupt, num));
+    if let Some(updated) = model.histories[model.section as usize]
+        .ready()
+        .and_then(|history| history.updated_at)
+    {
+        out.push(strings.help_updated(updated, model.hour24, num));
+    }
     out
 }
 

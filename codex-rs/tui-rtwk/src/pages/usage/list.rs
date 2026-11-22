@@ -10,6 +10,8 @@ use rtwk::provider::read;
 use rtwk::scroll::ScrollController;
 
 use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::usage::chats::ChatStep;
+use codex_tui_core::screens::usage::plan::PlanStep;
 use codex_tui_core::screens::usage::{Intent as UsageIntent, Model, Section};
 
 use super::keys::ListAct;
@@ -87,6 +89,40 @@ impl ScreenState {
         match act {
             ListAct::PageUp | ListAct::PageDown => {
                 scroll(&self.scrolls[self.surface(section)], act);
+                return None;
+            }
+            _ if section == Section::Plan => {
+                let step = match act {
+                    ListAct::Up => PlanStep::Up,
+                    ListAct::Down => PlanStep::Down,
+                    ListAct::Left | ListAct::Right => PlanStep::Switch,
+                    ListAct::Top => PlanStep::Top,
+                    ListAct::Bottom => PlanStep::Bottom,
+                    ListAct::Accept => PlanStep::Toggle,
+                    ListAct::Cancel | ListAct::PageUp | ListAct::PageDown => PlanStep::Back,
+                };
+                if self
+                    .plan
+                    .step(step, model.plan.ready().map(|report| &**report))
+                {
+                    Self::close(cx);
+                }
+                return None;
+            }
+            _ if section == Section::Chats => {
+                let step = match act {
+                    ListAct::Up => ChatStep::Up,
+                    ListAct::Down => ChatStep::Down,
+                    ListAct::Top => ChatStep::Top,
+                    ListAct::Bottom => ChatStep::Bottom,
+                    ListAct::Accept | ListAct::Right => ChatStep::Toggle,
+                    ListAct::Left => ChatStep::Collapse,
+                    ListAct::Cancel | ListAct::PageUp | ListAct::PageDown => ChatStep::Back,
+                };
+                let has_details = model.chat_has_details(&self.chat);
+                if self.chat.step(step, model.chat_row_count(), has_details) {
+                    Self::close(cx);
+                }
                 return None;
             }
             ListAct::Cancel => {

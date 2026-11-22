@@ -41,14 +41,6 @@ impl TokenActivityView {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Daily => "Daily",
-            Self::Weekly => "Weekly",
-            Self::Cumulative => "Cumulative",
-        }
-    }
-
     pub fn index(self) -> usize {
         VIEWS.iter().position(|view| *view == self).unwrap_or(0)
     }

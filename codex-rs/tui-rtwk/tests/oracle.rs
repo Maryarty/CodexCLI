@@ -125,4 +125,6 @@ mod transcript_view_3;
 mod transcript_view_4;
 #[path = "oracle/transcript_view_5.rs"]
 mod transcript_view_5;
+#[path = "oracle/usage.rs"]
+mod usage;
 // ---- end of shards ----
