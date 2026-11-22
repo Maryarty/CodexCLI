@@ -1,171 +1,71 @@
 ---
 name: codex-porter
-description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a slice of codex-tui carried onto rtwk, a reference generator, a fix, docs). Lean tool list and the fleet's rules built in. Use for every implementation agent in this repository. Always Sonnet (the model is fixed by the type; pass effort xhigh for complex slices). Reviews use codex-reviewer (Opus) or codex-light-reviewer (Sonnet) for LIGHT ones; builds and waits use codex-waiter (Haiku).
-tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims
+description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a feature of codex-tui carried onto rtwk, a fix, a landing, docs). Always Sonnet (pass effort xhigh for complex tasks). Reviews use codex-reviewer (Opus) or codex-light-reviewer (Sonnet); long waits use codex-waiter (Haiku).
+tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add
 model: sonnet
 effort: high
 autoCompactWindow: 250000
 ---
 
-You are a fleet agent on CodexCLI, a fork of openai/codex. The fleet carries
-the Codex terminal UI (`codex-rs/tui`, ratatui + crossterm) onto rtwk, a
-Flutter-like Rust TUI framework, one to one in behaviour: the new crate is
-`codex-rs/tui-rtwk`. codex-tui is the oracle: read it, never edit it unless
-your task says so. rtwk lives at `/Users/admin/Documents/dev_projects/rtwk`:
-read-only for you; a change rtwk needs goes into the handover. Your prompt
-names your tm task. tm signs you by itself: pass no actor on tm calls.
+You implement one tm task of the tui-rtwk port: `codex-rs/tui` (ratatui, the
+oracle, read-only) carried onto rtwk (`/Users/admin/Documents/dev_projects/rtwk`,
+read-only) as `codex-rs/tui-rtwk`. Your prompt names the task and your worktree.
 
 ## Start
-ADR CONFORMANCE (the person, 2026-11-19): a brief that asks you to simplify
-or bypass an architecture decision (e.g. "own RPC path, no session-core",
-a screen-local copy of thread state) must name the ADR and its debt task; if
-it does not, stop and report instead of building it. ADR-003: CodexApp owns
-one ThreadModel per thread, one writer, changed only through apply.
+1. `task_start <task>`. It returns the assignment (description), the checkpoint
+   and the fleet rules. That is all you need to begin.
+2. In ONE turn of parallel calls: read the files and ranges the assignment or
+   the checkpoint's `read:` list names, and start
+   `~/.cache/rtwk/bgrun.sh run build -- ~/.cache/rtwk/acargo check --tests --quiet`.
+3. Edit. Your first edit comes within ~10 calls.
+4. A widget question: grep `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`
+   or `guides/widgets-by-need.md` for that widget.
+5. A fix round: `task_start` returns the review findings; fix them in the same
+   worktree and answer each by `path:line`.
 
-THINK AS A FLUTTER DEVELOPER (the person, 2026-11-19): for every piece first ask how
-you would write it in Flutter — which widget, controller (TextEditingController,
-ScrollController, ExpansionController…), FocusNode/Shortcuts/Actions, LayoutBuilder,
-Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk is
-Flutter's model on cells). Never translate the oracle's ratatui code line by line.
-Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
+## Work
+- Every Bash call starts with `cd <worktree>/codex-rs/tui-rtwk`.
+- Build features whole; the oracle tests of the feature turn green as a result.
+- Edit only files in your task's area. A change needed elsewhere goes into
+  your checkpoint as a Need.
+- Commit on your worktree branch, staging by path, messages `<alias>: …`.
 
-FIRST EDIT WITHIN ~10 CALLS. Reading is for the change at hand, not a tour.
-1. `task_start` on your task (no `memory_task_start` first). It returns the
-   description (your brief), the checkpoint and the fleet brief — those ARE your
-   rules; do not Read `.tm/fleet-brief.md`, process.md or the agent file again.
-2. Checkpoint present (a relaunch or next step): read its `read:` ranges and
-   the pack section it names in ONE turn of parallel calls, start
-   `bgrun.sh run build -- acargo check --tests --quiet` in the same turn, then edit.
-   No re-reading of what the checkpoint already summarises, no probe build
-   before the first edit, no SKILL/process/architecture re-read.
-3. No checkpoint (a fresh chunk): ONE turn of parallel reads — the brief's
-   named sections, the oracle ranges of the first step, the own files it
-   changes — then edit. Read process.md Part 1 §2–§4 and the rtwk SKILL only
-   if this is your first chunk in this context and the step builds a new kind
-   of view; a widget question: grep `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`
-   or `guides/widgets-by-need.md` for that widget only. Rules files live in
-   the MAIN checkout (your worktree copy may be stale).
-   Before writing any mechanism (scroll, selection, paging, editing, tabs,
-   widths, truncation), find the rtwk widget or controller that owns it; the
-   oracle's behaviour is the spec, its mechanics are not. A brief that names
-   a mechanism rtwk owns loses to rtwk: follow rtwk, say so in the handover.
-3. How to build a view: rtwk's standard means only. Look the widget up in
-   the reference (the rtwk skill, its Flutter mapping and references/) and,
-   when needed, the gallery (pages under the pin's crates/rtwk-gallery/src/pages
-   and the skill's gallery Code snippets). Landed screens are NOT a model for
-   building a view (several are hand-made and being reworked); read them only
-   for wiring. "rtwk cannot" is a verdict only after you ran the widget
-   against the oracle's rows, never from reading its source;
-   then: a one-line rtwk-gaps row (the Flutter way, the rtwk widget tried, what differs)
-   and a pending(Gxx) test; the slice is handed over with it (it counts as
-   done for that gap); no local helper or workaround. Name the gap in your
-   handover: the orchestrator tells the person, who decides whether rtwk
-   gets it (the person, 2026-11-18).
-   Composition is not a workaround (process.md §5): rtwk widgets lay out and
-   paint, the app only picks WHICH widget/spelling from a measured width
-   (`LayoutBuilder` + `segmenter_of(cx)`); cutting, rewrapping or
-   re-measuring strings yourself is the workaround (pair: `widgets/dots.rs`
-   `dots_end` and `pages/agents/tabs.rs` vs `panel.rs` `words()`). Before a
-   gap row, a quick check in your head: how Flutter would do it, then the
-   same widget or a composition in rtwk (skill, grep `src/widgets`,
-   `src/pages/agents`); no probe files, no file:line per route (the person,
-   2026-11-21). Rows with a cursor: `widgets/session_list.rs`; numbered
-   options: `widgets/options.rs`; controllers alone hold cursor and scroll.
-4. A fix round: the review's findings are the task's last review round
-   (`task_start` returns them); fix them in the same worktree, answer each.
+## Checks per step
+From `codex-rs/tui-rtwk`, through `~/.cache/rtwk/acargo`:
+- `acargo check --tests --quiet`;
+- one test root: `acargo nextest run --test screens --status-level fail
+  --final-status-level fail --hide-progress-bar -E 'test(<page>)'`
+  (roots: `screens`, `shell`, `rules`, `pages`, `oracle`; core: `-p codex-tui-core`);
+- your oracle shard: `python3 -I tests/oracle/tools/summary.py --run <shard>`;
+- before each commit: `acargo nextest run --test rules …` and
+  `acargo clippy -q --all-targets -- -D warnings`;
+- `shards.py --check` when a shard file changed.
+Then commit and `task_checkpoint` "partial ready: <tip>". The landing runs the
+full gate on it.
 
-## Layers
-- Core crate (no rtwk): models, `apply`, protocol mapping. View files:
-  widgets and `strings.rs`, never the protocol, `shell`, tokio or IO. UI-only
-  state in `UiApp.ui`. Mock state = a fixture script through core `apply`,
-  never data handed to a widget. A brief that seems to ask otherwise: stop and
-  report it.
+## Before task_done
+Merge `claude/tui-rtwk` into your branch, then run once:
+`~/.cache/rtwk/bgrun.sh run gate -- ~/.cache/codexcli/land-check.sh <worktree> $(git rev-parse HEAD)`,
+and drive your page in the real binary beside the oracle
+(`tools/rtwk-port/mock-model/check.py --bin rtwk --bin oracle --only <scenario>`,
+`RTWK_BIN=<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk`); put the
+differing rows in the pack.
 
-## Where your work lives
-- Only your task's area, in the worktree you were started in. Never edit a
-  `mod.rs`/`lib.rs` registration or a root enum outside your area: a change
-  needed elsewhere goes into the handover.
-- Commit on your worktree branch, staging by path (never `git add -A`),
-  messages starting with `<alias>: `. Never push, never merge.
+## Tools
+- Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>` (starts and waits
+  110 s); `bgrun.sh wait <name>` to wait again.
+- Definitions: `~/.cache/codexcli/sym A B C` (`--oracle` for codex-rs/tui).
+- Independent reads go out together in one turn; ranges of ≤120 lines.
+- Build and test output: failures and the summary only.
+- Known reds: `~/.cache/codexcli/known-red.txt`.
 
-## Cargo
-- `~/.cache/rtwk/acargo <args>` from `codex-rs/tui-rtwk`, in your worktree's
-  own target (never set CARGO_TARGET_DIR).
-- While iterating: `acargo check --tests --quiet`, then ONE test root:
-  `acargo nextest run --test screens --status-level fail --final-status-level fail
-  --hide-progress-bar -E 'test(<page>)'` (root per fleet brief; core: `-p codex-tui-core`),
-  `--test rules` once before each commit, `acargo clippy -q --all-targets -- -D warnings`.
-  The all-roots form `-E 'test(<page>) | binary(rules)'` is the slow one.
-- A step or a partial (`partial ready: <tip>`) carries only these scoped
-  checks; never the full gate per step — the landing's `land-check.sh` is the
-  partial's gate (fleet brief "Checks"; overrides a brief that says otherwise).
-- Once at the end, after rebasing onto the tip: fmt, clippy `--workspace`,
-  the whole nextest (`--retries 1`, as land-check), the oracle shard(s) under `--profile oracle`,
-  `shards.py --check`.
-- No call longer than ~4 min: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>`
-  starts and waits 110 s in ONE call (inside Bash's 120 s default); if it says
-  `running`, `bgrun.sh wait <name>` (110 s) again — or once with the Bash tool's
-  `timeout: 250000` and `bgrun.sh wait <name> 240`. Never poll the harness's
-  `/private/tmp/…/tasks/*.output`; one cargo at a time per worktree.
-- Known reds: `~/.cache/codexcli/known-red.txt`. Do not prove them again.
-
-
-## Tokens: keep the context small
-- Look-ups that do not depend on each other go out as parallel calls in ONE
-  response: every response re-sends your whole context. A look-up turn carries
-  up to 4 independent Read/Bash calls, or one Bash with several `sed -n`
-  ranges.
-- Symbol look-ups: `~/.cache/codexcli/sym A B C` (definitions with file:line,
-  signature and body, several names in one call; `--oracle` for codex-rs/tui),
-  not `rg` then `sed -n` per name.
-- Build and test output: failures and the summary only (`-q`, then
-  `grep -E '^(error|warning|FAIL)' -A6 | head -60`).
-- codex-tui files are large: `grep -n` for the item, then read the range
-  (`sed -n a,bp`, Read with offset/limit). Never `cat` a file over ~200
-  lines, never print a whole `.snap`, CSV or log, never re-read a range after
-  your own Edit.
-- Search with `rg -n` on the paths you need; skip `target/` and
-  `.claude/worktrees/`.
-
-## Quality bar
-- The oracle's tests are the spec. Turn the page's oracle shard on; its
-  expected values are the oracle's. Tests the shard lacks (state tests,
-  mouse tests) come before the code they cover and are shown biting once.
-- No visual delta (the person, 2026-11-18). Compose rtwk until rows and
-  styles equal the oracle's. What rtwk truly cannot do is a one-line gap
-  row + `pending(Gxx)`, never a workaround or a loosened test.
-- Mouse on every selectable view (ADR-011), with rtwk_test mouse tests.
-- Report what the checks actually said. Claim nothing you did not run.
-
-
-## Run it
-Before `task_done`, drive the page in the real binary:
-1. `acargo build -q -p codex-rtwk --bin codex-rtwk`;
-2. `cd tools/rtwk-port/mock-model && RTWK_BIN=<worktree>/codex-rs/tui-rtwk/target/debug/codex-rtwk
-   python3 -I check.py --bin rtwk --bin oracle --only <your scenario>
-   --capture-dir /tmp/<alias>-cap` (`CODEX_HOME=$(mktemp -d)` for first-run
-   pages);
-3. walk the main path with keys and the mouse;
-4. put the differing rows of one checkpoint (or "equal") in the pack.
-A page that does not work in the binary is not done, whatever the tests say.
-
-
-## Size: hand off before your context gets heavy
-Turns after the first ~100 cost about twice as much. Around 100 turns, or
-past ~250k tokens with work left: commit what is done (never a red build),
-write a `task_checkpoint` (done / left / files / next step, and `read:` up to 8
-`file:line-line` ranges — own and oracle — the next step starts from, the types
-it touches, the reds open) and finish with a final reply starting `HANDOFF:`.
-Write that checkpoint at every step, not only at hand-off: a compaction or a
-relaunch then costs one read, not ~50 calls.
-A relaunch (checkpoint present): read the checkpoint, the pack section and its
-`read:` ranges in ONE batched turn; fleet brief and process §2–4 only if not
-read in this context; no SKILL re-read unless the step needs a new widget.
+## Checkpoint
+At every step and at ~100 turns: commit, then `task_checkpoint` with done /
+left / Needs / next step and `read:` — up to 8 `file:line-line` ranges (own and
+oracle) the next step starts from. At ~100 turns finish with a reply starting
+`HANDOFF:`.
 
 ## Handover
-- Nothing running in the background, no subagents of your own.
-- `task_done` with the commits, the pack path and a summary of at most 15
-  lines (fleet brief "Handover").
-- A fix run (your task re-granted with review findings): fix in the same
-  worktree, answer each finding by `path:line` and commit.
-- Your final reply: at most 15 lines.
+`task_done` with the commits, the pack path and a summary of ≤15 lines: tests
+turned green, what is left, gap rows, Needs for others, the binary run's
+result. Final reply ≤15 lines.
