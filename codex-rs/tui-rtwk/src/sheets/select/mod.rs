@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 53] = [
+    let entries: [(&'static str, &'static str, &'static str); 61] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -285,6 +285,46 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "multi_twelve",
             "twelve multi-select rows",
             include_str!("fixtures/multi_twelve.jsonl"),
+        ),
+        (
+            "accept_alternative",
+            "a searchable row, accept bound to a printable key",
+            include_str!("fixtures/accept_alternative.jsonl"),
+        ),
+        (
+            "toggle_then_next",
+            "a toggle row and the row after it, searchable",
+            include_str!("fixtures/toggle_then_next.jsonl"),
+        ),
+        (
+            "animations_checkbox",
+            "one checkbox row",
+            include_str!("fixtures/animations_checkbox.jsonl"),
+        ),
+        (
+            "first_second_searchable",
+            "two rows under a search line",
+            include_str!("fixtures/first_second_searchable.jsonl"),
+        ),
+        (
+            "first_second_searchable_second",
+            "two rows under a search line, the second highlighted",
+            include_str!("fixtures/first_second_searchable_second.jsonl"),
+        ),
+        (
+            "twelve_items",
+            "twelve rows, no title",
+            include_str!("fixtures/twelve_items.jsonl"),
+        ),
+        (
+            "hint_default",
+            "one row, the standard footer",
+            include_str!("fixtures/hint_default.jsonl"),
+        ),
+        (
+            "hint_picker",
+            "one row, the standard footer, shared picker preset",
+            include_str!("fixtures/hint_picker.jsonl"),
         ),
     ];
     entries

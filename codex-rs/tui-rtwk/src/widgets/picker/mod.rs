@@ -14,12 +14,12 @@
 //! reads the arrows and the page size from the list's position and viewport.
 //! Oracle: `bottom_pane/list_selection_view.rs`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::controls::{SelectionController, TabController};
 use rtwk::editing::{TextEditingController, TextField};
-use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
+use rtwk::focus::{Focus, FocusNode, KeyCombo, KeyEventResult, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::PointerEvent;
 use rtwk::layout::{BoxWidget, Expanded, Row, SizedBox};
@@ -30,9 +30,15 @@ use rtwk::style::{Attrs, Style};
 use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::actions::{
+    LIST_ACCEPT, LIST_CANCEL, LIST_JUMP_BOTTOM, LIST_JUMP_TOP, LIST_MOVE_DOWN, LIST_MOVE_LEFT,
+    LIST_MOVE_RIGHT, LIST_MOVE_UP, LIST_PAGE_DOWN, LIST_PAGE_UP,
+};
+use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::screens::select::list::{Browse, List, normalize_paste};
 
 use crate::app::theme;
+use crate::keymap::{keymap, label, pressed};
 use crate::widgets::session_list::page_rows;
 use crate::widgets::tab_strip::Tabs;
 
@@ -87,6 +93,9 @@ pub struct PickerState {
     follow: Option<String>,
     query: TextEditingController,
     flags: Rc<Cell<Flags>>,
+    /// The user's list keys (`tui.keymap.list.*`), read from the keymap the
+    /// app provides each build; the key callback runs between builds.
+    keys: Rc<RefCell<Rc<Keymap>>>,
     /// The tabs' selection (`TabController`): the tab strip's taps and the
     /// arrow keys both set it, and the dialog follows through its own
     /// message. The only holder of the tab.
@@ -140,6 +149,7 @@ impl StatefulWidget for Picker {
             follow: None,
             query: TextEditingController::new(""),
             flags: Rc::new(Cell::new(Flags::default())),
+            keys: Rc::new(RefCell::new(Rc::new(Keymap::defaults()))),
             tabs: None,
             cursor: SelectionController::new(),
             scroll: ListController::new(),
@@ -150,9 +160,45 @@ impl StatefulWidget for Picker {
 
 impl_widget!(stateful eq Picker);
 
-/// The act a key means, with the default list keymap of the oracle
-/// (`keymap.rs`: `list.*`); none: the key is not the list's.
-fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
+/// The list actions that move the cursor, each with the act it means.
+const MOVES: [(ActionId, Act); 6] = [
+    (LIST_MOVE_UP, Act::Up),
+    (LIST_MOVE_DOWN, Act::Down),
+    (LIST_PAGE_UP, Act::PageUp),
+    (LIST_PAGE_DOWN, Act::PageDown),
+    (LIST_JUMP_TOP, Act::Top),
+    (LIST_JUMP_BOTTOM, Act::Bottom),
+];
+
+/// Every list action: a key bound to one of them is not free for a row's
+/// toggle (`keymap.action_for(key).is_none()`).
+const LIST_ACTIONS: [ActionId; 10] = [
+    LIST_MOVE_UP,
+    LIST_MOVE_DOWN,
+    LIST_MOVE_LEFT,
+    LIST_MOVE_RIGHT,
+    LIST_PAGE_UP,
+    LIST_PAGE_DOWN,
+    LIST_JUMP_TOP,
+    LIST_JUMP_BOTTOM,
+    LIST_ACCEPT,
+    LIST_CANCEL,
+];
+
+/// The act a key means under the user's list keymap
+/// (`ListSelectionView::handle_key_event`); none: the key is not the list's.
+/// A search line keeps the printable keys for its query, except those the
+/// keymap binds to accept or cancel.
+fn act_of(key: &KeyPress, flags: Flags, keys: &Keymap) -> Option<Act> {
+    // A terminal sends ctrl+h as Backspace (the C0 character): it is the
+    // keymap's `ctrl-h`, as the oracle reads control characters.
+    let c0;
+    let key = if key.code == KeyCode::Backspace && key.mods == Mods::CTRL {
+        c0 = KeyCombo::parse("ctrl+h").map_or_else(|_| key.clone(), KeyCombo::press);
+        &c0
+    } else {
+        key
+    };
     let ctrl = key.mods.contains(Mods::CTRL);
     let alt = key.mods.contains(Mods::ALT);
     let letter = key.text().and_then(|text| {
@@ -164,31 +210,16 @@ fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
     // An active search reserves printable keys for the query.
     let navigates = !flags.searchable || !plain_text;
     if navigates {
-        let nav = match (key.code, letter, ctrl) {
-            (KeyCode::Up, _, false) | (KeyCode::Char, Some('p' | 'k'), true) => Some(Act::Up),
-            (KeyCode::Char, Some('k'), false) if plain_text => Some(Act::Up),
-            (KeyCode::Down, _, false) | (KeyCode::Char, Some('n' | 'j'), true) => Some(Act::Down),
-            (KeyCode::Char, Some('j'), false) if plain_text => Some(Act::Down),
-            (KeyCode::PageUp, _, false) | (KeyCode::Char, Some('b'), true) => Some(Act::PageUp),
-            (KeyCode::PageDown, _, false) | (KeyCode::Char, Some('f'), true) => Some(Act::PageDown),
-            (KeyCode::Home, _, false) => Some(Act::Top),
-            (KeyCode::End, _, false) => Some(Act::Bottom),
-            (KeyCode::Left, _, false)
-            | (KeyCode::Char, Some('h'), true)
-            | (KeyCode::Backspace, _, true)
-                if flags.tabs || flags.ordering =>
-            {
-                Some(Act::Left)
+        if let Some((_, act)) = MOVES.iter().find(|(id, _)| pressed(keys, *id, key)) {
+            return Some(*act);
+        }
+        if flags.tabs || flags.ordering {
+            if pressed(keys, LIST_MOVE_LEFT, key) {
+                return Some(Act::Left);
             }
-            (KeyCode::Right, _, false) | (KeyCode::Char, Some('l'), true)
-                if flags.tabs || flags.ordering =>
-            {
-                Some(Act::Right)
+            if pressed(keys, LIST_MOVE_RIGHT, key) {
+                return Some(Act::Right);
             }
-            _ => None,
-        };
-        if nav.is_some() {
-            return nav;
         }
     }
     if key.code == KeyCode::Backspace {
@@ -198,14 +229,16 @@ fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
         && letter == Some(' ')
         && key.mods.is_empty()
         && flags.toggle
+        && !LIST_ACTIONS.iter().any(|id| pressed(keys, *id, key))
         && (!flags.searchable || flags.query_empty)
     {
         return Some(Act::Toggle);
     }
-    match key.code {
-        KeyCode::Escape if key.mods.is_empty() => return Some(Act::Cancel),
-        KeyCode::Enter if key.mods.is_empty() => return Some(Act::Accept),
-        _ => {}
+    if pressed(keys, LIST_CANCEL, key) {
+        return Some(Act::Cancel);
+    }
+    if pressed(keys, LIST_ACCEPT, key) {
+        return Some(Act::Accept);
     }
     if navigates && plain_text && letter.is_some() && letter == flags.secondary {
         return Some(Act::Secondary);
@@ -216,6 +249,17 @@ fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
     letter.map(Act::Shortcut)
 }
 
+/// The footer of a list that says what its keys are (`enter select · esc
+/// back`): the first binding of accept and of cancel, as the keymap labels it;
+/// an unbound action is left out.
+fn standard_hint(keys: &Keymap, s: &strings::Strings) -> String {
+    [(LIST_ACCEPT, s.hint_select), (LIST_CANCEL, s.hint_back)]
+        .into_iter()
+        .filter_map(|(id, word)| label(keys, id).map(|key| format!("{key} {word}")))
+        .collect::<Vec<_>>()
+        .join(s.hint_join)
+}
+
 impl State for PickerState {
     type Widget = Picker;
     type Msg = Msg;
@@ -223,8 +267,10 @@ impl State for PickerState {
     fn init_state(&mut self, w: &Picker, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
         let flags = self.flags.clone();
+        let keys = self.keys.clone();
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
-            match act_of(&key, flags.get()) {
+            let keys = keys.borrow().clone();
+            match act_of(&key, flags.get(), &keys) {
                 Some(act) => {
                     send(Msg::Act(act));
                     KeyEventResult::Handled
@@ -315,6 +361,8 @@ impl State for PickerState {
         let list = (*w.list).clone();
         let tokens = theme::Tokens::of(cx);
         let s = strings::of(cx);
+        let keys = keymap(cx);
+        *self.keys.borrow_mut() = keys.clone();
         let query = self.query.text();
         let browse = self.browse(&list, &query);
         let visible = browse.visible();
@@ -372,7 +420,8 @@ impl State for PickerState {
         });
         let hint = selected
             .and_then(|item| item.footer_hint.clone())
-            .or_else(|| list.footer_hint.clone());
+            .or_else(|| list.footer_hint.clone())
+            .or_else(|| list.standard_hint.then(|| standard_hint(&keys, s)));
         let pane = Pane {
             surface: list.surface(),
             title: list.title.clone().map(|title| (title, tokens.bold())),

@@ -34,6 +34,11 @@ pub struct Strings {
     pub section_break: &'static str,
     /// Between the names of the preview line.
     pub preview_join: &'static str,
+    /// The standard footer: the accept key's label then `hint_select`, the
+    /// cancel key's then `hint_back`, joined by `hint_join`.
+    pub hint_select: &'static str,
+    pub hint_back: &'static str,
+    pub hint_join: &'static str,
 }
 
 /// English: the oracle's text.
@@ -52,6 +57,9 @@ pub const EN: Strings = Strings {
     reason_close: ")",
     section_break: "  ───────────────────────",
     preview_join: " · ",
+    hint_select: "select",
+    hint_back: "back",
+    hint_join: " · ",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

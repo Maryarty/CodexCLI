@@ -151,6 +151,11 @@ pub struct List {
     pub subtitle: Option<String>,
     pub footer_note: Option<String>,
     pub footer_hint: Option<String>,
+    /// The footer says what the list's accept and cancel keys are, as the
+    /// keymap names them (`picker_hint_line_for_keymap`: `enter select · esc
+    /// back`), unless `footer_hint` is given. The bottom pane gives every list
+    /// it shows this footer (`apply_standard_popup_hint`).
+    pub standard_hint: bool,
     pub items: Vec<Item>,
     pub tabs: Vec<Tab>,
     pub initial_tab: Option<String>,
@@ -190,6 +195,7 @@ impl Default for List {
             subtitle: None,
             footer_note: None,
             footer_hint: None,
+            standard_hint: false,
             items: Vec::new(),
             tabs: Vec::new(),
             initial_tab: None,
