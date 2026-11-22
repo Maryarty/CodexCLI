@@ -172,6 +172,13 @@ const QUIESCE_ROUNDS: usize = 200;
 /// make progress when the test lets them, never in parallel with its reads.
 /// The oracle kit builds its screens on it.
 pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
+    start_driven_with(debug, Options::new().size(width, height))
+}
+
+/// `start_driven` on a terminal made with `options` (its size, its default
+/// colours, its colour depth, the environment the app reads): the kit's seeds
+/// of the terminal (`kit::env`).
+pub fn start_driven_with(debug: bool, options: Options) -> Harness {
     let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -182,7 +189,7 @@ pub fn start_driven(debug: bool, width: u16, height: u16) -> Harness {
     let guard = rtwk_tokio::enter(runtime);
     let (server, fake) = FakeServer::new();
     let app = UiApp::new(Backend::Fake(server)).with_debug_screens(debug);
-    let mut t = Tester::with(Options::new().size(width, height));
+    let mut t = Tester::with(options);
     t.pump_widget(localized(root(app_view(app)), Lang::En));
     let mut h = Harness {
         t,

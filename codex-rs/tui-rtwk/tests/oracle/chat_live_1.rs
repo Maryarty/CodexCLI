@@ -259,10 +259,14 @@ fn owned_live_history_keeps_all_sources_in_each_presentation() {
 fn external_writer_view_shows_notice_instead_of_composer() {
     kit::pending(
         Owner::ChatLive,
-        "no external-writer view on the chat screen: the thread open in another app has no feed step, so the notice in place of the composer is not drawn",
+        "no external-writer notice on the chat screen: the seed exists (Screen::build(..).foreign_writer(thread), a refused resume), the read-only chat draws the composer where the oracle draws the notice",
     );
     let (w, h) = oracle_size("external_writer_view_shows_notice_instead_of_composer", 60);
-    let s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .foreign_writer("thread-foreign")
+        .live()
+        .open();
     // oracle: the notice rows at 60 columns, the bold label row, and no composer.
     s.assert_snap("external_writer_view_shows_notice_instead_of_composer");
 }
@@ -272,10 +276,14 @@ fn external_writer_view_shows_notice_instead_of_composer() {
 fn external_writer_fork_progress_restores_the_previous_view() {
     kit::pending(
         Owner::ChatLive,
-        "no fork-in-progress state on the chat screen: no feed step starts a fork, so the pending-fork frame and the restored previous view are not drawn",
+        "no fork-in-progress frame on the chat screen: the seed is Screen::build(..).foreign_writer(thread) then the fork action; the chat draws no pending-fork frame and no restore",
     );
     let (w, h) = oracle_size("fork_pending", 60);
-    let s = Screen::build(Owner::ChatLive).size(w, h).live().open();
+    let s = Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .foreign_writer("thread-foreign")
+        .live()
+        .open();
     let previous = s.shot();
     // oracle: the fork-pending frame at 60 columns; once the fork ends, the previous frame is back.
     s.assert_snap("fork_pending");
@@ -287,10 +295,11 @@ fn external_writer_fork_progress_restores_the_previous_view() {
 fn external_writer_notice_uses_current_transcript_shortcut() {
     kit::pending(
         Owner::ChatLive,
-        "no external-writer notice on the chat screen, and no keymap seed: the transcript key label comes from the app's open_transcript binding, which the port reads from no config yet",
+        "no external-writer notice on the chat screen: the seed exists (.foreign_writer(thread) with .keymap(..)); the notice and its transcript key label are not drawn",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
+        .foreign_writer("thread-foreign")
         .live()
         .keymap(&[("app.open_transcript", "ctrl+k")])
         .open();

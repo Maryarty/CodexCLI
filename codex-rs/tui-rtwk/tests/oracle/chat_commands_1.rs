@@ -6,6 +6,10 @@
 
 use crate::kit::{self, Owner, Screen};
 
+const SESSION: &str = include_str!("fixtures/chat_commands_2/session.jsonl");
+const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
+const INTERRUPTED: &str = include_str!("fixtures/chat_commands_2/interrupted.jsonl");
+const COMPLETED: &str = include_str!("fixtures/chat_commands_1/completed.jsonl");
 /// A thread its parent controls: the server says it takes no direct input (`set_parent_owned_thread`).
 const PARENT_OWNED: &str = include_str!("fixtures/chat_commands_3/parent_owned.jsonl");
 
@@ -34,27 +38,31 @@ fn reconnect_queues_enter_and_resumes_ordinary_next_turn_submission() {
 // ORACLE chatwidget/tests/composer_submission.rs:76 composer_submission_sends_once_and_requests_latest kind=ui owner=chat-nav-pane
 #[test]
 fn composer_submission_sends_once_and_requests_latest() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "kit gap: the sent UserTurn and the FollowTranscript event are not reachable (no probe of sent ops); the composer after Enter has no row literal in the oracle",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SESSION)
+        .open();
     s.type_text("**send once**");
     s.keys("enter");
+    // One user turn, with the typed text literal; the draft is empty. The
+    // oracle's FollowTranscript event is page scroll state here: the prompt
+    // is on screen, at the bottom.
+    s.assert_turn_texts(&["**send once**"]);
+    s.assert_composer("");
     s.assert_contains("send once");
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:147 hidden_shell_paste_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "kit gap: the literal UserTurn text the Enter sends is not reachable (no probe of sent ops); the composer's paste placeholder is written below",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SESSION)
+        .open();
     s.paste(&hidden_shell_payload());
-    s.assert_contains("[Pasted Content 1006 chars]");
+    s.assert_composer("[Pasted Content 1006 chars]");
     s.keys("enter");
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:158 hidden_shell_paste_recalled_from_history_submits_literal_prompt kind=ui owner=chat-nav-pane
@@ -62,15 +70,20 @@ fn hidden_shell_paste_submits_literal_prompt() {
 fn hidden_shell_paste_recalled_from_history_submits_literal_prompt() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a finished turn (turn-1 started, then completed) before the Up recall; the sent op is not reachable by the kit",
+        "screen feature (composer history): Up recalls the payload as the plain text `!echo xxx...` (the oracle's history keeps the large-paste placeholder and its pending paste), and Enter on it sends no turn; the kit reads the sent turns (`assert_turn_texts`)",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SESSION)
+        .open();
     s.paste(&hidden_shell_payload());
     s.keys("enter");
-    // The oracle completes turn-1 here, then recalls the payload with Up.
-    s.keys("up");
-    s.assert_contains("[Pasted Content 1006 chars]");
-    s.keys("enter");
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
+    // turn-1 starts and completes, then Up recalls the payload and Enter sends it again
+    s.feed(RUNNING);
+    s.feed(COMPLETED);
+    s.keys("up enter");
+    s.assert_turn_texts(&[&hidden_shell_payload(), &hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:174 hidden_shell_paste_queued_during_turn_submits_literal_prompt kind=snap owner=chat-nav-pane snap=hidden_shell_paste_queued_preview
@@ -93,29 +106,33 @@ fn hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:195 hidden_shell_paste_restored_by_queue_edit_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_restored_by_queue_edit_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a running turn with the paste queued (turn-1 started); the sent op is not reachable by the kit",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     s.paste(&hidden_shell_payload());
-    s.assert_contains("[Pasted Content 1006 chars]");
+    s.assert_composer("[Pasted Content 1006 chars]");
+    // Tab queues it behind the running turn, alt+up takes it back, Enter queues it again
     s.keys("tab alt+up enter");
+    s.assert_no_turn();
+    s.feed(COMPLETED);
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:211 hidden_shell_paste_restored_by_interrupt_submits_literal_prompt kind=ui owner=chat-nav-pane
 #[test]
 fn hidden_shell_paste_restored_by_interrupt_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a running turn the server interrupts (on_interrupted_turn, a notification, not a key); the sent op is not reachable by the kit",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     s.paste(&hidden_shell_payload());
-    s.assert_contains("[Pasted Content 1006 chars]");
+    s.assert_composer("[Pasted Content 1006 chars]");
     s.keys("tab");
-    // The oracle delivers the interrupted-turn notification here, then Enter.
+    // the server interrupts the turn; the queued prompt comes back to the composer
+    s.feed(INTERRUPTED);
     s.keys("enter");
+    s.assert_turn_texts(&[&hidden_shell_payload()]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:225 hidden_shell_paste_restored_after_image_rejection_submits_literal_prompt kind=ui owner=chat-nav-pane
@@ -153,16 +170,22 @@ fn hidden_shell_paste_restored_after_unavailable_model_submits_literal_prompt() 
 fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a running turn with an unavailable model and an earlier prompt in history (ctrl+r recall); the sent op is not reachable by the kit",
+        "no seed for an unavailable model (set_model(\"\")) and no earlier prompt in the history (record_replayed_user_message_history) for the ctrl+r recall; the sent text is read by `assert_turn_texts`",
     );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     s.paste(&hidden_shell_payload());
     s.assert_contains("[Pasted Content 1006 chars]");
     s.keys("tab");
     s.paste(&format!("draft {}", "y".repeat(1000)));
     s.keys("ctrl+r");
     s.type_text("e");
+    s.feed(COMPLETED);
     s.keys("esc enter");
+    let draft = "y".repeat(1000);
+    s.assert_turn_texts(&[&format!("{}\ndraft {draft}", hidden_shell_payload())]);
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:289 hidden_shell_paste_queued_before_session_submits_literal_prompt kind=ui owner=chat-nav-pane

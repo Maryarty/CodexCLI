@@ -147,20 +147,23 @@ fn user_history_cell_renders_remote_image_urls() {
 fn user_image_labels_follow_the_painted_prompt_surface() {
     kit::pending(
         Owner::ChatLive,
-        "no seed for the terminal default colours (the oracle paints the cell on three fg/bg palettes) and the kit's frames do not read the snapshot's `(r, g, b): Buffer {` labels; the kit is not this slice's",
+        "screen feature (user cell): the kit seeds the three palettes (`terminal_colors`) and reads the `(r, g, b): Buffer {` frames; the oracle paints the cell alone at 32x5, the chat at that size shows its Working row and the empty composer (`Ask Codex to do anything`) instead of the remote image row `[Image #2]` and prompt `[Image #1] describe these`",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(32, 5)
-        .script(include_str!(
-            "fixtures/cells_5/user_image_labels_follow_the_painted_prompt_surface.jsonl"
-        ))
-        .open();
-    // First palette only (fg (30, 30, 30), bg (255, 255, 255)); the other two need the palette seed.
-    // The snapshot labels each buffer on the line above `Buffer {`; the kit frames it that way.
-    s.assert_snap_section(
-        "user_image_labels_follow_the_painted_prompt_surface",
-        "(255, 255, 255)",
-    );
+    // the oracle paints the cell on three terminal palettes (fg, bg), each a frame labelled with its bg
+    for (fg, bg, label) in [
+        (0x1e1e1e, 0xffffff, "(255, 255, 255)"),
+        (0xebebeb, 0x12141e, "(18, 20, 30)"),
+        (0x969696, 0x5f5f5f, "(95, 95, 95)"),
+    ] {
+        let s = Screen::build(Owner::ChatLive)
+            .size(32, 5)
+            .terminal_colors(fg, bg)
+            .script(include_str!(
+                "fixtures/cells_5/user_image_labels_follow_the_painted_prompt_surface.jsonl"
+            ))
+            .open();
+        s.assert_snap_section("user_image_labels_follow_the_painted_prompt_surface", label);
+    }
 }
 
 // ORACLE history_cell/tests.rs:2472 user_history_cell_summarizes_inline_data_urls kind=snap owner=chat-live snap=portable_image_raw_output

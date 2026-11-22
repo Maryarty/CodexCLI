@@ -1057,7 +1057,7 @@ fn beginning_motion_finishes_at_the_first_grapheme_after_paging() {
 fn shift_click_extends_from_the_keyboard_marks_fixed_anchor() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript select mode and the kit has no shift+click (a modifier mouse down): the keyboard mark does not extend to the clicked column",
+        "screen feature: the chat has no transcript select mode (the keyboard mark `cde` does not extend to the clicked column); the kit sends the shift+click (`shift_click`)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
@@ -1068,7 +1068,8 @@ fn shift_click_extends_from_the_keyboard_marks_fixed_anchor() {
     s.keys("leader [");
     s.keys("g right right v right right");
     s.assert_text_style("cde", "reversed");
-    // KIT GAP: a shift+click at column 0, row 0 is not in the kit; the step is not written
+    // a shift+click at column 0, row 0 extends from the fixed anchor
+    s.shift_click(0, 0);
     s.assert_text_style("abc", "reversed");
 }
 
@@ -1077,9 +1078,9 @@ fn shift_click_extends_from_the_keyboard_marks_fixed_anchor() {
 fn existing_mouse_selection_keeps_its_word_or_line_unit() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript select mode taking over a mouse selection, and the kit has no triple click: a line unit cannot be made by a click",
+        "screen feature: the chat has no transcript select mode taking over a mouse selection (word unit from a double click, line unit from a triple click)",
     );
-    // oracle case 1: a double click on `beta` (column 1 of `alpha beta` is in `alpha`): select mode, h, the word unit keeps `alph` marked
+    // oracle case 1: a double click on `alpha` (column 1), select mode, h: the word unit keeps `alph` marked
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
         .script(include_str!(
@@ -1090,13 +1091,14 @@ fn existing_mouse_selection_keeps_its_word_or_line_unit() {
     s.keys("leader [");
     s.keys("h");
     s.assert_text_style("alph", "reversed");
-    // oracle case 2: a triple click on `second` (KIT GAP: no triple click), then select mode and k keep the line unit `first\nsecond`
+    // oracle case 2: a triple click on `second` (row 1), select mode, k: the line unit keeps `first\nsecond`
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
         .script(include_str!(
             "fixtures/transcript_view_4/sm_mouse_line.jsonl"
         ))
         .open();
+    s.triple_click(1, 1);
     s.keys("leader [");
     s.keys("k");
     s.assert_text_style("first", "reversed");
@@ -1108,7 +1110,7 @@ fn existing_mouse_selection_keeps_its_word_or_line_unit() {
 fn passive_mouse_events_do_not_reanchor_a_reverse_line_mark() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript select mode with a reverse line mark: V marks no line, and the kit has no pointer-move event alone (only clicks, wheel and drags)",
+        "screen feature: the chat has no transcript select mode with a reverse line mark (V marks no line); the kit sends the pointer move (`pointer_move`), the wheel and the press outside the transcript",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(32, 6)
@@ -1116,7 +1118,8 @@ fn passive_mouse_events_do_not_reanchor_a_reverse_line_mark() {
         .open();
     s.keys("leader [");
     s.keys("g j V k");
-    // the passive wheel at (0,0) and a press outside the transcript at (80,80) do not move the mark; j then leaves `second` alone
+    // the passive pointer move and wheel at (0,0) and a press outside the transcript at (80,80) do not move the mark; j then leaves `second` alone
+    s.pointer_move(0, 0);
     s.wheel_down(0, 0, 1);
     s.click(80, 80);
     s.keys("j");
@@ -1207,7 +1210,7 @@ fn copy_shortcuts_clear_selection_only_after_confirmed_delivery() {
     );
     // the oracle loops over the copy keys (enter, ctrl+c, cmd+c, ctrl+shift+c, ctrl+C) x delivery (confirmed, unconfirmed) x a find open or not
     // KIT GAP: the clipboard delivery status (confirmed / unconfirmed / failed) cannot be driven by keys; the first case is written with the confirmed status
-    for key in ["enter", "ctrl+c", "cmd+c", "ctrl+shift+c", "ctrl+C"] {
+    for key in ["enter", "ctrl+c", "super+c", "ctrl+shift+c", "ctrl+C"] {
         for searching in [false, true] {
             let mut s = Screen::build(Owner::ChatLive)
                 .size(32, 3)
@@ -1231,7 +1234,7 @@ fn copy_shortcuts_clear_selection_only_after_confirmed_delivery() {
 fn command_c_ignores_release_and_copies_only_an_active_selection() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no transcript selection to copy: cmd+c with no selection draws nothing, and no key-release event or triple click exists in the kit",
+        "screen feature: the chat has no transcript selection to copy (cmd+c, a triple click selecting `selected café`, the confirmed copy clearing it); the kit sends cmd+c, its release (`key_release`) and the triple click",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(24, 3)
@@ -1240,17 +1243,18 @@ fn command_c_ignores_release_and_copies_only_an_active_selection() {
         ))
         .open();
     // no selection yet: cmd+c copies nothing and draws nothing reversed
-    s.keys("cmd+c");
+    s.keys("super+c");
     s.assert_style(0, 0, "!reversed");
-    // KIT GAP: a triple click selects `selected café`; the step is written as its nearest step (a double click)
-    s.double_click(0, 0);
-    s.assert_text_style("selected", "reversed");
-    // KIT GAP: a cmd+c release event is not in the kit; the selection stays
+    // a triple click selects the line; the release of cmd+c leaves it
+    s.triple_click(0, 0);
+    s.assert_text_style("selected café", "reversed");
+    s.key_release("super+c");
+    s.assert_text_style("selected café", "reversed");
     // cmd+c copies the selection; the confirmed copy clears it
-    s.keys("cmd+c");
+    s.keys("super+c");
     s.assert_style(0, 0, "!reversed");
     // a later cmd+c and ctrl+c with no selection draw nothing
-    s.keys("cmd+c ctrl+c");
+    s.keys("super+c ctrl+c");
     s.assert_style(0, 0, "!reversed");
 }
 
@@ -1488,17 +1492,22 @@ fn modified_arrows_end_selection_and_return_input_to_the_owner() {
 fn released_arrows_preserve_selection_and_reading_position() {
     kit::pending(
         Owner::ChatLive,
-        "the chat has no selection that a released arrow preserves: the kit has no key-release event, so the release case is not written",
+        "screen feature: the chat has no transcript selection that a released arrow preserves (a double click selecting `beta`); the kit sends the arrow release (`key_release`)",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(32, 5)
-        .script(include_str!("fixtures/transcript_view_4/sl_modified.jsonl"))
-        .open();
-    s.double_click(9, 0);
-    let before = s.shot();
-    s.assert_text_style("beta", "reversed");
-    // KIT GAP: an arrow release event (no press, a release kind) is not in the kit; the oracle's release arrows keep the selection and the position
-    s.assert_same_rows(&before);
+    for mods in ["", "shift+", "ctrl+", "alt+shift+"] {
+        for key in ["left", "right", "up", "down"] {
+            let mut s = Screen::build(Owner::ChatLive)
+                .size(32, 5)
+                .script(include_str!("fixtures/transcript_view_4/sl_modified.jsonl"))
+                .open();
+            s.double_click(9, 0);
+            let before = s.shot();
+            s.assert_text_style("beta", "reversed");
+            s.key_release(&format!("{mods}{key}"));
+            s.assert_same_rows(&before);
+            s.assert_text_style("beta", "reversed");
+        }
+    }
 }
 
 // ORACLE transcript_view/selection_tests.rs:600 loading_older_history_extends_the_snapshot_without_adopting_new_commits kind=ui owner=chat-live

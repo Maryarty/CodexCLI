@@ -93,10 +93,6 @@ fn auto_resolution_visible_countdown_snapshot() {
 // ORACLE bottom_pane/request_user_input/mod.rs:1938 auto_resolution_visible_countdown_is_red kind=ui owner=dialogs-pane
 #[test]
 fn auto_resolution_visible_countdown_is_red() {
-    kit::pending(
-        Owner::UiPane,
-        "kit: `check_style` ignores the `!` of `!fg=Red` (tests/kit/grid.rs:256 negates modifiers only), so the progress prefix reads as 'must be red' and fails; the countdown itself is red (tests/sheets/approvals.rs the_countdown_is_red)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/auto_options.jsonl"))
@@ -417,10 +413,6 @@ fn freeform_enter_with_empty_text_is_unanswered() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2982 freeform_shift_enter_inserts_newline_without_advancing kind=ui owner=dialogs-pane
 #[test]
 fn freeform_shift_enter_inserts_newline_without_advancing() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the pty kit sends no bytes for shift+enter (no kitty keyboard protocol in the pty): the behaviour is pinned by the sheet test `approvals::user_input_freeform_shift_enter_inserts_a_newline_without_advancing` (the Tester takes the kitty sequence)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))

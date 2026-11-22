@@ -536,7 +536,7 @@ fn slash_with_leading_space_submits_as_text() {
 fn shortcut_modified_input_does_not_enter_paste_bursts() {
     kit::pending(
         Owner::ChatLive,
-        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'a', SUPER+space, 'b' must render as 'ab' with no space, and SUPER/HYPER/META spaces must not start a burst",
+        "screen feature (chat-status): the oracle's footer after `ab` reads `100% context left` (ours: `← for agents · ? for shortcuts`); the typed `ab` with no space (a SUPER+space between) is equal",
     );
     // oracle snapshot shortcut_modified_space_is_not_rendered: 'a', SUPER+space, 'b' typed fast, then the flush
     let mut s = Screen::build(Owner::ChatLive).size(100, 9).live().open();
@@ -563,10 +563,6 @@ fn plain_and_shift_spaces_insert_normally() {
 // ORACLE bottom_pane/chat_composer.rs:11987 non_text_input_flushes_pending_paste_without_inserting_text kind=ui owner=chat-live
 #[test]
 fn non_text_input_flushes_pending_paste_without_inserting_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "keys() has no SUPER modifier (the kit does not enable the kitty keyboard protocol): 'ab' typed fast is held until a non-text key flushes it, with no space inserted",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'a', 'b' typed fast (the burst is pending), then SUPER+space, a non-text input
     s.type_text("ab");

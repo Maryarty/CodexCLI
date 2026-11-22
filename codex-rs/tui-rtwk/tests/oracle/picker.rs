@@ -470,10 +470,6 @@ fn snapshot_auto_visible_col_width_mode_scroll_behavior() {
 // ORACLE bottom_pane/list_selection_view.rs:3280 snapshot_auto_all_rows_col_width_mode_scroll_behavior kind=snap owner=ui-pane snap=list_selection_col_width_mode_auto_all_rows_scroll
 #[test]
 fn snapshot_auto_all_rows_col_width_mode_scroll_behavior() {
-    kit::pending(
-        Owner::UiPane,
-        "the kit cannot address the `before scroll:` and `after scroll:` frames (oracle_snap::frames reads no such header; tests/kit is not this slice's); the same rows are checked against the oracle's snapshot text in tests/sheets/select.rs",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(96, 12)
         .entry("select", "col_width_auto_all_rows")
@@ -780,7 +776,7 @@ fn shrinking_the_browser_keeps_selection_visible_without_navigation() {
 fn overflow_arrows_follow_the_painted_picker_surface() {
     kit::pending(
         Owner::UiPane,
-        "no entry with the browser list on a palette-seeded surface (the test sets the terminal default colours for the Panel and Terminal surfaces): the kit has no palette seed and the select screen has no browser",
+        "screen feature (picker): the select screen has no browser list entry; the kit seeds the terminal default colours (`terminal_colors`) for the arrow cell colours and the selected row background",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 18)

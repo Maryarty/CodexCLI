@@ -1,0 +1,2 @@
+# turn-1 completes with no message (the oracle's handle_turn_completed(chat, "turn-1", None)).
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary", "status": "completed", "error": null, "startedAt": null, "completedAt": null, "durationMs": null}}}}
