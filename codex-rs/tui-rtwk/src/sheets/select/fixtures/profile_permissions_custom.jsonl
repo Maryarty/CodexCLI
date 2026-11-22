@@ -1,0 +1,5 @@
+# Custom profiles of the server: one in use, one disabled by requirements.
+# Oracle data: chatwidget/tests/permissions.rs:505
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[{"id":":read-only"},{"id":":workspace"},{"id":":danger-full-access"},{"id":"locked-down","description":"Inspect and patch only approved workspace files."},{"id":"web-enabled","description":"Workspace profile with network access.","allowed":false}]}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"guardian":true,"profile":"locked-down","approval":"on-request","discover":true}}}

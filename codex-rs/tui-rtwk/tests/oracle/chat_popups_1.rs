@@ -371,10 +371,6 @@ fn clipped_full_access_confirmation_discloses_hidden_warning_text() {
 // ORACLE chatwidget/tests/permission_picker_tests.rs:64 permission_picker_retry_and_confirmation_follow_configured_bindings kind=ui owner=dialogs-pane
 #[test]
 fn permission_picker_retry_and_confirmation_follow_configured_bindings() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no permission profile fetch in the port (the retry after a Disconnected load), no full-access confirmation, and no keymap seed (list.accept f3, list.cancel f2)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 9)
         .live()
@@ -418,10 +414,6 @@ fn permission_shortcuts_respect_managed_mode_requirements() {
 // ORACLE chatwidget/tests/permission_shortcuts_tests.rs:152 permission_shortcuts_load_once_and_reuse_the_picker_catalog kind=ui owner=dialogs-pane
 #[test]
 fn permission_shortcuts_load_once_and_reuse_the_picker_catalog() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no permission picker with a profile fetch in the port: the visible half is the picker open after F8 and closed after Esc; the fetch events and the cached catalog are not drawn",
-    );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     let base = s.shot();
     s.keys("f8");

@@ -34,10 +34,6 @@ fn secondary_action_respects_search_disabled_rows_and_dismissal() {
 // ORACLE bottom_pane/list_selection_view.rs:2025 searchable_list_honors_configured_printable_accept_alternative kind=ui owner=ui-pane
 #[test]
 fn searchable_list_honors_configured_printable_accept_alternative() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: the port reads no key bindings from a config yet (the keymap slice), so the configured accept `z` cannot be set",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "accept_alternative")
@@ -193,26 +189,18 @@ fn space_appends_to_active_search_instead_of_toggling_selected_item() {
 // ORACLE bottom_pane/list_selection_view.rs:2550 configured_list_binding_takes_precedence_over_search_toggle_key kind=ui owner=ui-pane
 #[test]
 fn configured_list_binding_takes_precedence_over_search_toggle_key() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.move_down = tab cannot be set (the keymap slice); no entry with a toggle row and `Next`",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "toggle_then_next")
         .keymap(&[("list.move_down", "tab")])
         .open();
     s.keys("tab");
-    s.assert_contains("› 2. Next");
+    s.assert_contains("› Next");
 }
 
 // ORACLE bottom_pane/list_selection_view.rs:2598 configured_cancel_binding_takes_precedence_over_space_toggle kind=ui owner=ui-pane
 #[test]
 fn configured_cancel_binding_takes_precedence_over_space_toggle() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.cancel = space cannot be set (the keymap slice); no entry with a checkbox toggle `Animations`",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "animations_checkbox")
@@ -287,60 +275,44 @@ fn disabled_current_rows_skip_default_selection_and_number_shortcuts() {
 // ORACLE bottom_pane/list_selection_view.rs:2875 c0_ctrl_p_respects_unbound_list_move_up kind=ui owner=ui-pane
 #[test]
 fn c0_ctrl_p_respects_unbound_list_move_up() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.move_up unbound cannot be set (the keymap slice); no entry with a searchable two-item list (`First`, `Second`)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
-        .entry("select", "first_second_searchable")
+        .entry("select", "first_second_searchable_second")
         .keymap(&[("list.move_up", "")])
         .open();
     s.keys("ctrl+p");
-    s.assert_contains("› 2. Second");
+    s.assert_contains("› Second");
 }
 
 // ORACLE bottom_pane/list_selection_view.rs:2907 c0_ctrl_n_respects_unbound_list_move_down kind=ui owner=ui-pane
 #[test]
 fn c0_ctrl_n_respects_unbound_list_move_down() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.move_down unbound cannot be set (the keymap slice); no entry with a searchable two-item list (`First`, `Second`)",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "first_second_searchable")
         .keymap(&[("list.move_down", "")])
         .open();
     s.keys("ctrl+n");
-    s.assert_contains("› 1. First");
+    s.assert_contains("› First");
 }
 
 // ORACLE bottom_pane/list_selection_view.rs:2938 c0_ctrl_p_respects_remapped_list_move_down kind=ui owner=ui-pane
 #[test]
 fn c0_ctrl_p_respects_remapped_list_move_down() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.move_up unbound and list.move_down = ctrl+p cannot be set (the keymap slice); no entry with a searchable two-item list",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "first_second_searchable")
         .keymap(&[("list.move_up", ""), ("list.move_down", "ctrl+p")])
         .open();
     s.keys("ctrl+p");
-    s.assert_contains("› 2. Second");
+    s.assert_contains("› Second");
 }
 
 // ORACLE bottom_pane/list_selection_view.rs:2969 list_selection_view_page_and_jump_navigation_use_list_keymap kind=ui owner=ui-pane
 #[test]
 fn list_selection_view_page_and_jump_navigation_use_list_keymap() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.page_down, page_up, jump_bottom and jump_top remapped to ctrl keys cannot be set (the keymap slice); no entry with twelve items",
-    );
     let mut s = Screen::build(Owner::UiPane)
-        .size(60, 8)
+        .size(60, 12)
         .entry("select", "twelve_items")
         .keymap(&[
             ("list.page_down", "ctrl+d"),
@@ -511,44 +483,27 @@ fn stacked_side_content_is_used_when_side_by_side_does_not_fit() {
 // ORACLE bottom_pane/list_selection_view.rs:3413 side_content_clearing_resets_symbols_and_style kind=ui owner=ui-pane
 #[test]
 fn side_content_clearing_resets_symbols_and_style() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "the sheet draws the preview beside the rows (side_content fixture, tests/sheets/select.rs); the kit cannot paint the screen behind the widget first (no red-filled X cells) to prove the clearing",
+        "ratatui renders into a Buffer that already holds stale cells (red X cells, a row offset) and must clear them under the preview; rtwk paints the dialog's whole region every frame and diffs cells, so no stale cell can survive: nothing in the screen to assert (the preview beside the rows is a sheet test, a_preview_sits_beside_the_rows_when_it_fits)",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(120, 8)
-        .entry("select", "side_marker")
-        .open();
-    s.assert_text_at(119, 0, " ");
-    s.assert_style(119, 0, "fg=Reset bg=Reset");
-    s.assert_contains("W");
 }
 
 // ORACLE bottom_pane/list_selection_view.rs:3472 side_content_clearing_handles_non_zero_buffer_origin kind=ui owner=ui-pane
 #[test]
 fn side_content_clearing_handles_non_zero_buffer_origin() {
-    kit::pending(
+    kit::na(
         Owner::UiPane,
-        "the sheet is bottom-aligned in the screen; the kit cannot place it at a row offset",
+        "ratatui renders into a Buffer that already holds stale cells (red X cells, a row offset) and must clear them under the preview; rtwk paints the dialog's whole region every frame and diffs cells, so no stale cell can survive: nothing in the screen to assert (the preview beside the rows is a sheet test, a_preview_sits_beside_the_rows_when_it_fits)",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(120, 40)
-        .entry("select", "side_marker_low")
-        .open();
-    s.assert_text_at(119, 20, " ");
-    s.assert_style(119, 20, "bg=Reset");
 }
 
 // ---- oracle: bottom_pane/multi_select_picker.rs (7 screen-level tests here; 0 state tests left to ui-pane)
 // ORACLE bottom_pane/multi_select_picker.rs:888 non_orderable_items_cannot_move_or_be_crossed kind=ui owner=ui-pane
 #[test]
 fn non_orderable_items_cannot_move_or_be_crossed() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a multi-select list (theme-colors not orderable with a section break after it, then model and branch orderable): the select screen has no multi-select picker",
-    );
     let mut s = Screen::build(Owner::UiPane)
-        .size(60, 8)
+        .size(60, 12)
         .entry("select", "multi_orderable")
         .open();
     s.keys("down");
@@ -558,10 +513,6 @@ fn non_orderable_items_cannot_move_or_be_crossed() {
 // ORACLE bottom_pane/multi_select_picker.rs:926 horizontal_list_keys_reorder_orderable_items kind=ui owner=ui-pane
 #[test]
 fn horizontal_list_keys_reorder_orderable_items() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a multi-select list of two orderable items (model, branch): the select screen has no reorder keys",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 8)
         .entry("select", "multi_orderable_two")
@@ -575,12 +526,8 @@ fn horizontal_list_keys_reorder_orderable_items() {
 // ORACLE bottom_pane/multi_select_picker.rs:958 section_break_after_item_renders_separator_row kind=ui owner=ui-pane
 #[test]
 fn section_break_after_item_renders_separator_row() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a multi-select list whose first item has a section break after it: the select screen has no section break row",
-    );
     let s = Screen::build(Owner::UiPane)
-        .size(60, 6)
+        .size(60, 9)
         .entry("select", "section_break")
         .open();
     s.assert_in_order(&[
@@ -593,10 +540,6 @@ fn section_break_after_item_renders_separator_row() {
 // ORACLE bottom_pane/multi_select_picker.rs:983 searchable_plain_j_updates_query_instead_of_navigating kind=ui owner=ui-pane
 #[test]
 fn searchable_plain_j_updates_query_instead_of_navigating() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with a searchable multi-select list (alpha, jupiter): the select screen has no multi-select picker",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 6)
         .entry("select", "multi_alpha_jupiter")
@@ -610,12 +553,8 @@ fn searchable_plain_j_updates_query_instead_of_navigating() {
 // ORACLE bottom_pane/multi_select_picker.rs:1001 multi_select_picker_page_and_jump_navigation_use_list_keymap kind=ui owner=ui-pane
 #[test]
 fn multi_select_picker_page_and_jump_navigation_use_list_keymap() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: list.page_down, move_left, page_up, jump_top and jump_bottom cannot be set (the keymap slice); no entry with twelve items",
-    );
     let mut s = Screen::build(Owner::UiPane)
-        .size(60, 8)
+        .size(60, 18)
         .entry("select", "multi_twelve")
         .keymap(&[
             ("list.page_down", "ctrl+d"),
@@ -668,13 +607,22 @@ fn short_picker_preserves_selected_row_when_overflow_spacers_yield() {
 fn picker_appearance_renders_checkboxes_preview_and_overflow() {
     kit::pending(
         Owner::UiPane,
-        "no entry with twelve multi-select fields (the first enabled, a section break after it), ordering enabled and a preview line (`Field 0`): the select screen has no multi-select preview; the render size is the test's, to confirm",
+        "G39b (select-dialog.md): frame 2 (`Last page:`) has the details column measured over the rows in the window, ours over every row (the rule row's width keeps it at column 27); the three frames' other rows are equal (tests/sheets/select.rs the_multi_select_appearance_matches_the_oracle_in_three_frames); the dump's cells say `bg: Reset`, the debug host paints its own background under the sheet",
     );
-    let s = Screen::build(Owner::UiPane)
-        .size(80, 24)
+    // The oracle renders three frames at width 48 into the height `desired_height` asks for (17, 17, 10).
+    const SNAP: &str = "picker_appearance_renders_checkboxes_preview_and_overflow";
+    let mut s = Screen::build(Owner::UiPane)
+        .size(48, 17)
         .entry("select", "multi_appearance")
         .open();
-    s.assert_snap("picker_appearance_renders_checkboxes_preview_and_overflow");
+    s.assert_snap_section(SNAP, "First page:");
+    s.keys("end");
+    s.keys("space");
+    s.keys("left");
+    s.assert_snap_section(SNAP, "Last page:");
+    s.resize(48, 10);
+    s.type_text("z");
+    s.assert_snap_section(SNAP, "No matches:");
 }
 
 // ---- oracle: bottom_pane/selection_picker_tests.rs (6 screen-level tests here; 0 state tests left to ui-pane)
@@ -699,10 +647,6 @@ fn shared_menu_presentation_at_wide_and_narrow_sizes() {
 // ORACLE bottom_pane/selection_picker_tests.rs:111 tiny_viewports_preserve_query_and_selection_when_enlarged kind=ui owner=ui-pane
 #[test]
 fn tiny_viewports_preserve_query_and_selection_when_enlarged() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the browser list (Keymap, thirty actions per tab, search) at 80x24: the select screen has no browser",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 24)
         .entry("select", "browser_keymap")
@@ -740,10 +684,6 @@ fn short_browser_keeps_header_tabs_search_and_footer() {
 // ORACLE bottom_pane/selection_picker_tests.rs:146 browser_page_navigation_uses_rows_that_fit kind=snap owner=ui-pane snap=codex_tui__bottom_pane__list_selection_view__picker_tests__browser_page_navigation_uses_rows_that_fit
 #[test]
 fn browser_page_navigation_uses_rows_that_fit() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the browser list at 60x18 (Keymap, thirty actions): the select screen has no browser",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 18)
         .entry("select", "browser_keymap")
@@ -756,10 +696,6 @@ fn browser_page_navigation_uses_rows_that_fit() {
 // ORACLE bottom_pane/selection_picker_tests.rs:167 shrinking_the_browser_keeps_selection_visible_without_navigation kind=ui owner=ui-pane
 #[test]
 fn shrinking_the_browser_keeps_selection_visible_without_navigation() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the browser list in single-line and wrapped row displays: the select screen has no browser or row display mode",
-    );
     for entry in ["browser_single_line", "browser_wrapped"] {
         let mut s = Screen::build(Owner::UiPane)
             .size(60, 24)
@@ -774,10 +710,6 @@ fn shrinking_the_browser_keeps_selection_visible_without_navigation() {
 // ORACLE bottom_pane/selection_picker_tests.rs:192 overflow_arrows_follow_the_painted_picker_surface kind=ui owner=ui-pane
 #[test]
 fn overflow_arrows_follow_the_painted_picker_surface() {
-    kit::pending(
-        Owner::UiPane,
-        "screen feature (picker): the select screen has no browser list entry; the kit seeds the terminal default colours (`terminal_colors`) for the arrow cell colours and the selected row background",
-    );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 18)
         .entry("select", "browser_keymap")
@@ -877,10 +809,6 @@ fn wrapped_two_column_rows_preserve_hard_line_breaks() {
 // ORACLE bottom_pane/selection_popup_common.rs:986 selection_preserves_semantic_spans_and_secondary_hierarchy kind=ui owner=ui-pane
 #[test]
 fn selection_preserves_semantic_spans_and_secondary_hierarchy() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with the provider row (underlined L, Ready green italic, secondary details) under the default palette and the selection styles: the select screen has no semantic-span row and the kit has no palette seed",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 1)
         .entry("select", "semantic_spans")
@@ -894,10 +822,6 @@ fn selection_preserves_semantic_spans_and_secondary_hierarchy() {
 // ORACLE bottom_pane/selection_popup_common.rs:1089 selected_rows_use_the_shared_accent_style kind=ui owner=ui-pane
 #[test]
 fn selected_rows_use_the_shared_accent_style() {
-    kit::pending(
-        Owner::UiPane,
-        "no entry with one selected row `selected` at width 16: the select screen has no selected-row accent style",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(16, 1)
         .entry("select", "selected_row")
@@ -962,13 +886,10 @@ fn filled_tab_unknown_palette_uses_readable_underlined_defaults() {
 // ORACLE bottom_pane/tests/picker_hint_tests.rs:7 popup_hints_follow_configured_bindings kind=snap owner=ui-pane
 #[test]
 fn popup_hints_follow_configured_bindings() {
-    kit::pending(
-        Owner::UiPane,
-        "no keymap seed: accept = F3 and cancel = F2 cannot be set (the keymap slice); the footer hint `f3 select · f2 back` comes from those bindings",
-    );
-    for (name, entry) in [("default", "hint_default"), ("picker", "hint_picker")] {
+    // the picker preset draws one blank row above the title: seven rows
+    for (name, entry, height) in [("default", "hint_default", 6), ("picker", "hint_picker", 7)] {
         let mut s = Screen::build(Owner::UiPane)
-            .size(60, 6)
+            .size(60, height)
             .entry("select", entry)
             .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
             .open();

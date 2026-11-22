@@ -341,7 +341,7 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
                 Outcome::Notice(Notice::ModelStartup)
             }
         }
-        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions => {
+        Presets | AutoReview | Archive | Delete | Daemon | Review | Permissions | Apps => {
             open(Target::Select, command, "")
         }
         Skills | Config | Theme | Title | Statusline | Experimental | Memories | Keymap | Tui => {
@@ -390,7 +390,6 @@ fn dispatch_bare(command: SlashCommand, cx: &DispatchCx) -> Outcome {
         ),
         Pwd => session(command, SessionIntent::Pwd),
         Mcp => session(command, SessionIntent::Mcp { args: None }),
-        Apps => session(command, SessionIntent::Apps),
         Plugins => session(command, SessionIntent::Plugins),
         Logout => session(command, SessionIntent::Logout),
         Vim => session(command, SessionIntent::Vim),

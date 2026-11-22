@@ -25,6 +25,153 @@ fn snapshot_model_picker_width_80() {
     );
 }
 
+const CHATWIDGET: &str = "chatwidget/snapshots/codex_tui__chatwidget__tests__";
+
+fn snap(name: &str) -> String {
+    format!("{CHATWIDGET}{name}.snap")
+}
+
+/// The rows of the three menus of the `/model` family the oracle snapshots.
+#[test]
+fn the_quick_menu_is_the_oracle_s_refreshed_auto_menu() {
+    let h = open(80, "models_quick");
+    assert_rows(&h.t.screen(), &snap("model_picker_refreshes_auto_models"));
+}
+
+#[test]
+fn the_reasoning_menu_is_the_oracle_s() {
+    let h = open(80, "model_reasoning");
+    assert_rows(&h.t.screen(), &snap("model_reasoning_selection_popup"));
+}
+
+#[test]
+fn the_advanced_menu_is_the_oracle_s() {
+    let h = open(80, "model_advanced");
+    assert_rows(
+        &h.t.screen(),
+        &snap("model_advanced_reasoning_selection_popup"),
+    );
+}
+
+#[test]
+fn the_catalog_is_loading() {
+    let h = open(80, "model_loading");
+    let screen = h.t.screen();
+    assert!(screen.contains("Loading models…"), "{screen}");
+}
+
+#[test]
+fn the_plan_scope_prompt_names_the_reasoning_and_the_default_it_replaces() {
+    let h = open(100, "model_plan_scope");
+    let screen = h.t.screen();
+    for text in [
+        "Apply reasoning change",
+        "Choose where to apply high reasoning.",
+        "1. Apply to Plan mode override",
+        "Always use high reasoning in Plan mode",
+        "2. Apply to global default and Plan mode override",
+        "mode override, replacing the current built-in",
+        "Plan default (medium)",
+    ] {
+        assert!(screen.contains(text), "{text:?} not on\n{screen}");
+    }
+}
+
+#[test]
+fn enter_on_a_model_with_efforts_opens_its_reasoning_menu_and_esc_comes_back() {
+    let mut h = open(100, "model_picker");
+    let chosen = rows(&h)
+        .into_iter()
+        .find(|row| row.contains('›'))
+        .expect("a cursor row");
+    h.press("enter");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Select Reasoning Level for gpt-5.1-codex"),
+        "{screen}"
+    );
+    h.press("esc");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(screen.contains("Select Model and Effort"), "{screen}");
+    assert!(!screen.contains("Select Reasoning Level"), "{screen}");
+    // the parent keeps its highlight: the row that opened the menu above it
+    let back = rows(&h)
+        .into_iter()
+        .find(|row| row.contains('›'))
+        .expect("a cursor row");
+    assert_eq!(back, chosen, "{screen}");
+    // The second Esc leaves the picker.
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_high_effort_of_a_codex_model_warns_while_highlighted() {
+    let mut h = open(100, "model_picker");
+    h.press("enter");
+    h.t.pump_for(ms(300));
+    assert!(
+        !h.t.screen().contains("Plus plan rate limits"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen()
+            .contains("⚠ High reasoning effort can quickly consume Plus plan rate limits"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_model_row_with_the_session_key_says_so_in_the_footer() {
+    let mut h = open(100, "model_picker");
+    h.press("down");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen()
+            .contains("enter default · s session · esc back"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_tap_on_a_model_with_efforts_opens_its_reasoning_menu() {
+    let mut h = open(100, "model_picker");
+    let (x, y) = cell_of(&h, "gpt-5.1-codex (current)");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Select Reasoning Level for gpt-5.1-codex"),
+        "{screen}"
+    );
+    // A tap on an effort picks it: the whole stack closes.
+    let (x, y) = cell_of(&h, "Medium (default)");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Reasoning Level"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
 #[test]
 fn approvals_selection_popup_snapshot() {
     let h = open(80, "permissions_menu");
@@ -50,7 +197,7 @@ fn enter_picks_the_highlighted_row_and_closes() {
 #[test]
 fn a_number_key_picks_its_row() {
     let mut h = open(100, "permissions_menu");
-    h.press("2");
+    h.press("1");
     h.t.pump_for(ms(800));
     assert!(
         !h.t.screen().contains("Update Model Permissions"),
@@ -672,6 +819,93 @@ fn the_multi_select_yields_its_spacers_before_the_selected_row() {
     }
 }
 
+/// `multi_select_picker.rs` `picker_appearance_renders_checkboxes_preview_and_overflow`: the three
+/// frames of the oracle's snapshot (rows only: the dump's cell styles say `bg: Reset`, the debug host
+/// under the sheet paints its own background), each at the height the oracle drew it in. The rule row
+/// is a disabled row of its own that sizes the label column (`SECTION_BREAK_ROW`), so the details
+/// start at column 27. The oracle measures that column over the rows in the window (AutoVisible):
+/// once the rule scrolls out (frame 2) its details sit at column 17 there; ours keeps column 27, the
+/// open G39b (the rows below are ours, equal to the oracle's but for those spaces).
+#[test]
+fn the_multi_select_appearance_matches_the_oracle_in_three_frames() {
+    let mut h = sized(48, 17, "multi_appearance");
+    assert_eq!(
+        rows_of(&h),
+        [
+            "",
+            "  Status line",
+            "",
+            "  Type to search",
+            "",
+            "› [x] Field 0              Status detail",
+            "  ───────────────────────",
+            "  [ ] Field 1              Status detail",
+            "  [ ] Field 2              Status detail",
+            "  [ ] Field 3              Status detail",
+            "  [ ] Field 4              Status detail",
+            "  [ ] Field 5              Status detail",
+            "  [ ] Field 6              Status detail",
+            "↓",
+            "  Field 0",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "First page"
+    );
+    for key in ["end", "space", "left"] {
+        h.press(key);
+        h.t.pump_for(ms(100));
+    }
+    assert_eq!(
+        rows_of(&h),
+        [
+            "",
+            "  Status line",
+            "",
+            "  Type to search",
+            "↑",
+            "  [ ] Field 4              Status detail",
+            "  [ ] Field 5              Status detail",
+            "  [ ] Field 6              Status detail",
+            "  [ ] Field 7              Status detail",
+            "  [ ] Field 8              Status detail",
+            "  [ ] Field 9              Status detail",
+            "› [x] Field 11             Status detail",
+            "  [ ] Field 10             Status detail",
+            "",
+            "  Field 0 · Field 11",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "Last page"
+    );
+    h.press("z");
+    h.t.pump_for(ms(100));
+    // the sheet is as tall as its rows (10): the debug page shows around it
+    let shown = rows_of(&h);
+    let top = shown
+        .iter()
+        .position(|row| row == "  Status line")
+        .unwrap_or(1)
+        - 1;
+    assert_eq!(
+        shown[top..top + 10],
+        [
+            "",
+            "  Status line",
+            "",
+            "  z",
+            "",
+            "no matches",
+            "",
+            "  Field 0 · Field 11",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "No matches"
+    );
+}
+
 const BROWSER_PAGE: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__browser_page_navigation_uses_rows_that_fit.snap";
 
 #[test]
@@ -996,4 +1230,209 @@ fn the_shared_menu_matches_the_oracle_at_both_sizes() {
             "{width}x{height}:\n{screen}"
         );
     }
+}
+
+// ---- the /permissions family (chatwidget/permission_popups.rs, permissions_menu.rs,
+// permission_discovery.rs): the rows of the oracle's snapshots, the keys and the taps.
+
+#[test]
+fn the_profile_menus_are_the_oracle_s_at_80_columns() {
+    for (entry, name) in [
+        ("profile_permissions", "profile_permissions_selection_popup"),
+        (
+            "profile_permissions_disallowed_full_access",
+            "profile_permissions_selection_popup_with_disallowed_full_access",
+        ),
+        (
+            "profile_permissions_custom",
+            "profile_permissions_selection_popup_with_custom_profiles",
+        ),
+        (
+            "permission_discovery_loading",
+            "permission_discovery_loading",
+        ),
+        (
+            "permission_discovery_failure",
+            "permission_discovery_failure",
+        ),
+    ] {
+        let h = open(80, entry);
+        assert_rows(&h.t.screen(), &snap(name));
+    }
+}
+
+#[test]
+fn the_remote_catalog_disables_what_the_requirements_leave_out_at_110_columns() {
+    let h = open(110, "permission_discovery_remote");
+    assert_rows(&h.t.screen(), &snap("permission_discovery_remote"));
+}
+
+#[test]
+fn an_empty_catalog_keeps_only_the_active_profile_at_100_columns() {
+    let h = open(100, "permission_discovery_empty");
+    assert_rows(&h.t.screen(), &snap("permission_discovery_empty"));
+}
+
+#[test]
+fn approve_for_me_in_use_is_marked_at_120_columns() {
+    let h = open(120, "permissions_unnamed_server_profile");
+    assert_rows(&h.t.screen(), &snap("permissions_unnamed_server_profile"));
+}
+
+#[test]
+fn a_preset_the_config_forbids_shows_the_configs_reason_and_is_skipped() {
+    let mut h = open(80, "permissions_constrained");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Full Access (disabled)")
+            && screen.contains("(disabled: this message should be printed in the"),
+        "{screen}"
+    );
+    // Ten Downs: the cursor never lands on the disabled row, and Enter
+    // still picks the enabled one: the menu closes.
+    for _ in 0..10 {
+        h.press("down");
+    }
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// Full access asks first: the second row opens the confirmation, `Cancel`
+/// opens the menu again and Esc closes.
+#[test]
+fn full_access_asks_before_it_applies() {
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    for text in [
+        "Enable full access?",
+        "When Codex runs with full access, it can edit any file on your computer",
+        "1. Yes, continue anyway",
+        "Apply full access for this session",
+        "2. Cancel",
+    ] {
+        assert!(screen.contains(text), "{text}\n{screen}");
+    }
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Update Model Permissions") && !screen.contains("Enable full access?"),
+        "{screen}"
+    );
+    h.press("2");
+    h.t.pump_for(ms(300));
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Enable full access?")
+            && !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn continuing_the_confirmation_closes_the_dialog() {
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Enable full access?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_cyber_model_s_confirmation_recommends_what_is_available() {
+    let h = open(120, "permissions_cyber_full_access");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Cyber models carry a higher risk of dangerous actions.")
+            && screen.contains("We strongly recommend selecting \"Approve for me\" instead"),
+        "{screen}"
+    );
+}
+
+/// ADR-011: a tap on Retry asks for the catalog again (the menu is the
+/// loading row until the answer), a tap on a disabled row does nothing.
+#[test]
+fn a_tap_on_retry_asks_again_and_a_tap_on_a_disabled_row_does_nothing() {
+    let mut h = open(80, "permission_discovery_failure");
+    let (x, y) = cell_of(&h, "Retry");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Update Model Permissions") && !screen.contains("Failed to load"),
+        "{screen}"
+    );
+    let mut h = open(110, "permission_discovery_remote");
+    let (x, y) = cell_of(&h, "Approve for me");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    assert!(
+        h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: a tap on a profile of the server picks it and closes the dialog;
+/// a tap on Full Access opens the confirmation.
+#[test]
+fn a_tap_on_a_profile_picks_it_and_a_tap_on_full_access_asks() {
+    let mut h = open(80, "profile_permissions_custom");
+    let (x, y) = cell_of(&h, "locked-down");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+    let mut h = open(80, "profile_permissions_custom");
+    let (x, y) = cell_of(&h, "Full Access");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    assert!(
+        h.t.screen().contains("Enable full access?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// `open_full_access_confirmation`: the header is a paragraph, the title bold,
+/// the sentence about the risk plain and the caution in red, not the dim
+/// subtitle of the other menus; a cyber model's warning is red on its first
+/// sentence.
+#[test]
+fn the_confirmation_header_is_bold_then_plain_then_red() {
+    use rtwk_core::style::Attrs;
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let (x, y) = find(&h, "Enable full access?");
+    assert!(h.t.cell(x, y).attrs.intersects(Attrs::BOLD));
+    let (body, by) = find(&h, "When Codex runs");
+    assert!(!h.t.cell(body, by).attrs.intersects(Attrs::DIM));
+    let (caution, cy) = find(&h, "Exercise caution");
+    let red = h.t.cell(caution, cy).fg;
+    assert_ne!(red, rtwk_core::style::Color::DEFAULT);
+    assert_ne!(red, h.t.cell(body, by).fg);
+
+    let h = open(120, "permissions_cyber_full_access");
+    let (risk, ry) = find(&h, "Cyber models carry");
+    let (plain, py) = find(&h, "Ensure proper safeguards");
+    assert_ne!(h.t.cell(risk, ry).fg, h.t.cell(plain, py).fg);
+    assert_eq!(h.t.cell(risk, ry).fg, red);
 }

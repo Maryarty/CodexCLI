@@ -1,0 +1,352 @@
+//! The RPCs of the select screen (S14) the app sends and reads: `model/list`
+//! for `/model`, and `configRequirements/read` followed by the pages of
+//! `permissionProfile/list` for `/permissions`. The screen's model decides
+//! what to ask (`Catalog::pending`, `Profiles::pending`: the request an
+//! answer must belong to); the app gives each a ticket, sends it as a screen
+//! command with no thread and turns the answer into the screen's events.
+
+use std::rc::Rc;
+
+use super::{AppCtx, AppFx, CodexApp, Command};
+use crate::ids::ThreadId;
+use crate::rpc::{Answer, RpcError};
+use crate::screens::select::{self, apps, permissions};
+use crate::screens::{ScreenCommand, ScreenReply};
+
+/// An intent of the select screen, and the asks it left open.
+pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx) {
+    let screens = Rc::make_mut(&mut app.screens);
+    let before = (
+        screens.select.catalog.pending,
+        screens.select.profiles.pending,
+    );
+    let apps = screens.select.apps.pending;
+    select::apply_intent(&mut screens.select, intent, fx);
+    let after = (
+        screens.select.catalog.pending,
+        screens.select.profiles.pending,
+    );
+    asked_apps(app, apps, fx);
+    if let Some(request) = after.0.filter(|_| after.0 != before.0) {
+        ask(
+            app,
+            select::Command::Models { request },
+            select::Ctx::Models { request },
+            fx,
+        );
+    }
+    if let Some(request) = after.1.filter(|_| after.1 != before.1) {
+        ask(
+            app,
+            select::Command::Requirements { request },
+            select::Ctx::Requirements { request },
+            fx,
+        );
+    }
+    picks(app, fx);
+}
+
+/// The picks the screen holds, applied: the thread's settings change for its
+/// next turns, a default pick is saved, and the history line follows what the
+/// server accepted (`select_session_model`, `persist_default_model_selection`,
+/// `apply_permission_profile_selection`).
+fn picks(app: &mut CodexApp, fx: &mut AppFx) {
+    use select::Picked::{Permissions, Selection};
+    let ours = |pick: &select::Picked| matches!(pick, Selection(_) | Permissions(_));
+    if !app.screens.select.picked.iter().any(ours) {
+        return;
+    }
+    // The picks of the generic lists and the confirmations belong to the
+    // screens that opened them: they stay.
+    let mut picked = Vec::new();
+    Rc::make_mut(&mut app.screens).select.picked.retain(|pick| {
+        if ours(pick) {
+            picked.push(pick.clone());
+            false
+        } else {
+            true
+        }
+    });
+    for pick in picked {
+        match pick {
+            Selection(selection) => model_pick(app, selection, fx),
+            Permissions(selection) => permissions_pick(app, selection, fx),
+            _ => {}
+        }
+    }
+}
+
+/// An event of the select screen, and the `app/list` it left to ask (a final
+/// answer may start the refresh a notification or a forced ask waited for;
+/// the app server's directory notification comes through here too).
+pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
+    let before = app.screens.select.apps.pending;
+    select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
+    asked_apps(app, before, fx);
+}
+
+/// The `app/list` the screen left pending since `before`, asked for.
+fn asked_apps(app: &mut CodexApp, before: Option<apps::Request>, fx: &mut AppFx) {
+    let Some(pending) = app
+        .screens
+        .select
+        .apps
+        .pending
+        .filter(|now| Some(*now) != before)
+    else {
+        return;
+    };
+    let thread = app.session.active.as_ref().map(ToString::to_string);
+    ask(
+        app,
+        select::Command::Apps {
+            request: pending.request,
+            force: pending.force,
+            thread,
+        },
+        select::Ctx::Apps {
+            request: pending.request,
+        },
+        fx,
+    );
+}
+
+fn notes(app: &mut CodexApp, notes: impl IntoIterator<Item = select::Note>) {
+    Rc::make_mut(&mut app.screens).select.notes.extend(notes);
+}
+
+fn settings(
+    app: &mut CodexApp,
+    patch: crate::threads::SettingsPatch,
+    setting: select::Setting,
+    fx: &mut AppFx,
+) -> bool {
+    let Some(thread) = app.session.active.as_ref().map(ToString::to_string) else {
+        return false;
+    };
+    ask(
+        app,
+        select::Command::Settings { thread, patch },
+        select::Ctx::Settings { setting },
+        fx,
+    );
+    true
+}
+
+fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) {
+    use select::models::Apply;
+    let effects = select::persist::effects(&selection);
+    if let Some(threads) = selection.warning {
+        notes(app, [select::Note::UltraConcurrency(threads)]);
+    }
+    let session = selection.apply == Apply::Session;
+    let line = select::Note::ModelChanged {
+        model: selection.model.clone(),
+        effort: selection.effort.clone(),
+        session,
+    };
+    if let Some(patch) = effects.patch {
+        settings(app, patch, select::Setting::Model, fx);
+    }
+    if effects.edits.is_empty() {
+        // Plan mode only saves a key and says nothing of the model.
+        if session {
+            notes(app, [line]);
+        }
+        return;
+    }
+    let setting = if selection.apply == Apply::PlanOnly {
+        select::Setting::PlanEffort
+    } else {
+        select::Setting::Model
+    };
+    let then = (selection.apply != Apply::PlanOnly).then_some(line);
+    ask(
+        app,
+        select::Command::Write {
+            edits: effects.edits,
+        },
+        select::Ctx::Write { setting, then },
+        fx,
+    );
+}
+
+fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &mut AppFx) {
+    let label = match &selection {
+        permissions::Selection::Preset { preset, reviewer } => permissions::Label::Mode {
+            preset: *preset,
+            reviewer: *reviewer,
+        },
+        permissions::Selection::Profile { label, .. } => label.clone(),
+    };
+    let patch = select::persist::permissions_patch(&selection);
+    // Without a thread the legacy list has nothing to update: the oracle's
+    // config is the host's, and its line is still said.
+    settings(app, patch, select::Setting::Permissions, fx);
+    notes(app, [select::Note::PermissionsUpdated(label)]);
+}
+
+fn ask(app: &mut CodexApp, command: select::Command, ctx: select::Ctx, fx: &mut AppFx) {
+    let ticket = app.mint.next();
+    app.outgoing.insert(ticket, AppCtx::Select(ctx));
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Select(command),
+    });
+}
+
+fn failure(error: RpcError) -> permissions::Failure {
+    match error {
+        RpcError::Remote(text) | RpcError::Malformed(text) => permissions::Failure::Other(text),
+        RpcError::Mismatch => permissions::Failure::Other(String::new()),
+    }
+}
+
+fn text(error: RpcError) -> String {
+    match failure(error) {
+        permissions::Failure::Other(text) => text,
+        _ => String::new(),
+    }
+}
+
+/// The answer of one of those RPCs.
+pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
+    let result = match answer {
+        Answer::Screen(ScreenReply::Select(reply)) => Ok(reply),
+        Answer::Failed(error) => Err(error),
+        _ => Err(RpcError::Mismatch),
+    };
+    let event = |app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx| {
+        select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
+    };
+    match (ctx, result) {
+        (select::Ctx::Settings { setting }, result) => {
+            if let Err(error) = result {
+                notes(
+                    app,
+                    [select::Note::SaveFailed {
+                        setting,
+                        error: text(error),
+                    }],
+                );
+            }
+        }
+        (select::Ctx::Write { setting, then }, result) => match result {
+            Ok(select::Reply::Written { overridden }) => {
+                if overridden {
+                    notes(app, [select::Note::Overridden(setting)]);
+                }
+                notes(app, then);
+            }
+            Ok(_) => {}
+            Err(error) => notes(
+                app,
+                [select::Note::SaveFailed {
+                    setting,
+                    error: text(error),
+                }],
+            ),
+        },
+        (select::Ctx::Apps { request }, result) => {
+            let result = match result {
+                Ok(select::Reply::Apps(apps)) => Ok(apps),
+                Ok(_) => Err(String::new()),
+                Err(error) => Err(text(error)),
+            };
+            self::event(app, select::Ev::AppsLoaded { request, result }, fx);
+        }
+        (select::Ctx::Models { request }, result) => {
+            let result = match result {
+                Ok(select::Reply::Models(presets)) => Ok(presets),
+                Ok(_) => Err(String::new()),
+                Err(error) => Err(text(error)),
+            };
+            event(app, select::Ev::Fetched { request, result }, fx);
+        }
+        (select::Ctx::Requirements { request }, result) => match result {
+            Ok(select::Reply::Requirements(requirements)) => {
+                let ctx = select::Ctx::Profiles {
+                    request,
+                    requirements,
+                    found: Vec::new(),
+                    pages: 0,
+                };
+                ask_page(app, ctx, None, fx);
+            }
+            Ok(_) => discovered(
+                app,
+                request,
+                Err(permissions::Failure::Other(String::new())),
+                fx,
+            ),
+            Err(error) => discovered(app, request, Err(failure(error)), fx),
+        },
+        (
+            select::Ctx::Profiles {
+                request,
+                requirements,
+                mut found,
+                pages,
+            },
+            result,
+        ) => match result {
+            Ok(select::Reply::Profiles { profiles, next }) => {
+                found.extend(profiles);
+                let pages = pages + 1;
+                match next {
+                    Some(_) if pages >= select::MAX_PAGES => {
+                        discovered(app, request, Err(permissions::Failure::Pagination), fx);
+                    }
+                    Some(cursor) => {
+                        let ctx = select::Ctx::Profiles {
+                            request,
+                            requirements,
+                            found,
+                            pages,
+                        };
+                        ask_page(app, ctx, Some(cursor), fx);
+                    }
+                    None => discovered(
+                        app,
+                        request,
+                        permissions::Discovery::new(found, requirements),
+                        fx,
+                    ),
+                }
+            }
+            Ok(_) => discovered(
+                app,
+                request,
+                Err(permissions::Failure::Other(String::new())),
+                fx,
+            ),
+            Err(error) => discovered(app, request, Err(failure(error)), fx),
+        },
+    }
+}
+
+fn ask_page(app: &mut CodexApp, ctx: select::Ctx, cursor: Option<String>, fx: &mut AppFx) {
+    let select::Ctx::Profiles { request, .. } = ctx else {
+        return;
+    };
+    let command = select::Command::Profiles {
+        request,
+        cursor,
+        cwd: None,
+    };
+    ask(app, command, ctx, fx);
+}
+
+fn discovered(
+    app: &mut CodexApp,
+    request: u64,
+    result: Result<permissions::Discovery, permissions::Failure>,
+    fx: &mut AppFx,
+) {
+    select::apply(
+        &mut Rc::make_mut(&mut app.screens).select,
+        select::Ev::Discovered { request, result },
+        fx,
+    );
+}

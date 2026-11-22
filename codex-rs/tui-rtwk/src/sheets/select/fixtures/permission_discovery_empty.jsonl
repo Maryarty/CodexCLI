@@ -1,0 +1,5 @@
+# The server lists no profile: only the active one stays, not available.
+# Oracle data: chatwidget/tests/permissions.rs:157 (permission_discovery_empty)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[]}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"profile":"current-profile","approval":"on-request","discover":true}}}

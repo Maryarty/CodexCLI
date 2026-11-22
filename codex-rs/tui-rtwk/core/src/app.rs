@@ -9,6 +9,7 @@
 pub mod effects;
 pub mod facts;
 mod notices;
+mod select;
 mod session;
 pub mod worktree;
 
@@ -456,6 +457,8 @@ enum AppCtx {
     },
     /// An RPC of an app-scoped screen (the agents command center).
     Agents(agents::Ctx),
+    /// `model/list` and the permission profiles for the pickers of S14.
+    Select(crate::screens::select::Ctx),
     RateLimits {
         backend: BackendId,
     },
@@ -1493,6 +1496,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
+            AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
                 if let Answer::RateLimits { limits, banner } = answer {
                     install_rates(app, backend, limits);
@@ -1841,8 +1845,8 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
         }
-        Intent::Screen(intent @ ScreenIntent::Select(_)) => {
-            screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx);
+        Intent::Screen(ScreenIntent::Select(intent)) => {
+            select::intent(app, intent, fx);
             confirmed(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),

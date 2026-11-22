@@ -1,0 +1,5 @@
+# The quick /model menu: an auto mode and "All models" (the model in use is not an auto mode).
+# Oracle data: chatwidget snapshot model_picker_refreshes_auto_models
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"catalog","presets":[{"model":"codex-auto-balanced","name":"GPT-5.5","description":"Auto model","default_effort":"medium","efforts":[{"effort":"medium","description":"Balanced"}]},{"model":"gpt-5.5","name":"GPT-5.5","description":"Legacy coding model.","default_effort":"medium","efforts":[{"effort":"medium","description":"Balanced"}]}]}}
+{"step":"screen","dir":"select","ev":{"kind":"models","current":{"model":"gpt-5.5"}}}
