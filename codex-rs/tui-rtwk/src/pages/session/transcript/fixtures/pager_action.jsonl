@@ -1,0 +1,3 @@
+# A static pager with an action (oracle PagerAction: provider details, Enter edits the configuration).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"transcript","ev":{"kind":"pager","title":"P R O V I D E R","text":"name: demo\nbase url: https://example.invalid","action":"edit_configuration"}}

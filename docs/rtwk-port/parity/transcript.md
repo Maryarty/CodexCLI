@@ -186,3 +186,216 @@ App-level (core/app): nothing touched.
 Selection and copy, find, copy and select modes, disclosure focus, the pager (Ctrl+T)
 stay pending in the shards with their reasons; the footer for selection and search is
 the oracle's `footer.rs` rows still to build on the same `footer()` seam.
+
+---
+
+# Chunk `chunk-transcript` (tier 2): state at the first handoff
+
+Branch `worktree-agent-a78257323a3aeb7ab`, on `claude/tui-rtwk` at cabe0b853. Step 2's
+sheet is done; step 2's /diff and steps 3-10 are not started. Nothing in the tree is red.
+
+## Done
+
+| step | what | where |
+|---|---|---|
+| 1 (part) | the 2 static snapshots live and 3 `kit::na` (ratatui renderable internals); the 18 transcript-overlay tests keep `kit::missing("the transcript sheet, step 9")` | `tests/oracle/pager.rs` |
+| 2 (sheet) | `StaticPager`: the `/ ` title row, the text from `parse_ansi` in a `SingleChildScrollView` over a `~` filler (`LayoutBuilder` + `Stack`), the rule with ` N% ` (`ListenableBuilder` over the `ScrollController`), the hint rows, the Pager keys (up/down/k/j, pgup/pgdn/space/shift+space/ctrl+b/f, ctrl+u/d half pages rounded up, home/end, q/ctrl+c close, Enter = the action when the doc has one) | `src/pages/session/transcript/pager.rs`, strings in `transcript/strings.rs` |
+| 2 (model) | the document is the model's: `transcript::Model.pager: Option<PagerDoc{title,text,action}>`, `Ev::Pager`, `Intent::ClosePager`; the fixture seed `{"kind":"pager",...}` runs through `apply` | `core/src/screens/transcript.rs` |
+| 2 (entries) | debug entries `pager_basic`, `pager_wraps_long_lines`, `pager_long`, `pager_colors`, `pager_action` | `transcript/mod.rs`, `transcript/fixtures/*.jsonl` |
+| tests | 11 page tests, the half-page rounding shown biting once: text at column 0, one-row scroll, pages, half pages, home/end, percent, wheel, q/ctrl+c close, the action key listed and bound only with an action, ANSI colours, hint clipping | `tests/pages/transcript_pager.rs` |
+
+Oracle shards after this commit (`summary.py --run`; real pass / n/a / pending):
+pager 2 / 3 / 18 (before 0 / 0 / 23), transcript_view_1 12 / 1 / 38, _2 5 / 7 / 40, _3 1 / 34 / 15,
+_4 0 / 1 / 59, _5 1 / 9 / 49 (the last five as tier 1 left them). Checks that ran: `clippy
+--all-targets -D warnings` exit 0, the 11 new page tests. Not re-run: whole nextest, `--workspace`.
+
+A `Column` centres its children across by default (Flutter's `CrossAxisAlignment.center`): the
+pager's text rows were centred in the width of the widest one until `CrossAxisAlignment::Stretch`.
+
+## Location note (for popups)
+
+The brief put the sheet in `src/sheets/pager/`; registering it needs `pub mod pager;` in
+`src/sheets/mod.rs` (chunk-popups'). It is at `src/pages/session/transcript/pager.rs`
+(`pub struct StaticPager`, a route widget: `Navigator` push, or a debug entry `EntryOpen::Route`).
+Another chunk that opens it (approvals, provider details, /diff) sends `transcript::Ev::Pager(PagerDoc)`
+through `apply`, then pushes `StaticPager`. Moving it under `sheets/` is a rename and one `mod` line.
+
+## Needs from other owners (exact)
+
+1. **chunk-live, `src/pages/session/session_page.rs`**: every keyboard behaviour of steps 3-8 needs it.
+   A `ModeKeys` wrapper (to build in `transcript/mode.rs`: a `Focus` with the mode's bindings that is not
+   handled when the controller has nothing to do) around `body`, inside the page's own `Focus`;
+   `ChatMsg::Escape` and `Action::OpenTranscript`/`FindTranscript` forward to the controller
+   (`w.ui.mode`) first; `detailed_transcript` and `esc_primed` become the controller's state. About
+   30 lines, as the brief says.
+2. **keymap, `core/src/app.rs`**: `Command::GitDiff{cwd,ticket}`, `Ev::GitDiff{ticket,Result<(bool,String),String>}`,
+   `Intent::EditPrompt{thread,nth}`; `tests/kit/seed.rs`: `history_pages`, shift/right/triple click, key release.
+3. **chunk-live, `core/src/threads.rs`** (and cells' `threads/user_prompt.rs`): the Revert command in
+   ThreadFx and the ThreadReverted apply arm; `UserPrompt` keeps local/remote images and element placeholders.
+4. **composer**: `ComposerDraft::restore(UserPrompt)`.
+5. **commands**: `/diff` -> `Command::GitDiff` (today `Target::Pager`), the owned `/copy` branch.
+
+## Left, in the brief's order
+
+- Step 2 rest, /diff end to end: the pure argv builders of `get_git_diff.rs` into
+  `core/src/screens/transcript/diff.rs` (rev-parse, fsmonitor probe, filter config, tracked diff, `ls-files
+  --others`, per-file `--no-index`); the runner in `services/shell.rs`; `Target::Pager` in `open.rs` opens
+  `StaticPager` when the doc arrives. The wiring waits on need 2; builders and runner can land first (no
+  oracle test registers `get_git_diff.rs`).
+- Step 4, selection and copy: `ItemTexts` says the text of an item equals the texts of the `Text`s it builds,
+  joined by "\n". The pane's rows are the cells' widgets (gutters are `Text`s too), so `TranscriptTexts`
+  needs a text per `Item` kind from the cells chunk, and a way to leave the gutters out of the payload.
+  Settle with chunk-cells before building: a `fn texts(&Item) -> Vec<String>` beside each cell, tested to
+  equal the rendered rows. The Markdown copy source is the brief's D2 / G-new row.
+- Steps 3 and 5-10 as in the brief §6; the seam for the key-driven ones is need 1.
+
+---
+
+# Chunk `chunk-transcript` (tier 2): state at the second handoff
+
+Rebased on `claude/tui-rtwk` 0eb53b241 (keymap steps 1-4). Steps 8 and 9 are in; steps 3-7, 10 and
+the /diff end are not. The task claim was still held by the previous subagent of this session
+("already claimed"); I worked in the same worktree as the re-grant said.
+
+## Done since the first handoff
+
+| step | what | where |
+|---|---|---|
+| 8 core | `Backtrack` (Idle / Primed / Browsing, `esc`, `begin_from_detailed`, `older`, `newer`, `confirm`, `interrupt`, `needs_history`), `Targets::of(&Transcript, older_history)`, `nth_user`, `revert_before_turn(turns, &ItemKey)` (persisted prompt with elements, images, skills, mentions), the edit's RPC pipeline in the thread slot (`ThreadPart`: read turns, resolve, `thread/revert`, await `ThreadReverted`; ADR-003: only `ThreadFx` sends) | `core/src/screens/backtrack.rs`, 19 tests in `core/tests/backtrack.rs` (`mod backtrack;` added to keymap's `core/tests/all.rs`) |
+| 9 | `TranscriptSheet{follow, modes}`: the `/ T R A N S C R I P T` title row, the chat's detailed `TranscriptPane` in an `Expanded`, the status row (`New activity · ` + `⌃space select`), the two hint rows (`render_hints`), the pager's keys over the thread's `Follow`, the wheel, `q`/`ctrl+c` close | `src/pages/session/transcript/sheet.rs` (+ `pager.rs`: `header`, `bindings`, `hint_row`, `navigation` are `pub(super)`) |
+| 9 (mode) | browsing prompts: Esc starts it, Esc ends it, Left/h and Right/l move, Enter chooses and closes; the status row becomes the first spelling of `prompt_navigation_footer` that fits (8 spellings, `LayoutBuilder` + `segmenter_of`); the hints add `→ to edit next · enter to edit message` while a prompt is marked | `sheet.rs`; the mode is `widgets/thread_ui.rs` `Modes` (Flutter's `ValueNotifier<Mode>` over core's `Backtrack`), also `Follow::jump_to_first`, `Follow::half_page` |
+| entries | `sheet_basic` (prompt + reasoning summary + 40-row answer), `sheet_prompts` (three prompts) | `transcript/mod.rs`, `transcript/fixtures/` |
+| tests | 11 page tests in `tests/pages/transcript_sheet.rs` (title row, reasoning shown, status and hint rows, scroll keys, wheel, close, Esc browse and end, the spelling at 8 widths, Enter chooses and closes, `q` while browsing); the Esc binding removed once: 4 of them failed, restored | `tests/pages/transcript_sheet.rs`, registered in `tests/pages.rs` |
+
+The sheet is its own route widget (a debug entry opens it); it takes the mode keys itself in its `Focus`.
+So no `ModeKeys` wrapper in `transcript/mode.rs` was built: need 1 of the first handoff shrinks to
+"mount `TranscriptSheet{follow: w.ui.follow, modes: w.ui.modes}` when `detailed_transcript` is on (push it
+as a route or put it in place of the body) and make `Action::OpenTranscript` toggle it". The primed Esc of
+the chat uses the same `w.ui.modes.esc(..)` / core `Backtrack::esc` (one controller per thread).
+
+## Departures
+
+- Revert by `ItemKey`, not by the oracle's ordinal recount of visible prompts through the persisted turns
+  (`backtrack_revert_before_turn_id`): a transcript item carries its server ids, so a stale ordinal cannot
+  occur. No ADR is bypassed (ADR-003 holds: the pipeline is in the thread slot, one writer).
+- The edit's mention bindings (`$skill`, `@path`) of a persisted prompt are carried as `Mention` data in
+  `Prompt`; the composer binding itself is the composer's (need 4).
+
+## Needs added
+
+6. **chunk-live (`session_page.rs`, `threads.rs`)**: mount the sheet (above); register
+   `ScreenThreadIntent::EditPrompt(Edit)` (the hand list in `core/src/screens/mod.rs`, popups' file) and call
+   `backtrack::apply_thread_intent`; the `ThreadReverted` projection; the 10 s confirmation timer
+   (`EDIT_NOT_CONFIRMED`); history re-hydration; composer restore. Enter in the sheet only closes it: the
+   `Selection{thread,nth}` that `Modes::confirm` returns is not yet sent (the sheet has no handler for it;
+   give `TranscriptSheet` an `on_edit` callback when the page mounts it).
+7. **cells / chunk-live (`transcript_pane.rs`)**: `TranscriptPane` takes the highlighted prompt
+   (`Option<ItemKey>` from `nth_user`) to mark it (`›`, reversed) and to scroll it into view
+   (`ensure_entry_visible`); today browsing changes the status row and hints only, not the list.
+8. **`NO_PREVIOUS_MESSAGE` notice**: `Esc::NoPrevious` is dropped by the sheet; the chat shows the info line.
+
+## Left (not started)
+
+- /diff end to end (`get_git_diff.rs`, 933 lines with the fsmonitor probe, filter config overrides and the
+  `WorkspaceCommandExecutor`): builders in `core/src/screens/transcript/diff.rs`, runner in `services/shell.rs`.
+- Steps 3 (disclosure focus), 5 (find), 6-7 (select/copy modes), 10; the sheet's pagination states
+  (`Earlier messages available`, `Loading earlier messages…`, `Retry history`), `ctrl+space` select.
+- The 18 `kit::missing` tests of `tests/oracle/pager.rs` keep their reason ("the transcript sheet, step 9");
+  the sheet now exists but each needs the find / select / pagination state it asserts, so none is turned on.
+
+## Checks at the second handoff (after the rebase on 0eb53b241)
+
+- `fmt --check` clean; `clippy --workspace --all-targets -D warnings` no error (only the backend pin's warnings).
+- Whole nextest: 1738 run, 1729 passed, 9 failed before the fix round below. After it the `rules` root has two
+  reds: `layers::thread_rpcs_only_in_threads` (mine, see below) and `rules::r14_widget_state_fields_hold_no_screen_model_types`
+  (`src/pages/startup/onboarding/signin/provider/gcp.rs:44`, a doc comment: not my area). Known reds
+  `shell_agents::typing_a_word_asks_the_server_once` and the `screens` `startup::session::a_remembered_mode_opens_without_a_prompt`
+  also failed in that whole run (the second is not on the known list and not in my area; not proven on the tip).
+- The failures that were mine and are fixed: prose in core (`edit_failed`, now the typed `EditError`; the three
+  prose consts are gone, `Esc::NoPrevious` says it), R13 (`before_turn: TurnId`), ADR-010 literals in the sheet
+  (`hint_gap`, `hint_joiner` from the table), R15 in `pager.rs` (the rule is `Row[Expanded(Divider), label, ─]`,
+  the header a clipped run from the table).
+- **Red left, mine: `layers::thread_rpcs_only_in_threads`**: `core/src/screens/backtrack.rs` `wire` builds
+  `ClientRequest::ThreadRead` (with turns). Fix (chunk-live, `core/src/threads.rs`): `ThreadAsk::ReadTurns{thread}`
+  and `ThreadAsk::Revert{thread, before_turn: TurnId}` with their `wire`; `backtrack::Command` becomes
+  `Command::Thread(ThreadAsk)` as `agents::Command` is, and `decode` stays here. ~15 lines; I did not touch the file.
+- Oracle shards (`summary.py`; pass / n/a / pending / red): pager 2 / 3 / 18 / 0, transcript_view_1 12 / 1 / 38 / 0,
+  _2 5 / 7 / 40 / 0, _3 1 / 34 / 15 / 0, _4 0 / 1 / 59 / 0, _5 1 / 9 / 49 / 0; `shards.py --check`: 0 files stale.
+  The sheet adds page tests, not shard passes (the pager shard's 18 need find/select/pagination, above).
+- Binary: `check.py --bin rtwk --bin oracle --only long-transcript`: PASS on both. The sheet is not reachable from
+  Ctrl+T in the binary until `session_page.rs` mounts it (need 6; Ctrl+T still toggles the inline detailed view),
+  so the walk of the sheet is the 11 page tests through the debug entries `sheet_basic` and `sheet_prompts`.
+
+# Chunk `chunk-transcript-2` (tier 2): state at the third handoff
+
+Rebased onto 225122339 (`land/live-c5`, chunk-live step 0). Commits `8a7c2d88f`, `3799188a3`, `b2e58f609` and the
+chrome commit after them; the tm checkpoint "partial ready: b2e58f609" was written before the chrome step.
+
+## Done since the second handoff
+
+- **The layers red is cleared.** `core/src/screens/backtrack.rs` `wire` goes through `ThreadAsk::ReadTurns` /
+  `ThreadAsk::Revert` (`ThreadAsk::wire`); `decode` stays here. `layers::thread_rpcs_only_in_threads` is green.
+  The two types the r14 rule tripped on were renamed earlier (`EscStep`, `DraftRestore`).
+- **The marked prompt of a browsing sheet** (second handoff need 7): `Pane{mark}` takes the selected prompt, its
+  body is reversed (`DefaultTextStyle` REVERSE) and `ListController::ensure_index_visible` scrolls it into view.
+  Three page tests (`browsing_reverses_the_body_of_the_marked_prompt_only`, `the_mark_goes_when_browsing_ends`,
+  `a_marked_prompt_out_of_view_is_scrolled_into_view`).
+- **The sheet's passive status row** (`footer_with_navigation`): away from the tail it says `end latest` (bold key,
+  dim action; the news and the hints give way to it); at the tail `⌃space select`; the history text and the news
+  go when the row is too wide (`LayoutBuilder` + `segmenter_of`, the oracle's fallbacks).
+- **The pager shard**: 5 pass / 8 n/a / 10 pending (`kit::missing`, each with its reason), from 2 / 3 / 18.
+  The 8 n/a are the inline-only rows (G1) and the oracle's own widget mechanics.
+- **`/diff` builders and runner** (`get_git_diff.rs`): `core/src/screens/transcript/diff.rs` is a pure step
+  machine (`Diff::start`, `feed`, `DiffStep::{Run, Done}`; failures typed as `diff::Failure`): `rev-parse`, the
+  fsmonitor probes (3), hooks off, filter drivers blanked through `GIT_CONFIG_*`, the tracked diff and
+  `ls-files --others` together, one `--no-index` diff per untracked file. 9 state tests in
+  `core/tests/transcript_diff.rs` take their expected argv, env and limits from the oracle's tests.
+  `services/shell.rs`: `WorkspaceExec` (one command in a directory) and `git_diff(exec, cwd)` drive the machine
+  to its end; 2 tests.
+- **Pager chrome, the person's decision (brief §7 D1)**: static pager = full chrome (title row, percent rule,
+  hints; the pager shard's 5 passes); `TranscriptSheet` takes `chrome: Chrome`: `Overlay` (title row, status row,
+  two hint rows, no percent rule: the inline `TranscriptOverlay` and the resume preview) or `Bare` (the transcript
+  alone: the owned full-screen Ctrl+T and backtrack). Entry `sheet_owned`; 3 page tests, two shown biting
+  (the `Bare` entry opened with `Overlay` fails both `the_owned_sheet_*` tests).
+
+## Needs (exact; nothing here is mine to edit)
+
+1. **chunk-live, `session_page.rs`**: Ctrl+T / Esc / F3 and the sheet mount. The owned full-screen app mounts
+   `TranscriptSheet{follow: ui.follow, modes: ui.modes, chrome: Chrome::Bare}` (the chat's own footer then names the
+   browsing keys: `prompt_navigation_footer` is chunk-status's); the resume preview mounts it with
+   `Chrome::Overlay`. An `on_edit` callback for the `Selection{thread, nth}` that `Modes::confirm` returns.
+2. **chunk-live, `threads.rs`**: the `ThreadEv::Reverted` arm forwards `backtrack::apply_thread(.., Reverted)`.
+3. **chunk-live / host, `core/src/app.rs`**: `Command::GitDiff` / `Ev::GitDiff`, `Intent::EditPrompt`; the host's
+   `WorkspaceExec` over `OneOffCommandExec`; `/diff` -> `Command::GitDiff` and the report into `Target::Pager`
+   opening `StaticPager`. The words for `diff::Failure` are the consumer's table: the oracle says
+   ``git {args:?} failed with status {status}`` for `Git`, the host's text for `Shell`.
+4. **chunk-cells**: `ItemTexts` per item (steps 4-7: find, select, copy need a text per item).
+5. **ThreadModel**: history Loading / Failed states and a feed route to a history page (the sheet's
+   `Loading earlier messages…` / `Retry history` rows have no test route).
+6. **chunk-live / composer**: the `NO_PREVIOUS_MESSAGE` notice, the 10 s `EDIT_NOT_CONFIRMED` timer, composer restore.
+
+## Left
+
+Steps 4-7 and 10 (find, select, copy, disclosure details): blocked on need 4 and on the mount (need 1); the 10
+pager `missing` rows; the sheet's news / partial / Loading / Failed rows' tests (need 5).
+
+## Rows for the lander
+
+No new rtwk-gaps row. The tm area note: `tests/pages.rs` left this task's area when chunk-composer claimed it;
+`tests/pages/transcript_sheet.rs` is registered through the root `tests/pages.rs` already.
+
+## Checks at the third handoff
+
+- `fmt --check` clean; `clippy --workspace --all-targets -D warnings` green; whole nextest 981 run, 981 passed
+  (the `screens startup::session::a_remembered_mode_opens_without_a_prompt` timing test failed once in a loaded
+  run and passes alone and in the full run: a flake, not on the known list); `shards.py --check`: 0 files stale.
+- Oracle shards (`summary.py --run`; pass / n/a / pending / red): pager 5 / 8 / 10 / 0, transcript_view_1 12 / 1 / 38 / 0,
+  _2 5 / 7 / 40 / 0, _3 1 / 34 / 15 / 0, _4 0 / 1 / 59 / 0, _5 1 / 9 / 49 / 0; total 24 / 60 / 211 / 0.
+- Run it. `check.py --bin rtwk --bin oracle --only long-transcript`: PASS on both (`/tmp/ct2-cap`). The sheet is
+  not reachable from Ctrl+T until `session_page.rs` mounts it (need 1), so I walked it in the real binary through
+  `--debug-screens` (a pty driver with a small VT reader, 100x30): `sheet_basic` shows the title row, the transcript,
+  `⌃space select` and the two hint rows; Home gives `end latest` and the hints give way; Esc gives the browsing
+  status row and the two hint rows with `→ to edit next · enter to edit message`; `sheet_owned` shows only the
+  transcript (no title, status or hint rows), Esc marks the prompt. The oracle has no debug menu and its Ctrl+T
+  sheet is not in a mock-model scenario, so no row of the sheet was compared against the oracle binary: the rows the
+  page tests assert are those of the oracle's `transcript.rs` render (`render`, `render_hints`), read, not run.

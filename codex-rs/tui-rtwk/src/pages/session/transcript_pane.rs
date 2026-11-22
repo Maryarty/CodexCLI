@@ -13,11 +13,15 @@ use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{
+    AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, StatelessWidget,
+    impl_widget,
+};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::threads::{Item, ThreadModel};
+use codex_tui_core::screens::backtrack::nth_user;
+use codex_tui_core::threads::{Item, ItemKey, ThreadModel};
 
 use crate::app::theme;
 use crate::app::view::Hs;
@@ -27,11 +31,37 @@ use crate::widgets::thread_ui::Follow;
 use super::cells::strings as cells_strings;
 use super::strings as chat_strings;
 
+/// The chat's transcript: the reader, and whether the detailed rows show.
 #[derive(Clone, PartialEq)]
 pub(super) struct TranscriptPane(pub Follow, pub bool);
 
+impl StatelessWidget for TranscriptPane {
+    fn build(&self, _: &mut Cx<'_>) -> AnyWidget {
+        Pane {
+            follow: self.0.clone(),
+            detailed: self.1,
+            mark: None,
+        }
+        .into()
+    }
+}
+
+impl_widget!(stateless eq TranscriptPane);
+
+/// The transcript with a prompt marked (Flutter: a `ListView` whose item
+/// `selected: true` is drawn highlighted and scrolled into view when it
+/// changes): the nth prompt a browsing sheet offers, reversed in its body.
+#[derive(Clone, PartialEq)]
+pub(super) struct Pane {
+    pub follow: Follow,
+    pub detailed: bool,
+    pub mark: Option<usize>,
+}
+
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    /// The prompt the list was last scrolled to show.
+    shown: RefCell<Option<ItemKey>>,
     /// The last visible row the reader's thread had (a fingerprint of it, not
     /// a copy: the thread model is the one place the row lives), to see it
     /// change.
@@ -88,6 +118,41 @@ impl ViewportState {
     }
 }
 
+impl ViewportState {
+    /// A prompt newly marked scrolls into view, the least that shows it
+    /// (`ListController::ensure_index_visible`, the list's index of its row).
+    fn show(
+        &self,
+        marked: &Option<ItemKey>,
+        thread: &ThreadModel,
+        rows: &[Range<usize>],
+        has_header: bool,
+        reverse: bool,
+        widget: &Pane,
+    ) {
+        let mut shown = self.shown.borrow_mut();
+        if *shown == *marked {
+            return;
+        }
+        shown.clone_from(marked);
+        let Some(marked) = marked else { return };
+        let transcript = thread.transcript();
+        let Some(position) = transcript.iter().position(|(key, _)| key == marked) else {
+            return;
+        };
+        let Some(row) = rows.iter().position(|range| range.contains(&position)) else {
+            return;
+        };
+        let count = rows.len() + usize::from(has_header);
+        let index = row + usize::from(has_header);
+        widget.follow.scroll().ensure_index_visible(if reverse {
+            count - 1 - index
+        } else {
+            index
+        });
+    }
+}
+
 /// A hash of what the row shows, to tell that it changed (`Item` has no
 /// `Hash`; its `Debug` text is written into the hasher, not collected).
 fn fingerprint(item: &Item) -> u64 {
@@ -103,27 +168,28 @@ fn fingerprint(item: &Item) -> u64 {
     sink.0.finish()
 }
 
-impl StatefulWidget for TranscriptPane {
+impl StatefulWidget for Pane {
     type State = ViewportState;
 
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            shown: RefCell::default(),
             tail: None,
         }
     }
 }
 
 impl State for ViewportState {
-    type Widget = TranscriptPane;
+    type Widget = Pane;
     type Msg = ThreadId;
 
-    fn did_change_dependencies(&mut self, widget: &TranscriptPane, cx: &mut Cx<'_, Self>) {
+    fn did_change_dependencies(&mut self, widget: &Pane, cx: &mut Cx<'_, Self>) {
         // The end of the transcript changed while the reader is away (a new
         // row, or the last one grew): news for the control and the footer
         // (`sync_history_tail`). A thread the reader has just opened has none.
         let thread = watch::<ThreadModel, _>(cx);
-        let rows = self.rows(&thread, widget.1);
+        let rows = self.rows(&thread, widget.detailed);
         let transcript = thread.transcript();
         let tail = rows
             .last()
@@ -133,18 +199,18 @@ impl State for ViewportState {
             && before.0 == now.0
             && before != now
         {
-            widget.0.note_activity();
+            widget.follow.note_activity();
         }
         self.tail = tail;
     }
 
-    fn update(&mut self, thread: ThreadId, _: &TranscriptPane, cx: &mut Cx<'_, Self>) -> Rebuild {
+    fn update(&mut self, thread: ThreadId, _: &Pane, cx: &mut Cx<'_, Self>) -> Rebuild {
         let handlers = read::<Hs, _>(cx);
         cx.emit(&handlers.load_history, thread);
         Rebuild::No
     }
 
-    fn build(&self, widget: &TranscriptPane, cx: &mut Cx<'_, Self>) -> AnyWidget {
+    fn build(&self, widget: &Pane, cx: &mut Cx<'_, Self>) -> AnyWidget {
         let thread = watch::<ThreadModel, _>(cx);
         let strings = l10n::of(cx);
         let tokens = theme::Tokens::of(cx);
@@ -166,11 +232,16 @@ impl State for ViewportState {
         let markdown = tokens.transcript_markdown(cx);
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
-        let detailed = widget.1;
+        let detailed = widget.detailed;
         let rows = self.rows(&thread, detailed);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
         let count = rows.len() + usize::from(header.is_some());
+        let marked = widget
+            .mark
+            .and_then(|nth| nth_user(thread.transcript(), nth))
+            .map(|(key, _)| key.clone());
+        self.show(&marked, &thread, &rows, header.is_some(), reverse, widget);
         let cells = cells_strings::of(cx);
         let cwd = cwd.map(str::to_owned);
         let list = ListView::builder(count, move |index| {
@@ -199,6 +270,7 @@ impl State for ViewportState {
                         table,
                         joins_prompt,
                         &markdown,
+                        marked.as_ref() == Some(key),
                     );
                     // A separator belongs to the transcript, outside the prompt surface.
                     Padding::new(
@@ -379,11 +451,11 @@ impl State for ViewportState {
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))
         })
-        .controller(widget.0.scroll())
+        .controller(widget.follow.scroll())
         .stick_to_bottom(!reverse)
         .reverse(reverse);
         let send = cx.local_sender();
-        let follow = widget.0.clone();
+        let follow = widget.follow.clone();
         SelectionArea::new(
             NotificationListener::<ScrollNotification>::new(list).on_notification(move |scroll| {
                 let metrics = scroll.metrics;
@@ -406,7 +478,7 @@ impl State for ViewportState {
     }
 }
 
-impl_widget!(stateful eq TranscriptPane);
+impl_widget!(stateful eq Pane);
 
 /// A cell below the one before it, a blank row between them; it takes the
 /// whole width (only the agent's answer keeps a column free, oracle

@@ -4,8 +4,11 @@
 //! outside these two directories (bar their test files) needs an edit when it
 //! grows.
 
+pub mod diff;
+
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
+use serde::Deserialize;
 
 use crate::app::AppFx;
 use crate::ids::ThreadId;
@@ -17,27 +20,61 @@ pub const NAME: &str = "transcript";
 pub const ID: &str = "S10";
 pub const KIND: Kind = Kind::Part;
 
+/// What a static pager offers besides closing (oracle `pager_overlay.rs`
+/// `PagerAction`): the key and label are the view's, the effect is the
+/// opener's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PagerAction {
+    /// Enter: "Edit configuration" (provider details).
+    EditConfiguration,
+}
+
+/// The document of a static pager (oracle `StaticOverlay`): a title and the
+/// text of a program, with its ANSI escapes, one line per `\n`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct PagerDoc {
+    pub title: String,
+    pub text: String,
+    #[serde(default)]
+    pub action: Option<PagerAction>,
+}
+
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Model {}
+pub struct Model {
+    /// The static pager that is open, if one is (`/diff`, the full-screen
+    /// approvals, provider details): the single source of what it shows.
+    pub pager: Option<PagerDoc>,
+}
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ev {}
+pub enum Ev {
+    /// A static pager opens on `doc` (replacing one that is open).
+    Pager(PagerDoc),
+}
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Intent {}
+pub enum Intent {
+    /// The static pager closes.
+    ClosePager,
+}
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match ev {}
+    let _ = fx;
+    match ev {
+        Ev::Pager(doc) => model.pager = Some(doc),
+    }
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
-    let _ = (model, fx);
-    match intent {}
+    let _ = fx;
+    match intent {
+        Intent::ClosePager => model.pager = None,
+    }
 }
 
 /// Per-thread state of this screen: a part of every `ThreadModel`, changed
@@ -93,6 +130,15 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// (`fixtures::script`). None is seedable yet; the slice gives its events a
 /// serde form here and reads it, so the shared loader never changes.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
-    let _ = value;
-    Err(crate::screens::SeedError::NoSeeds)
+    let seed: SeedEv = serde_json::from_value(value)
+        .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+    let SeedEv::Pager(doc) = seed;
+    Ok(Ev::Pager(doc))
+}
+
+/// The serde form of this directory's seedable events.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SeedEv {
+    Pager(PagerDoc),
 }

@@ -1,0 +1,3 @@
+# A static pager over one long line (oracle static_overlay_wraps_long_lines).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"transcript","ev":{"kind":"pager","title":"S T A T I C","text":"a very long line that should wrap when rendered within a narrow pager overlay width"}}

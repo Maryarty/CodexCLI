@@ -1,0 +1,3 @@
+# A static pager over three short lines (oracle pager_overlay.rs static_overlay_snapshot_basic).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"transcript","ev":{"kind":"pager","title":"S T A T I C","text":"one\ntwo\nthree"}}

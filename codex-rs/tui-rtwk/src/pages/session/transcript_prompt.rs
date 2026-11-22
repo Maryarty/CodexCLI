@@ -5,7 +5,8 @@ use rtwk::AnyWidget;
 use rtwk::layout::{
     BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
 };
-use rtwk::style::{Span, Style};
+use rtwk::style::{Attrs, Span, Style};
+use rtwk::text::DefaultTextStyle;
 use rtwk::widgets::Text;
 use rtwk_rich::markdown::{MarkdownTheme, MdBlock, MdInline, parse_markdown};
 
@@ -20,6 +21,7 @@ pub(super) fn panel(
     strings: &Strings,
     joins_previous: bool,
     markdown: &MarkdownTheme,
+    highlighted: bool,
 ) -> BoxWidget {
     let text = prompt.text.trim_end();
     let mut content = Column::new()
@@ -57,6 +59,13 @@ pub(super) fn panel(
             }
             spans.push(Span::new(text[cursor..].to_owned()));
             Text::rich(spans).into()
+        };
+        // the marked prompt of a browsing sheet: the body reversed, the
+        // mark in front of it as it is (`TranscriptView::set_highlight`)
+        let body: AnyWidget = if highlighted {
+            DefaultTextStyle::new(Style::new().attrs(Attrs::REVERSE), body).into()
+        } else {
+            body
         };
         content = content.child(
             Row::new()
