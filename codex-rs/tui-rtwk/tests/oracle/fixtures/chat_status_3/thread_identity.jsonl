@@ -1,0 +1,4 @@
+# A thread with an id and no name, animations off (thread_identity_renders_names_and_fallbacks_on_both_surfaces).
+# Oracle data: chatwidget/tests/terminal_title.rs:286 (thread id 550e8400-e29b-41d4-a716-446655440000: the harness's thread is `thread-1`).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"project_root":"project","animations":false,"items":["thread-name","thread-title","session-id"],"terminal_title":["thread-name","thread","session-id"]}}}

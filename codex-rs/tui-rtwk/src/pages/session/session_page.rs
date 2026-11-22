@@ -42,7 +42,7 @@ use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::put_back;
 use super::pending_input::PendingInput;
-use super::status_surfaces::StatusContext;
+use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
 use super::transcript_pane::TranscriptPane;
 
@@ -722,37 +722,24 @@ impl State for ChatState {
         let mut titles: Vec<AnyWidget> = Vec::new();
         let action_required =
             select::<RequestQueue, bool, _>(cx, |queue| !queue.entries.is_empty());
-        let action = action_required.then_some(strings.chat.action_required);
-        if action.is_none()
-            && facts.animations
-            && facts.progress_effect
-            && (running || compacting)
-            && StatusContext::title_has_activity(facts)
+        let title = context.title(
+            facts,
+            TitleInputs {
+                spinner: facts.animations && facts.progress_effect && (running || compacting),
+                action_required: action_required.then_some(strings.chat.action_required),
+            },
+        );
+        if title.has_spinner() {
+            titles.push(super::window_title::WindowTitle { title }.into());
+        } else if !title.text(None).is_empty()
+            || facts
+                .terminal_title
+                .as_ref()
+                .is_some_and(|items| !items.is_empty())
         {
-            let mut parts = context.title_parts(facts, Some(""));
-            if let Some(index) = parts.iter().position(String::is_empty) {
-                let after = parts.split_off(index + 1);
-                parts.pop();
-                titles.push(
-                    super::window_title::WindowTitle {
-                        before: parts,
-                        after,
-                    }
-                    .into(),
-                );
-            }
-        } else {
-            let parts = context.title_parts(facts, action);
-            if !parts.is_empty()
-                || facts
-                    .terminal_title
-                    .as_ref()
-                    .is_some_and(|items| !items.is_empty())
-            {
-                titles.push(
-                    TerminalTitle::new(parts.join(" · "), super::window_title::empty()).into(),
-                );
-            }
+            titles.push(
+                TerminalTitle::new(title.text(None), super::window_title::empty()).into(),
+            );
         }
         // The Luna Reserve selector owns the bottom pane (`show_selection_view`): no composer,
         // no footer; the draft waits in `UiApp.ui`.

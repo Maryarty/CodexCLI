@@ -153,3 +153,87 @@ fn the_status_line_stays_under_the_composer_while_the_popup_is_open() {
     let status = row(&s, "model · high · fast").expect("status row");
     assert_eq!(status, composer + 2, "{}", s.text());
 }
+
+// ---- the terminal title (oracle `chatwidget/status_surfaces.rs`, `terminal_title.rs`) ------------
+
+const ACTION_REQUIRED: &str =
+    include_str!("../oracle/fixtures/chat_status_3/action_required.jsonl");
+
+const APPROVAL: &str = r#"{"step":"request","message":{"method":"item/commandExecution/requestApproval","id":1,"params":{"kind":"command","itemId":"call-1","approvalId":"call-1","environmentId":null,"command":"bash -lc \"echo hello\"","cwd":"/tmp","reason":"need confirmation","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}"#;
+
+fn title_script(status: &str, turn_running: bool) -> &'static str {
+    let mut script = format!(
+        "{{\"step\":\"seed\",\"seed\":\"session\",\"thread\":\"thread-1\"}}\n{{\"step\":\"screen\",\"dir\":\"chat\",\"ev\":{{\"status\":{status}}}}}\n"
+    );
+    if turn_running {
+        for line in ACTION_REQUIRED
+            .lines()
+            .filter(|line| line.contains("turn/started"))
+        {
+            script.push_str(line);
+            script.push('\n');
+        }
+    }
+    Box::leak(script.into_boxed_str())
+}
+
+/// The default title while a turn runs: the spinner first (a braille frame, a space), then the
+/// project; it is the project alone when the turn is over.
+#[test]
+fn a_running_turn_puts_the_spinner_before_the_project_in_the_title() {
+    let s = page(title_script(r#"{"project_root":"project"}"#, true), 80, 12);
+    let title = s.title().expect("a title");
+    let frame = title
+        .strip_suffix(" project")
+        .unwrap_or_else(|| panic!("title {title:?}"));
+    assert!(
+        ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].contains(&frame),
+        "the spinner frame of {title:?}"
+    );
+    let idle = page(title_script(r#"{"project_root":"project"}"#, false), 80, 12);
+    idle.assert_title("project");
+}
+
+/// `terminal_title_action_required_respects_spinner_setting`: the line stands for the spinner, so
+/// a title without the activity item never shows it.
+#[test]
+fn action_required_replaces_the_spinner_item_only() {
+    let with = format!(
+        "{}{APPROVAL}\n",
+        title_script(
+            r#"{"project_root":"project","terminal_title":["project"]}"#,
+            true
+        )
+    );
+    let s = page(Box::leak(with.into_boxed_str()), 100, 24);
+    s.assert_title("project");
+    let with = format!(
+        "{}{APPROVAL}\n",
+        title_script(
+            r#"{"project_root":"project","terminal_title":["activity","app-name","status","project"]}"#,
+            true
+        )
+    );
+    let s = page(Box::leak(with.into_boxed_str()), 100, 24);
+    // the line, then the items that are no spinner and no run state, in their order
+    s.assert_title("[ ! ] Action Required | codex | project");
+}
+
+/// `Daybreak off` until the thread says it is on, on the status line and in the title.
+#[test]
+fn daybreak_reads_off_until_the_thread_turns_it_on() {
+    let s = page(
+        title_script(
+            r#"{"items":["daybreak"],"terminal_title":["daybreak"]}"#,
+            false,
+        ),
+        80,
+        12,
+    );
+    s.assert_title("Daybreak off");
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "Daybreak off"),
+        "the status line\n{}",
+        s.text()
+    );
+}

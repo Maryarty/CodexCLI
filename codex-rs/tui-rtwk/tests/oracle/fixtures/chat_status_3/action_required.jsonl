@@ -1,0 +1,5 @@
+# A running turn and an exec approval (terminal_title_shows_action_required_while_exec_approval_is_pending).
+# Oracle data: chatwidget/tests/terminal_title.rs:96 command bash -lc "echo hello", the default title items.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"chat","ev":{"status":{"project_root":"project"}}}
+{"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}

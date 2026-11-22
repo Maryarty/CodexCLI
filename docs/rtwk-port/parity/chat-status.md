@@ -1,9 +1,10 @@
-# chunk-status — parity (in progress: steps 1 and 2 of 8 landed on the branch)
+# chunk-status — parity (in progress: steps 1, 2 and 3 of 8 landed on the branch)
 Chunk of docs/rtwk-port/research/briefs/chat-status.md §6 (8 steps). Branch `worktree-agent-ae21c7b1bd5dacf8e`.
 Shard counts (summary.py, oracle profile; pass / n-a / pending / todo):
 before: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 0/11/63 — total 0 / 19 / 259 of 278.
 after step 1: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 1/11/62 — total 1 / 19 / 258 of 278, 0 red, 0 stale.
 after step 2: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 1/0/54 · pane_footer_2 1/11/62 — total 2 / 19 / 257 of 278, 0 red, 0 stale (whole nextest 1917 passed).
+after step 3: chat_status_1 0/6/52 · _2 2/1/56 · _3 2/1/29 · pane_footer_1 1/0/54 · pane_footer_2 1/11/62 — total 6 / 19 / 253 of 278, 0 red, 0 stale.
 Step 1 turns almost no shard test on by design: `footer_snapshots` (24 entries, one test) needs all 24 entries, and 17 of them need facts the model
 does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, the `?` overlay). 7 entries are done and compared one by one in
 `tests/pages/chat_status.rs` (`the_footer_entries_equal_the_oracle_snapshots`, bitten once: `esc_idle_rest` shortened → the esc-idle entry red).
@@ -32,6 +33,27 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
 - The footer row collapses when no label fits (`footer_hint_height` is 0 then; step 1 kept an empty row): a draft with the status line on and nothing to hint leaves no blank row.
 - pane_footer_1 pending reasons rewritten one by one (they all said "not built"): extension status (ui_tree; person decision), provider status, link (PR fact), agent label,
   Plan/side (collaboration fact), goal, queue/flash (step 5), popup rows (popups chunk's), effort (step 6).
+
+## Step 3 — status items and the title (done as far as the model allows)
+- `status_surfaces.rs` (mine): the terminal title is `StatusContext::title(facts, TitleState { spinner, action_required })` -> `Title` (pieces: spinner slot, text); `Title::text(frame)` joins as the oracle
+  (`separator_from_previous`: a space beside the spinner, ` | ` between the others; the old code joined ` · `), each item cut to its graphemes (`truncate_terminal_title_part`: project 24, current-dir 32,
+  thread 48, the rest 32, dots at the end), ids that are not `TerminalTitleItem`s dropped, the action-required line = prefix + the other items except the spinner and run state, ` | `.
+  `window_title.rs` takes a `Title` and gives its spinner slot the animation's frame (the same `AnimationController`). `session_page.rs`: the title block is one `context.title(..)` (wiring, listed below).
+- `daybreak` reads `Daybreak off` until the thread says on (oracle `daybreak_enabled` is false by default); it was omitted.
+- Turned on: `thread_identity_renders_names_and_fallbacks_on_both_surfaces`, `terminal_title_shows_action_required_while_exec_approval_is_pending` (chat_status_3), `status_line_hostname_renders_current_machine_hostname`,
+  `status_line_and_terminal_title_reasoning_render_only_effort` (chat_status_2). Page tests (3) + unit tests (3): spinner before the project while a turn runs, action required replaces the spinner item only,
+  daybreak off by default; title join, cut, item ids. Bitten once: separator ` · ` -> thread identity red.
+- Delta of the identity test: the live harness names its thread `thread-1` (the script seed's `thread` is ignored: kit need), so the 36-character id of the oracle is not on the screen; its cut
+  (`550e8400-e29b-41d4-a716-44665...`) is in the unit test `a_title_part_is_cut_to_its_graphemes_with_dots`.
+- Not built, with the need (all pending reasons rewritten one by one):
+  - every footer snapshot of the shard (renamed thread, fast mode, plan mode, speed, context remaining, goals, estimated cost): the oracle's unit-test chat has agents navigation off, ours reads
+    `← for agents · ? for shortcuts` (rows 0-4 of `renamed_thread_footer_title` equal): kit option or StatusFacts flag for the command center.
+  - context-used / -remaining / legacy: `token_usage_pending` (a fresh thread reads 100% left, a resumed one hides it): a resumed/pending fact.
+  - thread credits / estimated cost (+ title): the status-card porter's per-thread `Usage` command and `status::ThreadPart`.
+  - workspace headline, git summary (`pull-request-number`, `branch-changes`), raw output, goal (indicator, clock, footer snapshots), collaboration mode, side conversation, invalid-item warning once,
+    model catalog (display name `GPT-5.5`, tier names `fast`/`Flex`): StatusFacts / ThreadPart fields of chunk-live; the host probes are the keymap porter's.
+  - the title's action-required blink (`[ . ]` every second) needs `effects.title` in StatusFacts (chunk-live's).
+- Needs / lander (step 3): `session_page.rs` title block (`TitleState` + `context.title`, `use` line) and nothing else outside my files.
 
 ## Deltas
 - The oracle has `DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED = false`: Ctrl+C / Ctrl+D never show `ctrl c again to quit`, the double press does not exist. The brief's quit-reminder
