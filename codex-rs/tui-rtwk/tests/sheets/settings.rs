@@ -13,7 +13,7 @@ use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Open};
 use codex_tui_rtwk::app::UiApp;
 
-use crate::common::{Harness, ms, start, start_sized};
+use crate::common::{HEIGHT, Harness, WIDTH, ms, start_driven, start_sized};
 
 fn open(entry: &str) -> Harness {
     open_sized(entry, 80, 24)
@@ -557,8 +557,13 @@ fn edits(h: &Harness) -> Vec<Edit> {
 
 /// `/memories` with the memory tool on, use on and generate off
 /// (`popups_and_settings.rs:3289`).
+/// The `/memories` command on a driven harness: a key's intent travels to the
+/// shell and back, and on the shared runtime that hop takes real time (a
+/// press followed by another before the model answered read a stale
+/// `confirming`); here the runtime runs only when the test lets it, and
+/// `press` runs it until the app and the shell are quiet.
 fn memories_command() -> Harness {
-    let mut h = start();
+    let mut h = start_driven(false, WIDTH, HEIGHT);
     h.wait_idle();
     h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(
         Facts {
@@ -738,7 +743,7 @@ fn a_tap_moves_the_cursor_a_second_tap_flips_a_switch_asks_to_reset_or_chooses()
 // scope) ----
 
 fn theme_command() -> Harness {
-    let mut h = start();
+    let mut h = start_driven(false, WIDTH, HEIGHT);
     h.wait_idle();
     h.t.type_text("/theme");
     h.press("enter");
