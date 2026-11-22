@@ -47,11 +47,11 @@ impl Restricted {
             || self == Restricted::UnavailableThread && command.available_when_thread_unavailable()
     }
 
-    /// Whether the composer takes a paste into the draft with its
-    /// placeholder (a handoff keeps them; the others expand them, so the
-    /// draft shows what Enter would run).
-    pub fn keeps_placeholders(self) -> bool {
-        self == Restricted::DraftHandoff
+    /// Whether a paste is expanded where it lands: an offline draft shows
+    /// what Enter would run at once (the app sends a Null key after the
+    /// paste); the other modes expand on the next key.
+    pub fn expands_on_paste(self) -> bool {
+        self == Restricted::Disconnected
     }
 }
 
