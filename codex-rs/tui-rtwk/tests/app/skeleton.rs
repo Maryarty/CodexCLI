@@ -88,7 +88,10 @@ fn debug_menu_lists_the_directories() {
     // which this menu (not an oracle screen) need not fit. Tall, so that the
     // entries a slice adds still show: a heading and a blank row per
     // directory, a row per entry, and room for the frame.
-    let entries: usize = debug::dirs().iter().map(|d| (d.debug_entries)().len()).sum();
+    let entries: usize = debug::dirs()
+        .iter()
+        .map(|d| (d.debug_entries)().len())
+        .sum();
     let rows = u16::try_from(entries + 2 * debug::dirs().len() + 40).unwrap_or(u16::MAX);
     let mut h = start_sized(true, 160, rows);
     h.t.pump_for(crate::common::ms(100));
