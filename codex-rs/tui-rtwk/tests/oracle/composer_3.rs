@@ -761,10 +761,6 @@ fn parent_owned_thread_allows_safe_command_selected_from_prefix() {
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:59 left_navigates_only_from_an_empty_prompt kind=ui owner=chat-live
 #[test]
 fn left_navigates_only_from_an_empty_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no agents command center on the chat composer: Left in a draft moves the cursor, and Left on an empty prompt opens the agents overview",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // oracle: 'ab', Left, '!' inserted between: 'a!b'
     s.type_text("ab");
@@ -775,6 +771,8 @@ fn left_navigates_only_from_an_empty_prompt() {
     s.keys("ctrl+c");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("left");
+    s.wait(100);
+    s.assert_contains("Agent command center");
 }
 
 // ORACLE bottom_pane/chat_composer/agents_navigation_tests.rs:82 left_respects_attachments_pastes_and_other_input_surfaces kind=ui owner=chat-live
