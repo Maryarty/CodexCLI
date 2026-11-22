@@ -177,6 +177,24 @@ mod gate {
         h.wait_until("the resume picker", |h| resume_page.count(&h.t) == 1);
     }
 
+    // `SessionSelection::Resume` starts no session under the picker, and
+    // `StartFresh` (the picker's cancel) starts one.
+    #[test]
+    fn the_resume_picker_starts_no_thread_until_it_is_cancelled() {
+        use codex_tui_rtwk::pages::resume;
+        let resume_page = rtwk_test::find::by_type::<resume::Screen>();
+        let mut h = start_app(|app| app.with_awaited_facts(true).with_start_resume(true));
+        h.settle();
+        answer(&h, Facts::default());
+        launched(&h, Vec::new());
+        h.wait_until("the resume picker", |h| resume_page.count(&h.t) == 1);
+        h.settle();
+        assert_eq!(thread_starts(&h), 0, "{}", h.t.screen());
+        h.press("esc");
+        h.wait_until("the picker gone", |h| resume_page.count(&h.t) == 0);
+        h.wait_until("the fresh thread", |h| thread_starts(h) == 1);
+    }
+
     // onboarding_screen.rs `handle_key_event`: Ctrl-C on the sign-in menu
     // (auth in progress) exits the app; no chat frame comes before the exit.
     #[test]

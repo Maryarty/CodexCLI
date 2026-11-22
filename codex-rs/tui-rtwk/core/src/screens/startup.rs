@@ -429,6 +429,15 @@ pub struct Model {
     pub answers: Vec<Answer>,
     /// The next id of a hooks trust request.
     pub next_request: u64,
+    /// The model an accepted migration prompt chose: new threads start on it
+    /// (oracle: `config.model` is set before the session starts).
+    accepted_model: Option<String>,
+}
+
+impl Model {
+    pub fn accepted_model(&self) -> Option<&str> {
+        self.accepted_model.as_deref()
+    }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -504,6 +513,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 && outcome != MigrationOutcome::Exit
             {
                 let accepted = outcome == MigrationOutcome::Accepted;
+                if accepted {
+                    model.accepted_model = Some(m.target_model.clone());
+                }
                 fx.commands.push(AppCommand::Startup {
                     ask: onboarding::Ask::SaveMigration {
                         from: m.current_model.clone(),

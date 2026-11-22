@@ -96,7 +96,7 @@ pub(super) fn session_intent(
                     })),
                 }
             } else {
-                Command::StartThread { ticket, backend }
+                super::start_thread(app, ticket, backend)
             };
             app.outgoing.insert(
                 ticket,

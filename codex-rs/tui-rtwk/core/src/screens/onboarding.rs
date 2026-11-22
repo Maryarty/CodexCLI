@@ -495,6 +495,11 @@ pub enum Intent {
     /// The first startup prompt due was put on screen (the page asked it
     /// of the startup screen): it leaves the queue.
     PromptAsked,
+    /// The page the command line opened instead of a thread (`codex
+    /// resume`'s picker) was left. The app decides: a fresh thread starts
+    /// when none is open or on its way (oracle: `SessionSelection::StartFresh`);
+    /// the model keeps nothing of it.
+    StartPageLeft,
 }
 
 /// A server notification the sign-in reads (`handle_app_server_notification`):
@@ -751,6 +756,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
 
 fn apply_intent_inner(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     match intent {
+        Intent::StartPageLeft => {}
         Intent::PromptAsked => {
             if !model.prompts.is_empty() {
                 model.prompts.remove(0);
