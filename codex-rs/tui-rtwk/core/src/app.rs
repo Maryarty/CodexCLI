@@ -1112,6 +1112,22 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
                 send_agents(app, outs, fx);
             }
+            // A diagnostic is retained for the footer count and the warnings viewer; one the
+            // session already showed (or the user dismissed unchanged) is not shown again.
+            if let Some(warning) = crate::screens::dialogs::incoming(&notification)
+                && !crate::screens::dialogs::take_in(
+                    &mut Rc::make_mut(&mut app.screens).dialogs,
+                    &warning,
+                )
+            {
+                return;
+            }
+            if matches!(&*notification, ServerNotification::TurnStarted(_)) {
+                Rc::make_mut(&mut app.screens)
+                    .dialogs
+                    .intake
+                    .startup_complete = true;
+            }
             // What the server sends without a thread (a deprecation notice) is
             // the displayed thread's: the chat shows it in the detailed transcript.
             if active_backend(app) == origin
