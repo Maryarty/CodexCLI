@@ -23,6 +23,7 @@ use crate::app::theme::Tokens;
 use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
+use super::text::{Gap, Part, Texts};
 
 /// What a prompt is drawn with: the surface, the colours, the tables.
 pub struct Look<'a> {
@@ -34,6 +35,31 @@ pub struct Look<'a> {
     /// The marked prompt of a browsing sheet: its body reversed, the mark as it is
     /// (oracle `TranscriptView::set_highlight`).
     pub highlighted: bool,
+}
+
+/// The texts of the cell: a label for each attached image, then the prompt
+/// mark (a gutter) and the body. A body the Markdown view lays out is the
+/// gap: rtwk gives no text of a document that is not mounted.
+pub fn texts(prompt: &UserPrompt, chat: &Chat, cells: &Strings) -> Texts {
+    let shown = prompt.shown();
+    let text = shown.text.trim_end();
+    let mut parts: Vec<Part> = prompt
+        .images
+        .iter()
+        .map(|number| Part::text(cells.label(cells.image_label, &number.to_string())))
+        .collect();
+    if !text.is_empty() {
+        if prompt.elements.is_empty() && has_markup(text) {
+            return Texts::Gap(Gap::Markdown);
+        }
+        // the blank row under the labels
+        if !parts.is_empty() {
+            parts.push(Part::gap());
+        }
+        parts.push(Part::gutter(chat.prompt.trim_end()));
+        parts.push(Part::text(text));
+    }
+    Texts::Exact(parts)
 }
 
 /// The cell of `prompt`; `joins_previous` when it follows another prompt

@@ -2350,3 +2350,334 @@ mod message_cells_at_tiny_widths {
         }
     }
 }
+
+/// The text contract (`cells::text`): the texts the app keeps of an item
+/// (rtwk's `ItemTexts`) are the strings of the `Text`s its cell builds, in
+/// tree order, joined by line breaks; what a `SelectionArea` over the mounted
+/// cell selects. Gutters (a bullet or prompt mark of its own `Text`, the
+/// disclosure control) are left out of the selection by `ExcludeSelection`,
+/// so they are not in it.
+mod text_contract {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use codex_tui_core::screens::chat::{McpWarning, Nudge, NudgeOutcome};
+    use codex_tui_core::threads::{
+        GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item, Notice, UserPrompt,
+        WebAction, WebActivity,
+    };
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::text::{Env, GUTTERS_SELECTED, Gap, Texts, texts};
+    use codex_tui_rtwk::pages::session::cells::{
+        agent, deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web,
+    };
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::AnyWidget;
+    use rtwk::gestures::{SelectionArea, SelectionAreaController};
+    use rtwk::style::Style;
+    use rtwk_core::input::{Mods, MouseKind};
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    const WIDTH: u16 = 60;
+    const HEIGHT: u16 = 24;
+
+    fn env(detailed: bool, expanded: bool) -> Env<'static> {
+        Env {
+            cells: &CELLS,
+            chat: &CHAT,
+            detailed,
+            expanded,
+        }
+    }
+
+    fn widget(item: &Item, detailed: bool) -> AnyWidget {
+        let tokens =
+            codex_tui_rtwk::app::theme::Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+        let theme = MarkdownTheme::default();
+        match item {
+            Item::User(prompt) => user::panel(
+                prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                    highlighted: false,
+                },
+                false,
+            )
+            .into(),
+            Item::Agent { text } => agent::message(
+                text,
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ),
+            Item::Error { message } => error::ErrorCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::HighLoad => error::ErrorCell {
+                message: CHAT.high_load.to_string(),
+            }
+            .into(),
+            Item::Warning { message } => warning::WarningCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::StartupWarning(w) => warning::WarningCell {
+                message: CHAT.mcp_warning(w),
+            }
+            .into(),
+            Item::Deprecation { summary, details } => deprecation::DeprecationCell {
+                summary: summary.clone(),
+                details: details.clone(),
+            }
+            .into(),
+            Item::Notice(n) => notice::NoticeCell { notice: n.clone() }.into(),
+            Item::Hook(run) => hook::HookCell { run: run.clone() }.into(),
+            Item::Generated(image) => generated_image::GeneratedImageCell {
+                image: image.clone(),
+            }
+            .into(),
+            Item::Web(activity) => web::WebCell {
+                activity: activity.clone(),
+            }
+            .into(),
+            Item::ImageView { path, name } => viewed_image::ViewedImageCell {
+                name: name.clone(),
+                path: path.clone(),
+                detailed,
+            }
+            .into(),
+            other => panic!("no widget in this test for {other:?}"),
+        }
+    }
+
+    /// What a drag over the whole mounted cell selects, as the area gives it.
+    fn selected(widget: AnyWidget) -> String {
+        let selection = SelectionAreaController::new();
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(
+            SelectionArea::new(widget)
+                .trim_trailing_blanks(false)
+                .controller(selection.clone()),
+        );
+        t.mouse(MouseKind::Down, 0, 0, 0, Mods::NONE);
+        t.mouse(MouseKind::Drag, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.mouse(MouseKind::Up, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.pump();
+        selection.text()
+    }
+
+    #[track_caller]
+    fn agrees(item: Item) {
+        agrees_in(item, false);
+    }
+
+    #[track_caller]
+    fn agrees_in(item: Item, detailed: bool) {
+        let texts = texts(&item, &env(detailed, false));
+        let Some(want) = texts.joined(GUTTERS_SELECTED) else {
+            panic!("{item:?}: the contract names no texts for it yet: {texts:?}");
+        };
+        assert_eq!(want, selected(widget(&item, detailed)), "{item:?}");
+    }
+
+    fn prompt(text: &str) -> UserPrompt {
+        UserPrompt {
+            text: text.into(),
+            ..UserPrompt::default()
+        }
+    }
+
+    fn hook_run(status: HookStatus, entries: &[(HookEntryKind, &str)]) -> Arc<HookRun> {
+        Arc::new(HookRun {
+            status,
+            entries: entries
+                .iter()
+                .map(|(kind, text)| HookEntry {
+                    kind: *kind,
+                    text: (*text).into(),
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn a_users_prompt_is_its_text_without_the_mark() {
+        agrees(Item::User(prompt("fix the build\nthen the tests")));
+        agrees(Item::User(UserPrompt {
+            text: "look at [Image #1] and @src/main.rs".into(),
+            elements: vec![8..18, 23..34],
+            images: vec![1],
+        }));
+        agrees(Item::User(UserPrompt {
+            text: "".into(),
+            elements: vec![],
+            images: vec![1, 2],
+        }));
+    }
+
+    #[test]
+    fn the_error_family_is_one_text_each() {
+        agrees(Item::Error {
+            message: "stream closed".into(),
+        });
+        agrees(Item::HighLoad);
+        agrees(Item::Warning {
+            message: "careful now".into(),
+        });
+        agrees(Item::StartupWarning(McpWarning::Failed {
+            server: "docs".into(),
+            error: None,
+        }));
+        agrees(Item::StartupWarning(McpWarning::Incomplete {
+            servers: vec!["a".into(), "b".into()],
+        }));
+    }
+
+    #[test]
+    fn a_deprecation_is_the_summary_row_then_the_details() {
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: None,
+        });
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: Some("use the new one".into()),
+        });
+    }
+
+    #[test]
+    fn notices_are_their_row() {
+        agrees(Item::Notice(Notice::ContextCompacted));
+        agrees(Item::Notice(Notice::EnteredReview("the diff".into())));
+        agrees(Item::Notice(Notice::ExitedReview("the diff".into())));
+        for outcome in [
+            NudgeOutcome::Sent,
+            NudgeOutcome::Cooldown,
+            NudgeOutcome::Failed,
+        ] {
+            for nudge in [Nudge::Credits, Nudge::UsageLimit] {
+                agrees(Item::Notice(Notice::AddCreditsNudge { nudge, outcome }));
+            }
+        }
+    }
+
+    #[test]
+    fn a_hook_is_its_rows_a_blank_one_included() {
+        agrees(Item::Hook(hook_run(
+            HookStatus::Completed,
+            &[(HookEntryKind::Warning, "all good\n")],
+        )));
+        agrees(Item::Hook(hook_run(
+            HookStatus::Failed,
+            &[
+                (HookEntryKind::Warning, "bad\nthing"),
+                (HookEntryKind::Error, "first\n\nsecond"),
+            ],
+        )));
+        agrees(Item::Hook(hook_run(HookStatus::Blocked, &[])));
+    }
+
+    #[test]
+    fn a_generated_image_is_the_heading_the_detail_and_where_it_went() {
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: false,
+            detail: "a red fox".into(),
+            saved_to: Some("file:///tmp/fox.png".into()),
+        })));
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: true,
+            detail: "no quota".into(),
+            saved_to: None,
+        })));
+    }
+
+    #[test]
+    fn a_web_row_reads_as_drawn() {
+        for (completed, action, detail) in [
+            (true, WebAction::Search { known: true }, "rust async"),
+            (false, WebAction::Search { known: false }, ""),
+            (true, WebAction::OpenPage, "https://example.com"),
+            (false, WebAction::OpenPage, ""),
+            (true, WebAction::FindInPage { pattern: true }, "'x' in y"),
+            (true, WebAction::FindInPage { pattern: false }, "y"),
+        ] {
+            agrees(Item::Web(WebActivity {
+                completed,
+                action,
+                detail: detail.into(),
+            }));
+        }
+    }
+
+    #[test]
+    fn a_viewed_image_in_the_detailed_transcript_is_the_bullet_and_the_full_path() {
+        agrees_in(
+            Item::ImageView {
+                path: "/workspace/assets/example.png".into(),
+                name: "example.png".into(),
+            },
+            true,
+        );
+    }
+
+    /// A drag over a disclosing cell is taken by its control (the tap opens
+    /// it), so what it selects is not read here: the rows it shows hold the
+    /// parts, in order, and the control is the part that is a gutter.
+    #[test]
+    fn a_viewed_image_with_its_control_shows_the_row_then_the_control() {
+        let item = Item::ImageView {
+            path: "/workspace/assets/example.png".into(),
+            name: "example.png".into(),
+        };
+        let Texts::Exact(parts) = texts(&item, &env(false, false)) else {
+            panic!("exact");
+        };
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(widget(&item, false));
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(parts.len(), rows.len(), "{rows:?}");
+        for (part, row) in parts.iter().zip(&rows) {
+            assert!(
+                row.trim_start().starts_with(part.text.trim_start()),
+                "{part:?} in {row:?}"
+            );
+        }
+        assert!(!parts[0].gutter && parts[1].gutter);
+    }
+
+    /// The texts of a Markdown body are a declared gap (pack: "G-new text of
+    /// Markdown"): rtwk gives no function of the source for the strings a
+    /// `MarkdownView` under a `SelectionArea` selects. The day it does, this
+    /// test turns into `agrees(Item::Agent { .. })` for each of these.
+    #[test]
+    fn a_markdown_body_is_a_declared_gap() {
+        let md = "Hello **bold**\n\n- one\n- two";
+        for item in [
+            Item::Agent { text: md.into() },
+            Item::Reasoning { summary: md.into() },
+            Item::Plan { text: md.into() },
+            Item::User(prompt(md)),
+        ] {
+            assert_eq!(
+                texts(&item, &env(false, false)),
+                Texts::Gap(Gap::Markdown),
+                "{item:?}"
+            );
+        }
+    }
+}

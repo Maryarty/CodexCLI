@@ -33,6 +33,7 @@ pub mod reasoning;
 pub mod separator;
 pub mod status;
 pub mod strings;
+pub mod text;
 pub mod tool_call;
 pub mod tool_rows;
 pub mod user;
