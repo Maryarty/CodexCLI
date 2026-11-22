@@ -103,3 +103,46 @@ fn a_confirm_of_a_list_that_is_not_multi_does_nothing() {
     assert!(model.picked.is_empty());
     assert!(model.menu.is_some());
 }
+
+const ORDERABLE: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"list","multi":true,"ordering":true,"items":[{"id":"theme","name":"theme-colors","toggle":true,"checkbox":true,"section_break_after":true},{"id":"model","name":"model","toggle":true,"checkbox":true,"orderable":true},{"id":"branch","name":"branch","toggle":false,"checkbox":true,"orderable":true}]}}"#;
+
+fn ids(sandbox: &Sandbox) -> Vec<String> {
+    let Some(Menu::List(list)) = &sandbox.app().screens().select.menu else {
+        panic!("a list menu");
+    };
+    list.items.iter().map(|item| item.id.clone()).collect()
+}
+
+#[test]
+fn an_orderable_item_swaps_with_its_orderable_neighbour() {
+    let mut sandbox = Sandbox::play(ORDERABLE).expect("plays");
+    pick(&mut sandbox, SelectIntent::Reorder("model".into(), true));
+    assert_eq!(ids(&sandbox), ["theme", "branch", "model"]);
+    pick(&mut sandbox, SelectIntent::Reorder("model".into(), false));
+    assert_eq!(ids(&sandbox), ["theme", "model", "branch"]);
+}
+
+#[test]
+fn a_non_orderable_item_neither_moves_nor_is_crossed() {
+    let mut sandbox = Sandbox::play(ORDERABLE).expect("plays");
+    pick(&mut sandbox, SelectIntent::Reorder("theme".into(), true));
+    pick(&mut sandbox, SelectIntent::Reorder("model".into(), false));
+    pick(&mut sandbox, SelectIntent::Reorder("branch".into(), true));
+    assert_eq!(ids(&sandbox), ["theme", "model", "branch"]);
+}
+
+#[test]
+fn a_reordered_multi_select_answers_in_the_new_order() {
+    let mut sandbox = Sandbox::play(ORDERABLE).expect("plays");
+    pick(&mut sandbox, SelectIntent::Toggle("branch".into()));
+    pick(&mut sandbox, SelectIntent::Reorder("branch".into(), false));
+    pick(&mut sandbox, SelectIntent::Confirm);
+    assert_eq!(
+        sandbox.app().screens().select.picked,
+        vec![Picked::Items(vec![
+            "theme".into(),
+            "branch".into(),
+            "model".into()
+        ])]
+    );
+}

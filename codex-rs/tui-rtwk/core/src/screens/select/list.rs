@@ -48,6 +48,10 @@ pub struct Item {
     pub secondary: Option<Secondary>,
     /// An accept does not close the list.
     pub keep_open: bool,
+    /// A multi-select row the ordering keys may move (`MultiSelectItem::orderable`).
+    pub orderable: bool,
+    /// A rule is drawn under the row, unless it is the last one shown.
+    pub section_break_after: bool,
 }
 
 impl Item {
@@ -158,6 +162,9 @@ pub struct List {
     /// One line per row, cut with an ellipsis (`SelectionRowDisplay::SingleLine`).
     pub single_line: bool,
     pub name_column_width: Option<usize>,
+    /// The description column hides when it would be narrower than this many
+    /// cells (`SelectionDescriptionLayout::HideWhenNarrow`).
+    pub hide_description_below: Option<u16>,
     pub side: Option<Side>,
     /// The item (in `items`) the cursor starts on.
     pub initial: Option<usize>,
@@ -166,6 +173,14 @@ pub struct List {
     /// the one under the cursor (`Intent::Toggle`) and Enter confirms them
     /// all at once (`Intent::Confirm`, answered as `Picked::Items`).
     pub multi: bool,
+    /// The ordering keys (left and right) move orderable rows.
+    pub ordering: bool,
+    /// A line under the rows names the toggled-on ones in list order
+    /// (`on_preview` of the multi-select picker).
+    pub preview: bool,
+    /// Drawn on the panel of the bottom-pane pickers (`PickerSurface::Panel`:
+    /// a blank row on top, the panel colour) instead of the terminal's own.
+    pub panel: bool,
 }
 
 impl Default for List {
@@ -184,10 +199,14 @@ impl Default for List {
             columns: Columns::AutoVisible,
             single_line: false,
             name_column_width: None,
+            hide_description_below: None,
             side: None,
             initial: None,
             max_rows: None,
             multi: false,
+            ordering: false,
+            preview: false,
+            panel: false,
         }
     }
 }
@@ -209,9 +228,23 @@ pub struct Row {
     pub current: bool,
     /// Why a disabled row is: shown after its name and in its description.
     pub reason: Option<String>,
+    /// A rule row follows this one (`Item::section_break_after`).
+    pub section_break: bool,
 }
 
 impl List {
+    /// What the list is drawn on.
+    pub fn surface(&self) -> super::layout::Surface {
+        use super::layout::Surface;
+        if self.multi {
+            Surface::Multi
+        } else if self.panel {
+            Surface::Panel
+        } else {
+            Surface::Terminal
+        }
+    }
+
     pub fn max_rows(&self) -> usize {
         self.max_rows.unwrap_or(MAX_ROWS).max(1)
     }
@@ -269,6 +302,42 @@ impl List {
             .filter(|(_, item)| item.toggle == Some(true))
             .map(|(id, _)| id)
             .collect()
+    }
+
+    /// Moves the item with this id one place up or down among the list's own
+    /// items, when it and the item it swaps with are both orderable
+    /// (`MultiSelectPicker::move_selected_item`).
+    pub fn reorder(&mut self, id: &str, down: bool) {
+        if let Some((at, to)) = self.reorder_of(id, down) {
+            self.items.swap(at, to);
+        }
+    }
+
+    /// Whether `reorder` would move the item.
+    pub fn can_reorder(&self, id: &str, down: bool) -> bool {
+        self.reorder_of(id, down).is_some()
+    }
+
+    /// The two places a move swaps.
+    fn reorder_of(&self, id: &str, down: bool) -> Option<(usize, usize)> {
+        if !self.ordering {
+            return None;
+        }
+        let at = (0..self.items.len()).find(|index| self.id_of(None, *index) == id)?;
+        let to = if down { at + 1 } else { at.checked_sub(1)? };
+        let orderable = |index: usize| self.items.get(index).is_some_and(|item| item.orderable);
+        (orderable(at) && orderable(to)).then_some((at, to))
+    }
+
+    /// The names of the toggled-on items in list order, for the preview line.
+    pub fn preview_names(&self) -> Option<Vec<&str>> {
+        self.preview.then(|| {
+            self.items
+                .iter()
+                .filter(|item| item.toggle == Some(true))
+                .map(|item| item.name.as_str())
+                .collect()
+        })
     }
 
     /// Flips the toggle of the item with this id.
@@ -439,6 +508,19 @@ impl Browse<'_> {
             .map(|(index, _)| index)
     }
 
+    /// Where the row of the visible item at `pos` stands among the entries
+    /// of the drawn list: a rule under a row (`Row::section_break`) is an
+    /// entry of its own.
+    pub fn entry_of(&self, visible: &[usize], pos: usize) -> usize {
+        let items = self.items();
+        let rules = visible
+            .iter()
+            .take(pos)
+            .filter(|index| items.get(**index).is_some_and(|item| item.section_break_after))
+            .count();
+        pos + rules
+    }
+
     /// The rows to draw, one per visible item (`visible`, from `visible()`).
     pub fn rows(&self, visible: &[usize]) -> Vec<Row> {
         let items = self.items();
@@ -456,8 +538,9 @@ impl Browse<'_> {
         let mut number = 0usize;
         visible
             .iter()
-            .filter_map(|index| items.get(*index))
-            .map(|item| {
+            .enumerate()
+            .filter_map(|(pos, index)| items.get(*index).map(|item| (pos, item)))
+            .map(|(pos, item)| {
                 let disabled = item.is_disabled();
                 let gutter = if self.list.searchable {
                     " ".to_string()
@@ -486,6 +569,7 @@ impl Browse<'_> {
                     disabled,
                     current: item.current,
                     reason: item.disabled_reason.clone(),
+                    section_break: item.section_break_after && pos + 1 < visible.len(),
                 }
             })
             .collect()

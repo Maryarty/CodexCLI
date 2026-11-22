@@ -4,6 +4,8 @@
 //! (`snapshot_model_picker_width_80`), `chatwidget/tests/permissions.rs`
 //! (`approvals_selection_popup_snapshot`).
 
+use rtwk_core::input::{Mods, MouseKind};
+
 use crate::common::{Harness, ms, start_sized};
 use crate::dialogs::oracle::assert_rows;
 
@@ -103,6 +105,161 @@ fn a_number_key_flips_its_row_of_a_multi_select_and_keeps_it_open() {
     assert!(
         screen.contains("[ ] Alpha") && screen.contains("Choose"),
         "{screen}"
+    );
+}
+
+/// The cell of the first screen row holding `needle`.
+fn cell_of(h: &Harness, needle: &str) -> (u16, u16) {
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(needle))
+        .unwrap_or_else(|| panic!("no row holds {needle:?}:\n{screen}"));
+    (line.find(needle).map_or(0, |at| at as u16), y as u16)
+}
+
+/// ADR-011: a tap on a row of a multi-select flips it and the dialog stays.
+#[test]
+fn a_tap_flips_a_row_of_a_multi_select_and_keeps_it_open() {
+    let mut h = open(60, "multi_select");
+    let (x, y) = cell_of(&h, "[ ] Beta");
+    h.t.click(x, y);
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("[x] Beta") && screen.contains("Choose"),
+        "{screen}"
+    );
+}
+
+/// ADR-011: a tap on a row of a plain list picks it and the dialog closes.
+#[test]
+fn a_tap_on_a_row_picks_it_and_closes_the_dialog() {
+    let mut h = open(80, "model_picker");
+    assert!(h.t.screen().contains("Select Model and Effort"));
+    let (x, y) = cell_of(&h, "gpt-5.1-codex-mini");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: the wheel scrolls the rows of a list longer than its window.
+#[test]
+fn the_wheel_scrolls_the_rows_of_a_long_list() {
+    let mut h = open(60, "twelve_items");
+    assert!(!h.t.screen().contains("Item 11"), "{}", h.t.screen());
+    let (x, y) = cell_of(&h, "Item 3");
+    for _ in 0..6 {
+        h.t.mouse(MouseKind::WheelDown, x, y, 0, Mods::NONE);
+    }
+    h.t.pump_for(ms(100));
+    assert!(h.t.screen().contains("Item 11"), "{}", h.t.screen());
+}
+
+/// The index of the screen row that is exactly `text` (trailing blanks cut).
+fn row_of(h: &Harness, text: &str) -> usize {
+    rows(h)
+        .iter()
+        .position(|row| row == text)
+        .unwrap_or_else(|| panic!("no row `{text}` on:\n{}", h.t.screen()))
+}
+
+const RULE: &str = "  ───────────────────────";
+
+#[test]
+fn a_section_break_is_a_rule_row_of_its_own_between_two_rows() {
+    let h = open(60, "section_break");
+    let at = row_of(&h, "› [ ] theme-colors");
+    let rows = rows(&h);
+    assert_eq!(rows[at + 1], RULE);
+    assert_eq!(rows[at + 2], "  [ ] model");
+}
+
+#[test]
+fn the_ordering_keys_swap_orderable_rows_and_the_cursor_follows_the_moved_row() {
+    let mut h = open(60, "multi_orderable_two");
+    assert!(row_of(&h, "› [ ] model") < row_of(&h, "  [ ] branch"));
+    h.press("ctrl+l");
+    h.t.pump_for(ms(100));
+    assert!(row_of(&h, "  [ ] branch") < row_of(&h, "› [ ] model"));
+    h.press("right");
+    h.t.pump_for(ms(100));
+    assert!(
+        row_of(&h, "  [ ] branch") < row_of(&h, "› [ ] model"),
+        "the end stays"
+    );
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(row_of(&h, "› [ ] model") < row_of(&h, "  [ ] branch"));
+}
+
+#[test]
+fn a_fixed_row_neither_moves_nor_is_crossed() {
+    let mut h = open(60, "multi_orderable");
+    h.press("ctrl+l");
+    h.t.pump_for(ms(100));
+    let order = |h: &Harness| {
+        ["theme-colors", "model", "branch"].map(|name| {
+            rows(h)
+                .iter()
+                .position(|row| row.ends_with(&format!("[ ] {name}")))
+                .unwrap_or(usize::MAX)
+        })
+    };
+    assert!(
+        order(&h)[0] < order(&h)[1] && order(&h)[1] < order(&h)[2],
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(
+        order(&h)[0] < order(&h)[1] && order(&h)[1] < order(&h)[2],
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_plain_letter_feeds_the_search_of_a_multi_select() {
+    let mut h = open(60, "multi_alpha_jupiter");
+    h.press("j");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("› [ ] jupiter") && !screen.contains("[ ] alpha"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn the_preview_line_names_the_toggled_on_rows_in_order() {
+    let mut h = open(80, "multi_appearance");
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 0"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("space");
+    h.t.pump_for(ms(100));
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 0 · Field 1"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 1 · Field 0"),
+        "a move reorders the preview too: {}",
+        h.t.screen()
     );
 }
 
@@ -388,12 +545,12 @@ fn worktrees_new_snapshot() {
 fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
     let files = [
         (
-            "src/sheets/select/dialog.rs",
-            include_str!("../../src/sheets/select/dialog.rs"),
+            "src/widgets/picker/mod.rs",
+            include_str!("../../src/widgets/picker/mod.rs"),
         ),
         (
-            "src/sheets/select/rows.rs",
-            include_str!("../../src/sheets/select/rows.rs"),
+            "src/widgets/picker/rows.rs",
+            include_str!("../../src/widgets/picker/rows.rs"),
         ),
         (
             "core/src/screens/select/list.rs",
@@ -419,11 +576,152 @@ fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
                 continue;
             }
             for (word, everywhere) in banned {
-                if text.contains(word) && (everywhere || name.ends_with("dialog.rs")) {
+                if text.contains(word) && (everywhere || name.ends_with("picker/mod.rs")) {
                     found.push(format!("{name}:{}: {text}", line + 1));
                 }
             }
         }
     }
     assert!(found.is_empty(), "{found:#?}");
+}
+
+// ---- the pane at the heights of the oracle's tests (Picker `Pane`, core
+// `select::layout`): the whole screen equals one frame of the oracle's
+// snapshot, which the oracle joined of several.
+
+/// The rows of the frame whose first line is `header` in the oracle snapshot
+/// `path` (relative to `codex-rs/tui/src`): up to the next frame, the
+/// separator row between frames dropped.
+#[allow(clippy::disallowed_methods)]
+fn frame(path: &str, header: &str) -> Vec<String> {
+    let full = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../tui/src")
+        .join(path);
+    let text = std::fs::read_to_string(&full)
+        .unwrap_or_else(|err| panic!("oracle snapshot {}: {err}", full.display()));
+    let body = text.splitn(3, "---\n").nth(2).unwrap_or_default();
+    let starts =
+        |line: &str| line.starts_with("height=") || line.ends_with(':') && line.contains('×');
+    if header.is_empty() {
+        // A snapshot of one screen: every row.
+        let mut rows: Vec<String> = body
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        return rows;
+    }
+    let mut lines = body.lines().skip_while(|line| *line != header).skip(1);
+    let mut rows: Vec<String> = Vec::new();
+    for line in lines.by_ref() {
+        if line == "---" || starts(line) {
+            break;
+        }
+        rows.push(line.trim_end().to_string());
+    }
+    // `\n\n` between two frames leaves one blank row after the last.
+    if rows.last().is_some_and(String::is_empty) {
+        rows.pop();
+    }
+    rows
+}
+
+fn sized(width: u16, height: u16, entry: &str) -> Harness {
+    let mut h = start_sized(true, width, height);
+    h.open_debug_row("select", Some(entry));
+    h.t.pump_for(ms(800));
+    h
+}
+
+fn rows_of(h: &Harness) -> Vec<String> {
+    h.t.screen()
+        .lines()
+        .map(|line| line.trim_end().to_string())
+        .collect()
+}
+
+const SHORT_BROWSER: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__short_browser_keeps_header_tabs_search_and_footer.snap";
+
+#[test]
+fn the_browser_keeps_header_tabs_search_and_footer_at_short_heights() {
+    for (width, height) in [(48, 6), (48, 7), (48, 13), (24, 6), (24, 7)] {
+        let h = sized(width, height, "browser_keymap");
+        assert_eq!(
+            rows_of(&h),
+            frame(SHORT_BROWSER, &format!("{width}×{height}:")),
+            "{width}x{height}"
+        );
+    }
+}
+
+const MULTI_SHORT: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__multi_select_picker__tests__short_picker_preserves_selected_row_when_overflow_spacers_yield.snap";
+
+#[test]
+fn the_multi_select_yields_its_spacers_before_the_selected_row() {
+    for height in 1..=7 {
+        let mut h = sized(80, height, "multi_fields_twelve");
+        h.press("end");
+        h.t.pump_for(ms(300));
+        assert_eq!(
+            rows_of(&h),
+            frame(MULTI_SHORT, &format!("height={height}")),
+            "height {height}"
+        );
+    }
+}
+
+const BROWSER_PAGE: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__browser_page_navigation_uses_rows_that_fit.snap";
+
+#[test]
+fn page_down_moves_by_the_rows_that_fit() {
+    let mut h = sized(60, 18, "browser_keymap");
+    h.press("pagedown");
+    h.t.pump_for(ms(300));
+    assert_eq!(rows_of(&h), frame(BROWSER_PAGE, ""));
+}
+
+#[test]
+fn shrinking_the_browser_keeps_the_selected_row_visible() {
+    for entry in ["browser_single_line", "browser_wrapped"] {
+        let mut h = sized(60, 24, entry);
+        for _ in 0..7 {
+            h.press("down");
+        }
+        h.t.resize(60, 13);
+        h.t.pump_for(ms(300));
+        let screen = h.t.screen();
+        let focused = screen.lines().find(|line| line.starts_with('›'));
+        assert!(
+            focused.is_some_and(|line| line.contains("Action 07")),
+            "{entry}:\n{screen}"
+        );
+    }
+}
+
+/// The description column hides below 24 cells and the rows keep their whole
+/// width: at 48 cells the names stand alone, at 49 the details come back
+/// (`description_column_visibility`; the oracle's test draws raw rows: the
+/// second one carries its number by hand and a bare reason, while a disabled
+/// row of the list has no number and says `disabled: Unavailable`, as
+/// `selection_row_layout.rs` does).
+#[test]
+fn the_description_column_hides_when_it_would_be_narrow() {
+    for width in [48u16, 49, 80] {
+        let h = sized(width, 2, "description_hide_when_narrow");
+        let rows = rows_of(&h);
+        let (first, second) = if width >= 49 {
+            (
+                format!("› 1. 日本語{}Details", " ".repeat(14)),
+                "     Blocked (disabled)  disabled: Unavailable".to_string(),
+            )
+        } else {
+            (
+                "› 1. 日本語".to_string(),
+                "     Blocked (disabled)".to_string(),
+            )
+        };
+        assert_eq!(rows, [first, second], "width {width}");
+    }
 }
