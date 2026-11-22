@@ -335,10 +335,6 @@ fn file_link_decodes_percent_encoded_bare_path_destination() {
 // ORACLE markdown_render_tests.rs:1083 file_link_preserves_labels_with_invalid_percent_encoding kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__file_link_preserves_labels_with_invalid_percent_encoding
 #[test]
 fn file_link_preserves_labels_with_invalid_percent_encoding() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: `bad%FF label (/tmp/)` is not on the screen after the fragments before it ([\"bad%FF label (/tmp/)\", \"bad%FF label (/)\"]):",
-    );
     let s = Screen::build(Owner::ChatLive).markdown(120, 40).script(include_str!("fixtures/markdown_streaming_3/file_link_preserves_labels_with_invalid_percent_encoding.jsonl")).open();
     let rows = snap_lines("file_link_preserves_labels_with_invalid_percent_encoding");
     let frags: Vec<&str> = rows.iter().map(String::as_str).collect();
@@ -348,10 +344,6 @@ fn file_link_preserves_labels_with_invalid_percent_encoding() {
 // ORACLE markdown_render_tests.rs:1092 file_link_preserves_directory_labels_and_destinations kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__file_link_preserves_directory_labels_and_destinations
 #[test]
 fn file_link_preserves_directory_labels_and_destinations() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: `dir (./dir/)` is not on the screen after the fragments before it ([\"dir (./dir/)\", \"dir/ (./dir)\", \"dir (/outside/dir/)\", \"dir/ (/outside/dir)\"]):",
-    );
     let s = Screen::build(Owner::ChatLive).markdown(120, 40).script(include_str!("fixtures/markdown_streaming_3/file_link_preserves_directory_labels_and_destinations.jsonl")).open();
     let rows = snap_lines("file_link_preserves_directory_labels_and_destinations");
     let frags: Vec<&str> = rows.iter().map(String::as_str).collect();
@@ -389,10 +381,6 @@ fn file_link_appends_line_number_when_label_lacks_it() {
 // ORACLE markdown_render_tests.rs:1133 file_link_keeps_absolute_paths_outside_cwd kind=ui owner=chat-live
 #[test]
 fn file_link_keeps_absolute_paths_outside_cwd() {
-    kit::pending(
-        Owner::ChatLive,
-        "the kit cannot set the session cwd that the oracle shows local file links relative to (no cwd seed); first difference at the chat-cells-2 probe: the screen has no `README.md:74 (/Users/example/code/codex/README.md:74)`:",
-    );
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
