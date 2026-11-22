@@ -67,11 +67,15 @@ impl Follow {
         self.scroll.clone()
     }
 
-    /// The last row is in view (a list not laid out yet shows its end).
+    /// The last row is in view (a list not laid out yet, or with no row of
+    /// room, follows: `area.is_empty()` in the oracle's `follow_control_label`).
     pub fn at_tail(&self) -> bool {
         let Ok(position) = self.scroll.as_scroll_controller().try_position() else {
             return true;
         };
+        if position.viewport_dimension() <= 0 {
+            return true;
+        }
         if position.reverse() {
             position.pixels() <= 0
         } else {

@@ -167,10 +167,6 @@ fn copy_completion_keeps_payload_count_and_follow_intent() {
 // ORACLE transcript_view/copy_mode_tests.rs:395 find_and_shift_click_release_copy_payload kind=ui owner=chat-live
 #[test]
 fn find_and_shift_click_release_copy_payload() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find that selects a match with a shift-click release, and no copy mode footer for it",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 5)
         .script(include_str!("fixtures/transcript_view_2/needle.jsonl"))
@@ -395,7 +391,7 @@ fn annotated_diff_preserves_the_existing_hard_wrapped_visual_output() {
 fn empty_viewport_does_not_show_back_to_bottom() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no follow control (`Back to bottom`) and no zero-height viewport render",
+        "a 1-row window: the chat's bottom pane (composer, footer) is laid out in a Column and overflows it (RenderFlex overflow, fail_on_overflow) where the oracle clips the pane to the window; the control itself hides at a zero-row viewport (Follow::at_tail)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 1)
@@ -426,10 +422,6 @@ fn copying_selection_at_bottom_does_not_show_back_to_bottom() {
 // ORACLE transcript_view/follow_control_tests.rs:158 closing_find_at_bottom_does_not_show_back_to_bottom kind=ui owner=chat-live
 #[test]
 fn closing_find_at_bottom_does_not_show_back_to_bottom() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no find that closes at the bottom without showing the follow control",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 5)
         .script(include_str!(
@@ -448,7 +440,7 @@ fn closing_find_at_bottom_does_not_show_back_to_bottom() {
 fn enlarging_paused_view_hides_back_to_bottom_when_tail_fits() {
     kit::pending(
         Owner::ChatLive,
-        "the chat's transcript has no paused view with a follow control that hides when the enlarged tail fits",
+        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll (five.jsonl is `one\\ntwo\\n...`), and the oracle test drives the view alone (5 rows, then 6), while at 40x5 the port's gap row, composer and footer leave the transcript no row",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 5)
@@ -499,10 +491,6 @@ fn hidden_control_does_not_consume_clicks_and_drag_out_cancels() {
 // ORACLE transcript_view/follow_control_tests.rs:334 height_changes_backfill_after_empty_click_but_preserve_deliberate_pause kind=ui owner=chat-live
 #[test]
 fn height_changes_backfill_after_empty_click_but_preserve_deliberate_pause() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no backfill on a height change after an empty click, and no deliberate-pause memory across heights",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(120, 50)
         .script(include_str!("fixtures/transcript_view_2/rows60.jsonl"))
@@ -714,10 +702,6 @@ fn mouse_scroll_speed_scales_rows_and_accumulates_fractional_movement() {
 // ORACLE transcript_view/input_tests.rs:57 decimal_mouse_scroll_speeds_preserve_whole_rows kind=ui owner=chat-live
 #[test]
 fn decimal_mouse_scroll_speeds_preserve_whole_rows() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no mouse scroll speed setting for 0.1 and 0.3; whole rows are drawn only after the accumulated movement",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(20, 8)
         .script(include_str!("fixtures/transcript_view_2/rows120.jsonl"))
@@ -762,10 +746,6 @@ fn shift_click_extends_a_double_clicked_word_in_both_directions() {
 // ORACLE transcript_view/input_tests.rs:270 ordinary_click_opens_bare_and_markdown_links_on_release kind=ui owner=chat-live
 #[test]
 fn ordinary_click_opens_bare_and_markdown_links_on_release() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat's transcript has no link open on an ordinary click release (the `OpenLink` action is not drawn; the link text is)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(12, 8)
         .script(include_str!("fixtures/transcript_view_2/docs.jsonl"))

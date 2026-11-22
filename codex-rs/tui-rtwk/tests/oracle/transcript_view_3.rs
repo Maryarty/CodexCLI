@@ -560,10 +560,6 @@ fn mouse_selection_preserves_header_reservation_at_turn_boundaries() {
 // ORACLE transcript_view/prompt_header_tests.rs:215 paused_header_reservation_survives_copy_until_scroll_or_resize kind=ui owner=chat-live
 #[test]
 fn paused_header_reservation_survives_copy_until_scroll_or_resize() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat draws no pinned header and no paused header reservation after a copy",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 7)
         .script(include_str!(

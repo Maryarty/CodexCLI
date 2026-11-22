@@ -16,7 +16,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::KeyPress;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{GestureDetector, MouseRegion, PointerEvent};
-use rtwk::layout::{Center, Column, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{Center, Column, Expanded, Flexible, MainAxisSize, Row, SizedBox};
 use rtwk::prelude::KeyCode;
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, segmenter_of};
@@ -29,10 +29,12 @@ use crate::widgets::thread_ui::Follow;
 
 use super::strings::{self, Strings};
 
-/// The row above the composer, always there (the oracle reserves it, so the
-/// composer does not move when the control appears): the control while the
-/// reader is away. With `status_above` (the working line or the previews are
-/// above), a blank row precedes the control to set it apart.
+/// The row above the composer, there while the window has the room (the oracle
+/// reserves it, so the composer does not move when the control appears; it is
+/// a flexible child of the bottom pane, the first thing a short window clips):
+/// the control while the reader is away. With `status_above` (the working line
+/// or the previews are above), a blank row precedes the control to set it
+/// apart.
 pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidget {
     let table = strings::of(cx);
     let tokens = theme::Tokens::of(cx);
@@ -43,7 +45,7 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         None => surface,
     };
     let listenable = Rc::new(follow.listenable());
-    ListenableBuilder::new(listenable, move |_, _| {
+    let builder = ListenableBuilder::new(listenable, move |_, _| {
         let blank: AnyWidget = SizedBox::new(None, Some(1), None).into();
         if !follow.away() {
             return blank;
@@ -64,8 +66,8 @@ pub fn gap<S>(cx: &mut Cx<'_, S>, follow: Follow, status_above: bool) -> AnyWidg
         } else {
             row
         }
-    })
-    .into()
+    });
+    Flexible::new(1, builder).into()
 }
 
 /// The control: a label in the surface of the user's messages, the widest

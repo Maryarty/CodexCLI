@@ -9,7 +9,7 @@ use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
-use rtwk::layout::{Column, CrossAxisAlignment, Expanded, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
@@ -572,9 +572,12 @@ impl State for ChatState {
         let status_above = !run.read_only
             && (run.word(&session, reconnecting) != "Ready"
                 || matches!(session.status, codex_tui_core::app::Session::Starting));
+        // The bottom pane (`bottom_pane_renderable`): everything below the
+        // transcript, which gets the rows left; the reader's gap above the
+        // composer is a flexible row, the first thing a short window clips.
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(Expanded::new(1, transcript))
+            .main_axis_size(MainAxisSize::Min)
             .child(StatusSlot)
             .child(PendingInput)
             .child(NoticeLine);
@@ -617,10 +620,17 @@ impl State for ChatState {
                 status_above,
             ))
             .child(
-                BoxWidget::new()
-                    .style(tokens.prompt_surface(cx, false))
-                    .padding(EdgeInsets::only(0, 1, 1, 1))
-                    .child(composer),
+                // keyed: the blank rows and the status come and go above it
+                // and the footer's type changes below, and an unkeyed child
+                // between two changed neighbours is a new element (its state,
+                // and the messages queued for it, lost)
+                AnyWidget::from(
+                    BoxWidget::new()
+                        .style(tokens.prompt_surface(cx, false))
+                        .padding(EdgeInsets::only(0, 1, 1, 1))
+                        .child(composer),
+                )
+                .with_key(Key::value("composer")),
             )
         };
         if let Some(line) = line.filter(|_| !thread.read_only()) {
@@ -663,6 +673,10 @@ impl State for ChatState {
                 ));
             }
         }
+        let body = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .child(Expanded::new(1, transcript))
+            .child(body);
         let mut focus = Focus::new(body)
             .bind(
                 KeyPress::char('c').with_mods(Mods::CTRL),

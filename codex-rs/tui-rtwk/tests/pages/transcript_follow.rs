@@ -41,13 +41,16 @@ fn rows(n: usize) -> String {
 /// The oracle's `new_output` fixture: a later turn answering "new output".
 const NEW_OUTPUT: &str = include_str!("../oracle/fixtures/transcript_view_1/new_output.jsonl");
 
-fn chat(width: u16, height: u16) -> Screen {
-    // the kit's script is `&'static`: built once for the binary
+/// The kit's script is `&'static`: built once for the binary.
+fn script() -> &'static str {
     static SCRIPT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let script = SCRIPT.get_or_init(|| rows(40));
+    SCRIPT.get_or_init(|| rows(40))
+}
+
+fn chat(width: u16, height: u16) -> Screen {
     let mut s = Screen::build(Owner::ChatLive)
         .size(width, height)
-        .script(script)
+        .script(script())
         .open();
     s.wait_for("row 39");
     s
@@ -275,4 +278,31 @@ fn the_control_is_reversed_and_bold_under_the_pointer() {
     s.assert_style(40, control, "reversed bold");
     s.mouse_drag(40, 2);
     s.assert_style(40, control, "!reversed !bold");
+}
+
+#[test]
+fn a_window_with_no_row_for_the_transcript_has_no_reader_away() {
+    // the reserved row, the composer and the footer fill the five rows: the
+    // transcript has none, and a reader with no viewport is not away (no
+    // control, no hint: `area.is_empty()` in the oracle)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 5)
+        .script(script())
+        .open();
+    s.wait_for("shortcuts");
+    s.assert_absent("Back to bottom");
+    s.assert_absent("latest");
+}
+
+#[test]
+fn the_composer_is_the_same_element_while_the_turn_starts_and_the_footer_changes() {
+    // sending starts a turn: the working row and the blank rows come above
+    // the composer and the footer below it changes kind; a new composer
+    // element would lose the messages queued for the old one (a panic in
+    // its update: no provider above it)
+    let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
+    s.type_text("first").keys("enter");
+    s.type_text("second").keys("enter");
+    s.type_text("third");
+    s.assert_composer("third");
 }
