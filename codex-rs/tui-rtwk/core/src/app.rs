@@ -94,6 +94,8 @@ pub struct SessionSlice {
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
     pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
+    /// What the last account read said of the Luna Reserve, per backend.
+    pub reserve: BTreeMap<BackendId, chat::Reserve>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -584,6 +586,7 @@ impl CodexApp {
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
                 backend_banners: BTreeMap::new(),
+                reserve: BTreeMap::new(),
             }),
             threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
@@ -985,6 +988,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             Rc::make_mut(&mut app.session)
                 .backend_banners
                 .remove(&origin);
+            Rc::make_mut(&mut app.session).reserve.remove(&origin);
             detach_threads(app, origin, fx);
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
@@ -998,6 +1002,14 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         |ctx| !matches!(ctx, AppCtx::RateLimits { backend } if *backend == origin),
                     );
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    // never reuse the permission from before a new hard stop
+                    // (`invalidate_ordinary_usage_recovery`)
+                    if (note.rate_limits.rate_limit_reached_type.is_some()
+                        || note.rate_limits.spend_control_reached == Some(true))
+                        && let Some(reserve) = Rc::make_mut(&mut app.session).reserve.get_mut(&origin)
+                    {
+                        reserve.recovered = false;
+                    }
                     if app.screens.chat.status.account_usage
                         && (note.rate_limits.rate_limit_reached_type.is_some()
                             || note.rate_limits.spend_control_reached == Some(true)
@@ -1013,6 +1025,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .backend_banners
                         .remove(&origin);
+                    Rc::make_mut(&mut app.session).reserve.remove(&origin);
                     app.outgoing.retain(
                         |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
                     );
@@ -1274,6 +1287,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         Rc::make_mut(&mut app.session)
                             .backend_banners
                             .remove(&origin);
+                        Rc::make_mut(&mut app.session).reserve.remove(&origin);
                         detach_threads(app, origin, fx);
                         app.attaching_events
                             .retain(|(backend, ..)| *backend != origin);
@@ -1503,7 +1517,8 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
-                if let Answer::RateLimits { limits, banner } = answer {
+                if let Answer::RateLimits { limits, banner, reserve } = answer {
+                    Rc::make_mut(&mut app.session).reserve.insert(backend, reserve);
                     install_rates(app, backend, limits);
                     install_banner(app, backend, banner.map(|banner| *banner));
                 }

@@ -938,3 +938,54 @@ fn a_model_list_answer_carries_the_tiers_of_each_model() {
     assert_eq!(presets[0].service_tiers[0].name, "Fast");
     assert_eq!(presets[0].default_service_tier.as_deref(), Some("priority"));
 }
+
+fn reserve_current(normal: Option<&str>) -> Current {
+    Current {
+        reserve: Some(codex_tui_core::screens::select::models::ReserveOnly {
+            normal_model: normal.map(str::to_owned),
+        }),
+        ..Current::new("gpt-reserve")
+    }
+}
+
+#[test]
+fn the_reserve_only_menu_offers_the_normal_model_it_borrows_and_nothing_else() {
+    let mut s = sandbox(presets());
+    open(&mut s, reserve_current(Some("gpt-5.5")));
+    let page = page_of(&s);
+    assert_eq!(page.heading, codex_tui_core::screens::select::models::Heading::Reserve);
+    assert_eq!(page.rows.len(), 1);
+    assert_eq!(page.rows[0].id, "gpt-reserve");
+    assert_eq!(page.rows[0].name, "GPT-5.5");
+    assert!(page.rows[0].current);
+}
+
+#[test]
+fn the_reserve_effort_is_the_tasks_alone() {
+    let mut s = sandbox(presets());
+    open(&mut s, reserve_current(Some("gpt-5.5")));
+    choose(&mut s, "gpt-reserve");
+    // the reasoning menu of the borrowed model, under the Reserve's slug
+    assert_eq!(depth(&s), 2);
+    choose(&mut s, "high");
+    assert_eq!(depth(&s), 0);
+    let Some(Picked::Selection(selection)) = model(&s).picked.last() else {
+        panic!("a selection: {:?}", model(&s).picked)
+    };
+    assert_eq!(selection.model, "gpt-reserve");
+    assert_eq!(selection.effort, Some(Effort::High));
+    assert_eq!(selection.apply, Apply::Reserve);
+    // it patches the thread's effort and keeps the model and the saved defaults
+    let effects = codex_tui_core::screens::select::persist::effects(selection);
+    let patch = effects.patch.expect("a patch");
+    assert_eq!((patch.model, patch.effort), (None, Some(Effort::High)));
+    assert!(effects.edits.is_empty());
+}
+
+#[test]
+fn a_reserve_without_its_model_in_the_catalog_says_so() {
+    let mut s = sandbox(presets());
+    open(&mut s, reserve_current(Some("gpt-nowhere")));
+    assert_eq!(depth(&s), 0);
+    assert_eq!(model(&s).notes, [Note::ReserveUnavailable]);
+}

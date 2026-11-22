@@ -249,6 +249,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 opened.command,
                 &states.chat.status,
                 states.chat.flags.connectors_enabled,
+                reserve_only(&session, &states, &thread),
             ) {
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
@@ -312,16 +313,41 @@ fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
     }
 }
 
+/// `restrict_model_picker_to_luna_reserve`: the thread runs on the Reserve and the last account
+/// read did not say ordinary usage is back.
+fn reserve_only(
+    session: &SessionSlice,
+    states: &ScreenStates,
+    thread: &ThreadModel,
+) -> Option<codex_tui_core::screens::select::models::ReserveOnly> {
+    use codex_tui_core::screens::select::models::{RESERVE_MODEL, ReserveOnly};
+    let slots = thread.screen_slots();
+    let model = slots.chat.model.as_deref().or(states.chat.status.model.as_deref())?;
+    if model != RESERVE_MODEL {
+        return None;
+    }
+    let backend = states.agents.owner_of(thread.id().as_str());
+    let facts = session.reserve.get(&backend);
+    if facts.is_some_and(|facts| facts.recovered) {
+        return None;
+    }
+    Some(ReserveOnly { normal_model: facts.and_then(|facts| facts.normal_model.clone()) })
+}
+
 /// The menu a slash command opens in the selection dialog, built from the
 /// thread's facts and whether the apps feature is on (the others open their slot empty until they land).
 fn select_intent(
     command: SlashCommand,
     facts: &chat::StatusFacts,
     apps: bool,
+    reserve: Option<codex_tui_core::screens::select::models::ReserveOnly>,
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
-        SlashCommand::Model => Some(Intent::OpenModels(models::Current::from_facts(facts))),
+        SlashCommand::Model => Some(Intent::OpenModels(models::Current {
+            reserve,
+            ..models::Current::from_facts(facts)
+        })),
         SlashCommand::Permissions => Some(Intent::OpenPermissions(
             permissions::Current::from_facts(facts),
         )),

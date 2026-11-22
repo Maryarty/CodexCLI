@@ -110,6 +110,8 @@ pub enum Page {
 pub enum Note {
     /// `No additional models are available right now.`
     NoAdditionalModels,
+    /// `Luna model settings are unavailable; please try /model again in a moment.`
+    ReserveUnavailable,
     /// `Could not load models. Try /model again.`
     ModelsNotLoaded,
     /// `Model changed to {model} {effort}` (`for this session only` when the
@@ -386,7 +388,7 @@ impl Model {
     fn open_models(&mut self, current: Current) {
         let menu = ModelMenu::Models(current);
         if menu.is_empty(&self.catalog) {
-            self.notes.push(Note::NoAdditionalModels);
+            self.notes.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
         } else {
             self.stack.push(Menu::Model(Box::new(menu)));
         }
@@ -402,16 +404,15 @@ impl Model {
         }
         self.catalog.presets = presets;
         let catalog = &self.catalog;
-        let mut dismissed = 0;
+        let mut dismissed = Vec::new();
         self.stack.retain(|menu| match menu {
             Menu::Model(menu) if menu.is_empty(catalog) => {
-                dismissed += 1;
+                dismissed.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
                 false
             }
             _ => true,
         });
-        self.notes
-            .extend(std::iter::repeat_n(Note::NoAdditionalModels, dismissed));
+        self.notes.extend(dismissed);
     }
 }
 

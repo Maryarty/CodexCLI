@@ -172,6 +172,7 @@ pub struct Strings {
     pub note_save_tier_failed: Msg<1>,
     pub note_tier_set: Msg<1>,
     pub note_reasoning_disabled: &'static str,
+    pub note_reserve_unavailable: &'static str,
     pub note_reasoning_unavailable: Msg<1>,
     pub note_reasoning_lowest: Msg<1>,
     pub note_reasoning_highest: Msg<1>,
@@ -301,6 +302,7 @@ pub const EN: Strings = Strings {
     ),
     note_tier_set: msg!("Service tier set to {0}"),
     note_reasoning_disabled: "Reasoning shortcuts are disabled until startup completes.",
+    note_reserve_unavailable: "Luna model settings are unavailable; please try /model again in a moment.",
     note_reasoning_unavailable: msg!("Reasoning shortcuts are unavailable for {0}."),
     note_reasoning_lowest: msg!("Reasoning is already at the lowest level ({0})."),
     note_reasoning_highest: msg!("Reasoning is already at the highest level ({0})."),
@@ -536,6 +538,7 @@ impl Strings {
             }
             Note::ServiceTierSet(tier) => text(self.note_tier_set, tier),
             Note::ReasoningDisabled => self.note_reasoning_disabled.to_string(),
+            Note::ReserveUnavailable => self.note_reserve_unavailable.to_string(),
             Note::ReasoningUnavailable(model) => text(self.note_reasoning_unavailable, model),
             Note::ReasoningBound { direction, effort } => {
                 use codex_protocol::openai_models::ReasoningEffort as E;

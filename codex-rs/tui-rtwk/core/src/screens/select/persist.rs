@@ -61,6 +61,11 @@ pub fn effects(selection: &Selection) -> Effects {
             Effects { patch: Some(patch), edits }
         }
         Apply::Session => Effects { patch: Some(patch), edits: Vec::new() },
+        // The Reserve keeps its model: only the effort of the task changes.
+        Apply::Reserve => Effects {
+            patch: Some(SettingsPatch { effort: effort.clone(), ..SettingsPatch::default() }),
+            edits: Vec::new(),
+        },
         // Plan mode only: the thread keeps its own model and effort.
         Apply::PlanOnly => Effects {
             patch: None,
