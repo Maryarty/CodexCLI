@@ -98,7 +98,9 @@ impl Bar<'_> {
                 Status::Active => strings.status_active,
                 Status::Archived => strings.status_archived,
             };
-            return vec![self.label(strings.status), self.value(name, true, focused)];
+            // The compact strip names only the status in force; the label comes back when the
+            // focused control stands alone (`focused`).
+            return vec![self.value(name, true, focused)];
         }
         vec![
             self.label(&format!("{} ", strings.status)),
@@ -152,7 +154,11 @@ impl Bar<'_> {
     fn focused(&self) -> Vec<Span> {
         match self.facts.focus {
             Control::Filter => self.filter(true),
-            Control::Status => self.status(true),
+            Control::Status => {
+                let mut line = vec![self.label(self.strings.status)];
+                line.extend(self.status(true));
+                line
+            }
             Control::Sort => self.sort(true),
         }
     }
@@ -169,11 +175,8 @@ pub fn toolbar(look: &Look, strings: &'static Strings, facts: Facts) -> AnyWidge
             strings,
             facts,
         };
-        let width = |line: &[Span]| -> usize {
-            line.iter()
-                .map(|span| seg.width(&span.text))
-                .sum()
-        };
+        let width =
+            |line: &[Span]| -> usize { line.iter().map(|span| seg.width(&span.text)).sum() };
         let line = [bar.line(false), bar.line(true)]
             .into_iter()
             .find(|line| width(line) <= room)

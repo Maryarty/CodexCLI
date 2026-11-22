@@ -9,6 +9,7 @@
 //! chrome's rows are in `layout.rs`, the spellings picked by width in
 //! `chrome.rs` and `toolbar.rs`, the rows in `rows.rs`, the keys in `keys.rs`.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use rtwk::controls::{SelectionController, TabController};
@@ -76,27 +77,101 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/fake_rollouts.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| list::List.into()),
         },
-        entry!("table", "three rows: a cloud one, an unread one, a plain one"),
+        entry!(
+            "table",
+            "three rows: a cloud one, an unread one, a plain one"
+        ),
         entry!("more_indicators", "five rows, to scroll down to the third"),
-        entry!("search_error", "a listing that failed: the message on the search line"),
-        entry!("footer_wide", "no rows at 220 cells: the footer's wide hints"),
+        entry!(
+            "search_error",
+            "a listing that failed: the message on the search line"
+        ),
+        entry!(
+            "footer_wide",
+            "no rows at 220 cells: the footer's wide hints"
+        ),
         entry!("loading", "the first page is loading"),
         entry!("empty", "no saved sessions"),
-        entry!("toolbar_repo_cwd", "a cwd filter with a repository that has other checkouts"),
-        entry!("dense_cwd", "one row under its own directory filter (ctrl+o: dense)"),
+        entry!(
+            "toolbar_repo_cwd",
+            "a cwd filter with a repository that has other checkouts"
+        ),
+        entry!(
+            "dense_cwd",
+            "one row under its own directory filter (ctrl+o: dense)"
+        ),
         entry!("dense_narrow", "one row, to be dense at 48 cells"),
         entry!("dense_named", "a row with a name and a preview"),
-        entry!("dense_two_rows", "two rows under the cwd filter (dense, the second selected)"),
+        entry!(
+            "dense_two_rows",
+            "two rows under the cwd filter (dense, the second selected)"
+        ),
         entry!("zebra_rows", "two comfortable rows, the first striped"),
-        entry!("expanded_session", "one row with its conversation read (ctrl+e)"),
+        entry!(
+            "expanded_session",
+            "one row with its conversation read (ctrl+e)"
+        ),
         entry!("narrow_session", "one row, to be read at 58 cells"),
         entry!("footer_times", "one row, updated 3h and created 5h ago"),
         entry!("footer_no_branch", "one row without a branch"),
         entry!("footer_long_branch", "one row on a long branch"),
         entry!("footer_long_cwd", "one row under a very long directory"),
-        entry!("footer_no_cwd", "one row under the directory filter's own directory"),
-        entry!("footer_narrow", "an empty picker, to be opened at 119 cells"),
-        entry!("footer_very_narrow", "an empty picker, to be opened at 38 cells"),
+        entry!(
+            "footer_no_cwd",
+            "one row under the directory filter's own directory"
+        ),
+        entry!(
+            "footer_narrow",
+            "an empty picker, to be opened at 119 cells"
+        ),
+        entry!(
+            "footer_very_narrow",
+            "an empty picker, to be opened at 38 cells"
+        ),
+        entry!(
+            "four_rows",
+            "four rows that overflow the list (ctrl+o: dense)"
+        ),
+        entry!("three_rows", "three rows item-0..item-2"),
+        entry!("ten_rows", "ten rows item-0..item-9"),
+        entry!("twenty_rows", "twenty rows item-0..item-19"),
+        entry!(
+            "end_ten_rows",
+            "ten rows and a next cursor (end loads more)"
+        ),
+        entry!("search_query", "three rows to search and paste into"),
+        entry!("one_row_next_page", "one row and a next cursor"),
+        entry!("two_rows_alpha_beta", "rows alpha and beta"),
+        entry!("no_cwd_filter", "two rows with no directory filter"),
+        entry!("archive_footer", "one selected row (the archive hint)"),
+        entry!(
+            "archived_cwd",
+            "one row under a directory filter; the status moves to Archived"
+        ),
+        entry!(
+            "partial_failure",
+            "a healthy row kept after one source failed"
+        ),
+        entry!("later_page_error", "one loaded row whose next page failed"),
+        entry!("colors_unread", "an unread row named Named task"),
+        entry!("compact_six_rows", "six rows under /tmp/codex (resume)"),
+        entry!("compact_six_rows_fork", "six rows under /tmp/codex (fork)"),
+        entry!(
+            "toolbar_focus_narrow",
+            "an empty picker scoped to /tmp/codex"
+        ),
+        entry!(
+            "toolbar_focus_narrow_fork",
+            "an empty fork picker scoped to /tmp/codex"
+        ),
+        entry!("transcript_loading", "two rows without times (ctrl+t)"),
+        entry!("db_fallback", "the three rows of the store fallback"),
+        entry!("linked_worktree", "a session under a linked checkout"),
+        entry!(
+            "expanded_details",
+            "a named thread at a fixed time (ctrl+e)"
+        ),
+        entry!("archive_cloud", "a local and a cloud copy of one thread"),
     ]
 }
 
@@ -128,6 +203,9 @@ pub struct ScreenState {
     selection: SelectionController<usize>,
     list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
+    /// The rows of the list's region, its `more` lines included, as the
+    /// last layout gave them (the oracle's `view_rows`).
+    region: Rc<Cell<i32>>,
     query: TextEditingController,
     node: FocusNode,
     focus: TabController,
@@ -169,6 +247,7 @@ impl StatefulWidget for Screen {
             selection: SelectionController::with(false, [0], Some(0)),
             list: ListController::new(),
             scroll: Rc::new(ValueNotifier::new(Scrolled::default())),
+            region: Rc::new(Cell::new(0)),
             query: TextEditingController::new(""),
             node: FocusNode::new(),
             focus: TabController::new(3),
@@ -184,6 +263,7 @@ struct Controls {
     selection: SelectionController<usize>,
     list: ListController,
     scroll: Rc<ValueNotifier<Scrolled>>,
+    region: Rc<Cell<i32>>,
     taps: Rc<Vec<Handler<PointerEvent>>>,
 }
 
@@ -347,10 +427,13 @@ fn footer(frame: &Frame, width: usize) -> AnyWidget {
                 } else {
                     rows.to_string()
                 };
-                let percent = if at.max <= 0 {
+                // The loading line under the last row is not part of the
+                // sessions the oracle's percent counts.
+                let max = at.max - i64::from(rows > 0 && model.listing.is_loading());
+                let percent = if max <= 0 {
                     100
                 } else {
-                    ((at.pixels as f64 / at.max as f64) * 100.0).round() as u8
+                    ((at.pixels.min(max) as f64 / max as f64) * 100.0).round() as u8
                 };
                 let label = chrome::progress_label(position, &total, percent, width);
                 Row::new()
@@ -428,8 +511,11 @@ fn list_of(frame: &Frame) -> AnyWidget {
                 selection,
                 list,
                 scroll,
+                region,
                 taps,
             } = controls.clone();
+            region.set(constraints.max_height);
+            let (cursor_of, region_of) = (selection.clone(), region);
             let rows = Rows {
                 width: constraints.max_width,
                 ..rows.clone()
@@ -465,18 +551,32 @@ fn list_of(frame: &Frame) -> AnyWidget {
                     if at.above() { above.clone() } else { none() }
                 })
             };
+            let density = model.density;
             let down = {
                 let below = shown_line(if loading_more {
                     strings.more_loading
                 } else {
                     strings.more_below
                 });
+                // Whether rows lie below is the oracle's rule (`has_more_below`), which
+                // depends on the cursor: the list's own extent cannot say, as the line
+                // takes a row of the room it measures.
+                let cursor = cursor_of;
                 ValueListenableBuilder::new(scroll, move |_, at: &Scrolled, _| {
-                    if has_more || at.below() {
-                        below.clone()
-                    } else {
-                        SizedBox::new(Some(0), Some(0), None).into()
-                    }
+                    let (below, at) = (below.clone(), *at);
+                    let (cursor, region) = (cursor.clone(), region_of.clone());
+                    ListenableBuilder::new(cursor.listenable(), move |_, _| {
+                        let top = rows_above(at.pixels, density).min(len.saturating_sub(1));
+                        let view = usize::try_from(region.get()).unwrap_or(1);
+                        if has_more
+                            || more_below(top, cursor.cursor().unwrap_or(0), view, len, density)
+                        {
+                            below.clone()
+                        } else {
+                            SizedBox::new(Some(0), Some(0), None).into()
+                        }
+                    })
+                    .into()
                 })
             };
             ExcludeFocus::new(
@@ -562,19 +662,11 @@ impl ScreenState {
             return;
         }
         let list = &self.list;
-        let (pixels, viewport) = if list.has_clients() {
-            let position = list.position();
-            (position.pixels(), position.viewport_dimension())
-        } else {
-            (0, 1)
-        };
+        let pixels = list.try_position().map_or(0, |position| position.pixels());
         let from = self.selection.cursor();
-        // The window is the list's viewport and the `more` lines the last
-        // frame showed with it.
-        let shown = self.scroll.value();
-        let above = usize::from(shown.above());
-        let below = usize::from(model.has_more() || shown.below());
-        let view = usize::try_from(viewport).unwrap_or(1) + above + below;
+        // The window is the list's region of the last layout, the `more`
+        // lines in it.
+        let view = usize::try_from(self.region.get()).unwrap_or(1);
         let Some(to) = target(len, from, &|_| true, mv, view.max(1)) else {
             return;
         };
@@ -627,6 +719,28 @@ fn row_lines(density: Density) -> usize {
     }
 }
 
+/// Whether rows lie below the window that starts at row `top` (resume_picker.rs
+/// `has_more_below`, without its next-page test): the rows from `top` on, blanks
+/// included, do not all fit in what the window has left after its `more` lines.
+fn more_below(top: usize, selected: usize, view: usize, len: usize, density: Density) -> bool {
+    let (body, blank) = match density {
+        Density::Comfortable => (2, 1),
+        Density::Dense => (1, 0),
+    };
+    let capacity = view
+        .saturating_sub(usize::from(top > 0) + usize::from(selected + 1 < len))
+        .max(1);
+    let mut used = 0;
+    for offset in 0..len.saturating_sub(top) {
+        let separator = usize::from(offset > 0) * blank;
+        if used + separator + body > capacity {
+            return true;
+        }
+        used += separator + body;
+    }
+    false
+}
+
 /// The first row of the window once the cursor is on `selected`
 /// (resume_picker.rs `ensure_selected_visible`, `available_content_rows`): the
 /// rows between the top and the cursor, blanks included, fit in what the
@@ -655,6 +769,20 @@ impl State for ScreenState {
     fn init_state(&mut self, w: &Screen, cx: &mut Cx<'_, Self>) {
         let tell = cx.local_sender();
         self.scroll.add_listener(Rc::new(move || tell(Msg::Fit)));
+        // Flutter's `controller.addListener`: the controller tells when the
+        // list's extents or offset change, at the first layout, a density
+        // switch or a resize too, which the list's scroll notifications
+        // (a user's scroll only) do not.
+        let (list, scroll) = (self.list.clone(), self.scroll.clone());
+        self.list.add_listener(Rc::new(move || {
+            // (two clients while a rebuilt list replaces the old one)
+            if let Ok(position) = list.try_position() {
+                scroll.set_value(Scrolled {
+                    pixels: position.pixels(),
+                    max: position.max_scroll_extent(),
+                });
+            }
+        }));
         if w.live {
             self.tell(cx, ResumeIntent::Open);
         }
@@ -844,6 +972,7 @@ impl State for ScreenState {
                 selection: self.selection.clone(),
                 list: self.list.clone(),
                 scroll: self.scroll.clone(),
+                region: self.region.clone(),
                 taps,
             },
             query_empty: self.query.text().is_empty(),

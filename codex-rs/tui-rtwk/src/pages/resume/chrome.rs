@@ -6,9 +6,9 @@
 //! first that fits, `ui::page_keys::footer_fit`). Oracle: `resume_picker.rs`
 //! (`toolbar_for_width`, `hint_line_for_row`, `picker_footer_progress_label`).
 
+use rtwk::layout::{EdgeInsets, Padding, SizedBox};
 use rtwk::style::Style;
 use rtwk::text::{Text, segmenter_of};
-use rtwk::layout::{EdgeInsets, Padding, SizedBox};
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::unicode::{TextMode, string_width};
 

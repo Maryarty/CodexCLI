@@ -74,9 +74,10 @@ impl Tokens {
     }
 
     /// The colour a thing that needs attention is marked with (the unread dot
-    /// of a saved session; the oracle's blue).
+    /// of a saved session): the oracle's fixed blue (`resume_picker.rs`
+    /// `rgb_color((0x3b, 0x82, 0xf6))`), the same on every theme.
     pub fn attention(&self) -> Style {
-        self.0.primary.clone()
+        Style::new().fg(Color::rgb(0x3b, 0x82, 0xf6))
     }
 
     pub(crate) fn history_prompt_mark(&self) -> Style {

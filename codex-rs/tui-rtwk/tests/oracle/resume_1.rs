@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn linked_worktree_sessions_follow_directory_scope() {
     kit::pending(
         Owner::RoutesLists,
-        "no entry for the picker on a repo filter of the primary checkout with a linked worktree session (resume registers `linked_worktree`); the repo filter and its toolbar control are not built",
+        "the filter change (`tab right`) reloads the list from the server (oracle `change_filter_mode` -> `start_initial_load`) and an entry screen has no server to answer, so the list is `Loading sessions…`; the filter's effect on the rows is the state test `the_repository_filter_shows_the_rows_of_linked_checkouts` (core/tests/resume.rs)",
     );
     // The oracle hides the linked worktree's session until the filter moves to
     // all checkouts (`change_filter_mode(Next)`: the filter control, then right).
@@ -29,17 +29,17 @@ fn linked_worktree_sessions_follow_directory_scope() {
 // ORACLE resume_picker.rs:4564 local_db_first_falls_back_when_initial_db_page_is_empty kind=snap owner=routes-lists snap=resume_picker_db_fallback_transition
 #[test]
 fn local_db_first_falls_back_when_initial_db_page_is_empty() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry for the picker with the three store rows of a fallback after an empty DB page (resume registers `db_fallback`)",
-    );
     // The oracle's two states, loading then the repaired rows; the screen shows
     // the second one (the listing of the fallback source is the loader's).
     let s = Screen::build(Owner::RoutesLists)
-        .size(84, 12)
+        .size(84, 24)
         .entry("resume", "db_fallback")
         .open();
-    s.assert_snap_section("resume_picker_db_fallback_transition", "repaired results");
+    // The list is at row 6 of the screen, two cells in.
+    s.snap("resume_picker_db_fallback_transition")
+        .frame("repaired results")
+        .at(6, 2)
+        .assert();
 }
 
 // ORACLE resume_picker.rs:4658 local_db_first_accepts_db_thread_id_and_latest_history_mode kind=ui owner=routes-lists
@@ -54,10 +54,6 @@ fn local_db_first_accepts_db_thread_id_and_latest_history_mode() {
 // ORACLE resume_picker.rs:4759 expanded_session_details_include_metadata kind=ui owner=routes-lists
 #[test]
 fn expanded_session_details_include_metadata() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row of this data (named thread, 24-hour clock, fixed reference time, cwd, branch); ctrl+e expands the details in the list",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(120, 24)
         .entry("resume", "expanded_details")
@@ -70,17 +66,13 @@ fn expanded_session_details_include_metadata() {
     s.assert_contains("Created:    17 minutes ago · 2026-05-02 14:31:08");
     s.assert_contains("Updated:    now · 2026-05-02 14:48:19");
     s.assert_contains("Directory:  /Users/felipe.coury/code/codex");
-    s.assert_contains("Branch:      codex/raw-scrollback-mode");
+    s.assert_contains("Branch:     \u{e0a0} codex/raw-scrollback-mode");
     s.assert_contains("Conversation:");
 }
 
 // ORACLE resume_picker.rs:4806 footer_prioritizes_active_sort_timestamp kind=ui owner=routes-lists
 #[test]
 fn footer_prioritizes_active_sort_timestamp() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the Created half cannot be driven: a sort change reloads the list from the server (oracle start_initial_load) and an entry screen has no server, so after `tab tab right` the list is `Loading sessions…` (the Updated half and the cwd/branch order equal the oracle)",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 12)
         .entry("resume", "footer_times")
@@ -89,6 +81,10 @@ fn footer_prioritizes_active_sort_timestamp() {
     s.assert_contains("  3h ago");
     s.assert_absent("created 5h ago");
     s.assert_in_order(&["⌁ tmp/codex", " main"]);
+    kit::pending(
+        Owner::RoutesLists,
+        "the Created half needs the reload a sort change starts (oracle `start_initial_load`) and an entry screen has no server to answer it, so after `tab tab right` the list is `Loading sessions…`; the live page test `the_meta_line_leads_with_the_created_time_once_the_sort_is_created` (tests/pages/resume.rs) drives it with the fake backend",
+    );
     // Created sort: the footer leads with the created time.
     s.keys("tab tab right");
     s.assert_contains("  5h ago");
@@ -238,10 +234,6 @@ fn hint_line_shows_loading_transcript_mode() {
 // ORACLE resume_picker.rs:5516 ctrl_o_toggles_density_without_typing_into_search kind=ui owner=routes-lists
 #[test]
 fn ctrl_o_toggles_density_without_typing_into_search() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for the density toggle on the picker with an entry (query 'pick')",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -257,10 +249,6 @@ fn ctrl_o_toggles_density_without_typing_into_search() {
 // ORACLE resume_picker.rs:5539 ctrl_t_requests_selected_session_transcript kind=ui owner=routes-lists
 #[test]
 fn ctrl_t_requests_selected_session_transcript() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for a transcript loader that never answers; ctrl+t shows the loading footer",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -273,10 +261,6 @@ fn ctrl_t_requests_selected_session_transcript() {
 // ORACLE resume_picker.rs:5586 transcript_loading_consumes_picker_input kind=ui owner=routes-lists
 #[test]
 fn transcript_loading_consumes_picker_input() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with two rows and a transcript that never finishes loading",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -293,10 +277,6 @@ fn transcript_loading_consumes_picker_input() {
 // ORACLE resume_picker.rs:5645 escape_cancels_transcript_loading_and_restores_picker_navigation kind=ui owner=routes-lists
 #[test]
 fn escape_cancels_transcript_loading_and_restores_picker_navigation() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with two rows and a transcript that never finishes loading",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -323,14 +303,10 @@ fn transcript_loading_still_allows_ctrl_c_exit() {
 // ORACLE resume_picker.rs:5724 transcript_loading_overlay_snapshot kind=snap owner=routes-lists snap=resume_picker_transcript_loading_overlay
 #[test]
 fn transcript_loading_overlay_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry for the picker with two rows without timestamps (resume registers `transcript_loading`); the transcript loading overlay (ctrl+t on a row) is not built in the resume view",
-    );
     // The oracle's 80-cell list with the loading overlay on the second row; the
-    // list is at row 6 of the screen, its five snapshot rows.
+    // list is at row 6 of the screen and seven rows high at 17 rows (the oracle renders seven).
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(84, 15)
+        .size(84, 17)
         .entry("resume", "transcript_loading")
         .open();
     s.keys("ctrl+t");
@@ -340,10 +316,6 @@ fn transcript_loading_overlay_snapshot() {
 // ORACLE resume_picker.rs:5793 raw_ctrl_t_requests_selected_session_transcript kind=ui owner=routes-lists
 #[test]
 fn raw_ctrl_t_requests_selected_session_transcript() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for a transcript loader that never answers; the raw control byte 0x14 shows the loading footer",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -355,16 +327,10 @@ fn raw_ctrl_t_requests_selected_session_transcript() {
 // ORACLE resume_picker.rs:5833 ctrl_t_on_row_without_thread_id_shows_inline_error kind=ui owner=routes-lists
 #[test]
 fn ctrl_t_on_row_without_thread_id_shows_inline_error() {
-    kit::pending(
+    kit::na(
         Owner::RoutesLists,
-        "a listed row always carries its thread id (core Row.id), so the state cannot be seeded; the inline error is drawn",
+        "a listed row always carries its thread id (core `Row.id` is not optional, the protocol's thread has one), so a row without one cannot exist in the port; the transcript of a thread that is not listed is core's `a_transcript_is_asked_for_and_marked_loaded` and the missing-transcript problem `Problem::NoTranscript`",
     );
-    let mut s = Screen::build(Owner::RoutesLists)
-        .size(84, 22)
-        .entry("resume", "table")
-        .open();
-    s.keys("ctrl+t");
-    s.assert_contains("No transcript available for this session");
 }
 
 // ORACLE resume_picker.rs:5869 loaded_transcript_waits_for_loading_frame_before_opening_overlay kind=ui owner=routes-lists
@@ -372,7 +338,7 @@ fn ctrl_t_on_row_without_thread_id_shows_inline_error() {
 fn loaded_transcript_waits_for_loading_frame_before_opening_overlay() {
     kit::pending(
         Owner::RoutesLists,
-        "no entry with a row whose transcript has loaded (user, assistant, 'BAtail' text)",
+        "the oracle opens the transcript pager (`Overlay::Transcript`, S16 `pager`, not built) on the frame after the loading frame, routes the keymap's chords in it and acknowledges the unread revision; the picker's part (ctrl+t marks the transcript loading and draws the loading overlay, the loaded transcript is state) is the oracle shard `transcript_loading_overlay_snapshot` and core's `a_transcript_is_asked_for_and_marked_loaded`",
     );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
@@ -392,7 +358,7 @@ fn loaded_transcript_waits_for_loading_frame_before_opening_overlay() {
 fn cached_transcript_still_shows_loading_frame_before_opening_overlay() {
     kit::pending(
         Owner::RoutesLists,
-        "no entry with a row whose transcript is already cached",
+        "the oracle opens the transcript pager (`Overlay::Transcript`, S16 `pager`, not built) on the frame after the loading frame, routes the keymap's chords in it and acknowledges the unread revision; the picker's part (ctrl+t marks the transcript loading and draws the loading overlay, the loaded transcript is state) is the oracle shard `transcript_loading_overlay_snapshot` and core's `a_transcript_is_asked_for_and_marked_loaded`",
     );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
@@ -441,10 +407,6 @@ fn ctrl_o_keeps_toggled_density_when_persistence_fails() {
 // ORACLE resume_picker.rs:6139 raw_ctrl_o_toggles_density_without_typing_into_search kind=ui owner=routes-lists
 #[test]
 fn raw_ctrl_o_toggles_density_without_typing_into_search() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for the density toggle with the raw control byte 0x0f; the query is 'pick'",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -458,10 +420,6 @@ fn raw_ctrl_o_toggles_density_without_typing_into_search() {
 // ORACLE resume_picker.rs:6162 space_appends_to_search_query kind=ui owner=routes-lists
 #[test]
 fn space_appends_to_search_query() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed with a search query 'resize'; space must reach the search line and not expand the row",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -477,10 +435,6 @@ fn space_appends_to_search_query() {
 // ORACLE resume_picker.rs:6189 ctrl_e_toggles_selected_session_expansion kind=ui owner=routes-lists
 #[test]
 fn ctrl_e_toggles_selected_session_expansion() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for a row with a thread id and a transcript loader",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")
@@ -496,10 +450,6 @@ fn ctrl_e_toggles_selected_session_expansion() {
 // ORACLE resume_picker.rs:6240 raw_ctrl_e_toggles_selected_session_expansion kind=ui owner=routes-lists
 #[test]
 fn raw_ctrl_e_toggles_selected_session_expansion() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no seed for a row with a thread id; the raw control byte 0x05",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(84, 22)
         .entry("resume", "table")

@@ -573,6 +573,39 @@ fn the_toolbar_changes_restart_the_listing_with_what_they_ask_for() {
 }
 
 #[test]
+fn the_repository_filter_shows_the_rows_of_linked_checkouts() {
+    // Oracle: `linked_worktree_sessions_follow_directory_scope`: a session of a linked checkout
+    // is hidden by the directory filter and shown by the repository filter, which asks again.
+    let mut app = CodexApp::new();
+    event(
+        &mut app,
+        Ev::Scope(Scope {
+            cwd: Some("/repo/primary".into()),
+            repo_cwds: vec!["/repo/primary".into(), "/repo/linked".into()],
+        }),
+    );
+    let linked = || {
+        let mut linked = row("linked", 10);
+        linked.cwd = Some("/repo/linked".into());
+        ResumeReply::Page {
+            rows: vec![linked],
+            next: None,
+            unread: Vec::new(),
+        }
+    };
+    let (ticket, _) = only(&intent(&mut app, ResumeIntent::Open));
+    answer(&mut app, ticket, linked());
+    assert!(names(&app).is_empty(), "the directory filter hides it");
+    let (ticket, _) = only(&intent(
+        &mut app,
+        ResumeIntent::Change(Control::Filter, Dir::Next),
+    ));
+    answer(&mut app, ticket, linked());
+    assert_eq!(app.screens().resume.filter, Filter::Repo);
+    assert_eq!(names(&app), vec!["linked"]);
+}
+
+#[test]
 fn density_toggles_without_reading_anything() {
     let mut app = listed(&["a"], None);
     let fx = intent(&mut app, ResumeIntent::ToggleDensity);

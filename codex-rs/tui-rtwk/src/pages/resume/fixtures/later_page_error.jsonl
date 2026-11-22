@@ -1,0 +1,5 @@
+# `later_page_error_preserves_loaded_sessions`: one loaded row whose next page failed.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777393800}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000002a","preview":"Loaded session","created":1735776000,"updated":1735776000}]}}}
+{"step":"screen","dir":"resume","ev":{"problem":"more_failed"}}

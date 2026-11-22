@@ -1,0 +1,3 @@
+# `archive_footer_shows_shortcut_for_resume_sessions`: one selected row without times (the archive hint shows).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"00000000-0000-0000-0000-00000000002a","preview":"Selected session"}]}}}
