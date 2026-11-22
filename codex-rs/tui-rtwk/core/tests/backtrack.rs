@@ -17,9 +17,8 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_tui_core::ids::{ItemId, ThreadId, TurnId};
 use codex_tui_core::screens::backtrack::{
-    Backtrack, Element, Esc, Mention, NO_PREVIOUS_MESSAGE, Prompt, RevertError, Selection, Targets,
-    edit_failed, has_backtrack_target, is_visible, nth_user, nth_user_position, revert_before_turn,
-    user_count,
+    Backtrack, Element, Esc, Mention, Prompt, RevertError, Selection, Targets,
+    has_backtrack_target, is_visible, nth_user, nth_user_position, revert_before_turn, user_count,
 };
 use codex_tui_core::threads::{Item, ItemKey, Notice, Transcript, UserPrompt};
 use pretty_assertions::assert_eq;
@@ -116,7 +115,6 @@ fn nothing_to_edit_says_so_and_goes_idle_unless_older_history_exists() {
     machine.esc(Some(&id), true, targets(0));
     assert_eq!(machine.esc(Some(&id), true, targets(0)), Esc::NoPrevious);
     assert_eq!(machine, Backtrack::Idle);
-    assert_eq!(NO_PREVIOUS_MESSAGE, "No previous message to edit.");
 
     // Older pages may hold a prompt: browsing begins with nothing highlighted
     // and asks for history.
@@ -239,6 +237,7 @@ fn a_prompt_of_control_characters_is_hidden_unless_it_has_elements() {
     assert!(!is_visible(&text_prompt("\u{0007}")));
     assert!(!is_visible(&text_prompt("  \n ")));
     assert!(is_visible(&text_prompt("hi")));
+    #[allow(clippy::single_range_in_vec_init)]
     let with_element = UserPrompt {
         elements: vec![0..1],
         ..text_prompt("\u{0007}")
@@ -383,7 +382,7 @@ fn review_markers_in_other_turns_do_not_move_a_prompt() {
         turn("turn-2", TurnStatus::Completed, 1),
     ];
     let (before, _) = revert_before_turn(&turns, &first_of("turn-2")).expect("after review");
-    assert_eq!(before, "turn-2");
+    assert_eq!(before.as_str(), "turn-2");
 }
 
 #[test]
@@ -439,13 +438,5 @@ fn the_persisted_prompt_keeps_elements_images_skills_and_mentions() {
                 },
             ],
         }
-    );
-}
-
-#[test]
-fn a_failed_edit_reads_the_oracles_line() {
-    assert_eq!(
-        edit_failed(&"boom"),
-        "Failed to edit the selected prompt: boom"
     );
 }

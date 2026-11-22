@@ -201,10 +201,11 @@ fn browsing_footer(table: &'static Strings, key: Style, accent: Style, dim: Styl
         let line = |label: &'static str, hints: &[(&'static str, &'static str)]| -> Vec<Span> {
             let mut spans = vec![Span::styled(label, accent.clone())];
             for (keys, action) in hints {
-                spans.push(Span::styled(" · ", dim.clone()));
+                spans.push(Span::styled(table.hint_joiner, dim.clone()));
                 spans.push(Span::styled(*keys, key.clone()));
                 if !action.is_empty() {
-                    spans.push(Span::styled(format!(" {action}"), dim.clone()));
+                    spans.push(Span::styled(table.hint_gap, dim.clone()));
+                    spans.push(Span::styled(*action, dim.clone()));
                 }
             }
             spans

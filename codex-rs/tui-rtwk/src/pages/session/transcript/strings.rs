@@ -45,6 +45,7 @@ pub struct Strings {
     pub pager_percent: [&'static str; 2],
     /// The hints under it: each pair of keys and what they do, joined by
     /// `hint_joiner`; the keys of a pair are joined by `hint_slash`.
+    pub hint_gap: &'static str,
     pub hint_joiner: &'static str,
     pub hint_slash: &'static str,
     pub key_up: &'static str,
@@ -113,11 +114,13 @@ pub const EN: Strings = Strings {
     footer_joiner: " · ",
     shortcuts_key: "?",
     shortcuts_action: " shortcuts",
-    pager_slashes: "/ ",
+    // a run longer than any row, clipped by the row (`"/ ".repeat(width / 2)`)
+    pager_slashes: "/ / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / ",
     pager_title_lead: "/ ",
     pager_filler: "~",
     pager_rule: "─",
     pager_percent: [" ", "% "],
+    hint_gap: " ",
     hint_joiner: " · ",
     hint_slash: "/",
     key_up: "↑",

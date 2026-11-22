@@ -15,7 +15,8 @@ use rtwk::ansi::parse_ansi;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{
-    Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox, Stack,
+    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
+    Row, SizedBox, Stack,
 };
 use rtwk::navigation::Navigator;
 use rtwk::prelude::{KeyCode, Mods};
@@ -159,33 +160,24 @@ pub(super) fn bindings(has_action: bool) -> Vec<(KeyPress, Msg)> {
     keys
 }
 
-/// `/ ` repeated over the row, the title over its start (`render_header`).
+/// `/ ` over the row, the title over its start (`render_header`): the run
+/// of the table clipped by the row, the title in a `Stack` over it.
 pub(super) fn header(title: &str, table: &'static Strings, style: Style) -> AnyWidget {
     let title = format!("{}{title}", table.pager_title_lead);
-    LayoutBuilder::new(move |_, constraints| {
-        let slashes = table
-            .pager_slashes
-            .repeat(usize::try_from(constraints.max_width / 2).unwrap_or(0));
-        SizedBox::new(
-            None,
-            Some(1),
-            Some(
-                Stack::new()
-                    .child(
-                        Text::line(slashes)
-                            .style(style.clone())
-                            .overflow(TextOverflow::Clip),
-                    )
-                    .child(
-                        Text::line(title.clone())
-                            .style(style.clone())
-                            .overflow(TextOverflow::Clip),
-                    )
-                    .into(),
-            ),
-        )
-        .into()
-    })
+    SizedBox::new(
+        None,
+        Some(1),
+        Some(
+            Stack::new()
+                .child(
+                    Text::line(table.pager_slashes)
+                        .style(style.clone())
+                        .overflow(TextOverflow::Clip),
+                )
+                .child(Text::line(title).style(style).overflow(TextOverflow::Clip))
+                .into(),
+        ),
+    )
     .into()
 }
 
@@ -215,7 +207,8 @@ fn body(text: &str, scroll: ScrollController, table: &'static Strings) -> AnyWid
     .into()
 }
 
-/// `─` over the row with ` N% ` one cell from its end (`render_bottom_bar`).
+/// `─` over the row with ` N% ` one cell from its end (`render_bottom_bar`):
+/// a `Divider` taking the room, the label, the last `─`.
 fn rule(scroll: ScrollController, table: &'static Strings, style: Style) -> AnyWidget {
     ListenableBuilder::new(Rc::new(scroll.clone()), move |_, _| {
         let percent = match scroll.try_position() {
@@ -226,32 +219,24 @@ fn rule(scroll: ScrollController, table: &'static Strings, style: Style) -> AnyW
             }
             _ => 100,
         };
-        let style = style.clone();
-        LayoutBuilder::new(move |_, constraints| {
-            let [before, after] = table.pager_percent;
-            let label = format!("{before}{percent}{after}");
-            let label_width = i32::try_from(label.chars().count()).unwrap_or(0);
-            let line = table.pager_rule.repeat(
-                usize::try_from((constraints.max_width - label_width - 1).max(0)).unwrap_or(0),
-            );
-            let last = table.pager_rule;
-            SizedBox::new(
-                None,
-                Some(1),
-                Some(
-                    Row::new()
-                        .child(
-                            Text::line(line)
-                                .style(style.clone())
-                                .overflow(TextOverflow::Clip),
-                        )
-                        .child(Text::line(label).style(style.clone()))
-                        .child(Text::line(last).style(style.clone()))
-                        .into(),
-                ),
-            )
-            .into()
-        })
+        let [before, after] = table.pager_percent;
+        SizedBox::new(
+            None,
+            Some(1),
+            Some(
+                Row::new()
+                    .child(Expanded::new(
+                        1,
+                        Divider::new()
+                            .kind(BorderType::Single)
+                            .style(style.clone())
+                            .merge(false),
+                    ))
+                    .child(Text::line(format!("{before}{percent}{after}")).style(style.clone()))
+                    .child(Text::line(table.pager_rule).style(style.clone()))
+                    .into(),
+            ),
+        )
         .into()
     })
     .into()
@@ -275,7 +260,7 @@ pub(super) fn navigation(table: &'static Strings) -> Vec<Pair> {
 /// One row of key hints: a blank, then the pairs joined by `hint_joiner`
 /// (`render_key_hints`).
 pub(super) fn hint_row(pairs: &[Pair], table: &'static Strings, style: Style) -> AnyWidget {
-    let mut spans = vec![Span::new(" ")];
+    let mut spans = vec![Span::new(table.hint_gap)];
     for (i, (keys, what)) in pairs.iter().enumerate() {
         if i > 0 {
             spans.push(Span::new(table.hint_joiner));
@@ -286,7 +271,8 @@ pub(super) fn hint_row(pairs: &[Pair], table: &'static Strings, style: Style) ->
             }
             spans.push(Span::styled(*key, style.clone().attrs(Attrs::BOLD)));
         }
-        spans.push(Span::new(format!(" {what}")));
+        spans.push(Span::new(table.hint_gap));
+        spans.push(Span::new(*what));
     }
     Text::rich_line(spans)
         .style(style)

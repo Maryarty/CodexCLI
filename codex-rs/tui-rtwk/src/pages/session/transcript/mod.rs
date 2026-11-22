@@ -18,7 +18,6 @@ pub mod sheet;
 pub mod strings;
 
 use crate::app::debug::EntryOpen;
-use crate::app::debug::seeded::Seeded;
 
 /// What the debug menu lists for this directory: the static pager over the
 /// document a fixture script gives the model.

@@ -34,6 +34,7 @@ use codex_app_server_protocol::UserInput;
 use crate::app::AppFx;
 use crate::ids::ThreadId;
 use crate::ids::Ticket;
+use crate::ids::TurnId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::Item;
@@ -46,17 +47,17 @@ pub const NAME: &str = "backtrack";
 pub const ID: &str = "S17";
 pub const KIND: Kind = Kind::Part;
 
-/// Shown as an info line when Esc Esc finds no prompt to edit.
-pub const NO_PREVIOUS_MESSAGE: &str = "No previous message to edit.";
-/// Shown as an error when the thread is a side conversation.
-pub const SIDE_EDIT_UNAVAILABLE: &str = "Editing previous prompts is unavailable in side conversations.";
-/// Shown as an error when the revert is not confirmed in time.
-pub const EDIT_NOT_CONFIRMED: &str =
-    "prompt edit could not be confirmed; resume this session to reload its history";
-
-/// The error line of a failed edit (oracle `restore_backtrack_prompt_after_revert_error`).
-pub fn edit_failed(error: &dyn fmt::Display) -> String {
-    format!("Failed to edit the selected prompt: {error}")
+/// Why an edit did not happen. The words are the chat's strings (ADR-010):
+/// core says which one, with the server's own message for a failure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditError {
+    /// The read or the revert failed before the server changed anything
+    /// (oracle `restore_backtrack_prompt_after_revert_error`).
+    Failed(String),
+    /// The revert was not confirmed in time.
+    NotConfirmed,
+    /// The thread is a side conversation (the chat knows; the machine does not).
+    Side,
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +152,7 @@ pub enum Esc {
     Primed { hint: bool },
     /// Browsing began, the prompt `select` highlighted (none: nothing to show yet).
     Browse { select: Option<usize> },
-    /// Nothing to edit: show `NO_PREVIOUS_MESSAGE`; the machine is idle again.
+    /// Nothing to edit: the chat shows its "no previous message" line; the machine is idle again.
     NoPrevious,
     /// Browsing ended: the view restores the place it had before.
     Cancelled,
@@ -363,7 +364,7 @@ impl Prompt {
 /// The turn to revert before and the persisted prompt (oracle
 /// `backtrack_revert_before_turn_id`, resolved by the server ids of the
 /// transcript item).
-pub fn revert_before_turn(turns: &[Turn], key: &ItemKey) -> Result<(String, Prompt), RevertError> {
+pub fn revert_before_turn(turns: &[Turn], key: &ItemKey) -> Result<(TurnId, Prompt), RevertError> {
     let turn = turns
         .iter()
         .find(|turn| turn.id == key.turn.as_str())
@@ -381,7 +382,7 @@ pub fn revert_before_turn(turns: &[Turn], key: &ItemKey) -> Result<(String, Prom
         if matches!(turn.status, TurnStatus::InProgress) {
             return Err(RevertError::InProgress);
         }
-        return Ok((turn.id.clone(), Prompt::from_inputs(content)));
+        return Ok((key.turn.clone(), Prompt::from_inputs(content)));
     }
     Err(RevertError::NotFound)
 }
@@ -430,7 +431,7 @@ pub struct ThreadPart {
     /// The draft to put back into the composer.
     pub restore: Option<Restore>,
     /// The error line to show.
-    pub error: Option<String>,
+    pub error: Option<EditError>,
     seq: u64,
 }
 
@@ -451,12 +452,12 @@ impl ThreadPart {
         if let Some((edit, _)) = self.edit.take() {
             self.give(Draft::Shown(edit.shown));
         }
-        self.error = Some(edit_failed(error));
+        self.error = Some(EditError::Failed(error.to_string()));
     }
 
     /// The turns were read: the prompt resolved (or the edit failed). Returns
     /// the turn to revert before.
-    fn resolved(&mut self, found: Result<(String, Prompt), RevertError>) -> Option<String> {
+    fn resolved(&mut self, found: Result<(TurnId, Prompt), RevertError>) -> Option<TurnId> {
         match found {
             Ok((turn, prompt)) => {
                 let (_, stage) = self.edit.as_mut()?;
@@ -506,14 +507,14 @@ pub enum Command {
     /// `thread/read` with the turns (the persisted truth), resolved to the
     /// prompt `key` names by `decode`.
     Read { key: ItemKey },
-    /// `thread/revert`: drop `before_turn_id` and every later turn.
-    Revert { before_turn_id: String },
+    /// `thread/revert`: drop `before_turn` and every later turn.
+    Revert { before_turn: TurnId },
 }
 
 /// The replies of those RPCs, decoded by `decode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
-    Resolved(Result<(String, Prompt), RevertError>),
+    Resolved(Result<(TurnId, Prompt), RevertError>),
     Reverted,
 }
 
@@ -571,7 +572,7 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::NotConfirmed(ticket) => {
             if matches!(part.edit, Some((_, Stage::Awaiting(waiting))) if waiting == ticket) {
                 part.edit = None;
-                part.error = Some(EDIT_NOT_CONFIRMED.to_string());
+                part.error = Some(EditError::NotConfirmed);
             }
         }
     }
@@ -585,8 +586,8 @@ pub fn apply_reply(
 ) {
     match (ctx, result) {
         (Ctx::Read, Ok(Reply::Resolved(found))) => {
-            if let Some(before_turn_id) = part.resolved(found) {
-                fx.request(Ctx::Revert, Command::Revert { before_turn_id });
+            if let Some(before_turn) = part.resolved(found) {
+                fx.request(Ctx::Revert, Command::Revert { before_turn });
             }
         }
         (Ctx::Revert, Ok(Reply::Reverted)) => {
@@ -612,11 +613,11 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             request_id: id,
             params: ThreadReadParams { thread_id: thread.to_string(), include_turns: true },
         },
-        Command::Revert { before_turn_id } => ClientRequest::ThreadRevert {
+        Command::Revert { before_turn } => ClientRequest::ThreadRevert {
             request_id: id,
             params: ThreadRevertParams {
                 thread_id: thread.to_string(),
-                before_turn_id: before_turn_id.clone(),
+                before_turn_id: before_turn.as_str().to_string(),
             },
         },
     }
