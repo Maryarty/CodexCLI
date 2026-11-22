@@ -2,7 +2,7 @@
 //! permissions menu are data in the model (`Menu`), their words are here
 //! (ADR-010). A `Menu::List` is already the generic form.
 
-use codex_tui_core::screens::select::list::{Item, List, Role, Secondary};
+use codex_tui_core::screens::select::list::{Item, List, Role, Secondary, Span};
 use codex_tui_core::screens::select::models::{
     self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };
@@ -30,22 +30,25 @@ pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
 /// A menu of the `/permissions` family (`permissions_menu.rs`,
 /// `permission_popups.rs`, `permission_discovery.rs`).
 fn permissions(page: &permissions::Page, s: &Strings) -> List {
-    let (title, subtitle) = match &page.heading {
+    let (title, subtitle, header) = match &page.heading {
         permissions::Heading::Permissions { notice } => (
             s.permissions_title.to_string(),
             notice.as_ref().map(|notice| match notice {
                 Notice::NoProfiles => s.permissions_no_profiles.to_string(),
                 Notice::Failed(failure) => s.failure(failure),
             }),
+            Vec::new(),
         ),
         permissions::Heading::FullAccess { cyber } => (
             s.full_title.to_string(),
-            Some(full_access_text(cyber.as_ref(), s)),
+            None,
+            full_access_header(cyber.as_ref(), s),
         ),
     };
     List {
         title: Some(title),
         subtitle,
+        header,
         standard_hint: true,
         items: page
             .rows
@@ -56,21 +59,35 @@ fn permissions(page: &permissions::Page, s: &Strings) -> List {
     }
 }
 
-/// The warning under `Enable full access?`; a cyber model's says more.
-fn full_access_text(cyber: Option<&Recommend>, s: &Strings) -> String {
+/// The header under `Enable full access?` (`open_full_access_confirmation`):
+/// one paragraph with the caution in red; a cyber model's has blank rows
+/// between its sentences and its first sentence in red.
+fn full_access_header(cyber: Option<&Recommend>, s: &Strings) -> Vec<Vec<Span>> {
+    let run = |text: &str, role| Span {
+        text: text.to_string(),
+        role,
+    };
     match cyber {
-        None => [s.full_warning, s.full_caution].concat(),
-        Some(recommend) => [
-            s.full_warning.trim_end(),
-            "\n\n",
-            s.cyber_risk,
-            s.cyber_safeguards,
-            match recommend {
-                Recommend::AutoReview => s.cyber_recommend_auto,
-                Recommend::Ask => s.cyber_recommend_ask,
-            },
-        ]
-        .concat(),
+        None => vec![vec![
+            run(s.full_warning, Role::Plain),
+            run(s.full_caution, Role::Danger),
+        ]],
+        Some(recommend) => vec![
+            Vec::new(),
+            vec![run(s.full_warning.trim_end(), Role::Plain)],
+            Vec::new(),
+            vec![
+                run(s.cyber_risk, Role::Danger),
+                run(s.cyber_safeguards, Role::Plain),
+                run(
+                    match recommend {
+                        Recommend::AutoReview => s.cyber_recommend_auto,
+                        Recommend::Ask => s.cyber_recommend_ask,
+                    },
+                    Role::Plain,
+                ),
+            ],
+        ],
     }
 }
 

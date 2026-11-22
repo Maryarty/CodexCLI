@@ -189,6 +189,34 @@ const LIST_ACTIONS: [ActionId; 10] = [
 /// (`ListSelectionView::handle_key_event`); none: the key is not the list's.
 /// A search line keeps the printable keys for its query, except those the
 /// keymap binds to accept or cancel.
+/// The paragraphs under the title: the oracle's header `Paragraph` (runs in
+/// their roles) or else the subtitle, dim (cyan for a note that points).
+fn paragraphs(list: &List, tokens: &theme::Tokens) -> Vec<Vec<(String, Style)>> {
+    if !list.header.is_empty() {
+        let styles = RowStyles::of_theme(tokens);
+        return list
+            .header
+            .iter()
+            .map(|runs| {
+                runs.iter()
+                    .map(|span| (span.text.clone(), styles.of(span.role)))
+                    .collect()
+            })
+            .collect();
+    }
+    list.subtitle
+        .iter()
+        .map(|text| {
+            let style = if list.subtitle_role == Role::Info {
+                tokens.info()
+            } else {
+                tokens.dim()
+            };
+            vec![(text.clone(), style)]
+        })
+        .collect()
+}
+
 fn act_of(key: &KeyPress, flags: Flags, keys: &Keymap) -> Option<Act> {
     // A terminal sends ctrl+h as Backspace (the C0 character): it is the
     // keymap's `ctrl-h`, as the oracle reads control characters.
@@ -426,17 +454,7 @@ impl State for PickerState {
                 selection: self.cursor.clone(),
                 list: self.scroll.clone(),
                 max_rows: list.max_rows(),
-                styles: RowStyles {
-                    cursor: tokens.accent().attrs(Attrs::BOLD),
-                    cursor_description: tokens.accent(),
-                    label: Style::new(),
-                    description: tokens.dim(),
-                    disabled: tokens.dim(),
-                    key: Style::new().attrs(Attrs::UNDERLINE),
-                    success: tokens.success().attrs(Attrs::ITALIC),
-                    warning: tokens.warning().attrs(Attrs::ITALIC),
-                    info: tokens.info(),
-                },
+                styles: RowStyles::of_theme(&tokens),
                 single_line: list.single_line,
                 name_width: list.name_column_width,
                 hide_description_below: list.hide_description_below.map(usize::from),
@@ -469,14 +487,7 @@ impl State for PickerState {
         let pane = Pane {
             surface: list.surface(),
             title: list.title.clone().map(|title| (title, tokens.bold())),
-            subtitle: list.subtitle.clone().map(|text| {
-                let style = if list.subtitle_role == Role::Info {
-                    tokens.info()
-                } else {
-                    tokens.dim()
-                };
-                (text, style)
-            }),
+            paragraphs: paragraphs(&list, &tokens),
             tabs,
             search,
             rows,

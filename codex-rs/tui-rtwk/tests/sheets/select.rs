@@ -80,6 +80,10 @@ fn the_plan_scope_prompt_names_the_reasoning_and_the_default_it_replaces() {
 #[test]
 fn enter_on_a_model_with_efforts_opens_its_reasoning_menu_and_esc_comes_back() {
     let mut h = open(100, "model_picker");
+    let chosen = rows(&h)
+        .into_iter()
+        .find(|row| row.contains('›'))
+        .expect("a cursor row");
     h.press("enter");
     h.t.pump_for(ms(300));
     let screen = h.t.screen();
@@ -92,6 +96,12 @@ fn enter_on_a_model_with_efforts_opens_its_reasoning_menu_and_esc_comes_back() {
     let screen = h.t.screen();
     assert!(screen.contains("Select Model and Effort"), "{screen}");
     assert!(!screen.contains("Select Reasoning Level"), "{screen}");
+    // the parent keeps its highlight: the row that opened the menu above it
+    let back = rows(&h)
+        .into_iter()
+        .find(|row| row.contains('›'))
+        .expect("a cursor row");
+    assert_eq!(back, chosen, "{screen}");
     // The second Esc leaves the picker.
     h.press("esc");
     h.t.pump_for(ms(800));
@@ -1399,4 +1409,30 @@ fn a_tap_on_a_profile_picks_it_and_a_tap_on_full_access_asks() {
         "{}",
         h.t.screen()
     );
+}
+
+/// `open_full_access_confirmation`: the header is a paragraph, the title bold,
+/// the sentence about the risk plain and the caution in red, not the dim
+/// subtitle of the other menus; a cyber model's warning is red on its first
+/// sentence.
+#[test]
+fn the_confirmation_header_is_bold_then_plain_then_red() {
+    use rtwk_core::style::Attrs;
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let (x, y) = find(&h, "Enable full access?");
+    assert!(h.t.cell(x, y).attrs.intersects(Attrs::BOLD));
+    let (body, by) = find(&h, "When Codex runs");
+    assert!(!h.t.cell(body, by).attrs.intersects(Attrs::DIM));
+    let (caution, cy) = find(&h, "Exercise caution");
+    let red = h.t.cell(caution, cy).fg;
+    assert_ne!(red, rtwk_core::style::Color::DEFAULT);
+    assert_ne!(red, h.t.cell(body, by).fg);
+
+    let h = open(120, "permissions_cyber_full_access");
+    let (risk, ry) = find(&h, "Cyber models carry");
+    let (plain, py) = find(&h, "Ensure proper safeguards");
+    assert_ne!(h.t.cell(risk, ry).fg, h.t.cell(plain, py).fg);
+    assert_eq!(h.t.cell(risk, ry).fg, red);
 }

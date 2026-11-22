@@ -90,6 +90,10 @@ pub struct Model {
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
     pub notes: Vec<Note>,
+    /// The id of the row that opened the menu above the one at this depth of
+    /// the stack: Esc shows that menu again with the cursor on it (the
+    /// oracle's parent view keeps its highlight).
+    kept: std::collections::BTreeMap<usize, String>,
 }
 
 impl Model {
@@ -101,10 +105,32 @@ impl Model {
     /// The rows of the menu shown now, if it is one of the typed families.
     pub fn page(&self) -> Option<Page> {
         match self.menu()? {
-            Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
+            Menu::Model(menu) => {
+                let mut page = menu.page(&self.catalog);
+                let kept = self.kept.get(&(self.stack.len() - 1));
+                if let Some(at) = kept.and_then(|id| page.rows.iter().position(|row| &row.id == id)) {
+                    page.initial = Some(at);
+                }
+                Some(Page::Model(page))
+            }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::List(_) => None,
         }
+    }
+
+    /// What a pick of the row `id` did to the stack; a menu pushed over this
+    /// one remembers the row that opened it.
+    fn step_from(&mut self, id: String, step: Step) {
+        if matches!(step, Step::Push(_)) {
+            self.kept.insert(self.stack.len() - 1, id);
+        }
+        self.step(step);
+    }
+
+    /// Forgets the rows kept for menus that are gone.
+    fn tidy(&mut self) {
+        let depth = self.stack.len();
+        self.kept.retain(|at, _| *at < depth);
     }
 
     fn step(&mut self, step: Step) {
@@ -268,6 +294,11 @@ pub enum Intent {
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
+    apply_ev(model, ev, fx);
+    model.tidy();
+}
+
+fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
@@ -323,6 +354,11 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
+    apply_choice(model, intent, fx);
+    model.tidy();
+}
+
+fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Open(menu) => model.stack = vec![menu],
@@ -339,7 +375,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
-                model.step(step);
+                model.step_from(id, step);
             }
             Some(Menu::List(list)) => {
                 let Some(item) = list.find(&id) else { return };
@@ -365,7 +401,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Secondary(id) => match model.stack.last() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, true);
-                model.step(step);
+                model.step_from(id, step);
             }
             Some(Menu::List(list)) if list.find(&id).is_some_and(|item| !item.is_disabled()) => {
                 model.picked.push(Picked::ItemSecondary(id));

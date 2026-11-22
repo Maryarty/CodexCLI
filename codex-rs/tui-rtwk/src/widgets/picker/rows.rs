@@ -43,11 +43,28 @@ pub struct RowStyles {
     pub success: Style,
     pub warning: Style,
     pub info: Style,
+    pub danger: Style,
 }
 
 impl RowStyles {
+    /// The styles of the theme (`Tokens`), each role's own.
+    pub fn of_theme(tokens: &crate::app::theme::Tokens) -> RowStyles {
+        RowStyles {
+            cursor: tokens.accent().attrs(Attrs::BOLD),
+            cursor_description: tokens.accent(),
+            label: Style::new(),
+            description: tokens.dim(),
+            disabled: tokens.dim(),
+            key: Style::new().attrs(Attrs::UNDERLINE),
+            success: tokens.success().attrs(Attrs::ITALIC),
+            warning: tokens.warning().attrs(Attrs::ITALIC),
+            info: tokens.info(),
+            danger: tokens.error(),
+        }
+    }
+
     /// The style a run of `role` adds.
-    fn of(&self, role: Role) -> Style {
+    pub fn of(&self, role: Role) -> Style {
         match role {
             Role::Plain => Style::new(),
             Role::Key => self.key.clone(),
@@ -56,6 +73,7 @@ impl RowStyles {
             Role::Dim => self.description.clone(),
             Role::Strong => Style::new().attrs(Attrs::BOLD),
             Role::Info => self.info.clone(),
+            Role::Danger => self.danger.clone(),
         }
     }
 }

@@ -45,6 +45,8 @@ pub enum Role {
     Strong,
     /// A note that points at something: the info colour (cyan).
     Info,
+    /// A warning about harm (`"..".red()`): the error colour.
+    Danger,
 }
 
 /// A run of text and its role (`name_prefix_spans`).
@@ -191,6 +193,10 @@ pub struct List {
     /// How the subtitle reads: dim unless this is `Info` (the advanced
     /// reasoning menu's cost note is cyan).
     pub subtitle_role: Role,
+    /// The paragraphs of a header the oracle builds as a `Paragraph` (the full
+    /// access confirmation): runs in their roles, bold title above, no dim
+    /// subtitle; an empty paragraph is a blank row. Replaces `subtitle`.
+    pub header: Vec<Vec<Span>>,
     pub footer_note: Option<String>,
     pub footer_hint: Option<String>,
     /// The footer says what the list's accept and cancel keys are, as the
@@ -236,6 +242,7 @@ impl Default for List {
             title: None,
             subtitle: None,
             subtitle_role: Role::Plain,
+            header: Vec::new(),
             footer_note: None,
             footer_hint: None,
             standard_hint: false,

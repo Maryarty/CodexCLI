@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, SizedBox};
-use rtwk::style::Style;
+use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextWrap, segmenter_of};
 use rtwk::{AnyWidget, LayoutBuilder};
 
@@ -29,7 +29,9 @@ const INSET: usize = 4;
 pub struct Pane {
     pub surface: Surface,
     pub title: Option<(String, Style)>,
-    pub subtitle: Option<(String, Style)>,
+    /// The paragraphs under the title (the subtitle, or the oracle's header
+    /// `Paragraph`): runs in their own styles, a blank paragraph is a blank row.
+    pub paragraphs: Vec<Vec<(String, Style)>>,
     /// The tab strip and the search line, when the list has them.
     pub tabs: Option<AnyWidget>,
     pub search: Option<AnyWidget>,
@@ -66,10 +68,15 @@ impl Pane {
             .title
             .as_ref()
             .map_or(0, |(text, _)| lines(text, inner));
-        let subtitle = self
-            .subtitle
-            .as_ref()
-            .map_or(0, |(text, _)| lines(text, inner));
+        let rows_of: Vec<u16> = self
+            .paragraphs
+            .iter()
+            .map(|runs| {
+                let text: String = runs.iter().map(|(text, _)| text.as_str()).collect();
+                lines(&text, inner)
+            })
+            .collect();
+        let subtitle: u16 = rows_of.iter().sum();
         // The rows sit beside a preview when the pane is wide enough.
         let rooms = self
             .side
@@ -106,16 +113,23 @@ impl Pane {
         let mut body = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        // The header yields rows from its end: the subtitle first.
+        // The header yields rows from its end: the paragraphs under the title first.
         let mut left = at.header;
-        for (piece, rows) in [(&self.title, title), (&self.subtitle, subtitle)] {
-            let Some((text, style)) = piece else { continue };
+        let pieces = self
+            .title
+            .iter()
+            .map(|(text, style)| (vec![(text.clone(), style.clone())], title))
+            .chain(self.paragraphs.iter().cloned().zip(rows_of.iter().copied()));
+        for (runs, rows) in pieces {
             let shown = rows.min(left);
             left -= shown;
             if shown > 0 {
+                let spans: Vec<Span> = runs
+                    .into_iter()
+                    .map(|(text, style)| Span::styled(text, style))
+                    .collect();
                 body = body.child(inset(
-                    Text::new(text.clone())
-                        .style(style.clone())
+                    Text::rich(spans)
                         .wrap(TextWrap::Word)
                         .max_lines(usize::from(shown))
                         .into(),
