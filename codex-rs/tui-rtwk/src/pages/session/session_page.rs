@@ -264,6 +264,8 @@ impl State for ChatState {
                 thread.read_only(),
                 thread.transcript().is_empty(),
                 thread.queue().len(),
+                thread.pending_steers().len(),
+                thread.rejected_steers().len(),
                 thread.last_error().cloned(),
                 thread.screen_slots().chat.clone(),
                 thread.screen_slots().status.clone(),
