@@ -5,12 +5,25 @@ use super::report_data::AnalyticsData;
 use super::date::NaiveDate;
 use std::collections::BTreeMap;
 
+/// What a token report could not be turned into display data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    /// A record's `date` is not a calendar date.
+    InvalidDate,
+    /// A record has neither groups nor models.
+    MissingBreakdown,
+    /// A count that is not a whole, non-negative number.
+    InvalidCount,
+    /// A group or model with no count at all.
+    MissingCounts,
+}
+
 pub fn history(
     response: AnalyticsData,
     grouping: AccountAnalyticsGrouping,
     start: NaiveDate,
     end: NaiveDate,
-) -> Result<AccountAnalyticsHistory, String> {
+) -> Result<AccountAnalyticsHistory, Error> {
     filtered_history(response, grouping, start, end, /*model_filter*/ None)
 }
 
@@ -20,13 +33,13 @@ pub fn filtered_history(
     start: NaiveDate,
     end: NaiveDate,
     model_filter: Option<&str>,
-) -> Result<AccountAnalyticsHistory, String> {
+) -> Result<AccountAnalyticsHistory, Error> {
     let mut days: BTreeMap<NaiveDate, BTreeMap<String, f64>> = BTreeMap::new();
     for record in response.data {
         let date = record
             .date
             .parse::<NaiveDate>()
-            .map_err(|_| "Invalid token report date.")?;
+            .map_err(|_| Error::InvalidDate)?;
         if date < start || date > end {
             continue;
         }
@@ -69,7 +82,7 @@ pub fn filtered_history(
                 })
                 .collect()
         } else {
-            return Err("Token breakdown is not available in this report.".into());
+            return Err(Error::MissingBreakdown);
         };
         let values = days.entry(date).or_default();
         for (model, counts, total) in groups {
@@ -81,13 +94,13 @@ pub fn filtered_history(
                 && let Some(total) = total.filter(|total| *total != 0.0 || missing_components)
             {
                 if !total.is_finite() || total < 0.0 || total.fract() != 0.0 {
-                    return Err("Invalid token count.".into());
+                    return Err(Error::InvalidCount);
                 }
                 *values.entry(model).or_default() += total;
                 continue;
             }
             if missing_components {
-                return Err("Token counts were not reported.".into());
+                return Err(Error::MissingCounts);
             }
             for (label, count) in ["Uncached input", "Cached input", "Output"]
                 .into_iter()
@@ -95,7 +108,7 @@ pub fn filtered_history(
             {
                 let count = count.unwrap_or(/*default*/ 0.0);
                 if !count.is_finite() || count < 0.0 || count.fract() != 0.0 {
-                    return Err("Invalid token count.".into());
+                    return Err(Error::InvalidCount);
                 }
                 let key = if grouping == AccountAnalyticsGrouping::Model {
                     &model
