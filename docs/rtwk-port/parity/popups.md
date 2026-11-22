@@ -84,6 +84,20 @@ patch: delete those six `kit::pending(..)` calls; picker would go 24 -> 30 pass)
 - `chat.rs ThreadPart` fields (chat-live): policy / collaboration_mode read by /permissions and /plan (one field, one writer).
 - `tests/oracle/picker.rs` and `chat_popups_4.rs` (settings): turn the shard tests on once handed over.
 
+## Run it (real binary, `codex-rtwk --debug-screens`, a pty driver of my own: /tmp/popups-drive/drive.py, not kept)
+
+No mock-model scenario reaches the select dialog yet (the app routes `/model` to no catalog: step 2), so the walk is the debug entries.
+`browser_keymap` at 80x24: title, subtitle, five tabs, search, `↓`, rows, hint as the oracle's first frame; PageDown moves the cursor by
+the rows that fit (Action 16 after 2 Down + PageDown, `↑` and `↓` rows); typing `j` goes to the search (`no matches`, the `↓` stays);
+`description_hide_when_narrow` resized to 48 columns shows the names only, at 49 the details come back (the binary equals the sheets test).
+Open delta found on `shared_menu` at 80x24 (the oracle's `shared_menu_presentation_at_wide_and_narrow_sizes` frame `80x24`, which the kit
+cannot address yet: `label:` header): the oracle cuts the long label of a described row with an ellipsis (`A long option label that still
+wraps at narrow wi…`) where the picker wraps it inside the label column (`widths` on a second row), and it draws a disabled row's reason bare
+(`This option needs a connected server.`) where `Words.reason_alone` says `disabled: ...` (the oracle's `selection_row_layout.rs:63` does say
+`disabled: `; its `render_rows` path does not). Both are the next thing to check in step 1 (`wrapped_two_column_rows_*` family); the fixture
+now carries the preset's `hide_description_below: 24`. The mouse in the binary was not re-walked (the click went to the debug list's
+background row); the mouse is covered by the tests/sheets/select.rs tap/wheel tests.
+
 ## Open decisions / small deltas
 
 - None new. `Rebuild::Yes` in the adapter is deliberate (comment in `dialog.rs`).
