@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 41] = [
+    let entries: [(&'static str, &'static str, &'static str); 48] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -225,6 +225,41 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "filled_tab_all",
             "one tab",
             include_str!("fixtures/filled_tab_all.jsonl"),
+        ),
+        (
+            "multi_orderable",
+            "a multi-select with a fixed row, a rule and two orderable rows",
+            include_str!("fixtures/multi_orderable.jsonl"),
+        ),
+        (
+            "multi_orderable_two",
+            "two orderable multi-select rows",
+            include_str!("fixtures/multi_orderable_two.jsonl"),
+        ),
+        (
+            "section_break",
+            "a multi-select whose first row has a rule under it",
+            include_str!("fixtures/section_break.jsonl"),
+        ),
+        (
+            "multi_alpha_jupiter",
+            "a searchable multi-select of alpha and jupiter",
+            include_str!("fixtures/multi_alpha_jupiter.jsonl"),
+        ),
+        (
+            "multi_appearance",
+            "twelve fields with a rule, ordering and a preview line",
+            include_str!("fixtures/multi_appearance.jsonl"),
+        ),
+        (
+            "multi_fields_twelve",
+            "twelve orderable fields",
+            include_str!("fixtures/multi_fields_twelve.jsonl"),
+        ),
+        (
+            "multi_twelve",
+            "twelve multi-select rows",
+            include_str!("fixtures/multi_twelve.jsonl"),
         ),
     ];
     entries

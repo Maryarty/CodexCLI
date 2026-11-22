@@ -53,6 +53,8 @@ pub enum Event {
     Secondary(String),
     /// The toggle of the row with this id was flipped.
     Toggle(String),
+    /// The orderable row with this id moves one place (`true`: down).
+    Reorder(String, bool),
     /// Enter on a multi-select: the toggled-on rows are the answer.
     Confirm,
     /// Esc, or Enter with nothing to pick.
@@ -74,6 +76,7 @@ struct Flags {
     tabs: bool,
     query_empty: bool,
     toggle: bool,
+    ordering: bool,
     secondary: Option<char>,
 }
 
@@ -168,11 +171,13 @@ fn act_of(key: &KeyPress, flags: Flags) -> Option<Act> {
             (KeyCode::Left, _, false)
             | (KeyCode::Char, Some('h'), true)
             | (KeyCode::Backspace, _, true)
-                if flags.tabs =>
+                if flags.tabs || flags.ordering =>
             {
                 Some(Act::Left)
             }
-            (KeyCode::Right, _, false) | (KeyCode::Char, Some('l'), true) if flags.tabs => {
+            (KeyCode::Right, _, false) | (KeyCode::Char, Some('l'), true)
+                if flags.tabs || flags.ordering =>
+            {
                 Some(Act::Right)
             }
             _ => None,
@@ -251,7 +256,8 @@ impl State for PickerState {
             let visible = browse.visible();
             self.cursor.set_cursor(Some(item));
             if let Some(pos) = visible.iter().position(|v| *v == item) {
-                self.scroll.ensure_index_visible(pos);
+                self.scroll
+                    .ensure_index_visible(browse.entry_of(&visible, pos));
             }
         } else if old.list.items_of(self.tab()).len() != w.list.items_of(self.tab()).len() {
             // The rows changed under the cursor (a refresh): keep what is
@@ -304,6 +310,7 @@ impl State for PickerState {
             tabs: !list.tabs.is_empty(),
             query_empty: query.is_empty(),
             toggle: selected.is_some_and(|item| item.toggle.is_some()),
+            ordering: list.ordering && list.tabs.is_empty() && query.is_empty(),
             secondary: selected.and_then(|item| item.secondary.as_ref().map(|a| a.key)),
         });
 
@@ -407,6 +414,7 @@ impl State for PickerState {
                         reason_close: s.reason_close,
                         mark_on: s.mark_on,
                         mark_off: s.mark_off,
+                        section_break: s.section_break,
                     },
                 }
                 .view(),
@@ -421,6 +429,9 @@ impl State for PickerState {
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(body);
+        if let Some(names) = list.preview_names() {
+            pane = pane.child(inset(Text::line(names.join(s.preview_join)).into()));
+        }
         if let Some(note) = list.footer_note.clone() {
             pane = pane.child(inset(Text::new(note).wrap(TextWrap::Word).into()));
         }
@@ -470,7 +481,8 @@ impl PickerState {
             .set_cursor(pos.and_then(|pos| visible.get(pos).copied()));
         self.scroll.jump_to_index(0);
         if let Some(pos) = pos {
-            self.scroll.ensure_index_visible(pos);
+            self.scroll
+                .ensure_index_visible(browse.entry_of(&visible, pos));
         }
     }
 
@@ -501,6 +513,15 @@ impl PickerState {
                         now + len - 1
                     };
                     tabs.set_index(next % len);
+                    return;
+                }
+                if list.ordering {
+                    let down = act == Act::Right;
+                    if let Some(id) = self.id(list).filter(|id| list.can_reorder(id, down)) {
+                        // The moved row keeps the cursor when the rows return.
+                        self.follow = Some(id.clone());
+                        Self::send(w, cx, Event::Reorder(id, down));
+                    }
                 }
                 return;
             }
@@ -519,7 +540,8 @@ impl PickerState {
         };
         if let Some(pos) = to {
             self.cursor.set_cursor(visible.get(pos).copied());
-            self.scroll.ensure_index_visible(pos);
+            self.scroll
+                .ensure_index_visible(browse.entry_of(&visible, pos));
         }
     }
 

@@ -4,6 +4,8 @@
 //! (`snapshot_model_picker_width_80`), `chatwidget/tests/permissions.rs`
 //! (`approvals_selection_popup_snapshot`).
 
+use rtwk_core::input::{Mods, MouseKind};
+
 use crate::common::{Harness, ms, start_sized};
 use crate::dialogs::oracle::assert_rows;
 
@@ -103,6 +105,161 @@ fn a_number_key_flips_its_row_of_a_multi_select_and_keeps_it_open() {
     assert!(
         screen.contains("[ ] Alpha") && screen.contains("Choose"),
         "{screen}"
+    );
+}
+
+/// The cell of the first screen row holding `needle`.
+fn cell_of(h: &Harness, needle: &str) -> (u16, u16) {
+    let screen = h.t.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(needle))
+        .unwrap_or_else(|| panic!("no row holds {needle:?}:\n{screen}"));
+    (line.find(needle).map_or(0, |at| at as u16), y as u16)
+}
+
+/// ADR-011: a tap on a row of a multi-select flips it and the dialog stays.
+#[test]
+fn a_tap_flips_a_row_of_a_multi_select_and_keeps_it_open() {
+    let mut h = open(60, "multi_select");
+    let (x, y) = cell_of(&h, "[ ] Beta");
+    h.t.click(x, y);
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("[x] Beta") && screen.contains("Choose"),
+        "{screen}"
+    );
+}
+
+/// ADR-011: a tap on a row of a plain list picks it and the dialog closes.
+#[test]
+fn a_tap_on_a_row_picks_it_and_closes_the_dialog() {
+    let mut h = open(80, "model_picker");
+    assert!(h.t.screen().contains("Select Model and Effort"));
+    let (x, y) = cell_of(&h, "gpt-5.1-codex-mini");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Select Model and Effort"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: the wheel scrolls the rows of a list longer than its window.
+#[test]
+fn the_wheel_scrolls_the_rows_of_a_long_list() {
+    let mut h = open(60, "twelve_items");
+    assert!(!h.t.screen().contains("Item 11"), "{}", h.t.screen());
+    let (x, y) = cell_of(&h, "Item 3");
+    for _ in 0..6 {
+        h.t.mouse(MouseKind::WheelDown, x, y, 0, Mods::NONE);
+    }
+    h.t.pump_for(ms(100));
+    assert!(h.t.screen().contains("Item 11"), "{}", h.t.screen());
+}
+
+/// The index of the screen row that is exactly `text` (trailing blanks cut).
+fn row_of(h: &Harness, text: &str) -> usize {
+    rows(h)
+        .iter()
+        .position(|row| row == text)
+        .unwrap_or_else(|| panic!("no row `{text}` on:\n{}", h.t.screen()))
+}
+
+const RULE: &str = "  ───────────────────────";
+
+#[test]
+fn a_section_break_is_a_rule_row_of_its_own_between_two_rows() {
+    let h = open(60, "section_break");
+    let at = row_of(&h, "› [ ] theme-colors");
+    let rows = rows(&h);
+    assert_eq!(rows[at + 1], RULE);
+    assert_eq!(rows[at + 2], "  [ ] model");
+}
+
+#[test]
+fn the_ordering_keys_swap_orderable_rows_and_the_cursor_follows_the_moved_row() {
+    let mut h = open(60, "multi_orderable_two");
+    assert!(row_of(&h, "› [ ] model") < row_of(&h, "  [ ] branch"));
+    h.press("ctrl+l");
+    h.t.pump_for(ms(100));
+    assert!(row_of(&h, "  [ ] branch") < row_of(&h, "› [ ] model"));
+    h.press("right");
+    h.t.pump_for(ms(100));
+    assert!(
+        row_of(&h, "  [ ] branch") < row_of(&h, "› [ ] model"),
+        "the end stays"
+    );
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(row_of(&h, "› [ ] model") < row_of(&h, "  [ ] branch"));
+}
+
+#[test]
+fn a_fixed_row_neither_moves_nor_is_crossed() {
+    let mut h = open(60, "multi_orderable");
+    h.press("ctrl+l");
+    h.t.pump_for(ms(100));
+    let order = |h: &Harness| {
+        ["theme-colors", "model", "branch"].map(|name| {
+            rows(h)
+                .iter()
+                .position(|row| row.ends_with(&format!("[ ] {name}")))
+                .unwrap_or(usize::MAX)
+        })
+    };
+    assert!(
+        order(&h)[0] < order(&h)[1] && order(&h)[1] < order(&h)[2],
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(
+        order(&h)[0] < order(&h)[1] && order(&h)[1] < order(&h)[2],
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_plain_letter_feeds_the_search_of_a_multi_select() {
+    let mut h = open(60, "multi_alpha_jupiter");
+    h.press("j");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("› [ ] jupiter") && !screen.contains("[ ] alpha"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn the_preview_line_names_the_toggled_on_rows_in_order() {
+    let mut h = open(80, "multi_appearance");
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 0"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("space");
+    h.t.pump_for(ms(100));
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 0 · Field 1"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("ctrl+h");
+    h.t.pump_for(ms(100));
+    assert!(
+        rows(&h).iter().any(|row| row == "  Field 1 · Field 0"),
+        "a move reorders the preview too: {}",
+        h.t.screen()
     );
 }
 

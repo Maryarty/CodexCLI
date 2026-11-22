@@ -69,6 +69,7 @@ impl State for MenuDialogState {
             },
             Event::Secondary(id) => Intent::Secondary(id),
             Event::Toggle(id) => Intent::Toggle(id),
+            Event::Reorder(id, down) => Intent::Reorder(id, down),
             Event::Confirm => Intent::Confirm,
             Event::Cancel => {
                 cx.emit(&hs.screen, ScreenIntent::Select(Intent::Close));

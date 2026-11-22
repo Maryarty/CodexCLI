@@ -109,6 +109,8 @@ pub enum Intent {
     Secondary(String),
     /// The toggle of the item with this id was flipped.
     Toggle(String),
+    /// The orderable item with this id moves one place (`true`: down).
+    Reorder(String, bool),
     /// A multi-select list (`List::multi`) was confirmed (Enter): the ids of
     /// the toggled-on items are picked together and the menu closes.
     Confirm,
@@ -170,6 +172,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Toggle(id) => {
             if let Some(Menu::List(list)) = &mut model.menu {
                 list.flip(&id);
+            }
+        }
+        Intent::Reorder(id, down) => {
+            if let Some(Menu::List(list)) = &mut model.menu {
+                list.reorder(&id, down);
             }
         }
         Intent::Confirm => {

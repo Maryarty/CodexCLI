@@ -30,6 +30,10 @@ pub struct Strings {
     pub reason_after: &'static str,
     pub reason_alone: &'static str,
     pub reason_close: &'static str,
+    /// The rule row of a section break (multi-select picker).
+    pub section_break: &'static str,
+    /// Between the names of the preview line.
+    pub preview_join: &'static str,
 }
 
 /// English: the oracle's text.
@@ -46,6 +50,8 @@ pub const EN: Strings = Strings {
     reason_after: " (disabled: ",
     reason_alone: "disabled: ",
     reason_close: ")",
+    section_break: "  ───────────────────────",
+    preview_join: " · ",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

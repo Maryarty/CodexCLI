@@ -47,6 +47,8 @@ pub struct Words {
     /// The cell before a row's prefix: the cursor's mark, or blank.
     pub mark_on: &'static str,
     pub mark_off: &'static str,
+    /// The rule row under a row with a section break.
+    pub section_break: &'static str,
 }
 
 impl Words {
@@ -128,9 +130,16 @@ impl Rows {
             let height = this.tallest(&layout.heights);
             let rows = this.clone();
             let label = layout.label;
-            let list = ListView::builder(rows.rows.len(), move |index| rows.row(index, label))
-                .controller(this.list.clone())
-                .can_request_focus(false);
+            // A rule is an entry of its own: it takes one of the list's rows.
+            let entries = Rc::new(this.entries());
+            let list = ListView::builder(entries.len(), move |index| {
+                match entries.get(index).copied().flatten() {
+                    Some(row) => rows.row(row, label),
+                    None => rows.rule(),
+                }
+            })
+            .controller(this.list.clone())
+            .can_request_focus(false);
             SizedBox::new(None, Some(height), Some(list.into())).into()
         });
         Flexible::new(1, measured).into()
@@ -165,33 +174,68 @@ impl Rows {
         let heights = self
             .rows
             .iter()
-            .map(|row| {
-                if self.single_line {
-                    return 1;
-                }
-                let hung = mark + width(&row.prefix);
-                let name = self.words.name(row);
-                let taken = match label {
-                    Some(label) => {
-                        let text = |selected| self.words.description(row, selected);
-                        let beside = room.saturating_sub(label + 2);
-                        let described = [text(false), text(true)]
-                            .iter()
-                            .flatten()
-                            .map(|text| lines(text, beside))
-                            .max()
-                            .unwrap_or(1);
-                        lines(&name, label.saturating_sub(hung)).max(described)
-                    }
-                    None => lines(&name, room.saturating_sub(hung)),
+            .flat_map(|row| {
+                let rule = row.section_break.then_some(1);
+                let height = if self.single_line {
+                    1
+                } else {
+                    self.row_height(row, label, mark, width, lines, room)
                 };
-                i32::try_from(taken).unwrap_or(1)
+                [Some(height), rule].into_iter().flatten()
             })
             .collect();
         Layout {
             label: label.and_then(|label| i32::try_from(label).ok()),
             heights,
         }
+    }
+
+    /// The list's entries: a row, or `None` for the rule under it.
+    fn entries(&self) -> Vec<Option<usize>> {
+        let mut entries = Vec::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            entries.push(Some(index));
+            if row.section_break {
+                entries.push(None);
+            }
+        }
+        entries
+    }
+
+    /// The rule row of a section break: dim, one line.
+    fn rule(&self) -> AnyWidget {
+        Text::line(self.words.section_break.to_string())
+            .style(self.styles.disabled.clone())
+            .into()
+    }
+
+    /// The lines one row takes at `room` cells, its label column at `label`.
+    fn row_height(
+        &self,
+        row: &Row,
+        label: Option<usize>,
+        mark: usize,
+        width: &dyn Fn(&str) -> usize,
+        lines: &dyn Fn(&str, usize) -> usize,
+        room: usize,
+    ) -> i32 {
+        let hung = mark + width(&row.prefix);
+        let name = self.words.name(row);
+        let taken = match label {
+            Some(label) => {
+                let text = |selected| self.words.description(row, selected);
+                let beside = room.saturating_sub(label + 2);
+                let described = [text(false), text(true)]
+                    .iter()
+                    .flatten()
+                    .map(|text| lines(text, beside))
+                    .max()
+                    .unwrap_or(1);
+                lines(&name, label.saturating_sub(hung)).max(described)
+            }
+            None => lines(&name, room.saturating_sub(hung)),
+        };
+        i32::try_from(taken).unwrap_or(1)
     }
 
     /// The lines of the `max_rows` consecutive rows that take most.
