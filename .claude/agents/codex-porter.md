@@ -88,23 +88,33 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 ## Cargo
 - `~/.cache/rtwk/acargo <args>` from `codex-rs/tui-rtwk`, in your worktree's
   own target (never set CARGO_TARGET_DIR).
-- While iterating: `acargo nextest run --status-level fail
-  --final-status-level fail --hide-progress-bar -E 'test(<page>) | binary(rules)'`,
-  `acargo clippy -q --all-targets -- -D warnings`.
+- While iterating: `acargo check --tests --quiet`, then ONE test root:
+  `acargo nextest run --test screens --status-level fail --final-status-level fail
+  --hide-progress-bar -E 'test(<page>)'` (root per fleet brief; core: `-p codex-tui-core`),
+  `--test rules` once before each commit, `acargo clippy -q --all-targets -- -D warnings`.
+  The all-roots form `-E 'test(<page>) | binary(rules)'` is the slow one.
 - A step or a partial (`partial ready: <tip>`) carries only these scoped
   checks; never the full gate per step — the landing's `land-check.sh` is the
   partial's gate (fleet brief "Checks"; overrides a brief that says otherwise).
 - Once at the end, after rebasing onto the tip: fmt, clippy `--workspace`,
-  the whole nextest, the oracle shard(s) under `--profile oracle`,
+  the whole nextest (`--retries 1`, as land-check), the oracle shard(s) under `--profile oracle`,
   `shards.py --check`.
-- No call longer than ~4 min: `~/.cache/rtwk/bgrun.sh start <name> -- <cmd>`
-  then `bgrun.sh wait <name>`.
+- No call longer than ~4 min: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>`
+  starts and waits 110 s in ONE call (inside Bash's 120 s default); if it says
+  `running`, `bgrun.sh wait <name>` (110 s) again — or once with the Bash tool's
+  `timeout: 250000` and `bgrun.sh wait <name> 240`. Never poll the harness's
+  `/private/tmp/…/tasks/*.output`; one cargo at a time per worktree.
 - Known reds: `~/.cache/codexcli/known-red.txt`. Do not prove them again.
 
 
 ## Tokens: keep the context small
 - Look-ups that do not depend on each other go out as parallel calls in ONE
-  response: every response re-sends your whole context.
+  response: every response re-sends your whole context. A look-up turn carries
+  up to 4 independent Read/Bash calls, or one Bash with several `sed -n`
+  ranges (measured 2026-11-22: 1.05 calls per turn, 7 s per turn).
+- Symbol look-ups: `~/.cache/codexcli/sym A B C` (definitions with file:line,
+  signature and body, several names in one call; `--oracle` for codex-rs/tui),
+  not `rg` then `sed -n` per name.
 - Build and test output: failures and the summary only (`-q`, then
   `grep -E '^(error|warning|FAIL)' -A6 | head -60`).
 - codex-tui files are large: `grep -n` for the item, then read the range
@@ -140,8 +150,14 @@ A page that does not work in the binary is not done, whatever the tests say.
 ## Size: hand off before your context gets heavy
 Turns after the first ~100 cost about twice as much. Around 100 turns, or
 past ~250k tokens with work left: commit what is done (never a red build),
-write a `task_checkpoint` (done / left / files / next step) and finish with a
-final reply starting `HANDOFF:`. A fresh agent continues from it.
+write a `task_checkpoint` (done / left / files / next step, and `read:` up to 8
+`file:line-line` ranges — own and oracle — the next step starts from, the types
+it touches, the reds open) and finish with a final reply starting `HANDOFF:`.
+Write that checkpoint at every step, not only at hand-off: a compaction or a
+relaunch then costs one read, not ~50 calls (measured 2026-11-22).
+A relaunch (checkpoint present): read the checkpoint, the pack section and its
+`read:` ranges in ONE batched turn; fleet brief and process §2–4 only if not
+read in this context; no SKILL re-read unless the step needs a new widget.
 
 ## Handover
 - Nothing running in the background, no subagents of your own.

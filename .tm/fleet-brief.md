@@ -119,6 +119,15 @@ pass it as `RTWK_BIN` to the scenarios.
   change shows it red: name it in the handover.
 
 
+## macOS here (measured friction, 2026-11-22)
+- No `timeout` binary: use `bgrun.sh run|wait` or the Bash tool's `timeout`.
+- `sed -i` is BSD (`sed -i ''`): prefer Edit, or `python3 -I` with str.replace.
+- nextest takes `--cargo-quiet`, not `-q`.
+- Start every Bash call with `cd <worktree>/codex-rs/tui-rtwk` (cwd is not kept).
+- One cargo at a time per worktree: a foreground and a bgrun cargo share the
+  target lock and wait on each other.
+- Never poll the harness's `/private/tmp/…/tasks/*.output`; `bgrun.sh run`.
+
 ## Layers (process.md §A4.4)
 - Core (`codex-tui-core`, no rtwk): models, `apply`, tickets, protocol
   mapping, command parsing. UI: view files only (widgets, `strings.rs`, debug

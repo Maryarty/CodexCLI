@@ -325,10 +325,14 @@ what the brief says; a boundary the brief leaves implicit is not built.
 
 - Expected values come from the oracle (shard, `.snap`, assertions, captures
   of the oracle binary), never from the new code's output.
-- While working: `acargo nextest run -E 'test(<page>) | binary(rules)'
-  --status-level fail --final-status-level fail --hide-progress-bar` and
-  `acargo clippy -q --all-targets -- -D warnings`. The rules tests run every
-  time: they are where the architecture and the review checklist live.
+- While working: `acargo nextest run --test screens -E 'test(<page>)'
+  --status-level fail --final-status-level fail --hide-progress-bar` (one
+  test root, fleet brief) and `acargo clippy -q --all-targets -- -D warnings`;
+  `--test rules` before each commit: the rules tests are where the
+  architecture and the review checklist live.
+- A partial (`partial ready: <tip>`) carries these scoped checks only; the
+  candidate check (`land-check.sh`) is its full gate, and a red there goes
+  back to the same porter. The full gate below runs once, before task_done.
 - Once, before `task_done`, after rebasing onto the integration tip:
   `acargo fmt -- --check`, `acargo clippy -q --workspace --all-targets --
   -D warnings`, the full `acargo nextest run --workspace`, the page's oracle
@@ -467,7 +471,10 @@ enforces them in every worktree and candidate without a separate script.
 Limits: **at most 3 concurrent cargo builders** on this machine (a
 land-check counts as one; load beyond that made every build and timing test
 slower, 2026-11-21: load 139 on 10 cores), the orchestrator's landing
-throughput, the person's acceptance.
+throughput, the person's acceptance. **At most ~5 porters in their build
+phase at once** (person, 2026-11-22, research/porter-steps: with 8–10 porters
+`acargo check` took 44 s median instead of 2–7 s and pty scenarios went red
+falsely); more porters only while they read or plan.
 
 Before a page or wave fans out, the orchestrator writes an **area map** into
 the parent task: each running task's files, and each shared file with one
