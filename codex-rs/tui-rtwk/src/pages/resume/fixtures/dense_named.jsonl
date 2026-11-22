@@ -1,0 +1,4 @@
+# `dense_session_line_prefers_thread_name_over_preview`: a row with a name and a preview.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777399200}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"Raw conversation preview","created":1777393800,"updated":1777398300,"cwd":"/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs","branch":"fcoury/session-picker","path":"/tmp/a.jsonl","thread_name":"Named session"}]}}}

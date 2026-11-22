@@ -58,6 +58,17 @@ use strings::Strings;
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.
 pub fn debug_entries() -> Vec<DebugEntry> {
+    // One entry per fixture script: the screen on the model it makes.
+    macro_rules! entry {
+        ($name:literal, $description:literal) => {
+            DebugEntry {
+                name: $name,
+                description: $description,
+                script: include_str!(concat!("fixtures/", $name, ".jsonl")),
+                open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
+            }
+        };
+    }
     vec![
         DebugEntry {
             name: "fake_rollouts",
@@ -65,42 +76,20 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             script: include_str!("fixtures/fake_rollouts.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| list::List.into()),
         },
-        DebugEntry {
-            name: "table",
-            description: "three rows: a cloud one, an unread one, a plain one",
-            script: include_str!("fixtures/table.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
-        DebugEntry {
-            name: "more_indicators",
-            description: "five rows, to scroll down to the third",
-            script: include_str!("fixtures/more_indicators.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
-        DebugEntry {
-            name: "search_error",
-            description: "a listing that failed: the message on the search line",
-            script: include_str!("fixtures/search_error.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
-        DebugEntry {
-            name: "footer_wide",
-            description: "no rows at 220 cells: the footer's wide hints",
-            script: include_str!("fixtures/footer_wide.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
-        DebugEntry {
-            name: "loading",
-            description: "the first page is loading",
-            script: include_str!("fixtures/loading.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
-        DebugEntry {
-            name: "empty",
-            description: "no saved sessions",
-            script: include_str!("fixtures/empty.jsonl"),
-            open: EntryOpen::Route(|_: &Seeded| Screen { live: false }.into()),
-        },
+        entry!("table", "three rows: a cloud one, an unread one, a plain one"),
+        entry!("more_indicators", "five rows, to scroll down to the third"),
+        entry!("search_error", "a listing that failed: the message on the search line"),
+        entry!("footer_wide", "no rows at 220 cells: the footer's wide hints"),
+        entry!("loading", "the first page is loading"),
+        entry!("empty", "no saved sessions"),
+        entry!("toolbar_repo_cwd", "a cwd filter with a repository that has other checkouts"),
+        entry!("dense_cwd", "one row under its own directory filter (ctrl+o: dense)"),
+        entry!("dense_narrow", "one row, to be dense at 48 cells"),
+        entry!("dense_named", "a row with a name and a preview"),
+        entry!("dense_two_rows", "two rows under the cwd filter (dense, the second selected)"),
+        entry!("zebra_rows", "two comfortable rows, the first striped"),
+        entry!("expanded_session", "one row with its conversation read (ctrl+e)"),
+        entry!("narrow_session", "one row, to be read at 58 cells"),
     ]
 }
 

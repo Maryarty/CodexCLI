@@ -1,0 +1,4 @@
+# `comfortable_zebra_lines_use_full_width_background`: the oracle's `Zebra comfortable row`, 15 minutes before its clock, in a list of two rows (the first has the zebra fill).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777723200}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62e","preview":"Zebra comfortable row","created":1777722300,"updated":1777722300,"path":"/tmp/a.jsonl"},{"id":"019dabc1-0ef5-7431-b81c-03037f51f62f","preview":"Plain comfortable row","created":1777721400,"updated":1777721400,"path":"/tmp/b.jsonl"}]}}}

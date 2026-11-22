@@ -1,0 +1,6 @@
+# `expanded_session_snapshot`: one row, twelve-hour clock, its conversation read (user line, assistant line with a link and a file citation); ctrl+e expands it.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"clock":1777399200}}
+{"step":"screen","dir":"resume","ev":{"clock24":false}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","preview":"Investigate picker expansion","created":1777393800,"updated":1777398300,"cwd":"/tmp/codex","branch":"fcoury/session-picker","path":"/tmp/a.jsonl"}]}}}
+{"step":"screen","dir":"resume","ev":{"preview":{"id":"019dabc1-0ef5-7431-b81c-03037f51f62c","lines":[{"speaker":"user","text":"Show me the recent transcript"},{"speaker":"assistant","text":"Here are the *last* lines: [docs](https://example.com) :codex-file-citation{path=\"/tmp/codex/report.xlsx\"}."}]}}}

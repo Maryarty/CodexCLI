@@ -1,0 +1,5 @@
+# `toolbar_renders_sort_and_filter_tabs`: a picker under /tmp/project whose repository has another checkout:
+# the filter shows Cwd, Repo and All; no rows.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"resume","ev":{"scope":{"cwd":"/tmp/project","repo_cwds":["/tmp/project","/tmp/project-wt"]}}}
+{"step":"screen","dir":"resume","ev":{"listed":{"rows":[]}}}

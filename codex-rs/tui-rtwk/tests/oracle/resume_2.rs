@@ -10,43 +10,33 @@ use crate::kit::{self, Owner, Screen};
 // ORACLE resume_picker.rs:6277 toolbar_renders_sort_and_filter_tabs kind=snap owner=routes-lists snap=resume_picker_search_line_sort_filter_tabs
 #[test]
 fn toolbar_renders_sort_and_filter_tabs() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a repo filter available and a cwd filter (`/tmp/project`) on the picker; the toolbar shows only `Filter: All` and no repo or cwd tab",
-    );
-    // The oracle's toolbar line at 100 cells, one row; on the screen it is the toolbar row (row 2 at 24 rows).
+    // The oracle's toolbar line at 100 cells, one row; the screen is two cells wider (the chrome is
+    // inset by one on each side) and the toolbar is its row 2 at 24 rows.
     let s = Screen::build(Owner::RoutesLists)
-        .size(100, 24)
+        .size(102, 24)
         .entry("resume", "toolbar_repo_cwd")
         .open();
-    s.assert_snap_region("resume_picker_search_line_sort_filter_tabs", 2, 0);
+    s.assert_snap_region("resume_picker_search_line_sort_filter_tabs", 2, 1);
 }
 
 // ORACLE resume_picker.rs:6393 dense_session_snapshot_omits_cwd_in_cwd_filter kind=snap owner=routes-lists snap=resume_picker_dense_cwd
 #[test]
 fn dense_session_snapshot_omits_cwd_in_cwd_filter() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no dense density (ctrl+o) on the picker and no entry with one row of this data under a cwd filter; the list has only the comfortable layout",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(100, 10)
+        .size(104, 10)
         .entry("resume", "dense_cwd")
         .open();
     s.keys("ctrl+o");
-    // The oracle's list is three rows at 100 cells; the list starts at row 3 of a 10-row screen.
+    // The oracle's list is three rows at 100 cells (the screen is four cells wider: the list is
+    // inset by two on each side); the list starts at row 3 of a 10-row screen.
     s.assert_snap_region("resume_picker_dense_cwd", 3, 2);
 }
 
 // ORACLE resume_picker.rs:6407 dense_session_snapshot_drops_metadata_when_narrow kind=snap owner=routes-lists snap=resume_picker_dense_narrow
 #[test]
 fn dense_session_snapshot_drops_metadata_when_narrow() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no dense density (ctrl+o) on the picker and no entry with one row at 48 cells; the list has only the comfortable layout",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(48, 10)
+        .size(52, 10)
         .entry("resume", "dense_narrow")
         .open();
     s.keys("ctrl+o");
@@ -56,10 +46,6 @@ fn dense_session_snapshot_drops_metadata_when_narrow() {
 // ORACLE resume_picker.rs:6417 dense_session_line_prefers_thread_name_over_preview kind=ui owner=routes-lists
 #[test]
 fn dense_session_line_prefers_thread_name_over_preview() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row that has both a thread name (`Named session`) and a preview; no dense density (ctrl+o) on the picker",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(100, 16)
         .entry("resume", "dense_named")
@@ -72,10 +58,6 @@ fn dense_session_line_prefers_thread_name_over_preview() {
 // ORACLE resume_picker.rs:6486 comfortable_zebra_lines_use_full_width_background kind=ui owner=routes-lists
 #[test]
 fn comfortable_zebra_lines_use_full_width_background() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no zebra striping on the comfortable list and no entry with a zebra row; the oracle's expected background is `dense_zebra_style().bg`, a theme value the kit's literal style check cannot state",
-    );
     let s = Screen::build(Owner::RoutesLists)
         .size(100, 16)
         .entry("resume", "zebra_rows")
@@ -87,12 +69,8 @@ fn comfortable_zebra_lines_use_full_width_background() {
 // ORACLE resume_picker.rs:6520 dense_session_snapshot_uses_no_blank_lines_between_rows kind=snap owner=routes-lists snap=resume_picker_dense_no_blank_lines
 #[test]
 fn dense_session_snapshot_uses_no_blank_lines_between_rows() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no dense density (ctrl+o) on the picker and no entry with two rows (`First dense row`, `Second dense row` on branch fcoury/other-branch); the list has only the comfortable layout",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(80, 9)
+        .size(84, 9)
         .entry("resume", "dense_two_rows")
         .open();
     s.keys("ctrl+o down");
@@ -103,12 +81,8 @@ fn dense_session_snapshot_uses_no_blank_lines_between_rows() {
 // ORACLE resume_picker.rs:6566 expanded_session_snapshot kind=snap owner=routes-lists snap=resume_picker_expanded_session
 #[test]
 fn expanded_session_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no expansion (ctrl+e) with the transcript preview of a row (`Show me the recent transcript`, the assistant's citation line) and no entry for it; the expanded layout is not built",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(90, 21)
+        .size(94, 21)
         .entry("resume", "expanded_session")
         .open();
     s.keys("ctrl+e");
@@ -119,12 +93,8 @@ fn expanded_session_snapshot() {
 // ORACLE resume_picker.rs:6641 narrow_session_snapshot kind=snap owner=routes-lists snap=resume_picker_narrow_session
 #[test]
 fn narrow_session_snapshot() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with one row (`Investigate picker expansion`, cwd /tmp/codex, branch fcoury/session-picker) at 58 cells; the view's narrow layout of the row is not checked against it yet",
-    );
     let s = Screen::build(Owner::RoutesLists)
-        .size(58, 16)
+        .size(62, 16)
         .entry("resume", "narrow_session")
         .open();
     // The oracle's six rows at 58 cells; the list starts at row 6 of a 16-row screen.
