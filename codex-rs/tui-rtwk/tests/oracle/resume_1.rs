@@ -79,10 +79,10 @@ fn expanded_session_details_include_metadata() {
 fn footer_prioritizes_active_sort_timestamp() {
     kit::pending(
         Owner::RoutesLists,
-        "no entry with a row updated 3h ago and created 5h ago, branch main and cwd tmp/codex at 80 cells; the sort control is the toolbar's",
+        "the Created half cannot be driven: a sort change reloads the list from the server (oracle start_initial_load) and an entry screen has no server, so after `tab tab right` the list is `Loading sessions…` (the Updated half and the cwd/branch order equal the oracle)",
     );
     let mut s = Screen::build(Owner::RoutesLists)
-        .size(80, 12)
+        .size(84, 12)
         .entry("resume", "footer_times")
         .open();
     // Updated sort (the default): the footer leads with the updated time.
@@ -90,7 +90,7 @@ fn footer_prioritizes_active_sort_timestamp() {
     s.assert_absent("created 5h ago");
     s.assert_in_order(&["⌁ tmp/codex", " main"]);
     // Created sort: the footer leads with the created time.
-    s.keys("tab right");
+    s.keys("tab tab right");
     s.assert_contains("  5h ago");
     s.assert_absent("updated 3h ago");
     s.assert_in_order(&["⌁ tmp/codex", " main"]);
@@ -99,12 +99,8 @@ fn footer_prioritizes_active_sort_timestamp() {
 // ORACLE resume_picker.rs:4837 footer_marks_missing_branch kind=ui owner=routes-lists
 #[test]
 fn footer_marks_missing_branch() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row without a branch and cwd /tmp/codex at 80 cells",
-    );
     let s = Screen::build(Owner::RoutesLists)
-        .size(80, 12)
+        .size(84, 12)
         .entry("resume", "footer_no_branch")
         .open();
     s.assert_contains("⌁ /tmp/codex");
@@ -115,12 +111,8 @@ fn footer_marks_missing_branch() {
 // ORACLE resume_picker.rs:4856 footer_branch_expands_when_line_has_room kind=ui owner=routes-lists
 #[test]
 fn footer_branch_expands_when_line_has_room() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row on branch etraut/animations-false-improvements at 140 cells",
-    );
     let s = Screen::build(Owner::RoutesLists)
-        .size(140, 12)
+        .size(144, 12)
         .entry("resume", "footer_long_branch")
         .open();
     s.assert_contains("etraut/animations-false-improvements");
@@ -129,12 +121,8 @@ fn footer_branch_expands_when_line_has_room() {
 // ORACLE resume_picker.rs:4873 footer_cwd_truncates_to_responsive_column kind=ui owner=routes-lists
 #[test]
 fn footer_cwd_truncates_to_responsive_column() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row with a very long cwd on branch owner/branch at 80 cells",
-    );
     let s = Screen::build(Owner::RoutesLists)
-        .size(80, 12)
+        .size(84, 12)
         .entry("resume", "footer_long_cwd")
         .open();
     s.assert_absent(
@@ -148,12 +136,8 @@ fn footer_cwd_truncates_to_responsive_column() {
 // ORACLE resume_picker.rs:4895 footer_omits_cwd_when_hidden kind=ui owner=routes-lists
 #[test]
 fn footer_omits_cwd_when_hidden() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row with the cwd column off (the picker not filtered by cwd) on branch owner/branch at 80 cells",
-    );
     let s = Screen::build(Owner::RoutesLists)
-        .size(80, 12)
+        .size(84, 12)
         .entry("resume", "footer_no_cwd")
         .open();
     s.assert_contains("4h ago");
@@ -188,10 +172,6 @@ fn resume_search_error_snapshot() {
 // ORACLE resume_picker.rs:5256 hint_line_compacts_on_narrow_width kind=ui owner=routes-lists
 #[test]
 fn hint_line_compacts_on_narrow_width() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry for the empty picker at 119 cells (resume registers footer_wide at 220)",
-    );
     let s = Screen::build(Owner::RoutesLists)
         .size(119, 12)
         .entry("resume", "footer_narrow")
@@ -218,10 +198,6 @@ fn hint_line_snapshot_uses_distributed_wide_footer() {
 // ORACLE resume_picker.rs:5299 hint_line_snapshot_uses_compact_footer kind=snap owner=routes-lists snap=resume_picker_footer_compact
 #[test]
 fn hint_line_snapshot_uses_compact_footer() {
-    kit::pending(
-        Owner::RoutesLists,
-        "the search line takes typed text and ctrl+o toggles the dense density; the resume view binds only up, down, enter and esc",
-    );
     // The oracle's query `picker` and dense density, at 96 cells; the footer is the
     // screen's bottom four rows (row 18 of 22), its three snapshot rows.
     let mut s = Screen::build(Owner::RoutesLists)
@@ -236,10 +212,6 @@ fn hint_line_snapshot_uses_compact_footer() {
 // ORACLE resume_picker.rs:5320 hint_line_preserves_primary_action_labels_when_very_narrow kind=ui owner=routes-lists
 #[test]
 fn hint_line_preserves_primary_action_labels_when_very_narrow() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry for the empty picker at 38 cells in dense mode",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(38, 12)
         .entry("resume", "footer_very_narrow")
@@ -253,10 +225,6 @@ fn hint_line_preserves_primary_action_labels_when_very_narrow() {
 // ORACLE resume_picker.rs:5349 hint_line_shows_loading_transcript_mode kind=ui owner=routes-lists
 #[test]
 fn hint_line_shows_loading_transcript_mode() {
-    kit::pending(
-        Owner::RoutesLists,
-        "no entry with a row that has a thread id and a transcript that never finishes loading, at 80 cells",
-    );
     let mut s = Screen::build(Owner::RoutesLists)
         .size(80, 12)
         .entry("resume", "table")

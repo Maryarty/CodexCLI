@@ -90,6 +90,13 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         entry!("zebra_rows", "two comfortable rows, the first striped"),
         entry!("expanded_session", "one row with its conversation read (ctrl+e)"),
         entry!("narrow_session", "one row, to be read at 58 cells"),
+        entry!("footer_times", "one row, updated 3h and created 5h ago"),
+        entry!("footer_no_branch", "one row without a branch"),
+        entry!("footer_long_branch", "one row on a long branch"),
+        entry!("footer_long_cwd", "one row under a very long directory"),
+        entry!("footer_no_cwd", "one row under the directory filter's own directory"),
+        entry!("footer_narrow", "an empty picker, to be opened at 119 cells"),
+        entry!("footer_very_narrow", "an empty picker, to be opened at 38 cells"),
     ]
 }
 
@@ -372,13 +379,17 @@ fn footer(frame: &Frame, width: usize) -> AnyWidget {
         })
     };
     let hint = |variants| {
-        crate::widgets::page_keys::footer_fit(
-            variants,
-            look.dim.clone(),
-            look.dim.clone(),
-            "   ",
-            1,
-        )
+        if facts.loading {
+            chrome::plain_fit(variants, look.dim.clone(), "   ", 1)
+        } else {
+            crate::widgets::page_keys::footer_fit(
+                variants,
+                look.dim.clone(),
+                look.dim.clone(),
+                "   ",
+                1,
+            )
+        }
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)

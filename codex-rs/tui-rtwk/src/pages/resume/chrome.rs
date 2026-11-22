@@ -6,6 +6,10 @@
 //! first that fits, `ui::page_keys::footer_fit`). Oracle: `resume_picker.rs`
 //! (`toolbar_for_width`, `hint_line_for_row`, `picker_footer_progress_label`).
 
+use rtwk::style::Style;
+use rtwk::text::{Text, segmenter_of};
+use rtwk::layout::{EdgeInsets, Padding, SizedBox};
+use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::widgets::page_keys::Variant;
@@ -77,6 +81,49 @@ pub fn hint_variants(hints: &[Hint]) -> Vec<Variant> {
         }
     }
     out
+}
+
+/// A footer row whose first word is not a key (the loading row's `loading`):
+/// the first of `variants` that fits, its entries as plain text apart by
+/// `separator`, `pad` cells in (`footer_fit` reads every entry's key as a key
+/// the page binds; this row binds none).
+pub fn plain_fit(
+    variants: Vec<Variant>,
+    style: Style,
+    separator: &'static str,
+    pad: i32,
+) -> AnyWidget {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let room = constraints.max_width;
+        let text = |variant: &Variant| {
+            variant
+                .entries
+                .iter()
+                .map(|(key, hint)| {
+                    if hint.is_empty() {
+                        key.clone()
+                    } else {
+                        [key.as_str(), hint.as_str()].join(" ")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(separator)
+        };
+        let fits = |variant: &Variant| {
+            room >= variant.min_width
+                && i32::try_from(seg.width(&text(variant))).unwrap_or(i32::MAX) + pad <= room
+        };
+        match variants.iter().find(|variant| fits(variant)) {
+            Some(variant) => Padding::new(
+                EdgeInsets::only(pad, 0, 0, 0),
+                Text::line(text(variant)).style(style.clone()),
+            )
+            .into(),
+            None => SizedBox::new(None, Some(1), None).into(),
+        }
+    })
+    .into()
 }
 
 /// What the hint rows depend on (oracle: `footer_hint_lines`).
