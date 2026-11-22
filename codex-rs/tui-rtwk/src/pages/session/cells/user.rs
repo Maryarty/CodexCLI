@@ -78,9 +78,12 @@ pub fn panel(prompt: &UserPrompt, look: &Look<'_>, joins_previous: bool) -> BoxW
     let mut content = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    // labels and inline elements are the accent that reads on the painted surface
+    // (oracle `user_message_element_style`)
+    let element = tokens.accent_on(surface);
     if !prompt.images.is_empty() {
         let labels = prompt.images.iter().map(|number| {
-            Text::new(cells.label(cells.image_label, &number.to_string())).style(tokens.info())
+            Text::new(cells.label(cells.image_label, &number.to_string())).style(element.clone())
         });
         content = content.child(Padding::new(
             EdgeInsets::only(2, 0, 1, i32::from(!text.is_empty())),
@@ -103,11 +106,11 @@ pub fn panel(prompt: &UserPrompt, look: &Look<'_>, joins_previous: bool) -> BoxW
             let mut spans = Vec::with_capacity(shown.elements.len() * 2 + 1);
             let mut cursor = 0;
             for range in shown.elements {
-                let Some(element) = text.get(range.clone()) else {
+                let Some(piece) = text.get(range.clone()) else {
                     break;
                 };
                 spans.push(Span::new(text[cursor..range.start].to_owned()));
-                spans.push(Span::styled(element.to_owned(), tokens.info()));
+                spans.push(Span::styled(piece.to_owned(), element.clone()));
                 cursor = range.end;
             }
             spans.push(Span::new(text[cursor..].to_owned()));

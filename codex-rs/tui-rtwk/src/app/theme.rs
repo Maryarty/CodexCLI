@@ -3,7 +3,9 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::screens::ScreenStates;
 use rtwk::Cx;
+use rtwk::provider::{Provider, select};
 use rtwk::style::Style;
 use rtwk::style::TerminalBrightness;
 use rtwk::style::Theme;
@@ -14,116 +16,201 @@ use rtwk_core::style::Color;
 use rtwk_rich::markdown::MarkdownTheme;
 use rtwk_rich::style::{Style as MarkdownStyle, Theme as RichTheme};
 
+mod syntax;
+
+pub use syntax::SyntaxPalette;
+
 /// The theme of the app's root: the terminal's own colours, dark until the
 /// terminal says otherwise.
 pub fn data() -> Rc<ThemeData> {
     Rc::new(ThemeData::terminal(Brightness::Dark))
 }
 
-/// The style tokens of one theme.
+/// The scope of each heading level, before the one all levels share.
+const HEADING_SCOPES: [&str; 6] = [
+    "markup.heading.1.markdown",
+    "markup.heading.2.markdown",
+    "markup.heading.3.markdown",
+    "markup.heading.4.markdown",
+    "markup.heading.5.markdown",
+    "markup.heading.6.markdown",
+];
+
+/// The style tokens of one theme, with the syntax theme in force (the settings
+/// model's pick, which the Markdown roles and the diff rows are drawn from).
 #[derive(Clone, Debug)]
-pub struct Tokens(Rc<ThemeData>);
+pub struct Tokens {
+    data: Rc<ThemeData>,
+    syntax: SyntaxPalette,
+    /// The terminal's default background (`0xRRGGBB`), if it told.
+    terminal_bg: Option<u32>,
+}
 
 impl Tokens {
     pub fn new(data: Rc<ThemeData>) -> Self {
-        Self(data)
+        let syntax = SyntaxPalette::adaptive(None);
+        Self {
+            data,
+            syntax,
+            terminal_bg: None,
+        }
     }
 
-    /// The tokens of the theme `cx` is under.
+    /// The tokens of the theme `cx` is under, with the syntax theme the user
+    /// picked (`settings::Model::syntax_theme`) where the app's models are
+    /// provided.
     pub fn of<S>(cx: &mut Cx<'_, S>) -> Self {
-        Self(Theme::of(cx))
+        let data = Theme::of(cx);
+        let terminal_bg = TerminalBrightness::background_of(cx);
+        let picked = if Provider::<ScreenStates>::maybe_of(cx, false).is_some() {
+            select::<ScreenStates, _, _>(cx, |states| states.settings.syntax_theme.clone())
+        } else {
+            None
+        };
+        Self {
+            syntax: SyntaxPalette::named(picked.as_deref(), terminal_bg),
+            data,
+            terminal_bg,
+        }
     }
 
-    /// A shared terminal-derived surface for the draft and submitted prompts.
+    /// A shared terminal-derived surface for the draft and submitted prompts (oracle
+    /// `style.rs`: `user_message_bg_rgb` for the composer, `history_prompt_style` for a
+    /// submitted prompt): the terminal's background shaded toward black on a light
+    /// terminal and toward white on a dark one, a light touch for the history.
     pub(crate) fn prompt_surface<S>(&self, cx: &mut Cx<'_, S>, history: bool) -> Style {
-        let bg = self.0.background.bg.filter(|bg| bg.is_rgb()).or_else(|| {
-            let [_, r, g, b] = TerminalBrightness::background_of(cx)?.to_be_bytes();
-            Some(Color::rgb(r, g, b))
-        });
-        let Some(bg) = bg else {
+        let terminal = self
+            .terminal_bg
+            .or_else(|| TerminalBrightness::background_of(cx))
+            .or_else(|| {
+                let bg = self.data.background.bg.filter(|bg| bg.is_rgb())?;
+                Some(u32::from_be_bytes([0, bg.r(), bg.g(), bg.b()]))
+            });
+        let Some(terminal) = terminal else {
             return if history {
-                self.0.surface.clone()
+                self.data.surface.clone()
             } else {
                 Style::new()
             };
         };
-        let (toward, strength) = match (self.0.brightness == Brightness::Dark, history) {
-            (true, true) => (Color::rgb(255, 255, 255), 0.16),
-            (true, false) => (Color::rgb(255, 255, 255), 0.12),
-            (false, true) => (Color::rgb(0, 0, 0), 0.02),
-            (false, false) => (Color::rgb(0, 0, 0), 0.04),
+        let [_, r, g, b] = terminal.to_be_bytes();
+        let (toward, alpha) = match (syntax::is_light(terminal), history) {
+            (true, true) => (0u8, 0.02_f32),
+            (true, false) => (0, 0.04),
+            (false, true) => (255, 0.16),
+            (false, false) => (255, 0.12),
         };
-        Style::new().bg(Color::lerp(bg, toward, strength))
+        // the oracle's `blend`: each channel truncated
+        let shade =
+            |channel: u8| (f32::from(toward) * alpha + f32::from(channel) * (1.0 - alpha)) as u8;
+        Style::new().bg(Color::rgb(shade(r), shade(g), shade(b)))
     }
 
     pub(crate) fn history_prompt_mark(&self) -> Style {
-        self.0.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
+        self.data.text.clone().attrs(Attrs::BOLD | Attrs::DIM)
     }
 
     pub fn dim(&self) -> Style {
-        self.0.dim()
+        self.data.dim()
     }
 
     pub fn bold(&self) -> Style {
-        self.0.text.clone().attrs(Attrs::BOLD)
+        self.data.text.clone().attrs(Attrs::BOLD)
     }
 
     pub fn accent(&self) -> Style {
-        self.0.accent.clone()
+        self.data.accent.clone()
     }
 
-    pub(crate) fn transcript_markdown<S>(&self, cx: &mut Cx<'_, S>) -> MarkdownTheme {
-        // The original's built-in Mocha and Latte Markdown roles.
-        let brightness =
-            TerminalBrightness::background_of(cx).map_or(self.0.brightness, Brightness::of_rgb);
-        let (heading, strong, link) = match brightness {
-            Brightness::Dark => (
-                Color::rgb(0xf9, 0xe2, 0xaf),
-                Color::rgb(0xf3, 0x8b, 0xa8),
-                Color::rgb(0x89, 0xb4, 0xfa),
-            ),
-            Brightness::Light => (
-                Color::rgb(0xa1, 0x67, 0x15),
-                Color::rgb(0xd2, 0x0f, 0x39),
-                Color::rgb(0x1e, 0x66, 0xf5),
-            ),
+    /// The Markdown roles of the transcript (oracle `MarkdownStyles::for_theme`): the
+    /// colours of the syntax theme in force for headings, strong, emphasis, links,
+    /// quotes, inline code and the ordered markers, kept readable on the terminal's
+    /// background; the oracle's own accent and ANSI colours where the theme has none.
+    pub(crate) fn transcript_markdown<S>(&self, _cx: &mut Cx<'_, S>) -> MarkdownTheme {
+        let readable = |scopes: &[&str]| {
+            let fg = self.syntax.readable_foreground(scopes, self.terminal_bg);
+            fg.map_or_else(MarkdownStyle::new, |fg| MarkdownStyle::new().fg(fg))
         };
-        let heading = MarkdownStyle::new().fg(heading);
-        let italic_heading = heading.clone().attrs(Attrs::ITALIC);
+        let heading =
+            |level: usize| readable(&[HEADING_SCOPES[level - 1], "markup.heading.markdown"]);
+        let accent = self.oracle_accent();
+        let link = MarkdownStyle::new()
+            .fg(accent)
+            .merge(&readable(&["markup.underline.link.markdown"]))
+            .attrs(Attrs::UNDERLINE);
+        let quote = MarkdownStyle::new()
+            .fg(Color::GREEN)
+            .merge(&readable(&["markup.quote.markdown"]));
+        let code = self
+            .syntax
+            .foreground(&[
+                "markup.inline.raw.string.markdown",
+                "markup.raw.inline.markdown",
+            ])
+            .unwrap_or(accent);
         MarkdownTheme {
-            heading1: heading.clone().attrs(Attrs::BOLD | Attrs::UNDERLINE),
-            heading2: heading.clone().attrs(Attrs::BOLD),
-            heading3: heading.attrs(Attrs::BOLD | Attrs::ITALIC),
-            heading4: italic_heading.clone(),
-            heading5: italic_heading.clone(),
-            heading6: italic_heading,
-            strong: MarkdownStyle::new().fg(strong).attrs(Attrs::BOLD),
-            link: MarkdownStyle::new().fg(link).attrs(Attrs::UNDERLINE),
-            // The oracle's ordered markers are ANSI light blue and a block quote,
-            // bar and text, is green (markdown_render.rs `MarkdownStyles`).
-            marker: MarkdownStyle::new().fg(Color::indexed(12)),
-            quote: MarkdownStyle::new().fg(Color::GREEN),
-            quote_bar: MarkdownStyle::new().fg(Color::GREEN),
+            heading1: heading(1).attrs(Attrs::BOLD | Attrs::UNDERLINE),
+            heading2: heading(2).attrs(Attrs::BOLD),
+            heading3: heading(3).attrs(Attrs::BOLD | Attrs::ITALIC),
+            heading4: heading(4).attrs(Attrs::ITALIC),
+            heading5: heading(5).attrs(Attrs::ITALIC),
+            heading6: heading(6).attrs(Attrs::ITALIC),
+            emphasis: readable(&["markup.italic.markdown"]).attrs(Attrs::ITALIC),
+            strong: readable(&["markup.bold.markdown"]).attrs(Attrs::BOLD),
+            code: MarkdownStyle::new().fg(code),
+            link,
+            // The ordered markers are ANSI light blue unless the theme says otherwise
+            // (the bullets' own scope is the gap G73 item 4).
+            marker: MarkdownStyle::new()
+                .fg(Color::indexed(12))
+                .merge(&readable(&["markup.list.numbered.markdown"])),
+            quote: quote.clone(),
+            quote_bar: quote,
             code_block: MarkdownStyle::new(),
             table_header: self.accent().attrs(Attrs::BOLD),
             table_border: self.dim().attrs(Attrs::DIM),
-            ..MarkdownTheme::from_theme(&RichTheme::from_data(&self.0))
+            ..MarkdownTheme::from_theme(&RichTheme::from_data(&self.data))
         }
+    }
+
+    /// The oracle's accent (`style::accent_color`).
+    fn oracle_accent(&self) -> Color {
+        self.accent_color_on(None)
+    }
+
+    /// The oracle's accent on the fill `surface` paints (`style::accent_color_on`): its
+    /// blue on a dark surface, a deeper one on a light surface, kept readable on it;
+    /// the terminal's background where `surface` is not a colour of its own.
+    pub(crate) fn accent_on(&self, surface: &Style) -> Style {
+        Style::new().fg(self.accent_color_on(surface.bg))
+    }
+
+    fn accent_color_on(&self, surface: Option<Color>) -> Color {
+        let background = surface
+            .filter(|fill| fill.is_rgb())
+            .map(|fill| u32::from_be_bytes([0, fill.r(), fill.g(), fill.b()]))
+            .or(self.terminal_bg);
+        let preferred = if background.is_some_and(syntax::is_light) {
+            Color::rgb(28, 100, 200)
+        } else {
+            Color::rgb(99, 168, 248)
+        };
+        syntax::readable_on(preferred, background)
     }
 
     /// The theme's info colour (the oracle's cyan accents).
     pub fn info(&self) -> Style {
-        self.0.info.clone()
+        self.data.info.clone()
     }
 
     /// The theme's warning colour (the oracle's yellow notes).
     pub fn warning(&self) -> Style {
-        self.0.warning.clone()
+        self.data.warning.clone()
     }
 
     /// The theme's success colour (the oracle's green accents).
     pub fn success(&self) -> Style {
-        self.0.success.clone()
+        self.data.success.clone()
     }
 
     /// The style of a chart series (the oracle's `plot/painting.rs` order:
@@ -139,8 +226,8 @@ impl Tokens {
     }
 
     pub(crate) fn shimmer_colors(&self) -> Option<(Color, Color)> {
-        let base = self.0.accent.fg.filter(|color| color.is_rgb())?;
-        let highlight = self.0.text.fg.filter(|color| color.is_rgb())?;
+        let base = self.data.accent.fg.filter(|color| color.is_rgb())?;
+        let highlight = self.data.text.fg.filter(|color| color.is_rgb())?;
         Some((base, highlight))
     }
 
@@ -148,13 +235,13 @@ impl Tokens {
         let channels = |color: Color| (color.r(), color.g(), color.b());
         BlossomPalette {
             background: self
-                .0
+                .data
                 .background
                 .bg
                 .filter(|color| color.is_rgb())
                 .map_or((15, 20, 37), channels),
             foreground: self
-                .0
+                .data
                 .text
                 .fg
                 .filter(|color| color.is_rgb())
@@ -169,18 +256,22 @@ impl Tokens {
     }
 
     pub fn selected(&self) -> Style {
-        self.0.accent.clone().attrs(Attrs::BOLD)
+        self.data.accent.clone().attrs(Attrs::BOLD)
     }
 
     pub fn error(&self) -> Style {
-        self.0.error.clone()
+        self.data.error.clone()
     }
 
-    /// The row background of an added or removed diff line (oracle diff_render.rs, the
-    /// truecolor palette: dark tints, GitHub's on a light terminal; the presenter lowers it
-    /// to the terminal's depth, as the oracle's 256-colour table does).
+    /// The row background of an added or removed diff line (oracle diff_render.rs
+    /// `resolve_diff_backgrounds_for`): the syntax theme's own `markup.inserted` /
+    /// `markup.deleted` fill when it has one, else the truecolor palette: dark tints, GitHub's on a light terminal; the
+    /// presenter lowers it to the terminal's depth, as the oracle's 256-colour table does.
     pub fn diff_line(&self, added: bool) -> Color {
-        match (self.0.brightness == Brightness::Dark, added) {
+        if let Some(fill) = self.syntax.diff_background(added) {
+            return fill;
+        }
+        match (self.data.brightness == Brightness::Dark, added) {
             (true, true) => Color::rgb(33, 58, 43),
             (true, false) => Color::rgb(74, 34, 29),
             (false, true) => Color::rgb(218, 251, 225),
