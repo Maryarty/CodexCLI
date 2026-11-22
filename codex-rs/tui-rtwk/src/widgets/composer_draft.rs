@@ -801,6 +801,15 @@ impl ComposerDraft {
         self.clear_into_history(c, entry);
     }
 
+    /// A command line the composer keeps because it was refused (a command
+    /// while a task runs, `/review` validated by dispatch): the line is in
+    /// the local recall and stays in the composer, to be corrected
+    /// (`record_pending_slash_command_history`).
+    pub fn recorded(&self, c: &TextEditingController) {
+        let entry = self.sent_entry(c);
+        self.0.borrow_mut().prompts.record_local_submission(entry);
+    }
+
     /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and
     /// Ctrl+R whole, its placeholders and what they stand for with it.
     pub fn cancelled(&self, c: &TextEditingController) {

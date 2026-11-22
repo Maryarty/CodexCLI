@@ -24,7 +24,7 @@ use codex_tui_core::threads::Item;
 use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
-use super::{deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web};
+use super::{deprecation, error, generated_image, hook, note, notice, user, viewed_image, warning, web};
 
 /// What the texts are read with: the tables, and the two things of the
 /// transcript's view state a cell's rows depend on.
@@ -146,6 +146,7 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
                 .collect(),
         ),
         Item::Notice(notice) => Texts::Exact(notice::texts(notice, cells)),
+        Item::Note(note) => Texts::Exact(note::texts(note, env.chat, cells)),
         Item::Hook(run) => Texts::Exact(
             hook::texts(run, cells)
                 .into_iter()

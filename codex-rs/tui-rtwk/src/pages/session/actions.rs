@@ -7,16 +7,18 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::commands::{DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::commands::{
+    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch, parent_owned_takes,
+};
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
 };
-use codex_tui_core::threads::{Failure, ThreadModel, UserMessage};
+use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::open;
+use crate::pages::session::open::{open, open_confirmation};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -78,15 +80,29 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     let screen = |cx: &mut Cx<'_, ChatState>, intent: chat::Intent| {
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
+    // What the line answered with is a note of the thread it was sent in.
+    let say = |cx: &mut Cx<'_, ChatState>, note: Note| {
+        let intent = chat::Intent::Note {
+            thread: session.active.clone(),
+            note,
+        };
+        cx.emit(&hs.screen, ScreenIntent::from(intent));
+    };
     let record = |cx: &mut Cx<'_, ChatState>| {
         let intent = popovers::Intent::Record(line.to_string());
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
+    // A thread its parent controls takes the commands that do not reach the
+    // agent and nothing else; the composer keeps the line
+    // (`InputResult::ParentOwnedInputBlocked`, `handle_parent_owned_submission`).
+    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, states.chat.flags) {
+        say(cx, Note::from(NoteKey::ParentOwned));
+        return;
+    }
     // What the model takes whole: nothing over the backend's limit (Enter
     // refuses it and the draft stays, `prepare_submission_text`).
     if let Some(provided) = composer::too_large(line) {
-        let notice = Notice::InputTooLarge { provided };
-        screen(cx, chat::Intent::Notice(notice));
+        say(cx, Note::from(Notice::InputTooLarge { provided }));
         return;
     }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
@@ -98,13 +114,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         if !facts.thread_started && session.active.is_some() {
             return;
         }
-        if states.chat.notice.is_some() {
-            screen(cx, chat::Intent::ClearNotice);
-        }
         match shell {
             ShellLine::Help => {
                 clear_sent(&w.ui);
-                screen(cx, chat::Intent::Notice(Notice::ShellHelp));
+                say(cx, Note::from(Notice::ShellHelp));
             }
             ShellLine::Run(command) => {
                 record(cx);
@@ -119,9 +132,6 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         return;
     }
     let outcome = dispatch(line, &facts);
-    if states.chat.notice.is_some() && !matches!(outcome, Outcome::Notice(_)) {
-        screen(cx, chat::Intent::ClearNotice);
-    }
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -165,7 +175,19 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
                 );
             }
-            if opened.command == SlashCommand::Warnings {
+            // The confirmation of `/archive` and `/delete` is the model's
+            // question (is a turn running?), then the select sheet shows it.
+            if let Some(intent) = removal_intent(opened.command) {
+                screen(
+                    cx,
+                    chat::Intent::Session {
+                        thread: session.active.clone(),
+                        command: opened.command,
+                        intent,
+                    },
+                );
+                open_confirmation(cx);
+            } else if opened.command == SlashCommand::Warnings {
                 open_warnings(cx, hs);
             } else {
                 open(cx, opened.target);
@@ -185,8 +207,29 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         Outcome::Insert(text) => w.ui.composer.reset(text),
         Outcome::Quit => cx.emit(&hs.quit, ()),
-        // The line stays in the composer to be corrected.
-        Outcome::Notice(notice) => screen(cx, chat::Intent::Notice(notice)),
+        // What the composer does with the line is the oracle's: it keeps an
+        // unknown command and one refused while a task runs, recalls the rest.
+        Outcome::Notice(notice) => {
+            if notice.is_recalled() {
+                record(cx);
+            }
+            match (notice.keeps_draft(), notice.is_recalled()) {
+                (false, _) => clear_sent(&w.ui),
+                (true, true) => w.ui.draft.recorded(&w.ui.composer),
+                (true, false) => {}
+            }
+            say(cx, Note::from(notice));
+        }
+    }
+}
+
+/// What the model is asked before the select sheet shows the confirmation of
+/// `/archive` or `/delete`.
+fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
+    match command {
+        SlashCommand::Archive => Some(SessionIntent::Archive),
+        SlashCommand::Delete => Some(SessionIntent::Delete),
+        _ => None,
     }
 }
 
