@@ -161,7 +161,12 @@ impl Pane {
         pane = pane.child(body);
         // The footer yields rows from its end: the hint first.
         let mut left = footer;
-        let mut foot = |pane: Column, text: &String, rows: u16, style: &Style, inset_left: bool| {
+        let mut foot = |pane: Column,
+                        text: &String,
+                        rows: u16,
+                        style: &Style,
+                        wrap: TextWrap,
+                        inset_left: bool| {
             let shown = rows.min(left);
             left -= shown;
             if shown == 0 {
@@ -169,7 +174,7 @@ impl Pane {
             }
             let text = Text::new(text.clone())
                 .style(style.clone())
-                .wrap(TextWrap::Word)
+                .wrap(wrap)
                 .max_lines(usize::from(shown));
             if inset_left {
                 pane.child(Padding::new(EdgeInsets::only(2, 0, 0, 0), text))
@@ -178,13 +183,13 @@ impl Pane {
             }
         };
         if let Some(text) = &self.note {
-            pane = foot(pane, text, note, &Style::new(), false);
+            pane = foot(pane, text, note, &Style::new(), TextWrap::Word, false);
         }
         if let Some(text) = &self.preview {
-            pane = foot(pane, text, preview, &Style::new(), false);
+            pane = foot(pane, text, preview, &Style::new(), TextWrap::None, false);
         }
         if let Some((text, style)) = &self.hint {
-            pane = foot(pane, text, hint, style, true);
+            pane = foot(pane, text, hint, style, TextWrap::Word, true);
         }
         pane.into()
     }

@@ -686,6 +686,9 @@ fn page_down_moves_by_the_rows_that_fit() {
 fn shrinking_the_browser_keeps_the_selected_row_visible() {
     for entry in ["browser_single_line", "browser_wrapped"] {
         let mut h = sized(60, 24, entry);
+        for _ in 0..7 {
+            h.press("down");
+        }
         h.t.resize(60, 13);
         h.t.pump_for(ms(300));
         let screen = h.t.screen();
@@ -694,5 +697,31 @@ fn shrinking_the_browser_keeps_the_selected_row_visible() {
             focused.is_some_and(|line| line.contains("Action 07")),
             "{entry}:\n{screen}"
         );
+    }
+}
+
+/// The description column hides below 24 cells and the rows keep their whole
+/// width: at 48 cells the names stand alone, at 49 the details come back
+/// (`description_column_visibility`; the oracle's test draws raw rows: the
+/// second one carries its number by hand and a bare reason, while a disabled
+/// row of the list has no number and says `disabled: Unavailable`, as
+/// `selection_row_layout.rs` does).
+#[test]
+fn the_description_column_hides_when_it_would_be_narrow() {
+    for width in [48u16, 49, 80] {
+        let h = sized(width, 2, "description_hide_when_narrow");
+        let rows = rows_of(&h);
+        let (first, second) = if width >= 49 {
+            (
+                format!("› 1. 日本語{}Details", " ".repeat(14)),
+                "     Blocked (disabled)  disabled: Unavailable".to_string(),
+            )
+        } else {
+            (
+                "› 1. 日本語".to_string(),
+                "     Blocked (disabled)".to_string(),
+            )
+        };
+        assert_eq!(rows, [first, second], "width {width}");
     }
 }

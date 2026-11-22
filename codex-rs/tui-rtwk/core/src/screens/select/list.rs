@@ -162,6 +162,9 @@ pub struct List {
     /// One line per row, cut with an ellipsis (`SelectionRowDisplay::SingleLine`).
     pub single_line: bool,
     pub name_column_width: Option<usize>,
+    /// The description column hides when it would be narrower than this many
+    /// cells (`SelectionDescriptionLayout::HideWhenNarrow`).
+    pub hide_description_below: Option<u16>,
     pub side: Option<Side>,
     /// The item (in `items`) the cursor starts on.
     pub initial: Option<usize>,
@@ -196,6 +199,7 @@ impl Default for List {
             columns: Columns::AutoVisible,
             single_line: false,
             name_column_width: None,
+            hide_description_below: None,
             side: None,
             initial: None,
             max_rows: None,

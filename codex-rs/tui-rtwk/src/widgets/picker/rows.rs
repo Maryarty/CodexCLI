@@ -100,6 +100,8 @@ pub struct Rows {
     pub single_line: bool,
     /// The label column is at least this many cells (`name_column_width`).
     pub name_width: Option<usize>,
+    /// The description column hides when it would be narrower (cells).
+    pub hide_description_below: Option<usize>,
     /// The words around the rows' names and descriptions.
     pub words: Words,
     /// What a tap on each row sends (empty: rows do not react).
@@ -173,6 +175,12 @@ impl Rows {
             self.name_width
                 .map_or(widest, |own| own.max(widest))
                 .min(cap)
+        });
+        // A column left narrower than the oracle's minimum hides, and every
+        // row has the whole room (`HideWhenNarrow`).
+        let label = label.filter(|label| {
+            self.hide_description_below
+                .is_none_or(|least| room.saturating_sub(label + 2) >= least)
         });
         let heights = self
             .rows

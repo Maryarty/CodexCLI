@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 52] = [
+    let entries: [(&'static str, &'static str, &'static str); 53] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -263,13 +263,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "browser_single_line",
-            "the browser, single-line rows, the cursor on the eighth",
+            "the browser, single-line rows",
             include_str!("fixtures/browser_single_line.jsonl"),
         ),
         (
             "browser_wrapped",
-            "the browser, wrapped rows, the cursor on the eighth",
+            "the browser, wrapped rows",
             include_str!("fixtures/browser_wrapped.jsonl"),
+        ),
+        (
+            "description_hide_when_narrow",
+            "two rows whose description column hides when narrow",
+            include_str!("fixtures/description_hide_when_narrow.jsonl"),
         ),
         (
             "shared_menu",

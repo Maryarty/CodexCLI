@@ -357,6 +357,7 @@ impl State for PickerState {
                 },
                 single_line: list.single_line,
                 name_width: list.name_column_width,
+                hide_description_below: list.hide_description_below.map(usize::from),
                 words: Words {
                     current: s.current,
                     disabled: s.disabled_mark,
