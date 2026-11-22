@@ -64,6 +64,13 @@ pub enum LoadError {
     Plan(super::plan::Error),
 }
 
+/// A message of the host (a failed request, a timeout).
+impl From<String> for LoadError {
+    fn from(message: String) -> Self {
+        Self::Host(message)
+    }
+}
+
 impl From<super::normalize::Error> for LoadError {
     fn from(error: super::normalize::Error) -> Self {
         Self::Report(error)

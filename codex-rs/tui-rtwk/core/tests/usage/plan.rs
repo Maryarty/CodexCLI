@@ -74,7 +74,8 @@ fn a_history_without_a_snapshot_time_is_no_report() {
 
 #[test]
 fn each_invalid_history_names_what_was_wrong() {
-    let cases: [(fn(&mut Data), plan::Error); 6] = [
+    type Change = fn(&mut Data);
+    let cases: [(Change, plan::Error); 6] = [
         (
             |history| history.periods[0].starts_at = "private wire value".into(),
             plan::Error::InvalidTimestamp,

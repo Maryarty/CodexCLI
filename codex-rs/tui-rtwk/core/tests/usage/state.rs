@@ -10,8 +10,7 @@ use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
     AccountReply, Ask, AskKind, Control, Ev, GroupName, Intent, Load, LoadError, Model, Note,
-    ReportReply,
-    Section, Stamp, settle, step,
+    ReportReply, Section, Stamp, settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -181,7 +180,9 @@ fn account_pending_and_error_start_no_report() {
         Ev::Account {
             session: asks[0].session,
             stamp: asks[0].stamp,
-            result: Err(LoadError::Host("Sign in again to view Analytics.".to_owned())),
+            result: Err(LoadError::Host(
+                "Sign in again to view Analytics.".to_owned(),
+            )),
         },
     );
     assert!(asks.is_empty());

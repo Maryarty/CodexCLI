@@ -4,7 +4,9 @@ use codex_tui_core::screens::usage::date::NaiveDate;
 use codex_tui_core::screens::usage::models::AccountAnalyticsGrouping as Grouping;
 use codex_tui_core::screens::usage::models::AccountAnalyticsReport as Report;
 use codex_tui_core::screens::usage::models::*;
-use codex_tui_core::screens::usage::normalize::{Amount, Error, Gap, has_complete_attribution, history};
+use codex_tui_core::screens::usage::normalize::{
+    Amount, Error, Gap, has_complete_attribution, history,
+};
 use codex_tui_core::screens::usage::report_data::AnalyticsData;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -445,9 +447,10 @@ fn a_number_that_is_not_an_amount_names_which_one() {
 #[test]
 fn a_credit_amount_that_is_not_finite_names_credits_and_the_day() {
     let date = NaiveDate::from_ymd_opt(/*year*/ 2026, /*month*/ 1, /*day*/ 9).unwrap();
-    let mut response: AnalyticsData = serde_json::from_value(json!({"data": [{"date": "2026-01-09",
+    let mut response: AnalyticsData =
+        serde_json::from_value(json!({"data": [{"date": "2026-01-09",
         "premium_usage_values": {"credit_usage_credits": {"codex": 1}}}]}))
-    .unwrap();
+        .unwrap();
     let premium = response.data[0].premium_usage_values.as_mut().unwrap();
     premium
         .credit_usage_credits
