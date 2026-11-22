@@ -462,6 +462,21 @@ fn user_input_freeform_shift_enter_inserts_a_newline_without_advancing() {
     assert!(!rows[draft].contains("more") && more > draft, "{screen}");
 }
 
+/// A secret question draws what is typed as `*` (the oracle's `render_with_mask`) and answers
+/// with the real text: `hunter2` never reaches the screen.
+#[test]
+fn user_input_a_secret_answer_is_masked() {
+    let mut h = open(120, 16, "user_input_secret");
+    h.t.type_text("hunter2");
+    h.t.pump_for(ms(100));
+    let screen = h.t.screen();
+    assert!(shows(&h, "*******"), "{screen}");
+    assert!(!shows(&h, "hunter2"), "{screen}");
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(!shows(&h, "Share details."), "{}", h.t.screen());
+}
+
 /// Enter on the last question with a question unanswered asks first (the oracle's confirmation:
 /// a title, the count, `Proceed` and `Go back`, the press hint at the foot), Go back returns to the
 /// unanswered question and Proceed answers.

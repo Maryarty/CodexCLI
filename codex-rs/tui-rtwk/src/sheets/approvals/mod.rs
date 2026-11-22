@@ -198,6 +198,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/user_input_freeform_then_options.jsonl"),
         ),
         (
+            "user_input_secret",
+            "a freeform question whose answer is a secret: drawn as `*`",
+            include_str!("fixtures/user_input_secret.jsonl"),
+        ),
+        (
             "user_input_url_question",
             "a freeform question whose text holds a URL",
             include_str!("fixtures/user_input_url_question.jsonl"),

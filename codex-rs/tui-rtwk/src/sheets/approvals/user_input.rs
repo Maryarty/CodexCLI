@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use rtwk::binding::AppBinding;
-use rtwk::editing::{EditingKeys, TextArea, TextEditingController};
+use rtwk::editing::{EditingKeys, TextArea, TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
     BoxConstraints, BoxWidget, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded,
@@ -590,16 +590,33 @@ impl UserInputViewState {
             } else {
                 s.select_option_placeholder
             };
-            let area = TextArea::new()
-                .controller(state.notes.clone())
-                .placeholder(placeholder)
-                .placeholder_style(tokens.dim())
-                .min_lines(1)
-                .max_lines(6)
-                .focus_node(state.node.clone())
-                .autofocus(self.notes_focus)
-                .on_submitted(cx.map(Msg::Submitted))
-                .on_changed(cx.map(|_: Rc<str>| Msg::Edited));
+            let area: AnyWidget = if question.is_secret {
+                // The oracle masks a secret answer with `*` (`render_with_mask`): Flutter's
+                // `TextField(obscureText: true)`, one line.
+                TextField::new()
+                    .controller(state.notes.clone())
+                    .placeholder(placeholder)
+                    .placeholder_style(tokens.dim())
+                    .obscure_text(true)
+                    .obscuring_character("*")
+                    .focus_node(state.node.clone())
+                    .autofocus(self.notes_focus)
+                    .on_submitted(cx.map(Msg::Submitted))
+                    .on_changed(cx.map(|_: Rc<str>| Msg::Edited))
+                    .into()
+            } else {
+                TextArea::new()
+                    .controller(state.notes.clone())
+                    .placeholder(placeholder)
+                    .placeholder_style(tokens.dim())
+                    .min_lines(1)
+                    .max_lines(6)
+                    .focus_node(state.node.clone())
+                    .autofocus(self.notes_focus)
+                    .on_submitted(cx.map(Msg::Submitted))
+                    .on_changed(cx.map(|_: Rc<str>| Msg::Edited))
+                    .into()
+            };
             // The text area takes Backspace, the arrows and Ctrl+C for its own text; the dialog
             // reads them first (the oracle's `handle_key_event` reads them before the composer),
             // as the door rtwk gives an app for keys of the fields below it.
