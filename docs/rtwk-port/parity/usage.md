@@ -264,5 +264,5 @@ Oracle rows: `chat_live_6.rs:12-394` (the `/usage` menu of the rate-limit prompt
 - `src/pages/usage/strings.rs` gains `plan_name`, `group_name`, `note` and their fields (oracle `SubscriptionDisplay::
   Analytics`, `GROUP_LABELS`, `Load::message`), byte for byte.
 - Left as debt: the host's load errors (`Request timed out...`, report errors, `Untitled chat`) are English in the host
-  as in the oracle's data layer; the normalize/tokens/plan error texts and the activity/month strings in core
-  (`core/src/screens/usage/{normalize,activity,date}`) are still prose in core and want typed errors in a later step.
+  as in the oracle's data layer; the error texts of `normalize.rs`, `plan.rs` and `tokens.rs` (`Err(String)` with
+  English) are still prose in core and want typed errors; The months and the activity words are already in the page's `Strings`.
