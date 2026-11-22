@@ -21,7 +21,10 @@ fn assert_rows_of(s: &Screen, snap: &str) {
         .collect();
     let have = s.rows();
     let have: Vec<String> = have.into_iter().take(want.len()).collect();
-    assert_eq!(have, want, "{snap}: ours (left) differs from the oracle (right)");
+    assert_eq!(
+        have, want,
+        "{snap}: ours (left) differs from the oracle (right)"
+    );
 }
 
 // ---- oracle: bottom_pane/effort_ignition_tests.rs (6 screen-level tests here; 8 state tests left to ui-pane)
@@ -570,10 +573,7 @@ fn composer_shown_after_denied_while_task_running() {
 // ORACLE bottom_pane/mod.rs:3574 status_indicator_visible_during_command_execution kind=snap owner=ui-pane snap=status_timer_survives_hidden_row
 #[test]
 fn status_indicator_visible_during_command_execution() {
-    kit::pending(
-        Owner::UiPane,
-        AGENTS_FOOTER,
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(40, 6)
         .entry("chat", "status_timer_hidden_row")
@@ -606,10 +606,7 @@ fn status_and_composer_fill_height_without_bottom_padding() {
 // ORACLE bottom_pane/mod.rs:3681 status_only_snapshot kind=snap owner=ui-pane snap=status_only_snapshot
 #[test]
 fn status_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        AGENTS_FOOTER,
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 6)
         .entry("chat", "status_only")
@@ -634,10 +631,7 @@ fn unified_exec_summary_does_not_increase_height_when_status_visible() {
 // ORACLE bottom_pane/mod.rs:3735 status_with_details_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_with_details_and_queued_messages_snapshot
 #[test]
 fn status_with_details_and_queued_messages_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        AGENTS_FOOTER,
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 11)
         .entry("chat", "status_with_details_queued")
@@ -649,10 +643,7 @@ fn status_with_details_and_queued_messages_snapshot() {
 // ORACLE bottom_pane/mod.rs:3773 queued_messages_visible_when_status_hidden_snapshot kind=snap owner=ui-pane snap=queued_messages_visible_when_status_hidden_snapshot
 #[test]
 fn queued_messages_visible_when_status_hidden_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        AGENTS_FOOTER,
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 7)
         .entry("chat", "queued_status_hidden")
@@ -664,10 +655,7 @@ fn queued_messages_visible_when_status_hidden_snapshot() {
 // ORACLE bottom_pane/mod.rs:3806 status_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_and_queued_messages_snapshot
 #[test]
 fn status_and_queued_messages_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        AGENTS_FOOTER,
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 9)
         .entry("chat", "status_and_queued")
@@ -945,7 +933,10 @@ fn render_one_pending_steer_with_remapped_interrupt_binding() {
             "render_one_pending_steer_with_remapped_interrupt_binding",
         )
         .open();
-    assert_rows_of(&s, "render_one_pending_steer_with_remapped_interrupt_binding");
+    assert_rows_of(
+        &s,
+        "render_one_pending_steer_with_remapped_interrupt_binding",
+    );
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:449 render_pending_steers_above_queued_messages kind=snap owner=ui-pane snap=render_pending_steers_above_queued_messages
@@ -968,7 +959,10 @@ fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
             "render_multiline_pending_steer_uses_single_prefix_and_truncates",
         )
         .open();
-    assert_rows_of(&s, "render_multiline_pending_steer_uses_single_prefix_and_truncates");
+    assert_rows_of(
+        &s,
+        "render_multiline_pending_steer_uses_single_prefix_and_truncates",
+    );
 }
 
 // ---- oracle: bottom_pane/status_line_style.rs (2 screen-level tests here; 7 state tests left to ui-pane)

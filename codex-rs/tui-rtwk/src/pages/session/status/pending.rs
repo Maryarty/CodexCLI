@@ -130,7 +130,9 @@ impl StatelessWidget for PendingInput {
                 let rows = pending
                     .queued
                     .iter()
-                    .map(|text| message_rows(seg, width, strings, text, dim.clone(), italic.clone()))
+                    .map(|text| {
+                        message_rows(seg, width, strings, text, dim.clone(), italic.clone())
+                    })
                     .collect();
                 column = section(column, header, rows);
                 if let Some(key) = &edit {
@@ -201,9 +203,8 @@ fn message_rows(
                 )),
         );
     if rows > PREVIEW_LINE_LIMIT {
-        column = column.child(
-            Text::line(format!("{}{}", strings.item_hang, strings.ellipsis)).style(style),
-        );
+        column = column
+            .child(Text::line(format!("{}{}", strings.item_hang, strings.ellipsis)).style(style));
     }
     column.into()
 }

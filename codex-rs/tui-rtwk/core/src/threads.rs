@@ -1243,7 +1243,12 @@ impl ThreadModel {
         let mut messages = self
             .hooks
             .iter()
-            .map(|hook| hook.message.as_deref().map(str::trim).filter(|m| !m.is_empty()))
+            .map(|hook| {
+                hook.message
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+            })
             .peekable();
         let first = messages.next()?;
         let multiple = messages.peek().is_some();
@@ -2569,9 +2574,15 @@ fn track_terminal(model: &mut ThreadModel, key: &ItemKey, item: &Item) {
     else {
         return;
     };
-    let key = process_id.clone().unwrap_or_else(|| key.item.as_str().to_string());
+    let key = process_id
+        .clone()
+        .unwrap_or_else(|| key.item.as_str().to_string());
     if tool.status == ToolStatus::Running {
-        match model.terminals.iter_mut().find(|terminal| terminal.key == key) {
+        match model
+            .terminals
+            .iter_mut()
+            .find(|terminal| terminal.key == key)
+        {
             Some(terminal) => terminal.command.clone_from(command),
             None => model.terminals.push(Terminal {
                 key,

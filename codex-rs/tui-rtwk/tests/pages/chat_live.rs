@@ -303,9 +303,7 @@ fn the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer() {
         h.t.type_text(text);
         h.wait_for("the queue hint", |s| s.contains("tab to queue message"));
         h.press("tab");
-        h.wait_for("the message queued", |s| {
-            s.contains(&format!("↳ {text}"))
-        });
+        h.wait_for("the message queued", |s| s.contains(&format!("↳ {text}")));
     }
     h.press("alt+up");
     h.wait_for("the message back in the composer", |s| {

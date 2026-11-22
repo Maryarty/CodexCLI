@@ -26,9 +26,13 @@ impl StatelessWidget for TerminalsLine {
             return SizedBox::shrink().into();
         }
         let strings = strings::of(cx);
-        Text::line(format!("{}{}", strings.terminals_indent, strings.terminals(count)))
-            .overflow(TextOverflow::Clip)
-            .style(super::dim())
-            .into()
+        Text::line(format!(
+            "{}{}",
+            strings.terminals_indent,
+            strings.terminals(count)
+        ))
+        .overflow(TextOverflow::Clip)
+        .style(super::dim())
+        .into()
     }
 }

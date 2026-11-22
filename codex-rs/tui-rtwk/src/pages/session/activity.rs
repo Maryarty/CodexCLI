@@ -15,8 +15,8 @@ use rtwk::{
 };
 
 use codex_tui_core::app::{ConnectionState, Session, SessionSlice};
-use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::ids::ThreadId;
+use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
 use codex_tui_core::screens::{ScreenStates, chat};
 use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
 
@@ -530,7 +530,10 @@ impl State for ActivityState {
                 let used = indicator
                     + seg.width(&header_text)
                     + 1
-                    + label.iter().map(|span| seg.width(&span.text)).sum::<usize>();
+                    + label
+                        .iter()
+                        .map(|span| seg.width(&span.text))
+                        .sum::<usize>();
                 if used + seg.width(strings.inline_sep) + seg.width(hook) <= width {
                     label.push(Span::styled(strings.inline_sep, dim.clone()));
                     label.push(Span::styled(hook.clone(), dim.clone()));
@@ -573,9 +576,9 @@ impl State for ActivityState {
 /// more were cut (`wrapped_details_lines`).
 fn details_rows(strings: &status::strings::Strings, details: &chat::StatusDetails) -> AnyWidget {
     let hang = i32::try_from(strings.item_hang.len()).unwrap_or(4);
-    let mark = Column::new().main_axis_size(MainAxisSize::Min).child(
-        Text::line(strings.details_prefix.trim_end()).style(status::dim()),
-    );
+    let mark = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .child(Text::line(strings.details_prefix.trim_end()).style(status::dim()));
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .child(SizedBox::new(Some(hang), None, Some(mark.into())))

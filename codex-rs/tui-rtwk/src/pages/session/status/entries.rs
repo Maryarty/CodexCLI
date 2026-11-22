@@ -67,9 +67,15 @@ impl StatelessWidget for WorkingRow {
             header: crate::l10n::strings::of(cx).chat.working.to_string(),
             details: self.details.map(|(text, preserve)| {
                 if preserve {
-                    StatusDetails::preserved(text, codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES)
+                    StatusDetails::preserved(
+                        text,
+                        codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES,
+                    )
                 } else {
-                    StatusDetails::new(text.to_string(), codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES)
+                    StatusDetails::new(
+                        text.to_string(),
+                        codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES,
+                    )
                 }
             }),
             inline: self.terminal.then(|| strings.terminals(1)),
@@ -141,12 +147,18 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         row!(
             "working_row_no_animations",
             "the animations switched off: no bullet",
-            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                animations: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
         row!(
             "working_row_remapped_interrupt",
             "the interrupt key remapped (run with a keymap)",
-            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                animations: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
         row!(
             "working_row_hook",
@@ -172,25 +184,46 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         row!(
             "working_row_effects_plain",
             "animations on, shimmer and progress off",
-            WorkingRow { shimmer: false, progress: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                shimmer: false,
+                progress: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
         row!(
             "working_row_effects_progress",
             "animations on, progress only",
-            WorkingRow { shimmer: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                shimmer: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
         row!(
             "working_row_effects_shimmer",
             "animations on, shimmer only",
-            WorkingRow { progress: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                progress: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
         row!(
             "working_row_effects_master_off",
             "the master switch off, shimmer and progress on",
-            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+            WorkingRow {
+                animations: false,
+                ..WorkingRow::DEFAULT
+            }
         ),
-        preview!("render_one_message", "preview_render_one_message", "one queued message"),
-        preview!("render_two_messages", "preview_render_two_messages", "two queued messages"),
+        preview!(
+            "render_one_message",
+            "preview_render_one_message",
+            "one queued message"
+        ),
+        preview!(
+            "render_two_messages",
+            "preview_render_two_messages",
+            "two queued messages"
+        ),
         preview!(
             "render_more_than_three_messages",
             "preview_render_more_than_three_messages",
@@ -256,8 +289,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "status_timer_hidden_row",
             "Working at 42 s over the composer"
         ),
-        stack!("status_and_composer", "status_running", "Working over the composer"),
-        stack!("status_only", "status_running", "Working, nothing queued, the composer"),
+        stack!(
+            "status_and_composer",
+            "status_running",
+            "Working over the composer"
+        ),
+        stack!(
+            "status_only",
+            "status_running",
+            "Working, nothing queued, the composer"
+        ),
         stack!(
             "status_unified_exec",
             "status_unified_exec",
