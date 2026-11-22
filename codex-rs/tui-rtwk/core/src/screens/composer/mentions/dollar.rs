@@ -6,6 +6,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
+use super::candidate::uri;
 use super::catalog::{Mention, MentionKind};
 use crate::commands::fuzzy_match;
 
@@ -105,7 +106,7 @@ pub fn mention_items(mentions: &[Mention]) -> Vec<MentionItem> {
                     description: (!description.is_empty()).then(|| description.to_string()),
                     insert_text: format!("${}", mention.insert),
                     search_terms: vec![mention.name.clone(), id.to_string(), mention.insert.clone()],
-                    path: mention.path.clone().or_else(|| Some(format!("app://{id}"))),
+                    path: mention.path.clone().or_else(|| Some(uri("app", id))),
                     category_tag: Some("[App]".to_string()),
                     sort_rank: 1,
                 })

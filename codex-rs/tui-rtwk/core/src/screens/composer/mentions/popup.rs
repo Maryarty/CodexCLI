@@ -109,6 +109,7 @@ mod tests {
         Candidate {
             display_name: name.to_string(),
             description: None,
+            capabilities: Vec::new(),
             search_terms: vec![name.to_string()],
             mention_type: MentionType::Skill,
             selection: Selection::Tool {

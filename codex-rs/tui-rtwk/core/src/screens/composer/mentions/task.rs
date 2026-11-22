@@ -4,6 +4,8 @@
 //! `format_task_link`). The search that finds tasks (`thread/search`) and the
 //! prompt context a submit adds (`apply_task_references`) are the shell's.
 
+use crate::ids::ThreadId;
+
 /// The most tasks one prompt may reference.
 pub const MAX_REFERENCED_TASKS: usize = 16;
 /// The longest task title a mention keeps, in characters.
@@ -12,7 +14,7 @@ pub const MAX_TASK_TITLE_CHARS: usize = 160;
 /// One task found by the search.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskMention {
-    pub thread_id: String,
+    pub thread_id: ThreadId,
     pub title: String,
     pub cwd: String,
     pub snippet: String,

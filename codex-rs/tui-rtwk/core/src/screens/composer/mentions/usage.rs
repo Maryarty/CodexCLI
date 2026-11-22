@@ -56,7 +56,7 @@ mod tests {
     fn the_window_keeps_the_newest_picks_and_counts_them() {
         let mut usage = MentionUsage::default();
         for n in 0..HISTORY_LIMIT + 3 {
-            usage.record(&format!("skill://{}", n % 2));
+            usage.record(&["skill://", &(n % 2).to_string()].concat());
         }
         assert_eq!(usage.recent().count(), HISTORY_LIMIT);
         let counts = usage.frequencies();

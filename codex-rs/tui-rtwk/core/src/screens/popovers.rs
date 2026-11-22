@@ -14,6 +14,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
 use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
+use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
 use crate::screens::composer::mentions::task::TaskMention;
 use crate::screens::composer::mentions::usage::MentionUsage;
@@ -436,8 +437,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 }
 
 /// The seed form of this screen's events: `{"files":["src/a.rs"]}`,
-/// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}`,
-/// `{"tasks":[{thread_id,title,cwd?,snippet?}]}`,
+/// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}` (capabilities: `"skills"`, `{"mcp_servers":2}`, `{"apps":1}`),
+/// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
 /// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
 /// `{"mention_usage":["path"]}` and `{"history":["..."]}` (oldest first).
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -462,12 +463,20 @@ struct SeedMention {
     #[serde(default)]
     plugin_id: Option<String>,
     #[serde(default)]
-    capabilities: Vec<String>,
+    capabilities: Vec<SeedCapability>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SeedCapability {
+    Skills,
+    McpServers(usize),
+    Apps(usize),
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
 struct SeedTask {
-    thread_id: String,
+    thread: String,
     title: String,
     #[serde(default)]
     cwd: String,
@@ -520,7 +529,15 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                     insert: m.insert,
                     path: m.path,
                     plugin_id: m.plugin_id,
-                    capabilities: m.capabilities,
+                    capabilities: m
+                        .capabilities
+                        .into_iter()
+                        .map(|c| match c {
+                            SeedCapability::Skills => Capability::Skills,
+                            SeedCapability::McpServers(n) => Capability::McpServers(n),
+                            SeedCapability::Apps(n) => Capability::Apps(n),
+                        })
+                        .collect(),
                 })
                 .collect(),
         ),
@@ -528,7 +545,7 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             tasks
                 .into_iter()
                 .map(|t| TaskMention {
-                    thread_id: t.thread_id,
+                    thread_id: ThreadId::new(t.thread),
                     title: t.title,
                     cwd: t.cwd,
                     snippet: t.snippet,

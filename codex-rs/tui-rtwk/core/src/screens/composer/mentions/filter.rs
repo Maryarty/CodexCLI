@@ -90,6 +90,7 @@ fn file_match_to_row(file_match: &FileMatch) -> Row {
     Row {
         display_name: file_match.path.clone(),
         description: None,
+        capabilities: Vec::new(),
         mention_type: match file_match.match_type {
             MatchType::File => MentionType::File,
             MatchType::Directory => MentionType::Directory,
@@ -112,6 +113,7 @@ mod tests {
         Candidate {
             display_name: name.to_string(),
             description: None,
+            capabilities: Vec::new(),
             search_terms: vec![name.to_string()],
             mention_type: ty,
             selection: Selection::Tool {

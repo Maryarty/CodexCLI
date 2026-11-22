@@ -579,8 +579,10 @@ fn dollar_target(doc: &Doc, mentions: &[Mention]) -> Option<Target> {
 #[cfg(test)]
 #[allow(clippy::single_range_in_vec_init)] // a draft with one element
 mod tests {
+    use super::super::candidate::uri;
     use super::super::catalog::MentionKind;
     use super::*;
+    use crate::ids::ThreadId;
     use pretty_assertions::assert_eq;
 
     fn doc<'a>(text: &'a str, cursor: usize, elements: &'a [Range<usize>]) -> Doc<'a> {
@@ -593,7 +595,7 @@ mod tests {
 
     fn plugin(display: &str, config: &str) -> Mention {
         let mut m = Mention::new(MentionKind::Plugin, display, "", config);
-        m.path = Some(format!("plugin://{config}"));
+        m.path = Some(uri("plugin", config));
         m
     }
 
@@ -749,7 +751,7 @@ mod tests {
     fn a_task_pick_binds_a_thread_link_and_a_file_path_quotes_whitespace() {
         let mut fx = Fixture::new();
         fx.tasks = vec![TaskMention {
-            thread_id: "t1".into(),
+            thread_id: ThreadId::new("t1"),
             title: "migrate db".into(),
             cwd: String::new(),
             snippet: String::new(),

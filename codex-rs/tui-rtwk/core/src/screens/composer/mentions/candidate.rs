@@ -29,6 +29,34 @@ impl MentionType {
     }
 }
 
+/// What a plugin carries: the words that say so are the view's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Capability {
+    Skills,
+    McpServers(usize),
+    Apps(usize),
+}
+
+/// The capabilities of a plugin as the backend lists them, the empty ones left out.
+pub fn plugin_capabilities(has_skills: bool, mcp_servers: usize, apps: usize) -> Vec<Capability> {
+    let mut out = Vec::new();
+    if has_skills {
+        out.push(Capability::Skills);
+    }
+    if mcp_servers > 0 {
+        out.push(Capability::McpServers(mcp_servers));
+    }
+    if apps > 0 {
+        out.push(Capability::Apps(apps));
+    }
+    out
+}
+
+/// A link of `scheme` and `rest` (`skill://path`, `plugin://name`, `thread://id`).
+pub fn uri(scheme: &str, rest: &str) -> String {
+    [scheme, "://", rest].concat()
+}
+
 /// What picking a row puts in the draft.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
@@ -46,6 +74,8 @@ pub enum Selection {
 pub struct Candidate {
     pub display_name: String,
     pub description: Option<String>,
+    /// What a plugin without a description of its own says it carries.
+    pub capabilities: Vec<Capability>,
     pub search_terms: Vec<String>,
     pub mention_type: MentionType,
     pub selection: Selection,
@@ -56,6 +86,7 @@ pub struct Candidate {
 pub struct Row {
     pub display_name: String,
     pub description: Option<String>,
+    pub capabilities: Vec<Capability>,
     pub mention_type: MentionType,
     pub selection: Selection,
     /// The positions of the display name the query matched (to highlight).
@@ -68,6 +99,7 @@ impl Candidate {
         Row {
             display_name: self.display_name.clone(),
             description: self.description.clone(),
+            capabilities: self.capabilities.clone(),
             mention_type: self.mention_type,
             selection: self.selection.clone(),
             match_indices,

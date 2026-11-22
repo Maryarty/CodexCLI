@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use super::candidate::{Candidate, MentionType, Selection};
+use super::candidate::{Candidate, Capability, MentionType, Selection, uri};
 use super::codec::{is_common_env_var, is_mention_name_char};
 use super::task::{MAX_TASK_TITLE_CHARS, TaskMention};
 
@@ -33,8 +33,8 @@ pub struct Mention {
     /// The plugin a skill belongs to; the skill hides behind the plugin's
     /// own row.
     pub plugin_id: Option<String>,
-    /// A plugin's capabilities as words (`skills`, `1 MCP server`, `2 apps`).
-    pub capabilities: Vec<String>,
+    /// What a plugin carries.
+    pub capabilities: Vec<Capability>,
 }
 
 impl Mention {
@@ -96,6 +96,7 @@ fn task_candidate(task: &TaskMention) -> Candidate {
     Candidate {
         display_name: title.clone(),
         description: (!task.cwd.is_empty()).then(|| task.cwd.clone()),
+        capabilities: Vec::new(),
         search_terms: vec![
             title.clone(),
             task.cwd.chars().take(MAX_TASK_TITLE_CHARS).collect(),
@@ -104,7 +105,7 @@ fn task_candidate(task: &TaskMention) -> Candidate {
         mention_type: MentionType::Task,
         selection: Selection::Tool {
             insert_text: format!("@{title}"),
-            path: Some(format!("thread://{}", task.thread_id)),
+            path: Some(uri("thread", task.thread_id.as_str())),
         },
     }
 }
@@ -121,6 +122,7 @@ fn skill_candidate(skill: &Mention) -> Candidate {
     Candidate {
         display_name,
         description: (!description.is_empty()).then(|| description.to_string()),
+        capabilities: Vec::new(),
         search_terms,
         mention_type: MentionType::Skill,
         selection: Selection::Tool {
@@ -141,44 +143,22 @@ fn plugin_candidate(plugin: &Mention) -> Candidate {
     if !marketplace_name.is_empty() {
         search_terms.push(marketplace_name.to_string());
     }
-    let description = if plugin.description.is_empty() {
-        if plugin.capabilities.is_empty() {
-            "Plugin".to_string()
-        } else {
-            format!("Plugin - {}", plugin.capabilities.join(" - "))
-        }
-    } else {
-        plugin.description.clone()
-    };
+    let own_description = !plugin.description.is_empty();
     Candidate {
         display_name: plugin.name.clone(),
-        description: Some(description),
+        description: own_description.then(|| plugin.description.clone()),
+        capabilities: if own_description {
+            Vec::new()
+        } else {
+            plugin.capabilities.clone()
+        },
         search_terms,
         mention_type: MentionType::Plugin,
         selection: Selection::Tool {
             insert_text: format!("@{mention_name}"),
-            path: Some(format!("plugin://{config_name}")),
+            path: Some(uri("plugin", config_name)),
         },
     }
-}
-
-/// A plugin's capabilities as words, for a [`Mention`] the backend builds.
-pub fn plugin_capability_labels(has_skills: bool, mcp_servers: usize, apps: usize) -> Vec<String> {
-    let mut labels = Vec::new();
-    if has_skills {
-        labels.push("skills".to_string());
-    }
-    match mcp_servers {
-        0 => {}
-        1 => labels.push("1 MCP server".to_string()),
-        n => labels.push(format!("{n} MCP servers")),
-    }
-    match apps {
-        0 => {}
-        1 => labels.push("1 app".to_string()),
-        n => labels.push(format!("{n} apps")),
-    }
-    labels
 }
 
 fn plugin_mention_name(plugin_name: &str, display_name: &str) -> String {
@@ -265,7 +245,9 @@ fn title_case_plugin_name(plugin_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::candidate::plugin_capabilities;
     use super::*;
+    use crate::ids::ThreadId;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -320,7 +302,7 @@ mod tests {
 
     fn plugin(display: &str, config: &str) -> Mention {
         let mut m = Mention::new(MentionKind::Plugin, display, "", config);
-        m.path = Some(format!("plugin://{config}"));
+        m.path = Some(uri("plugin", config));
         m
     }
 
@@ -330,7 +312,7 @@ mod tests {
         owned.plugin_id = Some("sample@debug".to_string());
         let free = Mention::new(MentionKind::Skill, "Free", "", "free");
         let task = TaskMention {
-            thread_id: "t1".to_string(),
+            thread_id: ThreadId::new("t1"),
             title: "fix   the\nbug".to_string(),
             cwd: "/repo".to_string(),
             snippet: String::new(),
@@ -339,7 +321,7 @@ mod tests {
         let names: Vec<_> = catalog.iter().map(|c| c.display_name.as_str()).collect();
         assert_eq!(names, ["Free", "Sample Plugin", "fix the bug"]);
         assert_eq!(catalog[0].description, None);
-        assert_eq!(catalog[1].description.as_deref(), Some("Plugin"));
+        assert_eq!(catalog[1].description, None);
         assert_eq!(
             catalog[1].selection,
             Selection::Tool {
@@ -357,13 +339,14 @@ mod tests {
     }
 
     #[test]
-    fn a_plugin_without_a_description_names_what_it_carries() {
+    fn a_plugin_without_a_description_carries_its_capabilities() {
         let mut p = plugin("Sample", "sample@debug");
-        p.capabilities = plugin_capability_labels(true, 2, 1);
+        p.capabilities = plugin_capabilities(true, 2, 1);
         let catalog = build_search_catalog(&[p], &[]);
+        assert_eq!(catalog[0].description, None);
         assert_eq!(
-            catalog[0].description.as_deref(),
-            Some("Plugin - skills - 2 MCP servers - 1 app")
+            catalog[0].capabilities,
+            [Capability::Skills, Capability::McpServers(2), Capability::Apps(1)]
         );
     }
 }

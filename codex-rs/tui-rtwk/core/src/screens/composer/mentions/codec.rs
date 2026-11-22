@@ -348,8 +348,13 @@ mod tests {
     fn parse_linked_mentions_preserves_byte_offsets_and_trims_paths() {
         let prefix = "before 🦀 ";
         for sigil in [TOOL_MENTION_SIGIL, PLUGIN_TEXT_MENTION_SIGIL] {
-            let text =
-                format!("{prefix}[{sigil}tool_1-name] \n\t( skill://路径/SKILL.md ) trailing");
+            let text = [
+                prefix,
+                "[",
+                sigil.encode_utf8(&mut [0; 4]),
+                "tool_1-name] \n\t( skill://路径/SKILL.md ) trailing",
+            ]
+            .concat();
             assert_eq!(
                 parse_linked_tool_mention(&text, prefix.len(), sigil),
                 Some((

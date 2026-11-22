@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn current_prefixed_token_falls_back_from_bound_dollar_suffix_on_right() {
         for suffix in ["/path", ".config"] {
-            let text = format!("$left  $bound{suffix}");
+            let text = ["$left  $bound", suffix].concat();
             let bound_start = text.find("$bound").expect("bound skill mention");
             let bound_end = bound_start + "$bound".len();
             let mut textarea = Fixture::default();
