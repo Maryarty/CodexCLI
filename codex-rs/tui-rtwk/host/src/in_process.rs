@@ -58,6 +58,7 @@ use codex_tui_rtwk::services::agents::workspace::{bind_worktree, create_worktree
 use codex_tui_rtwk::services::backend::reconnect;
 use codex_tui_rtwk::services::backend::rpc::Ids;
 use codex_tui_rtwk::services::backend::rpc::answer;
+use codex_tui_rtwk::services::exec::AppServerExec;
 use codex_tui_rtwk::services::shell::BackendTask;
 use codex_tui_rtwk::services::shell::Connector;
 use codex_tui_rtwk::services::shell::IngressTx;
@@ -334,6 +335,16 @@ async fn run(
         },
     };
     let show_version = config.tui_show_server_version_notice;
+    // The machine's own work: clipboard, history file, file search, browser. The file
+    // search answers through the ingress, as the server's events do.
+    let effects = Arc::new(crate::effects::Effects::new(
+        &config,
+        crate::startup::system_browser(),
+        {
+            let ingress = ingress.clone();
+            Arc::new(move |ev| emit(&ingress, epoch, crate::effects::popover_ev(ev)))
+        },
+    ));
     let mut held = HandBack::new(client, done);
     emit(&ingress, epoch, AppEv::Connected);
     emit(&ingress, epoch, backend_ev(facts));
@@ -357,6 +368,11 @@ async fn run(
     if let Some(keymap) = keymap {
         emit(&ingress, epoch, AppEv::Keymap(Box::new(keymap)));
     }
+    emit(
+        &ingress,
+        epoch,
+        AppEv::Tui(crate::effects::tui_settings(&config)),
+    );
     if !warnings.is_empty() {
         emit(
             &ingress,
@@ -381,6 +397,8 @@ async fn run(
     let mut latest = Latest::default();
     let endpoint = reconnect_endpoint(&mode);
     let mut request_epoch = epoch;
+    // The history file and the mention usage are read once, when the first thread is asked.
+    let mut thread_asked = false;
     while let Some(client) = held.get() {
         // The connection ended: restored or not, decided after the select,
         // when the client is no longer borrowed.
@@ -419,15 +437,29 @@ async fn run(
                     }
                 }
                 Some(command) => {
-                    let job = work(
-                        command.clone(),
-                        handle.clone(),
-                        ids.clone(),
-                        facts,
-                        workspace.clone(),
-                        model.clone(),
-                        Some(startup.clone()),
-                    );
+                    if !thread_asked && asks_thread(&command) {
+                        thread_asked = true;
+                        let (effects, ingress) = (effects.clone(), ingress.clone());
+                        inflight.push(Box::pin(async move {
+                            for ev in effects.opened().await {
+                                emit(&ingress, epoch, ev);
+                            }
+                            None
+                        }));
+                    }
+                    let exec = AppServerExec::new(sender(handle.clone()), ids.clone());
+                    let job = match effects.run(&command, exec) {
+                        Some(job) => job,
+                        None => work(
+                            command.clone(),
+                            handle.clone(),
+                            ids.clone(),
+                            facts,
+                            workspace.clone(),
+                            model.clone(),
+                            Some(startup.clone()),
+                        ),
+                    };
                     inflight.push(latest.wrap(&command, job));
                 }
             },
@@ -485,6 +517,14 @@ async fn run(
         inflight.push(Box::pin(account(ids.clone(), sender(handle.clone()))));
     }
     // Leaving the loop drops `client`: the guard hands it to `main`.
+}
+
+/// Whether `command` is the first of a thread: one that starts, drives or reads one.
+fn asks_thread(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::StartThread { .. } | Command::StartTurn { .. } | Command::Screen { .. }
+    )
 }
 
 /// The endpoint a lost connection is restored through; `None` for the

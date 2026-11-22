@@ -1718,6 +1718,7 @@ mod tui_settings {
         let mut fx = AppFx::default();
         let on = TuiSettings {
             collapse_turn_details: true,
+            ..TuiSettings::default()
         };
         apply_app(&mut app, AppEv::Tui(on), &mut fx);
         assert_eq!(app.tui(), on);
