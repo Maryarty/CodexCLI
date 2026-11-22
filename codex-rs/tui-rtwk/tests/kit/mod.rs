@@ -163,6 +163,12 @@ impl Screen {
             .collect()
     }
 
+    /// Every command the app has given the backend, oldest first (the oracle's ops and
+    /// `AppEvent`s that leave the widget).
+    pub fn commands(&self) -> Vec<codex_tui_core::app::Command> {
+        self.h.fake.commands()
+    }
+
     /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first.
     pub fn opened_urls(&self) -> Vec<String> {
         self.h

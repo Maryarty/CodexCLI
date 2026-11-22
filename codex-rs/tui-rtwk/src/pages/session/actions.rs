@@ -7,12 +7,14 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
-use codex_tui_core::commands::{DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch};
+use codex_tui_core::commands::{
+    DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch, parent_owned_takes,
+};
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
     ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
 };
-use codex_tui_core::threads::{Failure, Note, ThreadModel, UserMessage};
+use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
@@ -79,10 +81,10 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
     // What the line answered with is a note of the thread it was sent in.
-    let say = |cx: &mut Cx<'_, ChatState>, notice: Notice| {
+    let say = |cx: &mut Cx<'_, ChatState>, note: Note| {
         let intent = chat::Intent::Note {
             thread: session.active.clone(),
-            note: Note::from(notice),
+            note,
         };
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
@@ -90,10 +92,17 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         let intent = popovers::Intent::Record(line.to_string());
         cx.emit(&hs.screen, ScreenIntent::from(intent));
     };
+    // A thread its parent controls takes the commands that do not reach the
+    // agent and nothing else; the composer keeps the line
+    // (`InputResult::ParentOwnedInputBlocked`, `handle_parent_owned_submission`).
+    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, states.chat.flags) {
+        say(cx, Note::from(NoteKey::ParentOwned));
+        return;
+    }
     // What the model takes whole: nothing over the backend's limit (Enter
     // refuses it and the draft stays, `prepare_submission_text`).
     if let Some(provided) = composer::too_large(line) {
-        say(cx, Notice::InputTooLarge { provided });
+        say(cx, Note::from(Notice::InputTooLarge { provided }));
         return;
     }
     // A draft in shell mode runs as the user's own shell command (`!cmd`,
@@ -108,7 +117,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         match shell {
             ShellLine::Help => {
                 clear_sent(&w.ui);
-                say(cx, Notice::ShellHelp);
+                say(cx, Note::from(Notice::ShellHelp));
             }
             ShellLine::Run(command) => {
                 record(cx);
@@ -197,7 +206,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 (true, true) => w.ui.draft.recorded(&w.ui.composer),
                 (true, false) => {}
             }
-            say(cx, notice);
+            say(cx, Note::from(notice));
         }
     }
 }

@@ -39,6 +39,76 @@ impl Notice {
     }
 }
 
+impl SlashCommand {
+    /// `parent_owned_command_is_allowed` (`chat_composer.rs`): what a thread
+    /// its parent controls still runs. `/export`, `/title` and `/statusline`
+    /// with any arguments; the others bare only.
+    pub fn allowed_when_parent_owned(self, args: &str) -> bool {
+        use SlashCommand::*;
+        if matches!(self, Export | Title | Statusline) {
+            return true;
+        }
+        args.is_empty()
+            && matches!(
+                self,
+                Feedback
+                    | New
+                    | Clear
+                    | Resume
+                    | App
+                    | Side
+                    | Btw
+                    | Agents
+                    | MultiAgents
+                    | Vim
+                    | Keymap
+                    | Config
+                    | ElevateSandbox
+                    | Experimental
+                    | Memories
+                    | Quit
+                    | Exit
+                    | Logout
+                    | Copy
+                    | Raw
+                    | Diff
+                    | Mention
+                    | Skills
+                    | Import
+                    | Hooks
+                    | Status
+                    | Warnings
+                    | Daemon
+                    | Usage
+                    | Ide
+                    | DebugConfig
+                    | Theme
+                    | Pets
+                    | Ps
+                    | Stop
+                    | MemoryDrop
+                    | MemoryUpdate
+                    | Mcp
+                    | Apps
+                    | Plugins
+                    | Rollout
+            )
+    }
+}
+
+/// `handle_parent_owned_submission`: whether a thread its parent controls
+/// takes this composer line: a built-in command by its own name (not an
+/// alias) that `allowed_when_parent_owned`. Text, `!cmd` and every other
+/// command are refused.
+pub fn parent_owned_takes(line: &str, flags: CommandFlags) -> bool {
+    line.starts_with('/')
+        && parse_slash_name(line).is_some_and(|(name, args, _)| {
+            find_builtin_command(name, flags).is_some_and(|command| {
+                name == command.command() && command.allowed_when_parent_owned(args)
+            })
+        })
+}
+
 /// Commands that can be invoked by starting a message with a leading slash.
 /// Enum order is presentation order in the popup (not alphabetical: the more
 /// frequently used first), as in `slash_command.rs`.

@@ -1405,16 +1405,16 @@ mod notes {
 
     use super::*;
 
-    const T: &str = "thread-1";
+    pub(super) const T: &str = "thread-1";
 
-    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+    pub(super) fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
         let mut fx = AppFx::default();
         apply_app(app, ev, &mut fx);
         fx
     }
 
     /// The app with its thread started, as after `Connected` and the reply.
-    fn ready() -> CodexApp {
+    pub(super) fn ready() -> CodexApp {
         let mut app = CodexApp::new();
         let fx = run(&mut app, AppEv::Connected);
         let ticket: Ticket = fx
@@ -1442,7 +1442,7 @@ mod notes {
         );
     }
 
-    fn notes_of(thread: &Rc<ThreadModel>) -> Vec<Note> {
+    pub(super) fn notes_of(thread: &Rc<ThreadModel>) -> Vec<Note> {
         thread
             .transcript()
             .iter()
@@ -1477,8 +1477,8 @@ mod notes {
         assert_eq!(
             notes_of(&app.active_thread()),
             [
-                Note::error(NoteKey::Command(Notice::Usage(UsageKey::Raw))),
-                Note::info(NoteKey::Command(Notice::ShellHelp)),
+                Note::from(NoteKey::Command(Notice::Usage(UsageKey::Raw))),
+                Note::from(NoteKey::Command(Notice::ShellHelp)),
             ]
         );
     }
@@ -1491,7 +1491,7 @@ mod notes {
         say(&mut app, None, Notice::ModelStartup);
         assert_eq!(
             app.screens().chat.notes,
-            [Note::info(NoteKey::Command(Notice::ModelStartup))]
+            [Note::from(NoteKey::Command(Notice::ModelStartup))]
         );
         // a thread that does not exist is no thread
         say(&mut app, Some("thread-9"), Notice::ShellHelp);
@@ -1535,5 +1535,304 @@ mod notes {
             keeps(Notice::UnavailableInSide(SlashCommand::Review)),
             (true, true)
         );
+    }
+}
+
+/// What the commands that run at once do (oracle `slash_dispatch.rs`
+/// `dispatch_command`): their effect on the thread, and the answer they leave
+/// in its transcript.
+mod effects {
+    use codex_app_server_protocol::{RequestId, ServerNotification};
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::screens::{ScreenCommand, ScreenIntent, chat};
+    use codex_tui_core::threads::{Note, NoteKey, Stub, Tone, UserMessage};
+    use pretty_assertions::assert_eq;
+
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    /// `thread/started` of the thread, as the server describes it.
+    fn started(cwd: &str, path: Option<&str>, can_accept: Option<bool>) -> AppEv {
+        let notification: ServerNotification = serde_json::from_value(serde_json::json!({
+            "method": "thread/started",
+            "params": {"thread": {
+                "id": T, "environments": null, "extra": null, "sessionId": T,
+                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+                "recencyAt": 0, "status": {"type": "idle"}, "path": path, "cwd": cwd,
+                "cliVersion": "0.0.0", "originator": null, "source": "cli",
+                "canAcceptDirectInput": can_accept, "threadSource": null,
+                "agentNickname": null, "agentRole": null, "gitInfo": null, "name": null,
+                "daybreakEnabled": null, "turns": []
+            }}
+        }))
+        .expect("thread/started");
+        AppEv::Backend(BackendEv::Notification(Box::new(notification)))
+    }
+
+    fn command(app: &mut CodexApp, command: SlashCommand, intent: SessionIntent) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: Some(ThreadId::new(T)),
+                command,
+                intent,
+            }))),
+        )
+    }
+
+    fn notes(app: &CodexApp) -> Vec<Note> {
+        notes_of(&app.active_thread())
+    }
+
+    #[test]
+    fn each_answer_has_the_tone_the_oracle_gives_it() {
+        for (key, tone) in [
+            (NoteKey::WorkingDirectory("/tmp".into()), Tone::Info),
+            (NoteKey::Rollout(None), Tone::Info),
+            (NoteKey::Rollout(Some("/tmp/r.jsonl".into())), Tone::Info),
+            (NoteKey::DesktopOpened, Tone::Info),
+            (NoteKey::StoppingTerminals, Tone::Info),
+            (NoteKey::RawOutput(true), Tone::Info),
+            (NoteKey::Stub(Stub::MemoryMaintenance), Tone::Error),
+            (NoteKey::ParentOwned, Tone::Error),
+        ] {
+            assert_eq!(Note::from(key.clone()).tone, tone, "{key:?}");
+        }
+    }
+
+    /// `clean_background_terminals`: the op, then the info line.
+    #[test]
+    fn stop_asks_the_thread_to_clean_its_terminals_and_says_so() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::Stop, SessionIntent::Stop);
+        assert!(
+            fx.commands().iter().any(|c| matches!(
+                c,
+                Command::Screen {
+                    thread,
+                    command: ScreenCommand::Chat(chat::Command::CleanTerminals),
+                    ..
+                } if thread.as_str() == T
+            )),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), [Note::from(NoteKey::StoppingTerminals)]);
+    }
+
+    /// The request is the app-server's `thread/backgroundTerminals/clean`.
+    #[test]
+    fn the_cleanup_is_the_servers_background_terminals_request() {
+        let request = chat::wire(
+            &chat::Command::CleanTerminals,
+            &ThreadId::new(T),
+            RequestId::Integer(7),
+        );
+        let json = serde_json::to_value(&request).expect("json");
+        assert_eq!(json["method"], "thread/backgroundTerminals/clean");
+        assert_eq!(json["params"]["threadId"], T);
+    }
+
+    #[test]
+    fn memory_maintenance_is_a_stub_error() {
+        let mut app = ready();
+        command(
+            &mut app,
+            SlashCommand::MemoryDrop,
+            SessionIntent::MemoryMaintenance,
+        );
+        assert_eq!(
+            notes(&app),
+            [Note::from(NoteKey::Stub(Stub::MemoryMaintenance))]
+        );
+    }
+
+    #[test]
+    fn pwd_says_the_directory_the_thread_started_in() {
+        let mut app = ready();
+        run(&mut app, started("/tmp/project", None, Some(true)));
+        command(&mut app, SlashCommand::Pwd, SessionIntent::Pwd);
+        assert_eq!(
+            notes(&app),
+            [Note::from(NoteKey::WorkingDirectory("/tmp/project".into()))]
+        );
+    }
+
+    #[test]
+    fn rollout_says_the_path_or_that_the_server_has_not_named_it() {
+        let mut app = ready();
+        command(&mut app, SlashCommand::Rollout, SessionIntent::Rollout);
+        run(
+            &mut app,
+            started("/tmp", Some("/tmp/codex-test-rollout.jsonl"), Some(true)),
+        );
+        command(&mut app, SlashCommand::Rollout, SessionIntent::Rollout);
+        assert_eq!(
+            notes(&app),
+            [
+                Note::from(NoteKey::Rollout(None)),
+                Note::from(NoteKey::Rollout(Some(
+                    "/tmp/codex-test-rollout.jsonl".into()
+                ))),
+            ]
+        );
+    }
+
+    #[test]
+    fn app_hands_the_thread_to_the_desktop_app_by_its_link() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::App, SessionIntent::App);
+        assert!(
+            fx.commands().iter().any(|c| matches!(
+                c,
+                Command::OpenUrl { url, .. } if url == "codex://threads/thread-1"
+            )),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), [Note::from(NoteKey::DesktopOpened)]);
+    }
+
+    #[test]
+    fn raw_toggles_the_mode_and_says_which_it_is_now() {
+        let mut app = ready();
+        let raw = |app: &CodexApp| app.screens().chat.raw_output;
+        command(&mut app, SlashCommand::Raw, SessionIntent::Raw { on: None });
+        assert!(raw(&app));
+        command(&mut app, SlashCommand::Raw, SessionIntent::Raw { on: None });
+        assert!(!raw(&app));
+        command(
+            &mut app,
+            SlashCommand::Raw,
+            SessionIntent::Raw { on: Some(false) },
+        );
+        assert!(!raw(&app));
+        command(
+            &mut app,
+            SlashCommand::Raw,
+            SessionIntent::Raw { on: Some(true) },
+        );
+        assert!(raw(&app));
+        assert_eq!(
+            notes(&app),
+            [true, false, false, true].map(|on| Note::from(NoteKey::RawOutput(on)))
+        );
+    }
+
+    /// `/init` sends the bundled prompt as a message of the thread.
+    #[test]
+    fn init_starts_a_turn_with_the_bundled_prompt() {
+        let mut app = ready();
+        let fx = command(&mut app, SlashCommand::Init, SessionIntent::Init);
+        let sent: Vec<UserMessage> = fx
+            .commands()
+            .iter()
+            .filter_map(|c| match c {
+                Command::StartTurn { message, .. } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        let prompt = include_str!("../assets/prompt_for_init_command.md");
+        assert_eq!(sent.len(), 1, "{:?}", fx.commands());
+        assert_eq!(sent[0].text, prompt.trim());
+        assert_eq!(
+            prompt,
+            include_str!("../../../tui/assets/prompt_for_init_command.md")
+        );
+    }
+
+    /// `submit_op`: a thread its parent controls takes no turn and no
+    /// compaction; it says so and starts nothing.
+    #[test]
+    fn a_parent_owned_thread_starts_no_turn_and_no_compaction() {
+        let mut app = ready();
+        run(&mut app, started("/tmp", None, Some(false)));
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("hello"),
+            }),
+        );
+        assert!(
+            !fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::StartTurn { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        let fx = command(&mut app, SlashCommand::Compact, SessionIntent::Compact);
+        assert!(
+            !fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::Screen { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(
+            notes(&app),
+            [
+                Note::from(NoteKey::ParentOwned),
+                Note::from(NoteKey::ParentOwned)
+            ]
+        );
+    }
+
+    /// The server's word wins; without it a spawned sub-agent is parent-owned.
+    #[test]
+    fn a_thread_that_can_take_direct_input_starts_its_turn() {
+        let mut app = ready();
+        run(&mut app, started("/tmp", None, Some(true)));
+        let fx = run(
+            &mut app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("hello"),
+            }),
+        );
+        assert!(
+            fx.commands()
+                .iter()
+                .any(|c| matches!(c, Command::StartTurn { .. })),
+            "{:?}",
+            fx.commands()
+        );
+        assert_eq!(notes(&app), []);
+    }
+
+    /// `parent_owned_command_is_allowed`, `handle_parent_owned_submission`.
+    #[test]
+    fn a_parent_owned_thread_takes_the_commands_that_do_not_reach_the_agent() {
+        let flags = CommandFlags::default();
+        for (line, takes) in [
+            ("/status", true),
+            ("/stop", true),
+            ("/rollout", true),
+            ("/diff", true),
+            ("/side", true),
+            ("/export a b", true),
+            ("/title x", true),
+            ("/statusline", true),
+            ("/init", false),
+            ("/review check this", false),
+            ("/side inspect this", false),
+            ("/diff now", false),
+            ("/archive", false),
+            ("/rename", false),
+            ("/subagents parent", false),
+            ("/pwd", false),
+            // an alias is not the command's own name
+            ("/cwd", false),
+            ("/nonsense", false),
+            ("!echo blocked", false),
+            (" !echo blocked", false),
+            ("keep this draft", false),
+        ] {
+            assert_eq!(parent_owned_takes(line, flags), takes, "{line}");
+        }
     }
 }

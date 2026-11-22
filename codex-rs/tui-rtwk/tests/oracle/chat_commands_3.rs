@@ -6,6 +6,13 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// A running turn (the oracle's `handle_turn_started`).
+const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
+/// The live chat with a side conversation active (`set_side_conversation_active`).
+const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
+/// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
+const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
+
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:2210 slash_copy_picker_remains_available_from_parent_owned_threads kind=ui owner=chat-nav-pane
 #[test]
@@ -204,15 +211,24 @@ fn queued_menu_slash_keeps_agent_turn_complete_notification() {
 // ORACLE chatwidget/tests/slash_commands.rs:2833 slash_stop_submits_background_terminal_cleanup kind=ui owner=chat-nav-pane
 #[test]
 fn slash_stop_submits_background_terminal_cleanup() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "/stop is mapped to voice control in the port (core/src/commands/dispatch.rs), not background-terminal cleanup; the cleanup confirmation cell is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/stop");
-    s.keys("enter");
+    s.keys("esc enter");
     s.assert_contains("Stopping all background terminals.");
-    // The oracle asserts the CleanBackgroundTerminals op: not drawn.
+    // The oracle's CleanBackgroundTerminals op is the thread's `thread/backgroundTerminals/clean` request.
+    assert!(
+        s.commands().iter().any(|command| matches!(
+            command,
+            codex_tui_core::app::Command::Screen {
+                command: codex_tui_core::screens::ScreenCommand::Chat(
+                    codex_tui_core::screens::chat::Command::CleanTerminals
+                ),
+                ..
+            }
+        )),
+        "the cleanup went out: {:?}",
+        s.commands()
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2858 slash_new_with_name_requests_named_session kind=ui owner=chat-nav-pane
@@ -257,15 +273,17 @@ fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
 // ORACLE chatwidget/tests/slash_commands.rs:2926 slash_clear_is_disabled_while_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_is_disabled_while_task_running() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a running task (set_task_running) cannot be seeded black-box; the disabled /clear error cell is not built",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/clear");
-    s.keys("enter");
+    s.keys("esc enter");
     s.assert_contains("'/clear' is disabled while a task is in progress.");
     // The oracle asserts exactly one InsertHistoryCell and no follow-up event: the single cell is the drawn line.
+    assert_eq!(
+        s.text()
+            .matches("'/clear' is disabled while a task is in progress.")
+            .count(),
+        1
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2947 slash_archive_cancellation_keeps_task_running kind=ui owner=chat-nav-pane
@@ -287,15 +305,11 @@ fn slash_archive_cancellation_keeps_task_running() {
 // ORACLE chatwidget/tests/slash_commands.rs:2963 slash_memory_maintenance_reports_stubbed_feature kind=ui owner=chat-nav-pane
 #[test]
 fn slash_memory_maintenance_reports_stubbed_feature() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /debug-m-drop and /debug-m-update stub messages are not built",
-    );
     for command in ["/debug-m-drop", "/debug-m-update"] {
         let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
         s.type_text(command);
-        s.keys("enter");
-        s.assert_contains("Memory maintenance: Not available in TUI yet.");
+        s.keys("esc enter");
+        s.assert_contains("■ Memory maintenance: Not available in TUI yet.");
     }
 }
 
@@ -478,35 +492,44 @@ fn slash_fork_with_name_requests_named_fork() {
 // ORACLE chatwidget/tests/slash_commands.rs:3353 slash_app_without_thread_id_shows_starting_error kind=snap owner=chat-nav-pane snap=slash_app_without_thread_id_shows_starting_error
 #[test]
 fn slash_app_without_thread_id_shows_starting_error() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /app command and its starting-error cell are not built; a live chat with no thread id is not seeded",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The session has not started (the thread's start is held): no thread id yet.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .held_start()
+        .open();
     s.type_text("/app");
-    s.keys("enter");
-    s.assert_snap("slash_app_without_thread_id_shows_starting_error");
+    s.keys("esc enter");
+    s.assert_has_row("■ Session is still starting; try /app again in a moment.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3367 slash_pwd_and_cwd_alias_display_current_working_directory_from_composer kind=snap owner=chat-nav-pane
 #[test]
 fn slash_pwd_and_cwd_alias_display_current_working_directory_from_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /pwd and /cwd info cells are not built; the side-conversation and running-task seeds are not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The oracle runs /pwd with a task running and /cwd in a side conversation (both stay available).
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .cwd("/tmp/project")
+        .open();
     s.type_text("/pwd");
-    s.keys("enter");
-    s.assert_contains("Current working directory: /tmp/project");
-    let mut side = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("esc enter");
+    s.assert_has_row("• Current working directory: /tmp/project");
+    let mut side = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SIDE)
+        .cwd("/tmp/project")
+        .open();
     side.type_text("/cwd");
-    side.keys("enter");
-    side.assert_contains("Current working directory: /tmp/project");
-    let mut usage = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    side.keys("esc enter");
+    side.assert_has_row("• Current working directory: /tmp/project");
+    let mut usage = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .cwd("/tmp/project")
+        .open();
     usage.type_text("/pwd x");
-    usage.keys("enter");
-    usage.assert_contains("Usage: /pwd");
+    usage.keys("esc enter");
+    usage.assert_has_row("■ Usage: /pwd");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3388 slash_cd_changes_current_session_after_replay_and_defaults_to_home kind=ui owner=chat-nav-pane
@@ -548,27 +571,22 @@ fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
 // ORACLE chatwidget/tests/slash_commands.rs:3474 slash_rollout_displays_current_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_displays_current_path() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the rollout path seed (current_rollout_path = /tmp/codex-test-rollout.jsonl) is not registered; the /rollout info cell is not built",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(ROLLOUT)
+        .open();
     s.type_text("/rollout");
-    s.keys("enter");
-    s.assert_contains("/tmp/codex-test-rollout.jsonl");
+    s.keys("esc enter");
+    s.assert_has_row("• Current rollout path: /tmp/codex-test-rollout.jsonl");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3491 slash_rollout_handles_missing_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_handles_missing_path() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /rollout info cell for a missing rollout path is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/rollout");
-    s.keys("enter");
-    s.assert_contains("not available");
+    s.keys("esc enter");
+    s.assert_has_row("• Rollout path is not available yet.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3592 user_turn_carries_service_tier_after_fast_toggle kind=ui owner=chat-nav-pane

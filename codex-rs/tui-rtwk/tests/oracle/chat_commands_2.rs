@@ -412,12 +412,8 @@ fn unavailable_slash_command_is_available_from_local_recall() {
 // ORACLE chatwidget/tests/slash_commands.rs:1578 no_op_stub_slash_command_is_available_from_local_recall kind=ui owner=chat-nav-pane
 #[test]
 fn no_op_stub_slash_command_is_available_from_local_recall() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "/debug-m-drop is not available yet in the port: its 'Memory maintenance' stub notice is not ported",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).live().open();
-    s.type_text("/debug-m-drop").keys("esc enter enter");
+    s.type_text("/debug-m-drop").keys("esc enter");
     s.assert_contains("Memory maintenance");
     for _ in 0.."/debug-m-drop".len() {
         s.keys("backspace");

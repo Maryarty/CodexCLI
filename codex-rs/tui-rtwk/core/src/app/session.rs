@@ -5,7 +5,15 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, status};
-use crate::threads::{Item, Note, ThreadAsk, ThreadEv};
+use crate::threads::{Item, Note, NoteKey, Stub, ThreadAsk, ThreadEv, UserMessage};
+
+/// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
+/// id after it.
+const DESKTOP_THREAD_URL: &str = "codex://threads/";
+
+/// `/init`: the prompt the oracle sends as a user message
+/// (`assets/prompt_for_init_command.md`).
+const INIT_PROMPT: &str = include_str!("../../assets/prompt_for_init_command.md");
 
 pub(super) fn active_backend(app: &CodexApp) -> BackendId {
     let agents = &app.screens.agents;
@@ -108,10 +116,9 @@ pub(super) fn session_intent(
             );
             fx.commands.push(request);
         }
-        S::Stop | S::Compact | S::Rename { name: Some(_) } => {
+        S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
-                    S::Stop => ThreadEv::Interrupt,
                     S::Rename { name: Some(name) } => ThreadEv::ScreenIntent(
                         ScreenThreadIntent::Chat(chat::ThreadIntent::Rename(name)),
                     ),
@@ -122,14 +129,117 @@ pub(super) fn session_intent(
                 apply_thread(app, &thread, ev, fx);
             }
         }
-        // Not built yet: the oracle-style "not available" key.
-        _ => session_note(
+        // `clean_background_terminals`: the op, then the line saying so.
+        S::Stop => {
+            if let Some(thread) = &source {
+                let ev = ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                    chat::ThreadIntent::CleanTerminals,
+                ));
+                apply_thread(app, thread, ev, fx);
+            }
+            session_note(app, source, Note::from(NoteKey::StoppingTerminals), fx);
+        }
+        S::MemoryMaintenance => session_note(
+            app,
+            source,
+            Note::from(NoteKey::Stub(Stub::MemoryMaintenance)),
+            fx,
+        ),
+        S::Pwd => {
+            let directory = working_directory(app, source.as_ref());
+            session_note(
+                app,
+                source,
+                Note::from(NoteKey::WorkingDirectory(directory)),
+                fx,
+            );
+        }
+        S::Rollout => {
+            let path = source
+                .as_ref()
+                .and_then(|id| app.threads.get(id))
+                .and_then(|model| model.screen_slots().chat.path.clone());
+            session_note(app, source, Note::from(NoteKey::Rollout(path)), fx);
+        }
+        // `AppEvent::OpenDesktopThread`: the Desktop app takes the thread by its link.
+        S::App => match source {
+            Some(thread) => {
+                fx.commands.push(Command::OpenUrl {
+                    url: [DESKTOP_THREAD_URL, thread.as_str()].concat(),
+                });
+                session_note(app, Some(thread), Note::from(NoteKey::DesktopOpened), fx);
+            }
+            None => session_note(
+                app,
+                None,
+                Note::from(crate::commands::Notice::SessionStarting(command)),
+                fx,
+            ),
+        },
+        // The prompt goes as a message of the thread it was typed in.
+        S::Init => {
+            if let Some(thread) = source {
+                super::submit(app, &thread, UserMessage::text(INIT_PROMPT), fx);
+            }
+        }
+        // `toggle_raw_output_mode_and_notify`: the mode, then the line saying so.
+        S::Raw { on } => {
+            let enabled = on.unwrap_or(!app.screens.chat.raw_output);
+            chat::apply_intent(
+                &mut Rc::make_mut(&mut app.screens).chat,
+                chat::Intent::RawOutput(enabled),
+                fx,
+            );
+            session_note(app, source, Note::from(NoteKey::RawOutput(enabled)), fx);
+        }
+        // What another chunk or a later step builds: until then the answer
+        // that says so. Every variant is named, so a new one cannot slip by.
+        S::Recap
+        | S::Archive
+        | S::Delete
+        | S::Worktree
+        | S::Rename { name: None }
+        | S::Plan { .. }
+        | S::Goal { .. }
+        | S::Side { .. }
+        | S::Copy
+        | S::Export { .. }
+        | S::Tui
+        | S::Cd { .. }
+        | S::Mcp { .. }
+        | S::Apps
+        | S::Plugins
+        | S::Logout
+        | S::Vim
+        | S::Ide { .. }
+        | S::Daybreak
+        | S::ElevateSandbox
+        | S::Hooks
+        | S::DebugConfig
+        | S::Ps
+        | S::Review { .. }
+        | S::Model { .. }
+        | S::Permissions { .. }
+        | S::Title { .. }
+        | S::Statusline { .. }
+        | S::VoiceControl(_)
+        | S::ResumeNamed { .. } => session_note(
             app,
             source,
             Note::from(crate::commands::Notice::NotAvailable(command)),
             fx,
         ),
     }
+}
+
+/// `config.cwd`: the directory of the thread, else the one the host read for
+/// the status line.
+fn working_directory(app: &CodexApp, thread: Option<&ThreadId>) -> String {
+    thread
+        .and_then(|id| app.threads.get(id))
+        .and_then(|model| model.screen_slots().chat.cwd.clone())
+        .or_else(|| app.screens.chat.status.cwd.clone())
+        .unwrap_or_default()
 }
 
 /// What a command line answered with (oracle `add_info_message` /

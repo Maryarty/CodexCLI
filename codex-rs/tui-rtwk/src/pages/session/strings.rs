@@ -58,6 +58,20 @@ pub struct Strings {
     /// The part of a command that needs the session (session-core) is not
     /// built yet: the slice's own text, not the oracle's.
     pub not_available: Msg<1>,
+    /// `slash_dispatch.rs`, `chatwidget.rs`: what a command that runs at once
+    /// says (`add_info_message`).
+    pub working_directory: Msg<1>,
+    pub rollout: Msg<1>,
+    pub rollout_missing: &'static str,
+    pub desktop_opened: &'static str,
+    pub stopping_terminals: &'static str,
+    pub raw_output_on: &'static str,
+    pub raw_output_off: &'static str,
+    /// `add_app_server_stub_message`: the feature, then the message.
+    pub stub: Msg<1>,
+    pub stub_memory_maintenance: &'static str,
+    /// `PARENT_OWNED_INPUT_MESSAGE`.
+    pub parent_owned: &'static str,
     /// `skill_popup.rs`, `mentions_v2/candidate.rs`: the tags of a row.
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
@@ -166,6 +180,16 @@ pub const EN: Strings = Strings {
     usage_mcp: "Usage: /mcp [verbose | login <name>]",
     mcp_login_needs_session: "MCP sign-in requires an active session.",
     not_available: msg!("'/{0}' is not available yet."),
+    working_directory: msg!("Current working directory: {0}"),
+    rollout: msg!("Current rollout path: {0}"),
+    rollout_missing: "Rollout path is not available yet.",
+    desktop_opened: "Opened this session in the Desktop app.",
+    stopping_terminals: "Stopping all background terminals.",
+    raw_output_on: "Raw output mode on: transcript text is shown for clean terminal selection.",
+    raw_output_off: "Raw output mode off: rich transcript rendering restored.",
+    stub: msg!("{0}: Not available in TUI yet."),
+    stub_memory_maintenance: "Memory maintenance",
+    parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
@@ -364,9 +388,19 @@ impl Strings {
 
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
-        use codex_tui_core::threads::NoteKey;
+        use codex_tui_core::threads::{NoteKey, Stub};
+        let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
+            NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
+            NoteKey::Rollout(Some(path)) => text(self.rollout, path),
+            NoteKey::Rollout(None) => self.rollout_missing.to_string(),
+            NoteKey::DesktopOpened => self.desktop_opened.to_string(),
+            NoteKey::StoppingTerminals => self.stopping_terminals.to_string(),
+            NoteKey::Stub(Stub::MemoryMaintenance) => text(self.stub, self.stub_memory_maintenance),
+            NoteKey::RawOutput(true) => self.raw_output_on.to_string(),
+            NoteKey::RawOutput(false) => self.raw_output_off.to_string(),
+            NoteKey::ParentOwned => self.parent_owned.to_string(),
         }
     }
 

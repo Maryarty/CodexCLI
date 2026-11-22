@@ -116,7 +116,7 @@ fn a_path_is_a_message_not_a_command() {
 
 #[test]
 fn a_command_that_needs_the_session_says_it_is_not_available_yet() {
-    for line in ["/init", "/copy", "/mcp"] {
+    for line in ["/copy", "/mcp"] {
         let mut h = chat();
         send(&mut h, line);
         let name = line.trim_start_matches('/');
@@ -253,4 +253,29 @@ fn a_command_refused_while_a_task_runs_runs_once_and_keeps_its_line_for_recall()
         "recall lost the line:\n{}",
         h.t.screen()
     );
+}
+
+#[test]
+fn raw_toggles_the_mode_and_says_which_one_it_is_now() {
+    let mut h = chat();
+    send(&mut h, "/raw");
+    h.wait_for("raw on", |s| s.contains("• Raw output mode on:"));
+    send(&mut h, "/raw");
+    h.wait_for("raw off", |s| s.contains("• Raw output mode off:"));
+    send(&mut h, "/raw on");
+    h.wait_for("raw on again", |s| {
+        s.matches("• Raw output mode on:").count() == 2
+    });
+}
+
+#[test]
+fn init_sends_the_prompt_as_a_message_and_clears_the_composer() {
+    let mut h = chat();
+    h.fake.script_turn(vec![]);
+    send(&mut h, "/init");
+    // The transcript follows the tail of the long prompt.
+    h.wait_for("the prompt", |s| {
+        s.contains("State test naming conventions")
+    });
+    assert!(!h.t.screen().contains("› /init"), "{}", h.t.screen());
 }

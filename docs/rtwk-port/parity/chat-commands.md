@@ -3,6 +3,7 @@ Chunk `chunk-commands` of docs/rtwk-port/research/briefs/chat-commands.md (§6).
 Shard counts (summary.py, oracle profile; pass / n-a / pending / todo / red):
 start (claude/tui-rtwk af5799546): chat_commands_1 0/15/35/0/0 · _2 4/9/31/0/2 · _3 1/14/50/0/0.
 step 1:                              chat_commands_1 0/15/35/0/0 · _2 7/9/30/0/0 · _3 3/14/48/0/0 (0 red, 0 stale).
+step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/0 · _3 10/14/41/0/0 (0 red, 0 stale).
 
 ## Step 1 — notes as transcript items, record rule (oracle history_cell/notices.rs:334-357, chat_composer.rs:3432-3563)
 - Core: `threads/note.rs` (`Note { tone, key }`, `NoteKey::Command(Notice)`, `Tone::{Info, Error}`; `From<Notice>`: two answers are information
@@ -24,6 +25,27 @@ step 1:                              chat_commands_1 0/15/35/0/0 · _2 7/9/30/0/
   no row shows it; chunk-live's pending_input_preview owns it).
 - The shard bodies' `esc enter enter` of kept-draft commands is `esc enter` (the oracle submits once; a second Enter on a kept draft runs the line again).
 
+## Step 3 — the commands that run at once (oracle slash_dispatch.rs, chatwidget.rs:1551, 1741; chat_composer.rs:515, 3405)
+- Core: `NoteKey` gains typed answers (`WorkingDirectory`, `Rollout`, `DesktopOpened`, `StoppingTerminals`, `Stub(Stub)`, `RawOutput`, `ParentOwned`) and
+  `NoteKey::tone` (info or error as `add_info_message` / `add_error_message`); `Note::from(NoteKey)`. Words in `strings::note` (ADR-010).
+- `session_intent` is exhaustive (no `_`): `/stop` -> `ThreadIntent::CleanTerminals` -> `chat::Command::CleanTerminals` -> `ThreadAsk::CleanTerminals`
+  (`thread/backgroundTerminals/clean`, ADR-003: the RPC is a ThreadAsk), then the note; `/pwd` (thread cwd, else the status line's), `/rollout`
+  (`ThreadPart.path` from `thread/started`), `/app` (`Command::OpenUrl codex://threads/<id>` + note), `/init` (bundled prompt as a message through `submit`),
+  `/raw` (`chat::Model.raw_output`, `Intent::RawOutput`, note), `/debug-m-drop|update` (stub error). Foreign intents are named in one arm, each a later step or
+  another chunk's, answering `NotAvailable` until built.
+- Parent-owned thread: `ThreadPart.parent_owned` from `thread/started` (`can_accept_direct_input`, else a spawned sub-agent: `thread_blocks_direct_input`);
+  the composer refuses everything but the allowed commands (`commands::parent_owned_takes`, oracle `handle_parent_owned_submission`: by the command's own name,
+  alias refused) and keeps the line; `threads::apply` refuses `Submit` and `Compact` of such a thread (`submit_op`) so no path can start a turn.
+- Kit: `Screen::commands()`, `Open::held_start()` (the start of the thread held: no thread id, `fake.hold_thread_start`). Fixtures `chat_commands_3/{side,rollout,parent_owned}.jsonl`.
+- Tests: core/tests/commands.rs `effects` (12), page tests `raw_toggles_…`, `init_sends_…`; oracle s3 `slash_stop_…`, `slash_clear_is_disabled_…`,
+  `slash_memory_maintenance_…`, `slash_app_without_thread_id_…`, `slash_pwd_and_cwd_…`, `slash_rollout_…` (2), s2 `no_op_stub_…`, s1 `parent_owned_thread_blocks_all_…`.
+- Still pending, true reason: s1 `parent_owned_thread_blocks_settings_shortcuts` (shift+tab / alt+. / alt+, have keymap rows and no action in the port; no chunk of this wave
+  owns them).
+- Known hole, not mine: `Command::OpenUrl` (banner links and `/app`) has no executor in host/src/in_process.rs `work` (it falls to `answer`, which sends nothing), so the
+  browser / Desktop app is never opened and `/app` cannot report a failure (`desktop_thread_open_error_message`). Handover: an executor with `webbrowser::open` (the
+  startup seam `host/src/startup.rs:98`) and an answer for `/app`.
+- Gap for the transcript chunk: `/raw` flips `Model.raw_output` and says so; the transcript's raw rendering (`cells/raw.rs` of chunk-cells) does not read it yet.
+
 ## Outside-area edits (minimal, additive unless noted)
 - core/src/threads.rs (chunk-live): `mod note; pub use note::{Note, NoteKey, Tone};`, variant `Item::Note(Note)`.
 - core/src/app.rs (chunk-live): one arm `Intent::Screen(ScreenIntent::Chat(chat::Intent::Note{..})) => session_note(..)`; `session_note` in the `use session::{..}`.
@@ -34,3 +56,6 @@ step 1:                              chat_commands_1 0/15/35/0/0 · _2 7/9/30/0/
 - src/pages/session/strings.rs, transcript_pane.rs (chunk-transcript-2): `Strings::note`, the `Item::Note` arm.
 - src/widgets/composer_draft.rs (chunk-composer): `ComposerDraft::recorded`.
 - tests/pages/commands.rs: no one's area; registered by tests/pages/chat.rs.
+- core/src/threads.rs (chunk-live), step 3: `ThreadAsk::CleanTerminals` (+ `thread()`, `wire`), the `parent_owned` refusal arm of `apply_ev` (`Submit`, `Compact`), re-export of `Stub`.
+- core/src/screens/chat.rs (chunk-live), step 3: `ThreadPart.{path, parent_owned}`, `ThreadEv::Metadata` fields, `blocks_direct_input`, `ThreadIntent/Command/Ctx::CleanTerminals`, `Model.raw_output` + `Intent::RawOutput`.
+- tests/kit/mod.rs, tests/kit/seed.rs (chunk-live): `Screen::commands`, `Open::held_start`.

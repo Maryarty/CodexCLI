@@ -26,7 +26,7 @@ pub use cells::{
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
-pub use note::{Note, NoteKey, Tone};
+pub use note::{Note, NoteKey, Stub, Tone};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
@@ -38,6 +38,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
+use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
 use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadItem;
@@ -1112,6 +1113,11 @@ pub enum ThreadAsk {
     Compact {
         thread: String,
     },
+    /// `thread/backgroundTerminals/clean`: stop the thread's background
+    /// terminals (`/stop`).
+    CleanTerminals {
+        thread: String,
+    },
     /// `thread/shellCommand`: a user shell command (`!cmd` in the composer),
     /// run by the thread's shell and shown as its own transcript item.
     Shell {
@@ -1148,6 +1154,7 @@ impl ThreadAsk {
             | ThreadAsk::Interrupt { thread, .. }
             | ThreadAsk::Steer { thread, .. }
             | ThreadAsk::Compact { thread }
+            | ThreadAsk::CleanTerminals { thread }
             | ThreadAsk::Shell { thread, .. }
             | ThreadAsk::Rename { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
@@ -1274,6 +1281,12 @@ impl ThreadAsk {
             ThreadAsk::Compact { thread } => ClientRequest::ThreadCompactStart {
                 request_id,
                 params: ThreadCompactStartParams {
+                    thread_id: thread.clone(),
+                },
+            },
+            ThreadAsk::CleanTerminals { thread } => ClientRequest::ThreadBackgroundTerminalsClean {
+                request_id,
+                params: ThreadBackgroundTerminalsCleanParams {
                     thread_id: thread.clone(),
                 },
             },
@@ -1705,6 +1718,21 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.prepend_snapshots(turns);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
+        }
+        // `submit_op`: a thread its parent controls takes no turn and no
+        // compaction; the line stays where it was typed (no `last_submit`).
+        ThreadEv::Submit { .. }
+        | ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Compact))
+            if model.slots.chat.parent_owned =>
+        {
+            apply_ev(
+                model,
+                ThreadEv::Appended {
+                    turn: None,
+                    item: Item::Note(Note::from(NoteKey::ParentOwned)),
+                },
+                fx,
+            )
         }
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
