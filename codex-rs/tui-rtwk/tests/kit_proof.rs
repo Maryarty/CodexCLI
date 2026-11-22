@@ -707,3 +707,65 @@ fn a_different_composer_text_fails() {
     s.type_text("Ask Codex to do anything");
     s.assert_composer("Ask Codex to do anything");
 }
+
+// ---- kit-caps: input a plain xterm cannot send ----
+
+/// A key with no bytes of its own on an xterm reaches the app as the kitty
+/// protocol sends it: Shift+Enter in the composer is a new line (the pty kit
+/// could not send it), and SUPER+space is a key the composer does not type.
+#[test]
+fn keys_without_bytes_of_their_own_are_sent_as_kitty_keys() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("a");
+    s.keys("shift+enter");
+    s.type_text("b");
+    let rows = s.rows();
+    let a = rows.iter().position(|r| r.contains("› a")).expect("row a");
+    assert!(rows[a + 1].trim_start().starts_with('b'), "{rows:?}");
+    s.keys("super+space");
+    s.type_text("c");
+    s.assert_contains("bc");
+}
+
+/// Held and released keys are the kitty protocol's repeat and release events,
+/// with the modifiers the key names.
+#[test]
+fn key_events_are_the_kitty_bytes_of_a_key() {
+    use kit::event_bytes_of;
+    assert_eq!(event_bytes_of("k", false), "\x1b[107;1:2u");
+    assert_eq!(event_bytes_of("super+c", true), "\x1b[99;9:3u");
+    assert_eq!(event_bytes_of("alt+shift+left", true), "\x1b[1;4:3D");
+    assert_eq!(event_bytes_of("enter", true), "\x1b[13;1:3u");
+    assert_eq!(event_bytes_of("delete", true), "\x1b[3;1:3~");
+}
+
+/// The released key of a typed char is no input: the draft is as typed (a
+/// release the app took for a press would type the char twice).
+#[test]
+fn a_key_release_is_not_a_press() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("x");
+    s.key_release("x");
+    s.key_repeat("y");
+    s.key_release("y");
+    s.assert_contains("› xy");
+    s.assert_absent("xx");
+    s.assert_absent("yy");
+}
+
+/// The mouse of the oracle's events: the right button, modifiers, a triple
+/// click and a bare pointer move are delivered (the effect is the screens').
+#[test]
+fn the_kit_sends_the_rest_of_the_mouse() {
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(82, 22)
+        .entry("resume", "table")
+        .open();
+    s.pointer_move(10, 8);
+    s.right_click(10, 8);
+    s.shift_click(10, 8);
+    s.ctrl_click(10, 8);
+    s.triple_click(10, 8);
+    s.right_down(10, 8).right_up(10, 8);
+    s.assert_contains("Fix resume picker timestamps");
+}

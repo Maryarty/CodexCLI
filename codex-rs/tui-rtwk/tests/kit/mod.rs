@@ -17,12 +17,18 @@
 mod oracle_snap;
 
 mod compare;
+mod env;
 mod grid;
+mod input;
 mod labels;
 mod markdown_gutter;
 mod seed;
 mod verdict;
 
+#[allow(unused_imports)]
+pub use env::ColorDepth;
+#[allow(unused_imports)]
+pub use input::event_bytes_of;
 #[allow(unused_imports)]
 pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
 #[allow(unused_imports)]
@@ -42,25 +48,6 @@ use crate::common::KEY_PACE_MS;
 
 fn to_u16(n: usize) -> u16 {
     u16::try_from(n).unwrap_or(u16::MAX)
-}
-
-/// The bytes of a repeated key in the kitty keyboard protocol
-/// (`CSI code;modifiers:event u`, event 2 is a repeat).
-fn repeat_bytes(key: &str) -> String {
-    match key {
-        "up" => "\x1b[1;1:2A".to_string(),
-        "down" => "\x1b[1;1:2B".to_string(),
-        "right" => "\x1b[1;1:2C".to_string(),
-        "left" => "\x1b[1;1:2D".to_string(),
-        "enter" => "\x1b[13;1:2u".to_string(),
-        "esc" => "\x1b[27;1:2u".to_string(),
-        "tab" => "\x1b[9;1:2u".to_string(),
-        one if one.chars().count() == 1 => {
-            let code = one.chars().next().map_or(0, u32::from);
-            format!("\x1b[{code};1:2u")
-        }
-        other => panic!("key_repeat(`{other}`): one char, or up down left right enter esc tab"),
-    }
 }
 
 /// The screen under test.
@@ -102,7 +89,7 @@ impl Screen {
     /// detector reads `a b enter` as typing (use `type_burst` for a paste).
     pub fn keys(&mut self, keys: &str) -> &mut Screen {
         for key in keys.split_whitespace() {
-            self.h.t.press(key);
+            self.press_key(key);
             self.h.t.pump_for(crate::common::ms(KEY_PACE_MS));
         }
         self.h.advance(100);
@@ -265,16 +252,6 @@ impl Screen {
 
     fn mouse_at(&mut self, kind: MouseKind, x: u16, y: u16) -> &mut Screen {
         self.h.t.mouse(kind, x, y, 0, Mods::NONE);
-        self.h.advance(100);
-        self
-    }
-
-    /// Delivers a key as the terminal reports it held down (the kitty
-    /// protocol's repeat event): `k`, `down`, `enter`, `esc`, `tab`. One
-    /// press of it is `keys`.
-    pub fn key_repeat(&mut self, key: &str) -> &mut Screen {
-        let bytes = repeat_bytes(key);
-        self.h.t.input(bytes.as_bytes());
         self.h.advance(100);
         self
     }

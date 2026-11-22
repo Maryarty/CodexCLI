@@ -417,10 +417,6 @@ fn freeform_enter_with_empty_text_is_unanswered() {
 // ORACLE bottom_pane/request_user_input/mod.rs:2982 freeform_shift_enter_inserts_newline_without_advancing kind=ui owner=dialogs-pane
 #[test]
 fn freeform_shift_enter_inserts_newline_without_advancing() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the pty kit sends no bytes for shift+enter (no kitty keyboard protocol in the pty): the behaviour is pinned by the sheet test `approvals::user_input_freeform_shift_enter_inserts_a_newline_without_advancing` (the Tester takes the kitty sequence)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/two_freeform.jsonl"))

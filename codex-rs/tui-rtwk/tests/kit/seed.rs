@@ -22,6 +22,7 @@ use codex_tui_core::fixtures::script::{self, Step};
 use codex_tui_core::screens::seed_ev;
 
 use super::Screen;
+use super::env::Env;
 use super::verdict::{Owner, missing};
 use crate::common::{Harness, ms};
 
@@ -45,6 +46,7 @@ pub struct Open {
     pub(super) first_frame: bool,
     pub(super) gutter: usize,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
+    pub(super) env: Env,
 }
 
 impl Screen {
@@ -60,6 +62,7 @@ impl Screen {
             first_frame: false,
             gutter: 0,
             keymap: None,
+            env: Env::default(),
         }
     }
 }
@@ -132,9 +135,15 @@ impl Open {
         h.set_keymap(bindings);
     }
 
+    /// The app on a terminal made as the env seeds say.
+    fn driven(&self, debug: bool) -> Harness {
+        crate::common::start_driven_with(debug, self.env.options(self.width, self.height))
+    }
+
     fn live_harness(&self) -> Harness {
-        let mut h = crate::common::start_driven(false, self.width, self.height);
+        let mut h = self.driven(false);
         h.connect();
+        self.env.deliver(&mut h);
         self.set_keymap(&mut h);
         // The session is started (`ready`) when `open` returns.
         h.quiesce();
@@ -152,9 +161,10 @@ impl Open {
                 &format!("no debug entry `{dir}/{entry}`: the slice has not registered this state"),
             );
         }
-        let mut h = crate::common::start_driven(true, self.width, self.height);
-        if self.keymap.is_some() {
+        let mut h = self.driven(true);
+        if self.keymap.is_some() || self.env.needs_app() {
             h.connect();
+            self.env.deliver(&mut h);
             self.set_keymap(&mut h);
         }
         if self.first_frame {
