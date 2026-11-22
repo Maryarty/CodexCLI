@@ -325,3 +325,77 @@ the chat uses the same `w.ui.modes.esc(..)` / core `Backtrack::esc` (one control
 - Binary: `check.py --bin rtwk --bin oracle --only long-transcript`: PASS on both. The sheet is not reachable from
   Ctrl+T in the binary until `session_page.rs` mounts it (need 6; Ctrl+T still toggles the inline detailed view),
   so the walk of the sheet is the 11 page tests through the debug entries `sheet_basic` and `sheet_prompts`.
+
+# Chunk `chunk-transcript-2` (tier 2): state at the third handoff
+
+Rebased onto 225122339 (`land/live-c5`, chunk-live step 0). Commits `8a7c2d88f`, `3799188a3`, `b2e58f609` and the
+chrome commit after them; the tm checkpoint "partial ready: b2e58f609" was written before the chrome step.
+
+## Done since the second handoff
+
+- **The layers red is cleared.** `core/src/screens/backtrack.rs` `wire` goes through `ThreadAsk::ReadTurns` /
+  `ThreadAsk::Revert` (`ThreadAsk::wire`); `decode` stays here. `layers::thread_rpcs_only_in_threads` is green.
+  The two types the r14 rule tripped on were renamed earlier (`EscStep`, `DraftRestore`).
+- **The marked prompt of a browsing sheet** (second handoff need 7): `Pane{mark}` takes the selected prompt, its
+  body is reversed (`DefaultTextStyle` REVERSE) and `ListController::ensure_index_visible` scrolls it into view.
+  Three page tests (`browsing_reverses_the_body_of_the_marked_prompt_only`, `the_mark_goes_when_browsing_ends`,
+  `a_marked_prompt_out_of_view_is_scrolled_into_view`).
+- **The sheet's passive status row** (`footer_with_navigation`): away from the tail it says `end latest` (bold key,
+  dim action; the news and the hints give way to it); at the tail `⌃space select`; the history text and the news
+  go when the row is too wide (`LayoutBuilder` + `segmenter_of`, the oracle's fallbacks).
+- **The pager shard**: 5 pass / 8 n/a / 10 pending (`kit::missing`, each with its reason), from 2 / 3 / 18.
+  The 8 n/a are the inline-only rows (G1) and the oracle's own widget mechanics.
+- **`/diff` builders and runner** (`get_git_diff.rs`): `core/src/screens/transcript/diff.rs` is a pure step
+  machine (`Diff::start`, `feed`, `DiffStep::{Run, Done}`; failures typed as `diff::Failure`): `rev-parse`, the
+  fsmonitor probes (3), hooks off, filter drivers blanked through `GIT_CONFIG_*`, the tracked diff and
+  `ls-files --others` together, one `--no-index` diff per untracked file. 9 state tests in
+  `core/tests/transcript_diff.rs` take their expected argv, env and limits from the oracle's tests.
+  `services/shell.rs`: `WorkspaceExec` (one command in a directory) and `git_diff(exec, cwd)` drive the machine
+  to its end; 2 tests.
+- **Pager chrome, the person's decision (brief §7 D1)**: static pager = full chrome (title row, percent rule,
+  hints; the pager shard's 5 passes); `TranscriptSheet` takes `chrome: Chrome`: `Overlay` (title row, status row,
+  two hint rows, no percent rule: the inline `TranscriptOverlay` and the resume preview) or `Bare` (the transcript
+  alone: the owned full-screen Ctrl+T and backtrack). Entry `sheet_owned`; 3 page tests, two shown biting
+  (the `Bare` entry opened with `Overlay` fails both `the_owned_sheet_*` tests).
+
+## Needs (exact; nothing here is mine to edit)
+
+1. **chunk-live, `session_page.rs`**: Ctrl+T / Esc / F3 and the sheet mount. The owned full-screen app mounts
+   `TranscriptSheet{follow: ui.follow, modes: ui.modes, chrome: Chrome::Bare}` (the chat's own footer then names the
+   browsing keys: `prompt_navigation_footer` is chunk-status's); the resume preview mounts it with
+   `Chrome::Overlay`. An `on_edit` callback for the `Selection{thread, nth}` that `Modes::confirm` returns.
+2. **chunk-live, `threads.rs`**: the `ThreadEv::Reverted` arm forwards `backtrack::apply_thread(.., Reverted)`.
+3. **chunk-live / host, `core/src/app.rs`**: `Command::GitDiff` / `Ev::GitDiff`, `Intent::EditPrompt`; the host's
+   `WorkspaceExec` over `OneOffCommandExec`; `/diff` -> `Command::GitDiff` and the report into `Target::Pager`
+   opening `StaticPager`. The words for `diff::Failure` are the consumer's table: the oracle says
+   ``git {args:?} failed with status {status}`` for `Git`, the host's text for `Shell`.
+4. **chunk-cells**: `ItemTexts` per item (steps 4-7: find, select, copy need a text per item).
+5. **ThreadModel**: history Loading / Failed states and a feed route to a history page (the sheet's
+   `Loading earlier messages…` / `Retry history` rows have no test route).
+6. **chunk-live / composer**: the `NO_PREVIOUS_MESSAGE` notice, the 10 s `EDIT_NOT_CONFIRMED` timer, composer restore.
+
+## Left
+
+Steps 4-7 and 10 (find, select, copy, disclosure details): blocked on need 4 and on the mount (need 1); the 10
+pager `missing` rows; the sheet's news / partial / Loading / Failed rows' tests (need 5).
+
+## Rows for the lander
+
+No new rtwk-gaps row. The tm area note: `tests/pages.rs` left this task's area when chunk-composer claimed it;
+`tests/pages/transcript_sheet.rs` is registered through the root `tests/pages.rs` already.
+
+## Checks at the third handoff
+
+- `fmt --check` clean; `clippy --workspace --all-targets -D warnings` green; whole nextest 981 run, 981 passed
+  (the `screens startup::session::a_remembered_mode_opens_without_a_prompt` timing test failed once in a loaded
+  run and passes alone and in the full run: a flake, not on the known list); `shards.py --check`: 0 files stale.
+- Oracle shards (`summary.py --run`; pass / n/a / pending / red): pager 5 / 8 / 10 / 0, transcript_view_1 12 / 1 / 38 / 0,
+  _2 5 / 7 / 40 / 0, _3 1 / 34 / 15 / 0, _4 0 / 1 / 59 / 0, _5 1 / 9 / 49 / 0; total 24 / 60 / 211 / 0.
+- Run it. `check.py --bin rtwk --bin oracle --only long-transcript`: PASS on both (`/tmp/ct2-cap`). The sheet is
+  not reachable from Ctrl+T until `session_page.rs` mounts it (need 1), so I walked it in the real binary through
+  `--debug-screens` (a pty driver with a small VT reader, 100x30): `sheet_basic` shows the title row, the transcript,
+  `⌃space select` and the two hint rows; Home gives `end latest` and the hints give way; Esc gives the browsing
+  status row and the two hint rows with `→ to edit next · enter to edit message`; `sheet_owned` shows only the
+  transcript (no title, status or hint rows), Esc marks the prompt. The oracle has no debug menu and its Ctrl+T
+  sheet is not in a mock-model scenario, so no row of the sheet was compared against the oracle binary: the rows the
+  page tests assert are those of the oracle's `transcript.rs` render (`render`, `render_hints`), read, not run.

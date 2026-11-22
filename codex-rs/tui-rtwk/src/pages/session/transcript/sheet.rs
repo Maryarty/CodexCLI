@@ -160,7 +160,7 @@ impl State for SheetState {
                 Some(follow.listenable()),
                 Some(modes.listenable() as Rc<dyn Listenable>),
             ]);
-            let bottom = ListenableBuilder::new(Rc::new(listenable), move |_, _| {
+            ListenableBuilder::new(Rc::new(listenable), move |_, _| {
                 let browsing = modes.browsing();
                 let hints = second(modes.selected().is_some(), table);
                 let mut rows = Column::new()
@@ -197,8 +197,7 @@ impl State for SheetState {
                         .child(pager::hint_row(&hints, table, dim.clone()));
                 }
                 rows.into()
-            });
-            bottom
+            })
         });
         let mut column = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
         if w.chrome == Chrome::Overlay {
