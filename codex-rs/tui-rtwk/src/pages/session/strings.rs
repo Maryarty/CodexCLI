@@ -455,6 +455,7 @@ impl Strings {
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
+            NoteKey::Server(message) | NoteKey::ServerDone(message) => message.clone(),
             NoteKey::WorkingDirectory(dir) => text(self.working_directory, dir),
             NoteKey::Rollout(Some(path)) => text(self.rollout, path),
             NoteKey::Rollout(None) => self.rollout_missing.to_string(),

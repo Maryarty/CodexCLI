@@ -19,6 +19,130 @@ pub const KIND: Kind = Kind::Dialog;
 
 use std::collections::BTreeSet;
 
+use codex_app_server_protocol::{ModelVerification, ServerNotification};
+
+/// The oracle's `TRUSTED_ACCESS_FOR_CYBER_VERIFICATION_WARNING` (chatwidget.rs).
+const TRUSTED_ACCESS_FOR_CYBER_WARNING: &str = "Your conversations have multiple flags for possible cybersecurity risk. Responses may take longer because extra safety checks are on. To get authorized for security work, join the Trusted Access for Cyber program: https://chatgpt.com/cyber";
+/// The oracle's `StrictReviewRequired` warning (chatwidget/protocol.rs).
+const STRICT_REVIEW_WARNING: &str =
+    "This request requires additional safety checks, some tool calls might take extra time";
+/// A guardian approval is not a warning (`GuardianWarning` in chatwidget/protocol.rs).
+const GUARDIAN_APPROVED_PREFIX: &str = "Automatic approval review approved (";
+const FALLBACK_MODEL_METADATA_PREFIX: &str = "Model metadata for `";
+const FALLBACK_MODEL_METADATA_SUFFIX: &str = "` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
+/// The source label of a warning the session raised after startup, and of one raised during it.
+const SOURCE_WARNING: &str = "Warning";
+const SOURCE_STARTUP: &str = "Startup";
+
+/// A diagnostic of the server (oracle `ServerNotification::Warning`, `ConfigWarning`,
+/// `GuardianWarning`, `StrictReviewRequired`, `ModelVerification`): the thread it names, if any,
+/// and its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Incoming {
+    pub thread: Option<String>,
+    pub message: String,
+    /// A `configWarning`: during startup it also hides the same text arriving as a thread warning.
+    pub config: bool,
+}
+
+/// What `notification` warns of, in the oracle's words.
+pub fn incoming(notification: &ServerNotification) -> Option<Incoming> {
+    let warn = |thread: Option<String>, message: String, config: bool| {
+        Some(Incoming {
+            thread,
+            message,
+            config,
+        })
+    };
+    match notification {
+        ServerNotification::Warning(n) => warn(n.thread_id.clone(), n.message.clone(), false),
+        ServerNotification::ConfigWarning(n) => warn(
+            None,
+            match &n.details {
+                Some(details) => format!("{}: {details}", n.summary),
+                None => n.summary.clone(),
+            },
+            true,
+        ),
+        ServerNotification::GuardianWarning(n) if !n.message.starts_with(GUARDIAN_APPROVED_PREFIX) => {
+            warn(Some(n.thread_id.clone()), n.message.clone(), false)
+        }
+        ServerNotification::StrictReviewRequired(n) => warn(
+            Some(n.thread_id.clone()),
+            STRICT_REVIEW_WARNING.to_owned(),
+            false,
+        ),
+        ServerNotification::ModelVerification(n)
+            if n.verifications.contains(&ModelVerification::TrustedAccessForCyber) =>
+        {
+            warn(
+                Some(n.thread_id.clone()),
+                TRUSTED_ACCESS_FOR_CYBER_WARNING.to_owned(),
+                false,
+            )
+        }
+        _ => None,
+    }
+}
+
+/// The model slug of a fallback-metadata warning (`fallback_model_metadata_warning_slug`).
+fn fallback_model_slug(message: &str) -> Option<&str> {
+    message
+        .strip_prefix(FALLBACK_MODEL_METADATA_PREFIX)?
+        .strip_suffix(FALLBACK_MODEL_METADATA_SUFFIX)
+}
+
+/// The oracle's `WarningDisplayState`: how the session takes in diagnostics.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Intake {
+    /// A turn started (or a history was replayed): later diagnostics are runtime warnings.
+    pub startup_complete: bool,
+    /// Initialization config warnings, which may also arrive as ordinary thread warnings.
+    startup_config: BTreeSet<String>,
+    fallback_models: BTreeSet<String>,
+    /// Texts of the warnings the user dismissed: an unchanged diagnostic stays hidden.
+    dismissed: BTreeSet<String>,
+}
+
+/// The diagnostic is new to the session: it is retained, and its row belongs to the thread.
+/// `false` for one startup already showed, one dismissed unchanged, or a fallback-metadata
+/// warning of a model seen before (`WarningDisplayState::should_display`, `retain`).
+pub fn take_in(model: &mut Model, incoming: &Incoming) -> bool {
+    let intake = &mut model.intake;
+    let message = &incoming.message;
+    if intake.startup_config.contains(message)
+        || intake.dismissed.contains(message)
+        || fallback_model_slug(message).is_some_and(|slug| !intake.fallback_models.insert(slug.to_owned()))
+    {
+        return false;
+    }
+    let source = if intake.startup_complete {
+        SOURCE_WARNING
+    } else {
+        if incoming.config {
+            intake.startup_config.insert(message.clone());
+        }
+        SOURCE_STARTUP
+    };
+    apply_retained(
+        model,
+        vec![Warning {
+            source: source.to_owned(),
+            details: message.clone(),
+        }],
+    );
+    true
+}
+
+/// A retained list holds each text once (`warning_entries` joins duplicates by identity).
+fn apply_retained(model: &mut Model, entries: Vec<Warning>) {
+    for entry in entries {
+        if !model.retained.iter().any(|held| held.details == entry.details) {
+            model.retained.push(entry);
+        }
+    }
+}
+
 /// The two pages of the shortcut overlay (`bottom_pane/shortcut_overlay.rs`:
 /// `ShortcutView`): the list of bindings and the keyboard diagram.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -156,6 +280,8 @@ pub struct Model {
     /// footer counts them and F2 / `/warnings` shows them. A page seen and
     /// left is dismissed and leaves the list.
     pub retained: Vec<Warning>,
+    /// How diagnostics are taken in (startup or runtime, what was seen, what was dismissed).
+    pub intake: Intake,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
@@ -199,7 +325,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Opened(open) => model.open = Some(open),
-        Ev::Retained(entries) => model.retained.extend(entries),
+        Ev::Retained(entries) => apply_retained(model, entries),
     }
 }
 
@@ -256,6 +382,7 @@ fn close(model: &mut Model) {
             }
         }
         for gone in &dismissed {
+            model.intake.dismissed.insert(gone.details.clone());
             if let Some(at) = model.retained.iter().position(|w| w == gone) {
                 model.retained.remove(at);
             }
