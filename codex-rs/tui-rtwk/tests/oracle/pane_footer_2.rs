@@ -747,7 +747,7 @@ fn esc_interrupts_running_task_when_no_popup() {
 fn remapped_interrupt_turn_uses_configured_key_including_agent_drafts() {
     kit::pending(
         Owner::UiPane,
-        "no keymap seed for chat.interrupt_turn = f12 and no running task with `/subagents ` typed (entry chat/running_subagents_command); the port reads no keymap yet",
+        "no running task with `/subagents ` typed (entry chat/running_subagents_command), and the chat reads no `chat.interrupt_turn` binding (the seed sets f12)",
     );
     let s = Screen::build(Owner::UiPane)
         .keymap(&[("chat.interrupt_turn", "f12")])
@@ -761,7 +761,7 @@ fn remapped_interrupt_turn_uses_configured_key_including_agent_drafts() {
 fn selection_view_esc_respects_remapped_list_cancel() {
     kit::pending(
         Owner::UiPane,
-        "no selection view with a remapped list cancel: no entry chat/selection_view_list (a running list picker) and the keymap seed list.cancel = q",
+        "no selection view with a remapped list cancel: no entry chat/selection_view_list (a running list picker); the seed sets list.cancel = q",
     );
     let mut s = Screen::build(Owner::UiPane)
         .keymap(&[("list.cancel", "q")])
@@ -1247,7 +1247,7 @@ fn active_dashboard_preserves_live_colors_controls_and_width() {
 fn voice_controls_follow_configured_mute_binding_and_unbinding() {
     kit::pending(
         Owner::UiPane,
-        "no voice strip with a configurable mute key: entry chat/voice_strip_active and the keymap seed chat.toggle_voice_mute (f8, ctrl+x m, unbound); the oracle joins twelve states into one snapshot, the kit compares one screen (gap)",
+        "no voice strip with a configurable mute key: entry chat/voice_strip_active with its mute key (f8, ctrl+x m, unbound: the seed sets chat.toggle_voice_mute); the oracle joins twelve states into one snapshot, the kit compares one screen (gap)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(80, 2)
