@@ -190,6 +190,8 @@ the last row (see Needs). Earlier (1c/1d): `browser_keymap` at 80x24 equals the 
 search, `description_hide_when_narrow` hides at 48 columns and shows at 49. The mouse in the binary was not re-walked (a click went to the debug list's
 background row); the mouse is covered by the tap/wheel tests in tests/sheets/select.rs.
 
+- run of 2026-11-22: `codex-rtwk` builds; the mock-model scenarios drive turns only (none types a slash command, and `/apps` needs a ChatGPT login and an app server), so /model, /permissions and /apps were walked through the kit's live `Screen` (keys, answers) and not in a pty; a pty walk of the live pickers is still owed.
+
 ## Checks at the tip (step 3, on claude/tui-rtwk af5799546)
 
 fmt clean; `clippy -q --workspace --all-targets -D warnings` no error; whole nextest 2113 run, 2113 passed; `shards.py --check`: 55 shards, 2560 tests, 0 stale;
