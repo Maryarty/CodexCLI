@@ -24,7 +24,7 @@ const PARAM_VALUE_TRUNCATE: usize = 60;
 
 /// How the answer is sent: the typed values of the fields, or one of the approval actions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
+pub enum FormMode {
     Content,
     Approval,
 }
@@ -117,7 +117,7 @@ pub enum Entered {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Form {
-    pub mode: Mode,
+    pub mode: FormMode,
     pub tool_approval: bool,
     /// The first three parameters of a tool approval.
     pub summary: Vec<Param>,
@@ -146,7 +146,7 @@ impl Form {
         }
         if !message_only {
             return Some(Form {
-                mode: Mode::Content,
+                mode: FormMode::Content,
                 tool_approval,
                 summary: Vec::new(),
                 fields: parse_fields(schema)?,
@@ -164,7 +164,7 @@ impl Form {
         }
         actions.push(Action::Cancel);
         Some(Form {
-            mode: Mode::Approval,
+            mode: FormMode::Approval,
             tool_approval,
             summary: if tool_approval {
                 param_summary(meta)
@@ -224,7 +224,7 @@ impl Form {
         if let Some(index) = self.first_unanswered(entered) {
             return Err(index);
         }
-        if self.mode == Mode::Approval {
+        if self.mode == FormMode::Approval {
             let action = match (&self.fields[0].input, entered[0].as_ref()) {
                 (FieldInput::Actions(actions), Some(Entered::Choice(option))) => {
                     actions.get(*option).copied()

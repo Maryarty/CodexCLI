@@ -371,7 +371,7 @@ fn the_banner_lists_the_inactive_threads_that_wait_for_an_approval() {
 mod forms {
     use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
     use codex_tui_core::screens::ScreenIntent;
-    use codex_tui_core::screens::approvals::form::{Action, Entered, FieldInput, Form, Mode};
+    use codex_tui_core::screens::approvals::form::{Action, Entered, FieldInput, Form, FormMode};
     use codex_tui_core::screens::approvals::{Decision, Intent as ApprovalIntent, RequestAnswer};
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
@@ -395,13 +395,13 @@ mod forms {
     #[test]
     fn a_message_only_form_offers_allow_deny_cancel() {
         let form = Form::parse(None, &json!({ "type": "object", "properties": {} })).unwrap();
-        assert_eq!(form.mode, Mode::Approval);
+        assert_eq!(form.mode, FormMode::Approval);
         assert_eq!(
             actions(&form),
             [Action::Allow, Action::Deny, Action::Cancel]
         );
         let form = Form::parse(None, &Value::Null).unwrap();
-        assert_eq!(form.mode, Mode::Approval);
+        assert_eq!(form.mode, FormMode::Approval);
     }
 
     /// A tool approval has no Deny; the persist choices are the ones its meta offers.
@@ -481,7 +481,7 @@ mod forms {
     #[test]
     fn the_answer_of_a_content_form_is_its_typed_values() {
         let form = content_form();
-        assert_eq!(form.mode, Mode::Content);
+        assert_eq!(form.mode, FormMode::Content);
         assert_eq!(form.fields.len(), 3);
         // the fields follow the schema's order, so look them up by id
         let at = |id: &str| form.fields.iter().position(|f| f.id == id).unwrap();
