@@ -1,0 +1,2 @@
+# The token usage 90k of 100k the oracle sets before the prompt opens (plan_mode.rs:94).
+{"step":"notify","message":{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"totalTokens":90000,"inputTokens":0,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"last":{"totalTokens":90000,"inputTokens":0,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":100000}}}}

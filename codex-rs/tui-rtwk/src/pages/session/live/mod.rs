@@ -3,6 +3,7 @@
 //! `chatwidget` draws only while a turn runs.
 
 pub(super) mod browse;
+pub(super) mod plan_mode;
 mod restore;
 
 pub(super) use restore::put_back;

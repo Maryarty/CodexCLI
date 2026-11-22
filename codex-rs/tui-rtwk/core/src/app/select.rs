@@ -10,6 +10,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
+use crate::screens::chat::plan_mode;
 use crate::screens::select::{self, apps, permissions};
 use crate::screens::{ScreenCommand, ScreenReply};
 
@@ -68,7 +69,10 @@ fn drain(app: &mut CodexApp, fx: &mut AppFx) {
 /// `apply_permission_profile_selection`).
 fn picks(app: &mut CodexApp, fx: &mut AppFx) {
     use select::Picked::{Permissions, Selection};
-    let ours = |pick: &select::Picked| matches!(pick, Selection(_) | Permissions(_));
+    let ours = |pick: &select::Picked| {
+        matches!(pick, Selection(_) | Permissions(_))
+            || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
+    };
     if !app.screens.select.picked.iter().any(ours) {
         return;
     }
@@ -87,6 +91,11 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
         match pick {
             Selection(selection) => model_pick(app, selection, fx),
             Permissions(selection) => permissions_pick(app, selection, fx),
+            select::Picked::Item(id) => {
+                if let Some(answer) = plan_mode::Answer::of_row(&id) {
+                    super::session::plan_answer(app, answer, fx);
+                }
+            }
             _ => {}
         }
     }

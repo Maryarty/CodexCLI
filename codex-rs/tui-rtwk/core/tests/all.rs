@@ -33,6 +33,7 @@ mod models;
 mod onboarding;
 mod permissions;
 mod pets;
+mod plan_mode;
 mod popovers;
 mod resume;
 mod script;
