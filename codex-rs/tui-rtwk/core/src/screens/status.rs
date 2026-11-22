@@ -13,6 +13,23 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+mod card;
+mod helpers;
+mod limits;
+
+pub use card::{
+    Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,
+    Sandbox, SandboxText, StatusCard, model_details,
+};
+pub use helpers::{
+    AgentsSource, PlanLabel, ResetDate, ResetTime, compose_agents_summary,
+    format_directory_display, plan_label, reset_time,
+};
+pub use limits::{
+    Credits, CreditsText, Data as LimitData, Limits, Row as LimitRow, RowLabel, RowValue,
+    Snapshot, SpendLimit, SpendUsed, Window, WindowName, window_name,
+};
+
 pub const NAME: &str = "status";
 pub const ID: &str = "S19";
 pub const KIND: Kind = Kind::Sheet;
@@ -102,14 +119,23 @@ pub struct Card {
 pub struct Model {
     /// The card of the last `/status`.
     pub card: Option<Card>,
+    /// The card of a `/status` cell a script seeded: the facts of the oracle's
+    /// cell, shown by `StatusCell`. Only a seed writes it; the live app moves
+    /// the card into the thread's transcript (`Item::Status`) and drops this
+    /// and `card` with the departure (tm debt task status-card-adr003).
+    pub cell: Option<StatusCard>,
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
 /// root `ScreenEv`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+// The dialog's `Card` goes with the dialog (tm status-card-adr003).
+#[allow(clippy::large_enum_variant)]
 pub enum Ev {
     /// `/status` ran: the card to show.
     Shown(Card),
+    /// A `/status` cell was seeded (a script's `status_card`).
+    CellShown(Box<StatusCard>),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -124,6 +150,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Shown(card) => model.card = Some(card),
+        Ev::CellShown(card) => model.cell = Some(*card),
     }
 }
 
@@ -255,17 +282,22 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// The seed form: `{"kind":"card", ..the fields of `Card`..}`.
+/// The seed forms: `{"kind":"card", ..the fields of `Card`..}` (the dialog's
+/// card) and `{"kind":"status_card", ..the fields of `StatusCard`..}` (the
+/// cell's).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    Card(Card),
+    Card(Box<Card>),
+    StatusCard(Box<StatusCard>),
 }
 
 /// A script's `screen` step for this directory.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
-    let SeedEv::Card(card) = seed;
-    Ok(Ev::Shown(card))
+    Ok(match seed {
+        SeedEv::Card(card) => Ev::Shown(*card),
+        SeedEv::StatusCard(card) => Ev::CellShown(card),
+    })
 }
