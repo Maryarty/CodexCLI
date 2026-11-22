@@ -327,7 +327,7 @@ fn compact_patches_retain_full_changes_and_failure_details() {
 fn viewed_image_retains_original_path_in_details() {
     // The oracle's transcript lines (width 200) are what the control reveals in place.
     let mut s = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details.jsonl"
         ))
@@ -337,7 +337,7 @@ fn viewed_image_retains_original_path_in_details() {
     s.assert_has_row("• Viewed image /workspace/assets/example.png");
     // Not ported: the raw row (raw scrollback, not built).
     let mut w = Screen::build(Owner::ChatLive)
-        .size(80, 8)
+        .size(80, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_retains_original_path_in_details_windows.jsonl"
         ))
@@ -351,7 +351,7 @@ fn viewed_image_retains_original_path_in_details() {
 #[test]
 fn viewed_image_narrow_summary() {
     let s = Screen::build(Owner::ChatLive)
-        .size(32, 8)
+        .size(32, 9)
         .script(include_str!(
             "fixtures/cells_2/viewed_image_narrow_summary.jsonl"
         ))
@@ -385,7 +385,7 @@ fn finalized_plan_reuses_rendered_transcript_lines() {
 #[test]
 fn finalized_plan_file_citation_renders_as_local_path_snapshot() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+        .size(80, 13)
         .script(include_str!(
             "fixtures/cells_2/finalized_plan_file_citation_renders_as_local_path_snapshot.jsonl"
         ))

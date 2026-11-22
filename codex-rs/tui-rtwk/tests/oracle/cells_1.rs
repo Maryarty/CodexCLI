@@ -95,7 +95,7 @@ fn ui_snapshot_apply_update_with_rename_block() {
 #[test]
 fn ui_snapshot_apply_multiple_files_block() {
     let s = Screen::build(Owner::ChatLive)
-        .size(80, 14)
+        .size(80, 15)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_multiple_files_block.jsonl"
         ))
