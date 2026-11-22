@@ -296,6 +296,18 @@ async fn run(
         source: "Startup".to_string(),
         details,
     }));
+    // `tui.keymap.*`: a keymap the oracle refuses is a warning and the
+    // defaults stay.
+    let keymap = match crate::facts::keymap(&config) {
+        Ok(keymap) => Some(keymap),
+        Err(details) => {
+            warnings.push(Warning {
+                source: "Keymap".to_string(),
+                details,
+            });
+            None
+        }
+    };
     let workspace: Arc<dyn Workspace> = Arc::new(Local::new(config.codex_home.to_path_buf()));
     // The startup page's asks: the trust is a local folder's question.
     let (restart, mut restarts) = tokio::sync::mpsc::unbounded_channel::<crate::startup::Restart>();
@@ -342,6 +354,9 @@ async fn run(
         epoch,
         AppEv::Screen(ScreenEv::Chat(ChatEv::Status(Box::new(status)))),
     );
+    if let Some(keymap) = keymap {
+        emit(&ingress, epoch, AppEv::Keymap(Box::new(keymap)));
+    }
     if !warnings.is_empty() {
         emit(
             &ingress,
