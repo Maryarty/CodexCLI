@@ -73,7 +73,7 @@ fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
 fn page_of(sandbox: &Sandbox) -> codex_tui_core::screens::select::models::Page {
     match model(sandbox).page().expect("a typed menu") {
         codex_tui_core::screens::select::Page::Model(page) => page,
-        codex_tui_core::screens::select::Page::Permissions(_) => panic!("a permissions menu"),
+        _ => panic!("not a model menu"),
     }
 }
 

@@ -10,7 +10,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
-use crate::screens::select::{self, permissions};
+use crate::screens::select::{self, apps, permissions};
 use crate::screens::{ScreenCommand, ScreenReply};
 
 /// An intent of the select screen, and the asks it left open.
@@ -20,11 +20,13 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         screens.select.catalog.pending,
         screens.select.profiles.pending,
     );
+    let apps = screens.select.apps.pending;
     select::apply_intent(&mut screens.select, intent, fx);
     let after = (
         screens.select.catalog.pending,
         screens.select.profiles.pending,
     );
+    asked_apps(app, apps, fx);
     if let Some(request) = after.0.filter(|_| after.0 != before.0) {
         ask(
             app,
@@ -54,12 +56,49 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
         match pick {
             select::Picked::Selection(selection) => model_pick(app, selection, fx),
             select::Picked::Permissions(selection) => permissions_pick(app, selection, fx),
-            // A generic list's picks belong to the screen that opened it.
-            select::Picked::Item(_)
+            // A generic list's picks belong to the screen that opened it; an
+            // app's page is the app link dialog's (a core Need, pack).
+            select::Picked::App(_)
+            | select::Picked::Item(_)
             | select::Picked::ItemSecondary(_)
             | select::Picked::Items(_) => {}
         }
     }
+}
+
+/// An event of the select screen, and the `app/list` it left to ask (a final
+/// answer may start the refresh a notification or a forced ask waited for;
+/// the app server's directory notification comes through here too).
+pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
+    let before = app.screens.select.apps.pending;
+    select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
+    asked_apps(app, before, fx);
+}
+
+/// The `app/list` the screen left pending since `before`, asked for.
+fn asked_apps(app: &mut CodexApp, before: Option<apps::Request>, fx: &mut AppFx) {
+    let Some(pending) = app
+        .screens
+        .select
+        .apps
+        .pending
+        .filter(|now| Some(*now) != before)
+    else {
+        return;
+    };
+    let thread = app.session.active.as_ref().map(ToString::to_string);
+    ask(
+        app,
+        select::Command::Apps {
+            request: pending.request,
+            force: pending.force,
+            thread,
+        },
+        select::Ctx::Apps {
+            request: pending.request,
+        },
+        fx,
+    );
 }
 
 fn notes(app: &mut CodexApp, notes: impl IntoIterator<Item = select::Note>) {
@@ -199,6 +238,14 @@ pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &
                 }],
             ),
         },
+        (select::Ctx::Apps { request }, result) => {
+            let result = match result {
+                Ok(select::Reply::Apps(apps)) => Ok(apps),
+                Ok(_) => Err(String::new()),
+                Err(error) => Err(text(error)),
+            };
+            self::event(app, select::Ev::AppsLoaded { request, result }, fx);
+        }
         (select::Ctx::Models { request }, result) => {
             let result = match result {
                 Ok(select::Reply::Models(presets)) => Ok(presets),

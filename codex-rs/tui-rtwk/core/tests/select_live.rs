@@ -10,6 +10,7 @@
 use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
 use codex_tui_core::ids::Ticket;
 use codex_tui_core::rpc::{Reply, RpcError};
+use codex_tui_core::screens::select::apps::{App, Cache, Status};
 use codex_tui_core::screens::select::models::{Current as ModelCurrent, Preset};
 use codex_tui_core::screens::select::permissions::{
     Current as PermsCurrent, Failure, PermissionsMenu, Profile,
@@ -438,4 +439,230 @@ fn a_permission_pick_updates_the_thread_and_says_so() {
         app.screens().select.notes.as_slice(),
         [select::Note::PermissionsUpdated(_)]
     ));
+}
+
+fn app_of(id: &str, installed: bool, enabled: bool, url: bool) -> App {
+    App {
+        id: id.to_string(),
+        name: id.to_uppercase(),
+        description: None,
+        install_url: url.then(|| format!("https://x/{id}")),
+        installed,
+        enabled,
+    }
+}
+
+fn apps_cache(app: &CodexApp) -> Cache {
+    app.screens().select.apps.cache.clone()
+}
+
+fn apps_command(fx: &AppFx) -> (Ticket, u64, bool, Option<String>) {
+    match asked(fx) {
+        (
+            ticket,
+            select::Command::Apps {
+                request,
+                force,
+                thread,
+            },
+        ) => (ticket, request, force, thread),
+        (_, other) => panic!("expected app/list, got {other:?}"),
+    }
+}
+
+/// `/apps` opens the loading menu and asks `app/list` forced for the
+/// displayed thread; the answer fills it in place.
+#[test]
+fn apps_open_loading_then_show_the_directory() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, _, force, thread) = apps_command(&fx);
+    assert!(force);
+    assert_eq!(thread.as_deref(), Some("thread-1"));
+    assert_eq!(app.screens().select.menu(), Some(&Menu::Apps));
+    assert_eq!(apps_cache(&app), Cache::Loading);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![app_of("notion", true, true, true)]),
+    );
+    let Some(select::Page::Apps(select::apps::Page::Apps {
+        installed, total, ..
+    })) = app.screens().select.page()
+    else {
+        panic!("expected the directory page");
+    };
+    assert_eq!((installed, total), (1, 1));
+}
+
+/// Disabled apps say so; a ready empty directory, a failed one and the
+/// feature off are notes, and no menu opens.
+#[test]
+fn apps_that_cannot_open_say_why() {
+    let mut app = threaded();
+    open(&mut app, SelectIntent::Close);
+    open(&mut app, SelectIntent::OpenApps { enabled: false });
+    assert_eq!(app.screens().select.notes, vec![select::Note::AppsDisabled]);
+    assert_eq!(app.screens().select.menu(), None);
+
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    answer(&mut app, ticket, select::Reply::Apps(vec![]));
+    open(&mut app, SelectIntent::Close);
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    assert_eq!(
+        app.screens().select.notes.last(),
+        Some(&select::Note::NoApps)
+    );
+    assert_eq!(app.screens().select.menu(), None);
+    // Still asked for again, forced: the cache is ready.
+    assert!(apps_command(&fx).2);
+}
+
+/// A first failure replaces the loading menu by the failure and its Retry
+/// row, which asks again and shows loading; a failure after a ready
+/// directory keeps it.
+#[test]
+fn a_failed_apps_read_offers_retry_and_a_ready_directory_survives_failure() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    run(
+        &mut app,
+        AppEv::Reply(
+            ticket,
+            Reply::error(RpcError::Remote("403 Forbidden".into())),
+        ),
+    );
+    assert!(matches!(apps_cache(&app), Cache::Failed(_)));
+    assert!(matches!(
+        app.screens().select.page(),
+        Some(select::Page::Apps(select::apps::Page::Failed))
+    ));
+    let fx = open(
+        &mut app,
+        SelectIntent::Choose(select::apps::RETRY.to_string()),
+    );
+    let (ticket, _, force, _) = apps_command(&fx);
+    assert!(force);
+    assert_eq!(apps_cache(&app), Cache::Loading);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![app_of("a", true, true, true)]),
+    );
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::error(RpcError::Remote("boom".into()))),
+    );
+    assert!(matches!(apps_cache(&app), Cache::Ready(_)));
+}
+
+/// A second `/apps` while one runs is not asked twice; a forced one (the
+/// directory is ready) follows the first.
+#[test]
+fn a_refresh_in_flight_queues_the_forced_one() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (first, ..) = apps_command(&fx);
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    assert!(all(&fx).is_empty(), "one request at a time");
+    let fx = answer(
+        &mut app,
+        first,
+        select::Reply::Apps(vec![app_of("a", true, true, true)]),
+    );
+    assert!(all(&fx).is_empty(), "an unforced ask leaves nothing behind");
+
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (second, _, force, _) = apps_command(&fx);
+    assert!(force, "a ready directory is read past the caches");
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    assert!(all(&fx).is_empty());
+    let fx = answer(
+        &mut app,
+        second,
+        select::Reply::Apps(vec![app_of("a", true, true, true)]),
+    );
+    let (third, _, force, _) = apps_command(&fx);
+    assert!(force, "the forced ask waited for the first");
+    answer(
+        &mut app,
+        third,
+        select::Reply::Apps(vec![app_of("a", true, true, true)]),
+    );
+}
+
+/// Picking an app hands it to whoever shows the app page; one without a link
+/// says so.
+#[test]
+fn picking_an_app_opens_its_page_or_says_it_has_none() {
+    let mut app = threaded();
+    let fx = open(&mut app, SelectIntent::OpenApps { enabled: true });
+    let (ticket, ..) = apps_command(&fx);
+    answer(
+        &mut app,
+        ticket,
+        select::Reply::Apps(vec![
+            app_of("a", true, true, true),
+            app_of("b", false, true, false),
+        ]),
+    );
+    open(&mut app, SelectIntent::Choose("b".into()));
+    assert_eq!(
+        app.screens().select.notes,
+        vec![select::Note::AppLinkUnavailable(Status::Installable)]
+    );
+}
+
+/// A switched app keeps its switch over a refreshed answer; a notified
+/// directory equal to the held one is not read again, a different one is.
+#[test]
+fn a_switch_survives_a_refresh_and_only_a_different_notification_asks() {
+    let mut model = select::Model::default();
+    let mut fx = AppFx::default();
+    let dir = vec![app_of("a", true, true, true)];
+    let first = model.apps.open().expect("asks").request;
+    select::apply(
+        &mut model,
+        select::Ev::AppsLoaded {
+            request: first,
+            result: Ok(dir.clone()),
+        },
+        &mut fx,
+    );
+    select::apply(&mut model, select::Ev::AppsNotified(dir.clone()), &mut fx);
+    assert_eq!(model.apps.pending, None, "equal to the held directory");
+    select::apply(
+        &mut model,
+        select::Ev::AppSwitched {
+            id: "a".into(),
+            enabled: false,
+        },
+        &mut fx,
+    );
+    assert_eq!(
+        model.apps.ready().expect("ready")[0].status(),
+        Status::Disabled
+    );
+    select::apply(&mut model, select::Ev::AppsNotified(dir.clone()), &mut fx);
+    let second = model
+        .apps
+        .pending
+        .expect("differs from the held one: read again");
+    assert!(!second.force);
+    select::apply(
+        &mut model,
+        select::Ev::AppsLoaded {
+            request: second.request,
+            result: Ok(dir),
+        },
+        &mut fx,
+    );
+    assert_eq!(
+        model.apps.ready().expect("ready")[0].status(),
+        Status::Disabled
+    );
 }

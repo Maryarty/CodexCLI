@@ -14,6 +14,7 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::screens::select::apps::Status;
 use codex_tui_core::screens::select::models::Effort;
 use codex_tui_core::screens::select::permissions::Failure;
 
@@ -35,6 +36,26 @@ pub struct Strings {
     pub permissions_loading: &'static str,
     pub permissions_retry: &'static str,
     pub permissions_failed: Msg<1>,
+    // chatwidget/connectors.rs: the `/apps` directory.
+    pub apps_title: &'static str,
+    pub apps_loading_subtitle: &'static str,
+    pub apps_loading: &'static str,
+    pub apps_loading_description: &'static str,
+    pub apps_failed_subtitle: &'static str,
+    pub apps_unavailable: &'static str,
+    pub apps_unavailable_description: &'static str,
+    pub apps_retry: &'static str,
+    pub apps_retry_description: &'static str,
+    pub apps_mention_hint: &'static str,
+    pub apps_counts: Msg<2>,
+    pub apps_search: &'static str,
+    pub apps_installed: &'static str,
+    pub apps_disabled: &'static str,
+    pub apps_installable: &'static str,
+    pub apps_brief: Msg<2>,
+    pub apps_open_installed: Msg<1>,
+    pub apps_open_install: Msg<1>,
+    pub apps_no_link: Msg<1>,
     pub failure_duplicate: &'static str,
     pub failure_cloud: &'static str,
     pub failure_unsupported: &'static str,
@@ -168,6 +189,39 @@ impl Strings {
         }
     }
 
+    pub fn app_status(&self, status: Status) -> &'static str {
+        match status {
+            Status::Installed => self.apps_installed,
+            Status::Disabled => self.apps_disabled,
+            Status::Installable => self.apps_installable,
+        }
+    }
+
+    pub fn apps_counts(&self, installed: usize, total: usize) -> String {
+        let count = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
+        Fmt::new(
+            self.apps_counts,
+            [count(installed), count(total)],
+            &self.num,
+        )
+        .to_string()
+    }
+
+    /// `{status} · {description}` (`connector_brief_description`).
+    pub fn app_brief(&self, status: Status, description: &str) -> String {
+        Fmt::new(
+            self.apps_brief,
+            [Arg::Text(self.app_status(status)), Arg::Text(description)],
+            &self.num,
+        )
+        .to_string()
+    }
+
+    /// The text of a message of one argument, the app's status label.
+    pub fn app_status_line(&self, msg: Msg<1>, status: Status) -> String {
+        Fmt::new(msg, [Arg::Text(self.app_status(status))], &self.num).to_string()
+    }
+
     pub fn all_models_description(&self, current: &str) -> String {
         Fmt::new(self.all_models_description, [Arg::Text(current)], &self.num).to_string()
     }
@@ -240,6 +294,27 @@ pub const EN: Strings = Strings {
     permissions_loading: "Loading permission profiles…",
     permissions_retry: "Retry",
     permissions_failed: msg!("Failed to load permissions: {0}"),
+    apps_title: "Apps",
+    apps_loading_subtitle: "Loading installed and available apps...",
+    apps_loading: "Loading apps...",
+    apps_loading_description: "This updates when the full list is ready",
+    apps_failed_subtitle: "Failed to load apps.",
+    apps_unavailable: "App directory unavailable",
+    apps_unavailable_description: "Retry the failed app directory request, or press Esc to continue",
+    apps_retry: "Retry",
+    apps_retry_description: "Reload installed and available apps",
+    apps_mention_hint: "Use $ to insert an installed app into your prompt.",
+    apps_counts: msg!("Installed {0} of {1} available apps."),
+    apps_search: "Type to search apps",
+    apps_installed: "Installed",
+    apps_disabled: "Installed · Disabled",
+    apps_installable: "Can be installed",
+    apps_brief: msg!("{0} · {1}"),
+    apps_open_installed: msg!(
+        "{0} · Press Enter to open the app page to install, manage, or enable/disable this app"
+    ),
+    apps_open_install: msg!("{0} · Press Enter to open the app page to install this app"),
+    apps_no_link: msg!("{0} · App link unavailable"),
     failure_duplicate: "The server returned duplicate permission profiles.",
     failure_cloud: "Cloud conversations use server-selected permissions.",
     failure_unsupported: "This server does not support permission discovery. Upgrade the Codex server to use this menu.",

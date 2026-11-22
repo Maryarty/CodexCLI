@@ -13,6 +13,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod apps;
 pub mod layout;
 pub mod list;
 pub mod models;
@@ -37,6 +38,9 @@ pub enum Menu {
     /// A menu of the `/permissions` family (`permissions.rs`): the presets,
     /// the server's profiles, the full-access confirmation.
     Permissions(Box<PermissionsMenu>),
+    /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
+    /// failure with its Retry row, or the list).
+    Apps,
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -58,6 +62,9 @@ pub enum Picked {
     /// A multi-select list (`List::multi`) was confirmed: the ids of the
     /// items whose toggle is on, in the order of the list.
     Items(Vec<String>),
+    /// An app of the directory (`Model::apps`), by id: its page opens in the
+    /// browser (the app link dialog) or says it has no link.
+    App(String),
 }
 
 /// A typed menu as rows: what the view turns into its list.
@@ -65,6 +72,7 @@ pub enum Picked {
 pub enum Page {
     Model(models::Page),
     Permissions(permissions::Page),
+    Apps(apps::Page),
 }
 
 /// What the picker says in the history (`add_info_message`/`add_error_message`):
@@ -77,7 +85,11 @@ pub enum Note {
     ModelsNotLoaded,
     /// `Model changed to {model} {effort}` (`for this session only` when the
     /// pick was the `s` key), after the pick was applied.
-    ModelChanged { model: String, effort: Option<Effort>, session: bool },
+    ModelChanged {
+        model: String,
+        effort: Option<Effort>,
+        session: bool,
+    },
     /// The Ultra concurrency warning of a pick
     /// (`ultra_reasoning_concurrency_warning`): the threads configured.
     UltraConcurrency(usize),
@@ -89,6 +101,16 @@ pub enum Note {
     /// `Saved {setting}, but a higher-priority configuration layer overrides
     /// the saved value.`
     Overridden(Setting),
+    /// `Apps are disabled.` and the hint `Enable the apps feature to use $ or
+    /// /apps.`
+    AppsDisabled,
+    /// `No apps available.`
+    NoApps,
+    /// The directory failed before: the error as an error cell.
+    AppsFailed(String),
+    /// `{status} · App link unavailable`: an app without an install URL was
+    /// picked.
+    AppLinkUnavailable(apps::Status),
 }
 
 /// What a failed or overridden write was for.
@@ -112,6 +134,8 @@ pub struct Model {
     pub catalog: Catalog,
     /// The permission profiles the pickers list.
     pub profiles: Profiles,
+    /// The apps `/apps` lists.
+    pub apps: apps::Apps,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -134,14 +158,57 @@ impl Model {
             Menu::Model(menu) => {
                 let mut page = menu.page(&self.catalog);
                 let kept = self.kept.get(&(self.stack.len() - 1));
-                if let Some(at) = kept.and_then(|id| page.rows.iter().position(|row| &row.id == id)) {
+                if let Some(at) = kept.and_then(|id| page.rows.iter().position(|row| &row.id == id))
+                {
                     page.initial = Some(at);
                 }
                 Some(Page::Model(page))
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
+            Menu::Apps => Some(Page::Apps(self.apps.page())),
             Menu::List(_) => None,
         }
+    }
+
+    /// `/apps` (`add_connectors_output`): the directory is asked for again,
+    /// and what it held before decides what the user sees.
+    fn open_apps(&mut self, enabled: bool) {
+        if !enabled {
+            self.notes.push(Note::AppsDisabled);
+            return;
+        }
+        let held = self.apps.cache.clone();
+        self.apps.open();
+        match held {
+            apps::Cache::Ready(apps) if apps.is_empty() => self.notes.push(Note::NoApps),
+            apps::Cache::Failed(error) => self.notes.push(Note::AppsFailed(error)),
+            _ => self.stack = vec![Menu::Apps],
+        }
+    }
+
+    /// A row of the apps menu: `Retry` reloads, an app opens its page (or
+    /// says it has no link).
+    fn choose_app(&mut self, id: &str) {
+        if id == apps::RETRY {
+            if matches!(self.apps.cache, apps::Cache::Failed(_)) {
+                self.apps.refresh(true);
+            }
+            return;
+        }
+        let Some(app) = self
+            .apps
+            .ready()
+            .and_then(|apps| apps.iter().find(|app| app.id == id))
+        else {
+            return;
+        };
+        let note = app
+            .install_url
+            .is_none()
+            .then(|| Note::AppLinkUnavailable(app.status()));
+        self.notes.extend(note);
+        self.picked.push(Picked::App(id.to_string()));
+        self.stack.pop();
     }
 
     /// What a pick of the row `id` did to the stack; a menu pushed over this
@@ -223,8 +290,12 @@ impl Model {
         if let Ok(discovery) = &result {
             self.profiles.found = Some(discovery.clone());
         }
-        let Some(Menu::Permissions(menu)) = self.stack.last() else { return };
-        let Perms::Loading(current) = &**menu else { return };
+        let Some(Menu::Permissions(menu)) = self.stack.last() else {
+            return;
+        };
+        let Perms::Loading(current) = &**menu else {
+            return;
+        };
         let current = current.clone();
         let next = match result {
             Ok(_) => Perms::Profiles(current),
@@ -263,7 +334,8 @@ impl Model {
             }
             _ => true,
         });
-        self.notes.extend(std::iter::repeat_n(Note::NoAdditionalModels, dismissed));
+        self.notes
+            .extend(std::iter::repeat_n(Note::NoAdditionalModels, dismissed));
     }
 }
 
@@ -281,13 +353,29 @@ pub enum Ev {
     /// The answer of the `permissionProfile/list` request `request`
     /// (`Profiles::pending`); the profiles of every page and the
     /// requirements, or why they could not be read.
-    Discovered { request: u64, result: Result<permissions::Discovery, permissions::Failure> },
+    Discovered {
+        request: u64,
+        result: Result<permissions::Discovery, permissions::Failure>,
+    },
     /// The account or the scope changed (`invalidate_permission_discovery`):
     /// the answer in flight is no longer wanted and the menus that waited on
     /// it or showed it are dismissed.
     ScopeChanged,
     /// The answer of the `model/list` request `request` (`Catalog::pending`).
-    Fetched { request: u64, result: Result<Vec<Preset>, String> },
+    Fetched {
+        request: u64,
+        result: Result<Vec<Preset>, String>,
+    },
+    /// The answer of the `app/list` request `request` (`Apps::pending`).
+    AppsLoaded {
+        request: u64,
+        result: Result<Vec<apps::App>, String>,
+    },
+    /// The app server says the directory changed
+    /// (`refresh_connector_directory_after_notification`).
+    AppsNotified(Vec<apps::App>),
+    /// An app was switched on or off (`update_connector_enabled`).
+    AppSwitched { id: String, enabled: bool },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -303,6 +391,9 @@ pub enum Intent {
     /// `/permissions`: the menu for what the thread has now; the catalog is
     /// asked for when it has none (`Profiles::pending` is the request).
     OpenPermissions(permissions::Current),
+    /// `/apps` (`enabled`: the apps feature is on): the directory, asked for
+    /// again (`Apps::pending` is the request).
+    OpenApps { enabled: bool },
     /// The item with this id (`List::id_of`, or a row of `Page`) was
     /// accepted.
     Choose(String),
@@ -340,14 +431,23 @@ fn apply_ev(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::ScopeChanged => {
             use permissions::PermissionsMenu as Perms;
             model.profiles.pending = None;
-            model.stack.retain(|menu| {
-                !matches!(
-                    menu,
-                    Menu::Permissions(menu)
-                        if matches!(**menu, Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. })
-                )
+            model.apps.invalidate();
+            model.stack.retain(|menu| match menu {
+                Menu::Apps => false,
+                Menu::Permissions(menu) => !matches!(
+                    **menu,
+                    Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. }
+                ),
+                _ => true,
             });
         }
+        Ev::AppsLoaded { request, result } => {
+            model.apps.loaded(request, result);
+        }
+        Ev::AppsNotified(apps) => {
+            model.apps.notified(apps);
+        }
+        Ev::AppSwitched { id, enabled } => model.apps.switched(&id, enabled),
         Ev::Fetched { request, result } => {
             // Another request, or none: the answer is not for the pickers.
             if model.catalog.pending != Some(request) {
@@ -392,12 +492,15 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.stack.clear();
             model.catalog.request();
             if model.catalog.presets.is_empty() {
-                model.stack.push(Menu::Model(Box::new(ModelMenu::Loading(current))));
+                model
+                    .stack
+                    .push(Menu::Model(Box::new(ModelMenu::Loading(current))));
             } else {
                 model.open_models(current);
             }
         }
         Intent::OpenPermissions(current) => model.open_permissions(current),
+        Intent::OpenApps { enabled } => model.open_apps(enabled),
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
@@ -422,6 +525,7 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 let step = menu.choose(&model.profiles, &id);
                 model.permissions_step(step);
             }
+            Some(Menu::Apps) => model.choose_app(&id),
             None => {}
         },
         Intent::Secondary(id) => match model.stack.last() {
@@ -479,10 +583,24 @@ pub enum Command {
     /// `configRequirements/read`, the first half of a permission read.
     Requirements { request: u64 },
     /// One page of `permissionProfile/list` (100 per page, at most 10).
-    Profiles { request: u64, cursor: Option<String>, cwd: Option<String> },
+    Profiles {
+        request: u64,
+        cursor: Option<String>,
+        cwd: Option<String>,
+    },
+    /// `app/list` for the request `Apps::pending` names (`force`: past the
+    /// server's caches), for the thread displayed.
+    Apps {
+        request: u64,
+        force: bool,
+        thread: Option<String>,
+    },
     /// `thread/settings/update` of `thread`: what a pick changes for its
     /// next turns.
-    Settings { thread: String, patch: crate::threads::SettingsPatch },
+    Settings {
+        thread: String,
+        patch: crate::threads::SettingsPatch,
+    },
     /// `config/batchWrite`: the defaults a pick saves.
     Write { edits: Vec<persist::Edit> },
 }
@@ -491,19 +609,32 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     Models(Vec<Preset>),
+    Apps(Vec<apps::App>),
     Requirements(Option<permissions::Requirements>),
-    Profiles { profiles: Vec<permissions::Profile>, next: Option<String> },
+    Profiles {
+        profiles: Vec<permissions::Profile>,
+        next: Option<String>,
+    },
     /// The thread's settings were updated.
     Updated,
     /// The config was written; whether a layer above overrides the value.
-    Written { overridden: bool },
+    Written {
+        overridden: bool,
+    },
 }
 
 /// What an outgoing RPC of this screen was for, kept with its ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
-    Models { request: u64 },
-    Requirements { request: u64 },
+    Models {
+        request: u64,
+    },
+    Apps {
+        request: u64,
+    },
+    Requirements {
+        request: u64,
+    },
     /// The pages of the catalog read so far, and the requirements read before
     /// them.
     Profiles {
@@ -513,9 +644,14 @@ pub enum Ctx {
         pages: u8,
     },
     /// A pick's settings update: what to tell if it fails.
-    Settings { setting: Setting },
+    Settings {
+        setting: Setting,
+    },
     /// A pick's write: the pick whose line follows a saved write.
-    Write { setting: Setting, then: Option<Note> },
+    Write {
+        setting: Setting,
+        then: Option<Note>,
+    },
 }
 
 /// The pages a catalog may take (`permission_discovery.rs`).
@@ -547,6 +683,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
         .wire(id),
         Command::Write { edits } => persist::write_request(edits, id),
         Command::Models { .. } => models::list_request(id),
+        Command::Apps { force, thread, .. } => apps::list_request(id, *force, thread.clone()),
         Command::Requirements { .. } => permissions::requirements_request(id),
         Command::Profiles { cursor, cwd, .. } => {
             permissions::profiles_request(id, cursor.clone(), cwd.clone())
@@ -558,12 +695,20 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     match command {
         Command::Settings { .. } => Ok(Reply::Updated),
-        Command::Write { .. } => persist::written(result).map(|overridden| Reply::Written { overridden }),
+        Command::Write { .. } => {
+            persist::written(result).map(|overridden| Reply::Written { overridden })
+        }
         Command::Models { .. } => models::presets(result).map(Reply::Models),
-        Command::Requirements { .. } => permissions::requirements(result)
-            .map(|wire| Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))),
-        Command::Profiles { .. } => permissions::profiles_page(result)
-            .map(|(wire, next)| Reply::Profiles { profiles: permissions::profiles_of(wire), next }),
+        Command::Apps { .. } => apps::apps(result).map(Reply::Apps),
+        Command::Requirements { .. } => permissions::requirements(result).map(|wire| {
+            Reply::Requirements(wire.as_ref().map(permissions::Requirements::from_wire))
+        }),
+        Command::Profiles { .. } => {
+            permissions::profiles_page(result).map(|(wire, next)| Reply::Profiles {
+                profiles: permissions::profiles_of(wire),
+                next,
+            })
+        }
     }
     .map_err(RpcError::Malformed)
 }
@@ -578,12 +723,26 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
-    Catalog { presets: Vec<Preset> },
-    Loading { current: Current },
-    Models { current: Current },
-    AllModels { current: Current },
-    Reasoning { preset: Preset, current: Current },
-    Advanced { preset: Preset, current: Current },
+    Catalog {
+        presets: Vec<Preset>,
+    },
+    Loading {
+        current: Current,
+    },
+    Models {
+        current: Current,
+    },
+    AllModels {
+        current: Current,
+    },
+    Reasoning {
+        preset: Preset,
+        current: Current,
+    },
+    Advanced {
+        preset: Preset,
+        current: Current,
+    },
     PlanScope {
         model: String,
         effort: Option<Effort>,
@@ -593,7 +752,9 @@ enum SeedEv {
     },
     List(Box<List>),
     /// The profiles the app holds (a startup read of the catalog).
-    Profiles { discovery: permissions::Discovery },
+    Profiles {
+        discovery: permissions::Discovery,
+    },
     /// A menu of the `/permissions` family: the legacy presets unless `menu`
     /// says otherwise; `failure` is the text of a read that failed.
     Permissions {
@@ -630,12 +791,24 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         SeedEv::AllModels { current } => model(ModelMenu::AllModels(current)),
         SeedEv::Reasoning { preset, current } => model(ModelMenu::Reasoning { preset, current }),
         SeedEv::Advanced { preset, current } => model(ModelMenu::Advanced { preset, current }),
-        SeedEv::PlanScope { model: name, effort, source, warning } => {
-            model(ModelMenu::PlanScope { model: name, effort, source, warning })
-        }
+        SeedEv::PlanScope {
+            model: name,
+            effort,
+            source,
+            warning,
+        } => model(ModelMenu::PlanScope {
+            model: name,
+            effort,
+            source,
+            warning,
+        }),
         SeedEv::List(list) => Ev::Opened(Menu::List(list)),
         SeedEv::Profiles { discovery } => Ev::Listed(discovery),
-        SeedEv::Permissions { menu, current, failure } => {
+        SeedEv::Permissions {
+            menu,
+            current,
+            failure,
+        } => {
             use permissions::PermissionsMenu as Perms;
             let menu = match menu {
                 SeedPermissions::Presets => Perms::Presets(current),
