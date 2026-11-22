@@ -1,0 +1,4 @@
+# The status line `one two three four five` of the oracle's `status_rows_respect_host_budget_and_yield_to_the_draft`
+# (it hands the composer the text `one\ntwo\nthree\nfour\nfive` as a ui_tree; here the line is the model's name,
+# which wraps the same words by the same rows). One item, colours off.
+{"step":"screen","dir":"chat","ev":{"status":{"model":"one two three four five","items":["model-name"],"colors":false}}}

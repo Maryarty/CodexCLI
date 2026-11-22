@@ -17,14 +17,13 @@ use codex_app_server_protocol::RequestId;
 
 use crate::app::AppFx;
 use crate::commands::CommandFlags;
-use crate::commands::Notice;
 use crate::commands::ServiceTierCommand;
 use crate::commands::SessionIntent;
 use crate::commands::SlashCommand;
 use crate::ids::{ThreadId, TurnId};
 use crate::rpc::RpcError;
 use crate::screens::Kind;
-use crate::threads::ThreadFx;
+use crate::threads::{Note, ThreadFx};
 
 pub const NAME: &str = "chat";
 pub const ID: &str = "S10";
@@ -41,9 +40,12 @@ pub struct Model {
     /// Signed in with a ChatGPT backend (`/usage`). True until session-core
     /// carries the account; a script seeds the signed-out case.
     pub signed_in: bool,
-    /// What the last command answered with: shown above the composer until
-    /// the next submit.
-    pub notice: Option<ChatNotice>,
+    /// What commands answered before any thread existed: shown above the
+    /// composer, where a thread's notes would be in its transcript.
+    pub notes: Vec<Note>,
+    /// `/raw`: the transcript is shown as text for terminal selection
+    /// (`raw_output_mode`). The rendering reads it.
+    pub raw_output: bool,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
 }
@@ -223,16 +225,6 @@ impl StatusFacts {
     }
 }
 
-/// An answer to a command shown in the chat.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ChatNotice {
-    /// Dispatch said no, or what is wrong with the arguments.
-    Command(Notice),
-    /// The command needs the session, which has not been built yet
-    /// (`session-core`): the oracle-style "not available" key.
-    NotAvailable(SlashCommand),
-}
-
 impl Default for Model {
     fn default() -> Self {
         Self {
@@ -247,7 +239,8 @@ impl Default for Model {
             },
             service_tiers: Vec::new(),
             signed_in: true,
-            notice: None,
+            notes: Vec::new(),
+            raw_output: false,
             status: Rc::default(),
         }
     }
@@ -278,10 +271,14 @@ pub enum Intent {
         thread: Option<ThreadId>,
         command: String,
     },
-    /// A command dispatch refused.
-    Notice(Notice),
-    /// The next submit starts clean.
-    ClearNotice,
+    /// A command line was answered (refused, or its words): a note of the
+    /// thread shown when it was submitted, else of the screen.
+    Note {
+        thread: Option<ThreadId>,
+        note: Note,
+    },
+    /// `/raw`: the render mode of the transcript (`set_raw_output_mode`).
+    RawOutput(bool),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -297,13 +294,12 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
-        Intent::Session { command, .. } => {
-            model.notice = Some(ChatNotice::NotAvailable(command));
-        }
-        // the app routes it to the thread (`apply_app`); the screen keeps nothing
-        Intent::Shell { .. } => {}
-        Intent::Notice(notice) => model.notice = Some(ChatNotice::Command(notice)),
-        Intent::ClearNotice => model.notice = None,
+        // the app routes these to the thread (`apply_app`); the screen keeps nothing
+        Intent::Session { .. } | Intent::Shell { .. } => {}
+        Intent::Note { thread: None, note } => model.notes.push(note),
+        Intent::RawOutput(enabled) => model.raw_output = enabled,
+        // a thread's note is an entry of its transcript (`session::note`)
+        Intent::Note { .. } => {}
     }
 }
 
@@ -314,6 +310,14 @@ pub struct ThreadPart {
     pub error: Option<RpcError>,
     pub name: Option<String>,
     pub cwd: Option<String>,
+    /// The file the thread's history is written to (`/rollout`), once the
+    /// server has named it.
+    pub path: Option<String>,
+    /// The thread is controlled by its parent: it takes no direct input
+    /// (`thread_blocks_direct_input`).
+    pub parent_owned: bool,
+    /// The thread is not kept (`config.ephemeral`).
+    pub ephemeral: bool,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub provider: Option<String>,
@@ -422,6 +426,9 @@ impl ThreadPart {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadIntent {
     Compact,
+    /// `/stop`: stop the thread's background terminals
+    /// (`AppCommand::clean_background_terminals`).
+    CleanTerminals,
     Rename(String),
     /// `!cmd` from the composer: a user shell command (the oracle's
     /// `AppCommand::RunUserShellCommand`), run while a turn runs too.
@@ -445,6 +452,9 @@ pub enum ThreadEv {
     Metadata {
         name: Option<String>,
         cwd: String,
+        path: Option<String>,
+        parent_owned: bool,
+        ephemeral: bool,
         model: Option<String>,
         effort: Option<String>,
         provider: String,
@@ -496,10 +506,29 @@ pub(crate) fn plan_progress(turn: &TurnId, update: &crate::threads::PlanUpdate) 
     }
 }
 
+/// `thread_blocks_direct_input`: the server's word when it gives one, else a
+/// spawned sub-agent's thread.
+fn blocks_direct_input(thread: &codex_app_server_protocol::Thread) -> bool {
+    use codex_app_server_protocol::SessionSource;
+    use codex_protocol::protocol::SubAgentSource;
+    thread.can_accept_direct_input.map_or_else(
+        || {
+            matches!(
+                &thread.source,
+                SessionSource::SubAgent(SubAgentSource::ThreadSpawn { agent_path: Some(_), .. })
+            )
+        },
+        |can_accept| !can_accept,
+    )
+}
+
 pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
     ThreadEv::Metadata {
         name: thread.name.clone(),
         cwd: thread.cwd.display().to_string(),
+        path: thread.path.as_ref().map(|path| path.display().to_string()),
+        parent_owned: blocks_direct_input(thread),
+        ephemeral: thread.ephemeral,
         model: thread.model.clone(),
         effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
         provider: thread.model_provider.clone(),
@@ -566,6 +595,7 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Compact,
+    CleanTerminals,
     Rename(String),
     Shell(String),
     /// `turn/steer`: the message joins the running turn `turn`.
@@ -585,6 +615,7 @@ pub enum Reply {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
     Compact,
+    CleanTerminals,
     Rename,
     Shell,
     /// A steer in flight: `threads::apply` reads its reply (the queue and the
@@ -609,6 +640,10 @@ pub fn apply_thread_intent(
             part.compact_pending = true;
             fx.request(Ctx::Compact, Command::Compact);
         }
+        ThreadIntent::CleanTerminals => {
+            part.error = None;
+            fx.request(Ctx::CleanTerminals, Command::CleanTerminals);
+        }
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
@@ -625,10 +660,13 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, model, effort, provider, daybreak } => {
+        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak } => {
             part.name = name;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
+            part.path = path;
+            part.parent_owned = parent_owned;
+            part.ephemeral = ephemeral;
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
@@ -675,6 +713,7 @@ pub fn apply_reply(
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
     let ask = match command {
         Command::Compact => crate::threads::ThreadAsk::Compact { thread: thread.to_string() },
+        Command::CleanTerminals => crate::threads::ThreadAsk::CleanTerminals { thread: thread.to_string() },
         Command::Rename(name) => crate::threads::ThreadAsk::Rename {
             thread: thread.to_string(),
             name: name.clone(),
@@ -694,11 +733,14 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
-        ThreadCompactStartResponse, ThreadSetNameResponse, ThreadShellCommandResponse,
-        TurnSteerResponse,
+        ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse, ThreadSetNameResponse,
+        ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
         Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
+        Command::CleanTerminals => {
+            serde_json::from_value::<ThreadBackgroundTerminalsCleanResponse>(result).map(|_| Reply::Ack)
+        }
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
         Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)

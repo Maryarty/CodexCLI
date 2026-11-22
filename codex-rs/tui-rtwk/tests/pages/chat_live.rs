@@ -452,17 +452,17 @@ fn the_first_esc_primes_and_any_other_key_takes_it_back() {
     let mut h = answered();
     h.press("escape");
     h.wait_for("the hint", |s| {
-        s.contains("Esc again to edit the previous message")
+        s.contains("esc again to edit previous message")
     });
     h.t.type_text("x");
     h.wait_for("the hint gone", |s| {
-        !s.contains("Esc again to edit the previous message")
+        !s.contains("esc again to edit previous message")
     });
     // the pair is over: the next Esc primes again
     h.press("backspace");
     h.press("escape");
     h.wait_for("the hint", |s| {
-        s.contains("Esc again to edit the previous message")
+        s.contains("esc again to edit previous message")
     });
 }
 
@@ -476,8 +476,7 @@ fn esc_esc_marks_the_newest_prompt_and_esc_ends_the_browsing() {
     h.wait_for("the mark", |s| s.contains("go") && s.contains("so far"));
     assert!(reversed(&h, "go"), "{}", h.t.screen());
     assert!(
-        !h.t.screen()
-            .contains("Esc again to edit the previous message"),
+        !h.t.screen().contains("esc again to edit previous message"),
         "{}",
         h.t.screen()
     );
@@ -579,8 +578,7 @@ fn esc_with_a_draft_primes_nothing() {
     h.t.pump_for(crate::common::ms(200));
     assert!(h.t.screen().contains("draft"), "{}", h.t.screen());
     assert!(
-        !h.t.screen()
-            .contains("Esc again to edit the previous message"),
+        !h.t.screen().contains("esc again to edit previous message"),
         "{}",
         h.t.screen()
     );

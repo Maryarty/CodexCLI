@@ -13,7 +13,7 @@ use crate::kit::{Owner, Screen};
 fn unsupported_code_mode_warning_renders_as_warning_history_cell() {
     kit::pending(
         Owner::UiPane,
-        "warning history cells and the status-line invalid-item warning are not built in the chat",
+        "the warning notification has no cell on the thread: `Warning` events are not applied to the transcript yet (chunk-live's ThreadModel apply; cells chunk draws it)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: handle_warning(the Code Mode warning for gpt-5.4): one warning history cell
@@ -25,7 +25,7 @@ fn unsupported_code_mode_warning_renders_as_warning_history_cell() {
 fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
     kit::pending(
         Owner::UiPane,
-        "warning history cells and the status-line invalid-item warning are not built in the chat",
+        "the warning notification has no cell on the thread: `Warning` events are not applied to the transcript yet (chunk-live's ThreadModel apply; cells chunk draws it)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: the same model metadata warning for unknown-model twice: one cell
@@ -37,7 +37,7 @@ fn repeated_model_metadata_warning_is_hidden_for_same_slug() {
 fn status_line_invalid_items_warn_once() {
     kit::pending(
         Owner::UiPane,
-        "warning history cells and the status-line invalid-item warning are not built in the chat; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "an unknown id in `status_line` / `terminal_title` is dropped silently: the once-only warning cell needs the chat `apply` of the status event (core/src/screens/chat.rs, chunk-live's) to push one notice cell per distinct invalid list",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = model_name, bogus_item, lines_changed, bogus_item; refresh twice
@@ -48,13 +48,19 @@ fn status_line_invalid_items_warn_once() {
 // ORACLE chatwidget/tests/status_and_layout.rs:3243 status_line_hostname_renders_current_machine_hostname kind=ui owner=ui-pane
 #[test]
 fn status_line_hostname_renders_current_machine_hostname() {
-    kit::pending(
-        Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+    // oracle: `hostname` is a valid status line item and renders the machine's name, with no
+    // warning cell. The host reads the name (`os_host_name`, host/src/facts.rs) into the fact the
+    // script seeds; the page draws the fact.
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/hostname.jsonl"))
+        .open();
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "devbox.local"),
+        "the status line is the hostname\n{}",
+        s.text()
     );
-    // seed: status_line = hostname; the expected value is the machine hostname (codex_config::os_host_name),
-    // which no kit call can name: kit gap, the body needs a hostname helper before it can be un-pended
-    let _screen = Screen::build(Owner::UiPane).live().open();
+    s.assert_absent("invalid");
 }
 
 // ORACLE chatwidget/tests/status_and_layout.rs:3258 status_line_context_used_renders_labeled_percent kind=ui owner=ui-pane
@@ -62,7 +68,7 @@ fn status_line_hostname_renders_current_machine_hostname() {
 fn status_line_context_used_renders_labeled_percent() {
     kit::pending(
         Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = context-used
@@ -74,7 +80,7 @@ fn status_line_context_used_renders_labeled_percent() {
 fn status_line_context_remaining_renders_labeled_percent() {
     kit::pending(
         Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = context-remaining
@@ -86,7 +92,7 @@ fn status_line_context_remaining_renders_labeled_percent() {
 fn status_line_legacy_context_usage_renders_context_used_percent() {
     kit::pending(
         Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = context-usage (legacy item)
@@ -98,7 +104,7 @@ fn status_line_legacy_context_usage_renders_context_used_percent() {
 fn status_line_estimated_thread_cost_fetches_and_renders_backend_estimate() {
     kit::pending(
         Owner::UiPane,
-        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: a thread with backend auth on a Business plan, status_line = estimated-thread-cost;
@@ -111,7 +117,7 @@ fn status_line_estimated_thread_cost_fetches_and_renders_backend_estimate() {
 fn status_line_thread_credits_fetches_and_renders_fractional_credits() {
     kit::pending(
         Owner::UiPane,
-        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = thread-credits; the usage answer is 5.2 credits
@@ -123,7 +129,7 @@ fn status_line_thread_credits_fetches_and_renders_fractional_credits() {
 fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
     kit::pending(
         Owner::UiPane,
-        "the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed; the terminal title (`terminal_title` items) is not built in the chat",
+        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line empty, terminal_title = thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
@@ -135,7 +141,7 @@ fn terminal_title_thread_usage_fetches_and_renders_without_status_line() {
 fn status_line_estimated_thread_cost_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built; the thread-usage refresh (estimated cost and credits in the status line and title) is not built in the chat; the kit has no backend seed",
+        "the thread-usage read (`account/usage/read`, per-thread estimated credits and cost) is not in core: the status-card porter's `Usage` Command and `status::ThreadPart` carry it; the items `thread-credits` / `estimated-thread-cost` of `StatusContext::value_for` follow once it exists; and the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: status_line = model-with-reasoning, thread-credits, estimated-thread-cost; usage 5.2 credits, ~$0.21
@@ -147,7 +153,7 @@ fn status_line_estimated_thread_cost_footer_snapshot() {
 fn status_line_workspace_headline_renders_cached_value() {
     kit::pending(
         Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it",
+        "no workspace headline fact: StatusFacts.workspace_headline (chunk-live's) and the host's throttled `account/workspaceMessages/read` (host/src/facts.rs) are needs; the item follows",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: status_line = workspace-headline; cached headline 'Workspace maintenance starts at 5pm'
@@ -183,7 +189,7 @@ fn completed_turn_clears_visible_running_hook() {
 fn status_line_processing_tier_updates_with_selection() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built; the terminal title (`terminal_title` items) is not built in the chat",
+        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: fast-mode test catalog; status_line = fast-mode, terminal_title = fast-mode
@@ -197,7 +203,7 @@ fn status_line_processing_tier_updates_with_selection() {
 fn status_line_fast_mode_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: fast-mode test catalog, status_line = fast-mode and model items, reasoning high
@@ -209,7 +215,7 @@ fn status_line_fast_mode_footer_snapshot() {
 fn terminal_title_model_updates_on_model_change_without_manual_refresh() {
     kit::pending(
         Owner::UiPane,
-        "the terminal title (`terminal_title` items) is not built in the chat",
+        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's)",
     );
     let s = Screen::build(Owner::UiPane).live().open();
     // seed: terminal_title = model; the title shows the model display name
@@ -220,13 +226,16 @@ fn terminal_title_model_updates_on_model_change_without_manual_refresh() {
 // ORACLE chatwidget/tests/status_and_layout.rs:4391 status_line_and_terminal_title_reasoning_render_only_effort kind=ui owner=ui-pane
 #[test]
 fn status_line_and_terminal_title_reasoning_render_only_effort() {
-    kit::pending(
-        Owner::UiPane,
-        "the status line (`local_settings.tui.status_line` items) is not built in the chat, and the kit has no config seed for it; the terminal title (`terminal_title` items) is not built in the chat",
+    // oracle: the `reasoning` item is the effort alone on both surfaces (the Fast tier is no part of it).
+    let s = Screen::build(Owner::UiPane)
+        .size(100, 24)
+        .script(include_str!("fixtures/chat_status_2/reasoning_only.jsonl"))
+        .open();
+    assert!(
+        s.rows().iter().any(|row| row.trim() == "xhigh"),
+        "the status line is the effort\n{}",
+        s.text()
     );
-    let s = Screen::build(Owner::UiPane).live().open();
-    // seed: status_line = reasoning and terminal_title = reasoning, reasoning xhigh, fast tier
-    s.assert_contains("xhigh");
     s.assert_title("xhigh");
 }
 
@@ -235,7 +244,7 @@ fn status_line_and_terminal_title_reasoning_render_only_effort() {
 fn status_line_model_with_reasoning_plan_mode_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+        "no collaboration-mode fact (the Plan mask changes the reasoning shown; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: collaboration modes on, status_line = model-with-reasoning, reasoning high, plan mask
@@ -247,10 +256,13 @@ fn status_line_model_with_reasoning_plan_mode_footer_snapshot() {
 fn renamed_thread_footer_title_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+        "rows 0-4 equal; the hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts`: needs a kit option or a StatusFacts flag for it (chunk-live's / kit owner's)",
     );
-    let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
-    // seed: the thread is renamed; the footer shows the new title
+    // oracle: the thread is renamed; the status line shows the new title after the model.
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 6)
+        .script(include_str!("fixtures/chat_status_2/renamed_thread.jsonl"))
+        .open();
     s.assert_snap("renamed_thread_footer_title");
 }
 
@@ -259,7 +271,7 @@ fn renamed_thread_footer_title_snapshot() {
 fn status_line_model_with_reasoning_speed_footer_snapshots() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+        "the model catalog's names are not facts: the tier names (`fast`, `Flex`), the display name (`GPT-5.5`) and the Fast-mode feature (StatusFacts carries the slug only; chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: model-with-reasoning, reasoning high, fast tier
@@ -273,7 +285,7 @@ fn status_line_model_with_reasoning_speed_footer_snapshots() {
 fn status_line_model_with_reasoning_context_remaining_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built",
+        "a fresh thread without token info reads `Context 100% left` / `0% used` while a resumed one hides it until the first update (oracle `token_usage_pending`): `status::ThreadPart.received` cannot tell the two apart, a resumed/pending fact is needed (core/src/screens/status.rs or ThreadPart, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: model-with-reasoning and context-remaining items
@@ -285,7 +297,7 @@ fn status_line_model_with_reasoning_context_remaining_footer_snapshot() {
 fn status_line_goal_active_token_budget_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built; the goal status indicator is not built in the chat (no goal seed)",
+        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: goals on, an active goal with a 5K token budget, status_line = goal items
@@ -297,7 +309,7 @@ fn status_line_goal_active_token_budget_footer_snapshot() {
 fn status_line_goal_complete_elapsed_footer_snapshot() {
     kit::pending(
         Owner::UiPane,
-        "the chat footer status line (model, reasoning, speed and goal items) is not built; the goal status indicator is not built in the chat (no goal seed)",
+        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's); the hint row differs in every footer snapshot of the shard: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents · ? for shortcuts` (needs a kit option or a StatusFacts flag for it)",
     );
     let s = Screen::build(Owner::UiPane).size(80, 6).live().open();
     // seed: goals on, a completed goal with elapsed time
@@ -309,7 +321,7 @@ fn status_line_goal_complete_elapsed_footer_snapshot() {
 fn goal_status_indicator_line_formats_goal_text() {
     kit::pending(
         Owner::UiPane,
-        "the goal status indicator is not built in the chat (no goal seed)",
+        "no goal fact (ThreadPart.goal from `thread/goal/updated`, chunk-live's): the indicator's text (`Pursuing goal (40K / 50K)`) is formatted by the footer once it exists",
     );
     let cases = [
         "Pursuing goal (4K / 5K)",              // Active, usage 4K / 5K

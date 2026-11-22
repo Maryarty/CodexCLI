@@ -14,6 +14,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 use crate::app::debug::seeded::Seeded;
 
+pub mod mention;
 pub mod strings;
 
 /// What the debug menu lists for this directory: the real chat composer on

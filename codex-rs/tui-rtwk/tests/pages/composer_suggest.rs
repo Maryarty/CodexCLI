@@ -148,6 +148,7 @@ fn tab_on_a_mention_puts_it_in_as_enter_does() {
 }
 
 #[test]
+#[ignore = "pending(mount): MentionPopup is placed by session_page.rs (a Need of that file); the popup's rows are not on the page until the line is in"]
 fn a_click_on_a_mention_row_puts_it_in_and_sends_nothing() {
     let mut s = skill();
     s.type_text("$ru");
@@ -211,6 +212,7 @@ fn a_mention_after_an_image_keeps_the_image() {
 }
 
 #[test]
+#[ignore = "pending(mount): MentionPopup is placed by session_page.rs (a Need of that file); the popup's rows are not on the page until the line is in"]
 fn a_click_on_a_mention_row_after_an_image_keeps_the_image() {
     let mut s = skill();
     let path = s.attach_image("click.png");

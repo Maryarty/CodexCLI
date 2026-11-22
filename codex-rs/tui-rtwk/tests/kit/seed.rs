@@ -43,6 +43,7 @@ pub struct Open {
     pub(super) seed: Seed,
     pub(super) early: bool,
     pub(super) first_frame: bool,
+    pub(super) held_start: bool,
     pub(super) gutter: usize,
     pub(super) keymap: Option<&'static [(&'static str, &'static str)]>,
 }
@@ -58,6 +59,7 @@ impl Screen {
             seed: Seed::Live,
             early: false,
             first_frame: false,
+            held_start: false,
             gutter: 0,
             keymap: None,
         }
@@ -106,6 +108,13 @@ impl Open {
         self
     }
 
+    /// The live chat before its session has started: the backend leaves the
+    /// thread's start unanswered (the oracle's chat widget with no thread id).
+    pub fn held_start(mut self) -> Open {
+        self.held_start = true;
+        self
+    }
+
     /// The user's key bindings: `(action, key)` pairs as the keymap config
     /// names them, `&[("list.move_down", "z")]`.
     pub fn keymap(mut self, bindings: &'static [(&'static str, &'static str)]) -> Open {
@@ -134,6 +143,9 @@ impl Open {
 
     fn live_harness(&self) -> Harness {
         let mut h = crate::common::start_driven(false, self.width, self.height);
+        if self.held_start {
+            h.fake.hold_thread_start();
+        }
         h.connect();
         self.set_keymap(&mut h);
         // The session is started (`ready`) when `open` returns.

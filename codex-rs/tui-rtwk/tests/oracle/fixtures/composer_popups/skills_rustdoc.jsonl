@@ -1,3 +1,3 @@
 # The skill rustdoc (test_skill_metadata in skill_completion_tests.rs).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"rustdoc","description":"","insert":"rustdoc"}]}}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"rustdoc","description":"Example skill used in tests.","insert":"rustdoc","path":"/tmp/rustdoc/SKILL.md"}]}}

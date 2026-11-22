@@ -1,0 +1,4 @@
+# Two skills with paths (the `$` popup and the usage file keep them), a plugin, and a task of the
+# task search: what the page tests of the mention keys need (tests/pages/composer_mentions.rs).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"rustdoc","description":"Write docs","insert":"rustdoc","path":"/skills/rustdoc/SKILL.md"},{"kind":"skill","name":"rusty","description":"Lint it","insert":"rusty","path":"/skills/rusty/SKILL.md"},{"kind":"plugin","name":"Runner","description":"Runs things","insert":"runner","path":"plugin://runner@market"}]}}
