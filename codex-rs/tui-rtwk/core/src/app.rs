@@ -361,6 +361,15 @@ enum AppCtx {
         backend: BackendId,
         step: worktree::Step,
     },
+    /// `thread/read` of the session `codex resume <id>` names (the launch
+    /// goes on with the directory it recorded).
+    SessionRead,
+    /// The resume or fork of that session, in the directory the launch
+    /// decided.
+    OpenSession {
+        action: crate::screens::startup::Action,
+        thread: ThreadId,
+    },
 }
 
 /// An ask made before the first thread exists.
@@ -449,6 +458,19 @@ impl CodexApp {
 
     pub fn with_first_thread(mut self, when: FirstThread) -> Self {
         self.first_thread = when;
+        self
+    }
+
+    /// `codex resume <id>` / `codex fork <id>`: the session is read once the
+    /// connection is up, its directory decided after the startup steps (a
+    /// prompt when it differs from this one), and the app opens it in place
+    /// of a fresh thread. The first thread starts after the launch.
+    pub fn with_start_session(mut self, start: crate::screens::onboarding::session::Start) -> Self {
+        self.first_thread = FirstThread::AfterLaunch;
+        crate::screens::onboarding::session::want(
+            &mut Rc::make_mut(&mut self.screens).onboarding,
+            start,
+        );
         self
     }
 
@@ -736,6 +758,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 &mut Rc::make_mut(&mut app.screens).onboarding,
                 fx,
             );
+            read_session(app, fx);
             match app.first_thread {
                 FirstThread::Never => {}
                 FirstThread::OnConnect => start_first_thread(app, fx),
@@ -1012,6 +1035,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | AppCtx::OpenThread { backend, .. }
                             | AppCtx::NewConversation { backend, .. }
                             | AppCtx::RateLimits { backend } => *backend != origin,
+                            AppCtx::SessionRead => origin != BackendId::default(),
                             AppCtx::Agents(agents::Ctx::History { thread }) => {
                                 owners.owner_of(thread) != origin
                             }
@@ -1040,6 +1064,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     &mut Rc::make_mut(&mut app.screens).onboarding,
                     fx,
                 );
+                read_session(app, fx);
             }
             release_held_start(app, fx);
             if reconnected {
@@ -1092,8 +1117,71 @@ fn release_held_start(app: &mut CodexApp, fx: &mut AppFx) {
         && app.screens.startup.open.is_none()
     {
         app.start_held = false;
-        start_first_thread(app, fx);
+        if crate::screens::onboarding::session::pending(&app.screens.onboarding) {
+            open_session(app, fx);
+        } else {
+            start_first_thread(app, fx);
+        }
     }
+}
+
+/// The session the command line names is read once the connection is up
+/// (asked again on a new connection if the first was lost with the read in
+/// flight).
+fn read_session(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::onboarding::session;
+    if !session::pending(&app.screens.onboarding) {
+        return;
+    }
+    let Some(start) = session::to_read(&mut Rc::make_mut(&mut app.screens).onboarding) else {
+        return;
+    };
+    let ticket = app.mint.next();
+    app.outgoing.insert(ticket, AppCtx::SessionRead);
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ThreadAsk::Read {
+            thread: start.id,
+        })),
+    });
+}
+
+/// The session the command line names, opened in the directory the launch
+/// decided, in place of a fresh thread. Nothing opens while the cwd prompt
+/// has no answer (the user left instead).
+fn open_session(app: &mut CodexApp, fx: &mut AppFx) {
+    use crate::screens::onboarding::session;
+    use crate::screens::startup::Action;
+    let Some(opening) = session::opening(&app.screens.onboarding, &app.screens.startup.answers)
+    else {
+        return;
+    };
+    session::opened(&mut Rc::make_mut(&mut app.screens).onboarding);
+    let thread = opening.start.id.clone();
+    let ticket = app.mint.next();
+    app.outgoing.insert(
+        ticket,
+        AppCtx::OpenSession {
+            action: opening.start.action,
+            thread: ThreadId::new(&thread),
+        },
+    );
+    let ask = match opening.start.action {
+        Action::Resume => ThreadAsk::ResumeAt {
+            thread,
+            cwd: opening.cwd,
+        },
+        Action::Fork => ThreadAsk::ForkAt {
+            thread,
+            cwd: opening.cwd,
+        },
+    };
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+    });
 }
 
 /// A fresh thread where none was started (`FirstThread::Never`): the picker
@@ -1233,6 +1321,24 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Worktree { backend, step } => step.advance(app, backend, answer, fx),
+            AppCtx::SessionRead => {
+                // An id nothing is saved under (or a server that cannot read
+                // it) ends the launch with the oracle's message.
+                let read = match answer {
+                    Answer::Screen(ScreenReply::Agents(agents::Reply::Read { thread, .. })) => {
+                        Ok(Some(thread.cwd.display().to_string()))
+                    }
+                    _ => Err(()),
+                };
+                crate::screens::onboarding::session::read(
+                    &mut Rc::make_mut(&mut app.screens).onboarding,
+                    read,
+                    fx,
+                );
+            }
+            AppCtx::OpenSession { action, thread } => {
+                session_opened(app, action, thread, answer, fx);
+            }
         }
         return;
     }
@@ -1627,12 +1733,54 @@ fn started(app: &mut CodexApp, answer: Answer, fx: &mut AppFx) {
             let session = Rc::make_mut(&mut app.session);
             session.active = Some(thread.clone());
             session.status = Session::Ready;
-            for ask in std::mem::take(&mut app.queued_submits) {
-                match ask {
-                    BeforeThread::Message(message) => submit(app, &thread, message, fx),
-                    BeforeThread::Shell(command) => run_shell(app, &thread, command, fx),
-                }
-            }
+            send_queued(app, &thread, fx);
+        }
+        Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
+        _ => {}
+    }
+}
+
+/// What was asked before the first thread existed goes out on it.
+fn send_queued(app: &mut CodexApp, thread: &ThreadId, fx: &mut AppFx) {
+    for ask in std::mem::take(&mut app.queued_submits) {
+        match ask {
+            BeforeThread::Message(message) => submit(app, thread, message, fx),
+            BeforeThread::Shell(command) => run_shell(app, thread, command, fx),
+        }
+    }
+}
+
+/// The answer to the launch's resume or fork: the session is the first
+/// thread (its history read, the queued asks sent on it); a refusal fails
+/// the start as a fresh thread's would, except another writer, which the chat
+/// shows read-only.
+fn session_opened(
+    app: &mut CodexApp,
+    action: crate::screens::startup::Action,
+    requested: ThreadId,
+    answer: Answer,
+    fx: &mut AppFx,
+) {
+    use crate::screens::startup::Action;
+    match answer {
+        Answer::Screen(ScreenReply::Agents(
+            agents::Reply::Resumed(opened) | agents::Reply::Forked(opened),
+        )) => {
+            let id = ThreadId::new(&opened.id);
+            let origin = match action {
+                Action::Resume => Origin::Resumed,
+                Action::Fork => Origin::Started,
+            };
+            attach_thread_with_metadata(app, &id, BackendId::default(), origin, Some(&opened), fx);
+            show_held_thread(app, id.clone());
+            apply_thread(app, &id, threads::history_page(&opened.turns, None), fx);
+            fetch_history(app, &id, fx);
+            send_queued(app, &id, fx);
+        }
+        Answer::Failed(error) if action == Action::Resume && agents::is_active_writer(&error) => {
+            app.threads.open(&requested, Origin::ForeignWriter);
+            show_held_thread(app, requested.clone());
+            fetch_history(app, &requested, fx);
         }
         Answer::Failed(error) => set_status(app, Session::Failed(Failure::from(error))),
         _ => {}
@@ -1694,6 +1842,7 @@ fn is_attach(ctx: &AppCtx) -> bool {
         AppCtx::StartThread { .. }
             | AppCtx::NewConversation { .. }
             | AppCtx::OpenThread { .. }
+            | AppCtx::OpenSession { .. }
             | AppCtx::Agents(agents::Ctx::Start | agents::Ctx::Fork)
     )
 }

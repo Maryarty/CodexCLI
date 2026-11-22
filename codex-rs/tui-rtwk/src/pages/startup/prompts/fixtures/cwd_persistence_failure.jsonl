@@ -1,0 +1,4 @@
+# The history line a failed save of the cwd prompt's choice leaves
+# Oracle data: cwd_prompt.rs:562 (cwd_prompt_persistence_failure_snapshot)
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "startup", "ev": {"history": "cwd_preference_not_saved"}}

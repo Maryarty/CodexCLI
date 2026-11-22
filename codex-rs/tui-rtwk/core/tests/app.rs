@@ -10,12 +10,16 @@ use codex_tui_core::app::{
 };
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::rpc::Reply;
+use codex_tui_core::screens::onboarding::session::Start;
 use codex_tui_core::screens::onboarding::{
     Ask, Ev, Facts, Intent as StartupIntent, TrustAsk, TrustDecision,
 };
-use codex_tui_core::screens::startup::{self, Answer, MigrationOutcome, MigrationPrompt, Prompt};
-use codex_tui_core::screens::{ScreenEv, ScreenIntent, agents};
-use codex_tui_core::threads::UserMessage;
+use codex_tui_core::screens::startup::cwd::{ResumeMode, Setting};
+use codex_tui_core::screens::startup::{
+    self, Action, Answer, CwdSelection, HistoryLine, MigrationOutcome, MigrationPrompt, Prompt,
+};
+use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents};
+use codex_tui_core::threads::{ThreadAsk, UserMessage};
 
 fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
     let mut fx = AppFx::default();
@@ -454,4 +458,304 @@ fn a_fresh_thread_is_not_asked_for_when_the_thread_starts_on_its_own() {
     run(&mut app, AppEv::Connected);
     let fx = page_left(&mut app);
     assert_eq!(starts(&fx), 0);
+}
+
+// `codex resume <id>` and `codex fork <id>` (oracle: `run_ratatui_app`,
+// `lookup_session_target_with_app_server` and the cwd prompt).
+
+fn named(action: Action) -> CodexApp {
+    gated().with_start_session(Start {
+        action,
+        id: "saved-1".into(),
+    })
+}
+
+/// The thread RPCs of the effects, in order.
+fn thread_asks(fx: &AppFx) -> Vec<(codex_tui_core::ids::Ticket, ThreadAsk)> {
+    fx.commands()
+        .iter()
+        .filter_map(|c| match c {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+                ..
+            } => Some((*ticket, ask.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn session_facts(configured: Option<ResumeMode>) -> Facts {
+    Facts {
+        resume: Setting {
+            current: "/work/now".into(),
+            configured,
+            ..Setting::default()
+        },
+        ..Facts::default()
+    }
+}
+
+/// Connected, the session read answered with `cwd` as its directory.
+fn read_session(app: &mut CodexApp, cwd: &str) {
+    let fx = run(app, AppEv::Connected);
+    assert_eq!(starts(&fx), 0, "{:?}", fx.commands());
+    let asks = thread_asks(&fx);
+    let [(ticket, ThreadAsk::Read { thread })] = asks.as_slice() else {
+        panic!("the session is read at connect: {asks:?}");
+    };
+    assert_eq!(thread, "saved-1");
+    let mut saved = saved_thread("saved-1");
+    saved.cwd = cwd.try_into().expect("an absolute path");
+    let fx = run(
+        app,
+        AppEv::Reply(
+            *ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Read {
+                thread: Box::new(saved),
+                unread: false,
+            })),
+        ),
+    );
+    assert!(launch_request(&fx).is_none(), "the facts are not known yet");
+}
+
+fn session_launch(app: &mut CodexApp, facts_in: Facts) -> (AppFx, u64) {
+    let fx = facts(app, facts_in);
+    let request = launch_ask(app, &fx);
+    (fx, request)
+}
+
+#[test]
+fn a_named_session_opens_instead_of_a_fresh_thread() {
+    let mut app = named(Action::Resume);
+    read_session(&mut app, "/tmp/project");
+    let (_, request) = session_launch(&mut app, session_facts(Some(ResumeMode::Session)));
+    let fx = launched(&mut app, request);
+    assert_eq!(starts(&fx), 0, "{:?}", fx.commands());
+    let asks = thread_asks(&fx);
+    let [(ticket, ThreadAsk::ResumeAt { thread, cwd })] = asks.as_slice() else {
+        panic!("the session is resumed: {asks:?}");
+    };
+    assert_eq!(
+        (thread.as_str(), cwd.as_deref()),
+        ("saved-1", Some("/tmp/project"))
+    );
+    assert_eq!(app.session().status, Session::Starting);
+    run(
+        &mut app,
+        AppEv::Reply(
+            *ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Resumed(Box::new(
+                saved_thread("saved-1"),
+            )))),
+        ),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new("saved-1")));
+    assert_eq!(app.session().status, Session::Ready);
+}
+
+#[test]
+fn a_forked_session_opens_the_copy() {
+    let mut app = named(Action::Fork);
+    read_session(&mut app, "/tmp/project");
+    let (_, request) = session_launch(&mut app, session_facts(Some(ResumeMode::Current)));
+    let fx = launched(&mut app, request);
+    let asks = thread_asks(&fx);
+    let [(ticket, ThreadAsk::ForkAt { thread, cwd })] = asks.as_slice() else {
+        panic!("the session is forked: {asks:?}");
+    };
+    assert_eq!(
+        (thread.as_str(), cwd.as_deref()),
+        ("saved-1", Some("/work/now"))
+    );
+    run(
+        &mut app,
+        AppEv::Reply(
+            *ticket,
+            Reply::screen(ScreenReply::Agents(agents::Reply::Forked(Box::new(
+                saved_thread("copy-1"),
+            )))),
+        ),
+    );
+    assert_eq!(app.session().active, Some(ThreadId::new("copy-1")));
+}
+
+// The directory differs and nothing is remembered: the cwd prompt comes
+// first, before the launch's prompts, and the answer picks the directory.
+#[test]
+fn another_directory_asks_before_the_launch_prompts() {
+    for (selection, expected) in [
+        (CwdSelection::Session, "/tmp/project"),
+        (CwdSelection::Current, "/work/now"),
+    ] {
+        let mut app = named(Action::Resume);
+        read_session(&mut app, "/tmp/project");
+        let (_, request) = session_launch(&mut app, session_facts(None));
+        let fx = launched_with(&mut app, request, vec![migration()]);
+        assert!(thread_asks(&fx).is_empty() && starts(&fx) == 0);
+        let first = app.screens().onboarding.prompts[0].clone();
+        let Prompt::Cwd(prompt) = &first else {
+            panic!("the cwd prompt is first: {first:?}");
+        };
+        assert_eq!(
+            (prompt.current.as_str(), prompt.session.as_str()),
+            ("/work/now", "/tmp/project")
+        );
+        ask_next_prompt(&mut app, first);
+        let fx = answer(&mut app, Answer::Cwd(selection));
+        assert!(thread_asks(&fx).is_empty(), "the migration prompt is next");
+        let second = app.screens().onboarding.prompts[0].clone();
+        assert_eq!(second, migration());
+        ask_next_prompt(&mut app, second);
+        let fx = answer(&mut app, Answer::Migration(MigrationOutcome::Rejected));
+        let asks = thread_asks(&fx);
+        let [(_, ThreadAsk::ResumeAt { cwd, .. })] = asks.as_slice() else {
+            panic!("the session opens once the prompts are over: {asks:?}");
+        };
+        assert_eq!(cwd.as_deref(), Some(expected));
+        assert_eq!(starts(&fx), 0);
+    }
+}
+
+#[test]
+fn leaving_the_cwd_prompt_opens_nothing() {
+    let mut app = named(Action::Resume);
+    read_session(&mut app, "/tmp/project");
+    let (_, request) = session_launch(&mut app, session_facts(None));
+    launched(&mut app, request);
+    let first = app.screens().onboarding.prompts[0].clone();
+    ask_next_prompt(&mut app, first);
+    let fx = answer(&mut app, Answer::CwdExit);
+    assert!(thread_asks(&fx).is_empty() && starts(&fx) == 0);
+}
+
+// "Always use ..." is written to the config; a write that fails leaves a line
+// for the history, the choice still opens the session.
+#[test]
+fn a_remembered_choice_is_saved_and_a_failed_save_leaves_a_line() {
+    let mut app = named(Action::Resume);
+    read_session(&mut app, "/tmp/project");
+    let (_, request) = session_launch(&mut app, session_facts(None));
+    launched(&mut app, request);
+    let first = app.screens().onboarding.prompts[0].clone();
+    ask_next_prompt(&mut app, first);
+    let fx = answer(&mut app, Answer::Cwd(CwdSelection::SessionAndRemember));
+    let save = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Startup {
+                ask: Ask::SaveResumeCwd { request, mode },
+                ..
+            } => Some((*request, *mode)),
+            _ => None,
+        })
+        .expect("the choice is saved");
+    assert_eq!(save.1, ResumeMode::Session);
+    assert!(
+        thread_asks(&fx)
+            .iter()
+            .any(|(_, ask)| matches!(ask, ThreadAsk::ResumeAt { .. }))
+    );
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Startup(startup::Ev::CwdSaved {
+            request: save.0 + 5,
+            failed: true,
+        })),
+    );
+    assert!(app.screens().startup.history.is_empty(), "a stale answer");
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Startup(startup::Ev::CwdSaved {
+            request: save.0,
+            failed: true,
+        })),
+    );
+    assert_eq!(
+        app.screens().startup.history,
+        [HistoryLine::CwdPreferenceNotSaved]
+    );
+}
+
+#[test]
+fn an_unknown_id_ends_the_launch_with_the_oracles_message() {
+    let mut app = named(Action::Fork);
+    let fx = run(&mut app, AppEv::Connected);
+    let (ticket, _) = thread_asks(&fx).remove(0);
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("thread/read: no rollout found")),
+    );
+    let fx = facts(&mut app, session_facts(None));
+    let device = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Startup {
+                ask: Ask::GatewayDevice { request },
+                ..
+            } => Some(*request),
+            _ => None,
+        })
+        .expect("the device code is asked first");
+    let fx = run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Onboarding(Ev::GatewayDevice {
+            request: device,
+            code: None,
+        })),
+    );
+    let message = fx
+        .commands()
+        .iter()
+        .find_map(|c| match c {
+            Command::Startup {
+                ask: Ask::FailLaunch { message },
+                ..
+            } => Some(message.clone()),
+            _ => None,
+        })
+        .expect("the launch ends");
+    assert_eq!(
+        message,
+        "No saved session found with ID saved-1. Run `codex fork` without an ID to choose from existing sessions."
+    );
+    assert!(launch_request(&fx).is_none() && starts(&fx) == 0);
+}
+
+#[test]
+fn a_refused_resume_fails_the_start() {
+    let mut app = named(Action::Resume);
+    read_session(&mut app, "/tmp/project");
+    let (_, request) = session_launch(&mut app, session_facts(Some(ResumeMode::Session)));
+    let fx = launched(&mut app, request);
+    let (ticket, _) = thread_asks(&fx).remove(0);
+    run(
+        &mut app,
+        AppEv::Reply(ticket, Reply::failed("thread/resume: broken")),
+    );
+    assert!(matches!(app.session().status, Session::Failed(_)));
+}
+
+// A read lost with its connection is asked again on the next one.
+#[test]
+fn a_read_lost_with_the_connection_is_asked_again() {
+    let mut app = named(Action::Resume);
+    let fx = run(&mut app, AppEv::Connected);
+    assert_eq!(thread_asks(&fx).len(), 1);
+    run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnecting)),
+    );
+    let fx = run(
+        &mut app,
+        AppEv::Screen(ScreenEv::Agents(agents::Ev::Reconnected)),
+    );
+    let asks = thread_asks(&fx);
+    assert!(
+        matches!(asks.first(), Some((_, ThreadAsk::Read { thread })) if thread == "saved-1"),
+        "{asks:?}"
+    );
 }

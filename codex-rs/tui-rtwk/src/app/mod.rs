@@ -102,6 +102,17 @@ impl UiApp {
         self.with_synced_first_thread()
     }
 
+    /// `codex resume <id>` / `codex fork <id>`: the first thread is that
+    /// session (read after the connection is up, opened after the startup
+    /// steps and the cwd prompt).
+    pub fn with_start_session(
+        mut self,
+        start: codex_tui_core::screens::onboarding::session::Start,
+    ) -> Self {
+        self.core = self.core.with_start_session(start);
+        self
+    }
+
     /// When the first thread starts follows from the command line: a page
     /// (`codex agents`, `codex resume`) opens instead of one, a host that
     /// answers the startup facts has it wait for the startup steps, any

@@ -309,6 +309,7 @@ async fn run(
             Mode::Remote { daemon: false, .. } => startup_cwd.clone(),
             _ => None,
         },
+        cwd_override: startup_cwd.is_some(),
         update,
         failure: startup_failure,
         browser: crate::startup::system_browser(),

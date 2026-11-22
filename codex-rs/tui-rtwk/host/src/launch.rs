@@ -100,6 +100,31 @@ where
         .map(|error| format!("Failed to trust hooks: {}", error.message))
 }
 
+/// `persist_remembered_cwd_selection`: the cwd prompt's "always use ..." is
+/// written to the user's config (`tui.resume_cwd`); whether it was.
+pub async fn save_resume_cwd(
+    config: &Config,
+    mode: codex_tui_core::screens::startup::cwd::ResumeMode,
+) -> bool {
+    use codex_config::types::ResumeCwdMode;
+    use codex_tui_core::screens::startup::cwd::ResumeMode;
+    let mode = match mode {
+        ResumeMode::Current => ResumeCwdMode::Current,
+        ResumeMode::Session => ResumeCwdMode::Session,
+    };
+    match ConfigEditsBuilder::for_config(config)
+        .set_resume_cwd(mode)
+        .apply()
+        .await
+    {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::error!(error = %error, "failed to persist working directory preference");
+            false
+        }
+    }
+}
+
 /// `PersistModelMigrationPromptAcknowledged` and, accepted,
 /// `PersistModelSelection`: written to the user's config; a failure is
 /// logged.

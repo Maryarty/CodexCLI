@@ -27,6 +27,9 @@ pub struct Cli {
     pub agents: bool,
     /// The `resume` subcommand: open the resume picker first.
     pub resume: bool,
+    /// `resume <ID>` / `fork <ID>`: the session the first thread opens (the
+    /// directory prompt comes first when it differs from this one).
+    pub session: Option<codex_tui_core::screens::onboarding::session::Start>,
     /// `-C` / `--cd`: the directory the agent works in (new tasks start there).
     pub cwd: Option<std::path::PathBuf>,
     /// `--no-alt-screen`: run inline, keeping the terminal's scrollback.
@@ -47,6 +50,9 @@ pub struct Cli {
 /// oracle words it (`startup_orchestration.rs`); the rest (`--remote` values,
 /// the token variable) is the host's, with the oracle's words.
 const NO_DAEMON_WITH_REMOTE: &str = "--no-daemon cannot be used with --remote.";
+/// The session picker of `codex fork` is not carried over: it names the
+/// session.
+const FORK_NEEDS_ID: &str = "`codex fork` needs a session ID";
 const AGENTS_NO_PROMPT: &str = "`codex agents` does not accept an initial prompt or images";
 const AGENTS_CONFLICTING_REMOTE: &str =
     "`codex agents` received conflicting remote server endpoints";
@@ -107,6 +113,9 @@ impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> anyhow::Result<Cli> {
         let mut cli = Cli::default();
         let mut args = args.into_iter();
+        // `resume` / `fork` and the session id (a word of its own) they name.
+        let mut verb: Option<codex_tui_core::screens::startup::Action> = None;
+        let mut session_id: Option<String> = None;
         // What `codex agents` refuses: a prompt or images, and two endpoints.
         let mut prompt_or_images = false;
         let mut other_remote: Option<String> = None;
@@ -148,7 +157,8 @@ impl Cli {
                         .ok_or_else(|| anyhow::anyhow!("{arg} needs a value"))?;
                     cli.remote_auth_token_env = Some(value);
                 }
-                "resume" => cli.resume = true,
+                "resume" => verb = Some(codex_tui_core::screens::startup::Action::Resume),
+                "fork" => verb = Some(codex_tui_core::screens::startup::Action::Fork),
                 "-m" | "--model" => {
                     let value = args
                         .next()
@@ -173,6 +183,8 @@ impl Cli {
                         cli.remote = Some(value.to_string());
                     } else if other.starts_with("--image=") {
                         prompt_or_images = true;
+                    } else if verb.is_some() && session_id.is_none() && !other.starts_with('-') {
+                        session_id = Some(other.to_owned());
                     } else if cli.agents && !other.starts_with('-') {
                         // The positional prompt of `codex`.
                         prompt_or_images = true;
@@ -187,6 +199,17 @@ impl Cli {
                     }
                 }
             }
+        }
+        match (verb, session_id) {
+            (Some(action), Some(id)) => {
+                cli.session =
+                    Some(codex_tui_core::screens::onboarding::session::Start { action, id });
+            }
+            (Some(codex_tui_core::screens::startup::Action::Resume), None) => cli.resume = true,
+            (Some(codex_tui_core::screens::startup::Action::Fork), None) => {
+                anyhow::bail!(FORK_NEEDS_ID);
+            }
+            (None, _) => {}
         }
         if cli.agents && other_remote.is_some() {
             anyhow::bail!(AGENTS_CONFLICTING_REMOTE);

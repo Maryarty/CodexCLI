@@ -2,6 +2,8 @@
 //! ported as black-box screen tests with the kit. One test per manifest line,
 //! named as the line says. Recipe: docs/rtwk-port/refs/screen-tests.md.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::time::Duration;
 
 use codex_tui_rtwk::app::UiApp;
@@ -142,10 +144,6 @@ fn cwd_prompt_remembered_choices_select_and_persist_matching_directory() {
 // ORACLE cwd_prompt.rs:562 cwd_prompt_persistence_failure_snapshot kind=snap owner=startup-prompts snap=cwd_prompt_persistence_failure
 #[test]
 fn cwd_prompt_persistence_failure_snapshot() {
-    kit::pending(
-        Owner::StartupPrompts,
-        "no entry for the history line `Failed to save working directory preference.`: the cwd prompt is not a launch prompt of the rtwk binary yet (it has no resume or fork by id, the oracle's `resolve_cwd_for_resume_or_fork`), so its config write and the history line of a failed one have no caller; they come with the resume flow's cwd step",
-    );
     let s = Screen::build(Owner::StartupPrompts)
         .size(100, 1)
         .entry("startup", "cwd_persistence_failure")

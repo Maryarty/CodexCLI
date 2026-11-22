@@ -15,6 +15,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod cwd;
 pub mod launch;
 
 pub const NAME: &str = "startup";
@@ -432,6 +433,20 @@ pub struct Model {
     /// The model an accepted migration prompt chose: new threads start on it
     /// (oracle: `config.model` is set before the session starts).
     accepted_model: Option<String>,
+    /// What the prompts left for the history (the oracle's
+    /// `insert_history_lines`), oldest first; the chat shows them.
+    pub history: Vec<HistoryLine>,
+    /// The write of the cwd choice awaited: an answer under another number
+    /// is stale.
+    saving_cwd: Option<u64>,
+}
+
+/// A line a prompt leaves in the history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryLine {
+    /// The cwd prompt's choice could not be written to the config.
+    CwdPreferenceNotSaved,
 }
 
 impl Model {
@@ -453,6 +468,11 @@ pub enum Ev {
         request: u64,
         failure: Option<String>,
     },
+    /// The write of the cwd choice with this request id finished (`true`: it
+    /// failed). A result of an older request is dropped.
+    CwdSaved { request: u64, failed: bool },
+    /// A line for the history (a script's `{"history": ..}`).
+    History(HistoryLine),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -470,6 +490,16 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     let _ = fx;
     match ev {
         Ev::Asked(prompt) => model.open = Some(prompt),
+        Ev::CwdSaved { request, failed } => {
+            if model.saving_cwd != Some(request) {
+                return;
+            }
+            model.saving_cwd = None;
+            if failed {
+                model.history.push(HistoryLine::CwdPreferenceNotSaved);
+            }
+        }
+        Ev::History(line) => model.history.push(line),
         Ev::HooksTrusted { request, failure } => {
             let Some(Prompt::Hooks(hooks)) = &mut model.open else {
                 return;
@@ -522,6 +552,21 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                         to: m.target_model.clone(),
                         accepted,
                         effort: m.effort.clone().filter(|_| accepted),
+                    },
+                });
+            }
+            // A remembered choice is written to the config
+            // (`persist_remembered_cwd_selection`); the answer says whether it
+            // was.
+            if let Answer::Cwd(selection) = answer
+                && let Some(mode) = cwd::remembered(selection)
+            {
+                model.next_request += 1;
+                model.saving_cwd = Some(model.next_request);
+                fx.commands.push(AppCommand::Startup {
+                    ask: onboarding::Ask::SaveResumeCwd {
+                        request: model.next_request,
+                        mode,
                     },
                 });
             }
@@ -597,8 +642,14 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 }
 
 /// A script's `screen` step for this directory: `{"prompt": "cwd", ..}` (the
-/// prompt's fields) puts that prompt on screen.
+/// prompt's fields) puts that prompt on screen; `{"history": "cwd_preference_not_saved"}`
+/// leaves that line for the history.
 pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
+    if let Some(line) = value.get("history") {
+        let line: HistoryLine = serde_json::from_value(line.clone())
+            .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
+        return Ok(Ev::History(line));
+    }
     let prompt: Prompt = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Asked(prompt))

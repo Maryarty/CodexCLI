@@ -3,8 +3,8 @@
 //! pushed over it at once with nowhere to go back to but the session it
 //! reveals when it ends.
 
-use rtwk::layout::SizedBox;
 use rtwk::Handler;
+use rtwk::layout::SizedBox;
 use rtwk::navigation::{Navigator, PageRoute, PopInvoked, PopScope};
 use rtwk::provider::{read, watch};
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};

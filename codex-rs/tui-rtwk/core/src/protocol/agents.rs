@@ -175,12 +175,12 @@ pub(crate) fn decode_reply(
             let page = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Listed(listed_page(page)))
         }
-        Command::Thread(ThreadAsk::Resume { .. }) => {
+        Command::Thread(ThreadAsk::Resume { .. } | ThreadAsk::ResumeAt { .. }) => {
             let response: ThreadResumeResponse =
                 serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Resumed(Box::new(response.thread)))
         }
-        Command::Thread(ThreadAsk::Fork { .. }) => {
+        Command::Thread(ThreadAsk::Fork { .. } | ThreadAsk::ForkAt { .. }) => {
             let response: ThreadForkResponse = serde_json::from_value(result).map_err(malformed)?;
             Ok(Reply::Forked(Box::new(response.thread)))
         }

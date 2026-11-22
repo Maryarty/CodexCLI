@@ -1,6 +1,8 @@
 //! Screen tests of the `startup` slot. A slice adds its tests here, with its
 //! snapshots in `tests/snapshots/startup/`.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use crate::common::slot;
 
 #[test]
@@ -144,6 +146,8 @@ mod gate {
             },
         );
         h.wait_for("the chat", |s| s.contains(CHAT));
+        // The screen can be ahead of what the fake has recorded.
+        h.wait_until("the thread start", |h| thread_starts(h) >= 1);
         assert_eq!(thread_starts(&h), 1);
     }
 
@@ -157,6 +161,8 @@ mod gate {
         assert_eq!(thread_starts(&h), 0);
         launched(&h, Vec::new());
         h.wait_for("the chat", |s| s.contains(CHAT));
+        // The screen can be ahead of what the fake has recorded.
+        h.wait_until("the thread start", |h| thread_starts(h) >= 1);
         assert_eq!(thread_starts(&h), 1);
     }
 
@@ -273,5 +279,292 @@ mod gate {
             }
         }
         panic!("the prompt never came:\n{}", h.t.screen());
+    }
+}
+
+// `codex resume <id>` and `codex fork <id>`: the app reads the session, asks
+// for its directory when it differs from this one (the cwd prompt), and opens
+// it in place of a fresh thread (oracle: `run_ratatui_app`).
+mod session {
+    use std::sync::OnceLock;
+
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::rpc::ServerError;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::onboarding::session::Start;
+    use codex_tui_core::screens::onboarding::{Ev, Facts};
+    use codex_tui_core::screens::startup::Action;
+    use codex_tui_core::screens::startup::cwd::{ResumeMode, Setting};
+    use codex_tui_rtwk::app::UiApp;
+    use codex_tui_rtwk::app::run::{app_view, localized, root};
+    use codex_tui_rtwk::l10n::Lang;
+    use codex_tui_rtwk::services::backend::fake::{FakeHandle, FakeServer};
+    use codex_tui_rtwk::services::shell::Backend;
+    use rtwk_test::{Options, Tester};
+    use serde_json::{Value, json};
+
+    use crate::common::ms;
+
+    const CHAT: &str = "? for shortcuts";
+
+    fn runtime() -> &'static tokio::runtime::Runtime {
+        static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+        RUNTIME.get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_time()
+                .build()
+                .expect("runtime")
+        })
+    }
+
+    fn thread_json(id: &str, cwd: &str) -> Value {
+        json!({
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": id, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null,
+            "cwd": cwd, "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null,
+            "agentNickname": null, "agentRole": null, "gitInfo": null, "name": id,
+            "daybreakEnabled": null, "turns": []
+        })
+    }
+
+    fn opened(id: &str, cwd: &str) -> Value {
+        json!({
+            "thread": thread_json(id, cwd),
+            "model": "gpt-5", "modelProvider": "openai", "serviceTier": null,
+            "cwd": cwd, "instructionSources": [],
+            "approvalPolicy": "on-request", "approvalsReviewer": "user",
+            "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null
+        })
+    }
+
+    /// The server's side: the session `saved-1` recorded `/tmp/saved`; the
+    /// resume and the fork answer in the directory they were asked for.
+    fn server(request: &Value) -> Option<Result<Value, ServerError>> {
+        let cwd = request["params"]["cwd"].as_str().unwrap_or("/tmp/saved");
+        match request["method"].as_str()? {
+            "thread/read" if request["params"]["threadId"] == "saved-1" => {
+                Some(Ok(json!({"thread": thread_json("saved-1", "/tmp/saved")})))
+            }
+            "thread/read" => Some(Err(ServerError::from("no rollout found"))),
+            "thread/resume" => Some(Ok(opened("saved-1", cwd))),
+            "thread/fork" => Some(Ok(opened("copy-1", cwd))),
+            _ => None,
+        }
+    }
+
+    struct Run {
+        t: Tester,
+        fake: FakeHandle,
+        _guard: tokio::runtime::EnterGuard<'static>,
+    }
+
+    fn start(action: Action) -> Run {
+        let guard = rtwk_tokio::enter(runtime());
+        let (backend, fake) = FakeServer::new();
+        fake.respond(server);
+        let app = UiApp::new(Backend::Fake(backend))
+            .with_awaited_facts(true)
+            .with_start_session(Start {
+                action,
+                id: "saved-1".into(),
+            });
+        let mut t = Tester::with(Options::new().size(80, 24));
+        t.pump_widget(localized(root(app_view(app)), Lang::En));
+        t.pump_for(ms(200));
+        Run {
+            t,
+            fake,
+            _guard: guard,
+        }
+    }
+
+    impl Run {
+        fn until(&mut self, what: &str, mut ready: impl FnMut(&mut Run) -> bool) {
+            for _ in 0..400 {
+                self.t.pump_for(ms(5));
+                std::thread::sleep(ms(2));
+                if ready(self) {
+                    return;
+                }
+            }
+            panic!("{what} never came:\n{}", self.t.screen());
+        }
+
+        fn inject(&self, ev: Ev) {
+            let epoch = self.fake.epoch().expect("attached to the scripted server");
+            self.fake
+                .inject(epoch, AppEv::Screen(ScreenEv::Onboarding(ev)));
+        }
+
+        /// The host's answers: the facts, no device code, no launch prompts.
+        fn launch(&mut self, configured: Option<ResumeMode>) {
+            self.until("the session read", |r| {
+                r.fake
+                    .requests()
+                    .iter()
+                    .any(|q| q["method"] == "thread/read")
+            });
+            self.inject(Ev::Facts {
+                request: 1,
+                facts: Facts {
+                    resume: Setting {
+                        current: "/work/now".into(),
+                        configured,
+                        ..Setting::default()
+                    },
+                    ..Facts::default()
+                },
+            });
+            self.inject(Ev::GatewayDevice {
+                request: 2,
+                code: None,
+            });
+            self.inject(Ev::Launched {
+                request: 3,
+                prompts: Vec::new(),
+            });
+        }
+
+        fn asked(&self, method: &str) -> Vec<Value> {
+            self.fake
+                .requests()
+                .into_iter()
+                .filter(|q| q["method"] == method)
+                .collect()
+        }
+    }
+
+    #[test]
+    fn resume_by_id_asks_for_the_directory_and_opens_the_session_there() {
+        let mut r = start(Action::Resume);
+        r.launch(None);
+        r.until("the cwd prompt", |r| {
+            r.t.screen().contains("Working directory")
+        });
+        let screen = r.t.screen();
+        assert!(
+            screen.contains("Use session directory (/tmp/saved)")
+                && screen.contains("Use current directory (/work/now)"),
+            "{screen}"
+        );
+        assert!(
+            r.asked("thread/resume").is_empty(),
+            "nothing opens before the answer"
+        );
+        r.t.press("2");
+        r.until("the resume", |r| !r.asked("thread/resume").is_empty());
+        let resumes = r.asked("thread/resume");
+        assert_eq!(resumes[0]["params"]["threadId"], "saved-1");
+        assert_eq!(resumes[0]["params"]["cwd"], "/work/now");
+        r.until("the chat", |r| r.t.screen().contains(CHAT));
+        assert!(
+            r.asked("thread/start").is_empty(),
+            "{:?}",
+            r.fake.requests()
+        );
+    }
+
+    #[test]
+    fn the_session_directory_is_the_default_choice() {
+        let mut r = start(Action::Resume);
+        r.launch(None);
+        r.until("the cwd prompt", |r| {
+            r.t.screen().contains("Working directory")
+        });
+        r.t.press("enter");
+        r.until("the resume", |r| !r.asked("thread/resume").is_empty());
+        assert_eq!(r.asked("thread/resume")[0]["params"]["cwd"], "/tmp/saved");
+    }
+
+    // A remembered mode (`tui.resume_cwd`) answers for the user.
+    #[test]
+    fn a_remembered_mode_opens_without_a_prompt() {
+        let mut r = start(Action::Resume);
+        r.launch(Some(ResumeMode::Current));
+        r.until("the resume", |r| !r.asked("thread/resume").is_empty());
+        assert_eq!(r.asked("thread/resume")[0]["params"]["cwd"], "/work/now");
+        assert!(!r.t.screen().contains("Working directory"));
+        r.until("the chat", |r| r.t.screen().contains(CHAT));
+    }
+
+    #[test]
+    fn fork_by_id_opens_the_copy() {
+        let mut r = start(Action::Fork);
+        r.launch(Some(ResumeMode::Session));
+        r.until("the fork", |r| !r.asked("thread/fork").is_empty());
+        let forks = r.asked("thread/fork");
+        assert_eq!(forks[0]["params"]["threadId"], "saved-1");
+        assert_eq!(forks[0]["params"]["cwd"], "/tmp/saved");
+        r.until("the chat", |r| r.t.screen().contains(CHAT));
+        assert!(r.asked("thread/start").is_empty());
+    }
+
+    // Ctrl-C on the cwd prompt leaves: nothing is resumed.
+    #[test]
+    fn ctrl_c_on_the_cwd_prompt_opens_nothing() {
+        let mut r = start(Action::Resume);
+        r.launch(None);
+        r.until("the cwd prompt", |r| {
+            r.t.screen().contains("Working directory")
+        });
+        r.t.press("ctrl+c");
+        for _ in 0..20 {
+            r.t.pump_for(ms(5));
+            std::thread::sleep(ms(2));
+        }
+        assert!(r.asked("thread/resume").is_empty() && r.asked("thread/start").is_empty());
+    }
+}
+
+// The command line: `resume <ID>` and `fork <ID>` name the session the first
+// thread opens; `resume` alone is the picker.
+mod command_line {
+    use codex_tui_core::screens::onboarding::session::Start;
+    use codex_tui_core::screens::startup::Action;
+    use codex_tui_rtwk::Cli;
+
+    fn parse(words: &[&str]) -> anyhow::Result<Cli> {
+        Cli::parse(words.iter().map(|w| (*w).to_owned()))
+    }
+
+    #[test]
+    fn an_id_after_resume_or_fork_names_the_session() {
+        for (word, action) in [("resume", Action::Resume), ("fork", Action::Fork)] {
+            let cli = parse(&[word, "0192-abc"]).expect("parses");
+            assert_eq!(
+                cli.session,
+                Some(Start {
+                    action,
+                    id: "0192-abc".into()
+                })
+            );
+            assert!(!cli.resume);
+        }
+    }
+
+    #[test]
+    fn the_id_may_come_after_the_flags() {
+        let cli = parse(&["resume", "--cd", "/work", "0192-abc", "-m", "gpt-5"]).expect("parses");
+        assert_eq!(cli.session.map(|s| s.id), Some("0192-abc".to_owned()));
+        assert_eq!(cli.cwd.as_deref(), Some(std::path::Path::new("/work")));
+        assert_eq!(cli.model.as_deref(), Some("gpt-5"));
+    }
+
+    #[test]
+    fn resume_alone_is_the_picker_and_fork_needs_an_id() {
+        let cli = parse(&["resume"]).expect("parses");
+        assert!(cli.resume && cli.session.is_none());
+        let refused = parse(&["fork"]).expect_err("a fork has no picker here");
+        assert!(
+            refused.to_string().contains("needs a session ID"),
+            "{refused}"
+        );
     }
 }

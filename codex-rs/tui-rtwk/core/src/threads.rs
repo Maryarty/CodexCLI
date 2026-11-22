@@ -914,6 +914,19 @@ pub enum ThreadAsk {
     Fork {
         thread: String,
     },
+    /// `thread/resume` in the directory the user chose at launch (`codex
+    /// resume <id>`, the oracle's `config.cwd` after the cwd prompt); `None`
+    /// is the session's own.
+    ResumeAt {
+        thread: String,
+        cwd: Option<String>,
+    },
+    /// `thread/fork` in the directory the user chose at launch (`codex fork
+    /// <id>`).
+    ForkAt {
+        thread: String,
+        cwd: Option<String>,
+    },
     /// `thread/start` in `cwd` (a new task).
     Start {
         cwd: Option<String>,
@@ -967,7 +980,9 @@ impl ThreadAsk {
     pub fn thread(&self) -> Option<&str> {
         match self {
             ThreadAsk::Resume { thread }
+            | ThreadAsk::ResumeAt { thread, .. }
             | ThreadAsk::Fork { thread }
+            | ThreadAsk::ForkAt { thread, .. }
             | ThreadAsk::Read { thread }
             | ThreadAsk::ActiveTurn { thread }
             | ThreadAsk::Turns { thread }
@@ -993,6 +1008,23 @@ impl ThreadAsk {
                     // over the wire is the cost of opening a long session.
                     exclude_turns: true,
                     ..ThreadResumeParams::default()
+                },
+            },
+            ThreadAsk::ResumeAt { thread, cwd } => ClientRequest::ThreadResume {
+                request_id,
+                params: ThreadResumeParams {
+                    thread_id: thread.clone(),
+                    exclude_turns: true,
+                    cwd: cwd.clone(),
+                    ..ThreadResumeParams::default()
+                },
+            },
+            ThreadAsk::ForkAt { thread, cwd } => ClientRequest::ThreadFork {
+                request_id,
+                params: ThreadForkParams {
+                    thread_id: thread.clone(),
+                    cwd: cwd.clone(),
+                    ..ThreadForkParams::default()
                 },
             },
             ThreadAsk::Fork { thread } => ClientRequest::ThreadFork {

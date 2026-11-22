@@ -41,6 +41,8 @@ pub struct Strings {
     cwd_always_current_in: Msg<1>,
     /// `enter`, ` continue · `, `esc`, ` use session · `, `⌃c`, ` quit`.
     pub cwd_hint: [&'static str; 6],
+    /// `persist_remembered_cwd_selection`: the history line of a failed save.
+    pub cwd_not_saved: &'static str,
     /// Oracle: `model_migration.rs`.
     migration_heading: Msg<1>,
     migration_recommend: Msg<2>,
@@ -214,6 +216,7 @@ pub const EN: Strings = Strings {
     cwd_always_session: "Always use session directory",
     cwd_always_current: "Always use current directory",
     cwd_always_current_in: msg!("Always use current directory ({0})"),
+    cwd_not_saved: "Failed to save working directory preference.",
     cwd_hint: [
         "enter",
         " continue \u{b7} ",
