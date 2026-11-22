@@ -73,6 +73,18 @@ pub struct Strings {
     pub stub_memory_maintenance: &'static str,
     /// `PARENT_OWNED_INPUT_MESSAGE`.
     pub parent_owned: &'static str,
+    pub mode_busy: &'static str,
+    /// `plan_implementation.rs`: the question after a proposed plan.
+    pub plan_title: &'static str,
+    pub plan_yes: &'static str,
+    pub plan_yes_note: &'static str,
+    pub plan_clear: &'static str,
+    pub plan_clear_note: &'static str,
+    pub plan_clear_usage: Msg<1>,
+    pub plan_no: &'static str,
+    pub plan_no_note: &'static str,
+    pub plan_used_percent: Msg<1>,
+    pub plan_used_tokens: Msg<1>,
     /// `working_directory.rs`, `event_dispatch.rs`: why `/cd` did nothing.
     pub cd_not_started: &'static str,
     pub cd_not_idle: &'static str,
@@ -203,6 +215,17 @@ pub const EN: Strings = Strings {
     stub: msg!("{0}: Not available in TUI yet."),
     stub_memory_maintenance: "Memory maintenance",
     parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
+    mode_busy: "Cannot switch collaboration mode while a turn is running.",
+    plan_title: "Implement this plan?",
+    plan_yes: "Yes, implement this plan",
+    plan_yes_note: "Switch to Default and start coding",
+    plan_clear: "Yes, clear context and implement",
+    plan_clear_note: "Fresh thread with this plan",
+    plan_clear_usage: msg!("Start a fresh thread (current context: {0})"),
+    plan_no: "No, stay in Plan mode",
+    plan_no_note: "Continue planning with the model",
+    plan_used_percent: msg!("{0}% used"),
+    plan_used_tokens: msg!("{0} used"),
     cd_not_started: "The session must start before you can change its working directory.",
     cd_not_idle: "Changing directories requires an idle primary session without queued input.",
     cd_history_not_saved: "Conversation history is not saved.",
@@ -285,6 +308,31 @@ static TABLES: Tables<Strings> = Tables::english(&EN);
 /// The table of the locale below `cx`.
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
+}
+
+impl Strings {
+    /// The usage label of the plan prompt's clear-context row (`89% used`, `123K used`).
+    pub fn plan_usage(&self, used: codex_tui_core::screens::chat::plan_mode::Used) -> String {
+        use codex_tui_core::screens::chat::plan_mode::Used;
+        let (msg, text) = match used {
+            Used::Percent(percent) => (self.plan_used_percent, percent.to_string()),
+            Used::Tokens(tokens) => (
+                self.plan_used_tokens,
+                codex_tui_core::format::format_tokens_compact(tokens),
+            ),
+        };
+        Fmt::new(msg, [Arg::Text(&text)], &self.num).to_string()
+    }
+
+    /// The description of the clear-context row.
+    pub fn plan_clear_description(&self, label: Option<&str>) -> String {
+        match label {
+            Some(label) => {
+                Fmt::new(self.plan_clear_usage, [Arg::Text(label)], &self.num).to_string()
+            }
+            None => self.plan_clear_note.to_string(),
+        }
+    }
 }
 
 /// The title of the screen in `lang`, for code with no tree (the debug
@@ -416,6 +464,7 @@ impl Strings {
             NoteKey::RawOutput(true) => self.raw_output_on.to_string(),
             NoteKey::RawOutput(false) => self.raw_output_off.to_string(),
             NoteKey::ParentOwned => self.parent_owned.to_string(),
+            NoteKey::ModeBusy => self.mode_busy.to_string(),
             NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),
             NoteKey::CdRefused(CdRefusal::NotIdle) => self.cd_not_idle.to_string(),
             NoteKey::CdRefused(CdRefusal::HistoryNotSaved) => self.cd_history_not_saved.to_string(),
