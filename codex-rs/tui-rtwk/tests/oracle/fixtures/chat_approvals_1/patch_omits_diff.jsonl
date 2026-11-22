@@ -1,0 +1,4 @@
+# A file-change approval for README.md (+2 lines): the modal asks for the edits and draws no diff summary.
+# Oracle data: chatwidget/tests/exec_flow.rs:1988 apply_patch_request_omits_diff_summary_from_modal: call-apply, README.md add "line one\nline two\n"; the app-server request carries no changes
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"request","message":{"method":"item/fileChange/requestApproval","id":1,"params":{"itemId":"call-apply","threadId":"thread-1","turnId":"turn-1","startedAtMs":0}}}

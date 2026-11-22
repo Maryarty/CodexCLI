@@ -17,6 +17,7 @@ use crate::threads::ThreadFx;
 pub mod decided;
 pub mod form;
 pub mod input;
+pub mod order;
 
 pub use form::{Entered, Form};
 

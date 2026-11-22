@@ -1281,3 +1281,72 @@ mod decided {
         assert_eq!(Decided::of(&prompt(&sandbox), &Decision::Accept), None);
     }
 }
+
+/// Which queued request is shown next (the oracle's view stack, `bottom_pane/mod.rs`
+/// 2085-2130, and the queue of each view): a request of another kind stacks over the one
+/// shown; the requests of one kind wait in one view, approvals newest first
+/// (`approval_overlay.rs` `advance_queue` pops a `Vec`), forms and questions oldest first.
+mod order {
+    use codex_tui_core::screens::approvals::order::{Family, to_show};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    const A: Family = Family::Approval;
+    const E: Family = Family::Elicitation;
+    const Q: Family = Family::UserInput;
+
+    fn shown(queue: &[(&'static str, Family)]) -> Option<&'static str> {
+        to_show(queue).copied()
+    }
+
+    // approval_overlay.rs:507 advance_queue
+    #[test]
+    fn approvals_come_newest_first() {
+        assert_eq!(shown(&[("a1", A), ("a2", A), ("a3", A)]), Some("a3"));
+        assert_eq!(shown(&[("a1", A), ("a2", A)]), Some("a2"));
+        assert_eq!(shown(&[("a1", A)]), Some("a1"));
+    }
+
+    // mcp_server_elicitation.rs:2497 queues_requests_fifo
+    #[test]
+    fn elicitations_come_oldest_first() {
+        assert_eq!(shown(&[("e1", E), ("e2", E)]), Some("e1"));
+    }
+
+    // request_user_input/mod.rs:1770 queued_requests_are_fifo
+    #[test]
+    fn questions_come_oldest_first() {
+        assert_eq!(shown(&[("q1", Q), ("q2", Q), ("q3", Q)]), Some("q1"));
+    }
+
+    // bottom_pane/mod.rs push_approval_request, push_mcp_server_elicitation_request,
+    // push_user_input_request: a new kind is a new view on top
+    #[test]
+    fn a_request_of_another_kind_stacks_over_the_others() {
+        assert_eq!(shown(&[("a1", A), ("e1", E)]), Some("e1"));
+        assert_eq!(shown(&[("e1", E), ("a1", A)]), Some("a1"));
+        assert_eq!(
+            shown(&[("a1", A), ("a2", A), ("q1", Q), ("q2", Q)]),
+            Some("q1")
+        );
+        // once the view on top is done, the earlier one is the top again
+        assert_eq!(shown(&[("a1", A), ("a2", A)]), Some("a2"));
+    }
+
+    #[test]
+    fn nothing_queued_shows_nothing() {
+        assert_eq!(shown(&[]), None);
+    }
+
+    #[test]
+    fn the_family_follows_the_prompt() {
+        let sandbox = play(&exec(""));
+        assert_eq!(Family::of(Some(&prompt(&sandbox))), A);
+        let sandbox = play(
+            r#"{"method":"item/fileChange/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0}}"#,
+        );
+        assert_eq!(Family::of(Some(&prompt(&sandbox))), A);
+        assert_eq!(Family::of(None), Family::Other);
+    }
+}

@@ -148,7 +148,7 @@ fn exec_approval_decision_truncates_multiline_and_long_commands() {
 fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
     kit::pending(
         Owner::DialogsPane,
-        "no external-writer thread view on the chat screen: the active exec row and the MCP row are not frozen on show",
+        "OTHER CHUNK (chunk-live, not approvals): no external-writer thread view on the chat screen: the active exec row and the MCP row are not frozen on show",
     );
     // oracle: with a running command (sleep 5) or a running MCP call, showing the external writer thread
     // freezes the active row (no animation); the rendered rows are the snapshot.
@@ -162,7 +162,7 @@ fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
 fn replayed_background_terminals_belong_to_the_displayed_thread() {
     kit::pending(
         Owner::DialogsPane,
-        "no /ps background-terminal list on the chat screen (the replayed inherited terminal and the fork's own terminals)",
+        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen (the replayed inherited terminal and the fork's own terminals)",
     );
     // oracle: the fork's /ps lists only its own live terminal; the exited one is not listed.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -177,7 +177,7 @@ fn replayed_background_terminals_belong_to_the_displayed_thread() {
 fn replayed_command_completion_preserves_tracking_without_duplicate_starts() {
     kit::pending(
         Owner::DialogsPane,
-        "no exec history cell for a replayed command completion on the chat screen (the completed cat replay is not drawn)",
+        "OTHER CHUNK (chunk-cells, not approvals): no exec history cell for a replayed command completion on the chat screen (the completed cat replay is not drawn)",
     );
     // oracle: a replayed completion of a unified-exec startup writes one history cell and no duplicate start.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -190,7 +190,7 @@ fn replayed_command_completion_preserves_tracking_without_duplicate_starts() {
 fn failed_exploration_keeps_overlapping_commands_active_until_all_finish() {
     kit::pending(
         Owner::DialogsPane,
-        "no active exploring cell for overlapping exec commands on the chat screen (the failed ls and the running cat stay grouped)",
+        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell for overlapping exec commands on the chat screen (the failed ls and the running cat stay grouped)",
     );
     // oracle: a failed `ls missing` and a running `cat foo.txt` stay one active Explored cell until all finish.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -216,7 +216,7 @@ fn failed_exploration_keeps_overlapping_commands_active_until_all_finish() {
 fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
     kit::pending(
         Owner::DialogsPane,
-        "no exploring cell with failed and successful reads on the chat screen (exit statuses, their colours)",
+        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell with failed and successful reads on the chat screen (exit statuses, their colours)",
     );
     // oracle: six exploration commands, the non-zero exits stay visible beside the successful reads.
     // The compact rendering at width 24 (`compact_exploration_with_failures`) is a second screen, same feed.
@@ -232,7 +232,7 @@ fn exploration_nonzero_exits_remain_visible_beside_successful_reads() {
 fn exploration_reasoning_during_followup_command_stays_ordered() {
     kit::pending(
         Owner::DialogsPane,
-        "no reasoning rows interleaved with an exploring cell on the chat screen (reasoning between two exec commands)",
+        "OTHER CHUNK (chunk-cells, not approvals): no reasoning rows interleaved with an exploring cell on the chat screen (reasoning between two exec commands)",
     );
     // oracle: `ls` then reasoning "Read the file next.", `cat file.txt` with reasoning "Waiting for the file.";
     // the active transcript keeps that order.
@@ -246,7 +246,7 @@ fn exploration_reasoning_during_followup_command_stays_ordered() {
 fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
     kit::pending(
         Owner::DialogsPane,
-        "no exploring cell grouping across reasoning, live and replayed, on the chat screen (five exec commands, Compact/Expanded/Raw)",
+        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell grouping across reasoning, live and replayed, on the chat screen (five exec commands, Compact/Expanded/Raw)",
     );
     // oracle: the live and the replayed screens render the same Compact, Expanded and Raw text.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -259,7 +259,7 @@ fn adjacent_exploration_groups_across_reasoning_live_and_replayed() {
 fn replayed_commands_preserve_individual_output_and_failure_status() {
     kit::pending(
         Owner::DialogsPane,
-        "no replayed command cells with their own output and status marks on the chat screen (✓ and ✗ (7), ✗ (1))",
+        "OTHER CHUNK (chunk-cells, not approvals): no replayed command cells with their own output and status marks on the chat screen (✓ and ✗ (7), ✗ (1))",
     );
     // oracle: four replayed command cells keep their own output; the failed and declined ones keep their status.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -285,7 +285,7 @@ fn replayed_commands_preserve_individual_output_and_failure_status() {
 fn unified_exec_begin_restores_working_status_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no working status row restored after the preamble of a unified exec begin on the chat screen",
+        "OTHER CHUNK (chunk-status, not approvals): no working status row restored after the preamble of a unified exec begin on the chat screen",
     );
     // oracle: a preamble line, a commit tick, then a unified exec begin: the working status shows again (80 wide).
     let s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
@@ -298,7 +298,7 @@ fn unified_exec_begin_restores_working_status_snapshot() {
 fn exec_history_cell_shows_working_then_completed() {
     kit::pending(
         Owner::DialogsPane,
-        "no finalized exec history cell drawn on the chat screen after the end of `echo done`",
+        "OTHER CHUNK (chunk-cells, not approvals): no finalized exec history cell drawn on the chat screen after the end of `echo done`",
     );
     // oracle: nothing is flushed on begin; the end flushes one cell with "• Ran" and the command text.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -312,7 +312,7 @@ fn exec_history_cell_shows_working_then_completed() {
 fn exec_history_cell_shows_working_then_failed() {
     kit::pending(
         Owner::DialogsPane,
-        "no finalized failed exec history cell drawn on the chat screen (`false` with exit 2 and error text)",
+        "OTHER CHUNK (chunk-cells, not approvals): no finalized failed exec history cell drawn on the chat screen (`false` with exit 2 and error text)",
     );
     // oracle: the failed end flushes one cell with "• Ran false" and its error text.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -326,7 +326,7 @@ fn exec_history_cell_shows_working_then_failed() {
 fn exec_end_without_begin_uses_event_command() {
     kit::pending(
         Owner::DialogsPane,
-        "no history cell for an exec end without its begin on the chat screen (`• Ran echo orphaned`)",
+        "OTHER CHUNK (chunk-cells, not approvals): no history cell for an exec end without its begin on the chat screen (`• Ran echo orphaned`)",
     );
     // oracle: an end with no begin renders from the event's command; the call id is not shown.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -340,7 +340,7 @@ fn exec_end_without_begin_uses_event_command() {
 fn exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell() {
     kit::pending(
         Owner::DialogsPane,
-        "no active exploring cell kept beside an orphan exec end on the chat screen (`• Ran echo repro-marker` above `• Exploring`)",
+        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell kept beside an orphan exec end on the chat screen (`• Ran echo repro-marker` above `• Exploring`)",
     );
     // oracle: the orphan end renders its own entry; the running `cat /dev/null` stays the active exploring cell.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -356,7 +356,7 @@ fn exec_end_without_begin_does_not_flush_unrelated_running_exploring_cell() {
 fn exec_end_without_begin_flushes_completed_unrelated_exploring_cell() {
     kit::pending(
         Owner::DialogsPane,
-        "no flush of the completed exploring cell before the orphan entry on the chat screen",
+        "OTHER CHUNK (chunk-cells, not approvals): no flush of the completed exploring cell before the orphan entry on the chat screen",
     );
     // oracle: the completed `ls -la` flushes as Explored, then the orphan `echo after` entry follows it.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -369,7 +369,7 @@ fn exec_end_without_begin_flushes_completed_unrelated_exploring_cell() {
 fn overlapping_exploring_exec_end_is_not_misclassified_as_orphan() {
     kit::pending(
         Owner::DialogsPane,
-        "no grouped exploring cell with two running reads on the chat screen (List ls -la and Read foo.txt under one header)",
+        "OTHER CHUNK (chunk-cells, not approvals): no grouped exploring cell with two running reads on the chat screen (List ls -la and Read foo.txt under one header)",
     );
     // oracle: the end of `ls -la` inside the grouped cell draws no history cell; both reads stay in the active cell.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -385,7 +385,7 @@ fn overlapping_exploring_exec_end_is_not_misclassified_as_orphan() {
 fn exec_history_shows_unified_exec_startup_commands() {
     kit::pending(
         Owner::DialogsPane,
-        "no history cell for a unified exec startup command on the chat screen (`• Ran echo unified exec startup`)",
+        "OTHER CHUNK (chunk-cells, not approvals): no history cell for a unified exec startup command on the chat screen (`• Ran echo unified exec startup`)",
     );
     // oracle: the begin draws nothing; the end flushes one cell with the startup command.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -398,7 +398,7 @@ fn exec_history_shows_unified_exec_startup_commands() {
 fn unified_exec_unknown_end_with_active_exploring_cell_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no active exploring cell with an orphan unified exec end beside it on the chat screen (History and Active rows)",
+        "OTHER CHUNK (chunk-cells, not approvals): no active exploring cell with an orphan unified exec end beside it on the chat screen (History and Active rows)",
     );
     // oracle: History (the orphan's entry) and Active (the exploring cell `cat /dev/null`) in one snapshot.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -411,7 +411,7 @@ fn unified_exec_unknown_end_with_active_exploring_cell_snapshot() {
 fn unified_exec_wait_after_final_agent_message_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no waiting-for-terminal row in the transcript after the final agent message on the chat screen",
+        "OTHER CHUNK (chunk-cells, not approvals): no waiting-for-terminal row in the transcript after the final agent message on the chat screen",
     );
     // oracle: a unified exec wait then the final message and the turn completion: the transcript snapshot.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -424,7 +424,7 @@ fn unified_exec_wait_after_final_agent_message_snapshot() {
 fn unified_exec_wait_before_streamed_agent_message_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no waiting-for-terminal row in the transcript before a streamed agent message on the chat screen",
+        "OTHER CHUNK (chunk-cells, not approvals): no waiting-for-terminal row in the transcript before a streamed agent message on the chat screen",
     );
     // oracle: a unified exec wait, then a streamed message "Streaming response." and the turn completion.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -437,7 +437,7 @@ fn unified_exec_wait_before_streamed_agent_message_snapshot() {
 fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Worked for 2m 5s' final separator drawn on the chat screen (cumulative turn duration, with and without a duration)",
+        "OTHER CHUNK (chunk-live, not approvals): no 'Worked for 2m 5s' final separator drawn on the chat screen (cumulative turn duration, with and without a duration)",
     );
     // oracle: the final separator says "Worked for 2m 5s" from the cumulative turn time; both duration cases share one snapshot.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -450,7 +450,7 @@ fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
 fn unified_exec_waiting_multiple_empty_snapshots() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Waiting for background terminal' status with its command detail on the chat screen after two empty polls",
+        "OTHER CHUNK (chunk-status, not approvals): no 'Waiting for background terminal' status with its command detail on the chat screen after two empty polls",
     );
     // oracle: two empty polls of `just fix` show the waiting status with the command as its detail; the turn completion
     // writes the compact and the transcript renderings.
@@ -466,7 +466,7 @@ fn unified_exec_waiting_multiple_empty_snapshots() {
 fn unified_exec_wait_status_renders_command_in_single_details_row_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no bottom status popup with a long command in one details row on the chat screen (width 48)",
+        "OTHER CHUNK (chunk-status, not approvals): no bottom status popup with a long command in one details row on the chat screen (width 48)",
     );
     // oracle: a long command (cargo test ... --exact some::very::long::test::name) stays in one details row at 48 columns.
     let s = Screen::build(Owner::DialogsPane).size(48, 8).live().open();
@@ -479,7 +479,7 @@ fn unified_exec_wait_status_renders_command_in_single_details_row_snapshot() {
 fn unified_exec_empty_then_non_empty_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no transcript rendering of an empty then a non-empty terminal poll on the chat screen",
+        "OTHER CHUNK (chunk-cells, not approvals): no transcript rendering of an empty then a non-empty terminal poll on the chat screen",
     );
     // oracle: an empty poll then a poll with `ls` output: the transcript snapshot.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -492,7 +492,7 @@ fn unified_exec_empty_then_non_empty_snapshot() {
 fn unified_exec_non_empty_then_empty_snapshots() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Waiting for background terminal' status after a non-empty then an empty poll on the chat screen",
+        "OTHER CHUNK (chunk-status, not approvals): no 'Waiting for background terminal' status after a non-empty then an empty poll on the chat screen",
     );
     // oracle: a non-empty poll (`pwd`) then an empty one: the status waits with the command `just fix` as its detail;
     // after the turn completes the transcript holds both.
@@ -510,7 +510,7 @@ fn unified_exec_non_empty_then_empty_snapshots() {
 fn view_image_tool_call_adds_history_cell() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Viewed image' history cell on the chat screen for a view-image tool call",
+        "OTHER CHUNK (chunk-cells, not approvals): no 'Viewed image' history cell on the chat screen for a view-image tool call",
     );
     // oracle: one history cell, exactly "• Viewed image example.png".
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -523,7 +523,7 @@ fn view_image_tool_call_adds_history_cell() {
 fn view_image_tool_call_preserves_foreign_path() {
     kit::pending(
         Owner::DialogsPane,
-        "no 'Viewed image' history cell on the chat screen for a foreign (Windows) path",
+        "OTHER CHUNK (chunk-cells, not approvals): no 'Viewed image' history cell on the chat screen for a foreign (Windows) path",
     );
     // oracle: the path C:\workspace\assets\example.png shows as "example.png".
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -536,7 +536,7 @@ fn view_image_tool_call_preserves_foreign_path() {
 fn image_generation_call_adds_history_cell() {
     kit::pending(
         Owner::DialogsPane,
-        "no image-generation history cell (completed and failed) on the chat screen",
+        "OTHER CHUNK (chunk-cells, not approvals): no image-generation history cell (completed and failed) on the chat screen",
     );
     // oracle: a completed generation cell (saved to file:///tmp/ig-1.png), then a failed one.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -550,7 +550,7 @@ fn image_generation_call_adds_history_cell() {
 fn exec_history_extends_previous_when_consecutive() {
     kit::pending(
         Owner::DialogsPane,
-        "no exploring cell that extends across consecutive exec commands on the chat screen (six steps)",
+        "OTHER CHUNK (chunk-cells, not approvals): no exploring cell that extends across consecutive exec commands on the chat screen (six steps)",
     );
     // oracle: each step's active cell is one snapshot; step 5 (sed -n on foo.txt) leaves step 4's cell unchanged.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -574,7 +574,7 @@ fn exec_history_extends_previous_when_consecutive() {
 fn user_shell_command_renders_output_not_exploring() {
     kit::pending(
         Owner::DialogsPane,
-        "no user-shell command cell on the chat screen: `ls` run by the user draws its output, not an exploring row",
+        "OTHER CHUNK (chunk-cells, not approvals): no user-shell command cell on the chat screen: `ls` run by the user draws its output, not an exploring row",
     );
     // oracle: one history cell for the user's `ls` with file1 and file2 as its output.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -596,7 +596,7 @@ fn bang_shell_enter_while_task_running_submits_run_user_shell_command() {
 fn user_message_during_user_shell_command_is_queued_not_steered() {
     kit::pending(
         Owner::DialogsPane,
-        "no queued-message row above the composer on the chat screen while a user shell command runs",
+        "OTHER CHUNK (chunk-live, not approvals): no queued-message row above the composer on the chat screen while a user shell command runs",
     );
     // oracle: a message sent while `sleep 10` (user shell) runs is queued, not steered; it is sent after the turn completes.
     // The visible half: the queued text shows as a row; the sent op and the queue field are not drawn and not asserted here.
@@ -613,7 +613,7 @@ fn user_message_during_user_shell_command_is_queued_not_steered() {
 fn disabled_slash_command_while_task_running_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no error history cell for a slash command disabled while a task runs (/resume during a turn) on the chat screen",
+        "OTHER CHUNK (chunk-chat-commands, not approvals): no error history cell for a slash command disabled while a task runs (/resume during a turn) on the chat screen",
     );
     // oracle: the last history cell is the error line for /resume while the turn is active.
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -687,7 +687,7 @@ fn approval_modal_patch_snapshot() {
 fn interrupt_preserves_unified_exec_processes() {
     kit::pending(
         Owner::DialogsPane,
-        "no /ps background-terminal list on the chat screen after an interrupt (sleep 5 and sleep 6 keep running)",
+        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after an interrupt (sleep 5 and sleep 6 keep running)",
     );
     // oracle: after the turn is interrupted, /ps still lists both running processes.
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -704,7 +704,7 @@ fn interrupt_preserves_unified_exec_processes() {
 fn interrupt_preserves_unified_exec_wait_streak_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no waiting-streak history after an interrupt on the chat screen (cells count and the wait row)",
+        "OTHER CHUNK (chunk-cells, not approvals): no waiting-streak history after an interrupt on the chat screen (cells count and the wait row)",
     );
     // oracle: an interrupted turn with a waiting streak, then the exec end: the cell count and the history.
     let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -717,7 +717,7 @@ fn interrupt_preserves_unified_exec_wait_streak_snapshot() {
 fn turn_complete_keeps_unified_exec_processes() {
     kit::pending(
         Owner::DialogsPane,
-        "no /ps background-terminal list on the chat screen after the turn completes (sleep 5 and sleep 6 keep running)",
+        "OTHER CHUNK (chunk-chat-commands, not approvals): no /ps background-terminal list on the chat screen after the turn completes (sleep 5 and sleep 6 keep running)",
     );
     // oracle: after the turn completes, /ps still lists both running processes.
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
@@ -803,13 +803,15 @@ fn apply_patch_untrusted_shows_approval_modal() {
 // ORACLE chatwidget/tests/exec_flow.rs:1988 apply_patch_request_omits_diff_summary_from_modal kind=ui owner=dialogs-pane
 #[test]
 fn apply_patch_request_omits_diff_summary_from_modal() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no file-change approval modal on the chat screen for README.md (+2 lines): the modal must not draw the diff summary",
-    );
-    // oracle: the request's modal shows no "README.md (+2 -0)" summary and no diff lines.
-    let s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    // needs feed: apply_patch approval call-apply (README.md add, "line one\nline two\n") under OnRequest
+    // oracle: the request's modal shows no "README.md (+2 -0)" summary and no diff lines. The modal
+    // is the sheet the request opens on the chat (the first assert), so the absence has bite.
+    let s = Screen::build(Owner::DialogsPane)
+        .size(80, 24)
+        .script(include_str!(
+            "fixtures/chat_approvals_1/patch_omits_diff.jsonl"
+        ))
+        .open();
+    s.assert_contains("Would you like to make the following edits?");
     s.assert_absent("README.md (+2 -0)");
     s.assert_absent("+line one");
     s.assert_absent("+line two");

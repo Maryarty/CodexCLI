@@ -1,5 +1,5 @@
 //! The request presenter: the one place that opens a dialog for the head of
-//! the model's request queue (ADR-002). The dialog is shown with rtwk's
+//! the model's request queue, in the oracle's order (ADR-002). The dialog is shown with rtwk's
 //! `AppCx::show_dialog_from` from the kept handle of the `Navigator`'s home
 //! (a memo node, see `home_node`), so it is a route of that navigator under
 //! the providers; the decision which request is next is made on the model,
@@ -15,6 +15,7 @@ use rtwk::app::MemoCx;
 use rtwk::app::ViewRoot;
 
 use codex_tui_core::ids::RequestKey;
+use codex_tui_core::screens::approvals::order::{Family, to_show};
 
 use crate::app::UiApp;
 use crate::sheets;
@@ -120,7 +121,14 @@ pub fn present(app: &mut UiApp, cx: &mut AppCx<'_, '_, UiApp>) {
         return;
     };
     let requests = app.core.requests();
-    let head = requests.head().map(|request| request.key.clone());
+    // The view on top by the oracle's order (approvals newest first, the rest oldest first, a
+    // kind that is not the last one's under it): `approvals::order`.
+    let queue: Vec<(RequestKey, Family)> = requests
+        .entries
+        .iter()
+        .map(|request| (request.key.clone(), Family::of(request.prompt.as_deref())))
+        .collect();
+    let head = to_show(&queue).cloned();
     let Some(key) = app
         .ui
         .presenter
