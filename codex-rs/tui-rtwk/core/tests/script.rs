@@ -9,7 +9,7 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::fixtures::script::{Input, ScriptError, build, parse};
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::threads::UserMessage;
-use codex_tui_core::threads::{Item, TurnState};
+use codex_tui_core::threads::{Item, MessagePhase, TurnState};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
@@ -176,7 +176,10 @@ fn live_app_server_turn_completion_repairs_dropped_message_deltas() {
                 ..Default::default()
             }),
             Item::Agent {
-                text: "The transport kept this.\nAnd dropped this.".into()
+                text: "The transport kept this.\nAnd dropped this.".into(),
+                // The completed turn's summary says it is the final answer (oracle replay
+                // `phase: phase.clone()`).
+                phase: Some(MessagePhase::FinalAnswer),
             },
         ]
     );

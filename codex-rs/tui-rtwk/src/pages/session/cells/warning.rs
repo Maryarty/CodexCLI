@@ -13,8 +13,16 @@ use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
 
 use crate::app::theme::Tokens;
 
+use super::strings::Strings;
+use super::text::Part;
+
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
+
+/// The texts of the cell: the mark, a gutter, and the message.
+pub fn texts(message: &str, strings: &Strings) -> Vec<Part> {
+    vec![Part::gutter(strings.warning_mark), Part::text(message)]
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WarningCell {

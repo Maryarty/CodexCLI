@@ -1719,3 +1719,66 @@ mod verification_words {
         );
     }
 }
+
+/// The lines `/auto-review` leaves in the history (oracle `new_info_event`: a dim bullet, the
+/// message, the hint after a space; `new_error_event`: `■ ` and the message, all red).
+mod review_line {
+    use codex_tui_core::threads::ReviewLine;
+    use codex_tui_rtwk::sheets::approvals::ReviewLineCell;
+    use rtwk::style::Color;
+
+    fn show(line: ReviewLine) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(160, 3));
+        t.pump_widget(ReviewLineCell { line });
+        t
+    }
+
+    fn first_row(t: &rtwk_test::Tester) -> String {
+        t.screen()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .to_string()
+    }
+
+    #[test]
+    fn no_denials_is_an_info_line_with_its_hint() {
+        let t = show(ReviewLine::NoDenials);
+        assert_eq!(
+            first_row(&t),
+            "• No recent auto-review denials in this thread. Denials are recorded after auto-review rejects an action."
+        );
+        // the bullet and the hint are the muted colour, the message is not
+        let hint_at = first_row(&t).find("Denials").unwrap_or_default();
+        assert_ne!(t.cell(0, 0).fg, t.cell(2, 0).fg, "{:?}", t.cell(0, 0));
+        assert_eq!(t.cell(0, 0).fg, t.cell(hint_at, 0).fg);
+    }
+
+    #[test]
+    fn a_retry_is_an_info_line_too() {
+        let t = show(ReviewLine::RetryApproved);
+        assert_eq!(
+            first_row(&t),
+            "• Approval recorded for one retry of the selected auto-review denial. The model will see the approval context; the retry still goes through auto-review."
+        );
+    }
+
+    #[test]
+    fn a_denial_that_is_gone_is_a_red_error_line() {
+        let t = show(ReviewLine::DenialGone);
+        assert_eq!(
+            first_row(&t),
+            "■ That auto-review denial is no longer available."
+        );
+        assert_eq!(t.cell(0, 0).fg, Color::RED, "{:?}", t.cell(0, 0));
+        assert_eq!(t.cell(10, 0).fg, Color::RED);
+    }
+
+    #[test]
+    fn a_failure_to_localize_says_what_the_server_said() {
+        let t = show(ReviewLine::Unlocalized("bad path".into()));
+        assert!(first_row(&t).starts_with("■ "), "{}", first_row(&t));
+        assert!(first_row(&t).contains("bad path"), "{}", first_row(&t));
+    }
+}

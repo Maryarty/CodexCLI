@@ -3,6 +3,9 @@
 
 use crate::common::slot;
 
+#[path = "../oracle_snap/mod.rs"]
+mod oracle_snap;
+
 #[test]
 fn cells_slot_is_registered_and_empty() {
     slot("cells");
@@ -1687,6 +1690,211 @@ files."
     }
 }
 
+/// The notices that are a card or a refusal (oracle history_cell/tests.rs:
+/// cyber policy, safety access block, update available, server version),
+/// mounted at the oracle's widths and compared with its snapshots.
+mod notice_cells {
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::threads::Notice;
+    use codex_tui_rtwk::pages::session::cells::notice::NoticeCell;
+    use rtwk::style::{Attrs, Color};
+
+    use super::oracle_snap;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        oracle_snap::screen(t)
+    }
+
+    fn show(notice: Notice, width: u16) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 14));
+        t.pump_widget(NoticeCell { notice });
+        t
+    }
+
+    fn snap(name: &str) -> Vec<String> {
+        oracle_snap::rows(&oracle_snap::find(name))
+    }
+
+    #[test]
+    fn the_cyber_policy_apply_form_at_80() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        let expected = snap("cyber_policy_error_event_snapshot");
+        // The oracle breaks the apply address after its last slash
+        // (`...-for-` / `cyber/`); rtwk's Word wrap moves the whole token (G49).
+        oracle_snap::assert_fragment("cyber apply", &rows(&t), 0, &expected[..3]);
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_80_whole() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 80);
+        oracle_snap::assert_same(
+            "cyber apply",
+            &rows(&t),
+            &snap("cyber_policy_error_event_snapshot"),
+        );
+    }
+
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word never breaks after a slash or a hyphen, so an address that does not fit moves whole to the next row"]
+    fn the_cyber_policy_apply_form_at_36() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        oracle_snap::assert_same(
+            "cyber narrow",
+            &rows(&t),
+            &snap("cyber_policy_error_event_narrow_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_cyber_policy_narrow_message_wraps_like_the_oracle() {
+        let t = show(Notice::CyberPolicy(Daybreak::Apply), 36);
+        let expected = snap("cyber_policy_error_event_narrow_snapshot");
+        oracle_snap::assert_fragment("cyber narrow message", &rows(&t), 0, &expected[..6]);
+    }
+
+    #[test]
+    fn the_disabled_and_enabled_forms_are_the_body_and_learn_more() {
+        let expected = snap("cyber_policy_error_event_available_snapshot");
+        let first = show(Notice::CyberPolicy(Daybreak::Disabled), 80);
+        oracle_snap::assert_same("disabled", &rows(&first), &expected[..4]);
+        let second = show(Notice::CyberPolicy(Daybreak::Enabled), 80);
+        oracle_snap::assert_same("enabled", &rows(&second), &expected[5..]);
+    }
+
+    #[test]
+    fn the_astra_form_names_astra() {
+        let t = show(Notice::CyberPolicy(Daybreak::Astra), 80);
+        oracle_snap::assert_same(
+            "astra",
+            &rows(&t),
+            &snap("cyber_policy_error_event_astra_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_safety_block_is_its_explanation_the_body_and_two_actions() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        oracle_snap::assert_same(
+            "safety",
+            &rows(&t),
+            &snap("safety_access_block_event_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_mark_is_accent_the_title_bold_the_message_dim_the_address_underlined() {
+        let t = show(Notice::SafetyAccessBlock, 80);
+        let mark = t.cell(0, 0);
+        assert_ne!(mark.fg, Color::default(), "{mark:?}");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+        let message = t.cell(2, 1);
+        assert!(message.attrs.intersects(Attrs::DIM), "{message:?}");
+        let label = t.cell(2, 4);
+        assert!(label.attrs.intersects(Attrs::DIM), "{label:?}");
+        let address = t.cell(20, 4);
+        assert!(address.attrs.intersects(Attrs::UNDERLINE), "{address:?}");
+    }
+
+    fn update(command: Option<&str>) -> Notice {
+        Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: command.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn the_update_card_is_a_box_as_wide_as_its_words() {
+        let t = show(update(Some("pnpm add -g @openai/codex")), 110);
+        oracle_snap::assert_same(
+            "pnpm",
+            &rows(&t),
+            &snap("pnpm_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_long_command_wraps_inside_the_box_to_the_width() {
+        let t = show(
+            update(Some(
+                "sh -c 's=$(curl -fsSL https://chatgpt.com/codex/install.sh) && CODEX_NON_INTERACTIVE=1 eval \"$s\"'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone unix",
+            &rows(&t),
+            &snap("standalone_unix_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn the_windows_command_wraps_after_its_words() {
+        let t = show(
+            update(Some(
+                "powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex'",
+            )),
+            110,
+        );
+        oracle_snap::assert_same(
+            "standalone windows",
+            &rows(&t),
+            &snap("standalone_windows_update_available_history_cell_snapshot"),
+        );
+    }
+
+    #[test]
+    fn without_a_command_it_points_at_the_install_options() {
+        let t = show(update(None), 110);
+        let rows = rows(&t);
+        assert!(
+            rows[2].contains("See https://github.com/openai/codex for installation options."),
+            "{rows:?}"
+        );
+    }
+
+    fn version(message: &str, offer_update: bool) -> Notice {
+        Notice::ServerVersion {
+            message: message.into(),
+            offer_update,
+        }
+    }
+
+    #[test]
+    fn a_connected_server_notice_is_one_warning_row() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                false,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "connected",
+            &rows(&t),
+            &snap("connected_server_version_notice_snapshot"),
+        );
+    }
+
+    #[test]
+    fn a_local_daemon_notice_adds_the_daemon_hint_and_the_interruption_warning() {
+        let t = show(
+            version(
+                "A background Codex service is running v0.152.1, older than your Codex CLI v0.153.0.",
+                true,
+            ),
+            100,
+        );
+        oracle_snap::assert_same(
+            "local daemon",
+            &rows(&t),
+            &snap("local_daemon_version_notice_snapshot"),
+        );
+    }
+}
+
 mod errors_and_warnings_in_the_chat {
     use codex_app_server_protocol::{ServerNotification, WarningNotification};
     use codex_tui_core::app::BackendEv;
@@ -2026,5 +2234,691 @@ mod streaming_preview {
         );
         let code = rows("```\n::codex-inline-vis{file=\"x.html\"}\n```\n", false).join("\n");
         assert!(code.contains("::codex-inline-vis"), "{code}");
+    }
+}
+
+// ---- MCP, dynamic and computer-activity cells in the transcript (oracle
+// history_cell/{mcp,mcp_preview,dynamic,computer_activity}.rs: the compact
+// rows are `compact_hyperlink_lines`; the shared control, a tap or Enter on
+// the cell, reveals `transcript_hyperlink_lines`) ----
+
+mod tool_cells_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    fn item(payload: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": "item/completed",
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1", "completedAtMs": 0,
+                "item": payload}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn mcp(
+        id: &str,
+        server: &str,
+        arguments: serde_json::Value,
+        rows: &[&str],
+    ) -> serde_json::Value {
+        let content: Vec<_> = rows
+            .iter()
+            .map(|text| json!({"type": "text", "text": text}))
+            .collect();
+        json!({"type": "mcpToolCall", "id": id, "server": server, "tool": "js",
+            "status": "completed", "arguments": arguments, "appContext": null, "mcpAppUi": null,
+            "pluginId": null, "readOnlyHint": null,
+            "result": {"content": content, "structuredContent": null, "_meta": null,
+                "isError": false},
+            "error": null, "durationMs": null})
+    }
+
+    fn show(items: Vec<serde_json::Value>, until: &str) -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        let mut events = vec![turn_started(FAKE_THREAD, "turn-1")];
+        events.extend(items.into_iter().map(item));
+        h.fake.script_turn(events);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the cells", |screen| screen.contains(until));
+        h
+    }
+
+    fn row_of(h: &Harness, text: &str) -> (usize, usize) {
+        let screen = h.t.screen();
+        let y = screen
+            .lines()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?}:\n{screen}"));
+        let x = screen
+            .lines()
+            .nth(y)
+            .and_then(|row| row.find(text))
+            .unwrap_or_default();
+        (x, y)
+    }
+
+    #[test]
+    fn an_mcp_call_keeps_the_last_rows_and_a_tap_on_the_control_reveals_all() {
+        let mut h = show(
+            vec![mcp(
+                "m1",
+                "docs",
+                json!({"q": "x"}),
+                &["one", "two", "three", "four", "five"],
+            )],
+            "five",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Called docs.js"), "{screen}");
+        assert!(
+            !screen.contains("one") && screen.contains("three"),
+            "{screen}"
+        );
+        assert!(screen.contains("+ Show details"), "{screen}");
+        let (x, y) = row_of(&h, "+ Show details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the whole result", |s| {
+            s.contains("− Hide details") && s.contains("one")
+        });
+        assert!(
+            h.t.screen().contains("docs.js({\"q\":\"x\"})"),
+            "{}",
+            h.t.screen()
+        );
+        let (x, y) = row_of(&h, "− Hide details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the compact form", |s| {
+            s.contains("+ Show details") && !s.contains("one")
+        });
+    }
+
+    #[test]
+    fn a_run_of_computer_calls_is_one_group_a_tap_on_its_header_reveals_each_call() {
+        let titled =
+            |id: &str, title: &str| mcp(id, "cua_repl", json!({"title": title}), &["done"]);
+        let mut h = show(
+            vec![
+                titled("c1", "Inspect page 1"),
+                titled("c2", "Inspect page 2"),
+            ],
+            "Inspect page 2",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Used computer · 2 actions"), "{screen}");
+        assert!(
+            screen.contains("├ Inspect page 1") && screen.contains("└ Inspect page 2"),
+            "{screen}"
+        );
+        let (x, y) = row_of(&h, "Used computer");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("each call", |s| s.contains("− Hide details"));
+        let screen = h.t.screen();
+        assert_eq!(screen.matches("Called cua_repl.js(").count(), 2, "{screen}");
+        h.press("enter");
+        h.wait_for("the group again", |s| {
+            s.contains("• Used computer · 2 actions")
+        });
+    }
+
+    #[test]
+    fn a_dynamic_call_names_its_duration_and_the_last_rows_of_its_output() {
+        let call = json!({"type": "dynamicToolCall", "id": "d1", "namespace": "example",
+            "tool": "inspect", "arguments": {"path": "a"}, "status": "completed",
+            "success": true, "durationMs": 25,
+            "contentItems": [{"type": "inputText", "text": "r1\nr2\nr3\nr4"}]});
+        let h = show(vec![call], "r4");
+        let screen = h.t.screen();
+        assert!(
+            screen.contains("• Called example.inspect · 25ms"),
+            "{screen}"
+        );
+        assert!(screen.contains("… 1 earlier lines hidden"), "{screen}");
+        assert!(!screen.contains("r1"), "{screen}");
+    }
+}
+
+// ---- the series token (owed to the usage plot: oracle plot/painting.rs, the
+// terminal's cyan, magenta and green, then its own ink) ----
+
+// ---- the separator under a finished turn follows the host's facts: the clock setting and the
+// turn's runtime metrics arrive after the row is drawn and redraw it.
+mod separator_facts {
+    use codex_tui_core::app::{AppEv, BackendEv};
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_started};
+    use codex_tui_core::ids::TurnId;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::cells::{ClockFormat, Ev, RuntimeMetrics, Totals, ViewerClock};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    /// `turn/completed` of turn-1 with its duration and end time.
+    fn finished(duration_ms: i64, completed_at: i64) -> BackendEv {
+        match serde_json::from_value(json!({
+            "method": "turn/completed",
+            "params": {"threadId": FAKE_THREAD, "turn": {
+                "id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "summary",
+                "status": "completed", "error": null, "startedAt": null,
+                "completedAt": completed_at, "durationMs": duration_ms}}
+        })) {
+            Ok(notification) => BackendEv::Notification(Box::new(notification)),
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn separator() -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            turn_started(FAKE_THREAD, "turn-1"),
+            agent_completed(FAKE_THREAD, "turn-1", "msg-1", "Done."),
+            // 2000-09-06 14:32 UTC, long before the viewer's today.
+            finished(125_000, 968_250_720),
+        ]);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the separator", |screen| {
+            screen.contains("Worked for 2m 5s")
+        });
+        h
+    }
+
+    fn cells(ev: Ev) -> AppEv {
+        AppEv::Screen(ScreenEv::Cells(ev))
+    }
+
+    #[test]
+    fn the_clock_setting_and_the_runtime_metrics_arrive_after_the_row_and_redraw_it() {
+        let mut h = separator();
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwentyFourHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 24-hour time with its date", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 14:32")
+        });
+        h.inject([cells(Ev::Clock(ViewerClock {
+            format: ClockFormat::TwelveHour,
+            utc_offset: Some(0),
+        }))]);
+        h.wait_for("the 12-hour time", |screen| {
+            screen.contains("Worked for 2m 5s • Sep 6, 2000 at 2:32 PM")
+        });
+        h.inject([cells(Ev::RuntimeMetrics {
+            turn: TurnId::new("turn-1"),
+            metrics: RuntimeMetrics {
+                tool_calls: Totals {
+                    count: 1,
+                    duration_ms: 5,
+                },
+                ..RuntimeMetrics::default()
+            },
+        })]);
+        h.wait_for("the metrics after the time", |screen| {
+            screen.contains("at 2:32 PM • Local tools: 1 call (5ms)")
+        });
+    }
+}
+
+mod series_token {
+    use std::rc::Rc;
+
+    use codex_tui_rtwk::app::theme::Tokens;
+    use rtwk::prelude::ThemeData;
+    use rtwk::style::Style;
+
+    #[test]
+    fn the_series_are_the_info_accent_and_success_hues_then_the_terminals_ink() {
+        let tokens = Tokens::new(Rc::new(ThemeData::DARK));
+        assert_eq!(tokens.series(0), tokens.info());
+        assert_eq!(tokens.series(1), tokens.accent());
+        assert_eq!(tokens.series(2), tokens.success());
+        assert_eq!(tokens.series(3), Style::new());
+        assert_eq!(tokens.series(9), Style::new());
+    }
+}
+
+/// The assistant's and the user's message cells at the widths the oracle's
+/// `wrapped_and_prefixed_cells_handle_tiny_widths` draws them at: the mark is
+/// cut when the cell is narrower than it, never an overflow (the cells alone;
+/// the chat's composer and status rows are not in the way here). Width 3 is
+/// left out: the oracle's wrap width never goes below one column (`› t`), the
+/// port's body loses its column to the free column on its right (`›`).
+mod message_cells_at_tiny_widths {
+    use codex_tui_core::threads::UserPrompt;
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::{agent, user};
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::style::Style;
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn an_agent_message_narrower_than_its_bullet_shows_the_bullet_cut() {
+        let theme = MarkdownTheme::default();
+        for (width, first) in [(1, "•"), (2, "•"), (4, "• t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 6));
+            t.pump_widget(agent::message(
+                "tiny width agent line",
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ));
+            assert_eq!(rows(&t)[0], first, "width {width}");
+        }
+    }
+
+    #[test]
+    fn a_user_prompt_narrower_than_its_mark_shows_the_mark_cut() {
+        let tokens = codex_tui_rtwk::app::theme::Tokens::new(std::rc::Rc::new(
+            rtwk::prelude::ThemeData::DARK,
+        ));
+        let theme = MarkdownTheme::default();
+        let prompt = UserPrompt {
+            text: "tiny width user line".into(),
+            ..UserPrompt::default()
+        };
+        for (width, first) in [(1, "›"), (2, "›"), (4, "› t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 8));
+            t.pump_widget(user::panel(
+                &prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                    highlighted: false,
+                },
+                false,
+            ));
+            // the cell's blank row of the surface above the mark
+            assert_eq!(rows(&t)[1], first, "width {width}");
+        }
+    }
+}
+
+/// The text contract (`cells::text`): the texts the app keeps of an item
+/// (rtwk's `ItemTexts`) are the strings of the `Text`s its cell builds, in
+/// tree order, joined by line breaks; what a `SelectionArea` over the mounted
+/// cell selects. Gutters (a bullet or prompt mark of its own `Text`, the
+/// disclosure control) are left out of the selection by `ExcludeSelection`,
+/// so they are not in it.
+mod text_contract {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::screens::chat::{McpWarning, Nudge, NudgeOutcome};
+    use codex_tui_core::threads::{
+        GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Item, Notice, UserPrompt,
+        WebAction, WebActivity,
+    };
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::text::{Env, GUTTERS_SELECTED, Gap, Texts, texts};
+    use codex_tui_rtwk::pages::session::cells::{
+        agent, deprecation, error, generated_image, hook, notice, user, viewed_image, warning, web,
+    };
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::AnyWidget;
+    use rtwk::gestures::{SelectionArea, SelectionAreaController};
+    use rtwk::style::Style;
+    use rtwk_core::input::{Mods, MouseKind};
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    const WIDTH: u16 = 60;
+    const HEIGHT: u16 = 24;
+
+    fn env(detailed: bool, expanded: bool) -> Env<'static> {
+        Env {
+            cells: &CELLS,
+            chat: &CHAT,
+            detailed,
+            expanded,
+        }
+    }
+
+    fn widget(item: &Item, detailed: bool) -> AnyWidget {
+        let tokens =
+            codex_tui_rtwk::app::theme::Tokens::new(Rc::new(rtwk::prelude::ThemeData::DARK));
+        let theme = MarkdownTheme::default();
+        match item {
+            Item::User(prompt) => user::panel(
+                prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                    highlighted: false,
+                },
+                false,
+            )
+            .into(),
+            Item::Agent { text, .. } => agent::message(
+                text,
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ),
+            Item::Error { message } => error::ErrorCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::HighLoad => error::ErrorCell {
+                message: CHAT.high_load.to_string(),
+            }
+            .into(),
+            Item::Warning { message } => warning::WarningCell {
+                message: message.clone(),
+            }
+            .into(),
+            Item::StartupWarning(w) => warning::WarningCell {
+                message: CHAT.mcp_warning(w),
+            }
+            .into(),
+            Item::Deprecation { summary, details } => deprecation::DeprecationCell {
+                summary: summary.clone(),
+                details: details.clone(),
+            }
+            .into(),
+            Item::Notice(n) => notice::NoticeCell { notice: n.clone() }.into(),
+            Item::Hook(run) => hook::HookCell { run: run.clone() }.into(),
+            Item::Generated(image) => generated_image::GeneratedImageCell {
+                image: image.clone(),
+            }
+            .into(),
+            Item::Web(activity) => web::WebCell {
+                activity: activity.clone(),
+            }
+            .into(),
+            Item::ImageView { path, name } => viewed_image::ViewedImageCell {
+                name: name.clone(),
+                path: path.clone(),
+                detailed,
+            }
+            .into(),
+            other => panic!("no widget in this test for {other:?}"),
+        }
+    }
+
+    /// What a drag over the whole mounted cell selects, as the area gives it.
+    fn selected(widget: AnyWidget) -> String {
+        let selection = SelectionAreaController::new();
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(
+            SelectionArea::new(widget)
+                .trim_trailing_blanks(false)
+                .controller(selection.clone()),
+        );
+        t.mouse(MouseKind::Down, 0, 0, 0, Mods::NONE);
+        t.mouse(MouseKind::Drag, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.mouse(MouseKind::Up, WIDTH - 1, HEIGHT - 1, 0, Mods::NONE);
+        t.pump();
+        selection.text()
+    }
+
+    #[track_caller]
+    fn agrees(item: Item) {
+        agrees_in(item, false);
+    }
+
+    #[track_caller]
+    fn agrees_in(item: Item, detailed: bool) {
+        let texts = texts(&item, &env(detailed, false));
+        let Some(want) = texts.joined(GUTTERS_SELECTED) else {
+            panic!("{item:?}: the contract names no texts for it yet: {texts:?}");
+        };
+        assert_eq!(want, selected(widget(&item, detailed)), "{item:?}");
+    }
+
+    fn prompt(text: &str) -> UserPrompt {
+        UserPrompt {
+            text: text.into(),
+            ..UserPrompt::default()
+        }
+    }
+
+    fn hook_run(status: HookStatus, entries: &[(HookEntryKind, &str)]) -> Arc<HookRun> {
+        Arc::new(HookRun {
+            status,
+            entries: entries
+                .iter()
+                .map(|(kind, text)| HookEntry {
+                    kind: *kind,
+                    text: (*text).into(),
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn a_users_prompt_is_its_text_without_the_mark() {
+        agrees(Item::User(prompt("fix the build\nthen the tests")));
+        agrees(Item::User(UserPrompt {
+            text: "look at [Image #1] and @src/main.rs".into(),
+            elements: vec![8..18, 23..34],
+            images: vec![1],
+        }));
+        agrees(Item::User(UserPrompt {
+            text: "".into(),
+            elements: vec![],
+            images: vec![1, 2],
+        }));
+    }
+
+    #[test]
+    fn the_error_family_is_one_text_each() {
+        agrees(Item::Error {
+            message: "stream closed".into(),
+        });
+        agrees(Item::HighLoad);
+        agrees(Item::Warning {
+            message: "careful now".into(),
+        });
+        agrees(Item::StartupWarning(McpWarning::Failed {
+            server: "docs".into(),
+            error: None,
+        }));
+        agrees(Item::StartupWarning(McpWarning::Incomplete {
+            servers: vec!["a".into(), "b".into()],
+        }));
+    }
+
+    #[test]
+    fn a_deprecation_is_the_summary_row_then_the_details() {
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: None,
+        });
+        agrees(Item::Deprecation {
+            summary: "old flag".into(),
+            details: Some("use the new one".into()),
+        });
+    }
+
+    #[test]
+    fn notices_are_their_row() {
+        agrees(Item::Notice(Notice::ContextCompacted));
+        agrees(Item::Notice(Notice::EnteredReview("the diff".into())));
+        agrees(Item::Notice(Notice::ExitedReview("the diff".into())));
+        for outcome in [
+            NudgeOutcome::Sent,
+            NudgeOutcome::Cooldown,
+            NudgeOutcome::Failed,
+        ] {
+            for nudge in [Nudge::Credits, Nudge::UsageLimit] {
+                agrees(Item::Notice(Notice::AddCreditsNudge { nudge, outcome }));
+            }
+        }
+    }
+
+    #[test]
+    fn a_refusal_a_card_and_a_version_notice_agree_with_their_widget() {
+        agrees(Item::Notice(Notice::SafetyAccessBlock));
+        for kind in [
+            Daybreak::Apply,
+            Daybreak::Disabled,
+            Daybreak::Astra,
+            Daybreak::Enabled,
+        ] {
+            agrees(Item::Notice(Notice::CyberPolicy(kind)));
+        }
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: Some("pnpm add -g @openai/codex".into()),
+        }));
+        agrees(Item::Notice(Notice::UpdateAvailable {
+            current: "0.0.0".into(),
+            latest: "9.9.9".into(),
+            command: None,
+        }));
+        for offer_update in [false, true] {
+            agrees(Item::Notice(Notice::ServerVersion {
+                message: "A background Codex service is running v1.".into(),
+                offer_update,
+            }));
+        }
+    }
+
+    #[test]
+    fn a_hook_is_its_rows_a_blank_one_included() {
+        agrees(Item::Hook(hook_run(
+            HookStatus::Completed,
+            &[(HookEntryKind::Warning, "all good\n")],
+        )));
+        agrees(Item::Hook(hook_run(
+            HookStatus::Failed,
+            &[
+                (HookEntryKind::Warning, "bad\nthing"),
+                (HookEntryKind::Error, "first\n\nsecond"),
+            ],
+        )));
+        agrees(Item::Hook(hook_run(HookStatus::Blocked, &[])));
+    }
+
+    #[test]
+    fn a_generated_image_is_the_heading_the_detail_and_where_it_went() {
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: false,
+            detail: "a red fox".into(),
+            saved_to: Some("file:///tmp/fox.png".into()),
+        })));
+        agrees(Item::Generated(Arc::new(GeneratedImage {
+            failed: true,
+            detail: "no quota".into(),
+            saved_to: None,
+        })));
+    }
+
+    #[test]
+    fn a_web_row_reads_as_drawn() {
+        for (completed, action, detail) in [
+            (true, WebAction::Search { known: true }, "rust async"),
+            (false, WebAction::Search { known: false }, ""),
+            (true, WebAction::OpenPage, "https://example.com"),
+            (false, WebAction::OpenPage, ""),
+            (true, WebAction::FindInPage { pattern: true }, "'x' in y"),
+            (true, WebAction::FindInPage { pattern: false }, "y"),
+        ] {
+            agrees(Item::Web(WebActivity {
+                completed,
+                action,
+                detail: detail.into(),
+            }));
+        }
+    }
+
+    #[test]
+    fn a_viewed_image_in_the_detailed_transcript_is_the_bullet_and_the_full_path() {
+        agrees_in(
+            Item::ImageView {
+                path: "/workspace/assets/example.png".into(),
+                name: "example.png".into(),
+            },
+            true,
+        );
+    }
+
+    /// A drag over a disclosing cell is taken by its control (the tap opens
+    /// it), so what it selects is not read here: the rows it shows hold the
+    /// parts, in order, and the control is the part that is a gutter.
+    #[test]
+    fn a_viewed_image_with_its_control_shows_the_row_then_the_control() {
+        let item = Item::ImageView {
+            path: "/workspace/assets/example.png".into(),
+            name: "example.png".into(),
+        };
+        let Texts::Exact(parts) = texts(&item, &env(false, false)) else {
+            panic!("exact");
+        };
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(WIDTH, HEIGHT));
+        t.pump_widget(widget(&item, false));
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(parts.len(), rows.len(), "{rows:?}");
+        for (part, row) in parts.iter().zip(&rows) {
+            assert!(
+                row.trim_start().starts_with(part.text.trim_start()),
+                "{part:?} in {row:?}"
+            );
+        }
+        assert!(!parts[0].gutter && parts[1].gutter);
+    }
+
+    /// The texts of a Markdown body are a declared gap (pack: "G-new text of
+    /// Markdown"): rtwk gives no function of the source for the strings a
+    /// `MarkdownView` under a `SelectionArea` selects. The day it does, this
+    /// test turns into `agrees(Item::Agent { .. })` for each of these.
+    #[test]
+    fn a_markdown_body_is_a_declared_gap() {
+        let md = "Hello **bold**\n\n- one\n- two";
+        for item in [
+            Item::Agent {
+                text: md.into(),
+                phase: None,
+            },
+            Item::Reasoning { summary: md.into() },
+            Item::Plan { text: md.into() },
+            Item::User(prompt(md)),
+        ] {
+            assert_eq!(
+                texts(&item, &env(false, false)),
+                Texts::Gap(Gap::Markdown),
+                "{item:?}"
+            );
+        }
     }
 }

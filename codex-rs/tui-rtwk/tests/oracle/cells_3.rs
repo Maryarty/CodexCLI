@@ -21,7 +21,7 @@ fn row_of(s: &Screen, text: &str) -> usize {
 fn connected_server_version_notice_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no server-version notice on S11: it comes from a remote app-server target and the show_server_version_notice setting, neither seedable through the kit; the cells screen draws no warning cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
     s.assert_snap_region("connected_server_version_notice_snapshot", 0, 0);
@@ -32,7 +32,7 @@ fn connected_server_version_notice_snapshot() {
 fn local_daemon_version_notice_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no local-daemon version notice on S11: the client/server version pair and the local daemon target are not seedable through the kit; the cells screen draws no warning cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: app.rs appends Notice::ServerVersion from the remote-connection check (show_server_version_notice), which the kit cannot seed",
     );
     // One screen per (client, server) pair of the oracle loop.
     let s = Screen::build(Owner::ChatLive).size(100, 6).live().open();
@@ -302,14 +302,20 @@ fn unified_exec_interaction_cell_retains_detailed_wait() {
 // ORACLE history_cell/tests.rs:683 final_message_separator_preserves_runtime_metrics_for_short_turns kind=ui owner=chat-live
 #[test]
 fn final_message_separator_preserves_runtime_metrics_for_short_turns() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator with runtime metrics on S11: the separator and its RuntimeMetricsSummary are not drawn, and no fixture step carries the summary",
-    );
     // The oracle renders at width 600 and expects exactly one row.
-    let s = Screen::build(Owner::ChatLive).size(600, 4).live().open();
-    s.assert_in_order(&[
-        "  Worked for 12s • Local tools:",
+    let s = Screen::build(Owner::ChatLive)
+        .size(600, 12)
+        .script(include_str!(
+            "fixtures/cells_3/final_message_separator_preserves_runtime_metrics_for_short_turns.jsonl"
+        ))
+        .open();
+    let Some(y) = s.rows().iter().position(|row| row.contains("Worked for")) else {
+        panic!("no separator row:\n{}", s.text());
+    };
+    // One row holds the whole label: it starts and ends on the row's first and last parts.
+    s.assert_row_starts_with(y, "  Worked for 12s • Local tools:");
+    s.assert_row_ends_with(y, "TBT: 1.2s (iapi) 1.2s (service)");
+    for part in [
         "Local tools: 3 calls (2.5s)",
         "Inference: 2 calls (1.2s)",
         "WebSocket: 1 events send (700ms)",
@@ -318,30 +324,34 @@ fn final_message_separator_preserves_runtime_metrics_for_short_turns() {
         "Responses API overhead: 650ms",
         "Responses API inference: 1.9s",
         "TTFT: 410ms (iapi) 460ms (service)",
-        "TBT: 1.2s (iapi) 1.2s (service)",
-    ]);
+    ] {
+        s.assert_contains(part);
+    }
 }
 
 // ORACLE history_cell/tests.rs:731 runtime_metrics_label_rounds_fractional_tbt_milliseconds kind=snap owner=chat-live
 #[test]
 fn runtime_metrics_label_rounds_fractional_tbt_milliseconds() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator with a TBT runtime metric on S11: the label is part of the separator, which the cells screen does not draw yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(80, 4).live().open();
-    s.assert_contains("TBT: 2ms (iapi) 5ms (service)");
+    let s = Screen::build(Owner::ChatLive)
+        .size(100, 12)
+        .script(include_str!(
+            "fixtures/cells_3/runtime_metrics_label_rounds_fractional_tbt_milliseconds.jsonl"
+        ))
+        .open();
+    // The oracle prints the label alone; here it follows the turn's elapsed time.
+    s.assert_has_row("  Worked for 12s • TBT: 2ms (iapi) 5ms (service)");
 }
 
 // ORACLE history_cell/tests.rs:742 final_message_separator_includes_worked_label_after_one_minute kind=ui owner=chat-live
 #[test]
 fn final_message_separator_includes_worked_label_after_one_minute() {
-    kit::pending(
-        Owner::ChatLive,
-        "no final-message separator on S11: the cells screen draws no 'Worked for' separator yet",
-    );
-    let s = Screen::build(Owner::ChatLive).size(200, 4).live().open();
-    s.assert_contains("Worked for");
+    let s = Screen::build(Owner::ChatLive)
+        .size(200, 12)
+        .script(include_str!(
+            "fixtures/cells_3/final_message_separator_includes_worked_label_after_one_minute.jsonl"
+        ))
+        .open();
+    s.assert_has_row("  Worked for 1m 1s");
 }
 
 // ORACLE history_cell/tests.rs:751 ps_output_empty_snapshot kind=snap owner=chat-live snap=ps_output_empty_snapshot
@@ -454,7 +464,7 @@ fn ps_output_multiline_long_command_snapshot() {
 fn cyber_policy_error_event_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Apply) is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_snapshot", 0, 0);
@@ -465,7 +475,7 @@ fn cyber_policy_error_event_snapshot() {
 fn cyber_policy_error_event_astra_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Astra) is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_astra_snapshot", 0, 0);
@@ -476,7 +486,7 @@ fn cyber_policy_error_event_astra_snapshot() {
 fn cyber_policy_error_event_available_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notices (Disabled, Enabled) are not carried by the app-server events the kit feeds; the oracle joins both cells in one snapshot",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap_region("cyber_policy_error_event_available_snapshot", 0, 0);
@@ -487,7 +497,7 @@ fn cyber_policy_error_event_available_snapshot() {
 fn safety_access_block_event_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no safety-access block cell on S11: the block notice is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: a `Fault` arm of core threads.rs appends Notice::SafetyAccessBlock for a biology-policy error, and the kit cannot seed that error",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
     s.assert_snap_region("safety_access_block_event_snapshot", 0, 0);
@@ -500,7 +510,7 @@ fn safety_access_block_event_snapshot() {
 fn cyber_policy_error_event_narrow_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "no cyber-policy error cell on S11: the daybreak notice (Apply) at width 36 is not carried by the app-server events the kit feeds, and the cells screen draws no such cell",
+        "the cell is built (cells::notice, rows equal in tests/pages/cells.rs notice_cells); need: the host creates it. A `Fault` arm of core threads.rs stamps the Daybreak kind on a cyber-policy error (ThreadEv::Appended Notice::CyberPolicy), and the kit cannot seed that error; G49 breaks the narrow rows at a slash",
     );
     let s = Screen::build(Owner::ChatLive).size(36, 12).live().open();
     s.assert_snap_region("cyber_policy_error_event_narrow_snapshot", 0, 0);

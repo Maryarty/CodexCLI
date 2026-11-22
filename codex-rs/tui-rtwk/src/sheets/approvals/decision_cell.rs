@@ -15,6 +15,7 @@ use rtwk_core::unicode::grapheme_boundaries;
 use codex_tui_core::screens::approvals::decided::{
     Actor, Decided, Grant, Outcome, Reviewed, Subject, Verdict,
 };
+use codex_tui_core::threads::ReviewLine;
 
 use super::guardian::judged;
 use super::strings::{self, Strings};
@@ -62,6 +63,45 @@ impl StatelessWidget for DecisionCell {
             Span::styled(s.refused_mark, tokens.error())
         };
         cell(mark, say.summary(outcome))
+    }
+}
+
+/// A line `/auto-review` or the reviewer's paths added to the history (oracle `new_info_event`:
+/// a dim bullet, the message, the hint after a space; `new_error_event`: the message in red
+/// after `■ `).
+///
+/// Flutter: one `Text.rich` in the transcript's `ListView`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewLineCell {
+    pub line: ReviewLine,
+}
+
+impl_widget!(stateless eq ReviewLineCell);
+
+impl StatelessWidget for ReviewLineCell {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        let s = strings::of(cx);
+        let tokens = Tokens::of(cx);
+        let info = |message: &'static str, hint: &'static str| {
+            Text::rich(vec![
+                Span::styled(s.info_mark, tokens.dim()),
+                Span::new(message),
+                Span::new(s.info_gap),
+                Span::styled(hint, tokens.dim()),
+            ])
+        };
+        let error = |message: String| {
+            Text::rich(vec![
+                Span::styled(s.error_mark, tokens.error()),
+                Span::styled(message, tokens.error()),
+            ])
+        };
+        match &self.line {
+            ReviewLine::NoDenials => info(s.no_denials, s.no_denials_hint).into(),
+            ReviewLine::RetryApproved => info(s.retry_approved, s.retry_approved_hint).into(),
+            ReviewLine::DenialGone => error(s.denial_gone.to_string()).into(),
+            ReviewLine::Unlocalized(failure) => error(s.unlocalized(failure).to_string()).into(),
+        }
     }
 }
 

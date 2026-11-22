@@ -2,16 +2,15 @@
 //! persistent entries the host reads on demand (`chat_composer_history.rs`,
 //! `history_search.rs`). The host's answers are injected as the events it
 //! sends (`popovers::Ev::History*`); what the composer asks of it is read
-//! from the model's pending asks.
+//! from the commands the app emitted (`Command::Popovers`).
 
 use crate::common;
 
-use codex_tui_core::app::AppEv;
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::popovers::{Ask, Ev};
-use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 
 use common::{Harness, start};
@@ -61,9 +60,17 @@ fn entry(h: &mut Harness, offset: usize, text: &str) {
     );
 }
 
-/// What the composer asked of the host so far.
+/// What the composer asked of the host so far: the app drains the model's asks into one
+/// `Command::Popovers` each, the fake records them.
 fn asks(h: &Harness) -> Vec<Ask> {
-    h.t.read_app(|app: &UiApp| app.core.screens().popovers.pending_asks().to_vec())
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Popovers { ask, .. } => Some(ask),
+            _ => None,
+        })
+        .collect()
 }
 
 fn lookups(h: &Harness) -> Vec<Lookup> {

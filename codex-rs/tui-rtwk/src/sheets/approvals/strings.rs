@@ -145,6 +145,12 @@ pub struct Strings {
     /// The marks of a decision cell and who decided (`history_cell/approvals.rs`).
     pub approved_mark: &'static str,
     pub refused_mark: &'static str,
+    /// The bullet of an info line and the mark of an error line of the review lines
+    /// (`new_info_event`, `new_error_event`).
+    pub info_mark: &'static str,
+    /// Between an info line's message and its dim hint.
+    pub info_gap: &'static str,
+    pub error_mark: &'static str,
     pub you: &'static str,
     pub auto_reviewer: &'static str,
     pub verb_approved: &'static str,
@@ -357,6 +363,9 @@ pub const EN: Strings = Strings {
     // The marks of a decision cell and who decided (`history_cell/approvals.rs`).
     approved_mark: "\u{2714} ",
     refused_mark: "\u{2717} ",
+    info_mark: "\u{2022} ",
+    info_gap: " ",
+    error_mark: "\u{25a0} ",
     you: "You ",
     auto_reviewer: "Auto-reviewer ",
     verb_approved: "approved",

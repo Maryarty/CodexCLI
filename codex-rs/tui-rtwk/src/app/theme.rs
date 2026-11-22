@@ -126,6 +126,18 @@ impl Tokens {
         self.0.success.clone()
     }
 
+    /// The style of a chart series (the oracle's `plot/painting.rs` order:
+    /// the terminal's cyan, magenta and green, then the terminal's own ink;
+    /// an index past the last repeats it).
+    pub fn series(&self, index: usize) -> Style {
+        match index {
+            0 => self.info(),
+            1 => self.accent(),
+            2 => self.success(),
+            _ => Style::new(),
+        }
+    }
+
     pub(crate) fn shimmer_colors(&self) -> Option<(Color, Color)> {
         let base = self.0.accent.fg.filter(|color| color.is_rgb())?;
         let highlight = self.0.text.fg.filter(|color| color.is_rgb())?;

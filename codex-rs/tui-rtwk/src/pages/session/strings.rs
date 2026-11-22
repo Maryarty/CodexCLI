@@ -16,6 +16,7 @@ use rtwk::l10n::msg;
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
 use codex_tui_core::screens::chat::{McpHeader, McpWarning, Retry, StatusHeader};
 use codex_tui_core::screens::composer;
+use codex_tui_core::threads::LocalWarning;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -80,32 +81,6 @@ pub struct Strings {
     pub header_permissions: &'static str,
     pub header_yolo: &'static str,
     pub read_only_hint: &'static str,
-    pub running_command: &'static str,
-    pub ran_command: &'static str,
-    pub user_ran_command: &'static str,
-    pub calling_tool: &'static str,
-    pub called_tool: &'static str,
-    pub failed_tool: &'static str,
-    pub tool_result_image: &'static str,
-    pub tool_result_audio: &'static str,
-    pub image_label: Msg<1>,
-    pub explored: &'static str,
-    pub exploring: &'static str,
-    pub explored_read: Msg<1>,
-    pub explored_list: Msg<1>,
-    pub explored_search: Msg<1>,
-    pub explored_search_in: Msg<2>,
-    pub tool_no_output: &'static str,
-    pub show_tool_details: &'static str,
-    pub hide_tool_details: &'static str,
-    pub hidden_output_lines: Msg<1>,
-    pub hidden_output_line: &'static str,
-    pub command_exited: Msg<1>,
-    pub shell_prompt: &'static str,
-    pub exit_ok: &'static str,
-    pub exit_failed: &'static str,
-    pub exit_status: Msg<1>,
-    pub worked_for: Msg<1>,
     pub writer_retry_key: &'static str,
     pub writer_retry_detail: &'static str,
     pub writer_retry: &'static str,
@@ -138,6 +113,8 @@ pub struct Strings {
     pub retry_busy: Msg<1>,
     /// `on_server_overloaded_error`: an overloaded server that said nothing.
     pub high_load: &'static str,
+    /// `REVIEW_STEER_UNAVAILABLE_MESSAGE` (`interaction.rs`).
+    pub review_steer_unavailable: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -181,32 +158,6 @@ pub const EN: Strings = Strings {
     header_permissions: "permissions: ",
     header_yolo: "YOLO mode",
     read_only_hint: "Close it there and press R to continue here.",
-    running_command: "Running",
-    ran_command: "Ran",
-    user_ran_command: "You ran",
-    calling_tool: "Calling",
-    called_tool: "Called",
-    failed_tool: "Failed",
-    tool_result_image: "Returned image",
-    tool_result_audio: "Returned audio",
-    image_label: msg!("[Image #{0}]"),
-    explored: "Explored",
-    exploring: "Exploring",
-    explored_read: msg!("Read {0}"),
-    explored_list: msg!("List {0}"),
-    explored_search: msg!("Search {0}"),
-    explored_search_in: msg!("Search {0} in {1}"),
-    tool_no_output: "(no output)",
-    show_tool_details: "+ Show details",
-    hide_tool_details: "− Hide details",
-    hidden_output_lines: msg!("+ {0} lines (⌃t to expand)"),
-    hidden_output_line: "+ 1 line (⌃t to expand)",
-    command_exited: msg!("Exited (status {0})"),
-    shell_prompt: "$",
-    exit_ok: "✓",
-    exit_failed: "✗",
-    exit_status: msg!(" ({0})"),
-    worked_for: msg!("Worked for {0}"),
     writer_retry_key: "r",
     writer_retry_detail: " to retry",
     writer_retry: "retry",
@@ -233,6 +184,7 @@ pub const EN: Strings = Strings {
     mcp_incomplete: msg!("MCP startup incomplete (failed: {0})"),
     retry_busy: msg!("Server is busy, reconnecting {0}"),
     high_load: "Codex is currently experiencing high load.",
+    review_steer_unavailable: "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.",
     num: NumSyms::ENGLISH,
 };
 
@@ -279,21 +231,8 @@ impl Strings {
         .to_string()
     }
 
-    pub(super) fn search_in(&self, query: &str, path: &str) -> String {
-        Fmt::new(
-            self.explored_search_in,
-            [Arg::Text(query), Arg::Text(path)],
-            &self.num,
-        )
-        .to_string()
-    }
-
     pub(super) fn transcript_label(&self, message: Msg<1>, arg: &str) -> String {
-        Fmt::new(message, [Arg::Text(arg)], &self.num).to_string()
-    }
-
-    pub(super) fn worked_for<'a>(&'a self, elapsed: &'a str) -> Fmt<'a, 1> {
-        Fmt::new(self.worked_for, [Arg::Text(elapsed)], &self.num)
+        self.one(message, arg)
     }
 
     fn one(&self, message: Msg<1>, arg: &str) -> String {
@@ -328,6 +267,13 @@ impl Strings {
                 )
                 .to_string()
             }
+        }
+    }
+
+    /// The words of a warning the client raised itself.
+    pub fn local_warning(&self, warning: LocalWarning) -> &'static str {
+        match warning {
+            LocalWarning::ReviewSteerUnavailable => self.review_steer_unavailable,
         }
     }
 
