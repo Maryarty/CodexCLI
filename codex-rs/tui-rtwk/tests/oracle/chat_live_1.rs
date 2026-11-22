@@ -6,6 +6,15 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The row a text is drawn on: the oracle's snapshot is one cell's rows, the port draws the cell
+/// in the full screen, so the region starts where the cell does.
+fn row_of(s: &Screen, text: &str) -> usize {
+    s.rows()
+        .iter()
+        .position(|row| row.contains(text))
+        .unwrap_or(usize::MAX)
+}
+
 // Expected rows, copied from the oracle (the header and safety notice texts of app_server.rs).
 const SAFETY_HEADER: &str = "Giving this request a little extra thought";
 
@@ -13,7 +22,6 @@ const SAFETY_HEADER: &str = "Giving this request a little extra thought";
 const SAFETY_PENDING: &str = "no safety-buffering state on the chat screen: model/safetyBuffering/updated is not applied, so no retry prompt, learn-more link or retry confirmation is drawn";
 const COLLAB_PENDING: &str = "no collab-agent item on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), and the agent names come from set_collab_agent_metadata, which has no feed step";
 const WARN_PENDING: &str = "the notification has no main-screen row: a warning with a thread is a detailed-only row (core/src/threads.rs Item::Warning, Ctrl+T) while the oracle's test reads the cell, and the auth-recovery, guardian-warning, model-verification and config-warning notifications are not projected into a thread item (core/src/app.rs makes a config warning a one-line backend notice), nor is the startup warnings panel built";
-const ERR_PENDING: &str = "the error row draws (a red `■ message`, once per turn) but the oracle's wording is not: the thread's TurnError event carries only the message, so the high-load text for an empty serverOverloaded message, the cyber-policy and safety-access notices and the upstream-message variants need `codex_error_info` in core/src/threads.rs";
 
 /// Frame size of an oracle snapshot: its width as the oracle test sets it, its rows as stored.
 fn oracle_size(name: &str, width: u16) -> (u16, u16) {
@@ -1093,7 +1101,6 @@ fn live_app_server_stream_recovery_restores_previous_status_header() {
 // ORACLE chatwidget/tests/app_server.rs:1946 live_app_server_errors_render_upstream_message kind=snap owner=chat-live snap=rate_limit_exceeded_error snap=session_budget_exceeded_error
 #[test]
 fn live_app_server_errors_render_upstream_message() {
-    kit::pending(Owner::ChatLive, ERR_PENDING);
     for (message, info, name) in [
         (
             "rate limit exceeded: Please try again in 10s.",
@@ -1110,7 +1117,7 @@ fn live_app_server_errors_render_upstream_message() {
         s.feed(&turn_started("turn-1"));
         s.feed(&error_note("turn-1", message, info, false));
         // oracle: the error cell carries the upstream message text.
-        s.assert_snap_region(name, 0, 0);
+        s.assert_snap_region(name, row_of(&s, "■"), 0);
     }
 }
 
@@ -1150,7 +1157,6 @@ fn live_app_server_server_overloaded_error_renders_error() {
 // ORACLE chatwidget/tests/app_server.rs:2040 live_app_server_cyber_policy_error_renders_dedicated_notice kind=ui owner=chat-live
 #[test]
 fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
-    kit::pending(Owner::ChatLive, ERR_PENDING);
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&error_note(
@@ -1168,7 +1174,6 @@ fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
 // ORACLE chatwidget/tests/app_server.rs:2087 app_server_safety_access_errors_render_dedicated_notice kind=snap owner=chat-live
 #[test]
 fn app_server_safety_access_errors_render_dedicated_notice() {
-    kit::pending(Owner::ChatLive, ERR_PENDING);
     let mut reference = None;
     for message in [
         "Invalid prompt: we've limited access to this content for safety reasons.",
@@ -1182,7 +1187,11 @@ fn app_server_safety_access_errors_render_dedicated_notice() {
         // oracle: every case draws the same dedicated notice, the last one being the snapshot.
         s.assert_contains("This content can't be shown");
         s.assert_contains("biological research");
-        s.assert_snap_region("app_server_bio_policy_error_renders_dedicated_notice", 0, 0);
+        s.assert_snap_region(
+            "app_server_bio_policy_error_renders_dedicated_notice",
+            row_of(&s, "ⓘ"),
+            0,
+        );
         if let Some(first) = &reference {
             s.assert_same_rows(first);
         } else {
