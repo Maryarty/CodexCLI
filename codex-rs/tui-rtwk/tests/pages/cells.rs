@@ -2028,3 +2028,24 @@ mod streaming_preview {
         assert!(code.contains("::codex-inline-vis"), "{code}");
     }
 }
+
+// ---- the series token (owed to the usage plot: oracle plot/painting.rs, the
+// terminal's cyan, magenta and green, then its own ink) ----
+
+mod series_token {
+    use std::rc::Rc;
+
+    use codex_tui_rtwk::app::theme::Tokens;
+    use rtwk::prelude::ThemeData;
+    use rtwk::style::Style;
+
+    #[test]
+    fn the_series_are_the_info_accent_and_success_hues_then_the_terminals_ink() {
+        let tokens = Tokens::new(Rc::new(ThemeData::DARK));
+        assert_eq!(tokens.series(0), tokens.info());
+        assert_eq!(tokens.series(1), tokens.accent());
+        assert_eq!(tokens.series(2), tokens.success());
+        assert_eq!(tokens.series(3), Style::new());
+        assert_eq!(tokens.series(9), Style::new());
+    }
+}
