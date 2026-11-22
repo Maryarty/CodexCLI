@@ -1,0 +1,4 @@
+# The /status cell: the provider id the server names (server-ollama); the provider needs no OpenAI auth: no usage link (120 columns).
+# Oracle: status/tests.rs:771 status_uses_server_provider_id_and_auth_requirement (the cwd is the sanitised `[[workspace]]` of its snapshot).
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.6-sol","reasoning":{"effort":"none","summary":"auto"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","network":true,"approval":"on_request"},"tokens":{"input":0,"cached_input":0,"output":0,"total":0},"usage_link":false,"hour24":true,"provider":"server-ollama","limits":{"snapshots":[],"now":1704164645,"refreshing":false}}}

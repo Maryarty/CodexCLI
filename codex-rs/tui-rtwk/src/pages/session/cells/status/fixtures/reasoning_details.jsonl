@@ -1,6 +1,4 @@
-# The /status card of a ChatGPT session with reasoning details and two rate-limit windows.
-# Oracle data: status/tests.rs:271 status_snapshot_includes_reasoning_details
-# (the cwd is the sanitised `[[workspace]]` of its snapshot; 1_200 input of which 200 cached,
-# 900 output, 2_250 total; windows 300 and 10080 minutes used 72% and 45%, reset 3:14 and 3:24)
+# The /status cell: a workspace session with reasoning details and two windows (72% and 45% used, reset 3:14 and 3:24, 12-hour clock); 1_200 input of which 200 cached, 900 output.
+# Oracle: status/tests.rs:270 status_snapshot_includes_reasoning_details (the cwd is the sanitised `[[workspace]]` of its snapshot).
 {"step":"seed","seed":"session","thread":"thread-1"}
-{"step":"screen","dir":"status","ev":{"kind":"card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning_effort":"high","reasoning_summary":"detailed","directory":"[[workspace]]","profile":"workspace","approval":"on_request","tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"context":{"window":272000,"used":2250,"percent_left":100},"limits":[{"window_minutes":300,"used_percent":72,"reset":{"hour":3,"minute":14}},{"window_minutes":10080,"used_percent":45,"reset":{"hour":3,"minute":24}}]}}
+{"step":"screen","dir":"status","ev":{"kind":"status_card","version":"0.0.0","model":"gpt-5.1-codex-max","reasoning":{"effort":"high","summary":"detailed"},"directory":"[[workspace]]","permissions":{"sandbox":"workspace","approval":"on_request"},"tokens":{"input":1200,"cached_input":200,"output":900,"total":2250},"usage_link":true,"hour24":false,"context":{"window":272000,"used":2250,"percent_left":100},"limits":{"snapshots":[{"captured_at":1704164645,"primary":{"used_percent":72,"window_minutes":300,"resets_at":1704165245},"secondary":{"used_percent":45,"window_minutes":10080,"resets_at":1704165845}}],"now":1704164645,"refreshing":false}}}
