@@ -90,3 +90,29 @@ Checks: core 671 tests, rules, the page/app subset (158) green; the ignored page
 4 safety buffering and misalignment · 7 review / goal / side gates (Esc warning in review mode) · 8 external writer · 9 plan mode (Plan-stream queueing) ·
 10 replay C4 (`ReplayKind`, the 30 todo tests of chat_live_2) · 1 layout (move into `live/`) · 11 pack, pty scenario on both binaries, rebase on `claude/tui-rtwk`, fmt, clippy `--workspace`, whole nextest, shards, `shards.py --check`.
 Binary run (check.py scenario on rtwk and oracle) not done yet: it belongs to step 11.
+
+# chunk-live C3 — MCP startup, retry header, review state, keymap-landed needs (brief §6 steps 6, 3 part, 7 part; Tab/Esc/edit-queued wiring)
+Branch worktree-agent-ae321221c34cc050b, rebased on claude/tui-rtwk 0eb53b241. Oracle chat_live_1..5 (pass / n/a / pending / todo / red / stale), before the chunk's C2 baseline where I have it:
+chat_live_1 5/5/46/0/0/0 · chat_live_2 0/1/25/30/0/0 · chat_live_3 15/0/8/0/0/0 (was 4 pass) · chat_live_4 2/15/24/0/0/0 · chat_live_5 10/5/28/0/0/0 (was 3 pass at C2, 4 at the start of C3).
+TOTAL 15 -> 32 pass, 0 red, 0 stale. `shards.py --check`: 0 files stale.
+
+## Built (ADR-003: core owns the state, one writer; the page reads and emits)
+- Typed values in core, the words in `session/strings.rs` (rules `core_sources_hold_no_user_visible_prose`, ADR-010): `McpWarning`, `McpHeader`, `StatusHeader`/`Retry` (core `screens/chat.rs`, `chat/mcp.rs`), `Fault::{Message, HighLoad}` and `Item::{StartupWarning(McpWarning), HighLoad}` (`threads.rs`).
+  The view words them: `Strings::{status_header, mcp_warning, high_load}`; `activity.rs` takes the header from `run.chat.header()`, `transcript_pane.rs` has the two arms.
+- MCP startup round (oracle `chatwidget/mcp_startup.rs`): `chat::McpStartup` (round, header, failure dedup, summary Interrupted/Incomplete, lag settle), `ThreadEv::{Mcp, McpLagged}`; a submit while a server starts is held and goes out when the round settles (`threads.rs`); thread-less status updates apply to the displayed thread (`project_unrouted`).
+- Retry header (`ThreadEv::Retry`, a 429 reconnect is `Retry::Busy`), cleared by the thread's next notification; review mode is the thread's state (`note_review`), read by the slash gates (`actions.rs` `review_mode` line).
+- keymap files handed over by the lander: `Hs.thread_screen` (view.rs, + the debug `seeded.rs` Hs), Tab queues behind a running turn (`Delivery::Queue` in `run_line`), Esc with steers waiting emits `InterruptForSteers`, the edit-queued key is the keymap's `chat.edit_queued_message` (`KeyBindings` from `keymap::bindings`), `BackendEv::Lagged` also settles the thread's MCP round (app.rs, one hunk), `lagged` script step (`fixtures/script.rs`, `kit/seed.rs`).
+- Removed a duplicated intent arm pair in `threads.rs` (an earlier edit script had inserted it twice).
+- Tests: core/tests/model.rs (MCP header/long list/failure once/cancelled order/outcome without a start/held submit/lag/no-words failure/retry header/high load), tests/pages/chat_live.rs `the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer` (shown biting: with the key changed to alt+down it fails), the four Tab tests un-ignored, 17 oracle tests un-pended (6 lag, 5 MCP-while-queued, 6 steer/restore/review). `late_failure_does_not_reopen_the_next_round` now asserts the oracle's no-summary rows (`assert_same_rows`); its old `assert_rows_differ` contradicted the oracle.
+
+## Needs (other owners' files; none worked around)
+- chunk-transcript, `session_page.rs` (mine): wrap the page body in the transcript's `ModeKeys` and forward Esc / OpenTranscript / FindTranscript to the mode controller, drop `detailed_transcript` and `esc_primed`. NOT done: the controller is not on claude/tui-rtwk yet; do it when it lands (text: parity/transcript.md "needs", branch worktree-agent-a78257323a3aeb7ab).
+- chunk-transcript also lists for me: the Revert command in `ThreadFx` and the `ThreadReverted` apply arm (threads.rs), `UserPrompt` keeping images and placeholders: not started (backtrack).
+- chat-status (`activity.rs`, `pending_input.rs`, footer): the `header: String` hunk and `session_strings.status_header` line in `activity.rs` (kept: it is what draws the MCP and retry headers); the three-section pending preview; footer/status-line rows of `mcp_startup_header_booting_snapshot` and `app_server_mcp_startup_failure_renders_warning_history` (both re-pended with that reason).
+- transcript (`transcript_pane.rs`): the `StartupWarning`/`HighLoad` arms (kept), and the oracle's startup warnings touch (no blank separator between two consecutive startup warnings).
+- cells: `Notice` variants Interrupted, InterruptedForSteer, GoalBudgetReached and rows; warning/error cell wording; the user-message echo rule for the review prompt; the oracle cause lines (cyber-policy, safety-access, upstream-message variants need `codex_error_info`: `Fault` is where they go).
+- popups: `Menu::List` opens for the safety retry and Implement-plan prompts. chat-commands: command notices as "■" error rows (side-gate tests).
+- kit: a `respond` step (answering a server request) and a foreign-writer feed step (step 8) are not built; no test I un-pended needs them.
+
+## Left (brief §6 numbering; each is its own piece of work, none started)
+5 backend banners / Luna Reserve / usage notice (the actionable banner replacing `Callout`) · 4 safety buffering and misalignment · 3 remainder (Worked-for line, startup warnings panel, warning/error wording through cells) · 7 remainder (goal/budget notices, Esc warning with review-queued steers, review steer notice) · 8 external writer · 9 plan mode · 10 replay C4 (`ReplayKind`, the 30 todo tests of chat_live_2) · 1 layout into `live/` (activity.rs / pending_input.rs are chat-status's).
