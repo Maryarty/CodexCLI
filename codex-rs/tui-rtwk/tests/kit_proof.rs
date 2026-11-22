@@ -375,6 +375,12 @@ fn a_style_spec_reads_like_the_oracles_assertion() {
     g.assert_style(2, 0, "bg=Rgb(1, 2, 3)");
     g.assert_style(3, 0, "plain fg=Reset");
     assert!(fails(|| g.assert_style(0, 0, "fg=Red")));
+    // `!fg=` / `!bg=`: the colour is not that one (the `!` was ignored before)
+    g.assert_style(0, 0, "!fg=Red");
+    g.assert_style(0, 0, "!bg=Rgb(1,2,3)");
+    g.assert_style(2, 0, "!fg=Cyan");
+    assert!(fails(|| g.assert_style(0, 0, "!fg=Cyan")));
+    assert!(fails(|| g.assert_style(2, 0, "!bg=Rgb(1,2,3)")));
     assert!(fails(|| g.assert_style(0, 0, "dim")));
     assert!(fails(|| g.assert_style(1, 0, "!dim")));
     assert!(fails(|| g.assert_style(3, 0, "bold")));
@@ -706,4 +712,234 @@ fn a_different_composer_text_fails() {
     s.keys("backspace backspace backspace");
     s.type_text("Ask Codex to do anything");
     s.assert_composer("Ask Codex to do anything");
+}
+
+// ---- kit-caps: input a plain xterm cannot send ----
+
+/// A key with no bytes of its own on an xterm reaches the app as the kitty
+/// protocol sends it: Shift+Enter in the composer is a new line (the pty kit
+/// could not send it), and SUPER+space is a key the composer does not type.
+#[test]
+fn keys_without_bytes_of_their_own_are_sent_as_kitty_keys() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("a");
+    s.keys("shift+enter");
+    s.type_text("b");
+    let rows = s.rows();
+    let a = rows.iter().position(|r| r.contains("› a")).expect("row a");
+    assert!(rows[a + 1].trim_start().starts_with('b'), "{rows:?}");
+    s.keys("super+space");
+    s.type_text("c");
+    s.assert_contains("bc");
+}
+
+/// Held and released keys are the kitty protocol's repeat and release events,
+/// with the modifiers the key names.
+#[test]
+fn key_events_are_the_kitty_bytes_of_a_key() {
+    use kit::event_bytes_of;
+    assert_eq!(event_bytes_of("k", false), "\x1b[107;1:2u");
+    assert_eq!(event_bytes_of("super+c", true), "\x1b[99;9:3u");
+    assert_eq!(event_bytes_of("alt+shift+left", true), "\x1b[1;4:3D");
+    assert_eq!(event_bytes_of("enter", true), "\x1b[13;1:3u");
+    assert_eq!(event_bytes_of("delete", true), "\x1b[3;1:3~");
+}
+
+/// The released key of a typed char is no input: the draft is as typed (a
+/// release the app took for a press would type the char twice).
+#[test]
+fn a_key_release_is_not_a_press() {
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("x");
+    s.key_release("x");
+    s.key_repeat("y");
+    s.key_release("y");
+    s.assert_contains("› xy");
+    s.assert_absent("xx");
+    s.assert_absent("yy");
+}
+
+/// The mouse of the oracle's events: the right button, modifiers, a triple
+/// click and a bare pointer move are delivered (the effect is the screens').
+#[test]
+fn the_kit_sends_the_rest_of_the_mouse() {
+    let mut s = Screen::build(Owner::RoutesLists)
+        .size(82, 22)
+        .entry("resume", "table")
+        .open();
+    s.pointer_move(10, 8);
+    s.right_click(10, 8);
+    s.shift_click(10, 8);
+    s.ctrl_click(10, 8);
+    s.triple_click(10, 8);
+    s.right_down(10, 8).right_up(10, 8);
+    s.assert_contains("Fix resume picker timestamps");
+}
+
+// ---- kit-caps: what the app asked the backend to do ----
+
+/// The sent turns are readable: the typed text, literal, once; the probe
+/// bites on a different text.
+#[test]
+fn the_probe_reads_the_turns_the_app_started() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/session.jsonl"
+        ))
+        .open();
+    s.assert_no_turn();
+    s.type_text("**send once**");
+    s.keys("enter");
+    s.assert_turn_texts(&["**send once**"]);
+    s.assert_interrupts(0);
+    assert_eq!(s.turn_texts(), vec!["**send once**".to_string()]);
+}
+
+#[test]
+#[should_panic(expected = "the turns the app started differ")]
+fn the_probe_bites_on_a_text_that_was_not_sent() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/session.jsonl"
+        ))
+        .open();
+    s.type_text("sent");
+    s.keys("enter");
+    s.assert_turn_texts(&["not sent"]);
+}
+
+/// A key that interrupts a running turn is one interrupt request, counted.
+#[test]
+fn the_probe_counts_interrupt_requests() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/running.jsonl"
+        ))
+        .open();
+    s.assert_interrupts(0);
+    s.keys("esc");
+    s.assert_interrupts(1);
+}
+
+/// A snapshot the oracle joined of several renders under bare labels
+/// (`before scroll:` / `after scroll:`) reads as two frames.
+#[test]
+fn a_snapshot_with_bare_labels_reads_as_frames() {
+    assert_eq!(
+        Screen::snap_frame_names("list_selection_col_width_mode_auto_all_rows_scroll"),
+        vec!["before scroll:".to_string(), "after scroll:".to_string()]
+    );
+}
+
+// ---- kit-caps: the terminal and the app's environment ----
+
+/// A reply with a quote, code and a link: the cells the theme colours.
+const REPLY: &str = "> quoted\n\n`code` and [link](https://example.com)";
+
+fn styles_of(s: &Screen) -> Vec<(String, String)> {
+    let g = s.grid();
+    ["quoted", "code", "link"]
+        .into_iter()
+        .map(|text| {
+            let (x, _, y) = g
+                .locate(text)
+                .unwrap_or_else(|| panic!("no `{text}`:\n{}", g.text()));
+            let st = g.style(x, y);
+            (st.fg, st.bg)
+        })
+        .collect()
+}
+
+/// The terminal's default colours reach the app: a light and a dark
+/// terminal paint the same reply differently.
+#[test]
+fn the_terminal_colours_are_the_apps_theme() {
+    let light = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .light()
+        .agent_says(REPLY)
+        .open();
+    let dark = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .agent_says(REPLY)
+        .open();
+    let (l, d) = (styles_of(&light), styles_of(&dark));
+    assert_ne!(l, d, "a light and a dark terminal paint alike: {l:?}");
+}
+
+/// The colour depth is the app's: a terminal that shows no colour gets none.
+#[test]
+fn the_colour_depth_is_the_apps() {
+    let full = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .agent_says(REPLY)
+        .open();
+    let none = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .color_depth(kit::ColorDepth::None)
+        .agent_says(REPLY)
+        .open();
+    let (f, n) = (styles_of(&full), styles_of(&none));
+    assert_ne!(f, n, "the depth changed no colour: {f:?}");
+}
+
+/// The syntax theme of the config reaches the app as the host's fact: the
+/// theme picker opens on it.
+#[test]
+fn the_syntax_theme_is_the_apps_fact() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .syntax_theme("ansi")
+        .live()
+        .open();
+    s.type_text("/theme").keys("enter");
+    s.assert_contains("ansi");
+    let with = s.rows();
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("/theme").keys("enter");
+    assert_ne!(
+        with,
+        s.rows(),
+        "the theme fact changed nothing the picker shows"
+    );
+}
+
+/// A thread another process writes opens as the server answers: the app asks
+/// to resume the thread and the server refuses (the seed's answer), which the
+/// chat takes as a foreign writer; a chat without the seed asks nothing.
+#[test]
+fn a_foreign_writer_is_a_refused_resume() {
+    let plain = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let foreign = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .foreign_writer("thread-foreign")
+        .live()
+        .open();
+    assert_eq!(plain.requests_of("thread/resume"), 0);
+    assert_eq!(foreign.requests_of("thread/resume"), 1);
+}
+
+#[test]
+fn a_replay_is_a_resumed_thread_with_recorded_turns() {
+    let turns = vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([
+            {"type": "userMessage", "id": "u1", "content": [{"type": "text", "text": "hello", "text_elements": []}]},
+            {"type": "agentMessage", "id": "a1", "text": "hi there", "phase": null, "memoryCitation": null}
+        ]),
+    )];
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(turns)
+        .live()
+        .open();
+    assert_eq!(s.requests_of("thread/resume"), 1);
+    let asked = s.request_params("thread/resume");
+    assert_eq!(asked[0]["threadId"], kit::REPLAYED);
 }

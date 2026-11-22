@@ -212,7 +212,11 @@ pub struct Frame {
     pub area: Option<(usize, usize)>,
 }
 
-fn header(line: &str, next: Option<&String>) -> Option<(String, Option<String>)> {
+fn header(
+    line: &str,
+    prev: Option<&String>,
+    next: Option<&String>,
+) -> Option<(String, Option<String>)> {
     for bars in ["---- ", "--- "] {
         let tail = bars.trim_end();
         if let Some(name) = line
@@ -236,6 +240,23 @@ fn header(line: &str, next: Option<&String>) -> Option<(String, Option<String>)>
     if line.starts_with("width=") {
         return Some((line.trim_end_matches(':').to_string(), None));
     }
+    // `(255, 255, 255): Buffer {`: a label and the dump's first line on one row.
+    if let Some(name) = line.strip_suffix(": Buffer {")
+        && !name.is_empty()
+        && !line.starts_with(' ')
+    {
+        return Some((name.to_string(), Some("Buffer {".to_string())));
+    }
+    // `before scroll:`: a bare label of lowercase words, first in the
+    // snapshot or under a blank row, over the rows of a render.
+    if let Some(name) = line.strip_suffix(':')
+        && !name.is_empty()
+        && name.chars().all(|c| c.is_ascii_lowercase() || c == ' ')
+        && prev.is_none_or(|p| p.trim().is_empty())
+        && next.is_some()
+    {
+        return Some((line.to_string(), None));
+    }
     if next.is_some_and(|n| n.trim_end() == "Buffer {")
         && !line.starts_with(' ')
         && line != "Buffer {"
@@ -247,14 +268,18 @@ fn header(line: &str, next: Option<&String>) -> Option<(String, Option<String>)>
 
 /// The frames of the snapshot `rel`, in order. A snapshot the test made of
 /// several screens marks each with a header line (`--- x ---`,
-/// `---- x ----`, `N columns:`, `width=N..`, a label above a `Buffer {`
-/// dump); one without is a single frame with an empty name.
+/// `---- x ----`, `N columns:`, `width=N..`, a bare label such as
+/// `before scroll:`, a label above a `Buffer {` dump); one without is a single frame with an empty name.
 pub fn frames(rel: &str) -> Vec<Frame> {
     let body = body(rel);
     let mut chunks: Vec<(String, Vec<String>)> = Vec::new();
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for (i, line) in body.iter().enumerate() {
-        if let Some((name, inline)) = header(line, body.get(i + 1)) {
+        if let Some((name, inline)) = header(
+            line,
+            i.checked_sub(1).and_then(|j| body.get(j)),
+            body.get(i + 1),
+        ) {
             let n = seen.entry(name.clone()).or_insert(0);
             *n += 1;
             let name = if *n > 1 { format!("{name}#{n}") } else { name };

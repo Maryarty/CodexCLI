@@ -1,0 +1,4 @@
+# The /permissions menu while the catalog is read.
+# Oracle data: chatwidget/tests/permissions.rs:41 (permission_discovery_loading)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"loading","current":{"guardian":true,"discover":true}}}

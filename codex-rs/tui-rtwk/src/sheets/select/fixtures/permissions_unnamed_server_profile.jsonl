@@ -1,0 +1,5 @@
+# Approve for me in use on a session whose server gave no profile name (120 columns).
+# Oracle data: chatwidget/tests/permissions.rs:1603
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[{"id":":read-only"},{"id":":workspace"},{"id":":danger-full-access"}]}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"guardian":true,"reviewer":"auto_review","approval":"on-request","matches":"auto","discover":true}}}

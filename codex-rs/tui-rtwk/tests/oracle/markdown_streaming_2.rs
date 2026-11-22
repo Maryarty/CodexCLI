@@ -651,7 +651,7 @@ fn blockquote_nested_two_levels() {
 fn blockquote_with_list_items() {
     kit::pending(
         Owner::ChatLive,
-        "the oracle test runs with an empty syntax theme (`set_syntax_theme(Theme::default())`), where the bullet takes the quote's green; the app's theme gives bullets the Mocha/Latte teal, as the oracle's default does, and the kit cannot choose the syntax theme",
+        "screen feature (markdown theme): the kit seeds the syntax theme (`syntax_theme`, an empty name for the oracle's `Theme::default()`), but the chat's Markdown does not read it: the bullet is the app theme's teal, not the quote's green",
     );
     let s = chat(80, 24, "> - item 1\n> - item 2\n");
     s.assert_in_order(&["> • item 1", "> • item 2"]);

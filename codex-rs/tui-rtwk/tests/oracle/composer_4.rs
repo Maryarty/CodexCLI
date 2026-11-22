@@ -345,13 +345,14 @@ fn selected_text_navigation_does_not_recall_history_or_select_images() {
 fn right_click_copy_uses_the_refreshed_editor_bounds() {
     kit::pending(
         Owner::ChatLive,
-        "no mouse selection on the chat composer, and the right-click copy is not in the kit (click and drag are the left button only): the copied `hello` is not drawn",
+        "screen feature: the chat composer has no mouse selection and no copy of it by a right click (the copied `hello` goes to the clipboard, which no kit call reads); the kit sends the right click (`right_click`)",
     );
     let mut s = chat(40, 24);
     s.type_text("hello world");
     let p = prompt(&s);
     s.drag(2, cell(p), 7, cell(p));
-    // the right click copies `hello` (no kit call yet); the draft stays as typed
+    // the right click inside the selection copies `hello`; the draft stays as typed
+    s.right_click(4, cell(p));
     s.assert_row(prompt(&s), "› hello world");
 }
 

@@ -393,25 +393,25 @@ mod effects {
             &mut app,
             AppEv::Effect {
                 request: 5,
-                done: Done::Copy(CopyStatus::Pending(1)),
+                done: Done::Copy(Ok(CopyStatus::Pending(1))),
             },
         );
-        assert_eq!(app.effect(5), Some(&Done::Copy(CopyStatus::Pending(1))));
+        assert_eq!(app.effect(5), Some(&Done::Copy(Ok(CopyStatus::Pending(1)))));
         run(
             &mut app,
             AppEv::Effect {
                 request: 5,
-                done: Done::Copy(CopyStatus::Confirmed),
+                done: Done::Copy(Ok(CopyStatus::Confirmed)),
             },
         );
         assert_eq!(
             app.effect(5),
-            Some(&Done::Copy(CopyStatus::Confirmed)),
+            Some(&Done::Copy(Ok(CopyStatus::Confirmed))),
             "a later answer of the same request replaces the earlier"
         );
         assert_eq!(
             app.latest_effect(),
-            Some((5, &Done::Copy(CopyStatus::Confirmed)))
+            Some((5, &Done::Copy(Ok(CopyStatus::Confirmed))))
         );
     }
 
@@ -1408,5 +1408,629 @@ mod history_state {
         let (mut app, first) = opened();
         send(&mut app, AppEv::Reply(first, Reply::failed("no")));
         assert_eq!(state(&app), HistoryState::Complete);
+    }
+}
+
+/// The refusal notices a failed turn leaves, the streamed plan, and the notices the host
+/// announces (oracle `chatwidget/turn_runtime.rs`, `plan_stream`, `app/startup.rs`).
+mod notices {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+    use codex_tui_core::fixtures::builders::{turn_error, turn_started};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::ScreenThreadEv;
+    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::screens::chat::ThreadEv as ChatThreadEv;
+    use codex_tui_core::threads::daybreak::{Access, ModelAccess, Programs};
+    use codex_tui_core::threads::{Item, Notice, ThreadEv};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    fn start(app: &mut CodexApp) {
+        let fx = run(app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+    }
+
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        app
+    }
+
+    fn notify(app: &mut CodexApp, method: &str, params: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(json!({ "method": method, "params": params }))
+                .expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    fn items(app: &CodexApp) -> Vec<Item> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| transcript.get(index).map(|(_, item)| item.clone()))
+            .collect()
+    }
+
+    fn error(app: &mut CodexApp, message: &str, info: Option<&str>) {
+        notify(
+            app,
+            "error",
+            json!({
+                "error": {"message": message, "codexErrorInfo": info, "additionalDetails": null},
+                "willRetry": false, "threadId": T, "turnId": "turn-1"
+            }),
+        );
+    }
+
+    fn eligible(model: &str, standard: bool, daybreak: bool) -> Access {
+        Access {
+            eligible: true,
+            models: vec![ModelAccess {
+                model: model.to_owned(),
+                programs: Some(Programs { standard, daybreak }),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_cyber_refusal_is_a_notice_worded_apply_until_the_host_knows_better() {
+        let mut app = ready();
+        error(&mut app, "refused", Some("cyberPolicy"));
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(Notice::CyberPolicy(Daybreak::Apply))]
+        );
+    }
+
+    #[test]
+    fn the_wording_follows_the_catalog_and_the_threads_setting() {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(
+            &mut app,
+            AppEv::Screen(codex_tui_core::screens::ScreenEv::Chat(
+                codex_tui_core::screens::chat::Ev::Status(Box::new(
+                    codex_tui_core::screens::chat::StatusFacts {
+                        model: Some("gpt-5.6".into()),
+                        ..Default::default()
+                    },
+                )),
+            )),
+        );
+        run(&mut app, AppEv::Daybreak(eligible("gpt-5.6", true, true)));
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        error(&mut app, "refused", Some("cyberPolicy"));
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(Notice::CyberPolicy(Daybreak::Disabled))]
+        );
+        // switched on for the thread: the next refusal words as Enabled
+        codex_tui_core::app::apply_thread(
+            &mut app,
+            &ThreadId::new(T),
+            ThreadEv::Screen(ScreenThreadEv::Chat(ChatThreadEv::Metadata {
+                name: None,
+                cwd: "/tmp".into(),
+                path: None,
+                parent_owned: false,
+                ephemeral: false,
+                model: Some("gpt-5.6".into()),
+                effort: None,
+                provider: "openai".into(),
+                daybreak: Some(true),
+            })),
+            &mut AppFx::default(),
+        );
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-2")));
+        notify(
+            &mut app,
+            "error",
+            json!({
+                "error": {"message": "refused", "codexErrorInfo": "cyberPolicy", "additionalDetails": null},
+                "willRetry": false, "threadId": T, "turnId": "turn-2"
+            }),
+        );
+        assert_eq!(
+            items(&app).last(),
+            Some(&Item::Notice(Notice::CyberPolicy(Daybreak::Enabled)))
+        );
+    }
+
+    // Oracle `is_bio_policy_error`: the message itself, or the JSON error object around it.
+    #[test]
+    fn a_biology_refusal_is_the_safety_block_in_either_form() {
+        let mut app = ready();
+        error(
+            &mut app,
+            "This content was flagged for possible biological risk. More words.",
+            None,
+        );
+        assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
+        let mut app = ready();
+        error(
+            &mut app,
+            r#"{"error":{"code":"bio_policy","message":"x"}}"#,
+            None,
+        );
+        assert_eq!(items(&app), vec![Item::Notice(Notice::SafetyAccessBlock)]);
+        let mut app = ready();
+        error(&mut app, "something else", None);
+        assert_eq!(
+            items(&app),
+            vec![Item::Error {
+                message: "something else".into()
+            }]
+        );
+    }
+
+    // The turn's own report of an error the `error` notification already gave ends quietly.
+    #[test]
+    fn the_failed_turn_does_not_repeat_its_refusal() {
+        let mut app = ready();
+        error(&mut app, "refused", Some("cyberPolicy"));
+        run(
+            &mut app,
+            AppEv::Backend(turn_error(T, "turn-1", "unused", true)),
+        );
+        notify(
+            &mut app,
+            "turn/completed",
+            json!({
+                "threadId": T,
+                "turn": {
+                    "id": "turn-1", "items": [], "status": "failed",
+                    "error": {"message": "refused", "codexErrorInfo": "cyberPolicy", "additionalDetails": null},
+                    "startedAt": null, "completedAt": null, "durationMs": null
+                }
+            }),
+        );
+        assert_eq!(items(&app).len(), 1);
+    }
+
+    #[test]
+    fn the_plan_streams_in_deltas_and_the_completed_item_replaces_it() {
+        let mut app = ready();
+        for delta in ["# Pl", "an\n- one"] {
+            notify(
+                &mut app,
+                "item/plan/delta",
+                json!({"threadId": T, "turnId": "turn-1", "itemId": "plan-1", "delta": delta}),
+            );
+        }
+        assert_eq!(
+            items(&app),
+            vec![Item::Plan {
+                text: "# Plan\n- one".into()
+            }]
+        );
+        notify(
+            &mut app,
+            "item/completed",
+            json!({
+                "threadId": T, "turnId": "turn-1", "completedAtMs": 0, "contentTokenCount": null,
+                "item": {"type": "plan", "id": "plan-1", "text": "# Plan\n- one\n- two"}
+            }),
+        );
+        assert_eq!(
+            items(&app),
+            vec![Item::Plan {
+                text: "# Plan\n- one\n- two".into()
+            }]
+        );
+    }
+
+    // Oracle `OpenUrlInBrowser`: a browser that did not open the page is an error line.
+    #[test]
+    fn a_browser_that_did_not_open_is_an_error_line_of_the_shown_conversation() {
+        let mut app = CodexApp::new();
+        run(
+            &mut app,
+            AppEv::ErrorLine {
+                message: "Failed to open browser for https://x.test: no display".into(),
+            },
+        );
+        start(&mut app);
+        assert_eq!(items(&app), vec![], "no conversation, no line");
+        run(
+            &mut app,
+            AppEv::ErrorLine {
+                message: "Failed to open browser for https://x.test: no display".into(),
+            },
+        );
+        assert_eq!(
+            items(&app),
+            vec![Item::Error {
+                message: "Failed to open browser for https://x.test: no display".into()
+            }]
+        );
+    }
+
+    fn update() -> Notice {
+        Notice::UpdateAvailable {
+            current: "0.1.0".into(),
+            latest: "0.2.0".into(),
+            command: Some("npm install -g @openai/codex".into()),
+        }
+    }
+
+    #[test]
+    fn an_announcement_goes_into_the_shown_conversation() {
+        let mut app = CodexApp::new();
+        start(&mut app);
+        run(&mut app, AppEv::Announce(update()));
+        assert_eq!(items(&app), vec![Item::Notice(update())]);
+    }
+
+    #[test]
+    fn an_announcement_before_any_conversation_waits_for_the_first() {
+        let mut app = CodexApp::new();
+        let version = Notice::ServerVersion {
+            message: "The server runs 0.3.0".into(),
+            offer_update: true,
+        };
+        run(&mut app, AppEv::Announce(version.clone()));
+        run(&mut app, AppEv::Announce(update()));
+        start(&mut app);
+        assert_eq!(
+            items(&app),
+            vec![Item::Notice(version), Item::Notice(update())]
+        );
+    }
+}
+
+mod tui_settings {
+    use codex_tui_core::app::facts::TuiSettings;
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, apply_app};
+    use pretty_assertions::assert_eq;
+
+    // `tui.collapse_turn_details` is false until the host reports the config's value, and the
+    // last report holds.
+    #[test]
+    fn the_collapse_setting_is_what_the_host_last_reported() {
+        let mut app = CodexApp::new();
+        assert_eq!(app.tui(), TuiSettings::default());
+        assert!(!app.tui().collapse_turn_details);
+        let mut fx = AppFx::default();
+        let on = TuiSettings {
+            collapse_turn_details: true,
+        };
+        apply_app(&mut app, AppEv::Tui(on), &mut fx);
+        assert_eq!(app.tui(), on);
+        apply_app(&mut app, AppEv::Tui(TuiSettings::default()), &mut fx);
+        assert!(!app.tui().collapse_turn_details);
+    }
+}
+
+mod host_asks {
+    use codex_tui_core::app::effects::{Ask, Done};
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::ThreadId;
+    use pretty_assertions::assert_eq;
+
+    fn ask(app: &mut CodexApp, request: u64, ask: Ask) -> Vec<(u64, Ask)> {
+        let mut fx = AppFx::default();
+        apply_app(app, AppEv::Intent(Intent::Effect { request, ask }), &mut fx);
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Effect { request, ask, .. } => Some((*request, ask.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // The clipboard reads, the export file and the Desktop link are asks like the copy: one
+    // command under the request the UI chose, the answer kept under it.
+    #[test]
+    fn the_reads_the_export_and_the_desktop_link_are_asks() {
+        let mut app = CodexApp::new();
+        let export = Ask::Export {
+            thread: ThreadId::new("thread-1"),
+            path: "~/talk.md".into(),
+            cwd: "/work".into(),
+            markdown: "# Codex conversation\n".into(),
+        };
+        for (request, kind) in [
+            (1, Ask::ClipboardText),
+            (
+                3,
+                Ask::OpenDesktop {
+                    thread: ThreadId::new("thread-1"),
+                },
+            ),
+            (4, export),
+        ] {
+            assert_eq!(ask(&mut app, request, kind.clone()), vec![(request, kind)]);
+        }
+        let mut fx = AppFx::default();
+        for (request, done) in [
+            (1, Done::ClipboardText(Ok("pasted".into()))),
+            (3, Done::Desktop(Err("not installed".into()))),
+            (4, Done::Export(Ok("/work/talk.md".into()))),
+        ] {
+            apply_app(&mut app, AppEv::Effect { request, done }, &mut fx);
+        }
+        assert_eq!(
+            app.effect(1),
+            Some(&Done::ClipboardText(Ok("pasted".into())))
+        );
+        assert_eq!(
+            app.effect(3),
+            Some(&Done::Desktop(Err("not installed".into())))
+        );
+    }
+
+    // A failed copy keeps the host's text for the "failed to copy" line.
+    #[test]
+    fn a_failed_copy_keeps_the_hosts_text() {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(
+            &mut app,
+            AppEv::Effect {
+                request: 9,
+                done: Done::Copy(Err("clipboard unavailable".into())),
+            },
+            &mut fx,
+        );
+        assert_eq!(
+            app.effect(9),
+            Some(&Done::Copy(Err("clipboard unavailable".into())))
+        );
+    }
+}
+
+// Oracle `chatwidget/replay.rs` and `tests/history_replay.rs`: what a resumed thread's loaded turns
+// show and which of their user messages seed the composer's history.
+mod replay {
+    use codex_app_server_protocol::{ThreadItem, ThreadItemPayload, Turn, TurnStatus, UserInput};
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, apply_app, apply_thread};
+    use codex_tui_core::fixtures::builders::history_turn;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::backtrack::Mention;
+    use codex_tui_core::threads::{Item, history_page};
+    use pretty_assertions::assert_eq;
+
+    const T: &str = "thread-1";
+
+    fn app() -> CodexApp {
+        let mut app = CodexApp::new();
+        let mut fx = AppFx::default();
+        apply_app(&mut app, AppEv::Connected, &mut fx);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        apply_app(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+            &mut AppFx::default(),
+        );
+        app
+    }
+
+    /// The server's page: newest turn first.
+    fn load(app: &mut CodexApp, newest_first: &[Turn]) {
+        apply_thread(
+            app,
+            &ThreadId::new(T),
+            history_page(newest_first, None),
+            &mut AppFx::default(),
+        );
+    }
+
+    fn user(id: &str, inputs: Vec<UserInput>) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::UserMessage {
+            id: id.to_owned(),
+            client_id: None,
+            content: inputs,
+        })
+    }
+
+    fn text(text: &str) -> UserInput {
+        UserInput::Text {
+            text: text.to_owned(),
+            text_elements: Vec::new(),
+        }
+    }
+
+    fn entered(id: &str) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::EnteredReviewMode {
+            id: id.to_owned(),
+            review: "changes against main".to_owned(),
+        })
+    }
+
+    fn exited(id: &str) -> ThreadItem {
+        ThreadItem::untimed(ThreadItemPayload::ExitedReviewMode {
+            id: id.to_owned(),
+            review: "looks fine".to_owned(),
+        })
+    }
+
+    fn submitted(app: &CodexApp) -> Vec<String> {
+        app.active_thread()
+            .replayed_submissions()
+            .entries()
+            .iter()
+            .map(|submission| submission.prompt.text.clone())
+            .collect()
+    }
+
+    fn shown_users(app: &CodexApp) -> Vec<String> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| match transcript.get(index) {
+                Some((_, Item::User(prompt))) => Some(prompt.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // `replayed_user_messages_seed_composer_history`: the entries are oldest first and keep the
+    // mention the input carried.
+    #[test]
+    fn replayed_user_messages_seed_the_composer_history_oldest_first() {
+        let mut app = app();
+        let mut first = history_turn("turn-1", "x", "ok");
+        first.items[0] = user(
+            "user-1",
+            vec![
+                text("use $sample"),
+                UserInput::Mention {
+                    name: "Sample Plugin".into(),
+                    path: "plugin://sample@test".into(),
+                },
+            ],
+        );
+        let mut second = history_turn("turn-2", "x", "ok");
+        second.items[0] = user(
+            "user-2",
+            vec![
+                text("use $google-calendar"),
+                UserInput::Mention {
+                    name: "Google Calendar".into(),
+                    path: "app://google_calendar".into(),
+                },
+            ],
+        );
+        load(&mut app, &[second, first]);
+        assert_eq!(submitted(&app), ["use $sample", "use $google-calendar"]);
+        assert_eq!(
+            app.active_thread().replayed_submissions().entries()[1]
+                .prompt
+                .mentions,
+            vec![Mention {
+                skill: false,
+                name: "Google Calendar".into(),
+                path: "app://google_calendar".into(),
+            }]
+        );
+        assert_eq!(shown_users(&app), ["use $sample", "use $google-calendar"]);
+    }
+
+    // `replayed_review_prompt_does_not_seed_composer_history`: the message after the review
+    // started is the review prompt; the one after it ended is the user's.
+    #[test]
+    fn a_replayed_review_prompt_adds_no_row_and_seeds_nothing() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![
+            entered("review-start"),
+            user(
+                "review-prompt",
+                vec![text(
+                    "Review the code changes against the base branch 'main'.",
+                )],
+            ),
+            exited("review-end"),
+        ];
+        let mut after = history_turn("turn-2", "x", "ok");
+        after.items[0] = user("user-2", vec![text("thanks")]);
+        load(&mut app, &[after, review]);
+        assert_eq!(submitted(&app), ["thanks"]);
+        assert_eq!(shown_users(&app), ["thanks"]);
+    }
+
+    // `replayed_nested_review_prompts_do_not_render_or_seed_composer_history`: an interrupted turn
+    // that follows a finished review and says the same message twice is hidden.
+    #[test]
+    fn a_hidden_nested_review_turn_shows_no_user_message_and_counts_as_completed() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![entered("review-start"), exited("review-end")];
+        let mut nested = history_turn("turn-2", "x", "ok");
+        nested.status = TurnStatus::Interrupted;
+        nested.completed_at = None;
+        nested.items = vec![
+            user("nested-1", vec![text("Review this")]),
+            user("nested-2", vec![text("Review this")]),
+        ];
+        load(&mut app, &[nested, review]);
+        assert_eq!(submitted(&app), Vec::<String>::new());
+        assert_eq!(shown_users(&app), Vec::<String>::new());
+        assert!(!app.active_thread().is_running());
+    }
+
+    // The same turns as two messages that differ are a user's own turn.
+    #[test]
+    fn an_interrupted_turn_of_two_different_messages_is_not_hidden() {
+        let mut app = app();
+        let mut review = history_turn("turn-1", "x", "ok");
+        review.items = vec![entered("review-start"), exited("review-end")];
+        let mut next = history_turn("turn-2", "x", "ok");
+        next.status = TurnStatus::Interrupted;
+        next.completed_at = None;
+        next.items = vec![
+            user("u-1", vec![text("one")]),
+            user("u-2", vec![text("two")]),
+        ];
+        load(&mut app, &[next, review]);
+        assert_eq!(submitted(&app), ["one", "two"]);
+    }
+
+    // An older page goes in front; a page seen again adds nothing.
+    #[test]
+    fn an_older_page_goes_in_front_and_the_generation_says_so() {
+        let mut app = app();
+        let mut newer = history_turn("turn-2", "x", "ok");
+        newer.items[0] = user("user-2", vec![text("second")]);
+        let mut older = history_turn("turn-1", "x", "ok");
+        older.items[0] = user("user-1", vec![text("first")]);
+        load(&mut app, std::slice::from_ref(&newer));
+        let generation = app.active_thread().replayed_submissions().generation();
+        load(&mut app, std::slice::from_ref(&older));
+        assert_eq!(submitted(&app), ["first", "second"]);
+        let after = app.active_thread().replayed_submissions().generation();
+        assert!(after > generation);
+        load(&mut app, std::slice::from_ref(&older));
+        assert_eq!(submitted(&app), ["first", "second"]);
+        assert_eq!(
+            app.active_thread().replayed_submissions().generation(),
+            after
+        );
+    }
+
+    // `replayed_in_progress_turn_marks_task_running`.
+    #[test]
+    fn a_replayed_turn_in_progress_marks_the_thread_running() {
+        let mut app = app();
+        let mut turn = history_turn("turn-1", "go", "working");
+        turn.status = TurnStatus::InProgress;
+        turn.completed_at = None;
+        load(&mut app, &[turn]);
+        assert!(app.active_thread().is_running());
+        assert_eq!(submitted(&app), ["go"]);
     }
 }

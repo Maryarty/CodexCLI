@@ -1,0 +1,4 @@
+# Where a reasoning change made in Plan mode applies.
+# Oracle data: chatwidget plan_reasoning_scope prompt (model_popups.rs open_plan_reasoning_scope_prompt)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"plan_scope","model":"gpt-5.5","effort":"high","source":{"default":"medium"}}}

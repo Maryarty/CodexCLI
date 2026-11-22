@@ -1,0 +1,5 @@
+# The catalog of a remote server: requirements allow only :workspace and server-only (110 columns).
+# Oracle data: chatwidget/tests/permissions.rs:41 (permission_discovery_remote)
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[{"id":":read-only"},{"id":":workspace"},{"id":":danger-full-access"},{"id":"server-only","description":"Description from the connected server."}],"requirements":{"profiles":{":workspace":true,"server-only":true},"reviewers":["user"]}}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"guardian":true,"profile":":workspace","approval":"on-request","matches":"auto","discover":true}}}

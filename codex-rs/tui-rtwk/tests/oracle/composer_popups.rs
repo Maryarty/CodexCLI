@@ -441,8 +441,9 @@ fn history_search_paste_preserves_original_draft_on_miss_and_cancel() {
 fn history_search_paste_uses_full_sanitized_text() {
     kit::pending(
         Owner::ChatNavPane,
-        "the image case needs a 1x1 png on disk: the shard may not touch files and the kit has no file helper; only the sanitized text case is written",
+        "screen bug (history search row): the sanitized text and the image path cases pass (the kit writes the png, `image_file`); a large paste (1001 chars) as the query overflows the search row by 2 columns (RenderFlex, the `+2` counter beside the wrapped query), which the app logs as an error",
     );
+    // the pasted text is the query, sanitized (CR LF and escape codes), in place of a placeholder
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
@@ -450,6 +451,27 @@ fn history_search_paste_uses_full_sanitized_text() {
     s.type_text("draft").keys("ctrl+r");
     s.paste("é\r\n中\r\u{1b}[31mtext\u{1b}[0m");
     s.assert_contains("reverse-i-search: é↵中↵text");
+    // an image path pasted into the search is its text, no attachment
+    let path = kit::image_file("history.png");
+    let path = path.to_string_lossy().into_owned();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(200, 24)
+        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .open();
+    s.type_text("draft").keys("ctrl+r");
+    s.paste(&path);
+    s.assert_contains(&format!("reverse-i-search: {path}"));
+    s.assert_absent("[Image #1]");
+    // a large paste is its text, no `[Pasted Content N chars]` placeholder
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/composer_popups/h_sanitized.jsonl"))
+        .open();
+    s.type_text("draft").keys("ctrl+r");
+    s.paste(&"x".repeat(1001));
+    s.assert_contains("reverse-i-search:");
+    s.assert_contains(&"x".repeat(70));
+    s.assert_absent("[Pasted Content");
 }
 
 // ---- oracle: bottom_pane/chat_composer/mentions_layout_tests.rs (3 screen-level tests here; 0 state tests left to chat-nav-pane)
@@ -710,7 +732,7 @@ fn changing_filter_resets_selection_after_scrolling() {
 fn long_paths_keep_distinguishing_filenames_and_original_selection() {
     kit::pending(
         Owner::ChatNavPane,
-        "the snapshot joins 18 popup renders (three directories, three widths, two selections) in one text, with no section names: one chat screen shows one state",
+        "the popovers/composer_popups entry's @ popup shows no rows once the mentions view is mounted (chunk-composer step 8b: key hook, wiring and mount still to do); the test passed on the old popup",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)

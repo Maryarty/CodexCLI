@@ -251,7 +251,7 @@ fn apply_patch_prompt_without_changes_shows_unavailable_destination() {
 fn network_exec_prompt_title_includes_host() {
     kit::pending(
         Owner::DialogsPane,
-        "the kit cannot read the snapshot: oracle_snap::parse_row returns the Buffer row 1 (`Do you want to approve network access to \"example.com\"?`, an unescaped quote inside the Debug row) as raw text; the rows and the sheet equal the snapshot, pinned in tests/sheets/approvals.rs",
+        "screen feature (approval sheet): the selected option row `› 1. Yes, just this once` is drawn bold magenta, the oracle draws it bold reversed with the default colour; the cell after the title is bold in ours, plain in the oracle (the kit reads the snapshot, quote and all)",
     );
     // The sheet is bottom-aligned: 13 rows tall, the oracle's buffer.
     let s = Screen::build(Owner::DialogsPane)

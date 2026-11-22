@@ -7,6 +7,9 @@
 //! the network, the clock or the file system (R12).
 
 pub mod effects;
+pub mod facts;
+mod notices;
+mod select;
 mod session;
 pub mod worktree;
 
@@ -259,6 +262,22 @@ pub enum AppEv {
     /// The keymap the config makes (`tui.keymap.*`), sent by the host once
     /// the config is read; until then the built-in defaults hold.
     Keymap(Box<Keymap>),
+    /// A notice for the open conversation (a newer release, the server's other version): it
+    /// goes into the history of the shown thread, or of the first one when none is open yet.
+    Announce(threads::Notice),
+    /// What the host knows about Daybreak (the account, the model catalog): it words the
+    /// notice of a cyber refusal.
+    Daybreak(threads::daybreak::Access),
+    /// The `[tui]` settings the config holds (the host sends them once the config is read, and
+    /// again after a setting changed).
+    Tui(facts::TuiSettings),
+    /// An error the host words for the shown conversation: the browser did not open a page
+    /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
+    /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
+    /// row; the words are the host's, core holds no prose.
+    ErrorLine {
+        message: String,
+    },
 }
 
 /// An event with the connection epoch it was attached under, and the
@@ -367,7 +386,11 @@ pub enum Command {
     /// file search, the mention usage file (`popovers::Ask`), answered with
     /// the popovers' events (`AppEv::Screen(ScreenEv::Popovers(..))`).
     #[non_exhaustive]
-    Popovers { ask: crate::screens::popovers::Ask },
+    Popovers {
+        ask: crate::screens::popovers::Ask,
+        /// The shown conversation when the ask was made: a history entry belongs to it.
+        thread: Option<ThreadId>,
+    },
     /// An ask of the usage page the host runs (the analytics loads),
     /// answered with `usage::Ev` under the ask's session and stamp.
     #[non_exhaustive]
@@ -434,6 +457,8 @@ enum AppCtx {
     },
     /// An RPC of an app-scoped screen (the agents command center).
     Agents(agents::Ctx),
+    /// `model/list` and the permission profiles for the pickers of S14.
+    Select(crate::screens::select::Ctx),
     RateLimits {
         backend: BackendId,
     },
@@ -506,8 +531,14 @@ pub struct CodexApp {
     /// The key bindings every screen reads (`AppEv::Keymap`); one value, so a
     /// widget that holds a binding hint can never hold a stale one.
     keymap: Rc<Keymap>,
+    /// The `[tui]` settings views read (`AppEv::Tui`).
+    tui: facts::TuiSettings,
     /// The answers of the host's asks and the user-verification controller.
     effects: effects::Effects,
+    /// Notices announced before any conversation exists.
+    pending_notices: Vec<threads::Notice>,
+    /// The Daybreak facts (`AppEv::Daybreak`).
+    daybreak: threads::daybreak::Access,
 }
 
 /// When the process's first thread starts.
@@ -563,7 +594,10 @@ impl CodexApp {
             first_thread: FirstThread::OnConnect,
             start_held: false,
             keymap: Rc::new(Keymap::defaults()),
+            tui: facts::TuiSettings::default(),
             effects: effects::Effects::default(),
+            pending_notices: Vec::new(),
+            daybreak: threads::daybreak::Access::default(),
         }
     }
 
@@ -617,6 +651,11 @@ impl CodexApp {
 
     pub fn keymap(&self) -> &Rc<Keymap> {
         &self.keymap
+    }
+
+    /// The `[tui]` settings the host reported.
+    pub fn tui(&self) -> facts::TuiSettings {
+        self.tui
     }
 
     pub fn agents_threads(&self) -> agents::CenterThreads {
@@ -873,8 +912,12 @@ fn drain_popover_asks(app: &mut CodexApp, fx: &mut AppFx) {
     if app.screens.popovers.pending_asks().is_empty() {
         return;
     }
+    let thread = app.session.active.clone();
     for ask in Rc::make_mut(&mut app.screens).popovers.take_asks() {
-        fx.commands.push(Command::Popovers { ask });
+        fx.commands.push(Command::Popovers {
+            ask,
+            thread: thread.clone(),
+        });
     }
 }
 
@@ -1177,6 +1220,10 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             release_held_start(app, fx);
         }
         AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
+        AppEv::Announce(notice) => notices::announce(app, notice, fx),
+        AppEv::Daybreak(access) => app.daybreak = access,
+        AppEv::Tui(settings) => app.tui = settings,
+        AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => app.effects.settle(request, done),
         AppEv::Verified {
             key,
@@ -1449,6 +1496,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 }
             }
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
+            AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
                 if let Answer::RateLimits { limits, banner } = answer {
                     install_rates(app, backend, limits);
@@ -1797,8 +1845,8 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
         }
-        Intent::Screen(intent @ ScreenIntent::Select(_)) => {
-            screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx);
+        Intent::Screen(ScreenIntent::Select(intent)) => {
+            select::intent(app, intent, fx);
             confirmed(app, fx);
         }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
@@ -2353,6 +2401,7 @@ fn attach_thread_with_metadata(
             app.attaching_events.push_back((source, id, ev));
         }
     }
+    notices::flush(app, thread, fx);
 }
 
 fn show_held_thread(app: &mut CodexApp, id: ThreadId) {
@@ -2393,7 +2442,17 @@ fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
 pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mut AppFx) {
+    // A cyber refusal is worded by the setting of the moment (a delta carries none).
+    let daybreak = if ev.may_fail_a_turn() {
+        notices::daybreak_of(app, thread)
+    } else {
+        crate::screens::cells::Daybreak::Apply
+    };
     if let Some(model) = app.threads.get_mut(thread) {
-        threads::apply(model, ev, &mut ThreadFx::new(thread, fx, &mut app.mint));
+        threads::apply(
+            model,
+            ev,
+            &mut ThreadFx::new(thread, fx, &mut app.mint).stamped(daybreak),
+        );
     }
 }

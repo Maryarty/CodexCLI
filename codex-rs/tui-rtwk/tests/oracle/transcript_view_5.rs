@@ -271,7 +271,7 @@ fn selected_newlines_respect_wrapping_and_synthetic_rows() {
 fn offsets_can_reach_rows_after_u16_limit() {
     kit::pending(
         Owner::ChatLive,
-        "no entry of 65,538 rows and no scroll past the u16 limit: the kit's wheel notch count is a u16 and no seed of that size exists",
+        "screen feature: no 65,538-row seed (an agent message of 65,538 chars at width 1) and the chat draws nothing at 1x1; the kit wheels any count of notches (`wheel_down(x, y, u16::MAX)` then 2 more)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(1, 1).live().open();
     s.wheel_down(0, 0, u16::MAX);

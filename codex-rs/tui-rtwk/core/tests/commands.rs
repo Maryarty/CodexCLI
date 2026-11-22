@@ -2177,7 +2177,8 @@ mod removal {
     /// The confirmation opens and `row` is picked.
     fn pick(app: &mut CodexApp, confirm: Confirm, row: usize) -> AppFx {
         select(app, Select::Open(Menu::Confirm(confirm)));
-        select(app, Select::Pick(row))
+        let id = if row == 1 { Confirm::YES } else { Confirm::NO };
+        select(app, Select::Choose(id.to_string()))
     }
 
     fn removals(fx: &AppFx) -> Vec<agents::Command> {
@@ -2250,25 +2251,25 @@ mod removal {
         let mut app = ready();
         typed(&mut app, Some(T), SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu,
+            app.screens().select.menu().cloned(),
             Some(Menu::Confirm(Confirm::Archive { running: false }))
         );
         turn_started(&mut app);
         typed(&mut app, Some(T), SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu,
+            app.screens().select.menu().cloned(),
             Some(Menu::Confirm(Confirm::Archive { running: true }))
         );
         typed(&mut app, Some(T), SlashCommand::Delete);
         assert_eq!(
-            app.screens().select.menu,
+            app.screens().select.menu().cloned(),
             Some(Menu::Confirm(Confirm::Delete))
         );
         // before any thread: the question still opens, the refusal is Yes's
         let mut app = CodexApp::new();
         typed(&mut app, None, SlashCommand::Archive);
         assert_eq!(
-            app.screens().select.menu,
+            app.screens().select.menu().cloned(),
             Some(Menu::Confirm(Confirm::Archive { running: false }))
         );
     }
@@ -2298,7 +2299,7 @@ mod removal {
             let mut app = ready();
             let fx = pick(&mut app, confirm, 1);
             assert_eq!(removals(&fx), [expected], "{confirm:?}");
-            assert_eq!(app.screens().select.menu, None, "{confirm:?}");
+            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
             assert_eq!(app.session().active, Some(ThreadId::new(T)), "not yet gone");
         }
     }
@@ -2309,7 +2310,7 @@ mod removal {
             let mut app = ready();
             let fx = pick(&mut app, confirm, 0);
             assert_eq!(removals(&fx), [], "{confirm:?}");
-            assert_eq!(app.screens().select.menu, None, "{confirm:?}");
+            assert_eq!(app.screens().select.menu().cloned(), None, "{confirm:?}");
             assert_eq!(notes_of(&app.active_thread()), [], "{confirm:?}");
         }
     }

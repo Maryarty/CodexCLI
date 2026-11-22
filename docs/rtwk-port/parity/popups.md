@@ -1,35 +1,28 @@
 # Parity pack: chunk-popups (the Picker brick, /model family, /permissions, generic pickers, feedback, goal, plugins, apps)
 
 Brief: `docs/rtwk-port/research/briefs/popups.md` (§6 plan). Branch `worktree-agent-a032b2526c8243bfe`, based on `claude/tui-rtwk` 252acefb6.
-This pack is a work in progress: step 1 (the Picker brick) is done as far as my area reaches (1a-1f below); steps 2-7 are untouched
-and every one of them waits on a file I do not own (see Needs). A successor continues from "Left".
+This pack is a work in progress: step 1 (the Picker brick), step 2 (core `select::Model {stack, catalog}`, the /model family as typed menus, the
+presenter over the stack head) and step 3 (/permissions: the typed menus, the catalog, the confirmation) are done as far as my area reaches (1a-1f, 2, 3
+below); steps 4-7 are untouched and the live routing of 2-7 waits on files I do not own (see Needs). A successor continues from "Left".
 
 ## Oracle numbers (summary.py --run, no probe, at the tip)
 
 | shard | pass | n/a | pending | total |
 |---|---|---|---|---|
 | chat_popups_1 | 0 | 5 | 21 | 26 |
-| chat_popups_2 | 1 | 6 | 39 | 46 |
+| chat_popups_2 | 7 | 6 | 33 | 46 |
 | chat_popups_3 | 0 | 2 | 41 | 43 |
-| picker | 24 | 3 | 36 | 63 |
+| picker | 43 | 5 | 15 | 63 |
 
-Unchanged by this chunk so far, because `tests/oracle/picker.rs` is not in my area (the claim guard refuses the edit: held by nobody, but
-outside the task's area; widening the area is the orchestrator's decision) and every chat_popups pending waits on a seed or routing I do not own.
-Under `KIT_PROBE_PENDING=1 summary.py --run picker --list stale` **10 pending picker tests pass already**: delete their `kit::pending(..)` call and
-picker goes 24 -> 34 pass, 3 n/a, 26 pending:
-
-`horizontal_list_keys_reorder_orderable_items`, `searchable_plain_j_updates_query_instead_of_navigating`, `browser_page_navigation_uses_rows_that_fit`,
-`overflow_arrows_follow_the_painted_picker_surface`, `shrinking_the_browser_keeps_selection_visible_without_navigation`,
-`tiny_viewports_preserve_query_and_selection_when_enlarged`, `configured_cancel_binding_takes_precedence_over_space_toggle`,
-`searchable_list_honors_configured_printable_accept_alternative`, `selected_rows_use_the_shared_accent_style`,
-`selection_preserves_semantic_spans_and_secondary_hierarchy`.
-
-Red under probe (each needs a change in picker.rs / the kit, nothing in the Picker; see Needs): `configured_list_binding_takes_precedence_over_search_toggle_key`
-(expects `› 2. Next`), `c0_ctrl_*` (entry name), the two `*_page_and_jump_*` (size), `non_orderable_items_cannot_move_or_be_crossed`,
-`section_break_after_item_renders_separator_row` (sizes), `popup_hints_follow_configured_bindings` (size 60x7 for the picker preset),
-`picker_appearance_renders_checkboxes_preview_and_overflow` (frames), `short_browser_*`, `narrow_description_columns_*` (kit resize),
-`shared_menu_*`, `snapshot_auto_*`, `snapshot_narrow_width_counts_halfwidth_*` (kit header kinds), `wrapped_two_column_rows_preserve_hard_line_breaks`
-(raw rows), `filled_tab_unknown_palette_*` (G54).
+`tests/oracle/picker.rs` joined the area on the re-grant (07e2b0234): the 10 stale pendings are dropped, the keymap tests' sizes and entries are the
+picker's (`› First`/`› Second`/`› Next` for a searchable list, `first_second_searchable_second`, 60x12 list page/jump, 60x18 multi page/jump, 60x12
+non-orderable, 60x9 section break, `hint_default` 6 / `hint_picker` 7 rows), `picker_appearance_renders_checkboxes_preview_and_overflow` reads its three
+frames through `assert_snap_section` (First page / Last page / No matches) and stays pending with its reason (frame 2: G39b, the Auto-visible column is
+measured over the window rows in the oracle; frame 1/3 and every frame: the oracle's Buffer dump says `bg: Reset`, our dialog paints the host
+background; the sheet test `the_multi_select_appearance_matches_the_oracle_in_three_frames` holds the three frames' rows), the two side-content
+clearing tests are `kit::na`. Two Picker facts found on the way: the `SECTION_BREAK_ROW` rule sizes the label column (oracle `ColumnWidthMode`), and no
+arrows are drawn over an empty search result. 15 pending are the raw-row tests, G54, G44, G39b, the side background (`Tokens::tone`), the kit header
+kinds, the kit's resize to the same size, the `shared_menu_*` whole-area frame and the palette seed (see Needs).
 
 ## Done
 
@@ -67,6 +60,50 @@ Red under probe (each needs a change in picker.rs / the kit, nothing in the Pick
     content, see Open deltas).
   - Open delta found in 1d is closed: long label cut with an ellipsis, bare reason.
 
+- 2 `cece9a556` the /model family. Core: `core/src/screens/select/models.rs` (data and rules, no words: `Preset`, `Catalog {presets, pending, issued}`,
+  `Current` snapshot, `ModelMenu::{Loading, Models, AllModels, Reasoning, Advanced, PlanScope}`, `Page {heading, rows, initial}`, `Choice {id, kind, current,
+  effort, session}`, `Selection`, `list_request`/`presets` for the `model/list` wire) and `select::Model { stack, catalog, picked, notes }` (head `menu()`,
+  `page()`; Esc pops one, a final pick clears the stack, a refresh replaces the catalog in place and dismisses a menu left with no choice, an answer of
+  another request is dropped). 37 state tests in `core/tests/models.rs` (each shown biting once): loading, request guard, quick/all lists (auto order,
+  hidden models, no-auto catalog = all list), reasoning (default/current marks, initial row, xhigh/high warning only for gpt-5.1-codex*/gpt-5.2*, More
+  reasoning…), advanced (Max, Ultra last), single-effort skip, session key, Ultra warning at >= 8 threads, plan scope (Plan-only/all modes, no-op skip),
+  refresh/dismissal, wire decode, seeded stack. View: `sheets/select/lists.rs` `of(menu, page, s)` builds the typed menus (rows `id = choice.id`, `current`,
+  session `Secondary { key: 's', hint: word, accept: default|apply }`, `selected_description` for the Plus-plan warning, `initial`, `standard_hint`, Info
+  subtitle for Advanced); the words are in `sheets/select/strings.rs` (ADR-010, `Msg<N>` for the argument ones); `dialog.rs` reads the head
+  through a provider projection, keys the Picker by stack depth, Esc emits `Intent::Close` only (the dialog closes when the model's stack is empty).
+  Picker: footer precedence item -> secondary action (`enter default · s session · esc back`) -> list; the cursor follows its row by id when a refresh
+  moves it; `List.subtitle_role` (`Role::Info` = cyan). 5 debug entries (`models_quick`, `model_reasoning`, `model_advanced`, `model_plan_scope`,
+  `model_loading`) are fixture scripts through core `apply`; `model_picker` is now a catalog + all-models script. 9 sheet tests: the quick, reasoning and
+  advanced menus' rows equal the oracle snapshots (`model_picker_refreshes_auto_models`, `model_reasoning_selection_popup`,
+  `model_advanced_reasoning_selection_popup`), loading, plan scope words, Enter/Esc/Esc through the stack, the high-effort warning while highlighted, the
+  secondary footer, a tap on a model with efforts and on an effort.
+
+- 3 /permissions (the oracle's `permission_popups.rs`, `permissions_menu.rs`, `permission_discovery.rs`). Core: `core/src/screens/select/permissions.rs`
+  (data and rules, no words: `Preset`, `Current` snapshot the opener reads from the thread and the config (`discover`, `guardian`, `auto_required`, `cyber`,
+  `limits`), `Discovery {profiles, requirements}` with `from_wire` (duplicate ids refused) and `disabled` (`NotOnServer` / `Requirements`),
+  `Profiles {found, pending, issued}` (the request guard), `PermissionsMenu::{Presets, Loading, Profiles, Failed, FullAccess}`, `Page {heading, rows}`,
+  `Row {id, kind, current, disabled}`, `Selection::{Preset, Profile}`, wire builders `requirements_request`/`profiles_request` and decoders) and
+  `select::Model.profiles` + `Ev::{Listed, Discovered, ScopeChanged}` + `Intent::OpenPermissions(Current)`; `Picked::Permissions(Selection)`. Rules carried:
+  the legacy list is Ask for approval + (Approve for me with the guardian feature) + Full Access (Read Only on Windows only); the current mark follows the
+  preset, the reviewer and the mandatory auto-review; a preset the config forbids is disabled with the config's own reason and is not chosen; with a thread
+  (or the explicit profile mode or a custom profile) the menu waits behind `Loading permission profiles…` for one request (a second open reuses it, an answer
+  of another request is dropped, a scope change drops the waiting menu and the answer); the catalog menu lists the built-in modes in the oracle's order, then
+  the server's profiles, a profile the requirements leave out is `Disabled by requirements`, an empty catalog keeps only the active profile as
+  `Not available on this server` under `No permission profiles returned by the server.`; a failed read is the error and a Retry row (Retry asks again with a
+  new request); Full Access (legacy or catalog) asks first (`Enable full access?`, Cancel opens the menu again from the start, Esc closes); a cyber model's
+  confirmation recommends Approve for me when auto-review is available, else Ask for approval. 30 state tests in `core/tests/permissions.rs` (shown biting
+  once: a disabled row made choosable and the confirmation skipped fail 2 of the first 5 tests). View: `sheets/select/lists.rs` `permissions(page, s)` and the
+  words in `strings.rs` (ADR-010: modes, descriptions, the failure texts of `discovery_error`, the confirmation); `dialog.rs` has no index path any more
+  (rows carry ids, `Intent::Choose(id)` for every menu). 10 entries (`profile_permissions{,_disallowed_full_access,_custom}`,
+  `permission_discovery_{loading,remote,empty,failure}`, `permissions_unnamed_server_profile`, `permissions_constrained`, `permissions_cyber_full_access`) are fixture
+  scripts through core `apply`. Sheet tests (tests/sheets/select.rs): the rows of 9 oracle snapshots (`profile_permissions_selection_popup` and its two variants,
+  `permission_discovery_{loading,remote,empty,failure}`, `permissions_unnamed_server_profile`) equal the oracle's; the constrained menu shows the config's reason
+  and the cursor skips it; full access asks, Cancel reopens, Esc closes, Continue closes; the cyber text; taps (ADR-011): Retry asks again, a disabled row does
+  nothing, a profile picks and closes, Full Access asks. Shard `chat_popups_2`: 1 -> 7 pass (3 profile snapshots, `permissions_unnamed_server_profile`,
+  `approvals_popup_shows_disabled_presets`, `approvals_popup_navigation_skips_disabled`).
+
+- 4 live wiring and /apps (run of 2026-11-22; commits `4d9ba0613`, `249422ed7`, the /apps commit, merges of claude/tui-rtwk). Core `core/src/app/select.rs`: the select screen's RPCs go through the app (`Command::Screen` with no thread, `AppCtx::Select`): `model/list`, `configRequirements/read` + `permissionProfile/list` pages, `app/list`, and the picks' effects: a model pick = `thread/settings/update` + `config/batchWrite` (model, effort; Plan scope keys) and a typed `Note` line after the write (`Model changed to ..`, the Ultra warning, `Failed to save default model`, `Saved .., but a higher-priority layer overrides it`); a permission pick = session-only settings update + `Note::PermissionsUpdated`. `picks()` takes only `Selection`/`Permissions`; list picks and confirmations stay for their screens. `/apps` whole in core `select/apps.rs` (oracle `chatwidget/connectors.rs`): cache Loading/Ready/Failed, one `app/list` in flight (a forced ask waits behind it), a notified directory that differs is read again (once more on failure), a switched app keeps its switch over a refreshed answer, Failed page with the Retry row, `OpenApps{enabled}` notes (`Apps are disabled.`, `No apps available.`, the held error), picks hand `Picked::App(id)` on or say `{status} · App link unavailable`. View: `lists.rs` `apps()` + `strings.rs` (the oracle's words), search, `AutoAllRows`, the id-based cursor keeps the row across a refresh. `/apps` dispatches to `Target::Select` and `actions.rs select_intent` emits `OpenApps`. Tests: core/tests/select_live.rs (17), oracle `apps_popup_stays_loading_until_final_snapshot_updates` (snapshot, answer in place), `apps_popup_shows_disabled_status_*`, `apps_popup_for_not_installed_app_*`, 6 stale pending lines of chat_popups_4 removed. The merge carried chunk-commands' `/archive` `/delete` confirmation (`Menu::Confirm`, `Picked::Confirmed`, `Confirm::{YES, NO}` row ids) onto the id-based model; models/permissions state tests run on a local `select::Model`.
+
 ## Left (brief §6, in order)
 
 1. Step 1 rest, in `core/src/screens/select/list.rs` + `src/widgets/picker/`:
@@ -83,27 +120,23 @@ Red under probe (each needs a change in picker.rs / the kit, nothing in the Pick
    - the raw-row tests `exact_fit_description_*`, `wrapped_two_column_rows_*`, `description_column_visibility` frames cannot be green through the Picker
      (the oracle draws `render_rows` into a bare buffer: no gutter mark, no cursor, `wrap_indent: Some(..)` rows the dialog never builds: the dialog sets
      `wrap_indent` only for rows without a description); their behaviours are proven in `tests/sheets/select.rs`.
-2. Steps 2-7 untouched: menu stack + /model family, /permissions, review/worktree/quick dials/plan + feedback (takes `sheets/dialogs/feedback.rs` out of
-   R15_NOT_YET), goal, plugins + apps, handover sweep (this pack, `parity/select-dialog.md`, un-pend `chat_popups_4.rs` after settings lands).
-   The plan I made for step 2 (not started): core `select::Model { stack: Vec<Menu>, catalog, picked }` with typed `Menu` variants (`Models`, `Reasoning
-   { model }`, `ServiceTier`, ... data only, ADR-010), `Intent::Open(Menu)` kept compatible (landed `approvals/auto_review.rs` uses
-   `Intent::Open(Menu::List(..))`), catalog fed by a `select` seed `screen` event (`{"kind":"catalog","models":[..]}`) and, live, by the app's
-   `model/list` reply; state tests in `core/tests/models.rs` (pick -> reasoning, single option skip, Esc pops, refresh keeps the highlight,
-   `show_in_picker=false` hidden); the view presenter shows the stack head through `lists::of`; `core/src/commands/dispatch.rs` already answers
-   `/model` with `Target::Select` and `command`, `src/pages/session/open.rs` (`Target::Select => drop(select::open(cx))`) drops the command: it has to
-   pass it so the dialog can ask for the right menu.
+2. Step 2 deferred inside the area (not started): the Luna reserve picker (`restrict_model_picker_to_luna_reserve`, the rate-limit slug), the service-tier
+   controls and `model_picker_refreshes_service_tier_controls`, the reasoning shortcuts, the Bedrock seeds, the cloud-picker `Accepted for future turns` header
+   line, the custom base-URL warning line, and the parent's cursor on Esc (the oracle's parent view keeps its highlight; here the Picker under a pushed
+   menu is rebuilt, so the cursor starts on its `initial` row again: the id of the row chosen is data the core could keep per stack entry).
+   Steps 4-7 untouched: review/worktree/quick dials/plan + feedback (takes `sheets/dialogs/feedback.rs` out of R15_NOT_YET), goal, plugins + apps, handover
+   sweep (this pack, `parity/select-dialog.md`, un-pend `chat_popups_4.rs` after settings lands).
+2b. Step 3 rest, inside the area: the confirmation's header is a plain subtitle (the oracle's header is a Paragraph: bold title, the caution sentence red) and its
+   `Centered` presentation over the retained composer (`› As` / `GP`) is not in the Picker: `full_access_confirmation_popup_snapshot` and
+   `clipped_full_access_confirmation_discloses_hidden_warning_text` stay pending (NO_FULL_ACCESS). A `List.header: Vec<Span>` with a `Role::Danger` over
+   `Text::rich_line` in `widgets/picker/pane.rs` (measure the joined text, as the subtitle) is the next piece; the Centered presentation is the dialog's
+   alignment. Also: the inline-args resolver (`/permissions <profile> [--approval-policy=..] [--reviewer=..]`: `parse_permission_profile_args`, Usage and
+   Unexpected-argument errors, unknown / disabled profile errors), the shortcut cycle (`permission_shortcuts.rs`, a pure function) and the Windows
+   sandbox prompts as Picker data (3 `cfg(windows)` tests are n/a, the rest of the 17 Windows tests are pending NO_WINDOWS).
 3. Windows tests: 3 oracle tests `cfg(windows)` are `kit::na` (chat_popups_*), the 2 side-content clearing tests in picker.rs are n/a (rtwk paints the dialog region).
 
 ## Needs from other owners (nothing done in their files)
 
-- `tests/oracle/picker.rs` (outside my area; nobody holds it): delete the 10 `kit::pending(..)` calls listed above (picker 24 -> 34); fix the
-  expectations the keymap tests wrote for a numbered list: a searchable list has no numbers (`› Next`, `› Second`, `› First`), c0 test 1 opens entry
-  `first_second_searchable_second`, the two `*_page_and_jump_*` tests need 60x12 (page = min(8, rows that fit)); `popup_hints_follow_configured_bindings`
-  opens the `picker` entry at 60x7 (the preset's blank top row); `picker_appearance_renders_checkboxes_preview_and_overflow` has three frames in one
-  snapshot, use `assert_snap_section(.., "First page:")` etc.; `non_orderable_items_cannot_move_or_be_crossed` (60x8) and
-  `section_break_after_item_renders_separator_row` (60x6): the multi-select footer never yields, so at those heights the rows are hidden; 60x10 / 60x9 show
-  them (the same assertions pass at 24 rows in tests/sheets/select.rs); `exact_fit`, `hard_breaks`, `wrap_halfwidth` and `wrapped_urls`/`fuzzy_emoji`
-  are raw-row tests that stay pending with the reasons above.
 - tests/kit `Screen::resize(w, h)` at the size the screen already has: the Tester fills the new screen with `#` junk and rtwk repaints only on a size
   change, so `short_browser_keeps_header_tabs_search_and_footer` and `narrow_description_columns_*` read a `#` screen. Skip the resize when the size is equal.
 - tests/oracle_snap/mod.rs `header()` has no `label:` kind (`before scroll:`, `width 20:`, `height=N`, `80x24`, `prefix label:`): 8 picker tests wait.
@@ -118,8 +151,33 @@ Red under probe (each needs a change in picker.rs / the kit, nothing in the Pick
   through a ThreadFx select Command).
 - `core/src/app.rs` AppCtx routing and `host/src/facts.rs`: app RPCs `model/list`, `permissionProfile/list`, `collaborationMode/list`, plugin/app RPCs for steps 2-6.
 - `chat.rs ThreadPart` fields (chat-live): policy / collaboration_mode read by /permissions and /plan (one field, one writer).
-- `src/pages/session/open.rs` (chunk-transcript-2): pass the command to `select::open`.
-- `tests/oracle/picker.rs` and `chat_popups_4.rs` (settings): turn the shard tests on once handed over.
+- `/permissions` opener (src/pages/session/actions.rs, open.rs: chunk-transcript-2 / chat-live): emit `select::Intent::OpenPermissions(permissions::Current)`
+  from the thread's facts (`approval`, `reviewer`, `matches` = the built-in preset both the policy and the profile match, the active profile id, `discover` = a
+  thread exists or the explicit profile mode or a custom active profile, `guardian` = the feature, `auto_required`/`cyber`/`auto_available`, the config's
+  `limits`); take `Model::profiles.pending` after it and send `permissions::requirements_request` + `profiles_request` (pages of 100, at most 10, 10 s) and feed
+  `select::Ev::Discovered { request, result }` (`Discovery::from_wire`; a duplicate id is `Failure::Duplicate`; `Cloud`, `Unsupported`, `Pagination`,
+  `Timeout`, `Other(text)` are the oracle's `discovery_error` cases); `select::Ev::ScopeChanged` on a thread or cwd change
+  (`invalidate_permission_discovery`); `Ev::Listed(discovery)` for a startup read. The effect of `Model::picked` (`Picked::Permissions(Selection)`:
+  `thread/settings/update` with the policy, the reviewer and the profile; the history cell `Permissions updated to ...`) is the settings/chat owners'.
+- `core/tests/all.rs`: one more line `mod permissions;` (a file outside my area, in the step 3 commit because the state tests do not run without it).
+- `src/pages/session/open.rs` (chunk-transcript-2): pass the command to `select::open`; `core/src/commands/dispatch.rs` answers `/model` with `Target::Select`
+  and the dispatcher must send `select::Intent::OpenModels(Current)` (the `Current` snapshot read from the thread's part: model, effective effort, the
+  Plan mode's model/effort/source, `multi_agent_v2.max_concurrent_threads_per_session`).
+- `model/list` request and reply (chunk-live / host/src/facts.rs / core/src/app.rs): the dispatcher takes `Model::catalog.pending` (request id) after
+  `OpenModels`, sends `select::models::list_request(id)` and feeds the reply as `select::Ev::Fetched { request, result: models::presets(value) }`; the startup
+  catalog is `select::Ev::Loaded(presets)`.
+- the effect of `select::Model::picked` (`Picked::Selection { model, effort, apply, warning }`: `thread/settings/update`, `config/batchWrite`, the
+  Plan-mode override) and `Model::notes` (`NoAdditionalModels`, `ModelsNotLoaded` as history cells): settings/chat owners.
+- `core/tests/all.rs`: one line `mod models;` (done in my commit because the state tests do not run without it; flagged: a file outside my area).
+- the 4 chat_popups shards' `/model` tests (`model_selection_popup_snapshot`, `model_reasoning_selection_popup_snapshot`, ...) go through `ChatWidget`
+  (`open_model_popup`), so they flip only when the routing above lands; the pass counts of the three shards are unchanged by step 2.
+- `chat_popups_4.rs` (settings): turn the shard tests on once handed over.
+- (run of 2026-11-22) core-wiring: the `app/list/updated` notification into `select::Ev::AppsNotified` through `app::select::event(app, ev, fx)` (it asks the refresh itself); an `Ev::ScopeChanged` emitter on account change / thread switch (`invalidate_connector_scope`: apps and profiles dropped, menus dismissed); `cwd` for `permissionProfile/list` (passed as None).
+- chunk-commands: a consumer for `select::Model::notes` (`Item::Note` / `threads/note.rs`): the history lines of picks and /apps (`NoApps`, `AppsDisabled`, `AppsFailed` as an error cell, `AppLinkUnavailable`).
+- the app link dialog (a `Picked::App(id)` consumer: title, description, instructions, URL, installed/enabled; `AppEvent::OpenAppLink`; its enable/disable emits `Ev::AppSwitched`).
+- kit: `{"step":"respond", "error": ..}` (an RPC failure as the backend's answer) for `apps_popup_replaces_loading_state_after_initial_refresh_failure`; partial snapshots have no protocol carrier (the oracle injects `is_final: false`), so `apps_*partial*` and `*falls_back_to_installed*` stay pending.
+- `StatusFacts` lacks guardian/limits/cyber facts (the Approve for me row stays off), plan mode and the thread limit; `RpcError::Remote` cannot tell the Unsupported/Cloud failure kinds; the 10 s discovery timeout needs a shell timer.
+- outside-area edits this run: core/src/app.rs (module list, `AppCtx::Select`, `select::intent` + `confirmed`), core/src/app/select.rs (new), core/tests/{all,select_live,commands,models,permissions,select}.rs, src/pages/session/actions.rs (`select_intent`), tests/oracle/chat_popups_{1,2,3,4}.rs pending lines.
 
 ## Run it (real binary, `codex-rtwk --debug-screens`, a pty driver of my own: /tmp/popups-drive/drive.py, not kept)
 
@@ -132,7 +190,11 @@ the last row (see Needs). Earlier (1c/1d): `browser_keymap` at 80x24 equals the 
 search, `description_hide_when_narrow` hides at 48 columns and shows at 49. The mouse in the binary was not re-walked (a click went to the debug list's
 background row); the mouse is covered by the tap/wheel tests in tests/sheets/select.rs.
 
-## Checks at the tip (0b2c1f4ca)
+- run of 2026-11-22: `codex-rtwk` builds; the mock-model scenarios drive turns only (none types a slash command, and `/apps` needs a ChatGPT login and an app server), so /model, /permissions and /apps were walked through the kit's live `Screen` (keys, answers) and not in a pty; a pty walk of the live pickers is still owed.
 
-fmt clean; `clippy --workspace --all-targets -D warnings` no error (warnings only in the backend pin); whole nextest 1913 passed, 17 skipped;
-`shards.py --check`: 55 shards, 2560 tests, 0 stale; select sheet tests 43 pass; oracle shards as in the table above.
+## Checks at the tip (step 3, on claude/tui-rtwk af5799546)
+
+fmt clean; `clippy -q --workspace --all-targets -D warnings` no error; whole nextest 2113 run, 2113 passed; `shards.py --check`: 55 shards, 2560 tests, 0 stale;
+oracle shards (`summary.py --run`): picker 63 (43 pass, 5 n/a, 15 pending), chat_popups_1 26 (0/5/21), chat_popups_2 46 (7 pass, 6 n/a, 33 pending),
+chat_popups_3 43 (0/2/41); core state tests `permissions::` 30 pass, `models::` 37 pass; sheet tests `select::` 63 pass. The binary walk of the /permissions
+menus waits for the opener (Needs): no mock-model scenario reaches them yet; to be walked through the debug entries before `task_done`.

@@ -35,6 +35,7 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ItemStarted(n) => &n.thread_id,
         N::ItemCompleted(n) => &n.thread_id,
         N::AgentMessageDelta(n) => &n.thread_id,
+        N::PlanDelta(n) => &n.thread_id,
         N::ReasoningSummaryTextDelta(n) => &n.thread_id,
         N::ReasoningSummaryPartAdded(n) => &n.thread_id,
         N::ServerRequestResolved(n) => &n.thread_id,

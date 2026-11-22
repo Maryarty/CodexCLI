@@ -11,8 +11,42 @@ use crate::kit::{self, Owner, Screen};
 // assert_snap compares the whole screen; the oracle's popup snapshots hold the
 // bottom popup only, so the popup slice sets the region (assert_snap_region).
 const PLUGINS: &str = "no /plugins browser in the port: the chat names /plugins only in its command list (src/screens/chat/strings.rs:221); no marketplace tabs, plugin rows, detail, install or remove popups, and no seed for the app server's plugin list or the Feature::Plugins gate";
-const APPS: &str = "no /apps popup in the port (src/screens/chat/strings.rs:220 names it only): no connector list, loading state, installed and available counts, mention popup or plugin authentication popup, and no seed for the connector list or ChatGPT auth";
+const APPS: &str = "/apps is live (core `select::apps`, the loading, failure and list pages, Retry); this test needs a step the kit and the protocol do not give yet: a partial directory snapshot (the oracle injects `on_connectors_loaded(.., is_final: false)`, no protocol message carries it), an RPC failure as the backend's answer (`respond` has only `result`), the `app/list/updated` notification routed to `select::Ev::AppsNotified` (core-wiring), the `$` mention popup and the plugin authentication popup (other owners)";
 const HOOKS: &str = "no /hooks popup in the port: no hooks list view with its warnings and errors, and no seed for the hooks list result";
+
+/// The `app/list` requests the app has made, oldest first.
+fn apps_asked(s: &Screen) -> Vec<codex_tui_core::app::Command> {
+    use codex_tui_core::app::Command;
+    use codex_tui_core::screens::ScreenCommand;
+    use codex_tui_core::screens::select::Command as Select;
+    s.commands()
+        .into_iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Screen {
+                    command: ScreenCommand::Select(Select::Apps { .. }),
+                    ..
+                }
+            )
+        })
+        .collect()
+}
+
+/// An `app/list` answer: `(id, name, description)` of apps installed and on.
+fn apps_answer(apps: &[(&str, &str, &str)]) -> serde_json::Value {
+    let data: Vec<_> = apps
+        .iter()
+        .map(|(id, name, about)| {
+            serde_json::json!({
+                "id": id, "name": name, "description": about,
+                "installUrl": format!("https://example.test/{id}"),
+                "isAccessible": true, "isEnabled": true, "pluginDisplayNames": []
+            })
+        })
+        .collect();
+    serde_json::json!({ "data": data, "nextCursor": null })
+}
 
 /// The oracle's `select_plugins_tab_containing`: moves the tab right until one shows `text`.
 fn select_tab(s: &mut Screen, text: &str) {
@@ -651,12 +685,19 @@ fn plugins_popup_search_no_matches_and_backspace_restores_results() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:2142 apps_popup_stays_loading_until_final_snapshot_updates kind=snap owner=dialogs-pane snap=apps_popup_loading_state
 #[test]
 fn apps_popup_stays_loading_until_final_snapshot_updates() {
-    kit::pending(Owner::DialogsPane, APPS);
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/apps").keys("enter");
     s.assert_contains("Loading installed and available apps...");
-    s.assert_snap("apps_popup_loading_state");
-    // the final connector list (Notion, Linear, both installed) arrives from the app server: a script line
+    s.assert_snap_region("apps_popup_loading_state", 17, 0);
+    let asked = apps_asked(&s);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    s.answer_request(
+        &asked[0],
+        apps_answer(&[
+            ("notion", "Notion", "Workspace docs"),
+            ("linear", "Linear", "Project tracking"),
+        ]),
+    );
     s.assert_contains("Installed 2 of 2 available apps.");
     s.assert_contains("Linear");
 }

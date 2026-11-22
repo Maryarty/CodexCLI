@@ -1,0 +1,4 @@
+# The advanced reasoning menu: Max, then Ultra, which is in use.
+# Oracle data: chatwidget snapshot model_advanced_reasoning_selection_popup
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"advanced","preset":{"model":"gpt-5.5","name":"GPT-5.5","default_effort":"medium","efforts":[{"effort":"ultra","description":"Ultra reasoning"},{"effort":"max","description":"Maximum available reasoning"}]},"current":{"model":"gpt-5.5","effort":"ultra"}}}

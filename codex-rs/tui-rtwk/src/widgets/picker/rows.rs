@@ -42,11 +42,29 @@ pub struct RowStyles {
     pub key: Style,
     pub success: Style,
     pub warning: Style,
+    pub info: Style,
+    pub danger: Style,
 }
 
 impl RowStyles {
+    /// The styles of the theme (`Tokens`), each role's own.
+    pub fn of_theme(tokens: &crate::app::theme::Tokens) -> RowStyles {
+        RowStyles {
+            cursor: tokens.accent().attrs(Attrs::BOLD),
+            cursor_description: tokens.accent(),
+            label: Style::new(),
+            description: tokens.dim(),
+            disabled: tokens.dim(),
+            key: Style::new().attrs(Attrs::UNDERLINE),
+            success: tokens.success().attrs(Attrs::ITALIC),
+            warning: tokens.warning().attrs(Attrs::ITALIC),
+            info: tokens.info(),
+            danger: tokens.error(),
+        }
+    }
+
     /// The style a run of `role` adds.
-    fn of(&self, role: Role) -> Style {
+    pub fn of(&self, role: Role) -> Style {
         match role {
             Role::Plain => Style::new(),
             Role::Key => self.key.clone(),
@@ -54,6 +72,8 @@ impl RowStyles {
             Role::Warning => self.warning.clone(),
             Role::Dim => self.description.clone(),
             Role::Strong => Style::new().attrs(Attrs::BOLD),
+            Role::Info => self.info.clone(),
+            Role::Danger => self.danger.clone(),
         }
     }
 }
@@ -200,10 +220,18 @@ impl Rows {
             // The label column keeps 30% of the room (less the gap) for the
             // descriptions: a longer label wraps inside it.
             let cap = (room * 70 / 100).saturating_sub(2).max(1);
+            // The oracle's rule is a disabled row of its own (`SECTION_BREAK_ROW`
+            // in multi_select_picker.rs): its width sizes the column too.
+            let rule = self
+                .rows
+                .iter()
+                .any(|row| row.section_break)
+                .then(|| width(self.words.section_break));
             let widest = self
                 .rows
                 .iter()
                 .map(|row| self.hang(row, width) + width(&self.words.name(row)))
+                .chain(rule)
                 .max()
                 .unwrap_or(0);
             self.name_width

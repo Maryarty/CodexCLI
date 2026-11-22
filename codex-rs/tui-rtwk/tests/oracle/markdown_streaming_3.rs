@@ -131,7 +131,7 @@ fn inline_code() {
 fn inline_code_and_file_paths_follow_syntax_theme() {
     kit::pending(
         Owner::ChatLive,
-        "the oracle's snapshot dumps the styles of the same Markdown under six syntax themes; the kit has no syntax-theme seed (host fact `syntax theme name`, step D4 of the chunk brief), so only the unthemed text passes",
+        "screen feature (markdown theme): the kit seeds the syntax theme (`syntax_theme`), the chat's Markdown does not read it; the oracle's snapshot is a Debug dump of the styled lines under six themes, no Buffer (the kit has no reader of it)",
     );
     // The oracle's snapshot is a Debug dump of six themes; the kit has no theme seed, so the theme rows are not compared.
     let s = Screen::build(Owner::ChatLive)

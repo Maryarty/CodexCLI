@@ -60,19 +60,29 @@ pub enum Ask {
     GitDiff { cwd: Option<String> },
     /// A title for `thread`: an ephemeral thread with a structured turn, then unsubscribed.
     SuggestTitle { thread: ThreadId },
-    /// The transcript of `thread` as a Markdown file under `dest` (`None`: the thread's cwd).
+    /// The transcript of `thread`, as the Markdown the asker rendered from the cells' text,
+    /// written to `path` (`~/` is the home directory, a relative path is under `cwd`: the
+    /// launch directory for a remote workspace, else the thread's; an existing file is never
+    /// overwritten). Oracle `transcript_export.rs`.
     Export {
         thread: ThreadId,
-        dest: Option<String>,
+        path: String,
+        cwd: String,
+        markdown: String,
     },
     /// Edits of the config file.
     ConfigWrite { edits: Vec<ConfigEdit> },
+    /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste).
+    ClipboardText,
+    /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`).
+    OpenDesktop { thread: ThreadId },
 }
 
 /// What the host answers, one variant per `Ask`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Done {
-    Copy(CopyStatus),
+    /// The delivery status, or the host's failure text (oracle: `Failed to copy ...: {error}`).
+    Copy(Result<CopyStatus, String>),
     GitDiff(Result<diff::Report, diff::Failure>),
     /// The suggested title; none when nothing came out.
     Title(Option<String>),
@@ -80,6 +90,10 @@ pub enum Done {
     Export(Result<String, String>),
     /// Nothing, or the host's failure text.
     Config(Result<(), String>),
+    /// The clipboard's text, or why it could not be read.
+    ClipboardText(Result<String, String>),
+    /// Nothing, or the launch's own failure text.
+    Desktop(Result<(), String>),
 }
 
 /// The answers kept, and the user-verification controller (ADR-003: the app owns it).
