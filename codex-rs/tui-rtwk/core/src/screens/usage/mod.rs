@@ -127,9 +127,7 @@ impl Default for Model {
 }
 
 /// What the host is asked, answered with the matching `Ev` under the same
-/// session and stamp. The host runs `Ask`s as `Command::Usage { ask }` (a
-/// variant the keymap owner adds to `core/src/app.rs`: a need in the parity
-/// pack); until then `emit` has nowhere to send them.
+/// session and stamp. The host runs `Ask`s as `Command::Usage { ask }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
     pub session: u32,
@@ -714,11 +712,11 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
     }
 }
 
-/// Sends the asks to the host. The root `Command` has no variant for them
-/// yet: a need in the parity pack (`Command::Usage { ask }`, answered with
-/// `Ev` under the ask's session and stamp, like `Command::Import`).
+/// Sends the asks to the host as `Command::Usage { ask }`, answered with the
+/// matching `Ev` under the ask's session and stamp.
 fn emit(fx: &mut AppFx, asks: Vec<Ask>) {
-    let _ = (fx, asks);
+    fx.commands
+        .extend(asks.into_iter().map(|ask| crate::app::Command::Usage { ask }));
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {

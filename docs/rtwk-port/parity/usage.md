@@ -209,3 +209,39 @@ which rows a scrolled list shows), `the_chats_report_says_which_rows_the_window_
 row under one scroll and says `Showing 1-N of N`; **G-new-usage-1** also keeps the cursor row from being followed.
 Needs (core-wiring/keymap): none new; the host side of `AskKind::Chats`/`Tasks` (`thread/list` roots + estimates,
 `task usage`) is step 3.
+
+## chunk-usage, step 3: the host side (`host/src/analytics*`)
+Branch `worktree-agent-afdce575fa199675f`. The asks of core run as `Command::Usage{ask}` (the variant exists in
+`core/src/app.rs` since core-wiring; `usage::emit` pushes it now, nothing is stubbed) and are answered with
+`AppEv::Screen(ScreenEv::Usage(ev))` under the ask's session and stamp.
+
+### Built
+- `host/src/analytics.rs`: `Store` (the open session of the page: the number core gave it and its `Live`; an ask of a
+  newer session opens it, an ask of a replaced one is dropped), `run(startup, ask, ids, send)` (one arm in
+  `in_process.rs::work`, `Startup.analytics`), the timeouts of the oracle's `Load::start` (30 s; chats 90 s; tasks
+  120 s), `Ev::Invalidated` instead of the answer when an identity check failed, the account reply (plan, label,
+  `Utc` day of the session, `AnalyticsPlanHistory`, the model names from `model/list`, credit groupings, the clock
+  preference).
+- `analytics/client.rs`: the oracle's `Live` (session from the config, identity checks, payload cache keyed by route and
+  range, plan routing per account kind, token models and attribution returned in the `ReportReply`); `convert.rs`: the
+  backend's payloads as core's values (`AnalyticsResponse`, `PlanLimitHistory`, `AccountProfile`); `chats.rs`: the
+  `thread/list` roots, the business estimates (batches, 503 splitting, 25 s budget), the consumer task usage with the
+  descendant proof; `clock.rs`: the 12/24-hour preference (macOS `NSDateFormatter`, glibc `nl_langinfo_l`, Windows
+  short time) read once.
+- Host Cargo: `codex-backend-client` (own commit, `Cargo.lock`), and the platform crates of the clock detection.
+- Tests: `host/src/analytics/tests.rs` (roots: cutoff, ephemeral and child filter, cursors, repeated cursor, refused
+  listing; descendants: both archived passes, unsupported filter, incomplete chain, cycle; the plan history and the
+  profile decoding; the session `Store`), `core/tests/usage/state.rs` (the asks leave as `Command::Usage`, the account
+  answer through the app starts the reports).
+
+### Outside the area (one line, to keep the build green)
+- `src/services/clock.rs` + `pub mod clock;` in `src/services/mod.rs`: R11 allows the clock only in services (the host
+  crate cannot call `Utc::now`/`Instant::now`), so the wall clock (`unix_now`: the session's day, the 30-day cutoff of
+  the chat listing) and the 25 s budgets (`deadline_in`, `passed`) are read there. host-services may move it.
+
+### Needs
+- The scripted fake (`src/services/backend/fake.rs`) records `Command::Usage` and answers none: a test injects the
+  `AppEv`; the host's loads that need the backend's account session (`AnalyticsSession::from_config`, the identity checks)
+  run only against a real sign-in, so the binary scenario shows the sign-in error text of a machine with none.
+- The English of the load errors (`Request timed out...`, the report errors, `Untitled chat`) is in the host as in
+  the oracle's data layer; step 5 may give core a typed error if the person wants them in the string tables.

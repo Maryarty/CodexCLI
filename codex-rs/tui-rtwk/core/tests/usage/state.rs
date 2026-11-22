@@ -582,3 +582,48 @@ fn the_account_settles_the_clock_format() {
         assert_eq!(model.hour24, hour24);
     }
 }
+
+#[test]
+fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_the_app() {
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent as AppIntent, apply_app};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+
+    let mut app = CodexApp::new();
+    app.attach();
+    let mut fx = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Intent(AppIntent::Screen(ScreenIntent::Usage(Intent::Open {
+            view: None,
+        }))),
+        &mut fx,
+    );
+    let asks = fx
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Usage { ask, .. } => Some(ask.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(asks.len(), 1, "the account first: {:?}", fx.commands());
+    assert_eq!(asks[0].what, AskKind::Account);
+
+    // The account's answer, through the app, starts the reports.
+    let mut fx = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Screen(ScreenEv::Usage(Ev::Account {
+            session: asks[0].session,
+            stamp: asks[0].stamp,
+            result: Ok(reply(PlanType::Plus)),
+        })),
+        &mut fx,
+    );
+    let later = fx
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, Command::Usage { .. }))
+        .count();
+    assert!(later > 1, "the reports are asked: {:?}", fx.commands());
+}

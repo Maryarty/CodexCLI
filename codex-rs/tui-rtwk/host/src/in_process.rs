@@ -325,6 +325,7 @@ async fn run(
         update,
         failure: startup_failure,
         browser: crate::startup::system_browser(),
+        analytics: Default::default(),
         updates: crate::startup::Updates::system(&config),
         reload,
         target: match mode {
@@ -612,6 +613,11 @@ pub(crate) fn work(
         // answers none.
         Command::Import { ask, .. } => {
             Box::pin(async move { crate::import::run(startup?, ask, ids, send).await })
+        }
+        // The usage page's loads; a backend with no startup side (Cloud)
+        // answers none.
+        Command::Usage { ask, .. } => {
+            Box::pin(async move { crate::analytics::run(startup?, ask, ids, send).await })
         }
         Command::Directories { cwds, .. } => {
             Box::pin(async move { Some(directories(workspace, cwds).await) })
