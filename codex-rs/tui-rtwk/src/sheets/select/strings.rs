@@ -15,6 +15,7 @@ use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
 use codex_tui_core::screens::select::models::Effort;
+use codex_tui_core::screens::select::permissions::Failure;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -27,13 +28,42 @@ pub struct Strings {
     pub title: &'static str,
     /// bottom_pane/list_selection_view.rs (model picker test).
     pub model_title: &'static str,
-    /// chatwidget/permissions.rs: the `/permissions` popup.
+    // chatwidget/permissions_menu.rs, permission_popups.rs and
+    // permission_discovery.rs: the `/permissions` menus.
     pub permissions_title: &'static str,
-    pub permissions_hint: &'static str,
-    pub access_ask: &'static str,
-    pub access_ask_description: &'static str,
-    pub access_full: &'static str,
-    pub access_full_description: &'static str,
+    pub permissions_no_profiles: &'static str,
+    pub permissions_loading: &'static str,
+    pub permissions_retry: &'static str,
+    pub permissions_failed: Msg<1>,
+    pub failure_duplicate: &'static str,
+    pub failure_cloud: &'static str,
+    pub failure_unsupported: &'static str,
+    pub failure_pagination: &'static str,
+    pub failure_timeout: &'static str,
+    pub mode_ask: &'static str,
+    pub mode_ask_description: &'static str,
+    pub mode_approve: &'static str,
+    pub mode_approve_description: &'static str,
+    pub mode_full: &'static str,
+    pub mode_full_description: &'static str,
+    pub mode_read: &'static str,
+    pub mode_read_description: &'static str,
+    pub profile_configured: &'static str,
+    pub profile_unlisted: &'static str,
+    pub not_on_server: &'static str,
+    pub disabled_by_requirements: &'static str,
+    // `open_full_access_confirmation`.
+    pub full_title: &'static str,
+    pub full_warning: &'static str,
+    pub full_caution: &'static str,
+    pub cyber_risk: &'static str,
+    pub cyber_safeguards: &'static str,
+    pub cyber_recommend_auto: &'static str,
+    pub cyber_recommend_ask: &'static str,
+    pub full_continue: &'static str,
+    pub full_continue_description: &'static str,
+    pub full_cancel: &'static str,
+    pub full_cancel_description: &'static str,
     pub num: NumSyms,
     // chatwidget/model_popups.rs: `open_model_popup_with_presets` and
     // `open_all_models_popup_with_view_id`.
@@ -123,6 +153,21 @@ impl Strings {
         }
     }
 
+    /// The subtitle of the menu that could not read the catalog
+    /// (`discovery_error` and the errors of `request_permission_profiles`).
+    pub fn failure(&self, failure: &Failure) -> String {
+        match failure {
+            Failure::Duplicate => self.failure_duplicate.to_string(),
+            Failure::Cloud => self.failure_cloud.to_string(),
+            Failure::Unsupported => self.failure_unsupported.to_string(),
+            Failure::Pagination => self.failure_pagination.to_string(),
+            Failure::Timeout => self.failure_timeout.to_string(),
+            Failure::Other(error) => {
+                Fmt::new(self.permissions_failed, [Arg::Text(error)], &self.num).to_string()
+            }
+        }
+    }
+
     pub fn all_models_description(&self, current: &str) -> String {
         Fmt::new(self.all_models_description, [Arg::Text(current)], &self.num).to_string()
     }
@@ -191,11 +236,38 @@ pub const EN: Strings = Strings {
     title: "generic selection dialog",
     model_title: "Select Model and Effort",
     permissions_title: "Update Model Permissions",
-    permissions_hint: "enter select · esc back",
-    access_ask: "Ask for approval",
-    access_ask_description: "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
-    access_full: "Full Access",
-    access_full_description: "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+    permissions_no_profiles: "No permission profiles returned by the server.",
+    permissions_loading: "Loading permission profiles…",
+    permissions_retry: "Retry",
+    permissions_failed: msg!("Failed to load permissions: {0}"),
+    failure_duplicate: "The server returned duplicate permission profiles.",
+    failure_cloud: "Cloud conversations use server-selected permissions.",
+    failure_unsupported: "This server does not support permission discovery. Upgrade the Codex server to use this menu.",
+    failure_pagination: "Permission discovery exceeded its pagination limit. Try /permissions again.",
+    failure_timeout: "Permission discovery timed out. Try /permissions again.",
+    mode_ask: "Ask for approval",
+    mode_ask_description: "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
+    mode_approve: "Approve for me",
+    mode_approve_description: "Only ask for actions detected as potentially unsafe",
+    mode_full: "Full Access",
+    mode_full_description: "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+    mode_read: "Read Only",
+    mode_read_description: "Read workspace files, with approval required for edits or internet access",
+    profile_configured: "Configured permission profile",
+    profile_unlisted: "Current permission profile",
+    not_on_server: "Not available on this server",
+    disabled_by_requirements: "Disabled by requirements",
+    full_title: "Enable full access?",
+    full_warning: "When Codex runs with full access, it can edit any file on your computer and run commands with network, without your approval. ",
+    full_caution: "Exercise caution when enabling full access. This significantly increases the risk of data loss, leaks, or unexpected behavior.",
+    cyber_risk: "Cyber models carry a higher risk of dangerous actions.",
+    cyber_safeguards: " Ensure proper safeguards are in place before granting full access. ",
+    cyber_recommend_auto: "We strongly recommend selecting \"Approve for me\" instead, and customizing the reviewer policy for your use case.",
+    cyber_recommend_ask: "We strongly recommend selecting \"Ask for approval\" instead.",
+    full_continue: "Yes, continue anyway",
+    full_continue_description: "Apply full access for this session",
+    full_cancel: "Cancel",
+    full_cancel_description: "Go back without enabling full access",
     num: NumSyms::ENGLISH,
     quick_title: "Select Model",
     quick_subtitle: "Pick a quick auto mode or browse all models.",

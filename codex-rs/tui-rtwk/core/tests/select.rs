@@ -6,11 +6,11 @@
 use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::select::{Access, Intent as SelectIntent, Menu, Picked};
+use codex_tui_core::screens::select::permissions::{Preset, Reviewer, Selection};
+use codex_tui_core::screens::select::{Intent as SelectIntent, Menu, Picked};
 use pretty_assertions::assert_eq;
 
-const PERMISSIONS: &str =
-    r#"{"step":"screen","dir":"select","ev":{"kind":"permissions","current":"ask"}}"#;
+const PERMISSIONS: &str = r#"{"step":"screen","dir":"select","ev":{"kind":"permissions"}}"#;
 
 fn pick(sandbox: &mut Sandbox, intent: SelectIntent) {
     sandbox.send(AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))));
@@ -19,28 +19,22 @@ fn pick(sandbox: &mut Sandbox, intent: SelectIntent) {
 #[test]
 fn a_pick_is_recorded_and_closes_the_menu() {
     let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
-    pick(&mut sandbox, SelectIntent::Pick(1));
+    pick(&mut sandbox, SelectIntent::Choose(":workspace".into()));
     let model = &sandbox.app().screens().select;
-    assert_eq!(model.picked, vec![Picked::Access(Access::Full)]);
+    assert_eq!(
+        model.picked,
+        vec![Picked::Permissions(Selection::Preset {
+            preset: Preset::Auto,
+            reviewer: Reviewer::User
+        })]
+    );
     assert!(model.menu().is_none());
 }
 
 #[test]
-fn permissions_rows_pick_their_access() {
-    let mut sandbox =
-        Sandbox::play(r#"{"step":"screen","dir":"select","ev":{"kind":"permissions"}}"#)
-            .expect("plays");
-    pick(&mut sandbox, SelectIntent::Pick(1));
-    assert_eq!(
-        sandbox.app().screens().select.picked,
-        vec![Picked::Access(Access::Full)]
-    );
-}
-
-#[test]
-fn a_pick_past_the_rows_changes_nothing() {
+fn a_choice_that_is_no_row_changes_nothing() {
     let mut sandbox = Sandbox::play(PERMISSIONS).expect("plays");
-    pick(&mut sandbox, SelectIntent::Pick(9));
+    pick(&mut sandbox, SelectIntent::Choose("nothing".into()));
     assert!(sandbox.app().screens().select.menu().is_some());
     assert!(sandbox.app().screens().select.picked.is_empty());
 }

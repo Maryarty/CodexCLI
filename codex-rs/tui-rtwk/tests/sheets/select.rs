@@ -187,7 +187,7 @@ fn enter_picks_the_highlighted_row_and_closes() {
 #[test]
 fn a_number_key_picks_its_row() {
     let mut h = open(100, "permissions_menu");
-    h.press("2");
+    h.press("1");
     h.t.pump_for(ms(800));
     assert!(
         !h.t.screen().contains("Update Model Permissions"),
@@ -1220,4 +1220,183 @@ fn the_shared_menu_matches_the_oracle_at_both_sizes() {
             "{width}x{height}:\n{screen}"
         );
     }
+}
+
+// ---- the /permissions family (chatwidget/permission_popups.rs, permissions_menu.rs,
+// permission_discovery.rs): the rows of the oracle's snapshots, the keys and the taps.
+
+#[test]
+fn the_profile_menus_are_the_oracle_s_at_80_columns() {
+    for (entry, name) in [
+        ("profile_permissions", "profile_permissions_selection_popup"),
+        (
+            "profile_permissions_disallowed_full_access",
+            "profile_permissions_selection_popup_with_disallowed_full_access",
+        ),
+        (
+            "profile_permissions_custom",
+            "profile_permissions_selection_popup_with_custom_profiles",
+        ),
+        (
+            "permission_discovery_loading",
+            "permission_discovery_loading",
+        ),
+        (
+            "permission_discovery_failure",
+            "permission_discovery_failure",
+        ),
+    ] {
+        let h = open(80, entry);
+        assert_rows(&h.t.screen(), &snap(name));
+    }
+}
+
+#[test]
+fn the_remote_catalog_disables_what_the_requirements_leave_out_at_110_columns() {
+    let h = open(110, "permission_discovery_remote");
+    assert_rows(&h.t.screen(), &snap("permission_discovery_remote"));
+}
+
+#[test]
+fn an_empty_catalog_keeps_only_the_active_profile_at_100_columns() {
+    let h = open(100, "permission_discovery_empty");
+    assert_rows(&h.t.screen(), &snap("permission_discovery_empty"));
+}
+
+#[test]
+fn approve_for_me_in_use_is_marked_at_120_columns() {
+    let h = open(120, "permissions_unnamed_server_profile");
+    assert_rows(&h.t.screen(), &snap("permissions_unnamed_server_profile"));
+}
+
+#[test]
+fn a_preset_the_config_forbids_shows_the_configs_reason_and_is_skipped() {
+    let mut h = open(80, "permissions_constrained");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Full Access (disabled)")
+            && screen.contains("(disabled: this message should be printed in the"),
+        "{screen}"
+    );
+    // Ten Downs: the cursor never lands on the disabled row, and Enter
+    // still picks the enabled one: the menu closes.
+    for _ in 0..10 {
+        h.press("down");
+    }
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// Full access asks first: the second row opens the confirmation, `Cancel`
+/// opens the menu again and Esc closes.
+#[test]
+fn full_access_asks_before_it_applies() {
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    for text in [
+        "Enable full access?",
+        "When Codex runs with full access, it can edit any file on your computer",
+        "1. Yes, continue anyway",
+        "Apply full access for this session",
+        "2. Cancel",
+    ] {
+        assert!(screen.contains(text), "{text}\n{screen}");
+    }
+    h.press("2");
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Update Model Permissions") && !screen.contains("Enable full access?"),
+        "{screen}"
+    );
+    h.press("2");
+    h.t.pump_for(ms(300));
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Enable full access?")
+            && !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn continuing_the_confirmation_closes_the_dialog() {
+    let mut h = open(100, "permissions_menu");
+    h.press("2");
+    h.t.pump_for(ms(300));
+    h.press("enter");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Enable full access?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_cyber_model_s_confirmation_recommends_what_is_available() {
+    let h = open(120, "permissions_cyber_full_access");
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Cyber models carry a higher risk of dangerous actions.")
+            && screen.contains("We strongly recommend selecting \"Approve for me\" instead"),
+        "{screen}"
+    );
+}
+
+/// ADR-011: a tap on Retry asks for the catalog again (the menu is the
+/// loading row until the answer), a tap on a disabled row does nothing.
+#[test]
+fn a_tap_on_retry_asks_again_and_a_tap_on_a_disabled_row_does_nothing() {
+    let mut h = open(80, "permission_discovery_failure");
+    let (x, y) = cell_of(&h, "Retry");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Update Model Permissions") && !screen.contains("Failed to load"),
+        "{screen}"
+    );
+    let mut h = open(110, "permission_discovery_remote");
+    let (x, y) = cell_of(&h, "Approve for me");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    assert!(
+        h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011: a tap on a profile of the server picks it and closes the dialog;
+/// a tap on Full Access opens the confirmation.
+#[test]
+fn a_tap_on_a_profile_picks_it_and_a_tap_on_full_access_asks() {
+    let mut h = open(80, "profile_permissions_custom");
+    let (x, y) = cell_of(&h, "locked-down");
+    h.t.click(x, y);
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Update Model Permissions"),
+        "{}",
+        h.t.screen()
+    );
+    let mut h = open(80, "profile_permissions_custom");
+    let (x, y) = cell_of(&h, "Full Access");
+    h.t.click(x, y);
+    h.t.pump_for(ms(300));
+    assert!(
+        h.t.screen().contains("Enable full access?"),
+        "{}",
+        h.t.screen()
+    );
 }

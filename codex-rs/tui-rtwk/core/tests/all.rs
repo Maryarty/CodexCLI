@@ -30,6 +30,7 @@ mod keymap;
 mod model;
 mod models;
 mod onboarding;
+mod permissions;
 mod pets;
 mod popovers;
 mod resume;

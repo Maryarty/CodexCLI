@@ -69,9 +69,20 @@ fn model(sandbox: &Sandbox) -> &codex_tui_core::screens::select::Model {
     &sandbox.app().screens().select
 }
 
+/// The rows of the model menu shown.
+fn page_of(sandbox: &Sandbox) -> codex_tui_core::screens::select::models::Page {
+    match model(sandbox).page().expect("a typed menu") {
+        codex_tui_core::screens::select::Page::Model(page) => page,
+        codex_tui_core::screens::select::Page::Permissions(_) => panic!("a permissions menu"),
+    }
+}
+
 fn ids(sandbox: &Sandbox) -> Vec<String> {
-    let page = model(sandbox).page().expect("a model menu");
-    page.rows.into_iter().map(|row| row.id).collect()
+    page_of(sandbox)
+        .rows
+        .into_iter()
+        .map(|row| row.id)
+        .collect()
 }
 
 fn depth(sandbox: &Sandbox) -> usize {
@@ -121,7 +132,7 @@ fn an_empty_catalog_opens_the_loading_menu_and_asks_for_the_models() {
     let mut s = sandbox(Vec::new());
     open(&mut s, Current::new("gpt-5.5"));
     assert!(matches!(head(&s), ModelMenu::Loading(_)));
-    assert_eq!(model(&s).page().expect("page").heading, Heading::Loading);
+    assert_eq!(page_of(&s).heading, Heading::Loading);
     assert!(model(&s).catalog.pending.is_some());
 }
 
@@ -210,7 +221,7 @@ fn the_quick_menu_lists_the_auto_modes_in_order_then_all_models() {
             ALL_MODELS
         ]
     );
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     assert_eq!(page.heading, Heading::Quick);
     // None of the auto modes is in use: "All models" is the current row.
     let current: Vec<_> = page
@@ -226,7 +237,7 @@ fn the_quick_menu_lists_the_auto_modes_in_order_then_all_models() {
 fn the_auto_mode_in_use_is_the_current_row() {
     let mut s = sandbox(presets());
     open(&mut s, Current::new("codex-auto-balanced"));
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     let current: Vec<_> = page
         .rows
         .iter()
@@ -242,7 +253,7 @@ fn without_an_auto_mode_the_quick_menu_is_the_list_of_all_models() {
     let mut s = sandbox(others);
     open(&mut s, Current::new("gpt-5.5"));
     assert_eq!(ids(&s), ["gpt-5.5", "gpt-sol", "gpt-astra"]);
-    assert_eq!(model(&s).page().expect("page").heading, Heading::All);
+    assert_eq!(page_of(&s).heading, Heading::All);
 }
 
 #[test]
@@ -259,14 +270,14 @@ fn all_models_replaces_the_quick_menu() {
     all_models(&mut s);
     assert_eq!(depth(&s), 1);
     assert!(matches!(head(&s), ModelMenu::AllModels(_)));
-    assert_eq!(model(&s).page().expect("page").heading, Heading::All);
+    assert_eq!(page_of(&s).heading, Heading::All);
 }
 
 #[test]
 fn an_all_models_row_has_the_session_key_only_with_one_standard_effort() {
     let mut s = sandbox(presets());
     all_models(&mut s);
-    let rows = model(&s).page().expect("page").rows;
+    let rows = page_of(&s).rows;
     let session: Vec<_> = rows
         .iter()
         .map(|row| (row.id.as_str(), row.session))
@@ -325,7 +336,7 @@ fn the_reasoning_menu_marks_the_default_and_the_current_effort() {
     open(&mut s, current);
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.5");
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     assert_eq!(
         page.heading,
         Heading::Reasoning {
@@ -361,7 +372,7 @@ fn another_model_starts_on_its_default_effort_and_marks_none_current() {
     open(&mut s, Current::new("gpt-sol"));
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.5");
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     assert_eq!(page.initial, Some(1));
     assert!(page.rows.iter().all(|row| !row.current));
 }
@@ -374,9 +385,7 @@ fn a_high_effort_of_the_codex_models_warns_on_the_highlighted_row() {
     open(&mut s, Current::new("gpt-5.5"));
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.1-codex-max");
-    let warns: Vec<_> = model(&s)
-        .page()
-        .expect("page")
+    let warns: Vec<_> = page_of(&s)
         .rows
         .iter()
         .filter_map(|row| match &row.kind {
@@ -557,7 +566,7 @@ fn in_plan_mode_a_changed_effort_asks_where_it_applies() {
     choose(&mut s, "high");
     assert!(model(&s).picked.is_empty());
     assert_eq!(depth(&s), 1);
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     assert_eq!(
         page.heading,
         Heading::PlanScope {
@@ -638,7 +647,7 @@ fn in_plan_mode_the_plan_override_is_the_effort_the_menu_starts_on() {
     open(&mut s, current);
     choose(&mut s, ALL_MODELS);
     choose(&mut s, "gpt-5.5");
-    let page = model(&s).page().expect("page");
+    let page = page_of(&s);
     assert_eq!(page.initial, Some(0));
     assert!(page.rows[0].current);
 }
@@ -650,7 +659,7 @@ fn a_refresh_leaves_the_menu_above_a_list_as_it_was_opened() {
     let mut s = sandbox(presets());
     all_models(&mut s);
     choose(&mut s, "gpt-5.5");
-    let before = model(&s).page().expect("page");
+    let before = page_of(&s);
     let mut renamed = presets();
     renamed[3].description = "Updated".into();
     let request = model(&s).catalog.pending.expect("asked");
@@ -663,10 +672,10 @@ fn a_refresh_leaves_the_menu_above_a_list_as_it_was_opened() {
     );
     assert_eq!(model(&s).catalog.presets, renamed);
     assert_eq!(depth(&s), 2);
-    assert_eq!(model(&s).page().expect("page"), before);
+    assert_eq!(page_of(&s), before);
     // The parent shows the new catalog.
     intent(&mut s, SelectIntent::Close);
-    let rows = model(&s).page().expect("page").rows;
+    let rows = page_of(&s).rows;
     assert_eq!(rows[0].description, "Updated");
 }
 

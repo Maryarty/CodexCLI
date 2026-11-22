@@ -4,9 +4,12 @@
 
 use codex_tui_core::screens::select::list::{Item, List, Role, Secondary};
 use codex_tui_core::screens::select::models::{
-    Apply, Choice, Effort, Heading, Kind, Page, PlanSource,
+    self, Apply, Choice, Effort, Heading, Kind, PlanSource,
 };
-use codex_tui_core::screens::select::{Access, Menu};
+use codex_tui_core::screens::select::permissions::{
+    self, Disabled, Notice, Preset, Recommend, Reviewer,
+};
+use codex_tui_core::screens::select::{Menu, Page};
 
 use super::strings::Strings;
 
@@ -14,39 +17,108 @@ use super::strings::Strings;
 const SESSION_KEY: char = 's';
 
 /// The list the menu on top of the stack is shown as; `page` is its rows when
-/// it is a menu of the `/model` family (`Model::page`).
+/// it is a menu of a typed family (`Model::page`).
 pub fn of(menu: &Menu, page: Option<&Page>, s: &Strings) -> Option<List> {
-    Some(match menu {
-        Menu::List(list) => (**list).clone(),
-        Menu::Model(_) => models(page?, s),
-        Menu::Permissions { current } => permissions(current.as_ref(), s),
+    Some(match (menu, page) {
+        (Menu::List(list), _) => (**list).clone(),
+        (Menu::Model(_), Some(Page::Model(page))) => models(page, s),
+        (Menu::Permissions(_), Some(Page::Permissions(page))) => permissions(page, s),
+        _ => return None,
     })
 }
 
-fn permissions(current: Option<&Access>, s: &Strings) -> List {
-    let rows = [
-        (Access::Ask, s.access_ask, s.access_ask_description),
-        (Access::Full, s.access_full, s.access_full_description),
-    ];
+/// A menu of the `/permissions` family (`permissions_menu.rs`,
+/// `permission_popups.rs`, `permission_discovery.rs`).
+fn permissions(page: &permissions::Page, s: &Strings) -> List {
+    let (title, subtitle) = match &page.heading {
+        permissions::Heading::Permissions { notice } => (
+            s.permissions_title.to_string(),
+            notice.as_ref().map(|notice| match notice {
+                Notice::NoProfiles => s.permissions_no_profiles.to_string(),
+                Notice::Failed(failure) => s.failure(failure),
+            }),
+        ),
+        permissions::Heading::FullAccess { cyber } => (
+            s.full_title.to_string(),
+            Some(full_access_text(cyber.as_ref(), s)),
+        ),
+    };
     List {
-        title: Some(s.permissions_title.to_string()),
-        footer_hint: Some(s.permissions_hint.to_string()),
-        items: rows
+        title: Some(title),
+        subtitle,
+        standard_hint: true,
+        items: page
+            .rows
             .iter()
-            .map(|(access, name, description)| Item {
-                name: (*name).to_string(),
-                description: Some((*description).to_string()),
-                current: Some(access) == current,
-                ..Item::default()
-            })
+            .map(|row| permission_item(row, s))
             .collect(),
         ..List::default()
     }
 }
 
+/// The warning under `Enable full access?`; a cyber model's says more.
+fn full_access_text(cyber: Option<&Recommend>, s: &Strings) -> String {
+    match cyber {
+        None => [s.full_warning, s.full_caution].concat(),
+        Some(recommend) => [
+            s.full_warning.trim_end(),
+            "\n\n",
+            s.cyber_risk,
+            s.cyber_safeguards,
+            match recommend {
+                Recommend::AutoReview => s.cyber_recommend_auto,
+                Recommend::Ask => s.cyber_recommend_ask,
+            },
+        ]
+        .concat(),
+    }
+}
+
+fn permission_item(row: &permissions::Row, s: &Strings) -> Item {
+    let words = |name: &str, description: &str| (name.to_string(), Some(description.to_string()));
+    let (name, description) = match &row.kind {
+        permissions::Kind::Mode { preset, reviewer } => match (preset, reviewer) {
+            (Preset::Auto, Reviewer::AutoReview) => {
+                words(s.mode_approve, s.mode_approve_description)
+            }
+            (Preset::Auto, _) => words(s.mode_ask, s.mode_ask_description),
+            (Preset::FullAccess, _) => words(s.mode_full, s.mode_full_description),
+            (Preset::ReadOnly, _) => words(s.mode_read, s.mode_read_description),
+        },
+        permissions::Kind::Profile { description } => (
+            row.name.clone(),
+            Some(
+                description
+                    .clone()
+                    .unwrap_or_else(|| s.profile_configured.to_string()),
+            ),
+        ),
+        permissions::Kind::Unlisted => (row.name.clone(), Some(s.profile_unlisted.to_string())),
+        permissions::Kind::Loading => (s.permissions_loading.to_string(), None),
+        permissions::Kind::Retry => (s.permissions_retry.to_string(), None),
+        permissions::Kind::Continue => words(s.full_continue, s.full_continue_description),
+        permissions::Kind::Cancel => words(s.full_cancel, s.full_cancel_description),
+    };
+    let reason = match &row.disabled {
+        Some(Disabled::NotOnServer) => Some(s.not_on_server.to_string()),
+        Some(Disabled::Requirements) => Some(s.disabled_by_requirements.to_string()),
+        Some(Disabled::Reason(text)) => Some(text.clone()),
+        Some(Disabled::Idle) | None => None,
+    };
+    Item {
+        id: row.id.clone(),
+        name,
+        description,
+        current: row.current,
+        disabled: matches!(row.disabled, Some(Disabled::Idle)),
+        disabled_reason: reason,
+        ..Item::default()
+    }
+}
+
 /// A menu of the `/model` family: the heading says what it is, each row what
 /// it does (`model_popups.rs`).
-fn models(page: &Page, s: &Strings) -> List {
+fn models(page: &models::Page, s: &Strings) -> List {
     let (title, subtitle, role) = heading(&page.heading, s);
     List {
         title: Some(title),

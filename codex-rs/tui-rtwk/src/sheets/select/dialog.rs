@@ -14,8 +14,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::select::models::Page;
-use codex_tui_core::screens::select::{Intent, Menu};
+use codex_tui_core::screens::select::{Intent, Menu, Page};
 
 use super::lists;
 use super::strings;
@@ -26,7 +25,7 @@ use crate::widgets::picker::{Event, Picker};
 pub struct MenuDialog;
 
 /// What the dialog reads of the model: the menu on top of the stack, its rows
-/// when it is one of the `/model` family and how deep it sits (a menu pushed
+/// when it is one of the typed families and how deep it sits (a menu pushed
 /// above another is a new picker, a refresh of the head is the same one).
 #[derive(Clone, Debug, PartialEq)]
 struct Head {
@@ -78,15 +77,8 @@ impl State for MenuDialogState {
     fn update(&mut self, msg: Msg, _: &MenuDialog, cx: &mut Cx<'_, Self>) -> Rebuild {
         let Msg::Picked(event) = msg;
         let hs = read::<Hs, _>(cx);
-        let by_index = select::<ScreenStates, bool, _>(cx, |states| {
-            matches!(states.select.menu(), Some(Menu::Permissions { .. }))
-        });
         let intent = match event {
-            Event::Choose(id) if !by_index => Intent::Choose(id),
-            Event::Choose(id) => match id.parse() {
-                Ok(index) => Intent::Pick(index),
-                Err(_) => return Rebuild::No,
-            },
+            Event::Choose(id) => Intent::Choose(id),
             Event::Secondary(id) => Intent::Secondary(id),
             Event::Toggle(id) => Intent::Toggle(id),
             Event::Reorder(id, down) => Intent::Reorder(id, down),

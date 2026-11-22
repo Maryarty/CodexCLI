@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 69] = [
+    let entries: [(&'static str, &'static str, &'static str); 79] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -55,6 +55,56 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "permissions_menu",
             "the /permissions menu",
             include_str!("fixtures/permissions_menu.jsonl"),
+        ),
+        (
+            "profile_permissions",
+            "the /permissions menu on a catalog: the built-in modes, :workspace in use",
+            include_str!("fixtures/profile_permissions.jsonl"),
+        ),
+        (
+            "profile_permissions_disallowed_full_access",
+            "the /permissions menu with Full Access disabled by requirements",
+            include_str!("fixtures/profile_permissions_disallowed_full_access.jsonl"),
+        ),
+        (
+            "profile_permissions_custom",
+            "the /permissions menu with the server's custom profiles",
+            include_str!("fixtures/profile_permissions_custom.jsonl"),
+        ),
+        (
+            "permission_discovery_loading",
+            "the /permissions menu while the catalog is read",
+            include_str!("fixtures/permission_discovery_loading.jsonl"),
+        ),
+        (
+            "permission_discovery_remote",
+            "the /permissions menu on a remote server's catalog",
+            include_str!("fixtures/permission_discovery_remote.jsonl"),
+        ),
+        (
+            "permission_discovery_empty",
+            "the /permissions menu of an empty catalog",
+            include_str!("fixtures/permission_discovery_empty.jsonl"),
+        ),
+        (
+            "permission_discovery_failure",
+            "the /permissions menu after a failed read, with Retry",
+            include_str!("fixtures/permission_discovery_failure.jsonl"),
+        ),
+        (
+            "permissions_unnamed_server_profile",
+            "the /permissions menu with Approve for me in use",
+            include_str!("fixtures/permissions_unnamed_server_profile.jsonl"),
+        ),
+        (
+            "permissions_constrained",
+            "the /permissions preset menu with Full Access forbidden by the config",
+            include_str!("fixtures/permissions_constrained.jsonl"),
+        ),
+        (
+            "permissions_cyber_full_access",
+            "the full-access confirmation of a cyber model",
+            include_str!("fixtures/permissions_cyber_full_access.jsonl"),
         ),
         (
             "secondary_action",

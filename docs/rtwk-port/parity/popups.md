@@ -1,16 +1,16 @@
 # Parity pack: chunk-popups (the Picker brick, /model family, /permissions, generic pickers, feedback, goal, plugins, apps)
 
 Brief: `docs/rtwk-port/research/briefs/popups.md` (§6 plan). Branch `worktree-agent-a032b2526c8243bfe`, based on `claude/tui-rtwk` 252acefb6.
-This pack is a work in progress: step 1 (the Picker brick) and step 2 (core `select::Model {stack, catalog}`, the /model family as typed menus, the
-presenter over the stack head) are done as far as my area reaches (1a-1f, 2 below); steps 3-7 are untouched and the live routing of 2-7 waits on files I do
-not own (see Needs). A successor continues from "Left".
+This pack is a work in progress: step 1 (the Picker brick), step 2 (core `select::Model {stack, catalog}`, the /model family as typed menus, the
+presenter over the stack head) and step 3 (/permissions: the typed menus, the catalog, the confirmation) are done as far as my area reaches (1a-1f, 2, 3
+below); steps 4-7 are untouched and the live routing of 2-7 waits on files I do not own (see Needs). A successor continues from "Left".
 
 ## Oracle numbers (summary.py --run, no probe, at the tip)
 
 | shard | pass | n/a | pending | total |
 |---|---|---|---|---|
 | chat_popups_1 | 0 | 5 | 21 | 26 |
-| chat_popups_2 | 1 | 6 | 39 | 46 |
+| chat_popups_2 | 7 | 6 | 33 | 46 |
 | chat_popups_3 | 0 | 2 | 41 | 43 |
 | picker | 43 | 5 | 15 | 63 |
 
@@ -78,6 +78,30 @@ kinds, the kit's resize to the same size, the `shared_menu_*` whole-area frame a
   `model_advanced_reasoning_selection_popup`), loading, plan scope words, Enter/Esc/Esc through the stack, the high-effort warning while highlighted, the
   secondary footer, a tap on a model with efforts and on an effort.
 
+- 3 /permissions (the oracle's `permission_popups.rs`, `permissions_menu.rs`, `permission_discovery.rs`). Core: `core/src/screens/select/permissions.rs`
+  (data and rules, no words: `Preset`, `Current` snapshot the opener reads from the thread and the config (`discover`, `guardian`, `auto_required`, `cyber`,
+  `limits`), `Discovery {profiles, requirements}` with `from_wire` (duplicate ids refused) and `disabled` (`NotOnServer` / `Requirements`),
+  `Profiles {found, pending, issued}` (the request guard), `PermissionsMenu::{Presets, Loading, Profiles, Failed, FullAccess}`, `Page {heading, rows}`,
+  `Row {id, kind, current, disabled}`, `Selection::{Preset, Profile}`, wire builders `requirements_request`/`profiles_request` and decoders) and
+  `select::Model.profiles` + `Ev::{Listed, Discovered, ScopeChanged}` + `Intent::OpenPermissions(Current)`; `Picked::Permissions(Selection)`. Rules carried:
+  the legacy list is Ask for approval + (Approve for me with the guardian feature) + Full Access (Read Only on Windows only); the current mark follows the
+  preset, the reviewer and the mandatory auto-review; a preset the config forbids is disabled with the config's own reason and is not chosen; with a thread
+  (or the explicit profile mode or a custom profile) the menu waits behind `Loading permission profiles…` for one request (a second open reuses it, an answer
+  of another request is dropped, a scope change drops the waiting menu and the answer); the catalog menu lists the built-in modes in the oracle's order, then
+  the server's profiles, a profile the requirements leave out is `Disabled by requirements`, an empty catalog keeps only the active profile as
+  `Not available on this server` under `No permission profiles returned by the server.`; a failed read is the error and a Retry row (Retry asks again with a
+  new request); Full Access (legacy or catalog) asks first (`Enable full access?`, Cancel opens the menu again from the start, Esc closes); a cyber model's
+  confirmation recommends Approve for me when auto-review is available, else Ask for approval. 30 state tests in `core/tests/permissions.rs` (shown biting
+  once: a disabled row made choosable and the confirmation skipped fail 2 of the first 5 tests). View: `sheets/select/lists.rs` `permissions(page, s)` and the
+  words in `strings.rs` (ADR-010: modes, descriptions, the failure texts of `discovery_error`, the confirmation); `dialog.rs` has no index path any more
+  (rows carry ids, `Intent::Choose(id)` for every menu). 10 entries (`profile_permissions{,_disallowed_full_access,_custom}`,
+  `permission_discovery_{loading,remote,empty,failure}`, `permissions_unnamed_server_profile`, `permissions_constrained`, `permissions_cyber_full_access`) are fixture
+  scripts through core `apply`. Sheet tests (tests/sheets/select.rs): the rows of 9 oracle snapshots (`profile_permissions_selection_popup` and its two variants,
+  `permission_discovery_{loading,remote,empty,failure}`, `permissions_unnamed_server_profile`) equal the oracle's; the constrained menu shows the config's reason
+  and the cursor skips it; full access asks, Cancel reopens, Esc closes, Continue closes; the cyber text; taps (ADR-011): Retry asks again, a disabled row does
+  nothing, a profile picks and closes, Full Access asks. Shard `chat_popups_2`: 1 -> 7 pass (3 profile snapshots, `permissions_unnamed_server_profile`,
+  `approvals_popup_shows_disabled_presets`, `approvals_popup_navigation_skips_disabled`).
+
 ## Left (brief §6, in order)
 
 1. Step 1 rest, in `core/src/screens/select/list.rs` + `src/widgets/picker/`:
@@ -98,9 +122,15 @@ kinds, the kit's resize to the same size, the `shared_menu_*` whole-area frame a
    controls and `model_picker_refreshes_service_tier_controls`, the reasoning shortcuts, the Bedrock seeds, the cloud-picker `Accepted for future turns` header
    line, the custom base-URL warning line, and the parent's cursor on Esc (the oracle's parent view keeps its highlight; here the Picker under a pushed
    menu is rebuilt, so the cursor starts on its `initial` row again: the id of the row chosen is data the core could keep per stack entry).
-   Steps 3-7 untouched: /permissions, review/worktree/quick dials/plan + feedback (takes `sheets/dialogs/feedback.rs` out of
-   R15_NOT_YET), goal, plugins + apps, handover sweep (this pack, `parity/select-dialog.md`, un-pend `chat_popups_4.rs` after settings lands).
-   (/permissions has its typed `Menu::Permissions` since step 2; its words stay in `strings.rs`.)
+   Steps 4-7 untouched: review/worktree/quick dials/plan + feedback (takes `sheets/dialogs/feedback.rs` out of R15_NOT_YET), goal, plugins + apps, handover
+   sweep (this pack, `parity/select-dialog.md`, un-pend `chat_popups_4.rs` after settings lands).
+2b. Step 3 rest, inside the area: the confirmation's header is a plain subtitle (the oracle's header is a Paragraph: bold title, the caution sentence red) and its
+   `Centered` presentation over the retained composer (`› As` / `GP`) is not in the Picker: `full_access_confirmation_popup_snapshot` and
+   `clipped_full_access_confirmation_discloses_hidden_warning_text` stay pending (NO_FULL_ACCESS). A `List.header: Vec<Span>` with a `Role::Danger` over
+   `Text::rich_line` in `widgets/picker/pane.rs` (measure the joined text, as the subtitle) is the next piece; the Centered presentation is the dialog's
+   alignment. Also: the inline-args resolver (`/permissions <profile> [--approval-policy=..] [--reviewer=..]`: `parse_permission_profile_args`, Usage and
+   Unexpected-argument errors, unknown / disabled profile errors), the shortcut cycle (`permission_shortcuts.rs`, a pure function) and the Windows
+   sandbox prompts as Picker data (3 `cfg(windows)` tests are n/a, the rest of the 17 Windows tests are pending NO_WINDOWS).
 3. Windows tests: 3 oracle tests `cfg(windows)` are `kit::na` (chat_popups_*), the 2 side-content clearing tests in picker.rs are n/a (rtwk paints the dialog region).
 
 ## Needs from other owners (nothing done in their files)
@@ -119,6 +149,15 @@ kinds, the kit's resize to the same size, the `shared_menu_*` whole-area frame a
   through a ThreadFx select Command).
 - `core/src/app.rs` AppCtx routing and `host/src/facts.rs`: app RPCs `model/list`, `permissionProfile/list`, `collaborationMode/list`, plugin/app RPCs for steps 2-6.
 - `chat.rs ThreadPart` fields (chat-live): policy / collaboration_mode read by /permissions and /plan (one field, one writer).
+- `/permissions` opener (src/pages/session/actions.rs, open.rs: chunk-transcript-2 / chat-live): emit `select::Intent::OpenPermissions(permissions::Current)`
+  from the thread's facts (`approval`, `reviewer`, `matches` = the built-in preset both the policy and the profile match, the active profile id, `discover` = a
+  thread exists or the explicit profile mode or a custom active profile, `guardian` = the feature, `auto_required`/`cyber`/`auto_available`, the config's
+  `limits`); take `Model::profiles.pending` after it and send `permissions::requirements_request` + `profiles_request` (pages of 100, at most 10, 10 s) and feed
+  `select::Ev::Discovered { request, result }` (`Discovery::from_wire`; a duplicate id is `Failure::Duplicate`; `Cloud`, `Unsupported`, `Pagination`,
+  `Timeout`, `Other(text)` are the oracle's `discovery_error` cases); `select::Ev::ScopeChanged` on a thread or cwd change
+  (`invalidate_permission_discovery`); `Ev::Listed(discovery)` for a startup read. The effect of `Model::picked` (`Picked::Permissions(Selection)`:
+  `thread/settings/update` with the policy, the reviewer and the profile; the history cell `Permissions updated to ...`) is the settings/chat owners'.
+- `core/tests/all.rs`: one more line `mod permissions;` (a file outside my area, in the step 3 commit because the state tests do not run without it).
 - `src/pages/session/open.rs` (chunk-transcript-2): pass the command to `select::open`; `core/src/commands/dispatch.rs` answers `/model` with `Target::Select`
   and the dispatcher must send `select::Intent::OpenModels(Current)` (the `Current` snapshot read from the thread's part: model, effective effort, the
   Plan mode's model/effort/source, `multi_agent_v2.max_concurrent_threads_per_session`).
@@ -143,8 +182,9 @@ the last row (see Needs). Earlier (1c/1d): `browser_keymap` at 80x24 equals the 
 search, `description_hide_when_narrow` hides at 48 columns and shows at 49. The mouse in the binary was not re-walked (a click went to the debug list's
 background row); the mouse is covered by the tap/wheel tests in tests/sheets/select.rs.
 
-## Checks at the tip (cece9a556)
+## Checks at the tip (step 3, on claude/tui-rtwk af5799546)
 
-fmt clean; `clippy --workspace --all-targets -D warnings` no error; whole nextest 1980 run, 1979 passed, 1 failed (`startup::session::a_remembered_mode_opens_without_a_prompt`:
-passes alone, a load flake outside my area); `shards.py --check`: 55 shards, 2560 tests, 0 stale; oracle shards: picker 63 (43 pass + 5 n/a = 48 green, 15 pending),
-chat_popups_1 26 (5 n/a), chat_popups_2 46 (7 green), unchanged by step 2 (see Needs); sheet tests `select::` 53 pass; state tests `models::` 37 pass.
+fmt clean; `clippy -q --workspace --all-targets -D warnings` no error; whole nextest 2113 run, 2113 passed; `shards.py --check`: 55 shards, 2560 tests, 0 stale;
+oracle shards (`summary.py --run`): picker 63 (43 pass, 5 n/a, 15 pending), chat_popups_1 26 (0/5/21), chat_popups_2 46 (7 pass, 6 n/a, 33 pending),
+chat_popups_3 43 (0/2/41); core state tests `permissions::` 30 pass, `models::` 37 pass; sheet tests `select::` 63 pass. The binary walk of the /permissions
+menus waits for the opener (Needs): no mock-model scenario reaches them yet; to be walked through the debug entries before `task_done`.

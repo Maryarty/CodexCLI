@@ -1,0 +1,5 @@
+# Full Access disabled by requirements; Read Only is in use.
+# Oracle data: chatwidget/tests/permissions.rs:478
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[{"id":":read-only"},{"id":":workspace"},{"id":":danger-full-access","allowed":false}]}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"guardian":true,"approval":"on-request","matches":"read-only","discover":true}}}

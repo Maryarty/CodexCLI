@@ -16,22 +16,15 @@ use crate::threads::ThreadFx;
 pub mod layout;
 pub mod list;
 pub mod models;
+pub mod permissions;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
 use models::{Effort, PlanSource, Step};
+pub use permissions::{PermissionsMenu, Profiles};
 
 pub const NAME: &str = "select";
 pub const ID: &str = "S14";
 pub const KIND: Kind = Kind::Sheet;
-
-/// The permission presets of `/permissions`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
-    /// Read and edit workspace files, approval for the rest.
-    Ask,
-    /// No approvals, no sandbox.
-    Full,
-}
 
 /// A menu the generic selection dialog shows; one variant per
 /// parameterisation, its rows data (the words are the view's).
@@ -40,7 +33,9 @@ pub enum Menu {
     /// A menu of the `/model` family (`models.rs`): its rows come from the
     /// catalog and the thread's settings as they were when it opened.
     Model(Box<ModelMenu>),
-    Permissions { current: Option<Access> },
+    /// A menu of the `/permissions` family (`permissions.rs`): the presets,
+    /// the server's profiles, the full-access confirmation.
+    Permissions(Box<PermissionsMenu>),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -52,7 +47,9 @@ pub enum Menu {
 pub enum Picked {
     /// A model and effort of the `/model` family, and where it applies.
     Selection(Selection),
-    Access(Access),
+    /// A permission mode or profile of the `/permissions` family, and how it
+    /// applies.
+    Permissions(permissions::Selection),
     /// An item of a generic list, by id.
     Item(String),
     /// The secondary action of an item of a generic list, by id.
@@ -60,6 +57,13 @@ pub enum Picked {
     /// A multi-select list (`List::multi`) was confirmed: the ids of the
     /// items whose toggle is on, in the order of the list.
     Items(Vec<String>),
+}
+
+/// A typed menu as rows: what the view turns into its list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Page {
+    Model(models::Page),
+    Permissions(permissions::Page),
 }
 
 /// What the picker says in the history (`add_info_message`/`add_error_message`):
@@ -80,6 +84,8 @@ pub struct Model {
     pub stack: Vec<Menu>,
     /// The models the pickers list.
     pub catalog: Catalog,
+    /// The permission profiles the pickers list.
+    pub profiles: Profiles,
     /// Picks made; the effect that stores them is the settings slice's.
     pub picked: Vec<Picked>,
     /// Notes for the history; whoever shows them takes them.
@@ -92,11 +98,12 @@ impl Model {
         self.stack.last()
     }
 
-    /// The rows of the menu shown now, if it is one of the `/model` family.
-    pub fn page(&self) -> Option<models::Page> {
+    /// The rows of the menu shown now, if it is one of the typed families.
+    pub fn page(&self) -> Option<Page> {
         match self.menu()? {
-            Menu::Model(menu) => Some(menu.page(&self.catalog)),
-            Menu::Permissions { .. } | Menu::List(_) => None,
+            Menu::Model(menu) => Some(Page::Model(menu.page(&self.catalog))),
+            Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
+            Menu::List(_) => None,
         }
     }
 
@@ -117,6 +124,62 @@ impl Model {
                 self.stack.push(Menu::Model(Box::new(menu)));
             }
         }
+    }
+
+    fn permissions_step(&mut self, step: permissions::Step) {
+        use permissions::Step;
+        match step {
+            Step::None => {}
+            Step::Replace(menu) => {
+                self.stack.pop();
+                self.stack.push(Menu::Permissions(Box::new(menu)));
+            }
+            Step::Done(selection) => {
+                self.stack.clear();
+                self.picked.push(Picked::Permissions(selection));
+            }
+            Step::Reopen(current) | Step::Retry(current) => self.open_permissions(current),
+        }
+    }
+
+    /// `open_permissions_popup`: the legacy list of presets, or (with a
+    /// thread, the explicit profile mode or a custom active profile) the
+    /// server's catalog: the menu on the one held, or `Loading…` and a
+    /// request while there is none (`request_permission_profiles`).
+    fn open_permissions(&mut self, current: permissions::Current) {
+        use permissions::PermissionsMenu as Perms;
+        self.stack.clear();
+        let menu = if !current.discover {
+            Perms::Presets(current)
+        } else if self.profiles.found.is_some() {
+            Perms::Profiles(current)
+        } else {
+            // A request already out serves this menu too.
+            if self.profiles.pending.is_none() {
+                self.profiles.request();
+            }
+            Perms::Loading(current)
+        };
+        self.stack.push(Menu::Permissions(Box::new(menu)));
+    }
+
+    /// The answer of the `permissionProfile/list` request: the menu waiting on
+    /// it (the one on top) shows the catalog, or why there is none
+    /// (`on_permission_profiles_loaded`).
+    fn discovered(&mut self, result: Result<permissions::Discovery, permissions::Failure>) {
+        use permissions::PermissionsMenu as Perms;
+        if let Ok(discovery) = &result {
+            self.profiles.found = Some(discovery.clone());
+        }
+        let Some(Menu::Permissions(menu)) = self.stack.last() else { return };
+        let Perms::Loading(current) = &**menu else { return };
+        let current = current.clone();
+        let next = match result {
+            Ok(_) => Perms::Profiles(current),
+            Err(failure) => Perms::Failed { current, failure },
+        };
+        self.stack.pop();
+        self.stack.push(Menu::Permissions(Box::new(next)));
     }
 
     /// `open_model_popup_with_presets`: the quick menu, or a note when the
@@ -160,6 +223,17 @@ pub enum Ev {
     Opened(Menu),
     /// The catalog the app started with.
     Loaded(Vec<Preset>),
+    /// The permission catalog the app holds; menus open on it show it in
+    /// place.
+    Listed(permissions::Discovery),
+    /// The answer of the `permissionProfile/list` request `request`
+    /// (`Profiles::pending`); the profiles of every page and the
+    /// requirements, or why they could not be read.
+    Discovered { request: u64, result: Result<permissions::Discovery, permissions::Failure> },
+    /// The account or the scope changed (`invalidate_permission_discovery`):
+    /// the answer in flight is no longer wanted and the menus that waited on
+    /// it or showed it are dismissed.
+    ScopeChanged,
     /// The answer of the `model/list` request `request` (`Catalog::pending`).
     Fetched { request: u64, result: Result<Vec<Preset>, String> },
 }
@@ -174,8 +248,9 @@ pub enum Intent {
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
     OpenModels(Current),
-    /// The row at this index was picked: the menu closes.
-    Pick(usize),
+    /// `/permissions`: the menu for what the thread has now; the catalog is
+    /// asked for when it has none (`Profiles::pending` is the request).
+    OpenPermissions(permissions::Current),
     /// The item with this id (`List::id_of`, or a row of `Page`) was
     /// accepted.
     Choose(String),
@@ -197,6 +272,25 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Opened(menu) => model.stack = vec![menu],
         Ev::Loaded(presets) => model.accept(presets),
+        Ev::Listed(discovery) => model.profiles.found = Some(discovery),
+        Ev::Discovered { request, result } => {
+            if model.profiles.pending != Some(request) {
+                return;
+            }
+            model.profiles.pending = None;
+            model.discovered(result);
+        }
+        Ev::ScopeChanged => {
+            use permissions::PermissionsMenu as Perms;
+            model.profiles.pending = None;
+            model.stack.retain(|menu| {
+                !matches!(
+                    menu,
+                    Menu::Permissions(menu)
+                        if matches!(**menu, Perms::Loading(_) | Perms::Profiles(_) | Perms::Failed { .. })
+                )
+            });
+        }
         Ev::Fetched { request, result } => {
             // Another request, or none: the answer is not for the pickers.
             if model.catalog.pending != Some(request) {
@@ -241,20 +335,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.open_models(current);
             }
         }
-        Intent::Pick(index) => {
-            let picked = match model.menu() {
-                Some(Menu::Permissions { .. }) => match index {
-                    0 => Some(Picked::Access(Access::Ask)),
-                    1 => Some(Picked::Access(Access::Full)),
-                    _ => None,
-                },
-                Some(Menu::Model(_) | Menu::List(_)) | None => None,
-            };
-            if let Some(picked) = picked {
-                model.picked.push(picked);
-                model.stack.clear();
-            }
-        }
+        Intent::OpenPermissions(current) => model.open_permissions(current),
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {
                 let step = menu.choose(&model.catalog, &id, false);
@@ -275,7 +356,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                     model.stack.pop();
                 }
             }
-            Some(Menu::Permissions { .. }) | None => {}
+            Some(Menu::Permissions(menu)) => {
+                let step = menu.choose(&model.profiles, &id);
+                model.permissions_step(step);
+            }
+            None => {}
         },
         Intent::Secondary(id) => match model.stack.last() {
             Some(Menu::Model(menu)) => {
@@ -364,8 +449,10 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// The seed form of this screen's events: `{"kind":"catalog","presets":[..]}`
 /// (the catalog the app started with), the menus of the `/model` family
 /// (`{"kind":"models","current":{"model":..}}`, `all_models`, `loading`,
-/// `reasoning` and `advanced` with a `preset`), `{"kind":"permissions",
-/// "current":"ask"}` and `{"kind":"list", ..}` (the fields of `List`).
+/// `reasoning` and `advanced` with a `preset`), `{"kind":"profiles",
+/// "discovery":{..}}` (the permission catalog), `{"kind":"permissions",
+/// "menu":"profiles","current":{..}}` and `{"kind":"list", ..}` (the fields
+/// of `List`).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -383,17 +470,30 @@ enum SeedEv {
         warning: Option<usize>,
     },
     List(Box<List>),
+    /// The profiles the app holds (a startup read of the catalog).
+    Profiles { discovery: permissions::Discovery },
+    /// A menu of the `/permissions` family: the legacy presets unless `menu`
+    /// says otherwise; `failure` is the text of a read that failed.
     Permissions {
         #[serde(default)]
-        current: Option<SeedAccess>,
+        menu: SeedPermissions,
+        #[serde(default)]
+        current: permissions::Current,
+        #[serde(default)]
+        failure: Option<String>,
     },
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum SeedAccess {
-    Ask,
-    Full,
+enum SeedPermissions {
+    #[default]
+    Presets,
+    Loading,
+    Profiles,
+    Failed,
+    /// The confirmation `Enable full access?` (the pick is Full Access).
+    FullAccess,
 }
 
 /// A script's `screen` step for this directory.
@@ -412,11 +512,26 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             model(ModelMenu::PlanScope { model: name, effort, source, warning })
         }
         SeedEv::List(list) => Ev::Opened(Menu::List(list)),
-        SeedEv::Permissions { current } => Ev::Opened(Menu::Permissions {
-            current: current.map(|access| match access {
-                SeedAccess::Ask => Access::Ask,
-                SeedAccess::Full => Access::Full,
-            }),
-        }),
+        SeedEv::Profiles { discovery } => Ev::Listed(discovery),
+        SeedEv::Permissions { menu, current, failure } => {
+            use permissions::PermissionsMenu as Perms;
+            let menu = match menu {
+                SeedPermissions::Presets => Perms::Presets(current),
+                SeedPermissions::Loading => Perms::Loading(current),
+                SeedPermissions::Profiles => Perms::Profiles(current),
+                SeedPermissions::Failed => Perms::Failed {
+                    current,
+                    failure: permissions::Failure::Other(failure.unwrap_or_default()),
+                },
+                SeedPermissions::FullAccess => {
+                    let pick = permissions::Selection::Preset {
+                        preset: permissions::Preset::FullAccess,
+                        reviewer: permissions::Reviewer::User,
+                    };
+                    Perms::FullAccess { current, pick }
+                }
+            };
+            Ev::Opened(Menu::Permissions(Box::new(menu)))
+        }
     })
 }

@@ -1,0 +1,5 @@
+# The permission-profiles menu with the built-in modes, the active profile :workspace.
+# Oracle data: chatwidget/tests/permissions.rs:458 profile_permissions_selection_popup_snapshot
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"select","ev":{"kind":"profiles","discovery":{"profiles":[{"id":":read-only"},{"id":":workspace"},{"id":":danger-full-access"}]}}}
+{"step":"screen","dir":"select","ev":{"kind":"permissions","menu":"profiles","current":{"guardian":true,"profile":":workspace","approval":"on-request","matches":"auto","discover":true}}}
