@@ -1,0 +1,2 @@
+# The server echoes the steer "Please continue." as the user's item (oracle complete_user_message).
+{"step":"notify","message":{"method":"item/completed","params":{"item":{"type":"userMessage","id":"user-1","clientId":null,"content":[{"type":"text","text":"Please continue.","text_elements":[]}],"startedAtMs":null,"completedAtMs":null},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}

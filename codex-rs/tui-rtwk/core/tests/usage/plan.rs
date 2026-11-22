@@ -73,19 +73,50 @@ fn a_history_without_a_snapshot_time_is_no_report() {
 }
 
 #[test]
-fn an_invalid_history_is_refused_without_the_wires_own_text() {
-    for invalid in 0..5 {
+fn each_invalid_history_names_what_was_wrong() {
+    type Change = fn(&mut Data);
+    let cases: [(Change, plan::Error); 6] = [
+        (
+            |history| history.periods[0].starts_at = "private wire value".into(),
+            plan::Error::InvalidTimestamp,
+        ),
+        (
+            |history| history.data_as_of = Some("private wire value".into()),
+            plan::Error::InvalidTimestamp,
+        ),
+        (
+            |history| history.periods[0].ends_at = history.periods[0].starts_at.clone(),
+            plan::Error::InvalidPeriod,
+        ),
+        (
+            |history| history.periods.push(history.periods[0].clone()),
+            plan::Error::InvalidPeriod,
+        ),
+        (
+            |history| history.periods[0].window_minutes = 1,
+            plan::Error::UnsupportedWindow,
+        ),
+        (
+            |history| history.periods[0].used_basis_points = Some(f64::INFINITY),
+            plan::Error::InvalidPeriod,
+        ),
+    ];
+    for (change, expected) in cases {
         let mut history = response();
-        match invalid {
-            0 => history.periods[0].starts_at = "private wire value".into(),
-            1 => history.periods[0].ends_at = history.periods[0].starts_at.clone(),
-            2 => history.periods.push(history.periods[0].clone()),
-            3 => history.periods[0].window_minutes = 1,
-            _ => history.periods[0].used_basis_points = Some(f64::INFINITY),
-        }
-        let error = Report::parse(history).err().unwrap();
-        assert!(!error.contains("private wire value"), "{error}");
+        change(&mut history);
+        assert_eq!(Report::parse(history).err(), Some(expected));
     }
+}
+
+#[test]
+fn a_history_of_too_many_periods_is_refused() {
+    let mut history = response();
+    let period = history.periods[0].clone();
+    history.periods = vec![period; 1_001];
+    assert_eq!(
+        Report::parse(history).err(),
+        Some(plan::Error::TooManyPeriods)
+    );
 }
 
 fn consumer(plan_enabled: bool, plan: PlanType) -> (Model, Vec<Ask>) {
@@ -156,9 +187,7 @@ fn the_reply_settles_the_load_of_its_stamp_only() {
     );
     assert_eq!(
         other.plan.note(),
-        Some(LoadNote::Error(
-            "Unsupported plan history window.".to_owned()
-        ))
+        Some(LoadNote::Error(plan::Error::UnsupportedWindow.into()))
     );
     settle(
         &mut model,

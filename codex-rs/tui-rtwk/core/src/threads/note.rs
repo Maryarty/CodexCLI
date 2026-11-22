@@ -66,6 +66,9 @@ pub enum NoteKey {
     RawOutput(bool),
     /// The thread is controlled by its parent: it takes no direct input.
     ParentOwned,
+    /// A switch of the collaboration mode while a turn runs
+    /// (`Cannot switch collaboration mode while a turn is running.`).
+    ModeBusy,
     /// `/cd` was refused.
     CdRefused(CdRefusal),
     /// `/archive` or `/delete` did not remove the thread.
@@ -89,6 +92,7 @@ impl NoteKey {
             NoteKey::ServerDone(_) => Tone::Done,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
+            | NoteKey::ModeBusy
             | NoteKey::CdRefused(_)
             | NoteKey::Remove(..) => Tone::Error,
             NoteKey::Command(_)

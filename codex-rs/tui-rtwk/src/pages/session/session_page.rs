@@ -43,6 +43,7 @@ use super::actions::*;
 use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
+use super::live::plan_mode::Seen as PlanSeen;
 use super::live::put_back;
 use super::pending_input::PendingInput;
 use super::status_surfaces::{StatusContext, TitleInputs};
@@ -68,6 +69,8 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
+    /// The "Implement this plan?" questions the page has opened.
+    plan: PlanSeen,
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
@@ -158,6 +161,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
+            plan: PlanSeen::default(),
             removed: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -331,6 +335,7 @@ impl State for ChatState {
             }
         }
         self.restored = Some(restore);
+        self.plan.poll(cx);
         // The thread was archived or deleted (`/archive`, `/delete`): the chat
         // is empty again and the command center opens over it
         // (`return_to_agents_after_removal`); under a sheet it waits until the
@@ -532,6 +537,15 @@ impl State for ChatState {
                     );
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
+                // `cycle_collaboration_mode`: the thread's own switch; the model refuses
+                // it while a turn runs
+                Action::CycleMode => {
+                    let thread = read::<ThreadModel, _>(cx);
+                    if !thread.read_only() {
+                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::CycleMode);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
+                }
                 other => {
                     if let Some(target) = other.target() {
                         open(cx, target);

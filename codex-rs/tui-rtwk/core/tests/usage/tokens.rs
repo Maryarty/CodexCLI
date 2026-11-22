@@ -2,7 +2,7 @@
 
 use codex_tui_core::screens::usage::models::*;
 use codex_tui_core::screens::usage::report_data::AnalyticsData;
-use codex_tui_core::screens::usage::tokens::{filtered_history, history};
+use codex_tui_core::screens::usage::tokens::{Error, filtered_history, history};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -93,7 +93,7 @@ fn model_totals_use_reported_total_and_missing_components_remain_unavailable() {
     );
     assert_eq!(
         history(response, AccountAnalyticsGrouping::TokenType, date, date).unwrap_err(),
-        "Token counts were not reported."
+        Error::MissingCounts
     );
 }
 
@@ -129,5 +129,45 @@ fn explicit_zero_model_total_is_reported_without_components() {
                 ],
             }],
         }
+    );
+}
+
+fn fail(grouping: AccountAnalyticsGrouping, record: serde_json::Value) -> Error {
+    let date = "2026-09-01".parse().unwrap();
+    let response: AnalyticsData = serde_json::from_value(json!({"data": [record]})).unwrap();
+    history(response, grouping, date, date).unwrap_err()
+}
+
+#[test]
+fn each_unusable_token_record_names_what_was_wrong() {
+    let token_type = AccountAnalyticsGrouping::TokenType;
+    assert_eq!(
+        fail(token_type, json!({"date": "someday"})),
+        Error::InvalidDate
+    );
+    assert_eq!(
+        fail(token_type, json!({"date": "2026-09-01"})),
+        Error::MissingBreakdown
+    );
+    assert_eq!(
+        fail(
+            token_type,
+            json!({"date": "2026-09-01", "models": [{"model": "a", "uncached_text_input_tokens": -1}]})
+        ),
+        Error::InvalidCount
+    );
+    assert_eq!(
+        fail(
+            AccountAnalyticsGrouping::Model,
+            json!({"date": "2026-09-01", "models": [{"model": "a", "text_total_tokens": 1.5}]})
+        ),
+        Error::InvalidCount
+    );
+    assert_eq!(
+        fail(
+            token_type,
+            json!({"date": "2026-09-01", "models": [{"model": "a"}]})
+        ),
+        Error::MissingCounts
     );
 }

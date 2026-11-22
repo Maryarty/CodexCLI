@@ -80,6 +80,21 @@ pub struct Period {
     pub breakdowns: Option<Vec<Breakdown>>,
 }
 
+/// What a plan history could not be turned into a report; none holds the
+/// wire's own values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    /// A snapshot, start or end time is not an RFC 3339 time.
+    InvalidTimestamp,
+    /// More periods than a report holds.
+    TooManyPeriods,
+    /// A period's window is neither five hours nor a week.
+    UnsupportedWindow,
+    /// A period that ends before it starts, repeats an id or holds a number
+    /// that is not finite.
+    InvalidPeriod,
+}
+
 /// The two tables' periods (5-hour, weekly), the newest first.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Report {
@@ -94,11 +109,10 @@ pub struct Report {
 impl Eq for Report {}
 
 impl Report {
-    /// `None` when the history has no snapshot time (nothing to show); an
-    /// error text that holds none of the wire's own values.
-    pub fn parse(history: Data) -> Result<Option<Self>, String> {
+    /// `None` when the history has no snapshot time (nothing to show).
+    pub fn parse(history: Data) -> Result<Option<Self>, Error> {
         let parse = |value: &str| {
-            rfc3339_unix(value).ok_or_else(|| "Invalid plan history timestamp.".to_string())
+            rfc3339_unix(value).ok_or(Error::InvalidTimestamp)
         };
         let Some(as_of) = history.data_as_of.as_deref().map(parse).transpose()? else {
             return Ok(None);
@@ -106,13 +120,13 @@ impl Report {
         let mut periods = [Vec::new(), Vec::new()];
         let mut ids = HashSet::new();
         if history.periods.len() > 1_000 {
-            return Err("Plan history contains too many periods.".into());
+            return Err(Error::TooManyPeriods);
         }
         for period in history.periods {
             let window = match period.window_minutes {
                 FIVE_HOURS => 0,
                 WEEK => 1,
-                _ => return Err("Unsupported plan history window.".into()),
+                _ => return Err(Error::UnsupportedWindow),
             };
             let start = parse(&period.starts_at)?;
             let end = parse(&period.ends_at)?;
@@ -126,7 +140,7 @@ impl Report {
                     .flat_map(|group| &group.rows)
                     .any(|row| !row.basis_points.is_finite())
             {
-                return Err("Invalid plan history period.".into());
+                return Err(Error::InvalidPeriod);
             }
             periods[window].push(Period {
                 id: period.id,

@@ -61,6 +61,7 @@ use codex_app_server_protocol::ThreadGoalMutationOrigin;
 use codex_app_server_protocol::ThreadGoalSetParams;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadItemPayload;
+use codex_app_server_protocol::ThreadPrepareApprovedPlanParams;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadRevertParams;
@@ -1342,6 +1343,12 @@ pub enum ThreadAsk {
         thread: String,
         patch: SettingsPatch,
     },
+    /// `thread/prepareApprovedPlan`: the new thread takes the approved plan and answers with the
+    /// prompt that starts its work (the prompt's "clear context" row).
+    PrepareApprovedPlan {
+        thread: String,
+        markdown: String,
+    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1372,6 +1379,7 @@ impl ThreadAsk {
             | ThreadAsk::GoalSet { thread, .. }
             | ThreadAsk::GoalClear { thread }
             | ThreadAsk::SettingsUpdate { thread, .. }
+            | ThreadAsk::PrepareApprovedPlan { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -1566,6 +1574,16 @@ impl ThreadAsk {
                 request_id,
                 params: patch.wire(thread),
             },
+            ThreadAsk::PrepareApprovedPlan { thread, markdown } => {
+                ClientRequest::ThreadPrepareApprovedPlan {
+                    request_id,
+                    params: ThreadPrepareApprovedPlanParams {
+                        thread_id: thread.clone(),
+                        markdown: markdown.clone(),
+                        attachment_path: None,
+                    },
+                }
+            }
         }
     }
 }
@@ -2122,8 +2140,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             // yet) the message waits in the queue; with none running it starts
             // a turn, after any older queued message.
             let starting = model.outgoing.any(is_start_turn);
+            // The plan's text streams: Enter queues the message behind the turn
+            // (`is_plan_streaming_in_tui`).
+            if model.slots.chat.plan.streaming() && model.is_running() {
+                enqueue(model, message, fx);
+                return;
+            }
             if let (TurnState::Running(running), false) = (&model.turn, starting) {
                 let turn = running.turn.clone();
+                model.slots.chat.plan.steered();
                 model.pending_steers.push(PendingSteer {
                     message: message.clone(),
                     admitted: None,
@@ -2168,6 +2193,19 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                     })),
                     answer,
                 ) => steer_reply(model, turn, retried, message, answer, fx),
+                // The fresh thread has the approved plan: its prompt starts the work.
+                (
+                    ThreadCtx::Screen(ScreenCtx::Chat(screens::chat::Ctx::ApprovePlan)),
+                    Answer::Screen(screens::ScreenReply::Chat(screens::chat::Reply::Prepared(
+                        prompt,
+                    ))),
+                ) => apply_ev(
+                    model,
+                    ThreadEv::Submit {
+                        message: UserMessage::text(prompt),
+                    },
+                    fx,
+                ),
                 (ThreadCtx::StartTurn { interrupt }, Answer::TurnStarted { turn, .. }) => {
                     // After a `Lagged` gap the end of this turn can have been
                     // seen before this reply: nothing will end it again, so
@@ -2252,6 +2290,25 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::NoPreviousMessage,
         )) => apply_appended(model, None, Item::Notice(Notice::NoPreviousMessage)),
+        // The prompt's Yes: Default mode, then the message that starts the work.
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::ImplementPlan,
+        )) if model.has_writer() => {
+            if model.is_running() || model.outgoing.any(is_start_turn) {
+                let note = Note::from(NoteKey::ModeBusy);
+                apply_appended(model, None, Item::Note(note));
+                return;
+            }
+            let kind = codex_protocol::config_types::ModeKind::Default;
+            screens::apply_thread_intent(
+                &mut model.slots,
+                ScreenThreadIntent::Chat(screens::chat::ThreadIntent::SetMode(kind)),
+                false,
+                fx,
+            );
+            let message = UserMessage::text(screens::chat::plan_mode::IMPLEMENT_MESSAGE);
+            apply_ev(model, ThreadEv::Submit { message }, fx);
+        }
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,
         )) if model.has_writer() => {
@@ -2315,6 +2372,11 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
                     model.completed_items.insert(key.clone());
                 }
+                if let Item::Plan { text } = &item
+                    && !model.finished_turns.contains(&key.turn)
+                {
+                    model.slots.chat.plan.plan_completed(text);
+                }
                 model.transcript.upsert(key, item);
             }
         }
@@ -2333,6 +2395,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::PlanDelta { key, delta } => {
             if !model.finished_turns.contains(&key.turn) && !model.completed_items.contains(&key) {
+                model.slots.chat.plan.plan_delta();
                 model.transcript.append_plan(key, &delta);
             }
         }
@@ -2394,6 +2457,16 @@ fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut Thread
         .retain(|ctx| !matches!(ctx, ThreadCtx::Interrupt { turn: target, .. } if *target == turn));
     if ends_running {
         model.turn = TurnState::Idle;
+        // `maybe_prompt_plan_implementation`: nothing waits to be sent behind the turn.
+        let waiting = !model.queue.is_empty()
+            || !model.pending_steers.is_empty()
+            || !model.rejected_steers.is_empty();
+        let mode = model.slots.chat.mode();
+        model
+            .slots
+            .chat
+            .plan
+            .turn_ended(mode, end == TurnEnd::Completed, waiting);
         model.slots.chat.end_turn();
         if end == TurnEnd::Interrupted {
             interrupted(model, &turn, fx);
