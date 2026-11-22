@@ -217,10 +217,6 @@ fn live_agent_message_renders_during_review_mode() {
 // ORACLE chatwidget/tests/review_mode.rs:489 steer_enter_queues_while_plan_stream_is_active kind=ui owner=chat-live
 #[test]
 fn steer_enter_queues_while_plan_stream_is_active() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plan stream on the chat screen (item/plan/delta is not drawn) and no Plan collaboration mode seed: Enter during the plan stream does not queue the composer text as a message",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&plan_delta("- Step 1"));

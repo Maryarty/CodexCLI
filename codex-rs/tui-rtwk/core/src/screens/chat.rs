@@ -7,11 +7,12 @@
 mod banner;
 pub mod facts;
 mod mcp;
+pub mod plan_mode;
 
 use std::rc::Rc;
 
 pub use facts::{Ev as FactEv, Facts, Footer, Probe};
-pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome};
+pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
@@ -83,6 +84,10 @@ pub struct StatusFacts {
     pub cwd: Option<String>,
     pub home_directory: Option<String>,
     pub service_tier: Option<String>,
+    /// `Feature::FastMode`: the tiers other than flex and ultrafast need it.
+    pub fast_mode: bool,
+    /// `Feature::UltrafastMode`: the `ultrafast` tier needs it.
+    pub ultrafast_mode: bool,
     /// The name of the project root (the git root's directory).
     pub project_root: Option<String>,
     pub branch: Option<String>,
@@ -116,6 +121,8 @@ impl Default for StatusFacts {
             cwd: None,
             home_directory: None,
             service_tier: None,
+            fast_mode: true,
+            ultrafast_mode: true,
             project_root: None,
             branch: None,
             items: None,
@@ -354,8 +361,10 @@ pub struct ThreadPart {
     pub provider: Option<String>,
     pub service_tier: Option<Option<String>>,
     pub daybreak: Option<bool>,
-    /// The collaboration mode (`thread/settings/updated`); read through `mode()`.
+    /// The collaboration mode (`thread/settings/updated`, or the user's switch); read through `mode()`.
     mode: codex_protocol::config_types::ModeKind,
+    /// Plan mode: the proposed plan and the question asked when the turn ends.
+    pub plan: plan_mode::PlanMode,
     /// Resumed with history: the token usage is pending until `status` counts one.
     awaiting_usage: bool,
     pub activity: ActivityPhase,
@@ -487,6 +496,15 @@ impl ThreadPart {
         self.retry_header = None;
     }
 
+    /// The user's switch of the mode: the thread's mode changes at once (the next turn is
+    /// sent in it) and the server's settings follow (`set_collaboration_mask_from_user_action`).
+    pub(crate) fn set_mode(&mut self, kind: codex_protocol::config_types::ModeKind, fx: &mut ThreadFx<'_>) {
+        self.mode = kind;
+        self.error = None;
+        let mode = plan_mode::collaboration_mode(kind, self.model.as_deref());
+        fx.request(Ctx::Mode, Command::Mode(mode));
+    }
+
     pub fn is_compacting(&self) -> bool {
         self.compact_pending || self.live_compaction
     }
@@ -519,6 +537,17 @@ pub enum ThreadIntent {
     /// Esc Esc found no prompt to edit: the chat says so
     /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
     NoPreviousMessage,
+    /// The user's switch of the collaboration mode (`/plan`, Shift+Tab, the prompt's Yes):
+    /// the thread goes on in `ModeKind` and the server is told.
+    SetMode(codex_protocol::config_types::ModeKind),
+    /// Shift+Tab: the next mode, only while the thread is idle (`cycle_collaboration_mode`).
+    CycleMode,
+    /// The fresh thread of the prompt's "clear context" row takes the approved plan: the server
+    /// answers with the prompt that starts the work.
+    ApprovePlan(String),
+    /// The prompt's answer Yes (`submit_user_message_with_mode`): the thread goes on in Default
+    /// and `Implement the plan.` is sent; a running turn refuses the switch.
+    ImplementPlan,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -687,6 +716,10 @@ pub enum Command {
         turn: TurnId,
         message: crate::threads::UserMessage,
     },
+    /// `thread/settings/update` of the collaboration mode.
+    Mode(codex_protocol::config_types::CollaborationMode),
+    /// `thread/prepareApprovedPlan` with the plan's markdown.
+    ApprovePlan(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -694,10 +727,14 @@ pub enum Reply {
     Ack,
     /// The turn the steer joined.
     Steered(TurnId),
+    /// The prompt that starts the work of an approved plan.
+    Prepared(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ctx {
+    Mode,
+    ApprovePlan,
     Compact,
     CleanTerminals,
     Rename,
@@ -728,6 +765,12 @@ pub fn apply_thread_intent(
             part.error = None;
             fx.request(Ctx::CleanTerminals, Command::CleanTerminals);
         }
+        ThreadIntent::SetMode(kind) => part.set_mode(kind, fx),
+        ThreadIntent::ApprovePlan(markdown) => {
+            part.error = None;
+            fx.request(Ctx::ApprovePlan, Command::ApprovePlan(markdown));
+        }
+        ThreadIntent::CycleMode if !busy => part.set_mode(plan_mode::next(part.mode), fx),
         ThreadIntent::Rename(name) if !name.trim().is_empty() => {
             part.error = None;
             fx.request(Ctx::Rename, Command::Rename(name));
@@ -818,6 +861,17 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
             turn: turn.to_string(),
             message: message.clone(),
         },
+        Command::ApprovePlan(markdown) => crate::threads::ThreadAsk::PrepareApprovedPlan {
+            thread: thread.to_string(),
+            markdown: markdown.clone(),
+        },
+        Command::Mode(mode) => crate::threads::ThreadAsk::SettingsUpdate {
+            thread: thread.to_string(),
+            patch: crate::threads::SettingsPatch {
+                collaboration_mode: Some(mode.clone()),
+                ..crate::threads::SettingsPatch::default()
+            },
+        },
     };
     ask.wire(id)
 }
@@ -825,7 +879,7 @@ pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientReques
 pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, RpcError> {
     use codex_app_server_protocol::{
         ThreadBackgroundTerminalsCleanResponse, ThreadCompactStartResponse, ThreadSetNameResponse,
-        ThreadShellCommandResponse, TurnSteerResponse,
+        ThreadPrepareApprovedPlanResponse, ThreadShellCommandResponse, TurnSteerResponse,
     };
     let decoded = match command {
         Command::Compact => serde_json::from_value::<ThreadCompactStartResponse>(result).map(|_| Reply::Ack),
@@ -834,6 +888,9 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
         }
         Command::Rename(_) => serde_json::from_value::<ThreadSetNameResponse>(result).map(|_| Reply::Ack),
         Command::Shell(_) => serde_json::from_value::<ThreadShellCommandResponse>(result).map(|_| Reply::Ack),
+        Command::Mode(_) => Ok(Reply::Ack),
+        Command::ApprovePlan(_) => serde_json::from_value::<ThreadPrepareApprovedPlanResponse>(result)
+            .map(|response| Reply::Prepared(response.prompt)),
         Command::Steer { .. } => serde_json::from_value::<TurnSteerResponse>(result)
             .map(|response| Reply::Steered(TurnId::new(response.turn_id))),
     };

@@ -6,6 +6,40 @@ use serde::Deserialize;
 
 use crate::ids::Ticket;
 
+/// What the account read says of the Luna Reserve (`update_backend_banner`): whether ordinary
+/// usage is available again (the reserve-only `/model` ends) and the normal model the reserve
+/// quota stands for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reserve {
+    pub recovered: bool,
+    pub normal_model: Option<String>,
+}
+
+impl Reserve {
+    /// A full, identity-validated read can authorize recovery; percentages, sparse
+    /// notifications and reset timestamps cannot prove it.
+    pub fn of(response: &codex_app_server_protocol::GetAccountRateLimitsResponse) -> Self {
+        let credits = response
+            .rate_limits
+            .credits
+            .as_ref()
+            .is_some_and(|credits| credits.unlimited || credits.has_credits);
+        let recovered = response.ordinary_usage_allowed.is_some()
+            && (response.ordinary_usage_allowed == Some(true) || credits)
+            && response.rate_limit_upsell.is_none()
+            && response.rate_limits.spend_control_reached != Some(true)
+            && response.rate_limits.rate_limit_reached_type.is_none();
+        let normal_model = response
+            .rate_limits_by_limit_id
+            .iter()
+            .flatten()
+            .map(|(_, snapshot)| snapshot)
+            .find(|snapshot| snapshot.limit_name.as_deref() == Some(crate::screens::select::models::RESERVE_MODEL))
+            .and_then(|snapshot| snapshot.normal_model_slug.clone());
+        Self { recovered, normal_model }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct Banner {
     banner_type: String,

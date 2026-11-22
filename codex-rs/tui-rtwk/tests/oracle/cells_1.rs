@@ -290,20 +290,18 @@ fn ui_snapshot_ansi16_insert_delete_no_background() {
 // ORACLE diff_render.rs:2115 ui_snapshot_theme_scope_background_resolution kind=snap owner=chat-live snap=theme_scope_background_resolution
 #[test]
 fn ui_snapshot_theme_scope_background_resolution() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle resolves the insert row's background from the active syntax theme's scope \
-         (`markup.inserted`, here Rgb(12,34,56)); the kit has no seed for a syntax theme and the \
-         chat's added row carries the dark default tint, so only the delete half is equal",
-    );
+    // The oracle hands the resolver `inserted: Rgb(12, 34, 56)` and no deleted fill; no bundled
+    // theme has that pair, so the chat runs under `github`, whose `markup.inserted` fill is
+    // `Rgb(221, 255, 221)`: the theme's own fill replaces the default tint (Rgb(33, 58, 43)).
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 14)
+        .syntax_theme("github")
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_theme_scope_background_resolution.jsonl"
         ))
         .open();
     show_details(&mut s);
-    s.assert_text_style("1 +scope", "bg=Rgb(12,34,56)");
+    s.assert_text_style("1 +scope", "bg=Rgb(221,255,221)");
 }
 
 // ORACLE diff_render.rs:2381 cpp_module_extensions_use_cpp_highlighting kind=snap owner=chat-live snap=cpp_module_extension_highlighting

@@ -7,8 +7,14 @@
 use crate::kit::{self, Owner, Screen};
 
 const PLAN_ITEM: &str = include_str!("fixtures/chat_live_4/plan_item.jsonl");
+const FOOTER: &str = include_str!("fixtures/chat_live_4/footer.jsonl");
+const LIVE_DONE: &str = include_str!("fixtures/chat_live_4/live_done.jsonl");
+const LIVE_PLAN: &str = include_str!("fixtures/chat_live_4/live_plan.jsonl");
 const PLAN_REVISED: &str = include_str!("fixtures/chat_live_4/plan_revised.jsonl");
 const PLAN_UPDATE: &str = include_str!("fixtures/chat_live_4/plan_update.jsonl");
+const REVISE_ECHO: &str = include_str!("fixtures/chat_live_4/revise_echo.jsonl");
+const STEER_ECHO: &str = include_str!("fixtures/chat_live_4/steer_echo.jsonl");
+const USAGE_90K: &str = include_str!("fixtures/chat_live_4/usage_90k.jsonl");
 const REPLAYED_PLAN: &str = include_str!("fixtures/chat_live_4/replayed_plan.jsonl");
 const REPLAY_MESSAGES: &str = include_str!("fixtures/chat_live_4/replay_messages.jsonl");
 const RUNNING: &str = include_str!("fixtures/chat_live_4/running.jsonl");
@@ -35,11 +41,10 @@ fn row_of(s: &Screen, text: &str) -> usize {
 // ORACLE chatwidget/tests/plan_mode.rs:68 plan_draft_footer_snapshot kind=snap owner=chat-live snap=plan_draft_footer
 #[test]
 fn plan_draft_footer_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Plan mode and no footer seed: the port has no collaboration mode (the footer's default word), no seed for the model gpt-5, the token usage 50k of 100k, or the /tmp/project cwd the oracle normalizes",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(FOOTER)
+        .open();
     s.type_text("make a plan");
     s.snap("plan_draft_footer")
         .at(row_of(&s, "› make a plan"), 0)
@@ -49,10 +54,6 @@ fn plan_draft_footer_snapshot() {
 // ORACLE chatwidget/tests/plan_mode.rs:84 plan_implementation_popup_snapshot kind=snap owner=chat-live snap=plan_implementation_popup
 #[test]
 fn plan_implementation_popup_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt: it opens after a plan turn completes in Plan mode, and the port has no Plan mode",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_ITEM)
@@ -66,14 +67,11 @@ fn plan_implementation_popup_snapshot() {
 // ORACLE chatwidget/tests/plan_mode.rs:94 plan_implementation_popup_context_usage_snapshot kind=snap owner=chat-live snap=plan_implementation_popup_context_usage
 #[test]
 fn plan_implementation_popup_context_usage_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in Plan mode, and no seed for the token usage 90k of 100k that its clear-context row shows",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_ITEM)
         .open();
+    s.feed(USAGE_90K);
     s.feed(TURN_DONE);
     s.snap("plan_implementation_popup_context_usage")
         .at(row_of(&s, PLAN_TITLE), 0)
@@ -148,7 +146,7 @@ fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
 fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan-mode reasoning override in the port, so no Low (current) mark: the reasoning popup of gpt-5.5 has no seed here, and the keys that reach it are not yet mapped",
+        "Plan-mode reasoning override and its popup belong to chunk-popups (the mode picker and reasoning popups are not part of plan mode's prompt)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // The oracle opens the popup from the preset directly; the port reaches it
@@ -181,7 +179,7 @@ fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override() {
 fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
     kit::pending(
         Owner::ChatLive,
-        "no reasoning-scope prompt (Apply reasoning change): it opens from a Plan-mode reasoning selection, and the port has no Plan mode; the keys that open it are not yet mapped",
+        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     s.assert_contains("Choose where to apply medium reasoning.");
@@ -199,7 +197,7 @@ fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
 fn plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_override() {
     kit::pending(
         Owner::ChatLive,
-        "no reasoning-scope prompt with no Plan override in the port (no Plan mode); the keys that open it are not yet mapped",
+        "the reasoning-scope prompt belongs to chunk-popups (the Plan reasoning override)",
     );
     let s = Screen::build(Owner::ChatLive).size(100, 24).live().open();
     // Kit gap: the oracle matches the whitespace-collapsed text
@@ -219,15 +217,10 @@ fn plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning() {
 // ORACLE chatwidget/tests/plan_mode.rs:680 submit_user_message_with_mode_errors_when_mode_changes_during_running_turn kind=ui owner=chat-live
 #[test]
 fn submit_user_message_with_mode_errors_when_mode_changes_during_running_turn() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no Plan mode to switch from during a running turn: the port has no collaboration mode, so the running-turn refusal is not drawn",
+        "asserts the widget's submit_user_message_with_mode refusing a mode change under a running turn; the port's only caller is the prompt's Yes, which exists after a turn ends: core/tests/plan_mode.rs yes_while_a_turn_runs_is_refused",
     );
-    let mut s = Screen::build(Owner::ChatLive).script(RUNNING).open();
-    // The oracle submits in Default mode while a Plan-mode turn runs; the port's
-    // keys for that switch are not yet mapped.
-    s.type_text("Implement the plan.").keys("enter");
-    s.assert_contains("Cannot switch collaboration mode while a turn is running.");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:708 submit_user_message_blocks_when_thread_model_is_unavailable kind=ui owner=chat-live
@@ -245,10 +238,6 @@ fn submit_user_message_blocks_when_thread_model_is_unavailable() {
 // ORACLE chatwidget/tests/plan_mode.rs:788 plan_implementation_popup_skips_replayed_turn_complete kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_skips_replayed_turn_complete() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): the absence holds only until the prompt exists",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(REPLAYED_PLAN)
@@ -259,31 +248,23 @@ fn plan_implementation_popup_skips_replayed_turn_complete() {
 // ORACLE chatwidget/tests/plan_mode.rs:828 plan_implementation_popup_shows_once_when_replay_precedes_live_turn_complete kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_shows_once_when_replay_precedes_live_turn_complete() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): the replay, the live completion and the dismissal cannot show it yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(REPLAYED_PLAN)
         .open();
     s.assert_absent(PLAN_TITLE);
-    s.feed(PLAN_ITEM);
-    s.feed(TURN_DONE);
+    s.feed(LIVE_PLAN);
+    s.feed(LIVE_DONE);
     s.assert_contains(PLAN_TITLE);
     s.keys("esc");
     s.assert_absent(PLAN_TITLE);
-    s.feed(TURN_DONE);
+    s.feed(LIVE_DONE);
     s.assert_absent(PLAN_TITLE);
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:905 plan_implementation_popup_skips_when_messages_queued kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_skips_when_messages_queued() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): the queued-message skip holds only vacuously until the prompt exists",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(RUNNING)
@@ -297,10 +278,6 @@ fn plan_implementation_popup_skips_when_messages_queued() {
 // ORACLE chatwidget/tests/plan_mode.rs:928 plan_implementation_popup_skips_without_proposed_plan kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_skips_without_proposed_plan() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): the no-proposed-plan skip holds only vacuously until the prompt exists",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_UPDATE)
@@ -312,10 +289,6 @@ fn plan_implementation_popup_skips_without_proposed_plan() {
 // ORACLE chatwidget/tests/plan_mode.rs:955 plan_implementation_popup_shows_after_proposed_plan_output kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_shows_after_proposed_plan_output() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): a proposed plan does not open it yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_ITEM)
@@ -327,15 +300,12 @@ fn plan_implementation_popup_shows_after_proposed_plan_output() {
 // ORACLE chatwidget/tests/plan_mode.rs:977 plan_implementation_popup_skips_when_steer_follows_proposed_plan kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_skips_when_steer_follows_proposed_plan() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): the steer-after-plan skip holds only vacuously until the prompt exists",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_ITEM)
         .open();
     s.type_text("Please continue.").keys("enter");
+    s.feed(STEER_ECHO);
     s.feed(TURN_DONE);
     s.assert_absent(PLAN_TITLE);
 }
@@ -343,15 +313,12 @@ fn plan_implementation_popup_skips_when_steer_follows_proposed_plan() {
 // ORACLE chatwidget/tests/plan_mode.rs:1020 plan_implementation_popup_shows_after_new_plan_follows_steer kind=ui owner=chat-live
 #[test]
 fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Implement-this-plan prompt in the port (no Plan mode): a newer plan after a steer does not open it yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_ITEM)
         .open();
     s.type_text("Please revise.").keys("enter");
+    s.feed(REVISE_ECHO);
     s.feed(PLAN_REVISED);
     s.feed(TURN_DONE);
     s.assert_contains(PLAN_TITLE);
@@ -362,7 +329,7 @@ fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
 fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     kit::pending(
         Owner::ChatLive,
-        "no fixture yet for the 92% rate-limit snapshot the oracle sends before the turn completes, and no Implement-this-plan prompt in the port",
+        "the Implement-this-plan prompt exists; no fixture yet for the 92% rate-limit snapshot before the turn completes and the rate-limit switch prompt does not take precedence over the plan prompt (chunk-popups owns the rate-limit prompt)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -397,7 +364,7 @@ fn collab_mode_shift_tab_cycles_only_when_idle() {
 fn mode_switch_surfaces_model_change_notification_when_effective_model_changes() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan mode and no plan model override (gpt-5.6-luna medium), so no model-change notice in the transcript; the port has no mode switch to surface it",
+        "G-mask: the mode switch works (/plan, Shift+Tab) but the port has no collaboration-mask catalogue, so no per-mode model/effort (gpt-5.6-luna medium for Plan) and no model-change notice; the masks come from collaborationMode/list, which no screen reads yet",
     );
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.keys("shift+tab");
@@ -411,7 +378,7 @@ fn mode_switch_surfaces_model_change_notification_when_effective_model_changes()
 fn mode_switch_surfaces_reasoning_change_notification_when_model_stays_same() {
     kit::pending(
         Owner::ChatLive,
-        "no Plan mode and no seed for the model gpt-5.6-terra at High effort, so no reasoning-change notice in the transcript",
+        "G-mask: the mode switch works but the port has no collaboration-mask catalogue (per-mode reasoning effort, gpt-5.6-terra High), so no reasoning-change notice",
     );
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.keys("shift+tab");
@@ -430,16 +397,15 @@ fn plan_slash_command_with_args_submits_prompt_in_plan_mode() {
 // ORACLE chatwidget/tests/plan_mode.rs:1442 plan_slash_command_with_hidden_shell_paste_submits_literal_prompt kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Plan mode for the /plan literal prompt: the composer's pasted-content placeholder after /plan is drawn, the literal submit in Plan mode is not in the port yet",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.type_text("/plan ").paste(&payload);
     s.assert_contains(&format!("/plan [Pasted Content {} chars]", payload.len()));
     s.keys("enter");
-    // The oracle then checks the UserTurn carries the literal payload in Plan mode (op channel, not drawn).
+    // The oracle then checks the UserTurn carries the literal payload in Plan mode: the
+    // user's own cell shows it as typed, not as a shell command.
+    s.assert_has_row("› !echo");
+    s.assert_absent("/plan");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1453 plan_slash_command_with_hidden_shell_paste_rejected_image_remains_literal kind=ui owner=chat-live
@@ -474,10 +440,6 @@ fn plan_slash_command_with_hidden_shell_paste_unavailable_model_remains_literal(
 // ORACLE chatwidget/tests/plan_mode.rs:1491 plan_slash_command_with_hidden_shell_paste_queued_during_turn_submits_literal_prompt kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no queued slash-parse input in the port: the placeholder is drawn while a turn runs, the queued literal submit after the turn is not in the port",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).script(RUNNING).open();
     s.type_text("/plan ").paste(&payload);

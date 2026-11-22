@@ -11,6 +11,8 @@ use crate::screens::agents::Action;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Info,
+    /// A green `✓ ` and the message (a finished recovery).
+    Done,
     Error,
 }
 
@@ -64,6 +66,9 @@ pub enum NoteKey {
     RawOutput(bool),
     /// The thread is controlled by its parent: it takes no direct input.
     ParentOwned,
+    /// A switch of the collaboration mode while a turn runs
+    /// (`Cannot switch collaboration mode while a turn is running.`).
+    ModeBusy,
     /// `/cd` was refused.
     CdRefused(CdRefusal),
     /// `/archive` or `/delete` did not remove the thread.
@@ -71,6 +76,11 @@ pub enum NoteKey {
     /// What a picker (`/model`, `/permissions`, `/apps`) said after a pick or
     /// an answer (`select::Note`).
     Select(crate::screens::select::Note),
+    /// What the server said while it worked, in its own words (`modelProvider/authRecoveryStarted`).
+    Server(String),
+    /// What the server said when its work finished, in its own words
+    /// (`modelProvider/authRecoveryCompleted`).
+    ServerDone(String),
 }
 
 impl NoteKey {
@@ -79,8 +89,10 @@ impl NoteKey {
         match self {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
             NoteKey::Select(note) => note.tone(),
+            NoteKey::ServerDone(_) => Tone::Done,
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
+            | NoteKey::ModeBusy
             | NoteKey::CdRefused(_)
             | NoteKey::Remove(..) => Tone::Error,
             NoteKey::Command(_)
@@ -88,7 +100,8 @@ impl NoteKey {
             | NoteKey::Rollout(_)
             | NoteKey::DesktopOpened
             | NoteKey::StoppingTerminals
-            | NoteKey::RawOutput(_) => Tone::Info,
+            | NoteKey::RawOutput(_)
+            | NoteKey::Server(_) => Tone::Info,
         }
     }
 }

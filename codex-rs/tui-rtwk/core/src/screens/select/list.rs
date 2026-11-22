@@ -234,6 +234,9 @@ pub struct List {
     /// Drawn on the panel of the bottom-pane pickers (`PickerSurface::Panel`:
     /// a blank row on top, the panel colour) instead of the terminal's own.
     pub panel: bool,
+    /// The most rows that show their ordinal: the model pickers number nine (a digit key
+    /// reaches those), the rows after them keep the blank gutter of a disabled row.
+    pub numbered_rows: Option<usize>,
 }
 
 impl Default for List {
@@ -263,6 +266,7 @@ impl Default for List {
             ordering: false,
             preview: false,
             panel: false,
+            numbered_rows: None,
         }
     }
 }
@@ -611,7 +615,11 @@ impl Browse<'_> {
                     format!("    {label}. ")
                 } else {
                     number += 1;
-                    format!(" {number}. ")
+                    if self.list.numbered_rows.is_some_and(|rows| number > rows) {
+                        format!(" {}", " ".repeat(number_width + 2))
+                    } else {
+                        format!(" {number}. ")
+                    }
                 };
                 let toggle = match item.toggle {
                     Some(true) if item.checkbox => "[x] ",

@@ -1,7 +1,7 @@
 ---
 name: codex-porter
 description: CodexCLI fleet agent for one tm task of the tui-rtwk port (a feature of codex-tui carried onto rtwk, a fix, a landing, docs). Always Sonnet (pass effort xhigh for complex tasks). Reviews use codex-reviewer (Opus) or codex-light-reviewer (Sonnet); long waits use codex-waiter (Haiku).
-tools: Bash, Read, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add
+tools: Bash, Read, Grep, Glob, Edit, Write, ToolSearch, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_checkpoint, mcp__tm__task_hold, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add
 model: sonnet
 effort: high
 autoCompactWindow: 250000
@@ -61,6 +61,11 @@ differing rows in the pack.
 - Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>` (starts and waits
   110 s); `bgrun.sh wait <name>` to wait again.
 - Definitions: `~/.cache/codexcli/sym A B C` (`--oracle` codex-rs/tui, `--proto` protocol crates).
+- Search and read with the tools, not the shell: Grep (absolute `path`;
+  `output_mode: files_with_matches` first, then `content` with `-n`, `-C`,
+  `head_limit`), Glob for files by name, Read with `offset`/`limit`. Bash is
+  for builds, tests, git, `bgrun.sh` and `sym`; no `rg`/`grep`/`sed -n`/`cat`/
+  `find`/`ls` chains in Bash.
 - Independent reads go out together in one turn; ranges of ≤120 lines.
 - Build and test output: failures and the summary only.
 - Known reds: `~/.cache/codexcli/known-red.txt`.
@@ -68,8 +73,9 @@ differing rows in the pack.
 ## Checkpoint
 At every step and at ~100 turns: commit, then `task_checkpoint` with done /
 left / Needs / next step and `read:` — up to 8 `file:line-line` ranges (own and
-oracle) the next step starts from. At ~100 turns finish with a reply starting
-`HANDOFF:`.
+oracle) the next step starts from. At ~100 turns (or when you stop short of
+task_done) commit, checkpoint, `task_hold` the task so a successor can claim it,
+and finish with a reply starting `HANDOFF:`.
 
 ## Handover
 `task_done` with the commits, the pack path and a summary of ≤15 lines: tests

@@ -4,7 +4,9 @@ use codex_tui_core::screens::usage::date::NaiveDate;
 use codex_tui_core::screens::usage::models::AccountAnalyticsGrouping as Grouping;
 use codex_tui_core::screens::usage::models::AccountAnalyticsReport as Report;
 use codex_tui_core::screens::usage::models::*;
-use codex_tui_core::screens::usage::normalize::history;
+use codex_tui_core::screens::usage::normalize::{
+    Amount, Error, Gap, has_complete_attribution, history,
+};
 use codex_tui_core::screens::usage::report_data::AnalyticsData;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -356,8 +358,151 @@ fn unsupported_message_groupings_fail_even_without_records() {
             let response = serde_json::from_value(json!({"data": data})).unwrap();
             assert_eq!(
                 history(response, Report::Messages, grouping, date, date),
-                Err("Unsupported message count grouping.".into())
+                Err(Error::UnsupportedMessageGrouping(grouping))
             );
         }
+    }
+}
+
+fn fail(report: Report, grouping: Grouping, record: serde_json::Value) -> Error {
+    let date = NaiveDate::from_ymd_opt(/*year*/ 2026, /*month*/ 1, /*day*/ 9).unwrap();
+    let response: AnalyticsData = serde_json::from_value(json!({"data": [record]})).unwrap();
+    history(response, report, grouping, date, date).unwrap_err()
+}
+
+#[test]
+fn a_record_date_that_is_no_date_names_the_date() {
+    let date = NaiveDate::from_ymd_opt(/*year*/ 2026, /*month*/ 1, /*day*/ 9).unwrap();
+    let response: AnalyticsData =
+        serde_json::from_value(json!({"data": [{"date": "not a date"}]})).unwrap();
+    assert_eq!(
+        has_complete_attribution(&response, date, date),
+        Err(Error::InvalidDate)
+    );
+    assert_eq!(
+        fail(Report::Usage, Grouping::Model, json!({"date": "yesterday"})),
+        Error::InvalidDate
+    );
+}
+
+#[test]
+fn an_unsupported_attribution_grouping_names_the_grouping() {
+    for grouping in [Grouping::Speed, Grouping::Reasoning, Grouping::TokenType] {
+        assert_eq!(
+            fail(
+                Report::Usage,
+                grouping,
+                json!({"date": "2026-01-09", "attribution": [{"thread_source": "user", "value": 1}]})
+            ),
+            Error::UnsupportedAttributionGrouping(grouping)
+        );
+    }
+}
+
+#[test]
+fn a_number_that_is_not_an_amount_names_which_one() {
+    let cases = [
+        (
+            Report::Usage,
+            Grouping::Surface,
+            json!({"date": "2026-01-09", "product_surface_usage_values": {"codex": -1}}),
+            Amount::Usage,
+        ),
+        (
+            Report::Usage,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "attribution": [{"model": "a", "value": -1}]}),
+            Amount::Attribution,
+        ),
+        (
+            Report::Messages,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "totals": {"turns": -1}}),
+            Amount::MessageTotal,
+        ),
+        (
+            Report::Messages,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "totals": {"turns": 1}, "models": [{"model": "a", "turns": -1}]}),
+            Amount::ModelTurns,
+        ),
+        (
+            Report::Messages,
+            Grouping::Surface,
+            json!({"date": "2026-01-09", "totals": {"turns": 1}, "clients": [{"client_id": "CODEX_CLI", "turns": -1}]}),
+            Amount::ClientTurns,
+        ),
+        (
+            Report::Skills,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "skill_usage_overviews": [{"display_name": "a", "invocation_counts": -1}]}),
+            Amount::ToolInvocations,
+        ),
+    ];
+    for (report, grouping, record, amount) in cases {
+        assert_eq!(fail(report, grouping, record), Error::InvalidAmount(amount));
+    }
+}
+
+#[test]
+fn a_credit_amount_that_is_not_finite_names_credits_and_the_day() {
+    let date = NaiveDate::from_ymd_opt(/*year*/ 2026, /*month*/ 1, /*day*/ 9).unwrap();
+    let mut response: AnalyticsData =
+        serde_json::from_value(json!({"data": [{"date": "2026-01-09",
+        "premium_usage_values": {"credit_usage_credits": {"codex": 1}}}]}))
+        .unwrap();
+    let premium = response.data[0].premium_usage_values.as_mut().unwrap();
+    premium
+        .credit_usage_credits
+        .insert("codex".into(), f64::INFINITY);
+    assert_eq!(
+        history(response, Report::Credits, Grouping::Surface, date, date),
+        Err(Error::InvalidAmount(Amount::Credits))
+    );
+    let mut response: AnalyticsData = serde_json::from_value(json!({
+        "series": [{"key": "a", "label": "A"}],
+        "data": [{"date": "2026-01-09", "values": {"a": 1}}]}))
+    .unwrap();
+    response.data[0]
+        .values
+        .as_mut()
+        .unwrap()
+        .insert("a".into(), f64::INFINITY);
+    assert_eq!(
+        history(response, Report::Credits, Grouping::Surface, date, date),
+        Err(Error::InvalidAmount(Amount::Day))
+    );
+}
+
+#[test]
+fn a_number_the_record_lacks_names_which_one() {
+    let cases = [
+        (
+            Report::Usage,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "models": [{"model": "a"}]}),
+            Gap::PlanCredits,
+        ),
+        (
+            Report::Messages,
+            Grouping::Model,
+            json!({"date": "2026-01-09"}),
+            Gap::MessageTotal,
+        ),
+        (
+            Report::Messages,
+            Grouping::Model,
+            json!({"date": "2026-01-09", "totals": {"turns": 1}, "models": [{"model": "a"}]}),
+            Gap::ModelTurns,
+        ),
+        (
+            Report::Plugins,
+            Grouping::Model,
+            json!({"date": "2026-01-09"}),
+            Gap::ToolActivity,
+        ),
+    ];
+    for (report, grouping, record, gap) in cases {
+        assert_eq!(fail(report, grouping, record), Error::Unreported(gap));
     }
 }

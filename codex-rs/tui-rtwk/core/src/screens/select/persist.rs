@@ -61,6 +61,11 @@ pub fn effects(selection: &Selection) -> Effects {
             Effects { patch: Some(patch), edits }
         }
         Apply::Session => Effects { patch: Some(patch), edits: Vec::new() },
+        // The Reserve keeps its model: only the effort of the task changes.
+        Apply::Reserve => Effects {
+            patch: Some(SettingsPatch { effort: effort.clone(), ..SettingsPatch::default() }),
+            edits: Vec::new(),
+        },
         // Plan mode only: the thread keeps its own model and effort.
         Apply::PlanOnly => Effects {
             patch: None,
@@ -69,6 +74,23 @@ pub fn effects(selection: &Selection) -> Effects {
                 value: effort.as_ref().map(ToString::to_string),
             }],
         },
+    }
+}
+
+/// What a service-tier switch changes (`set_service_tier_selection`,
+/// `build_service_tier_selection_edits`): the thread's tier for its next turns and the saved
+/// default, where the fast tier is written as `fast`.
+pub fn tier_effects(tier: &str) -> Effects {
+    let saved = match tier {
+        "priority" => "fast",
+        other => other,
+    };
+    Effects {
+        patch: Some(SettingsPatch {
+            service_tier: Some(Some(tier.to_owned())),
+            ..SettingsPatch::default()
+        }),
+        edits: vec![Edit { key: "service_tier", value: Some(saved.to_owned()) }],
     }
 }
 

@@ -41,8 +41,10 @@ use crate::widgets::thread_ui::{Modes, ThreadUi};
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
+use super::backtrack::{self, EditWatch};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
+use super::live::plan_mode::Seen as PlanSeen;
 use super::live::put_back;
 
 use super::status_surfaces::{StatusContext, TitleInputs};
@@ -71,6 +73,11 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
+    /// The same for the prompt an edit of the transcript's backtrack put back
+    /// (the edit of a past prompt).
+    edited: Option<(ThreadId, Option<u64>)>,
+    /// The "Implement this plan?" questions the page has opened.
+    plan: PlanSeen,
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
@@ -130,6 +137,8 @@ pub enum ChatMsg {
     QueueDraft,
     /// The edit-queued key: the newest queued message goes back to the composer.
     EditQueued,
+    /// The reasoning shortcuts: a step down or up (`handle_reasoning_shortcut`).
+    Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,
     RetryWriter,
     ForkWriter,
@@ -161,6 +170,8 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
+            edited: None,
+            plan: PlanSeen::default(),
             removed: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -334,6 +345,32 @@ impl State for ChatState {
             }
         }
         self.restored = Some(restore);
+        // The prompt an edit of the backtrack put back, once (`restore_user_message_to_composer`).
+        let edited = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread
+                    .screen_slots()
+                    .backtrack
+                    .restore
+                    .as_ref()
+                    .map(|restore| restore.seq),
+            )
+        });
+        if let Some((thread, before)) = &self.edited
+            && *thread == edited.0
+            && *before != edited.1
+            && edited.1.is_some()
+        {
+            let model = read::<ThreadModel, _>(cx);
+            if let Some(restore) = &model.screen_slots().backtrack.restore {
+                let table = crate::pages::session::composer::strings::of(cx);
+                put_back(&w.ui, &restore.draft.message(), |n| table.image(n));
+                self.sync_draft(w);
+            }
+        }
+        self.edited = Some(edited);
+        self.plan.poll(cx);
         // The thread was archived or deleted (`/archive`, `/delete`): the chat
         // is empty again and the command center opens over it
         // (`return_to_agents_after_removal`); under a sheet it waits until the
@@ -420,9 +457,12 @@ impl State for ChatState {
                 // the prompt chosen: the transcript is the chat's again; the
                 // edit itself is the thread's intent (`ThreadIntent::EditPrompt`)
                 if step == Browse::Confirm
-                    && modes.confirm(Some(thread.id()), targets.count).is_some()
+                    && let Some(chosen) = modes.confirm(Some(thread.id()), targets.count)
                 {
                     modes.close();
+                    if let Some(intent) = backtrack::edit_intent(cx, &thread, &chosen) {
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                 }
             }
             ChatMsg::QueueDraft => {
@@ -447,6 +487,7 @@ impl State for ChatState {
                     cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                 }
             }
+            ChatMsg::Reasoning(direction) => reasoning_shortcut(cx, &hs, direction),
             ChatMsg::Picked(text) => {
                 // `Autocomplete::on_selected`: a command picked in the popup
                 // runs as the pick names it (the command clears the composer
@@ -535,6 +576,15 @@ impl State for ChatState {
                     );
                 }
                 Action::OpenWarnings => open_warnings(cx, &hs),
+                // `cycle_collaboration_mode`: the thread's own switch; the model refuses
+                // it while a turn runs
+                Action::CycleMode => {
+                    let thread = read::<ThreadModel, _>(cx);
+                    if !thread.read_only() && !refuses_parent_owned(cx, &hs) {
+                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::CycleMode);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
+                }
                 other => {
                     if let Some(target) = other.target() {
                         open(cx, target);
@@ -757,7 +807,8 @@ impl State for ChatState {
             .main_axis_size(MainAxisSize::Min)
             .overflow_intended(true)
             .child(StatusSlot)
-            .child(NoticeLine);
+            .child(NoticeLine)
+            .child(EditWatch);
         if self.shortcuts && searching.is_none() {
             body = body.child(panel);
         }
@@ -768,6 +819,7 @@ impl State for ChatState {
             rate_limits: session.rate_limits.get(&backend),
             run_state: Some(run.word(&session, reconnecting)),
             strings,
+            catalog: &states.select.catalog,
         };
         let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
@@ -918,6 +970,17 @@ impl State for ChatState {
             &keymap,
             codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
             &cx.send(ChatMsg::EditQueued),
+        ));
+        use codex_tui_core::screens::select::reasoning::Direction;
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_DECREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Lower)),
+        ));
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_INCREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Raise)),
         ));
         KeyBindings::new(crate::keymap::first_of_each(keys), focus)
             .hints([

@@ -10,6 +10,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command};
 use crate::ids::ThreadId;
 use crate::rpc::{Answer, RpcError};
+use crate::screens::chat::plan_mode;
 use crate::screens::select::{self, apps, permissions};
 use crate::screens::{ScreenCommand, ScreenReply};
 
@@ -67,8 +68,13 @@ fn drain(app: &mut CodexApp, fx: &mut AppFx) {
 /// server accepted (`select_session_model`, `persist_default_model_selection`,
 /// `apply_permission_profile_selection`).
 fn picks(app: &mut CodexApp, fx: &mut AppFx) {
-    use select::Picked::{Permissions, Selection};
-    let ours = |pick: &select::Picked| matches!(pick, Selection(_) | Permissions(_));
+    use select::Picked::{Effort, Permissions, Selection, Tier};
+    let ours = |pick: &select::Picked| {
+        matches!(
+            pick,
+            Selection(_) | Permissions(_) | Tier(_) | Effort { .. }
+        ) || matches!(pick, select::Picked::Item(id) if plan_mode::Answer::of_row(id).is_some())
+    };
     if !app.screens.select.picked.iter().any(ours) {
         return;
     }
@@ -87,6 +93,17 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
         match pick {
             Selection(selection) => model_pick(app, selection, fx),
             Permissions(selection) => permissions_pick(app, selection, fx),
+            Tier(tier) => tier_pick(app, &tier, fx),
+            Effort {
+                model,
+                effort,
+                plan,
+            } => effort_pick(app, &model, effort, plan, fx),
+            select::Picked::Item(id) => {
+                if let Some(answer) = plan_mode::Answer::of_row(&id) {
+                    super::session::plan_answer(app, answer, fx);
+                }
+            }
             _ => {}
         }
     }
@@ -185,6 +202,55 @@ fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) 
             edits: effects.edits,
         },
         select::Ctx::Write { setting, then },
+        fx,
+    );
+}
+
+/// A reasoning shortcut's step (`UpdateReasoningEffort`, `UpdatePlanModeReasoningEffort`): the
+/// thread's effort for its next turns, saved nowhere; in Plan mode it rides on the mode
+/// the thread is in.
+fn effort_pick(
+    app: &mut CodexApp,
+    model: &str,
+    effort: select::models::Effort,
+    plan: bool,
+    fx: &mut AppFx,
+) {
+    let patch = if plan {
+        let mut mode = crate::screens::chat::plan_mode::collaboration_mode(
+            codex_protocol::config_types::ModeKind::Plan,
+            Some(model),
+        );
+        mode.settings.reasoning_effort = Some(effort);
+        crate::threads::SettingsPatch {
+            collaboration_mode: Some(mode),
+            ..Default::default()
+        }
+    } else {
+        crate::threads::SettingsPatch {
+            effort: Some(effort),
+            ..Default::default()
+        }
+    };
+    settings(app, patch, select::Setting::Model, None, fx);
+}
+
+/// A tier command of the model: the thread's tier changes for its next turns, the default is
+/// saved, and the history says so once the write was taken.
+fn tier_pick(app: &mut CodexApp, tier: &str, fx: &mut AppFx) {
+    let effects = select::persist::tier_effects(tier);
+    if let Some(patch) = effects.patch {
+        settings(app, patch, select::Setting::ServiceTier, None, fx);
+    }
+    ask(
+        app,
+        select::Command::Write {
+            edits: effects.edits,
+        },
+        select::Ctx::Write {
+            setting: select::Setting::ServiceTier,
+            then: Some(select::Note::ServiceTierSet(tier.to_owned())),
+        },
         fx,
     );
 }

@@ -446,3 +446,264 @@ fn the_persisted_prompt_keeps_elements_images_skills_and_mentions() {
         }
     );
 }
+
+// -- the edit: read, revert, wait for the server -----------------------------
+
+/// The edit of a past prompt through the app, as the shell drives it: the intent, the
+/// read, the revert, the server's `ThreadReverted`; the wait for it has a limit the view
+/// times (`ThreadPart::awaiting`, `ThreadIntent::Expired`).
+mod edit {
+    use super::*;
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::backtrack::{
+        Command as BacktrackCommand, Draft, EditError, Reply as BacktrackReply, ThreadIntent,
+    };
+    use codex_tui_core::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    fn notified(app: &mut CodexApp, notification: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(notification).expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    /// A thread with one finished turn that holds the prompt `first`.
+    fn app_with_a_prompt() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|c| match c {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(thread(T))),
+        );
+        notified(
+            &mut app,
+            json!({"method": "turn/started", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "full", "status": "inProgress",
+                "error": null}}}),
+        );
+        notified(
+            &mut app,
+            json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+                "completedAtMs": 0, "startedAtMs": 0,
+                "item": {"type": "userMessage", "id": "u1", "clientId": null,
+                    "content": [{"type": "text", "text": "first", "text_elements": []}]}}}),
+        );
+        notified(
+            &mut app,
+            json!({"method": "turn/completed", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "notLoaded", "status": "completed",
+                "error": null}}}),
+        );
+        app
+    }
+
+    fn part(app: &CodexApp) -> codex_tui_core::screens::backtrack::ThreadPart {
+        app.active_thread().screen_slots().backtrack.clone()
+    }
+
+    /// The edit of the prompt `u1` of `turn-1`, as the view sends it on Enter.
+    fn edit(app: &mut CodexApp) -> AppFx {
+        let transcript = app.active_thread().transcript().clone();
+        let chosen = Selection {
+            thread: thread(T),
+            nth: 0,
+        };
+        let edit = chosen.edit(&transcript).expect("the prompt is offered");
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: thread(T),
+                intent: ScreenThreadIntent::Backtrack(ThreadIntent::EditPrompt(edit)),
+            }),
+        )
+    }
+
+    fn asked(fx: &AppFx) -> (codex_tui_core::ids::Ticket, BacktrackCommand) {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Screen {
+                    ticket,
+                    command: ScreenCommand::Backtrack(command),
+                    ..
+                } => Some((*ticket, command.clone())),
+                _ => None,
+            })
+            .expect("a request of the backtrack")
+    }
+
+    fn answer(
+        app: &mut CodexApp,
+        ticket: codex_tui_core::ids::Ticket,
+        reply: BacktrackReply,
+    ) -> AppFx {
+        run(
+            app,
+            AppEv::Reply(ticket, Reply::screen(ScreenReply::Backtrack(reply))),
+        )
+    }
+
+    /// Edit, read answered, revert answered: the edit now waits on the server.
+    fn reverted_and_waiting(app: &mut CodexApp) {
+        let fx = edit(app);
+        let (ticket, command) = asked(&fx);
+        assert_eq!(
+            command,
+            BacktrackCommand::Read {
+                key: key("turn-1", "u1")
+            }
+        );
+        let fx = answer(
+            app,
+            ticket,
+            BacktrackReply::Resolved(Ok((
+                TurnId::new("turn-1"),
+                Prompt {
+                    text: "first".into(),
+                    ..Prompt::default()
+                },
+            ))),
+        );
+        let (ticket, command) = asked(&fx);
+        assert_eq!(
+            command,
+            BacktrackCommand::Revert {
+                before_turn: TurnId::new("turn-1")
+            }
+        );
+        answer(app, ticket, BacktrackReply::Reverted);
+    }
+
+    #[test]
+    fn the_prompt_goes_to_the_composer_when_the_server_reverted_and_the_edit_waits_for_the_notice()
+    {
+        let mut app = app_with_a_prompt();
+        reverted_and_waiting(&mut app);
+        let part = part(&app);
+        let restore = part.restore.as_ref().expect("the prompt goes back");
+        assert_eq!(restore.draft.message().text, "first");
+        assert!(part.awaiting().is_some(), "waiting for ThreadReverted");
+        assert!(part.editing());
+
+        notified(
+            &mut app,
+            json!({"method": "thread/reverted", "params": {"threadId": T}}),
+        );
+        let part = self::part(&app);
+        assert!(!part.editing());
+        assert_eq!(part.error, None);
+    }
+
+    #[test]
+    fn ten_seconds_without_the_notice_say_so_and_the_composer_keeps_the_text() {
+        assert_eq!(codex_tui_core::screens::backtrack::CONFIRM_SECS, 10);
+        let mut app = app_with_a_prompt();
+        reverted_and_waiting(&mut app);
+        let ticket = part(&app).awaiting().expect("waiting");
+
+        run(
+            &mut app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: thread(T),
+                intent: ScreenThreadIntent::Backtrack(ThreadIntent::Expired(ticket)),
+            }),
+        );
+        let part = part(&app);
+        assert_eq!(part.error, Some(EditError::NotConfirmed));
+        assert!(!part.editing());
+        // the text was given when the revert answered, and is still the composer's to hold
+        let restore = part.restore.as_ref().expect("kept");
+        assert_eq!(restore.seq, 1);
+        assert!(matches!(restore.draft, Draft::Persisted(_)));
+    }
+
+    #[test]
+    fn a_notice_that_came_in_time_makes_a_late_timer_harmless() {
+        let mut app = app_with_a_prompt();
+        reverted_and_waiting(&mut app);
+        let ticket = part(&app).awaiting().expect("waiting");
+        notified(
+            &mut app,
+            json!({"method": "thread/reverted", "params": {"threadId": T}}),
+        );
+        run(
+            &mut app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: thread(T),
+                intent: ScreenThreadIntent::Backtrack(ThreadIntent::Expired(ticket)),
+            }),
+        );
+        assert_eq!(part(&app).error, None);
+    }
+
+    #[test]
+    fn a_notice_before_the_answer_needs_no_wait() {
+        let mut app = app_with_a_prompt();
+        let fx = edit(&mut app);
+        let (ticket, _) = asked(&fx);
+        let fx = answer(
+            &mut app,
+            ticket,
+            BacktrackReply::Resolved(Ok((TurnId::new("turn-1"), Prompt::default()))),
+        );
+        let (ticket, _) = asked(&fx);
+        notified(
+            &mut app,
+            json!({"method": "thread/reverted", "params": {"threadId": T}}),
+        );
+        answer(&mut app, ticket, BacktrackReply::Reverted);
+        let part = part(&app);
+        assert!(part.restore.is_some());
+        assert_eq!(part.awaiting(), None);
+        assert!(!part.editing());
+    }
+
+    #[test]
+    fn a_failed_read_puts_the_shown_prompt_back_with_the_servers_words() {
+        let mut app = app_with_a_prompt();
+        let fx = edit(&mut app);
+        let (ticket, _) = asked(&fx);
+        run(&mut app, AppEv::Reply(ticket, Reply::failed("boom")));
+        let part = part(&app);
+        assert_eq!(part.error, Some(EditError::Failed("boom".into())));
+        let restore = part.restore.as_ref().expect("the prompt goes back");
+        assert!(matches!(restore.draft, Draft::Shown(_)));
+        assert_eq!(restore.draft.message().text, "first");
+        assert!(!part.editing());
+    }
+
+    #[test]
+    fn a_side_conversation_refuses_the_edit() {
+        let mut app = app_with_a_prompt();
+        run(
+            &mut app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: thread(T),
+                intent: ScreenThreadIntent::Backtrack(ThreadIntent::Unavailable),
+            }),
+        );
+        assert_eq!(part(&app).error, Some(EditError::Side));
+    }
+}

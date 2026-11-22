@@ -75,7 +75,7 @@ fn prompt_streams_the_answer_as_plain_text() {
     let commands = h.fake.commands();
     assert!(
         matches!(commands.as_slice(),
-            [Command::Startup { .. }, Command::StartThread { .. }, Command::Popovers { ask, .. }, Command::StartTurn { thread, message, .. }]
+            [Command::Startup { .. }, Command::Screen { .. }, Command::StartThread { .. }, Command::Popovers { ask, .. }, Command::StartTurn { thread, message, .. }]
                 if *ask == codex_tui_core::screens::popovers::Ask::Append("hi".into())
                     && *thread == ThreadId::new(FAKE_THREAD) && message.text == "hi"),
         "{commands:?}"

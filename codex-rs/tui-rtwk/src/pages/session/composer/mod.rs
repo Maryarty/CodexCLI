@@ -326,13 +326,19 @@ impl ComposerState {
     /// Asks the popup's sources for the rows of the text before the caret
     /// (none in shell mode, nor where `@` or `$` calls for the mention
     /// popup: `allow_command_popup`); whether they changed.
-    fn refresh(&self, w: &Composer, states: &ScreenStates, table: &chat_strings::Strings) -> bool {
+    fn refresh(
+        &self,
+        w: &Composer,
+        states: &ScreenStates,
+        table: &chat_strings::Strings,
+        model: Option<&str>,
+    ) -> bool {
         let (draft, c) = (&w.ui.draft, &w.ui.composer);
         if w.bare || draft.shell() || draft.mentions_claim_caret(c, &states.popovers.sources()) {
             return self.suggest.refresh(c, |_| Vec::new());
         }
         self.suggest.refresh(&w.ui.composer, |before| {
-            popup::suggestions(states, table, before)
+            popup::suggestions(states, table, model, before)
         })
     }
 }
@@ -548,7 +554,8 @@ impl State for ComposerState {
                 mentions::sync(w, &states, cx);
                 // a click or a key of the field ended the row's selection
                 let deselected = w.ui.draft.remote_deselect_on_move(&w.ui.composer);
-                return if self.refresh(w, &states, table) || deselected {
+                let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+                return if self.refresh(w, &states, table, model.as_deref()) || deselected {
                     rtwk::Rebuild::Yes
                 } else {
                     rtwk::Rebuild::No
@@ -757,7 +764,8 @@ impl State for ComposerState {
         }
         let table = chat_strings::of(cx);
         // the rows of the text as it is now (the states may have changed)
-        self.refresh(w, &states, table);
+        let model = read::<ThreadModel, _>(cx).screen_slots().chat.model.clone();
+        self.refresh(w, &states, table, model.as_deref());
         let field = self.popup(keys(area.into()), cx);
         let mark = if w.ui.draft.shell() {
             prompt(

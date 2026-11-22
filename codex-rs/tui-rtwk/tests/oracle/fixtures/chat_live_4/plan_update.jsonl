@@ -1,4 +1,5 @@
 # A plan update of a running turn (plan_mode.rs:1736 plan_update_renders_history_cell).
 {"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"notify","message":{"method":"thread/settings/updated","params":{"threadId":"thread-1","threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user","sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,"model":"gpt-5","modelProvider":"openai","serviceTier":null,"effort":null,"summary":null,"collaborationMode":{"mode":"plan","settings":{"model":"gpt-5","reasoning_effort":null,"developer_instructions":null}},"personality":null}}}}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 {"step":"notify","message":{"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","explanation":"Adapting plan","plan":[{"step":"Explore codebase","status":"completed"},{"step":"Implement feature","status":"inProgress"},{"step":"Write tests","status":"pending"}]}}}

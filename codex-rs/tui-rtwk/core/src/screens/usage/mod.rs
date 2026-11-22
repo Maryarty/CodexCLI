@@ -40,7 +40,7 @@ pub mod sections;
 pub mod tokens;
 
 pub use activity::TokenActivityView;
-pub use data::{GroupName, Load, Note, Stamp};
+pub use data::{GroupName, Load, LoadError, Note, Stamp};
 pub use date::NaiveDate;
 pub use models::{AccountAnalyticsHistory as History, AccountKind};
 pub use sections::{Control, RangeGroup, Section};
@@ -199,33 +199,33 @@ pub enum Ev {
     Account {
         session: u32,
         stamp: Stamp,
-        result: Result<AccountReply, String>,
+        result: Result<AccountReply, LoadError>,
     },
     Report {
         session: u32,
         stamp: Stamp,
         section: Section,
-        result: Result<ReportReply, String>,
+        result: Result<ReportReply, LoadError>,
     },
     Profile {
         session: u32,
         stamp: Stamp,
-        result: Result<Option<Box<profile::Profile>>, String>,
+        result: Result<Option<Box<profile::Profile>>, LoadError>,
     },
     Plan {
         session: u32,
         stamp: Stamp,
-        result: Result<Option<plan::Data>, String>,
+        result: Result<Option<plan::Data>, LoadError>,
     },
     Chats {
         session: u32,
         stamp: Stamp,
-        result: Result<Option<chats::ChatList>, String>,
+        result: Result<Option<chats::ChatList>, LoadError>,
     },
     Tasks {
         session: u32,
         stamp: Stamp,
-        result: Result<Option<chats::TaskList>, String>,
+        result: Result<Option<chats::TaskList>, LoadError>,
     },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
@@ -295,7 +295,7 @@ impl<T> SeedLoad<T> {
         match self {
             SeedLoad::Loading => Load::Loading(Stamp::default()),
             SeedLoad::Unavailable => Load::Unavailable,
-            SeedLoad::Error(message) => Load::Error(message),
+            SeedLoad::Error(message) => Load::Error(LoadError::Host(message)),
             SeedLoad::Ready(value) => Load::Ready(ready(value)),
         }
     }
@@ -513,7 +513,7 @@ impl Model {
                 SeedLoad::Ready(data) => match plan::Report::parse(data) {
                     Ok(Some(report)) => Load::Ready(Rc::new(report)),
                     Ok(None) => Load::Unavailable,
-                    Err(message) => Load::Error(message),
+                    Err(error) => Load::Error(error.into()),
                 },
                 other => other.into_load(|_: plan::Data| unreachable!("`Ready` is handled above")),
             };
@@ -677,7 +677,7 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
             result,
         } if session == model.session => {
             let result = result.and_then(|data| match data {
-                Some(data) => plan::Report::parse(data),
+                Some(data) => plan::Report::parse(data).map_err(LoadError::from),
                 None => Ok(None),
             });
             model.plan.settle(stamp, result.map(|report| report.map(Rc::new)));

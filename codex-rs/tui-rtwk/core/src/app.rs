@@ -94,6 +94,8 @@ pub struct SessionSlice {
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
     pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
+    /// What the last account read said of the Luna Reserve, per backend.
+    pub reserve: BTreeMap<BackendId, chat::Reserve>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -473,6 +475,8 @@ enum AppCtx {
         source: Option<ThreadId>,
         backend: BackendId,
         name: Option<String>,
+        /// The approved plan the new thread starts from (the plan prompt's "clear context" row).
+        plan: Option<String>,
     },
     /// `thread/archive` or `thread/delete` of the thread the chat shows
     /// (`/archive`, `/delete` after their confirmation).
@@ -582,6 +586,7 @@ impl CodexApp {
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
                 backend_banners: BTreeMap::new(),
+                reserve: BTreeMap::new(),
             }),
             threads: ThreadSet::default(),
             requests: Rc::new(RequestQueue::default()),
@@ -956,6 +961,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 fx,
             );
             read_session(app, fx);
+            // the model catalog is read at connect (`refresh_available_models`): the tier
+            // commands of the model and the footer's model name come from it
+            select::intent(app, crate::screens::select::Intent::LoadModels, fx);
             match app.first_thread {
                 FirstThread::Never => {}
                 FirstThread::OnConnect => start_first_thread(app, fx),
@@ -980,6 +988,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             Rc::make_mut(&mut app.session)
                 .backend_banners
                 .remove(&origin);
+            Rc::make_mut(&mut app.session).reserve.remove(&origin);
             detach_threads(app, origin, fx);
             if active_backend(app) == origin {
                 set_status(app, Session::Failed(Failure::Stopped));
@@ -993,6 +1002,15 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         |ctx| !matches!(ctx, AppCtx::RateLimits { backend } if *backend == origin),
                     );
                     install_rates(app, origin, note.rate_limits.clone().into());
+                    // never reuse the permission from before a new hard stop
+                    // (`invalidate_ordinary_usage_recovery`)
+                    if (note.rate_limits.rate_limit_reached_type.is_some()
+                        || note.rate_limits.spend_control_reached == Some(true))
+                        && let Some(reserve) =
+                            Rc::make_mut(&mut app.session).reserve.get_mut(&origin)
+                    {
+                        reserve.recovered = false;
+                    }
                     if app.screens.chat.status.account_usage
                         && (note.rate_limits.rate_limit_reached_type.is_some()
                             || note.rate_limits.spend_control_reached == Some(true)
@@ -1008,6 +1026,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     Rc::make_mut(&mut app.session)
                         .backend_banners
                         .remove(&origin);
+                    Rc::make_mut(&mut app.session).reserve.remove(&origin);
                     app.outgoing.retain(
                         |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
                     );
@@ -1109,6 +1128,22 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 let outs =
                     agents::observe(&mut Rc::make_mut(&mut app.screens).agents, &notification);
                 send_agents(app, outs, fx);
+            }
+            // A diagnostic is retained for the footer count and the warnings viewer; one the
+            // session already showed (or the user dismissed unchanged) is not shown again.
+            if let Some(warning) = crate::screens::dialogs::incoming(&notification)
+                && !crate::screens::dialogs::take_in(
+                    &mut Rc::make_mut(&mut app.screens).dialogs,
+                    &warning,
+                )
+            {
+                return;
+            }
+            if matches!(&*notification, ServerNotification::TurnStarted(_)) {
+                Rc::make_mut(&mut app.screens)
+                    .dialogs
+                    .intake
+                    .startup_complete = true;
             }
             // What the server sends without a thread (a deprecation notice) is
             // the displayed thread's: the chat shows it in the detailed transcript.
@@ -1284,6 +1319,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         Rc::make_mut(&mut app.session)
                             .backend_banners
                             .remove(&origin);
+                        Rc::make_mut(&mut app.session).reserve.remove(&origin);
                         detach_threads(app, origin, fx);
                         app.attaching_events
                             .retain(|(backend, ..)| *backend != origin);
@@ -1513,7 +1549,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
-                if let Answer::RateLimits { limits, banner } = answer {
+                if let Answer::RateLimits {
+                    limits,
+                    banner,
+                    reserve,
+                } = answer
+                {
+                    Rc::make_mut(&mut app.session)
+                        .reserve
+                        .insert(backend, reserve);
                     install_rates(app, backend, limits);
                     install_banner(app, backend, banner.map(|banner| *banner));
                 }
@@ -1555,6 +1599,7 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                 source,
                 backend,
                 name,
+                plan,
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread } => Ok((thread, None)),
@@ -1588,6 +1633,16 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                             show_held_thread(app, thread.clone());
                         }
                         fetch_history(app, &thread, fx);
+                        if let Some(markdown) = plan {
+                            apply_thread(
+                                app,
+                                &thread,
+                                ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+                                    chat::ThreadIntent::ApprovePlan(markdown),
+                                )),
+                                fx,
+                            );
+                        }
                     }
                     Err(error) => {
                         if let Some(source) = source {

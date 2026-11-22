@@ -30,18 +30,37 @@ const TURN2_STARTED: &str = include_str!("fixtures/chat_commands_2/turn2_started
 // ORACLE chatwidget/tests/slash_commands.rs:110 service_tier_commands_and_saved_selection_respect_independent_speed_policy kind=snap owner=chat-nav-pane
 #[test]
 fn service_tier_commands_and_saved_selection_respect_independent_speed_policy() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a model catalog with the priority and ultrafast service tiers, nor for the Fast and Ultrafast feature flags: the /ultra popup lists no tier command",
-    );
-    // (fast, ultrafast) = (false, true): the ultrafast command is offered.
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("/ultra");
-    s.assert_snap("ultrafast_command_allowed");
-    // (fast, ultrafast) = (true, false): the ultrafast command is denied.
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
-    s.type_text("/ultra");
-    s.assert_snap("ultrafast_command_denied");
+    let catalog = include_str!("fixtures/chat_commands_2/speed_catalog.json").trim();
+    // (fast, ultrafast) = (false, true): the ultrafast command is offered and the tier is on;
+    // (true, false): the ultrafast command is denied and the tier is off.
+    for (fast, ultrafast, snap) in [
+        (false, true, "ultrafast_command_allowed"),
+        (true, false, "ultrafast_command_denied"),
+    ] {
+        let mut s = Screen::build(Owner::ChatNavPane).size(80, 8).live().open();
+        s.feed(&format!(
+            r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5","service_tier":"ultrafast","cwd":"/tmp/project","fast_mode":{fast},"ultrafast_mode":{ultrafast}}}}}}}"#
+        ));
+        // the catalog is read when the picker opens (the oracle's chat holds it already)
+        s.type_text("/model").keys("enter");
+        s.keys("esc");
+        s.type_text("/ultra");
+        let row = s
+            .rows()
+            .iter()
+            .position(|r| r.contains("› /ultra") && !r.contains("/ultrafast"))
+            .expect("the composer row");
+        if ultrafast {
+            // the oracle draws the popup row above the composer, the port below it: the
+            // popup row and the footer are compared as the snapshot has them
+            s.assert_contains("/ultrafast  ultrafast processing");
+            s.assert_has_row("  GPT-5.5 default ultrafast · /tmp/project");
+        } else {
+            s.assert_absent("/ultrafast");
+            s.assert_snap_region(snap, row, 0);
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:189 slash_compact_eagerly_queues_follow_up_before_turn_start kind=ui owner=chat-nav-pane

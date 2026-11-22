@@ -75,6 +75,10 @@ pub async fn status(config: &Config) -> StatusFacts {
         cwd: Some(directory_display(cwd, home.as_deref())),
         home_directory: home.as_deref().map(|path| path.display().to_string()),
         service_tier: config.service_tier.clone(),
+        fast_mode: config.features.enabled(codex_features::Feature::FastMode),
+        ultrafast_mode: config
+            .features
+            .enabled(codex_features::Feature::UltrafastMode),
         project_root: project_root_name(cwd, home.as_deref()),
         branch: codex_git_utils::current_branch_name(cwd).await,
         items: config.tui_status_line.clone(),

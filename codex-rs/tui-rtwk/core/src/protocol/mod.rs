@@ -117,6 +117,7 @@ pub fn reply(
             *ticket,
             match decode::<GetAccountRateLimitsResponse>("account/rateLimits/read", result) {
                 Ok(response) => {
+                    let reserve = crate::screens::chat::Reserve::of(&response);
                     let plan = response.rate_limits.plan_type;
                     let banner = response.rate_limit_upsell.and_then(|raw| {
                         crate::screens::chat::Banner::parse(raw, response.account_id, plan)
@@ -125,7 +126,7 @@ pub fn reply(
                         .rate_limits_by_limit_id
                         .and_then(|mut limits| limits.remove("codex"))
                         .unwrap_or(response.rate_limits);
-                    Reply::account_rate_limits(limits.into(), banner)
+                    Reply::account_rate_limits(limits.into(), banner, reserve)
                 }
                 Err(error) => Reply::error(error),
             },
