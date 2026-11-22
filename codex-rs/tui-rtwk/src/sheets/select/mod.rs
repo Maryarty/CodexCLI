@@ -6,8 +6,6 @@
 
 mod dialog;
 mod lists;
-mod rows;
-mod side;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;

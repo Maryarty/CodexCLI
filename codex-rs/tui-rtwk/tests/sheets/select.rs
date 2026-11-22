@@ -388,12 +388,12 @@ fn worktrees_new_snapshot() {
 fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
     let files = [
         (
-            "src/sheets/select/dialog.rs",
-            include_str!("../../src/sheets/select/dialog.rs"),
+            "src/widgets/picker/mod.rs",
+            include_str!("../../src/widgets/picker/mod.rs"),
         ),
         (
-            "src/sheets/select/rows.rs",
-            include_str!("../../src/sheets/select/rows.rs"),
+            "src/widgets/picker/rows.rs",
+            include_str!("../../src/widgets/picker/rows.rs"),
         ),
         (
             "core/src/screens/select/list.rs",
@@ -419,7 +419,7 @@ fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
                 continue;
             }
             for (word, everywhere) in banned {
-                if text.contains(word) && (everywhere || name.ends_with("dialog.rs")) {
+                if text.contains(word) && (everywhere || name.ends_with("picker/mod.rs")) {
                     found.push(format!("{name}:{}: {text}", line + 1));
                 }
             }
