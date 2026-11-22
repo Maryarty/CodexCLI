@@ -259,10 +259,7 @@ mod tests {
     /// (oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled).
     #[test]
     fn the_hint_that_fits_whole_stays_and_the_other_leaves() {
-        let labels = [
-            label(Kind::Shortcuts, &[15]),
-            label(Kind::Context, &[17]),
-        ];
+        let labels = [label(Kind::Shortcuts, &[15]), label(Kind::Context, &[17])];
         assert_eq!(kinds(&fit(&labels, 15, false)), [Kind::Shortcuts]);
         assert_eq!(kinds(&fit(&labels, 17, false)), [Kind::Context]);
         assert_eq!(
@@ -275,10 +272,7 @@ mod tests {
     /// spelling before the shortcuts go.
     #[test]
     fn plan_shortens_before_anything_else_leaves() {
-        let labels = [
-            label(Kind::Shortcuts, &[15]),
-            label(Kind::Plan, &[25, 9]),
-        ];
+        let labels = [label(Kind::Shortcuts, &[15]), label(Kind::Plan, &[25, 9])];
         let wide = fit(&labels, 60, false);
         assert_eq!(wide.placed[1].form, 0);
         // shortcuts go first (the collapse order starts with them)
@@ -294,10 +288,7 @@ mod tests {
     /// a second row (`desired_rows`); the navigation stays on the first.
     #[test]
     fn two_rows_only_when_the_action_and_the_mode_do_not_fit_together() {
-        let labels = [
-            label(Kind::Action, &[20, 12]),
-            label(Kind::Plan, &[25, 9]),
-        ];
+        let labels = [label(Kind::Action, &[20, 12]), label(Kind::Plan, &[25, 9])];
         assert_eq!(desired_rows(&labels, 80), 1);
         assert_eq!(desired_rows(&labels, 20), 2);
         assert_eq!(desired_rows(&[], 80), 0);

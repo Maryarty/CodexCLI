@@ -28,13 +28,15 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
   the lone-context-meter case), so the full notice stays beside `← for agents` at 48 and the compact one shows at 30. The test now says so.
 - Passive footer with a draft: no `? for shortcuts` / `← for agents` (oracle `ComposerHasDraft`); the old footer showed them.
 
-## Shared edits (flagged)
-- `src/pages/session/mod.rs` (`mod footer;` + the footer entries in `debug_entries`), `src/pages/session/session_page.rs` (the Footer replaces `composer::footer`;
-  the `with_warning_notice` wrap is now only for the read-only thread) — chat-live's files.
-- `tests/pages.rs` (`mod chat_status;`) and `tests/pages/transcript_follow.rs` (two assertions `edit the previous message` → `edit previous message`, the oracle's
-  `esc again to edit previous message`) — transcript's files.
-- `tests/oracle/pane_footer_2.rs` (un-pend of the Ctrl+C history-search test) — the keymap task's file; my area now holds pane_footer_1/2.rs (area widened on the record).
-- `tests/pages/status_data.rs` — old unowned page tests of the status surfaces; one assertion changed (above).
+## Needs / lander (edits in files that are not mine; each is the smallest wiring, rebased clean onto 252acefb6)
+- `src/pages/session/mod.rs` (chunk-live's): `mod footer;` and the two lines that chain `footer::entries::debug_entries()` into `debug_entries()`.
+- `src/pages/session/session_page.rs` (chunk-live's): the `use` line, and the build's footer block: `Footer { line, agents, draft_empty, shell, on_queue, on_warnings }`
+  replaces `composer::footer::{footer, with_shell_mode, FooterLine}` (3 spellings of the footer line become `Line::{Close, EscPrimed, Passive}`); the `with_warning_notice`
+  wrap stays only for the read-only thread (the Footer carries its own notice). A lander that has chunk-live's newer `session_page.rs` re-applies exactly these hunks.
+- `tests/pages.rs` (registration, one line: `mod chat_status;`) and `tests/pages/transcript_follow.rs` (chunk-transcript-2's; two assertions `edit the previous
+  message` → `edit previous message`, the oracle's `esc again to edit previous message`).
+- `tests/pages/status_data.rs` (old unowned test): one assertion changed (see Deltas).
+- `tests/oracle/pane_footer_2.rs` (un-pend of the Ctrl+C history-search test): in my area (widened on the record).
 
 ## Needs (other owners)
 - Model facts the footer entries need (core, chat-live's area): collaboration mode (Plan indicator + cycle hint), goal status, IDE context, side conversation

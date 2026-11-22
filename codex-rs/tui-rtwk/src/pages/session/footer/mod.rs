@@ -257,7 +257,10 @@ impl Spec {
             };
             out.push((
                 Kind::Action,
-                vec![spelling(self.own.queue_long), spelling(self.own.queue_short)],
+                vec![
+                    spelling(self.own.queue_long),
+                    spelling(self.own.queue_short),
+                ],
             ));
         }
         if self.draft_empty {
@@ -346,9 +349,7 @@ impl Spec {
             .collect();
         let rows = usize::from(hints::desired_rows(&labels, room)).max(1);
         let layout = hints::fit(&labels, room, rows > 1);
-        let separator = || -> AnyWidget {
-            Text::line(SEPARATOR).style(self.tokens.dim()).into()
-        };
+        let separator = || -> AnyWidget { Text::line(SEPARATOR).style(self.tokens.dim()).into() };
         let mut column = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start);
@@ -357,8 +358,7 @@ impl Spec {
             let mut right: Vec<AnyWidget> = Vec::new();
             let mut lone_meter = false;
             for item in layout.placed.iter().filter(|item| item.row == row) {
-                let Some((_, forms)) = hints.iter_mut().find(|(kind, _)| *kind == item.kind)
-                else {
+                let Some((_, forms)) = hints.iter_mut().find(|(kind, _)| *kind == item.kind) else {
                     continue;
                 };
                 let form = forms.swap_remove(item.form);
