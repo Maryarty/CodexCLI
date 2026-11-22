@@ -15,13 +15,13 @@ use rtwk::l10n::msg;
 
 use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::GroupName;
-use codex_tui_core::screens::usage::NaiveDate;
 use codex_tui_core::screens::usage::LoadError;
+use codex_tui_core::screens::usage::NaiveDate;
 use codex_tui_core::screens::usage::Note;
 use codex_tui_core::screens::usage::normalize;
 use codex_tui_core::screens::usage::plan;
-use codex_tui_core::screens::usage::tokens;
 use codex_tui_core::screens::usage::report::Unit;
+use codex_tui_core::screens::usage::tokens;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -670,7 +670,9 @@ impl Strings {
             LoadError::Report(error) => match error {
                 normalize::Error::InvalidDate => self.err_date,
                 normalize::Error::UnsupportedMessageGrouping(_) => self.err_message_grouping,
-                normalize::Error::UnsupportedAttributionGrouping(_) => self.err_attribution_grouping,
+                normalize::Error::UnsupportedAttributionGrouping(_) => {
+                    self.err_attribution_grouping
+                }
                 normalize::Error::InvalidAmount(_) => self.err_amount,
                 normalize::Error::Unreported(gap) => match gap {
                     normalize::Gap::PlanCredits => self.err_plan_credits,
