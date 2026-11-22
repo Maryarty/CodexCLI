@@ -111,6 +111,28 @@ pub fn names(keymap: &Keymap, id: ActionId) -> Vec<String> {
     names
 }
 
+/// The pairs of keys and what they do, with a key two pairs name the way
+/// `KeyBindings` reads them (`shift+?` and `?` are one key) left to the first
+/// of them: it panics on a key bound twice, and a user's keymap may bind two
+/// actions to one key (the order of the pairs is the order of the actions the
+/// screen asks first).
+pub fn first_of_each<T>(pairs: Vec<(String, T)>) -> Vec<(String, T)> {
+    let mut seen = std::collections::HashSet::new();
+    pairs
+        .into_iter()
+        .filter(|(name, _)| {
+            KeyCombo::parse_sequence(name, None).is_ok_and(|keys| {
+                seen.insert(
+                    keys.iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+            })
+        })
+        .collect()
+}
+
 /// `names` of an action, each paired with `handler`.
 pub fn bindings<H: Clone>(keymap: &Keymap, id: ActionId, handler: &H) -> Vec<(String, H)> {
     names(keymap, id)
@@ -236,6 +258,27 @@ mod tests {
         assert_eq!(
             label(&keymap, GLOBAL_OPEN_TRANSCRIPT).as_deref(),
             Some("f6")
+        );
+    }
+
+    #[test]
+    fn a_key_named_twice_is_left_to_the_first_of_its_pairs() {
+        let pairs = vec![
+            ("?".to_owned(), 1),
+            ("f9".to_owned(), 2),
+            ("shift+?".to_owned(), 3),
+            ("f9".to_owned(), 4),
+            ("ctrl+x b".to_owned(), 5),
+            ("ctrl+x c".to_owned(), 6),
+        ];
+        assert_eq!(
+            first_of_each(pairs),
+            [
+                ("?".to_owned(), 1),
+                ("f9".to_owned(), 2),
+                ("ctrl+x b".to_owned(), 5),
+                ("ctrl+x c".to_owned(), 6),
+            ]
         );
     }
 

@@ -8,7 +8,12 @@
 #[path = "../oracle_snap/mod.rs"]
 mod oracle_snap;
 
-use crate::common::{Harness, start_clipping, start_sized};
+use crate::common::{Harness, start_clipping, start_driven, start_sized};
+use codex_app_server_protocol::Thread;
+use codex_tui_core::app::{AppEv, Command};
+use codex_tui_core::rpc::Reply as AppReply;
+use codex_tui_core::screens::agents::{Command as AgentsCommand, Page, Reply as AgentsReply};
+use codex_tui_core::screens::{ScreenCommand, ScreenReply};
 
 /// The kit's key-label normalization of our rows (platform labels: `delete`
 /// shipped for the `backspace` of the oracle's `cfg(test)` snapshots, the
@@ -29,15 +34,16 @@ use rtwk_core::style::{Attrs, Color};
 /// Who makes a pending test pass (tm aliases of the slices).
 #[derive(Clone, Copy)]
 enum Owner {
-    Keymap,
     ReuseCarry,
+    /// An open rtwk gap (the reason starts with its `Gxx`).
+    Rtwk,
 }
 
 impl Owner {
     fn slice(self) -> &'static str {
         match self {
-            Owner::Keymap => "keymap",
             Owner::ReuseCarry => "reuse-carry",
+            Owner::Rtwk => "rtwk",
         }
     }
 }
@@ -359,15 +365,174 @@ fn agents_overview_markdown_preview_preserves_layout_and_bounds() {
     );
 }
 
-/// `filtered_dashboard_actions_use_configured_shortcuts` (agents_overview_tests.rs:1753).
-/// Its filter and keys go through the rtwk list (screen level); its F-keys need
-/// the configured keymap, and `Fork` has no intent yet.
+/// The page over a debug entry, under the keymap the oracle's test builds
+/// (`TuiKeymap` fields, here as the seed names them).
+fn keyed(entry: &str, width: u16, height: u16, keys: &[(&str, &str)]) -> Harness {
+    let mut h = start_driven(true, width, height);
+    h.set_keymap(keys);
+    h.open_debug_row("agents", Some(entry));
+    h.advance(800);
+    h
+}
+
+/// How many commands the app has sent the backend whose debug text holds
+/// `what` (a stop asks the thread's active turn, an open resumes it).
+fn asked(h: &Harness, what: &str) -> usize {
+    h.fake
+        .commands()
+        .iter()
+        .filter(|command| format!("{command:?}").contains(what))
+        .count()
+}
+
+/// The text of the highlighted row of the list, none while nothing is.
+fn highlighted_row(h: &Harness) -> Option<String> {
+    h.t.screen()
+        .lines()
+        .find(|line| line.trim_start().starts_with("\u{203a} "))
+        .map(str::to_owned)
+}
+
+/// The configured keys of `filtered_dashboard_actions_use_configured_shortcuts`.
+const FILTERED_KEYS: [(&str, &str); 5] = [
+    ("agents.search", "f6"),
+    ("agents.stop", "f10"),
+    ("agents.resume", "f8"),
+    ("list.cancel", "f7"),
+    ("list.move_down", "v"),
+];
+
+/// `filtered_dashboard_actions_use_configured_shortcuts` (agents_overview_tests.rs:1753):
+/// F6 searches, F8 resumes, F7 cancels and `v` moves down. The configured keys
+/// replace the defaults: `j` no longer moves, `k` still moves up. The oracle
+/// drives one view and checks the events it sends; the debug entry shows what
+/// the keys do to the page, `configured_task_actions_ask_the_backend` the
+/// commands they send on the live path (a debug entry runs on its own model).
 #[test]
 fn filtered_dashboard_actions_use_configured_shortcuts() {
-    pending(
-        Owner::Keymap,
-        "the configured keymap (`agents.search/stop/resume`, `list.cancel/move_down`) does not exist in tui-rtwk; the screen's keys are the defaults (mod.rs `intent_of`)",
+    let keys = FILTERED_KEYS;
+    let mut h = keyed("keys_two", 100, 24, &keys);
+    for (key, task) in [
+        ("v", "Second task"),
+        ("k", "First task"),
+        ("j", "First task"),
+    ] {
+        h.press(key);
+        let row = highlighted_row(&h).unwrap_or_default();
+        assert!(row.contains(task), "after {key}: {row}\n{}", h.t.screen());
+    }
+    // F6 opens the search line, a paste filters the list to the second task.
+    h.press("f6");
+    assert!(h.t.screen().contains("Search \u{203a}"), "{}", h.t.screen());
+    h.t.paste("Second task");
+    h.settle();
+    let row = highlighted_row(&h).unwrap_or_default();
+    assert!(row.contains("Second task"), "{row}\n{}", h.t.screen());
+
+    // F8 opens the resume picker over the center.
+    let mut h = keyed("keys_two", 100, 24, &keys);
+    h.press("f8");
+    h.wait_for("the resume picker", |s| {
+        s.contains("Resume a previous session")
+    });
+
+    // F6 and a search nothing matches leave no row highlighted, F7 closes
+    // the line and the highlight is back on the first task, online or not.
+    for entry in ["keys_two", "paging30_offline"] {
+        let mut h = keyed(entry, 100, 24, &keys);
+        h.press("f6");
+        h.t.paste("no matching task");
+        h.settle();
+        // No task is highlighted (online, the "Searching history…" row of
+        // the model may be, which the oracle's view has no row for).
+        let row = highlighted_row(&h);
+        assert!(
+            row.as_deref()
+                .is_none_or(|row| row.contains("Searching history")),
+            "{entry}: {}",
+            h.t.screen()
+        );
+        h.press("f7");
+        let row = highlighted_row(&h).unwrap_or_default();
+        assert!(
+            row.contains("First task") || row.contains("Paging task 00"),
+            "{entry}: {row}\n{}",
+            h.t.screen()
+        );
+    }
+}
+
+/// The live center on the fake backend (`/agents` over a ready session) under
+/// `keys`, its list the `keys_two` fixture's: the commands the page sends are
+/// the fake's `commands()` (a debug entry runs on its own model and sends none).
+fn live_keyed(keys: &[(&str, &str)]) -> Harness {
+    let mut h = start_driven(false, 100, 24);
+    h.wait_idle();
+    h.set_keymap(keys);
+    h.t.type_text("/agents");
+    h.press("enter");
+    h.advance(800);
+    h.wait_for("the command center", |s| s.contains("Agent command center"));
+    let ticket = h
+        .fake
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(AgentsCommand::List { .. }),
+                ..
+            } => Some(*ticket),
+            _ => None,
+        })
+        .expect("the list was asked for");
+    let script = include_str!("../../src/pages/agents/fixtures/keys_two.jsonl");
+    let threads: Vec<Thread> = script
+        .lines()
+        .filter(|line| line.contains("\"listed\""))
+        .find_map(|line| {
+            let step: serde_json::Value = serde_json::from_str(line).ok()?;
+            serde_json::from_value(step["ev"]["listed"]["threads"].clone()).ok()
+        })
+        .expect("the fixture lists threads");
+    let epoch = h.fake.epoch().expect("connected");
+    h.fake.inject(
+        epoch,
+        AppEv::Reply(
+            ticket,
+            AppReply::screen(ScreenReply::Agents(AgentsReply::Listed(Page {
+                threads,
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        ),
     );
+    h.wait_for("the rows", |s| s.contains("Second task"));
+    h
+}
+
+/// The second half of `filtered_dashboard_actions_use_configured_shortcuts`
+/// (agents_overview_tests.rs:1753): on the live path F10 stops the working task
+/// (the idle one asks for nothing), with the search line open too, and Enter
+/// on the filtered list resumes it.
+#[test]
+fn configured_task_actions_ask_the_backend() {
+    let mut h = live_keyed(&FILTERED_KEYS);
+    // The first task is idle: stopping it asks for nothing.
+    h.press("f10");
+    assert_eq!(asked(&h, "ActiveTurn"), 0, "{:?}", h.fake.commands());
+    // Searching filters to the second task, which is working: F10 stops it
+    // from the line, Enter opens it.
+    h.press("f6");
+    h.t.paste("Second task");
+    h.settle();
+    h.press("f10");
+    assert_eq!(asked(&h, "ActiveTurn"), 1, "{:?}", h.fake.commands());
+    assert_eq!(asked(&h, "Resume {"), 0);
+    h.press("enter");
+    assert_eq!(asked(&h, "Resume {"), 1, "{:?}", h.fake.commands());
 }
 
 /// `command_center_cursor_tracks_fixed_footer` (agents_overview_tests.rs:2472):
@@ -703,21 +868,88 @@ fn live_center_navigation_and_complete_hints() {
 }
 
 /// `live_center_fixed_shortcuts_yield_to_configured_actions` (agent_center_tests.rs:649).
+/// Its first half: the configured cancel key `q`, a plain character, leaves
+/// the search line and the rename line. The oracle asks the keymap before it
+/// types the character; rtwk's `TextField` takes a typed character before the
+/// `KeyBindings` above it (`is_text`, shortcuts.rs), so the `q` is typed. The
+/// second half is `the_page_keys_yield_to_the_action_bound_to_them`.
 #[test]
 fn live_center_fixed_shortcuts_yield_to_configured_actions() {
     pending(
-        Owner::Keymap,
-        "the configured keymap (`agents.*` overriding the fixed shortcuts) does not exist in tui-rtwk",
+        Owner::Rtwk,
+        "G77: a configured plain-character cancel key cannot leave the search or rename line; Flutter's Shortcuts above a TextField take the character before the field types it, rtwk's KeyBindings above a TextField get only what the field does not take",
     );
+    // `list.cancel = 'q'`: the cancel key leaves the search line and the
+    // rename line, a plain character too, and the center stays.
+    for (editor_key, label) in [("/", "Search \u{203a}"), ("r", "Rename \u{203a}")] {
+        let mut h = keyed("search", 100, 24, &[("list.cancel", "q")]);
+        h.press(editor_key);
+        assert!(h.t.screen().contains(label), "{}", h.t.screen());
+        h.press("q");
+        assert!(!h.t.screen().contains(label), "{}", h.t.screen());
+        assert!(h.t.screen().contains("Agent command center"));
+    }
+    the_page_keys_yield_to_the_action_bound_to_them();
 }
 
-/// `live_center_hints_follow_configured_bindings` (agent_center_tests.rs:738).
+/// The second half of `live_center_fixed_shortcuts_yield_to_configured_actions`:
+/// the page's own keys (`?`, Tab) and the list's yield to the action the user
+/// bound to them: the key resumes, the page does not use it.
+#[test]
+fn the_page_keys_yield_to_the_action_bound_to_them() {
+    for binding in ["tab", "?", "shift+?", "f9", "enter"] {
+        let mut h = keyed(
+            "keys_empty",
+            100,
+            24,
+            &[("list.cancel", "f9"), ("agents.resume", binding)],
+        );
+        let shows = |h: &Harness, text: &str| h.t.screen().contains(text);
+        h.press("esc");
+        assert!(shows(&h, "Agent command center"), "{binding}");
+        if binding.ends_with('?') {
+            assert!(!shows(&h, "? help"), "{binding}\n{}", h.t.screen());
+        }
+        if binding == "enter" {
+            assert!(!shows(&h, "enter open"), "{}", h.t.screen());
+            h.press("?");
+            assert!(!shows(&h, "enter open"), "{}", h.t.screen());
+            assert!(shows(&h, "f9 back"), "{}", h.t.screen());
+            h.press("esc");
+            assert!(shows(&h, "Task shortcuts"), "{}", h.t.screen());
+            h.press("f9");
+            assert!(!shows(&h, "Task shortcuts"), "{}", h.t.screen());
+            h.press("/");
+            assert!(!shows(&h, "enter open"), "{}", h.t.screen());
+            h.press("f9");
+        }
+        // The terminal sends `?` with Shift as the character alone.
+        h.press(binding.trim_start_matches("shift+"));
+        h.wait_for("the resume picker", |s| {
+            s.contains("Resume a previous session")
+        });
+        assert_eq!(asked(&h, "Resume {"), 0, "{binding}");
+    }
+}
+
+/// `live_center_hints_follow_configured_bindings` (agent_center_tests.rs:738):
+/// `k/j` move, no page keys, no archive, `z r` renames and `z p` pins; the
+/// footer and the help name what is bound, and only that.
 #[test]
 fn live_center_hints_follow_configured_bindings() {
-    pending(
-        Owner::Keymap,
-        "the footer hints and help are the oracle's default keys; a configured keymap does not exist in tui-rtwk",
-    );
+    let keys = [
+        ("list.move_up", "k"),
+        ("list.move_down", "j"),
+        ("list.page_up", ""),
+        ("agents.archive", ""),
+        ("agents.rename", "z r"),
+        ("agents.toggle_pin", "z p"),
+    ];
+    let h = keyed("keys_empty", 100, 12, &keys);
+    assert_app(&h, "command_center__live_center_custom_footer");
+    let mut h = keyed("keys_task", 100, 24, &keys);
+    h.press("?");
+    assert_app(&h, "command_center__live_center_custom_help");
 }
 
 /// `live_center_search_row_appears_only_while_editing` (agent_center_tests.rs:779).

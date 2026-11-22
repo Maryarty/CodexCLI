@@ -1,0 +1,6 @@
+# `live_center_hints_follow_configured_bindings` (oracle agent_center_tests.rs:738): no tasks, the server has pins.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "agents", "ev": {"current": "00000000-0000-0000-0000-000000000101"}}
+{"step": "screen", "dir": "agents", "ev": {"listed": {"threads": []}}}
+{"step": "screen", "dir": "agents", "ev": {"backend": {"cloud": false, "worktrees": true}}}
+{"step": "screen", "dir": "agents", "ev": {"pinned": []}}

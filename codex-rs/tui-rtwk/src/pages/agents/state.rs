@@ -438,8 +438,11 @@ impl ScreenState {
                             return Rebuild::Yes;
                         }
                     }
+                    // A line already renaming keeps its target (oracle:
+                    // `rename_target.is_none()`).
                     Act::Rename => {
-                        if let Some(id) = task()
+                        if !matches!(self.mode, Mode::Rename(_))
+                            && let Some(id) = task()
                             && !model.held()
                             && model.has_task(&id)
                         {
@@ -461,6 +464,7 @@ impl ScreenState {
                             self.ask_removal(model, view::Confirm { thread, action }, cx);
                         }
                     }
+                    Act::Swallow => {}
                     Act::Right => {
                         if let Some(sel) = at {
                             self.accept(model, sel, &center, cx);
