@@ -129,27 +129,89 @@ fn inline_code() {
 // ORACLE markdown_render_tests.rs:782 inline_code_and_file_paths_follow_syntax_theme kind=snap owner=chat-live snap=codex_tui__markdown_render__markdown_render_tests__inline_code_and_file_paths_follow_syntax_theme
 #[test]
 fn inline_code_and_file_paths_follow_syntax_theme() {
-    kit::pending(
-        Owner::ChatLive,
-        "screen feature (markdown theme): the kit seeds the syntax theme (`syntax_theme`), the chat's Markdown does not read it; the oracle's snapshot is a Debug dump of the styled lines under six themes, no Buffer (the kit has no reader of it)",
-    );
-    // The oracle's snapshot is a Debug dump of six themes; the kit has no theme seed, so the theme rows are not compared.
-    let s = Screen::build(Owner::ChatLive)
-        .markdown(24, 40)
-        .script(include_str!(
-            "fixtures/markdown_streaming_3/inline_code_and_file_paths_follow_syntax_theme.jsonl"
-        ))
-        .open();
-    s.assert_in_order(&[
-        "Heading",
-        "Bold Italic",
-        "Quote",
-        "Ordered",
-        "Unordered",
-        "Use src/main.rs and",
-    ]);
-    s.assert_contains("src/main.rs");
-    s.assert_contains("src/lib.rs");
+    // The oracle's snapshot is a Debug dump of the styled lines under six themes; the colours
+    // of its heading, link, ordered marker and path spans are asserted per theme (the first
+    // two of the oracle's list are mocha on a dark and on a light terminal: the roles are
+    // taken to read on the background they sit on).
+    const DARK: (u32, u32) = (0xdc_dc_dc, 0x14_14_14);
+    const LIGHT: (u32, u32) = (0x1e_1e_1e, 0xff_ff_ff);
+    // (theme, terminal, heading, link, ordered marker, path)
+    let rows = [
+        (
+            "catppuccin-mocha",
+            DARK,
+            "Rgb(243,139,168)",
+            "Rgb(137,180,250)",
+            "LightBlue",
+            "Rgb(166,227,161)",
+        ),
+        (
+            "catppuccin-mocha",
+            LIGHT,
+            "Rgb(169,97,117)",
+            "Rgb(91,119,166)",
+            "LightBlue",
+            "Rgb(166,227,161)",
+        ),
+        (
+            "catppuccin-latte",
+            LIGHT,
+            "Rgb(210,15,57)",
+            "Rgb(30,102,245)",
+            "LightBlue",
+            "Rgb(64,160,43)",
+        ),
+        (
+            "nord",
+            DARK,
+            "Rgb(136,192,208)",
+            "Rgb(99,168,248)",
+            "Rgb(216,222,233)",
+            "Rgb(143,188,187)",
+        ),
+        (
+            "ansi",
+            DARK,
+            "Blue",
+            "Rgb(99,168,248)",
+            "LightBlue",
+            "Green",
+        ),
+        // the oracle's `Theme::default()`: the path span is the accent
+        (
+            "",
+            DARK,
+            "Reset",
+            "Rgb(99,168,248)",
+            "LightBlue",
+            "Rgb(99,168,248)",
+        ),
+    ];
+    for (name, (fg, bg), heading, link, marker, path) in rows {
+        let s = Screen::build(Owner::ChatLive)
+            .markdown(24, 40)
+            .terminal_colors(fg, bg)
+            .syntax_theme(name)
+            .script(include_str!(
+                "fixtures/markdown_streaming_3/inline_code_and_file_paths_follow_syntax_theme.jsonl"
+            ))
+            .open();
+        s.assert_in_order(&[
+            "Heading",
+            "Bold Italic",
+            "Quote",
+            "Ordered",
+            "Unordered",
+            "Use src/main.rs and",
+        ]);
+        if heading != "Reset" {
+            s.assert_text_style("Heading", &format!("fg={heading}"));
+        }
+        s.assert_text_style("Link", &format!("fg={link}"));
+        s.assert_text_style("1. ", &format!("fg={marker}"));
+        s.assert_text_style("src/main.rs", &format!("fg={path}"));
+        s.assert_text_style("src/lib.rs", &format!("fg={path}"));
+    }
 }
 
 // ORACLE markdown_render_tests.rs:848 strong kind=ui owner=chat-live
