@@ -14,10 +14,14 @@ use rtwk::binding::AppBinding;
 use rtwk::editing::{EditingKeys, TextArea};
 use rtwk::focus::FocusNode;
 use rtwk::foundation::{Listenable, VoidCallback};
-use rtwk::layout::{BoxWidget, CrossAxisAlignment, Expanded, Row, Shadow};
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
+    Shadow, SizedBox,
+};
 use rtwk::overlay::{OptionItem, OptionList, Panel, Popover, fuzzy_match};
 use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Style, Theme};
+use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
@@ -38,6 +42,7 @@ use crate::widgets::thread_ui::ThreadUi;
 pub mod burst;
 pub mod editing;
 pub mod footer;
+pub mod mentions;
 pub mod search;
 pub mod strings;
 pub mod suggest;
@@ -239,6 +244,18 @@ pub enum ComposerMsg {
     /// The timer of the paste-burst detector: what it holds goes in if its
     /// time is up.
     BurstDue,
+    /// Row `i` of the `@`/`$` popup was picked (Enter, Tab or a click).
+    MentionPick(usize),
+    /// The view was built while a mention popup is up: the app's data may
+    /// have changed under it, it asks them again.
+    SyncMentions,
+    /// Ctrl+V: the clipboard's image is asked of the app.
+    PasteImage,
+    /// The view was built after the image this draft asked for came in:
+    /// it is attached.
+    ImageArrived,
+    /// A remote image row was selected, deselected or removed.
+    Remote,
 }
 
 /// The reads the history needs from the file go to the app, which asks the
@@ -259,6 +276,11 @@ fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
 impl ComposerState {
     fn listen(&mut self, ui: &Rc<ThreadUi>, tell: Rc<dyn Fn(ComposerMsg)>) {
         self.unlisten();
+        // a click on a row of the mention popup picks as Enter does
+        let chosen = tell.clone();
+        ui.draft
+            .mentions()
+            .on_choose(Rc::new(move |at| chosen(ComposerMsg::MentionPick(at))));
         let (c, d) = (ui.composer.clone(), ui.draft.clone());
         let snap: VoidCallback = Rc::new(move || d.snap_caret(&c));
         ui.composer.listenable().add_listener(snap.clone());
@@ -276,10 +298,12 @@ impl ComposerState {
     }
 
     /// Asks the popup's sources for the rows of the text before the caret
-    /// (none in shell mode: `allow_command_popup`); whether they changed.
+    /// (none in shell mode, nor where `@` or `$` calls for the mention
+    /// popup: `allow_command_popup`); whether they changed.
     fn refresh(&self, w: &Composer, states: &ScreenStates, table: &chat_strings::Strings) -> bool {
-        if w.bare || w.ui.draft.shell() {
-            return self.suggest.refresh(&w.ui.composer, |_| Vec::new());
+        let (draft, c) = (&w.ui.draft, &w.ui.composer);
+        if w.bare || draft.shell() || draft.mentions_claim_caret(c, &states.popovers.sources()) {
+            return self.suggest.refresh(c, |_| Vec::new());
         }
         self.suggest.refresh(&w.ui.composer, |before| {
             popup::suggestions(states, table, before)
@@ -468,14 +492,25 @@ impl State for ComposerState {
             ComposerMsg::Refresh => {
                 let states = read::<ScreenStates, _>(cx);
                 let table = chat_strings::of(cx);
-                return if self.refresh(w, &states, table) {
+                mentions::sync(w, &states, cx);
+                // a click or a key of the field ended the row's selection
+                let deselected = w.ui.draft.remote_deselect_on_move(&w.ui.composer);
+                return if self.refresh(w, &states, table) || deselected {
                     rtwk::Rebuild::Yes
                 } else {
                     rtwk::Rebuild::No
                 };
             }
-            ComposerMsg::Redraw => return rtwk::Rebuild::Yes,
+            ComposerMsg::Redraw => {
+                // a Vim `/` query may have opened: no mention popup meanwhile
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+                return rtwk::Rebuild::Yes;
+            }
             ComposerMsg::Searched => {
+                // history search owns the keys: no mention popup meanwhile
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
                 // the page's footer is the query: it hears of every change
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
@@ -504,6 +539,44 @@ impl State for ComposerState {
                 self.suggest.hide(w.ui.composer.text());
                 return rtwk::Rebuild::Yes;
             }
+            ComposerMsg::MentionPick(at) => {
+                let states = read::<ScreenStates, _>(cx);
+                let table = strings::of(cx);
+                if !mentions::pick(w, at, |n| table.image(n), &states, cx) {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::SyncMentions => {
+                // the popup draws itself again: the composer stays as it is
+                let states = read::<ScreenStates, _>(cx);
+                mentions::sync(w, &states, cx);
+            }
+            ComposerMsg::PasteImage => {
+                let hs = read::<Hs, _>(cx);
+                cx.emit(&hs.screen, ScreenIntent::from(popovers::Intent::PasteImage));
+            }
+            ComposerMsg::ImageArrived => {
+                let states = read::<ScreenStates, _>(cx);
+                let table = strings::of(cx);
+                let (draft, c) = (&w.ui.draft, &w.ui.composer);
+                let took = draft.vim_direct(c, || {
+                    draft.take_pasted_image(c, &states.popovers.pasted, |n| table.image(n))
+                });
+                if !took {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Remote => return rtwk::Rebuild::Yes,
         }
         rtwk::Rebuild::No
     }
@@ -532,6 +605,14 @@ impl State for ComposerState {
             // a read the history waits for may be in the store now
             cx.local_sender()(ComposerMsg::Polled);
         }
+        if w.ui.draft.mentions().is_open() {
+            // the mentions or the file matches may have changed under it
+            cx.local_sender()(ComposerMsg::SyncMentions);
+        }
+        if w.ui.draft.image_arrived(&states.popovers.pasted) {
+            // the clipboard's image this draft asked for is in
+            cx.local_sender()(ComposerMsg::ImageArrived);
+        }
         let data = KeyData {
             draft: w.ui.draft.clone(),
             history: states.popovers.history.clone(),
@@ -539,6 +620,7 @@ impl State for ComposerState {
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
             suggest: self.suggest.clone(),
             keymap: crate::keymap::keymap(cx),
+            states: states.clone(),
         };
         let env = data.burst.clone();
         let searching = data.clone();
@@ -612,10 +694,37 @@ impl State for ComposerState {
         } else {
             prompt(table.prompt, tokens.bold())
         };
-        Row::new()
+        let draft_row = Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(mark)
-            .child(Expanded::new(1, field))
+            .child(Expanded::new(1, field));
+        let remote = w.ui.draft.remote_count();
+        if remote == 0 {
+            return draft_row.into();
+        }
+        // the remote images stand above the draft, one blank row between
+        let selected = w.ui.draft.remote_selected();
+        let labels = strings::of(cx);
+        let start = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .main_axis_size(MainAxisSize::Min);
+        let rows = (0..remote).fold(start, |column, at| {
+            let style = if selected == Some(at) {
+                tokens.info().attrs(Attrs::REVERSE)
+            } else {
+                tokens.info()
+            };
+            column.child(Padding::new(
+                EdgeInsets::only(PROMPT_COLS, 0, 0, 0),
+                Text::line(labels.image(at + 1)).style(style),
+            ))
+        });
+        rows.child(SizedBox::new(None, Some(1), None))
+            .child(draft_row)
             .into()
     }
 }
+
+/// The columns the prompt takes before the draft's text
+/// (`LIVE_PREFIX_COLS`): the remote image rows start there.
+const PROMPT_COLS: i32 = 2;

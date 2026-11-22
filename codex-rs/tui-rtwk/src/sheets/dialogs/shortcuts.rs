@@ -5,19 +5,23 @@
 use rtwk::LayoutBuilder;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{
-    Column, CrossAxisAlignment, Expanded, Grid, GridPlacement, GridTrack, MainAxisSize, Row,
-    SizedBox,
+    Axis, Column, CrossAxisAlignment, Expanded, Flexible, Grid, GridPlacement, GridTrack,
+    MainAxisSize, Row, SizedBox,
 };
 use rtwk::overlay::Dialog;
+use rtwk::scroll::{NeverScrollableScrollPhysics, SingleChildScrollView};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
 use rtwk_core::unicode::{TextMode, string_width};
+use std::rc::Rc;
 
 use codex_tui_core::screens::dialogs::ShortcutView;
 
 use super::dialog::{Msg, SmallDialogState};
-use super::strings::Strings;
+use super::strings::{Keys, Strings};
 use crate::app::theme::Tokens;
+use crate::keymap::{label, stroke_label};
+use codex_tui_core::keymap::{Keymap, Stroke};
 
 /// The dialog of the page `view`: Tab swaps the pages, `?` and Esc close.
 pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialogState>) -> Focus {
@@ -44,18 +48,26 @@ pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialog
         .bind(KeyPress::TAB, cx.send(Msg::Toggle))
 }
 
-/// The overlay as the oracle's bottom pane draws it (`lines`): the bold
-/// title, the groups and `/keymap customize`, two cells in, to stand above
-/// the composer; the close hint is the footer's (`close_hint`).
-pub(super) fn panel(s: &'static Strings, tokens: &Tokens) -> AnyWidget {
+/// The overlay as the oracle's bottom pane draws it (`lines`, `render`): the
+/// bold title, the groups and `/keymap customize`, two cells in, to stand above
+/// the composer in a `Flexible` of the bottom pane's column; the close hint is
+/// the footer's (`close_hint`). Given less room than it has rows it keeps
+/// `/keymap customize` and says `… resize to see all` over it: Flutter's
+/// `Column(min)[Flexible(SingleChildScrollView(body)), note, customize]`, the
+/// body's rows what its own arrangement holds (`groups`).
+pub(super) fn panel(s: &'static Strings, tokens: &Tokens, sections: Vec<Resolved>) -> AnyWidget {
     let tokens = tokens.clone();
     let inner = LayoutBuilder::new(move |_, constraints| {
-        let mut column = Column::new()
+        let (groups, group_rows) = groups(&tokens, &sections, constraints.max_width);
+        // the title, a blank, the groups, a blank
+        let body_rows = 3 + group_rows;
+        let body = Column::new()
             .main_axis_size(MainAxisSize::Min)
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Text::line(s.shortcuts_title).style(tokens.bold()))
+            .child(Text::new(String::new()))
+            .child(groups)
             .child(Text::new(String::new()));
-        column = column.child(groups(s, &tokens, constraints.max_width));
         // `/keymap` in the accent, the rest dim.
         let (command, rest) = s
             .keymap_customize
@@ -63,15 +75,87 @@ pub(super) fn panel(s: &'static Strings, tokens: &Tokens) -> AnyWidget {
         let customize = Row::new()
             .child(Text::line(command).style(tokens.accent()))
             .child(Text::line(rest).style(tokens.dim()));
-        column
-            .child(Text::new(String::new()))
-            .child(customize)
-            .into()
+        let room = constraints.max_height;
+        if room <= 0 {
+            // no row left: the oracle renders into an empty area
+            return SizedBox::fixed(0, 0).into();
+        }
+        if room > body_rows {
+            return Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(body)
+                .child(customize)
+                .into();
+        }
+        let mut clipped = Column::new()
+            .main_axis_size(MainAxisSize::Min)
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .child(Flexible::new(
+                1,
+                SingleChildScrollView::new(body)
+                    .physics(Rc::new(NeverScrollableScrollPhysics))
+                    .can_request_focus(false),
+            ));
+        if room >= 2 {
+            clipped = clipped.child(Text::line(s.shortcuts_resize).style(tokens.dim()));
+        }
+        clipped.child(customize).into()
     });
-    Row::new()
-        .child(SizedBox::new(Some(2), None, None))
-        .child(Expanded::new(1, inner))
-        .into()
+    Flexible::new(
+        OUTWEIGHS_THE_GAP,
+        Row::new()
+            .child(SizedBox::new(Some(2), None, None))
+            .child(Expanded::new(1, inner)),
+    )
+    .into()
+}
+
+/// The panel's flex against the reader's gap (flex 1) in the bottom pane's
+/// column: the panel takes the rows it needs and the gap keeps its one from
+/// a free height of nine rows on.
+const OUTWEIGHS_THE_GAP: i32 = 8;
+
+/// A column of the overlay with its keys resolved: what the user's keymap and
+/// the running turn make of the table's rows.
+pub(super) struct Resolved {
+    heading: &'static str,
+    rows: Vec<(String, &'static str)>,
+}
+
+/// The columns of `bindings` (`shortcut_overlay.rs`): a row whose action is
+/// unbound is left out, `Send message` and `Quit` turn into `Queue message`
+/// and `Interrupt` while a turn runs.
+pub(super) fn resolve(s: &Strings, keymap: &Keymap, running: bool) -> Vec<Resolved> {
+    let spell = |stroke: &Stroke| stroke_label(stroke);
+    s.shortcut_sections
+        .iter()
+        .map(|section| {
+            let rows = section
+                .rows
+                .iter()
+                .filter_map(|entry| {
+                    let keys = match entry.keys {
+                        Keys::Plain(text) => text.to_string(),
+                        Keys::Chord(stroke) => spell(&stroke),
+                        Keys::Pair(a, b) => {
+                            format!("{}{}{}", spell(&a), s.shortcut_either, spell(&b))
+                        }
+                        Keys::Bound(id) => label(keymap, id)?,
+                    };
+                    let action = match (running, entry.running) {
+                        (true, Some(running)) => running,
+                        _ => entry.label,
+                    };
+                    Some((keys, action))
+                })
+                .collect();
+            Resolved {
+                heading: section.heading,
+                rows,
+            }
+        })
+        .collect()
 }
 
 /// Cells between the columns (`shortcut_help.rs`, `COLUMN_GAP`).
@@ -79,10 +163,9 @@ const COLUMN_GAP: i32 = 4;
 
 /// The groups in as many columns as `room` holds (`group_lines`): three; the
 /// first and the other two stacked; or all stacked.
-fn groups(s: &Strings, tokens: &Tokens, room: i32) -> AnyWidget {
+fn groups(tokens: &Tokens, sections: &[Resolved], room: i32) -> (AnyWidget, i32) {
     let cells = |text: &str| string_width(text, TextMode::Graphemes, 1) as i32;
-    let widths: Vec<i32> = s
-        .shortcut_groups
+    let widths: Vec<i32> = sections
         .iter()
         .map(|group| {
             let keys = group
@@ -96,14 +179,14 @@ fn groups(s: &Strings, tokens: &Tokens, room: i32) -> AnyWidget {
         })
         .collect();
     let section = |index: usize| -> AnyWidget {
-        let group = &s.shortcut_groups[index];
+        let group = &sections[index];
         let mut grid = Grid::new()
             .columns([GridTrack::content(), GridTrack::content()])
             .column_gap(2)
             .child(GridPlacement::new(Text::line(group.heading).style(tokens.bold())).span(1, 2));
-        for (key, label) in group.rows {
+        for (key, label) in &group.rows {
             grid = grid
-                .child(Text::line(*key).style(tokens.accent()))
+                .child(Text::line(key.clone()).style(tokens.accent()))
                 .child(Text::line(*label));
         }
         grid.into()
@@ -130,12 +213,27 @@ fn groups(s: &Strings, tokens: &Tokens, room: i32) -> AnyWidget {
         }
         row.into()
     };
+    // a section is its heading and its rows; stacked ones have a blank between
+    let heights: Vec<i32> = sections
+        .iter()
+        .map(|group| 1 + group.rows.len() as i32)
+        .collect();
     if widths.iter().sum::<i32>() + COLUMN_GAP * 2 <= room {
-        side(vec![stack(&[0]), stack(&[1]), stack(&[2])])
+        let rows = heights.iter().copied().max().unwrap_or(0);
+        (side(vec![stack(&[0]), stack(&[1]), stack(&[2])]), rows)
     } else if widths[0] + COLUMN_GAP + widths[1].max(widths[2]) <= room {
-        side(vec![stack(&[0]), stack(&[1, 2])])
+        let rows = heights[0].max(heights[1] + 1 + heights[2]);
+        (side(vec![stack(&[0]), stack(&[1, 2])]), rows)
     } else {
-        stack(&[0, 1, 2])
+        // Narrower than the widest row the oracle wraps by word (`word_wrap_lines`);
+        // here the rows are clipped at the right edge (a horizontal view that does
+        // not scroll), one row each.
+        let rows = heights.iter().sum::<i32>() + 2;
+        let clipped = SingleChildScrollView::new(stack(&[0, 1, 2]))
+            .scroll_direction(Axis::Horizontal)
+            .physics(Rc::new(NeverScrollableScrollPhysics))
+            .can_request_focus(false);
+        (clipped.into(), rows)
     }
 }
 

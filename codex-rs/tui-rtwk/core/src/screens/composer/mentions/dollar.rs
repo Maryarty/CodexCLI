@@ -17,7 +17,8 @@ pub struct MentionItem {
     pub insert_text: String,
     pub search_terms: Vec<String>,
     pub path: Option<String>,
-    pub category_tag: Option<String>,
+    /// What the item is (`[Skill]`, `[App]`: the view's words).
+    pub kind: MentionKind,
     pub sort_rank: u8,
 }
 
@@ -37,7 +38,21 @@ enum MatchTier {
     Fuzzy,
 }
 
+/// The most characters of a name the `$` popup shows (`MENTION_NAME_TRUNCATE_LEN`).
+pub const NAME_LIMIT: usize = 28;
+
 impl MentionItem {
+    /// The name as the popup lists it: at most [`NAME_LIMIT`] characters, the
+    /// last three `...` when cut (`truncate_text`; scalar values, not
+    /// grapheme clusters: the core crate carries no segmentation table).
+    pub fn shown_name(&self) -> String {
+        if self.display_name.chars().count() <= NAME_LIMIT {
+            return self.display_name.clone();
+        }
+        let kept: String = self.display_name.chars().take(NAME_LIMIT - 3).collect();
+        format!("{kept}...")
+    }
+
     /// Matches the display name first, then the best distinct search term.
     pub fn fuzzy_match_query(&self, query: &str) -> Option<(Option<Vec<usize>>, i32)> {
         if let Some((indices, score)) = fuzzy_match(&self.display_name, query) {
@@ -90,7 +105,7 @@ pub fn mention_items(mentions: &[Mention]) -> Vec<MentionItem> {
                     insert_text: format!("${}", mention.insert),
                     search_terms,
                     path: mention.path.clone(),
-                    category_tag: Some("[Skill]".to_string()),
+                    kind: MentionKind::Skill,
                     sort_rank: 1,
                 })
             }
@@ -107,7 +122,7 @@ pub fn mention_items(mentions: &[Mention]) -> Vec<MentionItem> {
                     insert_text: format!("${}", mention.insert),
                     search_terms: vec![mention.name.clone(), id.to_string(), mention.insert.clone()],
                     path: mention.path.clone().or_else(|| Some(uri("app", id))),
-                    category_tag: Some("[App]".to_string()),
+                    kind: MentionKind::App,
                     sort_rank: 1,
                 })
             }
@@ -168,6 +183,15 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    #[test]
+    fn a_long_name_is_cut_to_the_limit_with_three_dots() {
+        let long = "x".repeat(40);
+        let mut it = item(&long, "x", "/p", 0);
+        assert_eq!(it.shown_name(), format!("{}...", "x".repeat(25)));
+        it.display_name = "y".repeat(NAME_LIMIT);
+        assert_eq!(it.shown_name(), "y".repeat(NAME_LIMIT));
+    }
+
     fn item(name: &str, insert: &str, path: &str, rank: u8) -> MentionItem {
         MentionItem {
             display_name: name.to_string(),
@@ -175,7 +199,7 @@ mod tests {
             insert_text: format!("${insert}"),
             search_terms: vec![insert.to_string(), name.to_string()],
             path: Some(path.to_string()),
-            category_tag: None,
+            kind: MentionKind::Skill,
             sort_rank: rank,
         }
     }
@@ -225,7 +249,7 @@ mod tests {
         ]);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].insert_text, "$google-calendar-skill");
-        assert_eq!(items[0].category_tag.as_deref(), Some("[Skill]"));
+        assert_eq!(items[0].kind, MentionKind::Skill);
         assert_eq!(items[1].path.as_deref(), Some("app://cal"));
         assert_eq!(items[1].search_terms, ["Google Calendar", "cal", "google_calendar"]);
     }

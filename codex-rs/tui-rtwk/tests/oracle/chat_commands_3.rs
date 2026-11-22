@@ -4,7 +4,17 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::{ScreenCommand, agents};
+
 use crate::kit::{self, Owner, Screen};
+
+/// A running turn (the oracle's `handle_turn_started`).
+const RUNNING: &str = include_str!("fixtures/chat_commands_2/running.jsonl");
+/// The live chat with a side conversation active (`set_side_conversation_active`).
+const SIDE: &str = include_str!("fixtures/chat_commands_3/side.jsonl");
+/// A thread whose rollout file is `/tmp/codex-test-rollout.jsonl` (`current_rollout_path`).
+const ROLLOUT: &str = include_str!("fixtures/chat_commands_3/rollout.jsonl");
 
 // ---- oracle: chatwidget/tests/slash_commands.rs (46 screen-level tests here; 22 state tests left to chat-nav-pane)
 // ORACLE chatwidget/tests/slash_commands.rs:2210 slash_copy_picker_remains_available_from_parent_owned_threads kind=ui owner=chat-nav-pane
@@ -133,15 +143,12 @@ fn slash_keymap_debug_can_inspect_app_shortcuts() {
 // ORACLE chatwidget/tests/slash_commands.rs:2561 slash_keymap_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_keymap_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the chat composer has no prompt history: after /keymap nope (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/keymap nope\", recorded on submit)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/keymap nope");
     s.keys("enter");
     s.assert_contains("Usage: /keymap [debug]");
     // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    // (the command took the line: it is recalled, not kept)
     s.keys("ctrl+u");
     s.assert_composer("");
     s.keys("up");
@@ -207,15 +214,24 @@ fn queued_menu_slash_keeps_agent_turn_complete_notification() {
 // ORACLE chatwidget/tests/slash_commands.rs:2833 slash_stop_submits_background_terminal_cleanup kind=ui owner=chat-nav-pane
 #[test]
 fn slash_stop_submits_background_terminal_cleanup() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "/stop is mapped to voice control in the port (core/src/commands/dispatch.rs), not background-terminal cleanup; the cleanup confirmation cell is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/stop");
-    s.keys("enter");
+    s.keys("esc enter");
     s.assert_contains("Stopping all background terminals.");
-    // The oracle asserts the CleanBackgroundTerminals op: not drawn.
+    // The oracle's CleanBackgroundTerminals op is the thread's `thread/backgroundTerminals/clean` request.
+    assert!(
+        s.commands().iter().any(|command| matches!(
+            command,
+            codex_tui_core::app::Command::Screen {
+                command: codex_tui_core::screens::ScreenCommand::Chat(
+                    codex_tui_core::screens::chat::Command::CleanTerminals
+                ),
+                ..
+            }
+        )),
+        "the cleanup went out: {:?}",
+        s.commands()
+    );
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2858 slash_new_with_name_requests_named_session kind=ui owner=chat-nav-pane
@@ -260,60 +276,132 @@ fn slash_clear_after_ctrl_c_keeps_stashed_draft_recallable() {
 // ORACLE chatwidget/tests/slash_commands.rs:2926 slash_clear_is_disabled_while_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_clear_is_disabled_while_task_running() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a running task (set_task_running) cannot be seeded black-box; the disabled /clear error cell is not built",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/clear");
-    s.keys("enter");
+    s.keys("esc enter");
     s.assert_contains("'/clear' is disabled while a task is in progress.");
     // The oracle asserts exactly one InsertHistoryCell and no follow-up event: the single cell is the drawn line.
+    assert_eq!(
+        s.text()
+            .matches("'/clear' is disabled while a task is in progress.")
+            .count(),
+        1
+    );
+}
+
+/// The oracle's `AppEvent::ArchiveCurrentThread`: the port asks the agents backend to archive the thread.
+fn archives(s: &Screen) -> usize {
+    removals(s, |command| {
+        matches!(command, agents::Command::Archive { .. })
+    })
+}
+
+/// The oracle's `AppEvent::DeleteCurrentThread`: the port asks the agents backend to delete the thread.
+fn deletes(s: &Screen) -> usize {
+    removals(s, |command| {
+        matches!(command, agents::Command::Delete { .. })
+    })
+}
+
+fn removals(s: &Screen, which: fn(&agents::Command) -> bool) -> usize {
+    s.commands()
+        .iter()
+        .filter(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Agents(command),
+                ..
+            } => which(command),
+            _ => false,
+        })
+        .count()
+}
+
+/// The oracle's snapshots of the confirmations (`slash_archive_confirmation_popup`,
+/// `slash_archive_running_confirmation_popup`, `slash_delete_confirmation_command_center`)
+/// render its bottom pane only: the composer shows through in the four columns
+/// left of the dialog ("› As", "  GP", "• Wo"), which a frame of the whole
+/// screen does not hold. The dialog is the rows from column 4 on, the rows
+/// below are the snapshot's with those four columns blank.
+const ARCHIVE_ROWS: &[&str] = &[
+    "      Archive this session?",
+    "      Are you sure? This will archive the current session",
+    "",
+    "",
+    "    › 1. No, don't archive  Return to the current session",
+    "      2. Yes, archive       Archive this session now",
+    "",
+    "      enter select · esc back",
+];
+
+const ARCHIVE_RUNNING_ROWS: &[&str] = &[
+    "      Archive this session?",
+    "      This will stop the current turn and archive the session.",
+    "",
+    "",
+    "    › 1. No, don't archive  Return to the current session",
+    "      2. Yes, archive       Archive this session now",
+    "",
+    "      enter select · esc back",
+];
+
+const DELETE_ROWS: &[&str] = &[
+    "      Delete this session?",
+    "      Also deletes subagents and saved side chats. Cannot be undone.",
+    "",
+    "",
+    "    › 1. No, keep this session                     Return to the current",
+    "                                                   session",
+    "      2. Yes, delete and return to command center  Permanently delete this",
+    "                                                   session now",
+    "",
+    "      enter select · esc back",
+];
+
+/// The confirmation is a dialog centered on the 80x24 screen (the oracle's
+/// `ViewPresentation::Centered`, `dialog_area`: the rows of the dialog in the
+/// middle of the frame, 72 cells wide from column 4).
+fn dialog(s: &Screen, rows: &[&str]) {
+    let top = (24 - rows.len()) / 2;
+    for (i, row) in rows.iter().enumerate() {
+        s.assert_row(top + i, row);
+    }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2947 slash_archive_cancellation_keeps_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_archive_cancellation_keeps_task_running() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a running task seed and the archive confirmation popup are not reachable black-box; the popup text is the oracle's slash_archive_running_confirmation_popup",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/archive");
     s.keys("enter");
+    s.assert_contains("Archive this session?");
+    s.assert_contains("This will stop the current turn and archive the session.");
     s.keys("enter");
-    // The oracle asserts the popup is dismissed and the task still running, with no ArchiveCurrentThread
-    // or core op: the dismissed popup and the running status row are drawn, their text is not yet
-    // written here because the popup text is only in the snapshot of the next test.
+    // The popup is dismissed and the task still runs, with no archive asked.
+    s.assert_absent("Archive this session?");
+    s.assert_contains("esc to interrupt");
+    assert_eq!(archives(&s), 0);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2963 slash_memory_maintenance_reports_stubbed_feature kind=ui owner=chat-nav-pane
 #[test]
 fn slash_memory_maintenance_reports_stubbed_feature() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /debug-m-drop and /debug-m-update stub messages are not built",
-    );
     for command in ["/debug-m-drop", "/debug-m-update"] {
         let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
         s.type_text(command);
-        s.keys("enter");
-        s.assert_contains("Memory maintenance: Not available in TUI yet.");
+        s.keys("esc enter");
+        s.assert_contains("■ Memory maintenance: Not available in TUI yet.");
     }
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3041 slash_mcp_invalid_args_show_usage kind=ui owner=chat-nav-pane
 #[test]
 fn slash_mcp_invalid_args_show_usage() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the chat composer has no prompt history: after /mcp full (draft kept in the composer, usage drawn) and a cleared composer, Up recalls nothing (oracle: \"/mcp full\", recorded on submit)",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/mcp full");
     s.keys("enter");
     s.assert_contains("Usage: /mcp [verbose | login <name>]");
     // recall_latest_after_clearing: clear the composer (set_composer_text("") there; ctrl+u here), then Up.
+    // (the command took the line: it is recalled, not kept)
     s.keys("ctrl+u");
     s.assert_composer("");
     s.keys("up");
@@ -337,37 +425,40 @@ fn slash_memories_opens_memory_menu() {
 // ORACLE chatwidget/tests/slash_commands.rs:3095 slash_archive_confirmation_requests_current_thread_archive kind=snap owner=chat-nav-pane snap=slash_archive_confirmation_popup snap=slash_archive_running_confirmation_popup
 #[test]
 fn slash_archive_confirmation_requests_current_thread_archive() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /archive confirmation popup is not built; the running variant needs a running task seed (set_task_running), not reachable black-box",
-    );
     // Not running: the idle popup, then down and enter confirms the archive.
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/archive");
     s.keys("enter");
-    s.assert_snap("slash_archive_confirmation_popup");
+    assert_eq!(archives(&s), 0);
+    dialog(&s, ARCHIVE_ROWS);
     s.keys("down");
     s.keys("enter");
+    assert_eq!(archives(&s), 1);
     // Running: the same popup with the running text, from a running task seed.
-    let mut r = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut r = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     r.type_text("/archive");
     r.keys("enter");
-    r.assert_snap("slash_archive_running_confirmation_popup");
+    assert_eq!(archives(&r), 0);
+    dialog(&r, ARCHIVE_RUNNING_ROWS);
+    r.keys("down");
+    r.keys("enter");
+    assert_eq!(archives(&r), 1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3121 slash_delete_confirmation_requests_current_thread_delete kind=snap owner=chat-nav-pane snap=slash_delete_confirmation_command_center
 #[test]
 fn slash_delete_confirmation_requests_current_thread_delete() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /delete confirmation popup (command center) is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/delete");
     s.keys("enter");
-    s.assert_snap("slash_delete_confirmation_command_center");
+    assert_eq!(deletes(&s), 0);
+    dialog(&s, DELETE_ROWS);
     s.keys("down");
     s.keys("enter");
+    assert_eq!(deletes(&s), 1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3134 slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running kind=ui owner=chat-nav-pane
@@ -484,35 +575,44 @@ fn slash_fork_with_name_requests_named_fork() {
 // ORACLE chatwidget/tests/slash_commands.rs:3353 slash_app_without_thread_id_shows_starting_error kind=snap owner=chat-nav-pane snap=slash_app_without_thread_id_shows_starting_error
 #[test]
 fn slash_app_without_thread_id_shows_starting_error() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /app command and its starting-error cell are not built; a live chat with no thread id is not seeded",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The session has not started (the thread's start is held): no thread id yet.
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .held_start()
+        .open();
     s.type_text("/app");
-    s.keys("enter");
-    s.assert_snap("slash_app_without_thread_id_shows_starting_error");
+    s.keys("esc enter");
+    s.assert_has_row("■ Session is still starting; try /app again in a moment.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3367 slash_pwd_and_cwd_alias_display_current_working_directory_from_composer kind=snap owner=chat-nav-pane
 #[test]
 fn slash_pwd_and_cwd_alias_display_current_working_directory_from_composer() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /pwd and /cwd info cells are not built; the side-conversation and running-task seeds are not reachable black-box",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    // The oracle runs /pwd with a task running and /cwd in a side conversation (both stay available).
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .cwd("/tmp/project")
+        .open();
     s.type_text("/pwd");
-    s.keys("enter");
-    s.assert_contains("Current working directory: /tmp/project");
-    let mut side = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    s.keys("esc enter");
+    s.assert_has_row("• Current working directory: /tmp/project");
+    let mut side = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(SIDE)
+        .cwd("/tmp/project")
+        .open();
     side.type_text("/cwd");
-    side.keys("enter");
-    side.assert_contains("Current working directory: /tmp/project");
-    let mut usage = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    side.keys("esc enter");
+    side.assert_has_row("• Current working directory: /tmp/project");
+    let mut usage = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .live()
+        .cwd("/tmp/project")
+        .open();
     usage.type_text("/pwd x");
-    usage.keys("enter");
-    usage.assert_contains("Usage: /pwd");
+    usage.keys("esc enter");
+    usage.assert_has_row("■ Usage: /pwd");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3388 slash_cd_changes_current_session_after_replay_and_defaults_to_home kind=ui owner=chat-nav-pane
@@ -529,7 +629,7 @@ fn slash_cd_changes_current_session_after_replay_and_defaults_to_home() {
 fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
     kit::pending(
         Owner::ChatNavPane,
-        "the /cd rejection messages need the session states new, queued input (seed not registered); the states are not reachable black-box",
+        "the snapshot's second half is the idle session with a queued message: the port drains its queue at turn end and refuses /cd while a task runs, so no key sequence reaches that state; the oracle's whole table of states is carried by core/tests/commands.rs directory::the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one and ::cd_before_the_session_starts_says_so",
     );
     // State \"new\": no session yet.
     let mut s = Screen::build(Owner::ChatNavPane)
@@ -554,27 +654,22 @@ fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
 // ORACLE chatwidget/tests/slash_commands.rs:3474 slash_rollout_displays_current_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_displays_current_path() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the rollout path seed (current_rollout_path = /tmp/codex-test-rollout.jsonl) is not registered; the /rollout info cell is not built",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(ROLLOUT)
+        .open();
     s.type_text("/rollout");
-    s.keys("enter");
-    s.assert_contains("/tmp/codex-test-rollout.jsonl");
+    s.keys("esc enter");
+    s.assert_has_row("• Current rollout path: /tmp/codex-test-rollout.jsonl");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3491 slash_rollout_handles_missing_path kind=ui owner=chat-nav-pane
 #[test]
 fn slash_rollout_handles_missing_path() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /rollout info cell for a missing rollout path is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/rollout");
-    s.keys("enter");
-    s.assert_contains("not available");
+    s.keys("esc enter");
+    s.assert_has_row("• Rollout path is not available yet.");
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3592 user_turn_carries_service_tier_after_fast_toggle kind=ui owner=chat-nav-pane

@@ -11,7 +11,9 @@ mod select;
 mod session;
 pub mod worktree;
 
-use session::{active_backend, open_status, refresh_rates, session_intent};
+use session::{
+    active_backend, confirmed, open_status, refresh_rates, removed, session_intent, session_note,
+};
 
 use crate::threads::ThreadAsk;
 use std::collections::{BTreeMap, VecDeque};
@@ -82,6 +84,10 @@ pub struct SessionSlice {
     /// the thread it left: the composer's draft goes with it.
     pub switches: u32,
     pub switched_from: Option<ThreadId>,
+    /// How many times the thread of the chat was archived or deleted: the
+    /// chat is empty again and the command center takes its place
+    /// (`return_to_agents_after_removal`).
+    pub removed: u32,
     pub rate_limits: BTreeMap<BackendId, status::RateLimits>,
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
@@ -446,6 +452,12 @@ enum AppCtx {
         backend: BackendId,
         name: Option<String>,
     },
+    /// `thread/archive` or `thread/delete` of the thread the chat shows
+    /// (`/archive`, `/delete` after their confirmation).
+    Removal {
+        thread: ThreadId,
+        action: agents::Action,
+    },
     OpenThread {
         thread: ThreadId,
         backend: BackendId,
@@ -537,6 +549,7 @@ impl CodexApp {
                 active: None,
                 switches: 0,
                 switched_from: None,
+                removed: 0,
                 rate_limits: BTreeMap::new(),
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
@@ -1226,6 +1239,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             AppCtx::Agents(agents::Ctx::History { thread }) => {
                                 owners.owner_of(thread) != origin
                             }
+                            AppCtx::Removal { thread, .. } => {
+                                owners.owner_of(thread.as_str()) != origin
+                            }
                             _ => true,
                         });
                         // An older page that will never come is a failed one: asking again
@@ -1465,6 +1481,17 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
                     );
                 }
             }
+            AppCtx::Removal { thread, action } => {
+                // The server removed the thread of the chat: the chat is empty
+                // again (the shown thread is decided here alone).
+                if removed(app, &thread, action, answer, fx)
+                    && app.session.active.as_ref() == Some(&thread)
+                {
+                    let session = Rc::make_mut(&mut app.session);
+                    session.active = None;
+                    session.removed += 1;
+                }
+            }
             AppCtx::NewConversation {
                 source,
                 backend,
@@ -1472,9 +1499,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread } => Ok((thread, None)),
-                    Answer::Screen(ScreenReply::Agents(agents::Reply::Forked(thread))) => {
-                        Ok((ThreadId::new(&thread.id), Some(thread)))
-                    }
+                    Answer::Screen(ScreenReply::Agents(
+                        agents::Reply::Forked(thread) | agents::Reply::Started(thread),
+                    )) => Ok((ThreadId::new(&thread.id), Some(thread))),
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };
@@ -1764,6 +1791,9 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             command,
             intent,
         })) => session_intent(app, thread, command, intent, fx),
+        Intent::Screen(ScreenIntent::Chat(chat::Intent::Note { thread, note })) => {
+            session_note(app, thread, note, fx)
+        }
         Intent::Screen(ScreenIntent::Chat(chat::Intent::Shell { thread, command })) => {
             match thread.or_else(|| app.session.active.clone()) {
                 Some(thread) => run_shell(app, &thread, command, fx),
@@ -1771,7 +1801,10 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
                 None => app.queued_submits.push(BeforeThread::Shell(command)),
             }
         }
-        Intent::Screen(ScreenIntent::Select(intent)) => select::intent(app, intent, fx),
+        Intent::Screen(ScreenIntent::Select(intent)) => {
+            select::intent(app, intent, fx);
+            confirmed(app, fx);
+        }
         Intent::Screen(intent) => screens::apply_intent(Rc::make_mut(&mut app.screens), intent, fx),
     }
 }

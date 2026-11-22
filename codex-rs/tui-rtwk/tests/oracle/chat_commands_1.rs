@@ -6,6 +6,9 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// A thread its parent controls: the server says it takes no direct input (`set_parent_owned_thread`).
+const PARENT_OWNED: &str = include_str!("fixtures/chat_commands_3/parent_owned.jsonl");
+
 /// The oracle's `paste_hidden_shell_payload`: `!echo` and 1000 `x`, 1006 chars,
 /// shown in the composer as one paste placeholder.
 fn hidden_shell_payload() -> String {
@@ -178,16 +181,55 @@ fn hidden_shell_paste_queued_before_session_submits_literal_prompt() {
 // ORACLE chatwidget/tests/composer_submission.rs:302 parent_owned_thread_blocks_all_direct_input_entry_points kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_input
 #[test]
 fn parent_owned_thread_blocks_all_direct_input_entry_points() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "no seed for a parent-owned thread with the collaboration modes feature on (set_parent_owned_thread); the rejection is the inserted history row",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(PARENT_OWNED)
+        .open();
     s.type_text("keep this draft");
-    s.keys("enter");
-    s.assert_snap("parent_owned_thread_rejects_input");
+    s.keys("esc enter");
+    // The snapshot of the oracle is the one row it inserted.
+    s.assert_has_row("■ This sub-agent is controlled by its parent. Direct input is disabled.");
+    s.assert_composer("keep this draft");
+    assert!(s.turns().is_empty(), "no turn: {:?}", s.turns());
     // The oracle then tries /init, /review, /side, /archive, /rename, /subagents,
-    // /diff, !echo and a plan submission: each Enter keeps the draft and sends nothing.
+    // /diff, !echo: each Enter keeps the draft and sends nothing.
+    for command in [
+        "/init",
+        "/review check this",
+        "/side inspect this",
+        "/archive",
+        "/rename",
+        "/subagents parent",
+        "/diff now",
+        "!echo blocked",
+        " !echo blocked",
+    ] {
+        // Clear the draft, and the shell mode with it (a second key on the
+        // empty composer leaves that mode).
+        s.keys("ctrl+u backspace");
+        s.type_text(command);
+        s.keys("esc enter");
+        // A line that starts with `!` is the shell mode: its `!` is the prompt.
+        match command.strip_prefix('!') {
+            Some(shell) => s.assert_has_row(&format!("! {shell}")),
+            None => s.assert_composer(command),
+        }
+        assert!(s.turns().is_empty(), "{command}: {:?}", s.turns());
+        assert!(
+            !s.commands().iter().any(|c| matches!(
+                c,
+                codex_tui_core::app::Command::Screen {
+                    command: codex_tui_core::screens::ScreenCommand::Chat(
+                        codex_tui_core::screens::chat::Command::Shell(_)
+                            | codex_tui_core::screens::chat::Command::Compact
+                    ),
+                    ..
+                }
+            )),
+            "{command}: {:?}",
+            s.commands()
+        );
+    }
 }
 
 // ORACLE chatwidget/tests/composer_submission.rs:361 parent_owned_thread_blocks_settings_shortcuts kind=snap owner=chat-nav-pane snap=parent_owned_thread_rejects_settings_shortcuts
@@ -195,7 +237,7 @@ fn parent_owned_thread_blocks_all_direct_input_entry_points() {
 fn parent_owned_thread_blocks_settings_shortcuts() {
     kit::pending(
         Owner::ChatNavPane,
-        "no seed for a parent-owned thread with a medium reasoning effort on a gpt-5.4 model (set_parent_owned_thread); the rejection is the inserted history rows",
+        "shift+tab (cycle the collaboration mode) and alt+. / alt+, (reasoning effort) have keymap rows but no action in the port yet; no chunk of this wave owns them, so the parent-owned refusal of each has nothing to guard",
     );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.keys("shift+tab alt+. alt+,");

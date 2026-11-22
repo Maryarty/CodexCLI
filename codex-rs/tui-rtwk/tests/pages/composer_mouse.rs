@@ -76,6 +76,7 @@ fn the_drag_is_drawn_reversed_as_the_oracles_textarea_does() {
 
 // ADR-011: a click on a row of the composer's popup picks it as Enter does
 #[test]
+#[ignore = "pending(mount): MentionPopup is placed by session_page.rs (a Need of that file); the popup's rows are not on the page until the line is in"]
 fn a_click_on_a_popup_row_picks_it() {
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)

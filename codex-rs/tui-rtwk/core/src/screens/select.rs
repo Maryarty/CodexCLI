@@ -28,6 +28,24 @@ pub const NAME: &str = "select";
 pub const ID: &str = "S14";
 pub const KIND: Kind = Kind::Sheet;
 
+/// A question with two answers, No first: the oracle's confirmations of
+/// `/archive` and `/delete` (`SelectionViewParams::confirmation`). The words
+/// are the view's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confirm {
+    /// Archive the session; `running` says a turn is in progress, which the
+    /// archive stops.
+    Archive { running: bool },
+    /// Delete the session for good.
+    Delete,
+}
+
+impl Confirm {
+    /// The ids of its two rows (`Intent::Choose`); No is the first row.
+    pub const NO: &'static str = "no";
+    pub const YES: &'static str = "yes";
+}
+
 /// A menu the generic selection dialog shows; one variant per
 /// parameterisation, its rows data (the words are the view's).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +59,8 @@ pub enum Menu {
     /// `/apps`: the directory of apps, its rows `Model::apps` (loading, the
     /// failure with its Retry row, or the list).
     Apps,
+    /// A confirmation: No (row 0), then Yes (row 1).
+    Confirm(Confirm),
     /// The generic form: every option of the oracle's `SelectionViewParams`
     /// (search, tabs, disabled rows, side preview, footers) as data. A named
     /// parameterisation is a variant above whose view turns it into a `List`.
@@ -55,6 +75,8 @@ pub enum Picked {
     /// A permission mode or profile of the `/permissions` family, and how it
     /// applies.
     Permissions(permissions::Selection),
+    /// The answer of a confirmation was Yes (No picks nothing).
+    Confirmed(Confirm),
     /// An item of a generic list, by id.
     Item(String),
     /// The secondary action of an item of a generic list, by id.
@@ -166,7 +188,7 @@ impl Model {
             }
             Menu::Permissions(menu) => Some(Page::Permissions(menu.page(&self.profiles))),
             Menu::Apps => Some(Page::Apps(self.apps.page())),
-            Menu::List(_) => None,
+            Menu::Confirm(_) | Menu::List(_) => None,
         }
     }
 
@@ -526,6 +548,15 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.permissions_step(step);
             }
             Some(Menu::Apps) => model.choose_app(&id),
+            Some(Menu::Confirm(confirm)) => {
+                let confirm = *confirm;
+                if id == Confirm::YES {
+                    model.picked.push(Picked::Confirmed(confirm));
+                }
+                if id == Confirm::YES || id == Confirm::NO {
+                    model.stack.pop();
+                }
+            }
             None => {}
         },
         Intent::Secondary(id) => match model.stack.last() {

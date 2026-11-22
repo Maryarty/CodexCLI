@@ -4,7 +4,10 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::rpc::Reply as AppReply;
+use codex_tui_core::screens::{ScreenCommand, ScreenReply, agents};
 use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::pages::session::strings;
 
@@ -116,7 +119,7 @@ fn a_path_is_a_message_not_a_command() {
 
 #[test]
 fn a_command_that_needs_the_session_says_it_is_not_available_yet() {
-    for line in ["/init", "/copy", "/mcp"] {
+    for line in ["/copy", "/mcp"] {
         let mut h = chat();
         send(&mut h, line);
         let name = line.trim_start_matches('/');
@@ -172,5 +175,268 @@ fn slash_model_before_startup_shows_the_oracles_info_line() {
     assert_eq!(
         EN.notice(&Notice::ModelStartup),
         "Model selection is disabled until startup completes."
+    );
+}
+
+// ---------------------------------------------------------------- notes
+// What a command line answered with is a row of the transcript (oracle
+// `add_info_message`, `add_error_message`): it keeps its place when the
+// conversation goes on, it is not a line under the composer.
+
+fn at(screen: &str, text: &str) -> usize {
+    screen
+        .lines()
+        .position(|row| row.contains(text))
+        .unwrap_or_else(|| panic!("no row with `{text}`:\n{screen}"))
+}
+
+#[test]
+fn a_command_answer_is_a_row_of_the_transcript_and_stays_above_what_follows() {
+    use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_completed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    let mut h = chat();
+    send(&mut h, "/raw maybe");
+    h.wait_for("the usage note", |s| s.contains("■ Usage: /raw [on|off]"));
+    h.fake.script_turn(vec![
+        agent_delta(FAKE_THREAD, "turn-2", "msg-2", "Later"),
+        agent_completed(FAKE_THREAD, "turn-2", "msg-2", "Later"),
+        turn_completed(FAKE_THREAD, "turn-2"),
+    ]);
+    send(&mut h, "next");
+    h.wait_for("the later answer", |s| s.contains("• Later"));
+    let screen = h.t.screen();
+    assert!(
+        at(&screen, "• Hello") < at(&screen, "■ Usage: /raw [on|off]")
+            && at(&screen, "■ Usage: /raw [on|off]") < at(&screen, "› next"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn an_information_note_is_a_bullet_row_and_not_an_error() {
+    let mut h = chat();
+    send(&mut h, "!");
+    h.wait_for("the shell help", |s| {
+        s.contains("Prefix a command with ! to run it locally")
+    });
+    let screen = h.t.screen();
+    assert!(
+        !screen.contains("■ Prefix a command"),
+        "an information note has no error mark:\n{screen}"
+    );
+    assert!(
+        screen.contains("• Prefix a command with ! to run it locally"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn a_command_refused_while_a_task_runs_runs_once_and_keeps_its_line_for_recall() {
+    let mut h = start();
+    h.wait_idle();
+    h.fake.script_turn(vec![]);
+    send(&mut h, "work");
+    h.wait_for("working", |s| s.contains("Working"));
+    send(&mut h, "/clear");
+    let message = "'/clear' is disabled while a task is in progress.";
+    h.wait_for(message, |s| s.contains(message));
+    let screen = h.t.screen();
+    assert_eq!(
+        screen.matches(message).count(),
+        1,
+        "the line ran more than once:\n{screen}"
+    );
+    // the composer keeps the line, to be corrected, and recall has it too
+    assert!(screen.contains("› /clear"), "the draft is kept:\n{screen}");
+    h.press("ctrl+u");
+    h.press("up");
+    h.t.pump_for(ms(100));
+    assert!(
+        h.t.screen().contains("› /clear"),
+        "recall lost the line:\n{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn raw_toggles_the_mode_and_says_which_one_it_is_now() {
+    let mut h = chat();
+    send(&mut h, "/raw");
+    h.wait_for("raw on", |s| s.contains("• Raw output mode on:"));
+    send(&mut h, "/raw");
+    h.wait_for("raw off", |s| s.contains("• Raw output mode off:"));
+    send(&mut h, "/raw on");
+    h.wait_for("raw on again", |s| {
+        s.matches("• Raw output mode on:").count() == 2
+    });
+}
+
+#[test]
+fn init_sends_the_prompt_as_a_message_and_clears_the_composer() {
+    let mut h = chat();
+    h.fake.script_turn(vec![]);
+    send(&mut h, "/init");
+    // The transcript follows the tail of the long prompt.
+    h.wait_for("the prompt", |s| {
+        s.contains("State test naming conventions")
+    });
+    assert!(!h.t.screen().contains("› /init"), "{}", h.t.screen());
+}
+
+#[test]
+fn cd_starts_the_session_afresh_in_the_directory() {
+    let mut h = start();
+    h.wait_idle();
+    send(&mut h, "/cd /tmp");
+    h.wait_until("thread/start in /tmp", |h| {
+        h.fake.commands().iter().any(|c| {
+            matches!(
+                c,
+                codex_tui_core::app::Command::Screen {
+                    command: codex_tui_core::screens::ScreenCommand::Agents(
+                        codex_tui_core::screens::agents::Command::Thread(
+                            codex_tui_core::threads::ThreadAsk::Start { cwd: Some(cwd) }
+                        )
+                    ),
+                    ..
+                } if cwd == "/tmp"
+            )
+        })
+    });
+}
+
+#[test]
+fn cd_in_a_conversation_with_history_says_what_it_cannot_carry_over() {
+    let mut h = chat();
+    send(&mut h, "/cd /tmp");
+    h.wait_for("the refusal", |s| {
+        s.contains("■ Conversation history is not saved.")
+    });
+    assert!(
+        !h.fake
+            .requests()
+            .iter()
+            .any(|r| r["method"] == "thread/start" && r["params"]["cwd"] == "/tmp"),
+        "{:?}",
+        h.fake.requests()
+    );
+}
+
+/// The tickets of the removals the app asked of the server (`/archive`, `/delete`).
+fn removals(h: &Harness) -> Vec<(codex_tui_core::ids::Ticket, agents::Command)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(command),
+                ..
+            } if matches!(
+                command,
+                agents::Command::Archive { .. } | agents::Command::Delete { .. }
+            ) =>
+            {
+                Some((ticket, command))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn answer(h: &mut Harness, ticket: codex_tui_core::ids::Ticket, reply: AppReply) {
+    let epoch = h.fake.epoch().expect("connected");
+    h.fake.inject(epoch, AppEv::Reply(ticket, reply));
+}
+
+/// The cell of `needle` on the screen (x, y).
+fn find(h: &Harness, needle: &str) -> (u16, u16) {
+    let screen = h.t.screen();
+    for (y, line) in screen.lines().enumerate() {
+        if let Some(byte) = line.find(needle) {
+            return (line[..byte].chars().count() as u16, y as u16);
+        }
+    }
+    panic!("`{needle}` is not on the screen:\n{screen}");
+}
+
+#[test]
+fn a_click_on_yes_in_the_confirmation_asks_the_server_to_archive() {
+    let mut h = chat();
+    send(&mut h, "/archive");
+    h.wait_for("the confirmation", |s| s.contains("Archive this session?"));
+    h.settle();
+    assert!(removals(&h).is_empty(), "the question alone asks nothing");
+    let (x, y) = find(&h, "Yes, archive");
+    h.t.click(x, y);
+    h.settle();
+    let asked = removals(&h);
+    assert_eq!(asked.len(), 1, "{:?}", h.fake.commands());
+    assert!(
+        matches!(asked[0].1, agents::Command::Archive { .. }),
+        "{:?}",
+        asked[0]
+    );
+    assert!(
+        !h.t.screen().contains("Archive this session?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_click_on_no_in_the_confirmation_asks_nothing() {
+    let mut h = chat();
+    send(&mut h, "/delete");
+    h.wait_for("the confirmation", |s| s.contains("Delete this session?"));
+    h.settle();
+    let (x, y) = find(&h, "No, keep this session");
+    h.t.click(x, y);
+    h.settle();
+    assert!(removals(&h).is_empty(), "{:?}", h.fake.commands());
+    assert!(
+        !h.t.screen().contains("Delete this session?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_server_removing_the_thread_opens_the_command_center() {
+    let mut h = chat();
+    send(&mut h, "/delete");
+    h.wait_for("the confirmation", |s| s.contains("Delete this session?"));
+    h.settle();
+    let (x, y) = find(&h, "Yes, delete and return to command center");
+    h.t.click(x, y);
+    h.settle();
+    let (ticket, command) = removals(&h).remove(0);
+    assert!(matches!(command, agents::Command::Delete { .. }));
+    answer(
+        &mut h,
+        ticket,
+        AppReply::screen(ScreenReply::Agents(agents::Reply::Done)),
+    );
+    h.wait_for("the command center", |s| s.contains("Agent command center"));
+}
+
+#[test]
+fn a_refusal_of_the_server_is_said_in_the_chat_and_the_chat_stays() {
+    let mut h = chat();
+    send(&mut h, "/archive");
+    h.wait_for("the confirmation", |s| s.contains("Archive this session?"));
+    h.settle();
+    let (x, y) = find(&h, "Yes, archive");
+    h.t.click(x, y);
+    h.settle();
+    let (ticket, _) = removals(&h).remove(0);
+    answer(&mut h, ticket, AppReply::failed("denied"));
+    h.wait_for("the refusal", |s| {
+        s.contains("Failed to archive current thread: failed to archive session")
+    });
+    assert!(
+        !h.t.screen().contains("Agent command center"),
+        "{}",
+        h.t.screen()
     );
 }

@@ -56,6 +56,10 @@ fn picks(app: &mut CodexApp, fx: &mut AppFx) {
         match pick {
             select::Picked::Selection(selection) => model_pick(app, selection, fx),
             select::Picked::Permissions(selection) => permissions_pick(app, selection, fx),
+            // A confirmation's answer is `confirmed`'s (the removal asks).
+            select::Picked::Confirmed(_) => {
+                Rc::make_mut(&mut app.screens).select.picked.push(pick);
+            }
             // A generic list's picks belong to the screen that opened it; an
             // app's page is the app link dialog's (a core Need, pack).
             select::Picked::App(_)

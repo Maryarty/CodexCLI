@@ -8,6 +8,6 @@
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"screen","dir":"chat","ev":{"flags":{"voice_command_enabled":true}}}
 {"step":"screen","dir":"chat","ev":{"service_tiers":[{"id":"priority","name":"tier-one","description":"Use faster inference"},{"id":"default","name":"tier-two","description":"Keep default speed"}]}}
-{"step":"screen","dir":"popovers","ev":{"files":["src/shared/long_directory/parser_alpha.rs","src/shared/long_directory/parser_beta.rs"]}}
+{"step":"screen","dir":"popovers","ev":{"file_matches":{"query":"parser","matches":[{"path":"src/shared/long_directory/parser_alpha.rs","score":50},{"path":"src/shared/long_directory/parser_beta.rs","score":50}]}}}
 {"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"app","name":"Shared","description":"Secondary details","insert":"shared"},{"kind":"skill","name":"Shared","description":"Secondary details","insert":"shared"},{"kind":"plugin","name":"Sample Plugin","description":"Plugin with skills and an MCP server","insert":"sample"}]}}
 {"step":"screen","dir":"popovers","ev":{"history":["cargo build","git status","cargo test"]}}

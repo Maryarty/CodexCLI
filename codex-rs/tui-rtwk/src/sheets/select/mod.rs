@@ -9,6 +9,7 @@ mod lists;
 
 use rtwk::AnyWidget;
 use rtwk::Cx;
+use rtwk::layout::Alignment;
 use rtwk::overlay::{DialogOptions, DialogResult, show_dialog};
 
 use crate::app::debug::DebugEntry;
@@ -439,6 +440,22 @@ pub fn open<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
         move |_| dialog::MenuDialog.into(),
         DialogOptions {
             use_root_navigator: false,
+            ..crate::sheets::sheet_options()
+        },
+    )
+}
+
+/// Opens the same dialog as a confirmation floats: centered on the screen, not
+/// at its bottom (the oracle's `ViewPresentation::Centered`, the shared dialog
+/// geometry of `SelectionViewParams::confirmation()`). The menu it shows is a
+/// `Menu::Confirm`; the dialog lays itself out to the width the oracle gives it.
+pub fn open_centered<S>(cx: &mut Cx<'_, S>) -> DialogResult<()> {
+    show_dialog(
+        cx,
+        move |_| dialog::MenuDialog.into(),
+        DialogOptions {
+            use_root_navigator: false,
+            alignment: Alignment::CENTER,
             ..crate::sheets::sheet_options()
         },
     )
