@@ -502,182 +502,272 @@ fn goal_slash_command_emits_only_inserted_paste_text_element() {
 // ORACLE chatwidget/tests/history_projection.rs:12 older_tool_projection_matches_initial_replay kind=snap owner=chat-live
 #[test]
 fn older_tool_projection_matches_initial_replay() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:180 snapshot_formatter_reasoning_matches_compact_and_detailed_replay kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_reasoning_matches_compact_and_detailed_replay() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:250 raw_reasoning_keeps_its_own_heading kind=snap owner=chat-live
 #[test]
 fn raw_reasoning_keeps_its_own_heading() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:269 snapshot_formatter_completed_patch_needs_no_started_notification kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_completed_patch_needs_no_started_notification() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:307 snapshot_formatter_live_and_buffered_patch_notifications_render_once kind=snap owner=chat-live
 #[test]
 fn snapshot_formatter_live_and_buffered_patch_notifications_render_once() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_projection.rs:344 snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes kind=snap owner=chat-live snap=empty
 #[test]
 fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ---- oracle: chatwidget/tests/history_replay.rs (24 screen-level tests here; 11 state tests left to chat-live)
 // ORACLE chatwidget/tests/history_replay.rs:18 resumed_initial_messages_render_history kind=snap owner=chat-live
 #[test]
 fn resumed_initial_messages_render_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:130 replayed_failed_turns_preserve_overload_warnings_between_retries kind=snap owner=chat-live
 #[test]
 fn replayed_failed_turns_preserve_overload_warnings_between_retries() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:181 restored_conversation_ultra_remains_selected_after_switching_to_plan kind=ui owner=chat-live
 #[test]
 fn restored_conversation_ultra_remains_selected_after_switching_to_plan() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:219 replayed_user_messages_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_user_messages_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:309 replayed_review_prompt_does_not_seed_composer_history kind=ui owner=chat-live
 #[test]
 fn replayed_review_prompt_does_not_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:333 replayed_delegated_tool_output_is_attributed_without_seeding_composer_history kind=snap owner=chat-live snap=replayed_delegated_tool_output
 #[test]
 fn replayed_delegated_tool_output_is_attributed_without_seeding_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:410 replayed_nested_review_prompts_do_not_render_or_seed_composer_history kind=snap owner=chat-live
 #[test]
 fn replayed_nested_review_prompts_do_not_render_or_seed_composer_history() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:853 replayed_user_message_with_only_remote_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_remote_images_renders_history_cell() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:914 replayed_user_message_with_only_local_images_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn replayed_user_message_with_only_local_images_renders_history_cell() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:973 forked_thread_history_line_includes_name_and_id_snapshot kind=snap owner=chat-live snap=forked_thread_history_line
 #[test]
 fn forked_thread_history_line_includes_name_and_id_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1003 forked_thread_history_line_without_name_shows_id_once_snapshot kind=snap owner=chat-live snap=forked_thread_history_line_without_name
 #[test]
 fn forked_thread_history_line_without_name_shows_id_once_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1091 prompt_edit_thread_history_line_snapshot kind=snap owner=chat-live snap=prompt_edit_thread_history_line
 #[test]
 fn prompt_edit_thread_history_line_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1113 app_server_forked_thread_history_line_uses_app_server_title_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line
 #[test]
 fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1153 app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot kind=snap owner=chat-live snap=app_server_forked_thread_history_line_without_app_server_name
 #[test]
 fn app_server_forked_thread_history_line_without_app_server_name_ignores_local_snapshot() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1195 thread_snapshot_replay_preserves_agent_message_during_review_mode kind=ui owner=chat-live
 #[test]
 fn thread_snapshot_replay_preserves_agent_message_during_review_mode() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1276 replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_preserves_summary_parts_and_hides_raw_reasoning_when_disabled() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1328 replayed_reasoning_item_shows_raw_reasoning_when_enabled kind=ui owner=chat-live
 #[test]
 fn replayed_reasoning_item_shows_raw_reasoning_when_enabled() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1376 replayed_mcp_tool_call_stays_active_until_completion kind=ui owner=chat-live
 #[test]
 fn replayed_mcp_tool_call_stays_active_until_completion() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1419 failed_repl_mcp_tool_call_preserves_status_and_result kind=snap owner=chat-live
 #[test]
 fn failed_repl_mcp_tool_call_preserves_status_and_result() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1482 deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes kind=ui owner=chat-live
 #[test]
 fn deferred_mcp_lifecycle_events_keep_fifo_after_stream_finishes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1544 live_reasoning_summary_is_not_rendered_twice_when_item_completes kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_is_not_rendered_twice_when_item_completes() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1605 live_reasoning_summary_drops_empty_parts_without_losing_content kind=ui owner=chat-live
 #[test]
 fn live_reasoning_summary_drops_empty_parts_without_losing_content() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "live thread items as history cells (chunk-cells): feed the item notifications with Screen::feed; the chat does not render reasoning/MCP items as oracle cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1685 thread_snapshot_replayed_turn_started_marks_task_running kind=snap owner=chat-live
 #[test]
 fn thread_snapshot_replayed_turn_started_marks_task_running() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ORACLE chatwidget/tests/history_replay.rs:1723 replayed_in_progress_turn_marks_task_running kind=snap owner=chat-live snap=replayed_in_progress_turn
 #[test]
 fn replayed_in_progress_turn_marks_task_running() {
-    kit::todo();
+    kit::missing(
+        Owner::ChatLive,
+        "core replay projection (core-wiring): the seed is Screen::build(Owner::ChatLive).replay(vec![kit::replay_turn(id, items)]).live().open(); the chat does not project the resumed turns as history cells yet",
+    );
 }
 
 // ---- oracle: chatwidget/tests/list_spacing_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)

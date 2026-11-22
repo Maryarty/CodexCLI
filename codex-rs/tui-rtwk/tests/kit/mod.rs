@@ -27,13 +27,13 @@ mod seed;
 mod verdict;
 
 #[allow(unused_imports)]
-pub use env::ColorDepth;
-#[allow(unused_imports)]
-pub use input::event_bytes_of;
-#[allow(unused_imports)]
 pub use compare::{Want, assert_snap as assert_snap_on, snap_frames, snap_rows, snap_size};
 #[allow(unused_imports)]
+pub use env::{ColorDepth, REPLAYED, replay_turn};
+#[allow(unused_imports)]
 pub use grid::{Grid, check_style, color_name, modifier_name};
+#[allow(unused_imports)]
+pub use input::event_bytes_of;
 #[allow(unused_imports)]
 pub use labels::{normalize as normalize_rows, normalize_key_names, normalize_labels};
 #[allow(unused_imports)]
@@ -85,6 +85,9 @@ impl Screen {
 
     /// Presses keys named as bindings name them, apart by spaces: `down`,
     /// `enter`, `esc`, `ctrl+c`, `shift+tab`, `alt+b`, `A`, `down down enter`.
+    ///
+    /// A key with no bytes of its own on an xterm (`super+space`, `shift+enter`,
+    /// `ctrl+shift+k`) goes as the kitty keyboard protocol sends it.
     ///
     /// The keys are a person's: `KEY_PACE_MS` apart, so the composer's paste
     /// detector reads `a b enter` as typing (use `type_burst` for a paste).

@@ -784,7 +784,9 @@ fn the_kit_sends_the_rest_of_the_mouse() {
 fn the_probe_reads_the_turns_the_app_started() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .script(include_str!("oracle/fixtures/chat_commands_2/session.jsonl"))
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/session.jsonl"
+        ))
         .open();
     s.assert_no_turn();
     s.type_text("**send once**");
@@ -799,7 +801,9 @@ fn the_probe_reads_the_turns_the_app_started() {
 fn the_probe_bites_on_a_text_that_was_not_sent() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .script(include_str!("oracle/fixtures/chat_commands_2/session.jsonl"))
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/session.jsonl"
+        ))
         .open();
     s.type_text("sent");
     s.keys("enter");
@@ -811,7 +815,9 @@ fn the_probe_bites_on_a_text_that_was_not_sent() {
 fn the_probe_counts_interrupt_requests() {
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
-        .script(include_str!("oracle/fixtures/chat_commands_2/running.jsonl"))
+        .script(include_str!(
+            "oracle/fixtures/chat_commands_2/running.jsonl"
+        ))
         .open();
     s.assert_interrupts(0);
     s.keys("esc");
@@ -826,4 +832,114 @@ fn a_snapshot_with_bare_labels_reads_as_frames() {
         Screen::snap_frame_names("list_selection_col_width_mode_auto_all_rows_scroll"),
         vec!["before scroll:".to_string(), "after scroll:".to_string()]
     );
+}
+
+// ---- kit-caps: the terminal and the app's environment ----
+
+/// A reply with a quote, code and a link: the cells the theme colours.
+const REPLY: &str = "> quoted\n\n`code` and [link](https://example.com)";
+
+fn styles_of(s: &Screen) -> Vec<(String, String)> {
+    let g = s.grid();
+    ["quoted", "code", "link"]
+        .into_iter()
+        .map(|text| {
+            let (x, _, y) = g
+                .locate(text)
+                .unwrap_or_else(|| panic!("no `{text}`:\n{}", g.text()));
+            let st = g.style(x, y);
+            (st.fg, st.bg)
+        })
+        .collect()
+}
+
+/// The terminal's default colours reach the app: a light and a dark
+/// terminal paint the same reply differently.
+#[test]
+fn the_terminal_colours_are_the_apps_theme() {
+    let light = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .light()
+        .agent_says(REPLY)
+        .open();
+    let dark = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .agent_says(REPLY)
+        .open();
+    let (l, d) = (styles_of(&light), styles_of(&dark));
+    assert_ne!(l, d, "a light and a dark terminal paint alike: {l:?}");
+}
+
+/// The colour depth is the app's: a terminal that shows no colour gets none.
+#[test]
+fn the_colour_depth_is_the_apps() {
+    let full = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .agent_says(REPLY)
+        .open();
+    let none = Screen::build(Owner::ChatLive)
+        .size(60, 12)
+        .dark()
+        .color_depth(kit::ColorDepth::None)
+        .agent_says(REPLY)
+        .open();
+    let (f, n) = (styles_of(&full), styles_of(&none));
+    assert_ne!(f, n, "the depth changed no colour: {f:?}");
+}
+
+/// The syntax theme of the config reaches the app as the host's fact: the
+/// theme picker opens on it.
+#[test]
+fn the_syntax_theme_is_the_apps_fact() {
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .syntax_theme("ansi")
+        .live()
+        .open();
+    s.type_text("/theme").keys("enter");
+    s.assert_contains("ansi");
+    let with = s.rows();
+    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.type_text("/theme").keys("enter");
+    assert_ne!(
+        with,
+        s.rows(),
+        "the theme fact changed nothing the picker shows"
+    );
+}
+
+/// A thread another process writes opens as the server answers: the app asks
+/// to resume the thread and the server refuses (the seed's answer), which the
+/// chat takes as a foreign writer; a chat without the seed asks nothing.
+#[test]
+fn a_foreign_writer_is_a_refused_resume() {
+    let plain = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let foreign = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .foreign_writer("thread-foreign")
+        .live()
+        .open();
+    assert_eq!(plain.requests_of("thread/resume"), 0);
+    assert_eq!(foreign.requests_of("thread/resume"), 1);
+}
+
+#[test]
+fn a_replay_is_a_resumed_thread_with_recorded_turns() {
+    let turns = vec![kit::replay_turn(
+        "turn-1",
+        serde_json::json!([
+            {"type": "userMessage", "id": "u1", "content": [{"type": "text", "text": "hello", "text_elements": []}]},
+            {"type": "agentMessage", "id": "a1", "text": "hi there", "phase": null, "memoryCitation": null}
+        ]),
+    )];
+    let s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .replay(turns)
+        .live()
+        .open();
+    assert_eq!(s.requests_of("thread/resume"), 1);
+    let asked = s.request_params("thread/resume");
+    assert_eq!(asked[0]["threadId"], kit::REPLAYED);
 }

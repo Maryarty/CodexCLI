@@ -31,11 +31,46 @@ impl Screen {
             .count()
     }
 
+    /// Every command the app sent, as its `Debug` text, oldest first (for a
+    /// test that looks for one kind of ask: `commands_named("ResumeThread")`).
+    pub fn commands_named(&self, name: &str) -> Vec<String> {
+        self.h
+            .fake
+            .commands()
+            .iter()
+            .map(|c| format!("{c:?}"))
+            .filter(|text| text.starts_with(name))
+            .collect()
+    }
+
+    /// How many wire requests of `method` (`thread/resume`, `turn/start`) went
+    /// out to the server.
+    pub fn requests_of(&self, method: &str) -> usize {
+        self.h
+            .fake
+            .requests()
+            .iter()
+            .filter(|r| r["method"] == method)
+            .count()
+    }
+
+    /// The params of every wire request of `method`, oldest first.
+    pub fn request_params(&self, method: &str) -> Vec<serde_json::Value> {
+        self.h
+            .fake
+            .requests()
+            .iter()
+            .filter(|r| r["method"] == method)
+            .map(|r| r["params"].clone())
+            .collect()
+    }
+
     /// The turns started so far carry exactly `texts`, in order.
     pub fn assert_turn_texts(&self, texts: &[&str]) {
         let got = self.turn_texts();
         assert_eq!(
-            got, texts,
+            got,
+            texts,
             "the turns the app started differ\n{}",
             self.text()
         );

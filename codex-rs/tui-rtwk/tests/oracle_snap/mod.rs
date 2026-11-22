@@ -240,6 +240,13 @@ fn header(
     if line.starts_with("width=") {
         return Some((line.trim_end_matches(':').to_string(), None));
     }
+    // `(255, 255, 255): Buffer {`: a label and the dump's first line on one row.
+    if let Some(name) = line.strip_suffix(": Buffer {")
+        && !name.is_empty()
+        && !line.starts_with(' ')
+    {
+        return Some((name.to_string(), Some("Buffer {".to_string())));
+    }
     // `before scroll:`: a bare label of lowercase words, first in the
     // snapshot or under a blank row, over the rows of a render.
     if let Some(name) = line.strip_suffix(':')

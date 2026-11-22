@@ -998,7 +998,7 @@ fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
 fn light_status_line_corrects_pale_custom_theme_colors() {
     kit::pending(
         Owner::UiPane,
-        "no status line on a pale custom theme: no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions`; terminal default colours fg (30,30,30), bg (255,255,255))",
+        "screen feature (status line): no entry chat/light_status_line_pale_theme (42x1: `gpt-5`, `~/code`, `Custom permissions` on a pale custom theme); the kit seeds the terminal colours (`terminal_colors(0x1e1e1e, 0xffffff)`)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(42, 1)
@@ -1012,7 +1012,7 @@ fn light_status_line_corrects_pale_custom_theme_colors() {
 fn status_line_theme_colors_at_limited_color_depths() {
     kit::pending(
         Owner::UiPane,
-        "the kit cannot set FORCE_COLOR for the app: the oracle runs this test in a child process at colour depths 0 and 1; no seed for a colour depth yet (gap, reported)",
+        "screen feature (status line): no status line entry to draw at colour depths 0 and 1; the kit seeds the depth (`color_depth(ColorDepth::None)`, `Ansi16`) as the oracle child process does with FORCE_COLOR",
     );
 }
 

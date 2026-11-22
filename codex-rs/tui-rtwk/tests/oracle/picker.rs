@@ -776,7 +776,7 @@ fn shrinking_the_browser_keeps_selection_visible_without_navigation() {
 fn overflow_arrows_follow_the_painted_picker_surface() {
     kit::pending(
         Owner::UiPane,
-        "no entry with the browser list on a palette-seeded surface (the test sets the terminal default colours for the Panel and Terminal surfaces): the kit has no palette seed and the select screen has no browser",
+        "screen feature (picker): the select screen has no browser list entry; the kit seeds the terminal default colours (`terminal_colors`) for the arrow cell colours and the selected row background",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(60, 18)
