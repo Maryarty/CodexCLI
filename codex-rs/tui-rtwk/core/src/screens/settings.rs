@@ -222,6 +222,8 @@ pub const USE_THEME_COLORS: &str = "use_theme_colors";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupItem {
     pub id: String,
+    /// What the row shows when it is not the id (a skill's display name).
+    pub label: String,
     pub description: String,
     pub enabled: bool,
     /// May be moved with the arrow keys.
@@ -238,6 +240,10 @@ pub enum SetupKind {
     StatusLine,
     /// `bottom_pane/title_setup.rs`: the terminal title.
     Title,
+    /// `bottom_pane/skills_toggle_view.rs`: Enable/Disable Skills, a plain
+    /// checklist with a search (no order, no preview); each toggle is saved
+    /// as it is made.
+    Skills,
 }
 
 /// The status-line and terminal-title setups: `MultiSelectPicker` with the
@@ -258,26 +264,55 @@ pub const ACTIVITY: &str = "activity";
 /// (`ACTION_REQUIRED_PREVIEW_PREFIX`).
 pub const ACTION_REQUIRED_PREFIX: &str = "[ ! ] Action Required";
 
+impl SetupItem {
+    /// The name the row shows.
+    pub fn name(&self) -> &str {
+        if self.label.is_empty() {
+            &self.id
+        } else {
+            &self.label
+        }
+    }
+}
+
 impl Setup {
     /// The rows a search leaves, as indices into `items`: a fuzzy match on the
     /// id, best score first, ties by name (`MultiSelectPicker::apply_filter`);
-    /// every row in order while the search is empty.
+    /// every row in order while the search is empty. The skills match the
+    /// display name first, then the skill's own name (`match_skill`), ties by
+    /// display name.
     pub fn visible(&self, query: &str) -> Vec<usize> {
         let query = query.trim();
         if query.is_empty() {
             return (0..self.items.len()).collect();
         }
+        let skills = self.kind == SetupKind::Skills;
         let mut found: Vec<(usize, i32)> = self
             .items
             .iter()
             .enumerate()
             .filter_map(|(index, item)| {
-                crate::commands::fuzzy_match(&item.id, query).map(|(_, score)| (index, score))
+                let item_match = if skills {
+                    crate::commands::fuzzy_match(item.name(), query)
+                        .or_else(|| {
+                            (item.name() != item.id)
+                                .then(|| crate::commands::fuzzy_match(&item.id, query))
+                                .flatten()
+                        })
+                } else {
+                    crate::commands::fuzzy_match(&item.id, query)
+                };
+                item_match.map(|(_, score)| (index, score))
             })
             .collect();
         found.sort_by(|a, b| {
-            a.1.cmp(&b.1)
-                .then_with(|| self.items[a.0].id.cmp(&self.items[b.0].id))
+            a.1.cmp(&b.1).then_with(|| {
+                if skills {
+                    self.items[a.0].name().cmp(self.items[b.0].name())
+                } else {
+                    self.items[a.0].id.cmp(&self.items[b.0].id)
+                }
+            })
         });
         found.into_iter().map(|(index, _)| index).collect()
     }
@@ -292,6 +327,9 @@ impl Setup {
     /// leads with the action-required prefix when it holds the activity item
     /// (`preview_line_for_title_items`).
     pub fn preview(&self) -> String {
+        if self.kind == SetupKind::Skills {
+            return String::new();
+        }
         let values = self
             .items
             .iter()
@@ -304,7 +342,9 @@ impl Setup {
             })
             .filter(|value| !value.is_empty());
         match self.kind {
-            SetupKind::StatusLine => values.collect::<Vec<_>>().join(" · "),
+            SetupKind::StatusLine | SetupKind::Skills => {
+                values.collect::<Vec<_>>().join(" · ")
+            }
             SetupKind::Title => {
                 let activity = self
                     .items
@@ -393,6 +433,11 @@ pub enum Edit {
     Editor(SettingId),
     /// `SyntaxThemeSelected`.
     ThemeSelected(String),
+    /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
+    SkillToggled(String, bool),
+    /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the
+    /// skills are read again).
+    SkillsClosed,
     /// `StatusLineSetup` / `TerminalTitleSetup`: the enabled items in order.
     SetupSaved {
         kind: SetupKind,
@@ -596,6 +641,9 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         (Open::Setup(setup), Intent::Toggle(id)) => {
             if let Some(item) = setup.items.iter_mut().find(|item| item.id == id) {
                 item.enabled = !item.enabled;
+                if setup.kind == SetupKind::Skills {
+                    model.edits.push(Edit::SkillToggled(id, item.enabled));
+                }
             }
         }
         (Open::Setup(setup), Intent::Move { id, delta }) => {
@@ -611,7 +659,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 setup.items.swap(at, to);
             }
         }
-        (Open::Setup(setup), Intent::Save) => {
+        (Open::Setup(setup), Intent::Save) if setup.kind != SetupKind::Skills => {
             let items = setup
                 .items
                 .iter()
@@ -643,7 +691,10 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             model.open = None;
         }
         (Open::Setup(setup), Intent::Close) => {
-            model.edits.push(Edit::SetupCancelled(setup.kind));
+            model.edits.push(match setup.kind {
+                SetupKind::Skills => Edit::SkillsClosed,
+                kind => Edit::SetupCancelled(kind),
+            });
             model.open = None;
         }
         (_, Intent::Close) => model.open = None,
@@ -745,6 +796,20 @@ enum SeedEv {
     Keymap {
         tabs: Vec<KeymapTab>,
     },
+    Skills {
+        items: Vec<SkillSeed>,
+    },
+}
+
+/// One skill of the toggle (`SkillsToggleItem`).
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SkillSeed {
+    /// The skill's own name (`skill_name`).
+    id: String,
+    /// Its display name.
+    name: String,
+    description: String,
+    enabled: bool,
 }
 
 /// `StatusLineSetupView::new` / `TerminalTitleSetupView::new`: the selected
@@ -761,6 +826,7 @@ fn setup(
     if let Some(enabled) = use_theme_colors {
         items.push(SetupItem {
             id: USE_THEME_COLORS.to_string(),
+            label: String::new(),
             description: String::new(),
             enabled,
             orderable: false,
@@ -770,6 +836,7 @@ fn setup(
     }
     let item = |entry: &CatalogueItem, enabled: bool| SetupItem {
         id: entry.id.clone(),
+        label: String::new(),
         description: entry.description.clone(),
         enabled,
         orderable: true,
@@ -838,6 +905,22 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
             catalogue,
             values,
         )),
+        SeedEv::Skills { items } => Open::Setup(Setup {
+            kind: SetupKind::Skills,
+            items: items
+                .into_iter()
+                .map(|skill| SetupItem {
+                    id: skill.id,
+                    label: skill.name,
+                    description: skill.description,
+                    enabled: skill.enabled,
+                    orderable: false,
+                    section_break_after: false,
+                    placeholder: String::new(),
+                })
+                .collect(),
+            values: BTreeMap::new(),
+        }),
         SeedEv::Keymap { tabs } => {
             if tabs.is_empty() {
                 return Err(crate::screens::SeedError::Bad("no tabs".into()));

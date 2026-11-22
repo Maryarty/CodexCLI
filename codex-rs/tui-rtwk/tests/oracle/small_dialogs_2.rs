@@ -466,13 +466,9 @@ fn shortcut_overlay_clipping_preserves_customization_in_small_areas() {
 // ORACLE bottom_pane/skills_toggle_view.rs:422 renders_basic_popup kind=snap owner=dialogs-pane snap=skills_toggle_basic
 #[test]
 fn renders_basic_popup() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_basic (Repo Scout enabled, Changelog Writer disabled)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 12)
-        .entry("dialogs", "skills_basic")
+        .entry("settings", "skills_basic")
         .open();
     s.assert_snap("skills_toggle_basic");
 }
@@ -480,16 +476,15 @@ fn renders_basic_popup() {
 // ORACLE bottom_pane/skills_toggle_view.rs:473 filtering_long_skill_names_preserves_the_matching_row kind=snap owner=dialogs-pane snap=skills_toggle_pasted_search
 #[test]
 fn filtering_long_skill_names_preserves_the_matching_row() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names (two long polish skills); the oracle also asserts the built row names, which is model state (the one visible row is the snapshot's)",
-    );
+    // The oracle's snapshot is the view at the height its one filtered row
+    // needs (`desired_height`): the screen starts at the two rows' and shrinks.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(96, 11)
-        .entry("dialogs", "skills_long_names")
+        .size(96, 12)
+        .entry("settings", "skills_long_names")
         .open();
     s.keys("c");
     s.paste("  ompletion\r\n\t ");
+    s.resize(96, 11);
     s.assert_snap("skills_toggle_pasted_search");
     s.paste(" \r\n\t ");
     s.assert_snap("skills_toggle_pasted_search");
@@ -498,13 +493,9 @@ fn filtering_long_skill_names_preserves_the_matching_row() {
 // ORACLE bottom_pane/skills_toggle_view.rs:503 renders_long_names_using_available_width kind=snap owner=dialogs-pane snap=skills_toggle_long_names_use_available_width
 #[test]
 fn renders_long_names_using_available_width() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(96, 12)
-        .entry("dialogs", "skills_long_names")
+        .entry("settings", "skills_long_names")
         .open();
     s.assert_snap("skills_toggle_long_names_use_available_width");
 }
@@ -512,13 +503,9 @@ fn renders_long_names_using_available_width() {
 // ORACLE bottom_pane/skills_toggle_view.rs:519 renders_long_names_at_narrow_width kind=snap owner=dialogs-pane snap=skills_toggle_long_names_at_narrow_width
 #[test]
 fn renders_long_names_at_narrow_width() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(48, 13)
-        .entry("dialogs", "skills_long_names")
+        .entry("settings", "skills_long_names")
         .open();
     s.assert_snap("skills_toggle_long_names_at_narrow_width");
 }
@@ -528,7 +515,7 @@ fn renders_long_names_at_narrow_width() {
 fn footer_hint_uses_list_keymap_accept_and_cancel() {
     kit::pending(
         Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_empty_custom_keys (no skills; keymap list.accept ctrl+t and list.cancel ctrl+x: no keymap seed exists)",
+        "the skills sheet exists (entry settings/skills_empty) but its hint reads no keymap: the port has no keymap config (list.accept ctrl+t, list.cancel ctrl+x), the kit has no `.keymap()`; waits for the keymap setup slice and the host keymap feed",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 8)

@@ -352,6 +352,94 @@ fn a_click_previews_a_theme_a_second_click_keeps_it_and_the_wheel_scrolls() {
     );
 }
 
+// ---- the skills toggle (`skills_toggle_view.rs`): a checklist, each flip is the model's
+
+#[test]
+fn space_and_enter_flip_the_skill_under_the_cursor_and_arrows_stay_inert() {
+    let mut h = open("skills_basic");
+    assert!(
+        h.t.screen().contains("› [x] Repo Scout"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [ ] Repo Scout"),
+        "{}",
+        h.t.screen()
+    );
+    // Enter does what Space does on the skills (it saves nothing else)
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("› [x] Repo Scout"),
+        "{}",
+        h.t.screen()
+    );
+    // no order to change: Right/Left leave the rows where they are
+    h.press("right");
+    h.press("left");
+    let screen = h.t.screen();
+    let (scout, writer) = (find(&h, "Repo Scout").0, find(&h, "Changelog Writer").0);
+    assert!(scout < writer, "{screen}");
+    h.press("down");
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [x] Changelog Writer"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn typing_filters_the_skills_by_display_name_then_by_skill_name_and_esc_closes() {
+    let mut h = open("skills_basic");
+    for key in "scout".chars() {
+        h.press(&key.to_string());
+    }
+    let screen = h.t.screen();
+    assert!(screen.contains("› [x] Repo Scout"), "{screen}");
+    assert!(!screen.contains("Changelog Writer"), "{screen}");
+    // a query only the skill's own name matches (`changelog_writer`)
+    for _ in 0..5 {
+        h.press("backspace");
+    }
+    for key in "log_w".chars() {
+        h.press(&key.to_string());
+    }
+    let screen = h.t.screen();
+    assert!(screen.contains("Changelog Writer"), "{screen}");
+    assert!(!screen.contains("Repo Scout"), "{screen}");
+    h.press("esc");
+    h.t.pump_for(ms(800));
+    assert!(
+        !h.t.screen().contains("Enable/Disable Skills"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// ADR-011 (beyond the oracle): a tap puts the cursor on a skill, a second
+/// tap flips it.
+#[test]
+fn a_tap_moves_the_cursor_to_a_skill_and_a_second_tap_flips_it() {
+    let mut h = open("skills_basic");
+    let (y, x) = find(&h, "Changelog Writer");
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [ ] Changelog Writer"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [x] Changelog Writer"),
+        "{}",
+        h.t.screen()
+    );
+}
+
 // ---- /theme through the app: the model builds the picker from its facts,
 // so these tests read the real model (a debug entry's lives in its seeded
 // scope) ----
@@ -411,8 +499,11 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     h.press("down");
     h.press("down");
     h.press("enter");
-    h.advance(800);
-    assert_eq!(syntax_theme(&h).as_deref(), Some("base16"));
+    h.wait_until("the picked theme is in force and recorded", |h| {
+        syntax_theme(h).as_deref() == Some("base16")
+            && h.t
+                .read_app(|app: &UiApp| !app.core.screens().settings.edits.is_empty())
+    });
     let edits =
         h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone());
     assert_eq!(edits, vec![Edit::ThemeSelected("base16".to_string())]);

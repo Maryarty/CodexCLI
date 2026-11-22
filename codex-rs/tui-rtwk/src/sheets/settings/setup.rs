@@ -21,18 +21,24 @@ use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{FocusNode, KeyEventResult, KeyPress};
 use rtwk::foundation::{ListenableBuilder, ValueListenableBuilder, ValueNotifier};
 use rtwk::gestures::{GestureDetector, PointerEvent};
-use rtwk::layout::{BoxWidget, Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
+use rtwk::layout::{
+    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
+    SizedBox,
+};
 use rtwk::overlay::{Dialog, close_dialog};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select};
 use rtwk::scroll::{ListController, ListView, ScrollNotification};
 use rtwk::style::Style;
-use rtwk::text::{Text, segmenter_of};
-use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
+use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::ScreenStates;
-use codex_tui_core::screens::settings::{Intent, Open, Setup, SetupKind, USE_THEME_COLORS};
+use codex_tui_core::screens::select::list::normalize_paste;
+use codex_tui_core::screens::settings::{
+    Intent, Open, Setup, SetupItem, SetupKind, USE_THEME_COLORS,
+};
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
@@ -73,12 +79,13 @@ fn key_of(setup: &Setup, row: Entry) -> String {
     }
 }
 
-/// The name a row shows: the colour preference has a name of its own.
-fn name_of<'a>(s: &'a Strings, id: &'a str) -> &'a str {
-    if id == USE_THEME_COLORS {
+/// The name a row shows: the colour preference has a name of its own, a
+/// skill its display name.
+fn name_of<'a>(s: &'a Strings, item: &'a SetupItem) -> &'a str {
+    if item.id == USE_THEME_COLORS {
         s.use_theme_colors
     } else {
-        id
+        item.name()
     }
 }
 
@@ -224,8 +231,10 @@ impl SetupState {
                 }
             }
             Act::Reorder(delta) => {
-                // Reordering is off while a search is typed.
-                if let (Some(id), Some(at), true) = (id, at, self.query.text().is_empty()) {
+                // Reordering is off while a search is typed, and for the
+                // skills, which have no order.
+                let ordered = setup.kind != SetupKind::Skills && self.query.text().is_empty();
+                if let (Some(id), Some(at), true) = (id, at, ordered) {
                     cx.emit(
                         &hs.screen,
                         ScreenIntent::Settings(Intent::Move { id, delta }),
@@ -235,6 +244,13 @@ impl SetupState {
                     {
                         self.list.ensure_index_visible(to);
                     }
+                }
+            }
+            // Enter saves the order and the checks; on the skills it flips
+            // the row under the cursor like Space (each flip is saved).
+            Act::Save if setup.kind == SetupKind::Skills => {
+                if let Some(id) = id {
+                    cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Toggle(id)));
                 }
             }
             Act::Save => cx.emit(&hs.screen, ScreenIntent::Settings(Intent::Save)),
@@ -304,9 +320,33 @@ impl State for SetupState {
         let Some(setup) = open_setup(cx) else {
             return Dialog::bare(Text::new(String::new())).into();
         };
-        let (title, subtitle) = match setup.kind {
-            SetupKind::StatusLine => (s.status_title, s.status_subtitle),
-            SetupKind::Title => (s.title_setup_title, s.title_setup_subtitle),
+        let (title, subtitle, placeholder, hint) = match setup.kind {
+            SetupKind::StatusLine => (
+                s.status_title,
+                s.status_subtitle,
+                s.status_search_placeholder,
+                s.status_hint,
+            ),
+            SetupKind::Title => (
+                s.title_setup_title,
+                s.title_setup_subtitle,
+                s.status_search_placeholder,
+                s.status_hint,
+            ),
+            SetupKind::Skills => (
+                s.skills_title,
+                s.skills_subtitle,
+                s.skills_search_placeholder,
+                s.skills_hint,
+            ),
+        };
+        // The skills' list area is two rows taller than its rows
+        // (`rows_height`: the rows, at most eight, plus two); the others'
+        // is as tall as its rows.
+        let spare: usize = if setup.kind == SetupKind::Skills {
+            2
+        } else {
+            0
         };
         let setup = Rc::new(setup);
         let (query, cursor, list, scroll) = (
@@ -335,7 +375,7 @@ impl State for SetupState {
                 let widths: Rc<Vec<usize>> = Rc::new(
                     rows.iter()
                         .map(|row| match row {
-                            Entry::Item(index) => seg.width(name_of(s, &setup.items[*index].id)),
+                            Entry::Item(index) => seg.width(name_of(s, &setup.items[*index])),
                             Entry::Break => 0,
                         })
                         .collect(),
@@ -399,7 +439,7 @@ impl State for SetupState {
                     });
                 SizedBox::new(
                     None,
-                    Some(i32::try_from(rows.len().min(WINDOW)).unwrap_or(1)),
+                    Some(i32::try_from(rows.len().min(WINDOW) + spare).unwrap_or(1)),
                     Some(scrolled.into()),
                 )
                 .into()
@@ -427,7 +467,12 @@ impl State for SetupState {
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Text::new(String::new()))
             .child(Text::line(format!("{}{title}", s.indent)).style(tokens.bold()))
-            .child(Text::line(format!("{}{subtitle}", s.indent)).style(tokens.dim()))
+            .child(Padding::new(
+                EdgeInsets::symmetric(2, 0),
+                Text::new(subtitle.to_string())
+                    .style(tokens.dim())
+                    .wrap(TextWrap::Word),
+            ))
             .child(Text::new(String::new()))
             .child(
                 Row::new()
@@ -436,10 +481,23 @@ impl State for SetupState {
                         1,
                         TextField::new()
                             .controller(self.query.clone())
-                            .placeholder(s.status_search_placeholder)
+                            .placeholder(placeholder)
                             .focus_node(self.node.clone())
                             .autofocus(true)
-                            .on_changed(cx.map(|_: Rc<str>| Msg::Query)),
+                            .on_changed(cx.map(|_: Rc<str>| Msg::Query))
+                            .on_paste({
+                                // Whitespace folds to one blank; nothing left: ignored
+                                // (`normalize_pasted_search_query`).
+                                let query = self.query.clone();
+                                let send = cx.local_sender();
+                                move |text| {
+                                    if let Some(text) = normalize_paste(text) {
+                                        query.insert(&text);
+                                        send(Msg::Query);
+                                    }
+                                    true
+                                }
+                            }),
                     )),
             )
             .child(mark(true))
@@ -449,8 +507,7 @@ impl State for SetupState {
         if !preview.is_empty() {
             column = column.child(Text::line(format!("{}{preview}", s.indent)));
         }
-        column =
-            column.child(Text::line(format!("{}{}", s.indent, s.status_hint)).style(tokens.dim()));
+        column = column.child(Text::line(format!("{}{hint}", s.indent)).style(tokens.dim()));
         Dialog::bare(BoxWidget::new().style(Style::new()).child(column)).into()
     }
 }
@@ -481,22 +538,42 @@ fn item_row(
     } else {
         item.description.as_str()
     };
-    let (lead, name) = (
-        Text::line(lead),
-        Text::line(name_of(s, &item.id).to_string()),
-    );
-    let (lead, name, description) = if on {
+    let name_text = name_of(s, item).to_string();
+    let selected = tokens.selected();
+    let (lead_style, name_style, description) = if on {
         (
-            lead.style(tokens.selected()),
-            name.style(tokens.selected()),
-            dots_end(description.to_string(), tokens.selected()),
+            selected.clone(),
+            selected.clone(),
+            dots_end(description.to_string(), selected),
         )
     } else {
-        (lead, name, dots_end(description.to_string(), tokens.dim()))
+        (
+            Style::new(),
+            Style::new(),
+            dots_end(description.to_string(), tokens.dim()),
+        )
     };
-    Row::new()
-        .child(lead)
-        .child(SizedBox::new(Some(wide + 2), Some(1), Some(name.into())))
-        .child(Expanded::new(1, description))
-        .into()
+    // The name column is `wide` cells and a gap, but never more than the
+    // row has after the check: a name longer than that is cut with `…` and
+    // leaves no room for the description (`render_rows_single_line`).
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let taken = i32::try_from(seg.width(&lead)).unwrap_or(0);
+        let column = (wide + 2).min((constraints.max_width - taken).max(0));
+        Row::new()
+            .child(Text::line(lead.clone()).style(lead_style.clone()))
+            .child(SizedBox::new(
+                Some(column),
+                Some(1),
+                Some(
+                    Text::line(name_text.clone())
+                        .style(name_style.clone())
+                        .overflow(TextOverflow::Ellipsis)
+                        .into(),
+                ),
+            ))
+            .child(Expanded::new(1, description.clone()))
+            .into()
+    })
+    .into()
 }

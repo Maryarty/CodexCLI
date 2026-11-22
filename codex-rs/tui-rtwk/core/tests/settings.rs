@@ -25,6 +25,7 @@ const THEME: &str = include_str!("../../src/sheets/settings/fixtures/theme_picke
 const THEME_ALL: &str = include_str!("../../src/sheets/settings/fixtures/theme_picker_all.jsonl");
 const STATUS_LINE: &str = include_str!("../../src/sheets/settings/fixtures/status_line.jsonl");
 const TITLE: &str = include_str!("../../src/sheets/settings/fixtures/title.jsonl");
+const SKILLS: &str = include_str!("../../src/sheets/settings/fixtures/skills_long_names.jsonl");
 const KEYMAP: &str = include_str!("../../src/sheets/settings/fixtures/keymap.jsonl");
 
 fn send(sandbox: &mut Sandbox, intent: SettingsIntent) {
@@ -533,4 +534,52 @@ fn the_keymap_picker_filters_a_tab_and_picks_an_action() {
 #[test]
 fn bad_seeds_are_refused() {
     assert!(Sandbox::play(r#"{"step":"screen","dir":"settings","ev":{"kind":"nope"}}"#).is_err());
+}
+
+/// `skills_toggle_view.rs`: `apply_filter` (`match_skill`: the display name
+/// first, then the skill's own name; best score first, ties by display name),
+/// `toggle_selected` (`AppEvent::SetSkillEnabled`) and `close`
+/// (`AppEvent::ManageSkillsClosed`).
+#[test]
+fn the_skills_search_matches_the_display_name_then_the_skill_name_and_each_flip_is_recorded() {
+    let mut sandbox = Sandbox::play(SKILLS).expect("plays");
+    let skills = setup(&sandbox);
+    assert_eq!(skills.kind, SetupKind::Skills);
+    assert_eq!(skills.visible("").len(), 2);
+    // "completion" is in the second display name only
+    assert_eq!(skills.visible("completion"), vec![1]);
+    // "polish:" is in no display name, but in both skill names
+    assert_eq!(skills.visible("polish:").len(), 2);
+    assert_eq!(skills.visible("zzz"), Vec::<usize>::new());
+    // no preview, no order
+    assert_eq!(skills.preview(), "");
+
+    let id = "polish:superpowers-verification-before-completion".to_string();
+    send(&mut sandbox, SettingsIntent::Toggle(id.clone()));
+    send(
+        &mut sandbox,
+        SettingsIntent::Move {
+            id: id.clone(),
+            delta: -1,
+        },
+    );
+    // Enter does not save a skills setup
+    send(&mut sandbox, SettingsIntent::Save);
+    assert!(setup(&sandbox).items[1].enabled);
+    assert_eq!(
+        setup(&sandbox).items[1].id,
+        id,
+        "the skills keep their order"
+    );
+    send(&mut sandbox, SettingsIntent::Toggle(id.clone()));
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(sandbox.app().screens().settings.open.is_none());
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![
+            Edit::SkillToggled(id.clone(), true),
+            Edit::SkillToggled(id, false),
+            Edit::SkillsClosed,
+        ]
+    );
 }

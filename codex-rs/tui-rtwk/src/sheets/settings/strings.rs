@@ -99,6 +99,11 @@ pub struct Strings {
     // bottom_pane/title_setup.rs: the same view with a title of its own.
     pub title_setup_title: &'static str,
     pub title_setup_subtitle: &'static str,
+    // bottom_pane/skills_toggle_view.rs
+    pub skills_title: &'static str,
+    pub skills_subtitle: &'static str,
+    pub skills_search_placeholder: &'static str,
+    pub skills_hint: &'static str,
     pub check_on: &'static str,
     pub check_off: &'static str,
     pub section_break: &'static str,
@@ -210,6 +215,10 @@ pub const EN: Strings = Strings {
     status_hint: "space toggle \u{b7} \u{2190}/\u{2192} reorder \u{b7} enter save \u{b7} esc cancel",
     title_setup_title: "Configure Terminal Title",
     title_setup_subtitle: "Select which items to display in the terminal title.",
+    skills_title: "Enable/Disable Skills",
+    skills_subtitle: "Turn skills on or off. Your changes are saved automatically.",
+    skills_search_placeholder: "Type to search skills",
+    skills_hint: "space/enter toggle \u{b7} esc close",
     keymap_search_placeholder: "Type to search shortcuts",
     keymap_hint: "left/right group \u{b7} enter edit shortcut \u{b7} * custom \u{b7} - unbound \u{b7} esc close",
     keymap_empty: "No shortcuts in this group",

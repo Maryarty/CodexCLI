@@ -52,6 +52,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/theme_picker.jsonl"),
         ),
         (
+            "skills_basic",
+            "the skills toggle: two skills, the first on",
+            include_str!("fixtures/skills_basic.jsonl"),
+        ),
+        (
+            "skills_long_names",
+            "the skills toggle with two long display names",
+            include_str!("fixtures/skills_long_names.jsonl"),
+        ),
+        (
+            "skills_empty",
+            "the skills toggle with no skills",
+            include_str!("fixtures/skills_empty.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
