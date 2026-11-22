@@ -14,6 +14,10 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
 use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
+use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
+use crate::screens::composer::mentions::task::TaskMention;
+use crate::screens::composer::mentions::usage::MentionUsage;
+pub use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
 use crate::threads::ThreadFx;
 
 pub const NAME: &str = "popovers";
@@ -30,6 +34,12 @@ pub struct Model {
     pub files: Vec<String>,
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
+    /// The tasks the last task search found (`@`).
+    pub tasks: Vec<TaskMention>,
+    /// What the file search last answered: the query and its matches.
+    pub file_matches: FileMatches,
+    /// The window of recent `$` picks.
+    pub usage: MentionUsage,
     /// The message history file as far as it was read. Shared: `ScreenStates`
     /// is cloned on every change of any screen, a long history is not.
     pub history: Shared<Store>,
@@ -38,34 +48,22 @@ pub struct Model {
     asks: Vec<Ask>,
 }
 
-/// What the history needs of the host (the file is IO: `codex-message-history`).
-/// The answers are the `Ev::History*` events.
+/// What the composer needs of the host: the history file (`codex-message-history`),
+/// the file search and the mention usage file (IO). The answers are the
+/// `Ev::History*`, `Ev::FileMatches` and `Ev::MentionUsage` events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
+    /// Run or end a file search (`mentions::files::FileSearchBackend`);
+    /// answered with `Ev::FileMatches`.
+    FileSearch(FileSearchAsk),
+    /// A `$` pick was made: the usage file keeps its identity.
+    RecordMention(String),
     /// Append a submitted prompt to the file (`AppendMessageHistoryEntry`);
     /// no answer.
     Append(String),
     /// Read an entry or a batch; answered with `Ev::HistoryEntry`,
     /// `Ev::HistoryBatch` or `Ev::HistoryBatchFailed`.
     Lookup(Lookup),
-}
-
-/// What a mention is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MentionKind {
-    Skill,
-    App,
-    Plugin,
-}
-
-/// A skill, app or plugin that can be mentioned (`mentions_v2/candidate.rs`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Mention {
-    pub kind: MentionKind,
-    pub name: String,
-    pub description: String,
-    /// What follows the sigil when it is picked (`$` + `insert`).
-    pub insert: String,
 }
 
 /// What a popup row stands for.
@@ -294,6 +292,12 @@ impl HistorySearch {
 pub enum Ev {
     Files(Vec<String>),
     Mentions(Vec<Mention>),
+    /// The tasks a task search found.
+    Tasks(Vec<TaskMention>),
+    /// The file search answered `query`.
+    FileMatches { query: String, matches: Vec<FileMatch> },
+    /// The recent `$` picks the usage file held, oldest first.
+    MentionUsage(Vec<String>),
     /// A history file of these prompts, oldest first, all read (a script's
     /// seed).
     History(Vec<String>),
@@ -325,6 +329,10 @@ pub enum Intent {
     Record(String),
     /// A composer's history needs a read it did not find in the store.
     Lookup(Lookup),
+    /// The mention popup wants a file search run or ended.
+    SearchFiles(FileSearchAsk),
+    /// A `$` mention was picked (by the skill's path).
+    RecordMention(String),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -332,6 +340,9 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Files(files) => model.files = files,
         Ev::Mentions(mentions) => model.mentions = mentions,
+        Ev::Tasks(tasks) => model.tasks = tasks,
+        Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
+        Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
         Ev::History(history) => *model.history = Store::seeded(history),
         Ev::HistoryMetadata {
             log_id,
@@ -367,6 +378,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
+        Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
+        Intent::RecordMention(identity) => {
+            model.usage.record(&identity);
+            model.asks.push(Ask::RecordMention(identity));
+        }
     }
 }
 
@@ -420,13 +436,18 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 }
 
 /// The seed form of this screen's events: `{"files":["src/a.rs"]}`,
-/// `{"mentions":[{kind,name,description,insert}]}`, `{"history":["..."]}`
-/// (history oldest first).
+/// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}`,
+/// `{"tasks":[{thread_id,title,cwd?,snippet?}]}`,
+/// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
+/// `{"mention_usage":["path"]}` and `{"history":["..."]}` (oldest first).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
     Files(Vec<String>),
     Mentions(Vec<SeedMention>),
+    Tasks(Vec<SeedTask>),
+    FileMatches(SeedFileMatches),
+    MentionUsage(Vec<String>),
     History(Vec<String>),
 }
 
@@ -436,6 +457,39 @@ struct SeedMention {
     name: String,
     description: String,
     insert: String,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    plugin_id: Option<String>,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedTask {
+    thread_id: String,
+    title: String,
+    #[serde(default)]
+    cwd: String,
+    #[serde(default)]
+    snippet: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedMatch {
+    path: String,
+    #[serde(default)]
+    dir: bool,
+    #[serde(default)]
+    score: u32,
+    #[serde(default)]
+    indices: Option<Vec<u32>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SeedFileMatches {
+    query: String,
+    matches: Vec<SeedMatch>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
@@ -464,8 +518,40 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                     name: m.name,
                     description: m.description,
                     insert: m.insert,
+                    path: m.path,
+                    plugin_id: m.plugin_id,
+                    capabilities: m.capabilities,
                 })
                 .collect(),
         ),
+        SeedEv::Tasks(tasks) => Ev::Tasks(
+            tasks
+                .into_iter()
+                .map(|t| TaskMention {
+                    thread_id: t.thread_id,
+                    title: t.title,
+                    cwd: t.cwd,
+                    snippet: t.snippet,
+                })
+                .collect(),
+        ),
+        SeedEv::FileMatches(found) => Ev::FileMatches {
+            query: found.query,
+            matches: found
+                .matches
+                .into_iter()
+                .map(|m| FileMatch {
+                    path: m.path,
+                    match_type: if m.dir {
+                        MatchType::Directory
+                    } else {
+                        MatchType::File
+                    },
+                    score: m.score,
+                    indices: m.indices,
+                })
+                .collect(),
+        },
+        SeedEv::MentionUsage(recent) => Ev::MentionUsage(recent),
     })
 }

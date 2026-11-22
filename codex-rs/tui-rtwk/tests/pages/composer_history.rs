@@ -71,7 +71,7 @@ fn lookups(h: &Harness) -> Vec<Lookup> {
         .into_iter()
         .filter_map(|ask| match ask {
             Ask::Lookup(lookup) => Some(lookup),
-            Ask::Append(_) => None,
+            Ask::Append(_) | Ask::FileSearch(_) | Ask::RecordMention(_) => None,
         })
         .collect()
 }
@@ -88,7 +88,7 @@ fn appended(h: &Harness) -> Vec<String> {
         .into_iter()
         .filter_map(|ask| match ask {
             Ask::Append(text) => Some(text),
-            Ask::Lookup(_) => None,
+            Ask::Lookup(_) | Ask::FileSearch(_) | Ask::RecordMention(_) => None,
         })
         .collect()
 }
