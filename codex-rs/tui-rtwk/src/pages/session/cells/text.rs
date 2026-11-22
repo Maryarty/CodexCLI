@@ -133,10 +133,9 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         Item::Error { message } => one(error::line(message, cells)),
         Item::HighLoad => one(error::line(env.chat.high_load, cells)),
         Item::Warning { message } => Texts::Exact(warning::texts(message, cells)),
-        Item::LocalWarning(warning) => Texts::Exact(warning::texts(
-            &env.chat.local_warning(*warning).to_string(),
-            cells,
-        )),
+        Item::LocalWarning(warning) => {
+            Texts::Exact(warning::texts(env.chat.local_warning(*warning), cells))
+        }
         Item::StartupWarning(warning) => {
             Texts::Exact(warning::texts(&env.chat.mcp_warning(warning), cells))
         }
