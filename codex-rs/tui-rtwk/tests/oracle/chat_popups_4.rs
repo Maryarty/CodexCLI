@@ -267,15 +267,34 @@ fn model_picker_refresh_preserves_highlight() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3536 model_picker_refreshes_service_tier_controls kind=snap owner=dialogs-pane snap=model_picker_refreshes_service_tier_controls
 #[test]
 fn model_picker_refreshes_service_tier_controls() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model picker in the port: the speed (service tier) controls of the fast-mode catalog and the /fast composer line have no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 3).live().open();
+    // the config says fast; the catalog first gives the model the tier, then takes it away
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 8).live().open();
+    let fast = include_str!("fixtures/chat_popups_4/fast_catalog.json").trim();
+    let refreshed = include_str!("fixtures/chat_popups_4/no_tiers.json").trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{fast}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.4","service_tier":"priority","cwd":"/tmp/project"}}}}}}"#
+    ));
     s.type_text("/model");
-    s.keys("enter esc");
+    s.keys("enter");
+    s.keys("esc");
     s.type_text("/fast");
-    s.assert_snap("model_picker_refreshes_service_tier_controls");
+    s.assert_contains("/fast");
+    s.keys("ctrl+u");
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{refreshed}}}"#
+    ));
+    s.type_text("/model");
+    s.keys("enter");
+    s.keys("esc");
+    // the model no longer offers a tier: the effective tier is none and `/fast` lists nothing
+    s.type_text("/fast");
+    let row = s
+        .rows()
+        .iter()
+        .position(|r| r.starts_with("› /fast"))
+        .expect("the composer row");
+    s.assert_snap_region("model_picker_refreshes_service_tier_controls", row, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3561 model_picker_refresh_preserves_dismissal_and_reasoning_submenu kind=snap owner=dialogs-pane snap=model_selection_popup
@@ -407,33 +426,106 @@ fn reasoning_shortcut_is_ignored_with_model_popup_open() {
     );
 }
 
+/// The server's `thread/settings/updated`: what the thread runs on after a shortcut or a mode
+/// switch (the kit's backend does not echo the settings it takes).
+fn settings_updated(model: &str, effort: &str, mode: &str) -> String {
+    serde_json::json!({"step":"notify","message":{"method":"thread/settings/updated","params":{
+        "threadId":"thread-1",
+        "threadSettings":{"cwd":"/tmp/project","approvalPolicy":"on-request","approvalsReviewer":"user",
+            "sandboxPolicy":{"type":"dangerFullAccess"},"activePermissionProfile":null,
+            "model":model,"modelProvider":"openai","serviceTier":null,"effort":effort,"summary":null,
+            "collaborationMode":{"mode":mode,"settings":{"model":model,"reasoning_effort":effort,"developer_instructions":null}},
+            "personality":null}}}})
+    .to_string()
+}
+
 // ORACLE chatwidget/tests/popups_and_settings.rs:4029 reasoning_up_shortcuts_reach_max_in_default_and_plan_modes kind=snap owner=dialogs-pane snap=reasoning_shortcut_max_footer snap=reasoning_shortcut_max_plan_footer
 #[test]
 fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning shortcut (alt+. and shift+up) in the port: the status footer reads the max effort in default and plan modes; no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
-    s.keys("alt+.");
-    s.assert_snap("reasoning_shortcut_max_footer");
-    s.keys("tab");
-    s.assert_snap("reasoning_shortcut_max_plan_footer");
+    let max = include_str!("fixtures/chat_popups_4/max_catalog.json").trim();
+    for plan_mode in [false, true] {
+        for key in ["alt+.", "shift+up"] {
+            let mut s = Screen::build(Owner::DialogsPane).size(80, 6).live().open();
+            s.feed(&format!(
+                r#"{{"step":"respond","method":"model/list","result":{max}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5","effort":"xhigh","cwd":"/tmp/project","items":["model-with-reasoning"]}}}}}}"#
+            ));
+            s.type_text("/model");
+            s.keys("enter");
+            s.keys("esc");
+            s.feed(&settings_updated(
+                "gpt-5.5",
+                "xhigh",
+                if plan_mode { "plan" } else { "default" },
+            ));
+            s.keys(key);
+            let sent = s.request_params("thread/settings/update");
+            let sent = sent
+                .last()
+                .expect("the shortcut asks the server for the effort")
+                .to_string();
+            assert!(
+                sent.contains(r#""max""#),
+                "{key} in plan={plan_mode} sent {sent}"
+            );
+            // Plan mode steps the Plan override: the mode rides with the effort
+            assert_eq!(sent.contains(r#""plan""#), plan_mode, "{key}: {sent}");
+            // the server answers with the settings it took; the footer reads them
+            s.feed(&settings_updated(
+                "gpt-5.5",
+                "max",
+                if plan_mode { "plan" } else { "default" },
+            ));
+            if key == "alt+." {
+                // The snapshot's rows; its hint row reads `? for shortcuts` where ours adds
+                // `← for agents` (the oracle's chat widget has agents navigation off: a gap
+                // of every footer snapshot, not of the shortcut).
+                s.assert_has_row("  GPT-5.5 max");
+                s.assert_has_row("› Ask Codex to do anything");
+                // GAP: the Plan mode indicator (`Plan mode (⇧tab to cycle)`, right of the hint
+                // row) is not drawn: the footer widget takes no mode fact yet (pane-footer's).
+                s.assert_contains("? for shortcuts");
+            }
+        }
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4108 reasoning_up_shortcut_does_not_silently_enter_ultra kind=snap owner=dialogs-pane
 #[test]
 fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no reasoning shortcut (alt+.) in the port: at Max it prints the Ultra hint in the history rather than entering Ultra; no widget and no seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
-    s.keys("alt+.");
-    // The oracle's inline literal "• Ultra is available under /model → <model path> → More reasoning…";
-    // the model path is the test's own replacement, so both fixed parts are checked.
-    s.assert_contains("• Ultra is available under /model → ");
-    s.assert_contains(" → More reasoning…");
+    for (catalog, model) in [
+        (
+            include_str!("fixtures/chat_popups_4/ultra_catalog.json").trim(),
+            "gpt-5.5",
+        ),
+        (
+            include_str!("fixtures/chat_popups_4/ultra_auto_catalog.json").trim(),
+            "codex-auto-test",
+        ),
+    ] {
+        let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
+        s.feed(&format!(
+            r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}","effort":"max","cwd":"/tmp/project"}}}}}}"#
+        ));
+        s.type_text("/model");
+        s.keys("enter");
+        s.keys("esc");
+        s.feed(&settings_updated(model, "max", "default"));
+        let before = s.request_params("thread/settings/update").len();
+        s.keys("alt+.");
+        // The oracle's inline literal "• Ultra is available under /model → <model path> → More reasoning…".
+        let path = if model.starts_with("codex-auto-") {
+            model.to_string()
+        } else {
+            format!("All models → {model}")
+        };
+        s.assert_contains(&format!(
+            "• Ultra is available under /model → {path} → More reasoning…"
+        ));
+        // and nothing was asked of the server
+        assert_eq!(s.request_params("thread/settings/update").len(), before);
+    }
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:4159 reasoning_down_shortcut_can_leave_advanced_effort kind=ui owner=dialogs-pane

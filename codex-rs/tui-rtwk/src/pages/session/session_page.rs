@@ -134,6 +134,8 @@ pub enum ChatMsg {
     QueueDraft,
     /// The edit-queued key: the newest queued message goes back to the composer.
     EditQueued,
+    /// The reasoning shortcuts: a step down or up (`handle_reasoning_shortcut`).
+    Reasoning(codex_tui_core::screens::select::reasoning::Direction),
     CtrlC,
     RetryWriter,
     ForkWriter,
@@ -482,6 +484,7 @@ impl State for ChatState {
                     cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                 }
             }
+            ChatMsg::Reasoning(direction) => reasoning_shortcut(cx, &hs, direction),
             ChatMsg::Picked(text) => {
                 // `Autocomplete::on_selected`: a command picked in the popup
                 // runs as the pick names it (the command clears the composer
@@ -574,7 +577,7 @@ impl State for ChatState {
                 // it while a turn runs
                 Action::CycleMode => {
                     let thread = read::<ThreadModel, _>(cx);
-                    if !thread.read_only() {
+                    if !thread.read_only() && !refuses_parent_owned(cx, &hs) {
                         let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::CycleMode);
                         cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                     }
@@ -812,6 +815,7 @@ impl State for ChatState {
             rate_limits: session.rate_limits.get(&backend),
             run_state: Some(run.word(&session, reconnecting)),
             strings,
+            catalog: &states.select.catalog,
         };
         let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
@@ -948,6 +952,17 @@ impl State for ChatState {
             &keymap,
             codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
             &cx.send(ChatMsg::EditQueued),
+        ));
+        use codex_tui_core::screens::select::reasoning::Direction;
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_DECREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Lower)),
+        ));
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_INCREASE_REASONING_EFFORT,
+            &cx.send(ChatMsg::Reasoning(Direction::Raise)),
         ));
         KeyBindings::new(crate::keymap::first_of_each(keys), focus)
             .hints([

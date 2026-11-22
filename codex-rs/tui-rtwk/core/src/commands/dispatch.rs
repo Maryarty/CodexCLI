@@ -5,8 +5,10 @@
 //! A pure function of the line and of a few facts of the session.
 
 use super::CommandFlags;
+use super::ServiceTierCommand;
 use super::SlashCommand;
-use super::find_builtin_command;
+use super::SlashCommandItem;
+use super::find_slash_command;
 use super::parse_slash_name;
 
 /// A screen directory a command opens. The UI opens it through that
@@ -108,6 +110,8 @@ pub enum Notice {
     DisabledDuringTask(SlashCommand),
     /// `'/cmd' is unavailable in side conversations.`
     UnavailableInSide(SlashCommand),
+    /// The same for a service-tier command (`/fast`): its name.
+    TierUnavailableInSide(String),
     /// `'/cmd' is unavailable while code review is running.`
     UnavailableInReview(SlashCommand),
     /// `Session is still starting; try /cmd again in a moment.`
@@ -255,6 +259,8 @@ pub enum Outcome {
     },
     /// Text for the composer (`/mention` inserts `@`).
     Insert(&'static str),
+    /// A service-tier command of the model (`/fast`): the tier is switched.
+    Tier(ServiceTierCommand),
     Quit,
     Notice(Notice),
 }
@@ -275,8 +281,14 @@ pub struct DispatchCx {
     pub has_backend_auth: bool,
 }
 
-/// Dispatches a composer line that starts with `/`.
+/// Dispatches a composer line that starts with `/`, for a model that offers no service tier.
 pub fn dispatch(line: &str, cx: &DispatchCx) -> Outcome {
+    dispatch_with_tiers(line, cx, &[])
+}
+
+/// Dispatches a composer line that starts with `/`; `tiers` are the commands the model's service
+/// tiers add (`find_slash_command`).
+pub fn dispatch_with_tiers(line: &str, cx: &DispatchCx, tiers: &[ServiceTierCommand]) -> Outcome {
     let Some((name, rest, _)) = parse_slash_name(line) else {
         return Outcome::NotACommand;
     };
@@ -284,8 +296,17 @@ pub fn dispatch(line: &str, cx: &DispatchCx) -> Outcome {
     if name.contains('/') {
         return Outcome::NotACommand;
     }
-    match find_builtin_command(name, cx.flags) {
-        Some(command) => dispatch_command(command, rest.trim_end(), cx),
+    match find_slash_command(name, cx.flags, tiers) {
+        Some(SlashCommandItem::Builtin(command)) => dispatch_command(command, rest.trim_end(), cx),
+        // a tier command takes no arguments: with some, the line is a message
+        Some(SlashCommandItem::ServiceTier(_)) if !rest.trim().is_empty() => Outcome::NotACommand,
+        Some(SlashCommandItem::ServiceTier(tier)) => {
+            if cx.side_conversation {
+                Outcome::Notice(Notice::TierUnavailableInSide(tier.name))
+            } else {
+                Outcome::Tier(tier)
+            }
+        }
         None => Outcome::Notice(Notice::Unrecognized(name.to_string())),
     }
 }

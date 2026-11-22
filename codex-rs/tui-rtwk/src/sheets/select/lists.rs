@@ -239,6 +239,7 @@ fn models(page: &models::Page, s: &Strings) -> List {
             .map(|row| item(row, &page.heading, s))
             .collect(),
         initial: page.initial,
+        numbered_rows: Some(9),
         ..List::default()
     }
 }
@@ -249,6 +250,7 @@ fn heading(heading: &Heading, s: &Strings) -> (String, Option<String>, Role) {
         Heading::Loading => plain(s.loading, None),
         Heading::Quick => plain(s.quick_title, Some(s.quick_subtitle.to_string())),
         Heading::All => plain(s.model_title, None),
+        Heading::Reserve => plain(s.quick_title, Some(s.reserve_subtitle.to_string())),
         Heading::Reasoning { model } => (s.reasoning_title(model), None, Role::Plain),
         Heading::Advanced => (
             s.advanced_title.to_string(),

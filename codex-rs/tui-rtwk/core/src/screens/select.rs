@@ -19,6 +19,7 @@ pub mod list;
 pub mod models;
 pub mod permissions;
 pub mod persist;
+pub mod reasoning;
 pub use list::List;
 pub use models::{Catalog, Current, ModelMenu, Preset, Selection};
 use models::{Effort, PlanSource, Step};
@@ -75,6 +76,12 @@ pub enum Picked {
     /// A permission mode or profile of the `/permissions` family, and how it
     /// applies.
     Permissions(permissions::Selection),
+    /// The service tier the model's tier command switched to (`default` is the one that
+    /// leaves the tier).
+    Tier(String),
+    /// A step of a reasoning shortcut: the thread's effort for its next turns, nothing saved;
+    /// in Plan mode (`plan`) the Plan override only.
+    Effort { model: String, effort: Effort, plan: bool },
     /// The answer of a confirmation was Yes (No picks nothing).
     Confirmed(Confirm),
     /// An item of a generic list, by id.
@@ -103,6 +110,8 @@ pub enum Page {
 pub enum Note {
     /// `No additional models are available right now.`
     NoAdditionalModels,
+    /// `Luna model settings are unavailable; please try /model again in a moment.`
+    ReserveUnavailable,
     /// `Could not load models. Try /model again.`
     ModelsNotLoaded,
     /// `Model changed to {model} {effort}` (`for this session only` when the
@@ -117,6 +126,16 @@ pub enum Note {
     UltraConcurrency(usize),
     /// `Permissions updated to {label}`.
     PermissionsUpdated(permissions::Label),
+    /// `Service tier set to {tier}`, after the default was saved.
+    ServiceTierSet(String),
+    /// `Reasoning shortcuts are disabled until startup completes.`
+    ReasoningDisabled,
+    /// `Reasoning shortcuts are unavailable for {model}.`
+    ReasoningUnavailable(String),
+    /// `Reasoning is already at the lowest level ({effort}).` / `...highest...`
+    ReasoningBound { direction: reasoning::Direction, effort: Effort },
+    /// `Ultra is available under /model -> ... -> More reasoning...`: a raise stops before Ultra.
+    UltraAvailable(String),
     /// `Permission selection requested: {label}`: the server took a profile
     /// pick of a thread.
     PermissionSelectionRequested(permissions::Label),
@@ -165,6 +184,8 @@ pub enum Setting {
     PlanEffort,
     /// The thread's permissions.
     Permissions,
+    /// The default service tier.
+    ServiceTier,
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
@@ -367,7 +388,7 @@ impl Model {
     fn open_models(&mut self, current: Current) {
         let menu = ModelMenu::Models(current);
         if menu.is_empty(&self.catalog) {
-            self.notes.push(Note::NoAdditionalModels);
+            self.notes.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
         } else {
             self.stack.push(Menu::Model(Box::new(menu)));
         }
@@ -383,16 +404,15 @@ impl Model {
         }
         self.catalog.presets = presets;
         let catalog = &self.catalog;
-        let mut dismissed = 0;
+        let mut dismissed = Vec::new();
         self.stack.retain(|menu| match menu {
             Menu::Model(menu) if menu.is_empty(catalog) => {
-                dismissed += 1;
+                dismissed.push(if menu.is_reserve() { Note::ReserveUnavailable } else { Note::NoAdditionalModels });
                 false
             }
             _ => true,
         });
-        self.notes
-            .extend(std::iter::repeat_n(Note::NoAdditionalModels, dismissed));
+        self.notes.extend(dismissed);
     }
 }
 
@@ -445,6 +465,8 @@ pub enum Intent {
     /// it is empty), and the catalog is asked for again: the request is
     /// `Catalog::pending`.
     OpenModels(Current),
+    /// The catalog is asked for, with no menu: the app does it when it connects.
+    LoadModels,
     /// `/permissions`: the menu for what the thread has now; the catalog is
     /// asked for when it has none (`Profiles::pending` is the request).
     OpenPermissions(permissions::Current),
@@ -465,6 +487,12 @@ pub enum Intent {
     Confirm,
     /// The menu shown was closed without a pick; the one below shows again.
     Close,
+    /// `/fast`, `/ultrafast`...: the tier `id` is switched on, or off when it is `current`
+    /// (`toggle_service_tier_from_ui`).
+    ServiceTier { id: String, current: Option<String> },
+    /// A reasoning shortcut on the thread `current` describes: `plan` is the thread in Plan
+    /// mode (the step is its override only), `started` the session being configured.
+    Reasoning { direction: reasoning::Direction, current: Current, plan: bool, started: bool },
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -556,7 +584,26 @@ fn apply_choice(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 model.open_models(current);
             }
         }
+        Intent::LoadModels => {
+            model.catalog.request();
+        }
         Intent::OpenPermissions(current) => model.open_permissions(current),
+        Intent::ServiceTier { id, current } => {
+            let next = if current.as_deref() == Some(id.as_str()) {
+                codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()
+            } else {
+                id
+            };
+            model.picked.push(Picked::Tier(next));
+        }
+        Intent::Reasoning { direction, current, plan, started } => {
+            match reasoning::step(&model.catalog, &current, direction, started) {
+                reasoning::Outcome::Set(effort) => {
+                    model.picked.push(Picked::Effort { model: current.model, effort, plan });
+                }
+                reasoning::Outcome::Say(note) => model.notes.push(note),
+            }
+        }
         Intent::OpenApps { enabled } => model.open_apps(enabled),
         Intent::Choose(id) => match model.stack.last_mut() {
             Some(Menu::Model(menu)) => {

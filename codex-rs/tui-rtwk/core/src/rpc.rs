@@ -78,16 +78,18 @@ impl Reply {
     }
 
     pub fn rate_limits(limits: crate::screens::status::RateLimits) -> Self {
-        Self::account_rate_limits(limits, None)
+        Self::account_rate_limits(limits, None, crate::screens::chat::Reserve::default())
     }
 
     pub(crate) fn account_rate_limits(
         limits: crate::screens::status::RateLimits,
         banner: Option<crate::screens::chat::Banner>,
+        reserve: crate::screens::chat::Reserve,
     ) -> Self {
         Self(Answer::RateLimits {
             limits,
             banner: banner.map(Box::new),
+            reserve,
         })
     }
 
@@ -140,6 +142,7 @@ pub enum Answer {
     RateLimits {
         limits: crate::screens::status::RateLimits,
         banner: Option<Box<crate::screens::chat::Banner>>,
+        reserve: crate::screens::chat::Reserve,
     },
     AddCreditsNudge(crate::screens::chat::NudgeOutcome),
     Screen(ScreenReply),

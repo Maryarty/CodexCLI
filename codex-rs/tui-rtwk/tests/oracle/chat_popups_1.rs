@@ -7,36 +7,51 @@
 use crate::kit::{self, Owner, Screen};
 
 // ---- oracle: chatwidget/tests/bedrock_catalog_tests.rs (3 screen-level tests here; 0 state tests left to dialogs-pane)
+/// The server's `model/list` answer of a provider's catalog (the fixture is what
+/// the backend's own `list_models` gives for it, in the app server's wire form).
+const MANTLE: &str = include_str!("fixtures/chat_popups_1/mantle.json");
+const RUNTIME: &str = include_str!("fixtures/chat_popups_1/runtime.json");
+const GOV: &str = include_str!("fixtures/chat_popups_1/gov.json");
+const DEFAULT: &str = include_str!("fixtures/chat_popups_1/default.json");
+const LUNA: &str = include_str!("fixtures/chat_popups_1/custom_luna.json");
+
+/// A live chat on `model` whose server lists `catalog` (the oracle's
+/// `chat.model_catalog = ModelCatalog::new(presets)`).
+fn on_catalog(width: u16, height: u16, model: &str, catalog: &str) -> Screen {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(width, height)
+        .live()
+        .open();
+    let catalog = catalog.trim();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{catalog}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"{model}"}}}}}}"#
+    ));
+    s
+}
+
+// ---- oracle: chatwidget/tests/bedrock_catalog_tests.rs (3 screen-level tests here; 0 state tests left to dialogs-pane)
 // ORACLE chatwidget/tests/bedrock_catalog_tests.rs:11 bedrock_astra_model_and_reasoning_pickers kind=snap owner=dialogs-pane snap=bedrock_mantle_astra_advanced_reasoning
 #[test]
 fn bedrock_astra_model_and_reasoning_pickers() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no Bedrock provider seed: the live chat cannot take the mantle or runtime Bedrock presets (the model list, the Astra preset's reasoning popup, the advanced reasoning popup); the port's select dialog has no reasoning popup",
-    );
-    // mantle: the model list, the Astra preset's reasoning popup (the oracle opens it directly),
-    // then the advanced reasoning popup (`5`); `2` applies ultra, a selection event that is not drawn.
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 13)
-        .live()
-        .open();
+    // mantle: the model list, the Astra preset's reasoning popup (the oracle opens it
+    // directly; here its row is chosen), then the advanced reasoning popup (`5`).
+    let mut s = on_catalog(100, 13, "openai.gpt-6.2-sol", MANTLE);
     s.type_text("/model").keys("enter");
     s.assert_snap("bedrock_mantle_models");
-    s.keys("enter");
+    s.keys("down down down down enter");
     s.resize(100, 10);
     s.assert_snap("bedrock_mantle_astra_reasoning");
     s.keys("5");
     s.resize(100, 8);
     s.assert_snap("bedrock_mantle_astra_advanced_reasoning");
+    // `2` applies ultra: the final pick goes to the thread
     s.keys("2");
     // runtime: the same model list and the Astra reasoning popup (no advanced snapshot in the oracle).
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 16)
-        .live()
-        .open();
+    let mut s = on_catalog(100, 16, "global.openai.gpt-6.2-sol", RUNTIME);
     s.type_text("/model").keys("enter");
     s.assert_snap("bedrock_runtime_models");
-    s.keys("enter");
+    s.keys("down down down down enter");
     s.resize(100, 10);
     s.assert_snap("bedrock_runtime_astra_reasoning");
 }
@@ -44,13 +59,10 @@ fn bedrock_astra_model_and_reasoning_pickers() {
 // ORACLE chatwidget/tests/bedrock_catalog_tests.rs:94 bedrock_govcloud_model_pickers kind=snap owner=dialogs-pane snap=bedrock_govcloud_models
 #[test]
 fn bedrock_govcloud_model_pickers() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no Bedrock provider seed: the live chat cannot take the GovCloud base URL (us-gov-west-1, us-gov-east-1) and its Bedrock model list",
-    );
-    // one screen per region; the oracle compares both with the same snapshot.
+    // one screen per region; the oracle compares both with the same snapshot
+    // (the two regions list the same models).
     for _region in ["us-gov-west-1", "us-gov-east-1"] {
-        let mut s = Screen::build(Owner::DialogsPane).size(100, 7).live().open();
+        let mut s = on_catalog(100, 7, "openai.gpt-5.6-terra", GOV);
         s.type_text("/model").keys("enter");
         s.assert_snap("bedrock_govcloud_models");
     }
@@ -59,33 +71,105 @@ fn bedrock_govcloud_model_pickers() {
 // ORACLE chatwidget/tests/bedrock_catalog_tests.rs:122 bedrock_ultrafast_slash_command_selects_and_clears_tier kind=snap owner=dialogs-pane
 #[test]
 fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no Bedrock provider seed and no /ultrafast service-tier command in the port; the snapshot joins a bundled and a custom catalog under `Bundled catalog:` / `Custom catalog:` labels the kit does not parse (kit gap)",
-    );
+    // (name, model, bundled catalog, the custom catalog's `model/list` answer)
     let cases = [
-        "mantle",
-        "runtime_global",
-        "runtime_us",
-        "mantle_sol61",
-        "runtime_global_sol61",
-        "runtime_us_sol61",
-        "mantle_astra62",
-        "runtime_global_astra62",
-        "runtime_us_astra62",
+        (
+            "mantle",
+            "openai.gpt-6-astra",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_custom.json"),
+        ),
+        (
+            "runtime_global",
+            "global.openai.gpt-6-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_custom.json"),
+        ),
+        (
+            "runtime_us",
+            "us.openai.gpt-6-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_custom.json"),
+        ),
+        (
+            "mantle_sol61",
+            "openai.gpt-6.1-sol",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_sol61_custom.json"),
+        ),
+        (
+            "runtime_global_sol61",
+            "global.openai.gpt-6.1-sol",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_sol61_custom.json"),
+        ),
+        (
+            "runtime_us_sol61",
+            "us.openai.gpt-6.1-sol",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_sol61_custom.json"),
+        ),
+        (
+            "mantle_astra62",
+            "openai.gpt-6.2-astra",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_astra62_custom.json"),
+        ),
+        (
+            "runtime_global_astra62",
+            "global.openai.gpt-6.2-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_astra62_custom.json"),
+        ),
+        (
+            "runtime_us_astra62",
+            "us.openai.gpt-6.2-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_astra62_custom.json"),
+        ),
     ];
-    for name in cases {
-        let mut s = Screen::build(Owner::DialogsPane)
-            .size(100, 24)
-            .live()
-            .open();
+    for (name, model, bundled, custom) in cases {
+        let mut s = on_catalog(100, 6, model, bundled);
+        // the catalog is read when the picker opens (the oracle's chat holds it already)
+        let refresh = |s: &mut Screen| {
+            s.type_text("/model").keys("enter");
+            s.keys("esc");
+        };
+        refresh(&mut s);
+        // The snapshot joins two frames under `Bundled catalog:` / `Custom catalog:` labels the
+        // kit does not parse (kit gap), and draws the popup above the composer: the row
+        // the popup lists is what is compared.
         s.type_text("/ultrafast");
-        s.assert_snap_section(&format!("bedrock_{name}_ultrafast"), "Bundled catalog");
+        s.assert_contains(
+            "/ultrafast  The fastest available responses for latency-sensitive work.",
+        );
+        // Enter switches the tier on: the thread's settings and the saved default
         s.keys("enter");
-        // the tier is set; the standard model clears it and the model is set again
+        let patches = s.request_params("thread/settings/update");
+        assert!(
+            patches.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {patches:?}"
+        );
+        let writes = s.request_params("config/batchWrite");
+        assert!(
+            writes.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {writes:?}"
+        );
+        // the server's catalog turns custom: its one tier is named Express
+        let custom = custom.trim();
+        s.feed(&format!(
+            r#"{{"step":"respond","method":"model/list","result":{custom}}}"#
+        ));
+        refresh(&mut s);
         s.type_text("/express");
-        s.assert_snap_section(&format!("bedrock_{name}_ultrafast"), "Custom catalog");
+        s.assert_contains("/express  My custom Bedrock tier.");
         s.keys("enter");
+        let writes = s.request_params("config/batchWrite");
+        assert!(
+            writes.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {writes:?}"
+        );
+        let _ = bundled;
     }
 }
 
@@ -276,11 +360,9 @@ fn resume_paused_goal_prompt_can_leave_goal_paused() {
 // ORACLE chatwidget/tests/model_display_name_tests.rs:7 custom_model_display_name_in_pickers_preserves_selection_slug kind=snap owner=dialogs-pane snap=custom_model_display_name_all_models snap=custom_model_display_name_quick_picker snap=custom_model_display_name_reasoning
 #[test]
 fn custom_model_display_name_in_pickers_preserves_selection_slug() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no custom model seed (display name `GPT-5.6 Luna`, slug `us.openai.gpt-5.6-luna`, two reasoning efforts) in the model picker: the select dialog's rows are name, description and current only, and it has no reasoning popup",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 9).live().open();
+    // the display name `GPT-5.6 Luna` is what the pickers show; the slug is what is picked.
+    let mut s = on_catalog(80, 9, "us.openai.gpt-5.6-luna", LUNA);
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"us.openai.gpt-5.6-luna","effort":"high"}}}"#);
     s.type_text("/model").keys("enter");
     s.assert_snap("custom_model_display_name_quick_picker");
     s.keys("enter");
@@ -289,8 +371,15 @@ fn custom_model_display_name_in_pickers_preserves_selection_slug() {
     s.keys("enter");
     s.resize(80, 7);
     s.assert_snap("custom_model_display_name_reasoning");
-    // Enter applies the slug (`ApplyModelSelection`): the selection is an event, not drawn.
+    // Enter applies the slug (`ApplyModelSelection`)
     s.keys("enter");
+    let patches = s.request_params("thread/settings/update");
+    assert!(
+        patches
+            .iter()
+            .any(|p| p.to_string().contains("us.openai.gpt-5.6-luna")),
+        "{patches:?}"
+    );
 }
 
 // ORACLE chatwidget/tests/model_display_name_tests.rs:62 custom_model_display_name_in_status_line_and_fallback kind=snap owner=dialogs-pane snap=custom_model_display_name_status_line
@@ -312,36 +401,40 @@ fn custom_model_display_name_in_status_line_and_fallback() {
 // ORACLE chatwidget/tests/model_picker_tests.rs:7 model_picker_compact_hint_and_actions_follow_configured_bindings kind=ui owner=dialogs-pane
 #[test]
 fn model_picker_compact_hint_and_actions_follow_configured_bindings() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no keymap seed (list.accept f3, list.cancel f2): the port reads no key bindings yet; the visible half is the compact hint `f3 select · f2 back` at 40 columns",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(40, 10)
         .live()
         .keymap(&[("list.accept", "f3"), ("list.cancel", "f2")])
         .open();
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{}}}
+{{"step":"screen","dir":"chat","ev":{{"status":{{"model":"gpt-5.5"}}}}}}"#,
+        DEFAULT.trim()
+    ));
     s.type_text("/model").keys("enter");
     s.assert_contains("f3 select · f2 back");
+    // f3 chooses the row (its reasoning menu opens), f2 goes back, f2 again closes the picker
     s.keys("f3");
+    s.assert_contains("Select Reasoning Level");
     s.keys("f2");
+    s.assert_contains("Select Model and Effort");
+    s.keys("f2");
+    s.assert_absent("Select Model and Effort");
 }
 
 // ORACLE chatwidget/tests/model_picker_tests.rs:23 model_picker_opens_after_discovery_populates_an_empty_catalog kind=snap owner=dialogs-pane snap=model_selection_popup
 #[test]
 fn model_picker_opens_after_discovery_populates_an_empty_catalog() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no model catalog discovery in the port: no loading state (`Loading models…`) for an empty catalog and no seed that populates it after the fetch",
-    );
-    let mut s = Screen::build(Owner::DialogsPane)
-        .size(80, 14)
-        .live()
-        .early()
-        .open();
+    let mut s = Screen::build(Owner::DialogsPane).size(80, 14).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"gpt-5.5"}}}"#);
     s.type_text("/model").keys("enter");
-    s.assert_has_row("Loading models…");
+    s.assert_contains("Loading models…");
     s.keys("esc");
+    // the discovery answers: the next `/model` opens on the filled catalog
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{}}}"#,
+        DEFAULT.trim()
+    ));
     s.type_text("/model").keys("enter");
     s.assert_snap("model_selection_popup");
 }

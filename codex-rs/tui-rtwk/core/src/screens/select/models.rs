@@ -33,6 +33,15 @@ pub struct EffortOption {
     pub description: String,
 }
 
+/// A service tier a model offers (`ModelServiceTier`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Tier {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 /// A model of the catalog (`ModelPreset`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Preset {
@@ -52,6 +61,12 @@ pub struct Preset {
     /// stronger for.
     #[serde(default)]
     pub specialty: Option<String>,
+    /// The service tiers the model offers (`service_tiers`).
+    #[serde(default)]
+    pub service_tiers: Vec<Tier>,
+    /// The tier the model runs on when none is configured.
+    #[serde(default)]
+    pub default_service_tier: Option<String>,
 }
 
 fn yes() -> bool {
@@ -76,6 +91,16 @@ impl Preset {
                 })
                 .collect(),
             specialty: model.model_specialty.clone(),
+            service_tiers: model
+                .service_tiers
+                .iter()
+                .map(|tier| Tier {
+                    id: tier.id.clone(),
+                    name: tier.name.clone(),
+                    description: tier.description.clone(),
+                })
+                .collect(),
+            default_service_tier: model.default_service_tier.clone(),
         }
     }
 
@@ -204,6 +229,21 @@ pub struct PlanMode {
     pub source: PlanSource,
 }
 
+/// `LUNA_RESERVE_MODEL` and `LUNA_MODEL` (`model_catalog.rs`): the temporary model that keeps
+/// the thread going when ordinary usage ran out, and the normal model it stands for.
+pub const RESERVE_MODEL: &str = "gpt-reserve";
+const LUNA_MODEL: &str = "gpt-6-luna";
+
+/// The thread runs on the Reserve and ordinary usage has not come back
+/// (`restrict_model_picker_to_luna_reserve`): `/model` offers that one model.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ReserveOnly {
+    /// The normal model whose name and efforts the row borrows (the reserve quota's
+    /// `normal_model_slug`); none reads the Luna model.
+    #[serde(default)]
+    pub normal_model: Option<String>,
+}
+
 /// What the thread had when the menu opened: the dispatcher reads it from
 /// the thread's part and the menu keeps it (a snapshot that dies with the
 /// menu, not a copy of the thread).
@@ -219,11 +259,14 @@ pub struct Current {
     /// `multi_agent_v2.max_concurrent_threads_per_session`.
     #[serde(default)]
     pub threads: Option<usize>,
+    /// Set while the Reserve is the model and ordinary usage is not back.
+    #[serde(default)]
+    pub reserve: Option<ReserveOnly>,
 }
 
 impl Current {
     pub fn new(model: impl Into<String>) -> Self {
-        Current { model: model.into(), effort: None, plan: None, threads: None }
+        Current { model: model.into(), effort: None, plan: None, threads: None, reserve: None }
     }
 
     /// What the chat's status facts know of the thread: its model and
@@ -254,6 +297,9 @@ pub enum Apply {
     PlanOnly,
     /// Plan scope: every mode.
     AllModes,
+    /// The Reserve's effort (`UpdateLunaReserveReasoning`): the thread's effort for the task,
+    /// no model and nothing saved.
+    Reserve,
 }
 
 /// A model and effort the user settled on.
@@ -334,6 +380,8 @@ pub enum Heading {
     Reasoning { model: String },
     Advanced,
     PlanScope { effort: Option<Effort>, source: PlanSource },
+    /// The Reserve-only picker (`Other models return when ordinary usage is available again.`).
+    Reserve,
 }
 
 /// A menu as rows: what `ModelMenu` and the catalog make of it.
@@ -401,6 +449,11 @@ impl ModelMenu {
         }
     }
 
+    /// The Reserve-only list.
+    pub(super) fn is_reserve(&self) -> bool {
+        matches!(self, ModelMenu::Models(current) if current.reserve.is_some())
+    }
+
     /// A row was chosen with the primary key, or with `s` (`session`).
     pub(super) fn choose(&self, catalog: &Catalog, id: &str, session: bool) -> Step {
         let page = self.page(catalog);
@@ -410,9 +463,9 @@ impl ModelMenu {
         if session {
             return match (&row.session, row_model(self, row)) {
                 (true, Some(model)) => Step::Done(Selection {
+                    apply: if model == RESERVE_MODEL { Apply::Reserve } else { Apply::Session },
                     model,
                     effort: row.effort.clone(),
-                    apply: Apply::Session,
                     warning: warning(self.current(), row.effort.as_ref()),
                 }),
                 _ => Step::None,
@@ -422,6 +475,16 @@ impl ModelMenu {
         // models: its rows act as that list's.
         let listing = matches!(self, ModelMenu::AllModels(_))
             || (matches!(self, ModelMenu::Models(_)) && page.heading == Heading::All);
+        // The Reserve-only list: its one row opens the reasoning of the normal model it borrows,
+        // under the Reserve's slug.
+        if let (ModelMenu::Models(current), Kind::Model) = (self, &row.kind)
+            && current.reserve.is_some()
+        {
+            let Some(preset) = reserve_preset(catalog, current) else { return Step::None };
+            let mut preset = preset.clone();
+            preset.model = RESERVE_MODEL.to_string();
+            return reasoning_of(&preset, current);
+        }
         match (self, &row.kind) {
             (ModelMenu::Models(current) | ModelMenu::AllModels(current), Kind::Model) if listing => {
                 let Some(preset) = catalog.find(&row.id) else { return Step::None };
@@ -498,6 +561,11 @@ fn asks_scope(current: &Current, model: &str, effort: &Option<Effort>) -> bool {
 /// Plan mode asks for it.
 fn settle(current: &Current, model: &str, effort: Option<Effort>) -> Step {
     let warning = warning(Some(current), effort.as_ref());
+    // The Reserve is temporary: its effort is the task's, never a default, and never asks
+    // where it applies in Plan mode.
+    if model == RESERVE_MODEL {
+        return Step::Done(Selection { model: model.into(), effort, apply: Apply::Reserve, warning });
+    }
     if asks_scope(current, model, &effort) {
         let source = current.plan.as_ref().map_or(PlanSource::Unknown, |plan| plan.source.clone());
         return Step::Prompt(ModelMenu::PlanScope { model: model.into(), effort, source, warning });
@@ -529,7 +597,34 @@ fn model_row(preset: &Preset, current: &Current, effort: Option<Effort>, session
     }
 }
 
+/// The preset the Reserve-only row borrows: the normal model of the reserve quota, else Luna
+/// (`open_luna_reserve_model_popup`).
+fn reserve_preset<'a>(catalog: &'a Catalog, current: &Current) -> Option<&'a Preset> {
+    let slug = current.reserve.as_ref().and_then(|reserve| reserve.normal_model.as_deref());
+    slug.and_then(|slug| catalog.find(slug)).or_else(|| catalog.find(LUNA_MODEL))
+}
+
+/// The Reserve-only list: one row, the borrowed model's name and words, marked current.
+fn reserve(catalog: &Catalog, current: &Current) -> Page {
+    let rows = reserve_preset(catalog, current)
+        .map(|preset| Choice {
+            id: RESERVE_MODEL.into(),
+            name: preset.name.clone(),
+            description: preset.description.clone(),
+            kind: Kind::Model,
+            current: true,
+            effort: None,
+            session: false,
+        })
+        .into_iter()
+        .collect();
+    Page { heading: Heading::Reserve, rows, initial: None }
+}
+
 fn quick(catalog: &Catalog, current: &Current) -> Page {
+    if current.reserve.is_some() {
+        return reserve(catalog, current);
+    }
     let (mut auto, other): (Vec<&Preset>, Vec<&Preset>) =
         catalog.visible().partition(|preset| preset.is_auto());
     if auto.is_empty() {

@@ -8,7 +8,8 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{
-    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch, parent_owned_takes,
+    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
+    parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
@@ -60,6 +61,63 @@ pub(super) enum Delivery {
     Queue,
 }
 
+/// A settings shortcut (`Shift+Tab`, `Alt+,`, `Alt+.`) on a thread its parent controls says so
+/// and does nothing (`add_error_message(PARENT_OWNED_INPUT_MESSAGE)`); true when it refused.
+pub(super) fn refuses_parent_owned(cx: &mut Cx<'_, ChatState>, hs: &Hs) -> bool {
+    let thread = read::<ThreadModel, _>(cx);
+    if !thread.screen_slots().chat.parent_owned {
+        return false;
+    }
+    let intent = chat::Intent::Note {
+        thread: read::<SessionSlice, _>(cx).active.clone(),
+        note: Note::from(NoteKey::ParentOwned),
+    };
+    cx.emit(&hs.screen, ScreenIntent::from(intent));
+    true
+}
+
+/// `handle_reasoning_shortcut`: one step of the model's reasoning effort, or the line that says
+/// why there is none.
+pub(super) fn reasoning_shortcut(
+    cx: &mut Cx<'_, ChatState>,
+    hs: &Hs,
+    direction: codex_tui_core::screens::select::reasoning::Direction,
+) {
+    use codex_tui_core::screens::select::{Intent, models::Current, models::Effort};
+    let thread = read::<ThreadModel, _>(cx);
+    if thread.read_only() || refuses_parent_owned(cx, hs) {
+        return;
+    }
+    let states = read::<ScreenStates, _>(cx);
+    let slots = thread.screen_slots();
+    let model = slots
+        .chat
+        .model
+        .clone()
+        .or_else(|| states.chat.status.model.clone());
+    let effort = slots
+        .chat
+        .effort
+        .as_deref()
+        .or(states.chat.status.effort.as_deref());
+    let current = Current {
+        effort: effort.and_then(|name| name.parse::<Effort>().ok()),
+        ..Current::new(model.unwrap_or_default())
+    };
+    let plan = states.chat.flags.collaboration_modes_enabled
+        && slots.chat.mode() == codex_protocol::config_types::ModeKind::Plan;
+    let started = matches!(read::<SessionSlice, _>(cx).status, Session::Ready);
+    cx.emit(
+        &hs.screen,
+        ScreenIntent::Select(Intent::Reasoning {
+            direction,
+            current,
+            plan,
+            started,
+        }),
+    );
+}
+
 pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter.
@@ -69,8 +127,18 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     let states = read::<ScreenStates, _>(cx);
     let thread = read::<ThreadModel, _>(cx);
     let session = read::<SessionSlice, _>(cx);
+    // the commands the current model's service tiers add (`/fast`)
+    let thread_model = thread.screen_slots().chat.model.clone();
+    let tiers = codex_tui_core::screens::chat::facts::tier_commands(
+        &states.chat.status,
+        thread_model.as_deref(),
+        &states.select.catalog,
+        &states.chat.service_tiers,
+    );
+    let mut flags = states.chat.flags;
+    flags.service_tier_commands_enabled = !tiers.is_empty();
     let facts = DispatchCx {
-        flags: states.chat.flags,
+        flags,
         task_running: thread.is_running(),
         side_conversation: states.chat.flags.side_conversation_active,
         review_mode: thread.screen_slots().chat.review_mode(),
@@ -95,7 +163,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
     // A thread its parent controls takes the commands that do not reach the
     // agent and nothing else; the composer keeps the line
     // (`InputResult::ParentOwnedInputBlocked`, `handle_parent_owned_submission`).
-    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, states.chat.flags) {
+    if thread.screen_slots().chat.parent_owned && !parent_owned_takes(line, flags) {
         say(cx, Note::from(NoteKey::ParentOwned));
         return;
     }
@@ -131,7 +199,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         }
         return;
     }
-    let outcome = dispatch(line, &facts);
+    let outcome = dispatch_with_tiers(line, &facts, &tiers);
     match outcome {
         Outcome::NotACommand => {
             // The decision is `apply`'s (R10): it starts a turn or queues
@@ -195,6 +263,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 opened.command,
                 &states.chat.status,
                 states.chat.flags.connectors_enabled,
+                reserve_only(&session, &states, &thread),
             ) {
                 cx.emit(&hs.screen, ScreenIntent::Select(intent));
             }
@@ -215,6 +284,20 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     intent,
                 },
             );
+        }
+        Outcome::Tier(tier) => {
+            record(cx);
+            clear_sent(&w.ui);
+            // the tier the thread runs on now, else the config's
+            let current = match &thread.screen_slots().chat.service_tier {
+                Some(tier) => tier.clone(),
+                None => states.chat.status.service_tier.clone(),
+            };
+            let intent = codex_tui_core::screens::select::Intent::ServiceTier {
+                id: tier.id,
+                current,
+            };
+            cx.emit(&hs.screen, ScreenIntent::Select(intent));
         }
         Outcome::Insert(text) => w.ui.composer.reset(text),
         Outcome::Quit => cx.emit(&hs.quit, ()),
@@ -244,16 +327,47 @@ fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
     }
 }
 
+/// `restrict_model_picker_to_luna_reserve`: the thread runs on the Reserve and the last account
+/// read did not say ordinary usage is back.
+fn reserve_only(
+    session: &SessionSlice,
+    states: &ScreenStates,
+    thread: &ThreadModel,
+) -> Option<codex_tui_core::screens::select::models::ReserveOnly> {
+    use codex_tui_core::screens::select::models::{RESERVE_MODEL, ReserveOnly};
+    let slots = thread.screen_slots();
+    let model = slots
+        .chat
+        .model
+        .as_deref()
+        .or(states.chat.status.model.as_deref())?;
+    if model != RESERVE_MODEL {
+        return None;
+    }
+    let backend = states.agents.owner_of(thread.id().as_str());
+    let facts = session.reserve.get(&backend);
+    if facts.is_some_and(|facts| facts.recovered) {
+        return None;
+    }
+    Some(ReserveOnly {
+        normal_model: facts.and_then(|facts| facts.normal_model.clone()),
+    })
+}
+
 /// The menu a slash command opens in the selection dialog, built from the
 /// thread's facts and whether the apps feature is on (the others open their slot empty until they land).
 fn select_intent(
     command: SlashCommand,
     facts: &chat::StatusFacts,
     apps: bool,
+    reserve: Option<codex_tui_core::screens::select::models::ReserveOnly>,
 ) -> Option<codex_tui_core::screens::select::Intent> {
     use codex_tui_core::screens::select::{Intent, models, permissions};
     match command {
-        SlashCommand::Model => Some(Intent::OpenModels(models::Current::from_facts(facts))),
+        SlashCommand::Model => Some(Intent::OpenModels(models::Current {
+            reserve,
+            ..models::Current::from_facts(facts)
+        })),
         SlashCommand::Permissions => Some(Intent::OpenPermissions(
             permissions::Current::from_facts(facts),
         )),

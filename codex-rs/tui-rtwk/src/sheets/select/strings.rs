@@ -104,6 +104,7 @@ pub struct Strings {
     // `open_all_models_popup_with_view_id`.
     pub quick_title: &'static str,
     pub quick_subtitle: &'static str,
+    pub reserve_subtitle: &'static str,
     pub loading: &'static str,
     pub all_models: &'static str,
     pub all_models_description: Msg<1>,
@@ -373,6 +374,7 @@ pub const EN: Strings = Strings {
     num: NumSyms::ENGLISH,
     quick_title: "Select Model",
     quick_subtitle: "Pick a quick auto mode or browse all models.",
+    reserve_subtitle: "Other models return when ordinary usage is available again.",
     loading: "Loading models…",
     all_models: "All models",
     all_models_description: msg!("Choose a specific model and reasoning level (current: {0})"),

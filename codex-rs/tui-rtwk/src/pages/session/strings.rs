@@ -169,10 +169,19 @@ pub struct Strings {
     pub note_save_model_failed: Msg<1>,
     pub note_save_plan_failed: Msg<1>,
     pub note_save_profile_failed: Msg<1>,
+    pub note_save_tier_failed: Msg<1>,
+    pub note_tier_set: Msg<1>,
+    pub note_reasoning_disabled: &'static str,
+    pub note_reserve_unavailable: &'static str,
+    pub note_reasoning_unavailable: Msg<1>,
+    pub note_reasoning_lowest: Msg<1>,
+    pub note_reasoning_highest: Msg<1>,
+    pub note_ultra_available: Msg<1>,
     pub note_overridden: Msg<1>,
     pub note_setting_model: &'static str,
     pub note_setting_plan: &'static str,
     pub note_setting_permissions: &'static str,
+    pub note_setting_tier: &'static str,
     pub note_ultra: Msg<2>,
     pub note_apps_disabled: &'static str,
     pub note_apps_hint: &'static str,
@@ -288,12 +297,23 @@ pub const EN: Strings = Strings {
     note_save_model_failed: msg!("Failed to save default model: {0}"),
     note_save_plan_failed: msg!("Failed to save Plan mode reasoning effort: {0}"),
     note_save_profile_failed: msg!("Failed to set permission profile: {0}"),
+    note_save_tier_failed: msg!(
+        "Failed to save default service tier: {0}\nYou can continue this task. To save the default, resolve the error above, then switch to a different tier and back to the desired tier."
+    ),
+    note_tier_set: msg!("Service tier set to {0}"),
+    note_reasoning_disabled: "Reasoning shortcuts are disabled until startup completes.",
+    note_reserve_unavailable: "Luna model settings are unavailable; please try /model again in a moment.",
+    note_reasoning_unavailable: msg!("Reasoning shortcuts are unavailable for {0}."),
+    note_reasoning_lowest: msg!("Reasoning is already at the lowest level ({0})."),
+    note_reasoning_highest: msg!("Reasoning is already at the highest level ({0})."),
+    note_ultra_available: msg!("Ultra is available under /model → {0} → More reasoning…"),
     note_overridden: msg!(
         "Saved {0}, but a higher-priority configuration layer overrides the saved value."
     ),
     note_setting_model: "default model and reasoning effort",
     note_setting_plan: "Plan mode reasoning effort",
     note_setting_permissions: "permissions",
+    note_setting_tier: "default service tier",
     note_ultra: msg!(
         "Ultra reasoning may proactively use multiple agents. This session is configured for {0} concurrent threads with up to {1} subagents which can increase usage quickly. Consider setting features.multi_agent_v2.max_concurrent_threads_per_session below 8."
     ),
@@ -517,6 +537,32 @@ impl Strings {
                 }
                 line
             }
+            Note::ServiceTierSet(tier) => text(self.note_tier_set, tier),
+            Note::ReasoningDisabled => self.note_reasoning_disabled.to_string(),
+            Note::ReserveUnavailable => self.note_reserve_unavailable.to_string(),
+            Note::ReasoningUnavailable(model) => text(self.note_reasoning_unavailable, model),
+            Note::ReasoningBound { direction, effort } => {
+                use codex_protocol::openai_models::ReasoningEffort as E;
+                use codex_tui_core::screens::select::reasoning::Direction;
+                let label = match effort {
+                    E::XHigh => "extra high".to_string(),
+                    E::Custom(value) => value.clone(),
+                    other => other.as_str().to_string(),
+                };
+                let message = match direction {
+                    Direction::Lower => self.note_reasoning_lowest,
+                    Direction::Raise => self.note_reasoning_highest,
+                };
+                text(message, &label)
+            }
+            Note::UltraAvailable(model) => {
+                let path = if model.starts_with("codex-auto-") {
+                    model.clone()
+                } else {
+                    format!("All models → {model}")
+                };
+                text(self.note_ultra_available, &path)
+            }
             Note::UltraConcurrency(threads) => Fmt::new(
                 self.note_ultra,
                 [int(*threads), int(threads.saturating_sub(1))],
@@ -554,6 +600,7 @@ impl Strings {
                     Setting::Model => self.note_save_model_failed,
                     Setting::PlanEffort => self.note_save_plan_failed,
                     Setting::Permissions => self.note_save_profile_failed,
+                    Setting::ServiceTier => self.note_save_tier_failed,
                 },
                 error,
             ),
@@ -563,6 +610,7 @@ impl Strings {
                     Setting::Model => self.note_setting_model,
                     Setting::PlanEffort => self.note_setting_plan,
                     Setting::Permissions => self.note_setting_permissions,
+                    Setting::ServiceTier => self.note_setting_tier,
                 },
             ),
             Note::AppsDisabled => format!(
@@ -585,6 +633,7 @@ impl Strings {
             Notice::Unrecognized(name) => text(self.unrecognized, name),
             Notice::DisabledDuringTask(c) => text(self.disabled_during_task, c.command()),
             Notice::UnavailableInSide(c) => text(self.unavailable_in_side, c.command()),
+            Notice::TierUnavailableInSide(name) => text(self.unavailable_in_side, name),
             Notice::UnavailableInReview(c) => text(self.unavailable_in_review, c.command()),
             Notice::SessionStarting(c) => text(self.session_starting, c.command()),
             Notice::NotAvailable(c) => text(self.not_available, c.command()),

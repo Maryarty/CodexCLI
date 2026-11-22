@@ -12,7 +12,7 @@ pub mod plan_mode;
 use std::rc::Rc;
 
 pub use facts::{Ev as FactEv, Facts, Footer, Probe};
-pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome};
+pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome, Reserve};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
 use codex_app_server_protocol::ClientRequest;
@@ -84,6 +84,10 @@ pub struct StatusFacts {
     pub cwd: Option<String>,
     pub home_directory: Option<String>,
     pub service_tier: Option<String>,
+    /// `Feature::FastMode`: the tiers other than flex and ultrafast need it.
+    pub fast_mode: bool,
+    /// `Feature::UltrafastMode`: the `ultrafast` tier needs it.
+    pub ultrafast_mode: bool,
     /// The name of the project root (the git root's directory).
     pub project_root: Option<String>,
     pub branch: Option<String>,
@@ -117,6 +121,8 @@ impl Default for StatusFacts {
             cwd: None,
             home_directory: None,
             service_tier: None,
+            fast_mode: true,
+            ultrafast_mode: true,
             project_root: None,
             branch: None,
             items: None,
