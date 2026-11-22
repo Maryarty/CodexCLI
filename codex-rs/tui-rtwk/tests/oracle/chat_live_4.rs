@@ -7,6 +7,7 @@
 use crate::kit::{self, Owner, Screen};
 
 const PLAN_ITEM: &str = include_str!("fixtures/chat_live_4/plan_item.jsonl");
+const FOOTER: &str = include_str!("fixtures/chat_live_4/footer.jsonl");
 const LIVE_DONE: &str = include_str!("fixtures/chat_live_4/live_done.jsonl");
 const LIVE_PLAN: &str = include_str!("fixtures/chat_live_4/live_plan.jsonl");
 const PLAN_REVISED: &str = include_str!("fixtures/chat_live_4/plan_revised.jsonl");
@@ -40,11 +41,10 @@ fn row_of(s: &Screen, text: &str) -> usize {
 // ORACLE chatwidget/tests/plan_mode.rs:68 plan_draft_footer_snapshot kind=snap owner=chat-live snap=plan_draft_footer
 #[test]
 fn plan_draft_footer_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Plan mode and no footer seed: the port has no collaboration mode (the footer's default word), no seed for the model gpt-5, the token usage 50k of 100k, or the /tmp/project cwd the oracle normalizes",
-    );
-    let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 24)
+        .script(FOOTER)
+        .open();
     s.type_text("make a plan");
     s.snap("plan_draft_footer")
         .at(row_of(&s, "› make a plan"), 0)
@@ -217,15 +217,10 @@ fn plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning() {
 // ORACLE chatwidget/tests/plan_mode.rs:680 submit_user_message_with_mode_errors_when_mode_changes_during_running_turn kind=ui owner=chat-live
 #[test]
 fn submit_user_message_with_mode_errors_when_mode_changes_during_running_turn() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "no Plan mode to switch from during a running turn: the port has no collaboration mode, so the running-turn refusal is not drawn",
+        "asserts the widget's submit_user_message_with_mode refusing a mode change under a running turn; the port's only caller is the prompt's Yes, which exists after a turn ends: core/tests/plan_mode.rs yes_while_a_turn_runs_is_refused",
     );
-    let mut s = Screen::build(Owner::ChatLive).script(RUNNING).open();
-    // The oracle submits in Default mode while a Plan-mode turn runs; the port's
-    // keys for that switch are not yet mapped.
-    s.type_text("Implement the plan.").keys("enter");
-    s.assert_contains("Cannot switch collaboration mode while a turn is running.");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:708 submit_user_message_blocks_when_thread_model_is_unavailable kind=ui owner=chat-live
@@ -402,16 +397,15 @@ fn plan_slash_command_with_args_submits_prompt_in_plan_mode() {
 // ORACLE chatwidget/tests/plan_mode.rs:1442 plan_slash_command_with_hidden_shell_paste_submits_literal_prompt kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Plan mode for the /plan literal prompt: the composer's pasted-content placeholder after /plan is drawn, the literal submit in Plan mode is not in the port yet",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).live().open();
     s.type_text("/plan ").paste(&payload);
     s.assert_contains(&format!("/plan [Pasted Content {} chars]", payload.len()));
     s.keys("enter");
-    // The oracle then checks the UserTurn carries the literal payload in Plan mode (op channel, not drawn).
+    // The oracle then checks the UserTurn carries the literal payload in Plan mode: the
+    // user's own cell shows it as typed, not as a shell command.
+    s.assert_has_row("› !echo");
+    s.assert_absent("/plan");
 }
 
 // ORACLE chatwidget/tests/plan_mode.rs:1453 plan_slash_command_with_hidden_shell_paste_rejected_image_remains_literal kind=ui owner=chat-live
@@ -446,10 +440,6 @@ fn plan_slash_command_with_hidden_shell_paste_unavailable_model_remains_literal(
 // ORACLE chatwidget/tests/plan_mode.rs:1491 plan_slash_command_with_hidden_shell_paste_queued_during_turn_submits_literal_prompt kind=ui owner=chat-live
 #[test]
 fn plan_slash_command_with_hidden_shell_paste_queued_during_turn_submits_literal_prompt() {
-    kit::pending(
-        Owner::ChatLive,
-        "no queued slash-parse input in the port: the placeholder is drawn while a turn runs, the queued literal submit after the turn is not in the port",
-    );
     let payload = hidden_shell_payload();
     let mut s = Screen::build(Owner::ChatLive).script(RUNNING).open();
     s.type_text("/plan ").paste(&payload);
