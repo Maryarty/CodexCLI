@@ -971,19 +971,28 @@ mod user_verification {
     /// Cancel answers the elicitation as cancelled and says why (oracle
     /// `user_verification_cancellation_invalidates_the_inflight_result`: `_meta`
     /// `openai/userVerificationReason: userCancelled`); accepting needs the device's proof, so a
-    /// plain Accept (or Verify, which only starts the controller) sends nothing and keeps the
-    /// request.
+    /// plain Accept sends nothing and keeps the request; Verify only starts the controller (one
+    /// `VerifyUser`, no answer to the server).
     #[test]
     fn cancel_answers_and_accept_without_a_proof_does_not() {
         let mut app = CodexApp::new();
         let mut fx = AppFx::default();
         apply_app(&mut app, request(), &mut fx);
-        for decision in [Decision::Accept, Decision::Decline, Decision::Verify] {
+        for decision in [Decision::Accept, Decision::Decline] {
             let ev = answer(&app, decision);
             apply_app(&mut app, ev, &mut fx);
         }
         assert_eq!(app.requests().entries.len(), 1);
         assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+        let ev = answer(&app, Decision::Verify);
+        apply_app(&mut app, ev, &mut fx);
+        assert_eq!(app.requests().entries.len(), 1);
+        assert!(
+            matches!(fx.commands(), [Command::VerifyUser { .. }]),
+            "{:?}",
+            fx.commands()
+        );
+        let mut fx = AppFx::default();
         let ev = answer(&app, Decision::Cancel);
         apply_app(&mut app, ev, &mut fx);
         assert!(app.requests().entries.is_empty());

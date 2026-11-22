@@ -279,7 +279,7 @@ impl State for ViewportState {
                     )
                     .into()
                 }
-                Item::Agent { text } => {
+                Item::Agent { text, .. } => {
                     let markdown = crate::widgets::markdown::themed(
                         super::cells::citation::view(
                             text,
@@ -427,6 +427,17 @@ impl State for ViewportState {
                         message: table.high_load.to_string(),
                     }
                     .into(),
+                ),
+                Item::Decision(decided) => cell(
+                    separator,
+                    crate::sheets::approvals::DecisionCell {
+                        decided: decided.clone(),
+                    }
+                    .into(),
+                ),
+                Item::Review(line) => cell(
+                    separator,
+                    crate::sheets::approvals::ReviewLineCell { line: line.clone() }.into(),
                 ),
                 Item::Reasoning { summary } => cell(
                     separator,
