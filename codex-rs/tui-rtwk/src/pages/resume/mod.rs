@@ -558,8 +558,11 @@ impl ScreenState {
             (0, 1)
         };
         let from = self.selection.cursor();
-        let above = usize::from(pixels > 0);
-        let below = usize::from(from.is_some_and(|at| at + 1 < len) || model.has_more());
+        // The window is the list's viewport and the `more` lines the last
+        // frame showed with it.
+        let shown = self.scroll.value();
+        let above = usize::from(shown.above());
+        let below = usize::from(model.has_more() || shown.below());
         let view = usize::try_from(viewport).unwrap_or(1) + above + below;
         let Some(to) = target(len, from, &|_| true, mv, view.max(1)) else {
             return;

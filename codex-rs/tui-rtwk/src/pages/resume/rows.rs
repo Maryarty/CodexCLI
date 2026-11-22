@@ -162,11 +162,15 @@ impl Rows {
             Style::new()
         };
         let title = look.thread(&base, row.id.as_str());
-        line.child(Expanded::new(
-            1,
-            one_line(Text::new(row.display_preview().to_owned()).style(paint(title))),
-        ))
-        .into()
+        let title = one_line(Text::new(row.display_preview().to_owned()).style(paint(title)));
+        // A dense title is cut one cell short of its column (oracle:
+        // `dense_column_text`).
+        let title: AnyWidget = if dense {
+            Padding::new(EdgeInsets::only(0, 0, 1, 0), title).into()
+        } else {
+            title.into()
+        };
+        line.child(Expanded::new(1, title)).into()
     }
 
     /// The meta line: the date, the directory unless the list is that
@@ -330,8 +334,10 @@ impl Rows {
                 .into(),
             Speaker::Assistant => DefaultTextStyle::new(
                 self.look.dim.clone(),
-                crate::pages::session::cells::citation::view(&line.text, cwd)
-                    .theme(self.markdown.clone()),
+                crate::widgets::markdown::themed(
+                    crate::pages::session::cells::citation::view(&line.text, cwd),
+                    self.markdown.clone(),
+                ),
             )
             .into(),
         }
