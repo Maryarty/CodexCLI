@@ -1872,3 +1872,41 @@ mod local_links {
         assert!(text.contains("x (a.rs:1)"), "{text}");
     }
 }
+
+// What the Markdown widget rewrites besides links (`widgets/markdown/inlines.rs`).
+mod markdown_inlines {
+    use codex_tui_rtwk::pages::session::cells::citation;
+
+    fn rows(source: &str) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 8));
+        t.pump_widget(citation::view(source, None));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn an_ordered_list_is_numbered_with_a_dot_whatever_its_source_delimiter() {
+        assert_eq!(rows("1) one\n2) two"), ["1. one", "2. two"]);
+        assert_eq!(rows("1. one\n2. two"), ["1. one", "2. two"]);
+    }
+
+    #[test]
+    fn a_url_in_the_text_reads_with_its_character_references_decoded() {
+        assert_eq!(
+            rows("see https://example.com/a&amp;b&#126;c now"),
+            ["see https://example.com/a&b~c now"]
+        );
+        // Not a reference: a name the table does not know stays as written.
+        assert_eq!(
+            rows("https://example.com/?a=1&b=2&nope;"),
+            ["https://example.com/?a=1&b=2&nope;"]
+        );
+    }
+}

@@ -8,7 +8,10 @@
 //!   directory and in code style: `the lib (src/lib.rs:12:3)`; a link with no label text reads
 //!   the path alone;
 //! - a line break straight after such a link stays inline when the next text starts with a
-//!   colon, so `[a](/x/a.rs:3)` over `: why` reads `a (a.rs:3): why`.
+//!   colon, so `[a](/x/a.rs:3)` over `: why` reads `a (a.rs:3): why`;
+//! - an ordered list is numbered `1.` whatever delimiter its source has (`1)`);
+//! - a URL written in the text reads with its character references decoded (`a&amp;b` is
+//!   `a&b`), in its label and in its target.
 //!
 //! Flutter: `MarkdownBody(builders: {'a': LocalFileLink(cwd)}, softLineBreak: true)`. rtwk-rich
 //! takes no element builders, so the parsed tree is rewritten before the view shows it
@@ -19,7 +22,8 @@
 use std::sync::Arc;
 
 use rtwk_rich::markdown::{
-    Block, Definitions, MdBlock, MdInline, MdList, MdListItem, MdTable, resolve_references,
+    Block, Definitions, MdBlock, MdInline, MdList, MdListItem, MdTable, decode_entity,
+    resolve_references,
 };
 
 use codex_tui_core::screens::cells::local_links;
@@ -56,6 +60,12 @@ fn block(block: &Block, cwd: Option<&str>) -> Block {
                     })
                 })
                 .collect(),
+            // The oracle numbers every ordered list `1.`, whatever delimiter the source has.
+            marker: if list.start.is_some() {
+                '.'
+            } else {
+                list.marker
+            },
             ..list.clone()
         })),
         MdBlock::Table(table) => {
@@ -116,6 +126,20 @@ fn inline(node: &MdInline, cwd: Option<&str>, flow: bool) -> MdInline {
         MdInline::Emphasis(c) => MdInline::Emphasis(children(c)),
         MdInline::Strong(c) => MdInline::Strong(children(c)),
         MdInline::Strikethrough(c) => MdInline::Strikethrough(children(c)),
+        // A URL written in the text is a link of its own text; its character references stay
+        // undecoded in rtwk's parse, the oracle decodes them before it finds the URL.
+        MdInline::Link {
+            destination,
+            children: c,
+            title,
+        } if matches!(&c[..], [MdInline::Text(text)] if text == destination) => {
+            let decoded: Arc<str> = decoded(destination).into();
+            MdInline::Link {
+                destination: Arc::clone(&decoded),
+                children: Arc::from([MdInline::Text(decoded)]),
+                title: title.clone(),
+            }
+        }
         MdInline::Link {
             destination,
             children: c,
@@ -127,6 +151,34 @@ fn inline(node: &MdInline, cwd: Option<&str>, flow: bool) -> MdInline {
         },
         other => other.clone(),
     }
+}
+
+/// `text` with its character references (`&amp;`, `&#x41;`) replaced by what they stand for.
+fn decoded(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = rest.find(';').filter(|end| {
+            *end <= 32
+                && rest[1..*end]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '#')
+        });
+        match end.and_then(|end| decode_entity(&rest[..=end]).map(|c| (c, end))) {
+            Some((c, end)) => {
+                out.push(c);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A local link as nodes: `label (path)` where the label has text, `path` alone where not.

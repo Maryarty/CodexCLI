@@ -15,8 +15,6 @@ fn snap_lines(name: &str) -> Vec<String> {
 }
 
 // ---- oracle: markdown_render_tests.rs (40 screen-level tests here; 0 state tests left to chat-live)
-const G63: &str = "G63: MarkdownView joins a soft break with a blank; the oracle breaks the line (flutter_markdown softLineBreak)";
-
 // ORACLE markdown_render_tests.rs:697 loose_list_item_multiple_paragraphs kind=ui owner=chat-live
 #[test]
 fn loose_list_item_multiple_paragraphs() {
@@ -39,15 +37,19 @@ fn loose_list_item_multiple_paragraphs() {
 // ORACLE markdown_render_tests.rs:711 tight_item_with_soft_break kind=ui owner=chat-live
 #[test]
 fn tight_item_with_soft_break() {
-    kit::pending(Owner::ChatLive, G63);
     let s = Screen::build(Owner::ChatLive)
         .markdown(80, 24)
         .script(include_str!(
             "fixtures/markdown_streaming_3/tight_item_with_soft_break.jsonl"
         ))
         .open();
-    s.assert_has_row("• • item line1");
-    s.assert_has_row("    item line2");
+    // The oracle's two lines, the item's bullet then its indent, one under the other.
+    let rows = s.grid().rows(false);
+    let at = rows
+        .iter()
+        .position(|row| row == "• item line1")
+        .unwrap_or_else(|| panic!("no `• item line1` row:\n{}", s.text()));
+    assert_eq!(rows.get(at + 1).map(String::as_str), Some("  item line2"));
 }
 
 // ORACLE markdown_render_tests.rs:723 deeply_nested_mixed_three_levels kind=ui owner=chat-live

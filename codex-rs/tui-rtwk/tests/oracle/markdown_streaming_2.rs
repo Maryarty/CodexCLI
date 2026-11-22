@@ -64,8 +64,6 @@ fn hyperlink_chat(width: u16, height: u16, markdown: &str) -> Screen {
 }
 
 // ---- oracle: markdown_render/math_tests.rs (6 screen-level tests here; 2 state tests left to chat-live)
-const G63: &str = "G63: MarkdownView joins a soft break with a blank; the oracle breaks the line (flutter_markdown softLineBreak)";
-
 // ORACLE markdown_render/math_tests.rs:16 unicode_math_inline_snapshot kind=snap owner=chat-live snap=unicode_math_inline_snapshot
 #[test]
 fn unicode_math_inline_snapshot() {
@@ -81,7 +79,7 @@ Angles: <$x$>, <\(\alpha\)>, and <$\unknown{x}$>.
 Code: `$\alpha$`; money: $5 and $10; shell: $HOME.",
     );
     // The oracle's snapshot is the rendered lines alone, compared from the transcript's top-left.
-    s.assert_snap_region("unicode_math_inline_snapshot", 0, 0);
+    s.assert_markdown_snap("unicode_math_inline_snapshot");
 }
 
 // ORACLE markdown_render/math_tests.rs:29 unicode_math_inline_narrow_snapshot kind=snap owner=chat-live snap=unicode_math_inline_narrow_snapshot
@@ -93,7 +91,7 @@ fn unicode_math_inline_narrow_snapshot() {
         24,
         r"Words $\alpha^2 + \beta_1$ more words and $\sqrt{x}$.",
     );
-    s.assert_snap_region("unicode_math_inline_narrow_snapshot", 0, 0);
+    s.assert_markdown_snap("unicode_math_inline_narrow_snapshot");
 }
 
 // ORACLE markdown_render/math_tests.rs:37 unicode_math_accents_and_symbols_snapshot kind=snap owner=chat-live snap=unicode_math_accents_and_symbols_snapshot
@@ -117,7 +115,7 @@ Integrals: $\iint f$, $\iiint g$, $\oint h$.
 Collections: $\coprod A$, $\bigcup B$, $\bigcap C$.
 Punctuation: $x\prime$, $a\circ b\bullet c$, $\vdots\ddots$.",
     );
-    s.assert_snap_region("unicode_math_accents_and_symbols_snapshot", 0, 0);
+    s.assert_markdown_snap("unicode_math_accents_and_symbols_snapshot");
 }
 
 // ORACLE markdown_render/math_tests.rs:57 unicode_math_named_delimiters_snapshot kind=snap owner=chat-live snap=unicode_math_named_delimiters_snapshot
@@ -133,7 +131,7 @@ Norms: $\left\lVert v\right\rVert$, $\lvert x\rvert$, $\left\|w\right\|$.
 Sets: $\left\{x\right\}$, $\lbrace y\rbrace$, $\lbrack z\rbrack$.
 Angles: $\left<x\right>$.",
     );
-    s.assert_snap_region("unicode_math_named_delimiters_snapshot", 0, 0);
+    s.assert_markdown_snap("unicode_math_named_delimiters_snapshot");
 }
 
 // ORACLE markdown_render/math_tests.rs:69 unicode_math_accents_reject_ambiguous_arguments kind=ui owner=chat-live
@@ -277,7 +275,7 @@ fn disabled_tables_keep_markdown_fences_and_cell_markup() {
     let quoted =
         "> ```md\n> Intro\n>\n>| A | B |\n> |---|---|\n> | a | b |\n>\n>> literal\n> ```\n";
     let s = chat(80, 24, quoted);
-    s.assert_snap_region("disabled_tables_keep_mixed_quote_spacing", 0, 0);
+    s.assert_markdown_snap("disabled_tables_keep_mixed_quote_spacing");
 }
 
 // ---- oracle: markdown_render/task_list_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
@@ -286,7 +284,7 @@ fn disabled_tables_keep_markdown_fences_and_cell_markup() {
 fn lists_preserve_layout() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): `☐ Unchecked` is not on the screen after the fragments before it ([\"☐ Unchecked\", \"☑ Checked\", \"☑ Uppercase\", \"• Ordinary\"]):",
+        "G73: item 4, the oracle draws a task item with `☐` / `☑` in place of the bullet and the next ordinary item as `• Ordinary`; rtwk draws `[ ]` / `[x]` and pads the ordinary bullet to the width of the checkbox (`•   Ordinary`)",
     );
     // The oracle joins twelve sources at width 24 into one snapshot; this ports the
     // first three stages (rows of the snapshot), the others follow the same pattern.
@@ -322,7 +320,7 @@ fn lists_preserve_layout() {
 fn bare_urls_are_styled_without_coloring_surrounding_prose() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): `https://example.com/a` at (4, 19) `h` against `fg=Reset underlined`: fg is Rgb(137, 180, 250), the oracle's is Reset",
+        "G-new (bare URL style): the oracle draws a URL written in the text underlined in the text's own colour (`fg=Reset underlined`); rtwk-rich parses it as a link and the theme's link colour applies (`Rgb(137, 180, 250)`), the link style being one for every link; the prose around it matches",
     );
     let s = chat(
         100,
@@ -343,7 +341,7 @@ fn bare_urls_are_styled_without_coloring_surrounding_prose() {
 fn bare_urls_keep_link_style_when_wrapped_in_tables() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no `https://example.com/docs` on the screen:",
+        "G73: item 3, the oracle wraps a table cell inside its column (the URL on its own rows, every row linked); rtwk's table cuts the cell with `…` (`https://example.com…`) and the target is gone from the screen",
     );
     let s = chat(
         20,
@@ -497,7 +495,7 @@ fn bare_url_with_tilde_keeps_complete_hyperlink() {
 fn table_url_with_tilde_keeps_complete_hyperlink() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no `https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf` on the screen:",
+        "G73: item 3, the oracle wraps the URL inside the cell at width 32 and keeps the whole destination on every row; rtwk's table cuts the cell with `…` (`https://www.cs.tufts.edu/~nr/cs…`)",
     );
     let destination = "https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf";
     let markdown = format!("| URL |\n| --- |\n| {destination} |\n");
@@ -523,10 +521,6 @@ fn links_keep_their_columns_after_styled_fragments() {
 // ORACLE markdown_render_tests.rs:109 merged_text_events_preserve_entity_decoding kind=ui owner=chat-live
 #[test]
 fn merged_text_events_preserve_entity_decoding() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `https://example.com/a&b~c`:",
-    );
     let destination = "https://example.com/a&b~c";
     let s = chat(80, 24, "https://example.com/a&amp;b~c");
     s.assert_has_row(destination);
@@ -552,11 +546,14 @@ fn paragraph_single() {
 // ORACLE markdown_render_tests.rs:158 paragraph_soft_break kind=ui owner=chat-live
 #[test]
 fn paragraph_soft_break() {
-    kit::pending(Owner::ChatLive, G63);
     let s = chat(80, 24, "Hello\nWorld");
-    // The oracle's two lines under the agent gutter (`• `, then `  `).
-    s.assert_has_row("• Hello");
-    s.assert_has_row("  World");
+    // The oracle's two lines, one under the other.
+    let rows = s.grid().rows(false);
+    let at = rows
+        .iter()
+        .position(|row| row == "Hello")
+        .unwrap_or_else(|| panic!("no `Hello` row:\n{}", s.text()));
+    assert_eq!(rows.get(at + 1).map(String::as_str), Some("World"));
 }
 
 // ORACLE markdown_render_tests.rs:166 paragraph_multiple kind=ui owner=chat-live
@@ -607,7 +604,7 @@ fn blockquote_single() {
 fn blockquote_soft_break() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): `> with a soft break` is not on the screen after the fragments before it ([\"> This is a blockquote\", \"> with a soft break\"]):",
+        "G73: item 1, the oracle repeats the source marker `> ` on every row of a quote; rtwk's MarkdownView draws the `│ ` bar (the soft break itself is a line break as in the oracle)",
     );
     let s = chat(80, 24, "> This is a blockquote\nwith a soft break\n");
     s.assert_in_order(&["> This is a blockquote", "> with a soft break"]);
@@ -766,7 +763,7 @@ fn list_item_text_then_blockquote() {
 fn list_item_blockquote_then_text() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): ` > after` is not on the screen after the fragments before it ([\"1. > quoted\", \" > after\"]):",
+        "G73: item 1, the oracle draws the quote inside a list item with its `> ` source marker (`1. > quoted`, `   > after`); rtwk draws `1. │ quoted`",
     );
     let s = chat(80, 24, "1.\n   > quoted\n   after\n");
     s.assert_in_order(&["1. > quoted", "   > after"]);
@@ -777,7 +774,7 @@ fn list_item_blockquote_then_text() {
 fn list_item_text_blockquote_text() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): ` > after` is not on the screen after the fragments before it ([\"1. before\", \" > quoted\", \" > after\"]):",
+        "G73: item 1, the oracle draws the quote inside a list item with its `> ` source marker (`   > quoted`); rtwk draws `   │ quoted`",
     );
     let s = chat(80, 24, "1. before\n   > quoted\n   after\n");
     s.assert_in_order(&["1. before", "   > quoted", "   > after"]);
@@ -884,7 +881,7 @@ fn list_ordered() {
 fn empty_list_items_keep_their_markers() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): ` •` is not on the screen after the fragments before it ([\"•\", \" •\"]):",
+        "G73: item 4 and G-new (empty item): the oracle draws an empty item's marker on its own row and the nested one below it, four cells in (`•` / `    •`); rtwk puts the nested marker on the parent's row (`• ◦`)",
     );
     // The oracle's snapshot is the Debug of the rows of three sources; this ports the
     // first two (the `8.` marker row and the nested empty bullets), the third follows.

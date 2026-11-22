@@ -752,7 +752,7 @@ fn mermaid_controller_keeps_diagram_mutable_and_returns_original_source() {
 fn incremental_render_keeps_final_block_mutable_and_matches_full_render() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: incremental_render_representative_stream: ours (right) differs from the oracle (left)",
+        "kit and G73: the snapshot is the Debug dump of the oracle's `HyperlinkLine`s (spans with their styles and link columns), which the kit has no reader for (it compares rows and `Buffer` dumps); the screen also differs by G73 item 1 (quote `> ` marker, fence rows, code padding) and item 3 (the table); the incremental render equals the whole one (`assert_matches_whole` holds)",
     );
     let chunks = [
         "# Heading\n",
