@@ -14,6 +14,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod paste_burst;
+pub mod vim;
 
 pub const NAME: &str = "composer";
 pub const ID: &str = "S10";

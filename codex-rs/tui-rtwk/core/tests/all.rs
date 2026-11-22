@@ -20,6 +20,7 @@ mod cells;
 mod citations;
 mod commands;
 mod composer_shell;
+mod composer_vim;
 mod dialogs;
 mod directives;
 mod import;
