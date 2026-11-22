@@ -22,6 +22,10 @@ pub struct Strings {
     pub esc_between: &'static str,
     pub esc_idle_rest: &'static str,
     pub esc_primed_rest: &'static str,
+    /// `shortcut_overlay.rs` `close_hint`: what stands between the toggle's key
+    /// and `esc`, and after `esc`.
+    pub close_between: &'static str,
+    pub close_rest: &'static str,
     /// `passive_hints.rs`: the queue hint's key and its two spellings.
     pub queue_key: &'static str,
     pub queue_long: &'static str,
@@ -76,6 +80,8 @@ pub const EN: Strings = Strings {
     esc_between: " ",
     esc_idle_rest: " to edit previous message",
     esc_primed_rest: " again to edit previous message",
+    close_between: " / ",
+    close_rest: " close",
     queue_key: "tab",
     queue_long: " to queue message",
     queue_short: " to queue",

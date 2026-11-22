@@ -13,6 +13,14 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::keymap::actions::{
+    CHAT_DECREASE_REASONING_EFFORT, CHAT_INCREASE_REASONING_EFFORT,
+    COMPOSER_HISTORY_SEARCH_PREVIOUS, COMPOSER_QUEUE, EDITOR_INSERT_NEWLINE,
+    GLOBAL_FIND_TRANSCRIPT, GLOBAL_FOCUS_ACTIVITY, GLOBAL_OPEN_AGENTS, GLOBAL_OPEN_EXTERNAL_EDITOR,
+    GLOBAL_OPEN_TRANSCRIPT,
+};
+use codex_tui_core::keymap::{ActionId, Key, Mods, Stroke};
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -22,6 +30,36 @@ use crate::l10n::lang;
 pub struct Group {
     pub heading: &'static str,
     pub rows: &'static [(&'static str, &'static str)],
+}
+
+/// Where the keys of a row of the live overlay come from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keys {
+    /// Text no platform spells differently (`/`, `esc esc`).
+    Plain(&'static str),
+    /// A key the oracle fixes, spelt as the platform spells a hint (`\u{2303}v`).
+    Chord(Stroke),
+    /// Two fixed keys, `a / b`.
+    Pair(Stroke, Stroke),
+    /// The first binding of the action in the user's keymap; the row is
+    /// absent while the action is unbound (`Entry::hint`).
+    Bound(ActionId),
+}
+
+/// One row of the live overlay (`shortcut_overlay.rs` `Entry`): its keys, the
+/// action it names and the action while a turn runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub keys: Keys,
+    pub label: &'static str,
+    pub running: Option<&'static str>,
+}
+
+/// One column of the live overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Section {
+    pub heading: &'static str,
+    pub rows: &'static [Entry],
 }
 
 /// The strings of this screen.
@@ -35,8 +73,14 @@ pub struct Strings {
     pub shortcuts_list_title: &'static str,
     pub shortcuts_keyboard_title: &'static str,
     pub shortcut_groups: [Group; 3],
+    /// The live overlay's columns (the bottom pane's `?`), keys from the keymap.
+    pub shortcut_sections: [Section; 3],
+    /// Between the two keys of a pair (`pgup / pgdn`).
+    pub shortcut_either: &'static str,
     pub keymap_customize: &'static str,
     pub shortcuts_close: &'static str,
+    /// bottom_pane/shortcut_overlay.rs `render`: shown over `/keymap customize` when the room is short.
+    pub shortcuts_resize: &'static str,
     /// bottom_pane/shortcut_overlay/keyboard.rs: the base layout, drawn as is.
     pub keyboard: [&'static str; 15],
     // bottom_pane/warnings_view_render.rs.
@@ -110,8 +154,144 @@ pub const EN: Strings = Strings {
             ],
         },
     ],
+    shortcut_sections: [
+        Section {
+            heading: "Compose",
+            rows: &[
+                Entry {
+                    keys: Keys::Plain("/"),
+                    label: "Commands",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Plain("@"),
+                    label: "Mention files",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Plain("!"),
+                    label: "Shell command",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(EDITOR_INSERT_NEWLINE),
+                    label: "New line",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Chord(Stroke::new(Key::Char('v'), Mods::CTRL)),
+                    label: "Paste image",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(GLOBAL_OPEN_EXTERNAL_EDITOR),
+                    label: "External editor",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(COMPOSER_HISTORY_SEARCH_PREVIOUS),
+                    label: "Search history",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Plain("esc esc"),
+                    label: "Edit last message",
+                    running: None,
+                },
+            ],
+        },
+        Section {
+            heading: "Session",
+            rows: &[
+                Entry {
+                    keys: Keys::Bound(COMPOSER_QUEUE),
+                    label: "Send message",
+                    running: Some("Queue message"),
+                },
+                Entry {
+                    keys: Keys::Bound(CHAT_DECREASE_REASONING_EFFORT),
+                    label: "Less reasoning",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(CHAT_INCREASE_REASONING_EFFORT),
+                    label: "More reasoning",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(GLOBAL_OPEN_AGENTS),
+                    label: "Agents (empty prompt)",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Pair(
+                        Stroke::new(Key::Left, Mods::ALT),
+                        Stroke::new(Key::Right, Mods::ALT),
+                    ),
+                    label: "Subagents (empty prompt)",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(GLOBAL_FOCUS_ACTIVITY),
+                    label: "Inspect activity",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Chord(Stroke::new(Key::Char('c'), Mods::CTRL)),
+                    label: "Quit",
+                    running: Some("Interrupt"),
+                },
+            ],
+        },
+        Section {
+            heading: "Transcript (open first)",
+            rows: &[
+                Entry {
+                    keys: Keys::Bound(GLOBAL_OPEN_TRANSCRIPT),
+                    label: "Open transcript",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Bound(GLOBAL_FIND_TRANSCRIPT),
+                    label: "Find text",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Pair(
+                        Stroke::new(Key::PageUp, Mods::NONE),
+                        Stroke::new(Key::PageDown, Mods::NONE),
+                    ),
+                    label: "Scroll",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Chord(Stroke::new(Key::Char(' '), Mods::CTRL)),
+                    label: "Start selection",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Pair(
+                        Stroke::new(Key::Home, Mods::CTRL),
+                        Stroke::new(Key::End, Mods::CTRL),
+                    ),
+                    label: "Top / latest",
+                    running: None,
+                },
+                Entry {
+                    keys: Keys::Pair(
+                        Stroke::new(Key::Char(','), Mods::ALT.with(Mods::SHIFT)),
+                        Stroke::new(Key::Char('.'), Mods::ALT.with(Mods::SHIFT)),
+                    ),
+                    label: "Top / latest",
+                    running: None,
+                },
+            ],
+        },
+    ],
+    shortcut_either: " / ",
     keymap_customize: "/keymap customize",
     shortcuts_close: "? / esc close",
+    shortcuts_resize: "\u{2026} resize to see all",
     keyboard: [
         "┌──────────────────────────────────────────────────────────────────────┐",
         "│ Esc     F1 F2 F3 F4   F5 F6 F7 F8  F9 F10 F11 F12   PrtSc ScrLk Pau  │",

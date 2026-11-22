@@ -237,3 +237,106 @@ fn daybreak_reads_off_until_the_thread_turns_it_on() {
         s.text()
     );
 }
+
+// ---- the `?` shortcut overlay (bottom_pane/shortcut_overlay.rs)
+
+/// The close hint is a button (ADR-011): a click on `esc close` puts the help away and the
+/// footer is the idle hints again.
+#[test]
+fn a_click_on_the_close_hint_closes_the_help() {
+    let mut s = page(IDLE, 80, 24);
+    s.keys("?");
+    s.assert_contains("Keyboard shortcuts");
+    s.click_text("esc close");
+    s.assert_absent("Keyboard shortcuts");
+    s.assert_contains("? for shortcuts");
+}
+
+/// The rows are the user's keymap and the turn: a rebound `composer.queue` shows its key, and
+/// while a turn runs `Send message` is `Queue message` and `Quit` is `Interrupt`.
+#[test]
+fn the_help_rows_follow_the_keymap_and_the_running_turn() {
+    let row = |s: &Screen, label: &str| {
+        s.rows()
+            .into_iter()
+            .find(|row| row.contains(label))
+            .unwrap_or_else(|| panic!("no `{label}` row:\n{}", s.text()))
+    };
+    let mut idle = Screen::build(Owner::UiPane)
+        .size(130, 24)
+        .script(IDLE)
+        .keymap(&[("composer.queue", "ctrl-q")])
+        .open();
+    idle.keys("?");
+    assert!(
+        row(&idle, "Send message").contains("\u{2303}q"),
+        "{}",
+        idle.text()
+    );
+    assert!(row(&idle, "Quit").contains("\u{2303}c"));
+    idle.assert_absent("Interrupt");
+    let mut running = Screen::build(Owner::UiPane)
+        .size(130, 24)
+        .script(RUNNING)
+        .open();
+    running.keys("?");
+    running.assert_contains("Queue message");
+    running.assert_contains("Interrupt");
+    running.assert_absent("Send message");
+}
+
+/// `escape_closes_shortcut_help_before_inline_banner`: with the help open Esc puts the help
+/// away and the banner stays; the next Esc dismisses the banner. (The shard's entry,
+/// `chat/inline_banner_short`, is the chat page's to register; this is the same keys on the
+/// page's own backend banner.)
+#[test]
+fn escape_closes_the_help_before_it_dismisses_the_banner() {
+    use crate::common::start;
+    use codex_tui_core::app::AppEv;
+    use codex_tui_core::screens::{ScreenEv, chat};
+    let mut h = start();
+    h.wait_idle();
+    h.fake.respond(|request| match request["method"].as_str() {
+        Some("account/rateLimits/read") => Some(Ok(serde_json::json!({
+            "rateLimits": {},
+            "rateLimitUpsell": {
+                "banner_type": "credits",
+                "title": "Usage limit reached",
+                "description": "Add credits to keep working.",
+                "ctas": [{"action": "view_usage", "label": "View usage"}],
+                "presentation": "dismissible",
+            },
+        }))),
+        _ => None,
+    });
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                account_usage: true,
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    h.wait_for("the banner", |s| s.contains("Usage limit reached"));
+    h.press("?");
+    h.settle();
+    assert!(
+        h.t.screen().contains("Keyboard shortcuts"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("Keyboard shortcuts"), "{screen}");
+    assert!(screen.contains("Usage limit reached"), "{screen}");
+    h.press("esc");
+    h.settle();
+    assert!(
+        !h.t.screen().contains("Usage limit reached"),
+        "{}",
+        h.t.screen()
+    );
+}

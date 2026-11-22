@@ -26,7 +26,8 @@ fn row_of(s: &Screen, text: &str) -> usize {
 
 const FIND_REASON: &str = "the transcript Find footer (`Find: needle` above the composer, its cursor, the copy flash) is not built: the chat footer draws only the history-search row, and no key or seed opens a find footer";
 const SPARKLE_REASON: &str = "the composer sparkle (braille starfield dots in the placeholder of a fresh Astra task, with its 15 s idle deadline and 1 s fade) is not built: the chat draws no dots and no seed marks a fresh task";
-const HELP_REASON: &str = "the `?` shortcut overlay above the composer (`Keyboard shortcuts`, `? / esc close`) is not built: `?` on an empty composer opens nothing in the chat";
+const HELP_REASON: &str = "the help itself is built (the `?` overlay above the composer); what these two wait for is the composer sparkle under it (braille dots in the placeholder, step 7 of chunk-status: no sparkle yet)";
+const HELP_STATUS: &str = include_str!("fixtures/pane_footer_1/help_status.jsonl");
 const EXTENSION_REASON: &str = "the status line of this test is a ui_tree `extension` (a `FooterContent` that only the oracle's tests and previews build; no native item makes such a row): the person decides (brief section 7), the behaviour it checks is re-expressed with native items in tests/pages/chat_status.rs";
 const PROVIDER_REASON: &str = "a provider status (the bold `codex-internal`, an extension row) beside Plan mode: no collaboration-mode fact in StatusFacts (core/src/screens/chat.rs, chunk-live's) and no extension status";
 const THUMBNAIL_REASON: &str = "the composer's image thumbnails between the footer rows and the extra status (composer chunk) over an extension status row";
@@ -600,18 +601,61 @@ fn oversized_goal_yields_to_an_eligible_whole_hint_with_status_disabled() {
     s.assert_contains("Goal paused (/goal resume)");
 }
 
-// ORACLE bottom_pane/chat_composer/status_surface_tests.rs:883 shortcut_help_stays_above_the_prompt_and_bottom_status kind=snap owner=ui-pane snap=shortcut_help_above_narrow snap=shortcut_help_above_wide
+/// The oracle's snapshot of the composer alone against our rows from the help's title on: the
+/// page keeps the reader's gap (one blank row, `composer_gap`) above the prompt box that the
+/// snapshot lacks, and the prompt row carries the page's own placeholder (the oracle's is
+/// `Ask Codex`).
+fn assert_help_snap(s: &Screen, name: &str) {
+    assert_help_rows(s, &kit::snap_rows(name, ""), name);
+}
+
+/// `assert_help_snap` against the rows of one frame the oracle joined of several.
+fn assert_help_rows(s: &Screen, oracle: &[String], name: &str) {
+    let at = |rows: &[String], text: &str| {
+        rows.iter()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no row with `{text}`"))
+    };
+    let ours = s.rows();
+    let (o_help, o_prompt) = (at(oracle, "Keyboard shortcuts"), at(oracle, "Ask Codex"));
+    let (help, prompt) = (at(&ours, "Keyboard shortcuts"), at(&ours, "Ask Codex"));
+    let mut got: Vec<String> = ours[help..]
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .collect();
+    // customize, the gap, the box's blank row, the prompt: the gap is two rows above the prompt
+    got.remove(prompt - help - 2);
+    let want = &oracle[o_help..];
+    let at_prompt = o_prompt - o_help;
+    assert!(
+        got[at_prompt].starts_with(&want[at_prompt]),
+        "{name}: the prompt row `{}` does not start with the oracle's `{}`",
+        got[at_prompt],
+        want[at_prompt]
+    );
+    got[at_prompt] = want[at_prompt].clone();
+    pretty_assertions::assert_eq!(
+        want.join("\n"),
+        got.join("\n"),
+        "{name}: ours (right) differs from the oracle (left)"
+    );
+}
+
+// ORACLE bottom_pane/chat_composer/status_surface_tests.rs:883 shortcut_help_stays_above_the_prompt_and_bottom_status kind=snap owner=ui-pane snap=shortcut
 #[test]
 fn shortcut_help_stays_above_the_prompt_and_bottom_status() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // `?` opens the help above the prompt (`Keyboard shortcuts` above `Ask Codex`), the close row
-    // `? / esc close` is the last row; at 130, 40 and 80x12 the oracle's frames hold
-    let mut s = Screen::build(Owner::UiPane).size(130, 24).live().open();
+    // `? / esc close` is the last row; the oracle renders at the height the composer wants, so
+    // the narrow frame (30 rows of help) gets the rows to show them all
+    let mut s = Screen::build(Owner::UiPane)
+        .size(130, 24)
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
     s.assert_in_order(&["Keyboard shortcuts", "Ask Codex"]);
-    s.assert_snap("shortcut_help_above_wide");
-    s.resize(40, 24);
-    s.assert_snap("shortcut_help_above_narrow");
+    assert_help_snap(&s, "shortcut_help_above_wide");
+    s.resize(40, 40);
+    assert_help_snap(&s, "shortcut_help_above_narrow");
     s.resize(80, 12);
     s.assert_contains("? / esc close");
 }
@@ -619,10 +663,12 @@ fn shortcut_help_stays_above_the_prompt_and_bottom_status() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:929 shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // at 40x12 the composer, its status and the cursor keep the same geometry while `?` opens the
     // help and `esc` closes it
-    let mut s = Screen::build(Owner::UiPane).size(40, 12).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 12)
+        .script(HELP_STATUS)
+        .open();
     let before = s.shot();
     s.keys("?");
     s.keys("esc");
@@ -632,28 +678,35 @@ fn shortcut_help_keeps_bottom_anchored_composer_status_and_cursor_stable() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:966 shortcut_help_keeps_input_and_close_hint_visible_when_height_is_tiny kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_keeps_input_and_close_hint_visible_when_height_is_tiny() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help at 40 columns, heights 4 to 7: the last row is `? / esc close` and the input stays
     // visible; with the status on and off (the test sets it; no key does)
-    let mut s = Screen::build(Owner::UiPane).size(40, 4).live().open();
+    // (opened taller: a resize to the size it has repaints nothing)
+    let mut s = Screen::build(Owner::UiPane)
+        .size(40, 8)
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
     for height in [4u16, 5, 6, 7] {
         s.resize(40, height);
-        s.assert_row(usize::from(height) - 1, "? / esc close");
+        s.assert_row(usize::from(height) - 1, "  ? / esc close");
     }
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1002 shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback kind=ui owner=ui-pane
 #[test]
 fn shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help close row names the runtime binding of the shortcut toggle (`⌃x ⌃⇧⌥f12`) at 80
     // columns and falls back to `esc close` at 22 (the test sets the binding; no key does)
-    let mut s = Screen::build(Owner::UiPane).size(80, 8).live().open();
+    let mut s = Screen::build(Owner::UiPane)
+        .size(80, 8)
+        .keymap(&[("composer.toggle_shortcuts", "ctrl-x ctrl-shift-alt-f12")])
+        .script(HELP_STATUS)
+        .open();
     s.keys("?");
-    s.assert_row(7, "⌃x ⌃⇧⌥f12 / esc close");
+    // the oracle trims the row; ours keeps the footer's two-cell indent
+    s.assert_row(7, "  ⌃x ⌃⇧⌥f12 / esc close");
     s.resize(22, 8);
-    s.assert_row(7, "esc close");
+    s.assert_row(7, "  esc close");
 }
 
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1031 status_survives_hints_feedback_and_queue kind=snap owner=ui-pane snap=persistent_status_and_messages
@@ -725,16 +778,27 @@ fn slash_popup_preserves_footer_and_selection_style() {
 // ORACLE bottom_pane/chat_composer/status_surface_tests.rs:1198 activity_shortcut_help_follows_runtime_binding kind=snap owner=ui-pane snap=activity_shortcut_help_follows_runtime_binding
 #[test]
 fn activity_shortcut_help_follows_runtime_binding() {
-    kit::pending(Owner::UiPane, HELP_REASON);
     // the help at 130 columns names the activity key from the runtime keymap: `f4`, `ctrl-x t`,
-    // and no key at all; the test sets the keymap (`global.focus_activity`), no key does
-    let mut s = Screen::build(Owner::UiPane)
-        .size(130, 24)
-        .keymap(&[("focus_activity", "f4")])
-        .live()
-        .open();
-    s.keys("?");
-    s.assert_snap("activity_shortcut_help_follows_runtime_binding");
+    // and no key at all (the row is gone); the test sets the keymap (`global.focus_activity`),
+    // no key does. The oracle joined its three renders in one snapshot with `---` lines.
+    const NAME: &str = "activity_shortcut_help_follows_runtime_binding";
+    let oracle = kit::snap_rows(NAME, "");
+    let frames: Vec<&[String]> = oracle.split(|row| row == "---").collect();
+    assert_eq!(frames.len(), 3, "the snapshot holds three renders");
+    let keymaps: [&'static [(&'static str, &'static str)]; 3] = [
+        &[("global.focus_activity", "f4")],
+        &[("global.focus_activity", "ctrl-x t")],
+        &[("global.focus_activity", "")],
+    ];
+    for (keymap, frame) in keymaps.into_iter().zip(frames) {
+        let mut s = Screen::build(Owner::UiPane)
+            .size(130, 24)
+            .script(HELP_STATUS)
+            .keymap(keymap)
+            .open();
+        s.keys("?");
+        assert_help_rows(&s, frame, NAME);
+    }
 }
 
 // ---- oracle: bottom_pane/chat_composer/warning_notice_tests.rs (4 screen-level tests here; 0 state tests left to ui-pane)

@@ -23,6 +23,7 @@ fn footer(line: Line, draft_empty: bool) -> Footer {
         shell: false,
         on_queue: None,
         on_warnings: None,
+        on_close: None,
     }
 }
 

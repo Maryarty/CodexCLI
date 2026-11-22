@@ -390,7 +390,7 @@ fn inline_banner_snapshot() {
 fn escape_closes_shortcut_help_before_inline_banner() {
     kit::pending(
         Owner::UiPane,
-        "no inline banner with the shortcut overlay: no entry chat/inline_banner_short (`Continue working`, 80 columns; the height is the banner's desired height)",
+        "no entry chat/inline_banner_short (an inline banner `Continue working`, 80 columns; chat-live registers entries): the keys are page-tested on the backend banner, tests/pages/chat_status.rs `escape_closes_the_help_before_it_dismisses_the_banner`",
     );
     let mut s = Screen::build(Owner::UiPane)
         .size(80, 4)

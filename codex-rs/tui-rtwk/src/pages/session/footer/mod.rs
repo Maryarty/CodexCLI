@@ -28,6 +28,7 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, StatelessWidget, impl_widget};
 
 use codex_tui_core::format::format_tokens_compact;
+use codex_tui_core::keymap::actions::COMPOSER_TOGGLE_SHORTCUTS;
 use codex_tui_core::screens::ScreenStates;
 use codex_tui_core::threads::ThreadModel;
 
@@ -57,8 +58,8 @@ pub enum Line {
     EscIdle,
     /// `esc again to edit previous message`: backtrack is primed.
     EscPrimed,
-    /// The shortcut overlay is open: how to close it.
-    Close(&'static str),
+    /// The shortcut overlay is open: how to close it (`close_hint`).
+    Close,
 }
 
 /// Cells the footer starts in (`FOOTER_INDENT_COLS`).
@@ -81,6 +82,8 @@ pub struct Footer {
     pub on_queue: Option<Handler<()>>,
     /// A tap on the warning notice.
     pub on_warnings: Option<Handler<()>>,
+    /// A tap on the close hint of the shortcut overlay.
+    pub on_close: Option<Handler<()>>,
 }
 
 impl PartialEq for Footer {
@@ -91,6 +94,7 @@ impl PartialEq for Footer {
             && self.shell == other.shell
             && self.on_queue == other.on_queue
             && self.on_warnings == other.on_warnings
+            && self.on_close == other.on_close
     }
 }
 
@@ -105,6 +109,9 @@ enum Meter {
 
 impl StatelessWidget for Footer {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        if self.line == Line::Close {
+            return close_row(cx, self.on_close.clone());
+        }
         if let Some(line) = self.transient(cx) {
             return line;
         }
@@ -142,7 +149,7 @@ impl Footer {
                 Span::styled(own.esc_key, tokens.bold()),
                 Span::styled(own.esc_primed_rest, tokens.dim()),
             ])),
-            Line::Close(text) => Some(transient(vec![Span::styled(text, tokens.dim())])),
+            Line::Close => None,
         }
     }
 
@@ -193,6 +200,45 @@ impl Footer {
             warning_style: Tokens::of(cx).warning(),
         })
     }
+}
+
+/// How to close the shortcut overlay (`close_hint`): the toggle's key from the
+/// keymap, ` / `, `esc`, ` close`; just `esc close` while the toggle is unbound
+/// or the whole does not fit the room.
+fn close_row(cx: &mut Cx<'_>, on_tap: Option<Handler<()>>) -> AnyWidget {
+    let tokens = Tokens::of(cx);
+    let own = strings::of(cx);
+    let key = crate::keymap::label(&crate::keymap::keymap(cx), COMPOSER_TOGGLE_SHORTCUTS);
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let mut short = vec![
+            Span::styled(own.esc_key, tokens.dim()),
+            Span::styled(own.close_rest, tokens.dim()),
+        ];
+        let mut long = key.as_ref().map(|key| {
+            vec![
+                Span::styled(key.clone(), tokens.dim()),
+                Span::styled(own.close_between, tokens.dim()),
+                Span::styled(own.esc_key, tokens.dim()),
+                Span::styled(own.close_rest, tokens.dim()),
+            ]
+        });
+        // a tap on the hint closes the overlay (ADR-011)
+        tapped(&mut short, &on_tap);
+        if let Some(spans) = long.as_mut() {
+            tapped(spans, &on_tap);
+        }
+        let room = usize::try_from(constraints.max_width - INDENT).unwrap_or(0);
+        let fits = |spans: &[Span]| {
+            spans
+                .iter()
+                .map(|span| seg.width(&span.text))
+                .sum::<usize>()
+                <= room
+        };
+        transient(long.filter(|spans| fits(spans)).unwrap_or(short))
+    })
+    .into()
 }
 
 /// One line of spans, `INDENT` cells in.

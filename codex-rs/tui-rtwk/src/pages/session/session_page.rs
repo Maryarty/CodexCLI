@@ -565,7 +565,7 @@ impl State for ChatState {
         let reconnecting = connection == Some(&ConnectionState::Reconnecting);
         let running = run.running();
         let compacting = run.compacting();
-        let (panel, close) = shortcut_panel(cx);
+        let (panel, _) = shortcut_panel(cx, running);
         let chat_strings = chat_strings::of(cx);
         let mut hints: Option<Footer> = None;
         let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
@@ -585,7 +585,7 @@ impl State for ChatState {
             } else {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
-                    Line::Close(close)
+                    Line::Close
                 } else if self.esc_primed && !thread.transcript().is_empty() {
                     Line::EscPrimed
                 } else {
@@ -598,6 +598,7 @@ impl State for ChatState {
                     shell: self.draft_shell,
                     on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                     on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
+                    on_close: Some(cx.send(ChatMsg::Shortcuts)),
                 };
                 hints = Some(props.clone());
                 let footer: AnyWidget = props.into();

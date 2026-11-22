@@ -1,10 +1,11 @@
-# chunk-status — parity (in progress: steps 1, 2 and 3 of 8 landed on the branch)
+# chunk-status — parity (in progress: steps 1, 2, 3 and 4 of 8 landed on the branch)
 Chunk of docs/rtwk-port/research/briefs/chat-status.md §6 (8 steps). Branch `worktree-agent-ae21c7b1bd5dacf8e`.
 Shard counts (summary.py, oracle profile; pass / n-a / pending / todo):
 before: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 0/11/63 — total 0 / 19 / 259 of 278.
 after step 1: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 1/11/62 — total 1 / 19 / 258 of 278, 0 red, 0 stale.
 after step 2: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 1/0/54 · pane_footer_2 1/11/62 — total 2 / 19 / 257 of 278, 0 red, 0 stale (whole nextest 1917 passed).
 after step 3: chat_status_1 0/6/52 · _2 2/1/56 · _3 2/1/29 · pane_footer_1 1/0/54 · pane_footer_2 1/11/62 — total 6 / 19 / 253 of 278, 0 red, 0 stale.
+after step 4: chat_status_1 0/6/52 · _2 2/1/56 · _3 2/1/29 · pane_footer_1 6/0/49 · pane_footer_2 1/11/62 — total 11 / 19 / 248 of 278, 0 red, 0 stale (whole nextest 1031 passed, 16 skipped; clippy --all-targets clean).
 Step 1 turns almost no shard test on by design: `footer_snapshots` (24 entries, one test) needs all 24 entries, and 17 of them need facts the model
 does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, the `?` overlay). 7 entries are done and compared one by one in
 `tests/pages/chat_status.rs` (`the_footer_entries_equal_the_oracle_snapshots`, bitten once: `esc_idle_rest` shortened → the esc-idle entry red).
@@ -54,6 +55,32 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
     model catalog (display name `GPT-5.5`, tier names `fast`/`Flex`): StatusFacts / ThreadPart fields of chunk-live; the host probes are the keymap porter's.
   - the title's action-required blink (`[ . ]` every second) needs `effects.title` in StatusFacts (chunk-live's).
 - Needs / lander (step 3): `session_page.rs` title block (`TitleState` + `context.title`, `use` line) and nothing else outside my files.
+
+## Step 4 — the `?` overlay (done; 5 shard tests on, 3 stay pending with their reason)
+- `sheets/dialogs/shortcuts.rs` (dialogs' file, widened for this step): `panel(s, tokens, sections)` is a `Flexible(OUTWEIGHS_THE_GAP, Row[indent, Expanded(LayoutBuilder)])`: the title, the groups
+  in three columns, two stacked or one (by the measured width: `group_lines`), a blank, `/keymap customize`. Given less height than its rows it is Flutter's
+  `Column(min)[Flexible(SingleChildScrollView(body, NeverScrollable)), note, customize]` with the note `… resize to see all` over `/keymap customize` (oracle `render`); no height at all is a 0x0 box.
+  Narrower than the widest row the groups sit in a horizontal `SingleChildScrollView` (the oracle wraps by word: delta below).
+- The rows come from the user's keymap and the turn (`resolve`, oracle `bindings`): `dialogs/strings.rs` holds the table (`Section`/`Entry`/`Keys::{Plain, Chord, Pair, Bound(ActionId)}`, ADR-010);
+  a `Bound` row is left out while its action is unbound, spelt by `keymap::stroke_label` (glyphs by platform); `Send message`/`Quit` read `Queue message`/`Interrupt` while a turn runs.
+  The old static `shortcut_groups` stays for the dialog's list page (debug entry); it is retired with that entry.
+- `footer/mod.rs`: `Line::Close` is a unit variant now; `close_row` (the toggle's keymap label, ` / `, `esc`, ` close`; `esc close` when the toggle is unbound or the whole does not fit) is a
+  `LayoutBuilder` over the width and every span taps (`Footer.on_close`): a click on `? / esc close` closes the overlay (ADR-011).
+- Priority against the reader's gap: the gap (`transcript::follow::gap`, chunk-live's) is `Flexible(1)` beside the panel in the bottom pane's `Column`; a Flutter `Column` shares its free height by
+  flex, so the panel's flex is 8 (`OUTWEIGHS_THE_GAP`): full help at 24 rows, the gap keeps its row from a free height of nine on.
+- Tests: oracle `shortcut_help_stays_above_the_prompt_and_bottom_status` (wide 130x24 and narrow 40x40 against the snapshots, the page's gap row and the placeholder aside), `..._keeps_bottom_anchored_composer_status_and_cursor_stable`,
+  `..._keeps_input_and_close_hint_visible_when_height_is_tiny` (40 columns, heights 4 to 7), `shortcut_help_close_row_uses_runtime_binding_and_narrow_fallback`, `activity_shortcut_help_follows_runtime_binding`
+  (three keymaps in one snapshot: `f4`, `ctrl-x t`, none; split on its `---`). Page tests (`tests/pages/chat_status.rs`, 3): click on `esc close` closes (bitten once: `on_close: None` -> red); rows follow the keymap and
+  the running turn; Esc closes the help before it dismisses the banner. Fixture `tests/oracle/fixtures/pane_footer_1/help_status.jsonl` (the oracle's `composer()`: status line `MODEL · ~/project · Context 20% used`).
+- Still pending, with reasons in the files: the two sparkle tests under the help (step 7); `escape_closes_shortcut_help_before_inline_banner` waits for the entry `chat/inline_banner_short` (chunk-live registers
+  entries; the same keys are page-tested on the backend banner).
+- Deltas: (1) the narrow groups (a column wider than the room) are clipped at the right edge, the oracle wraps by word: no test of the shards reaches it (the 22-column case of the close-row test only asserts the
+  last rows). (2) The terminal's enhanced-keys fact is not modeled: the newline row reads `⌃j` (the keymap's first binding; the oracle's status tests, `enhanced_keys_supported = false`) where the oracle's
+  `footer_mode_shortcut_overlay` (enhanced on, Esc hint primed) reads `⇧enter` and `esc`; `esc` is always `esc esc` (no esc-backtrack hint fact). `tests/sheets/dialogs.rs`
+  `session_question_mark_opens_the_footer_mode_shortcut_overlay` compared those rows; its structure asserts stay and the row compare moved to an `#[ignore]`d twin with the reason. (3) Voice, Change mode and the
+  WSL paste key rows are omitted (no voice availability, collaboration-mode or WSL fact).
+- Needs / lander (step 4): `session_page.rs` (chunk-live's): `shortcut_panel(cx, running)` (one line before the composer arm), `body = body.child(panel)` (the panel is its own `Flexible`) under `self.shortcuts && searching.is_none()`,
+  `Line::Close` (unit), `on_close: Some(cx.send(ChatMsg::Shortcuts))` in the `Footer { .. }`. `tests/sheets/dialogs.rs` (dialogs'): the split above. `footer/entries.rs` (mine): `on_close: None`.
 
 ## Deltas
 - The oracle has `DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED = false`: Ctrl+C / Ctrl+D never show `ctrl c again to quit`, the double press does not exist. The brief's quit-reminder
@@ -105,6 +132,6 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
 
 ## Left (steps 2-8 of the brief)
 2 status line in the footer row (replaces the hints when it has a value; row budget; footer links; pane_footer_1 27/131/205/269/316/416/489/542/1109/1130; status_line_style);
-3 status items, warnings, title; 4 the `?` overlay (`sheets/dialogs/shortcuts.rs` panel exists; HELP 5 tests + the 3 overlay footer entries);
+3 status items, warnings, title; (4 the `?` overlay: done);
 5 Working row, preview, background terminals; 6 effort transition/ignition; 7 sparkle; 8 voice footer/strip. Then the pty run (idle footer, `?`, a running turn with a queued
 message, a 40-column terminal), the 6 ui_tree status-line tests last (person decision pending), and the final checks.
