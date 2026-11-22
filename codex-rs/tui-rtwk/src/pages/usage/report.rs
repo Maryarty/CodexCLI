@@ -24,6 +24,7 @@ use codex_tui_core::screens::usage::report::{
 use codex_tui_core::screens::usage::{Load, Model, Section};
 
 use super::Look;
+use super::cards::{Fit, Item};
 use super::strings::Strings;
 use super::{gap, line, nothing};
 
@@ -49,17 +50,25 @@ pub fn is_chart(section: Section) -> bool {
 
 /// What the load of `section` says while it is not ready, or that its range
 /// holds no data; nothing for a ready report.
-pub fn message(model: &Model, section: Section, strings: &Strings) -> AnyWidget {
+pub fn message_text(model: &Model, section: Section, strings: &Strings) -> Option<String> {
     let load = &model.histories[section as usize];
     match load {
-        Load::Ready(history) if history.data.is_empty() => {
-            line(strings.empty_range, Style::default()).into()
-        }
-        Load::Ready(_) => nothing(),
-        other => other
-            .message()
-            .map_or_else(nothing, |message| line(message, Style::default()).into()),
+        Load::Ready(history) if history.data.is_empty() => Some(strings.empty_range.to_owned()),
+        Load::Ready(_) => None,
+        other => other.message().map(str::to_owned),
     }
+}
+
+/// The words of [`message_text`], in the secondary style the oracle gives
+/// a chart report's message (`chart.rs`) and none to the other tabs'.
+pub fn message(model: &Model, section: Section, strings: &Strings, look: &Look) -> AnyWidget {
+    let style = if is_chart(section) {
+        look.secondary.clone()
+    } else {
+        Style::default()
+    };
+    message_text(model, section, strings)
+        .map_or_else(nothing, |message| line(message, style).into())
 }
 
 /// The report of `section` in the room the body gets.
@@ -73,7 +82,7 @@ pub fn body(
     scroll: ScrollController,
 ) -> AnyWidget {
     if !is_chart(section) || model.histories[section as usize].ready().is_none() {
-        return message(model, section, strings);
+        return message(model, section, strings, look);
     }
     let (model, strings, num, look) = (model.clone(), *strings, *num, look.clone());
     LayoutBuilder::new(move |_, constraints| {
@@ -91,7 +100,7 @@ pub fn body(
             Some(report) => SingleChildScrollView::new(report_view(&report, &strings, &num, &look))
                 .controller(scroll.clone())
                 .into(),
-            None => message(&model, section, &strings),
+            None => message(&model, section, &strings, &look),
         }
     })
     .into()
@@ -166,54 +175,92 @@ fn text(spans: Vec<Span>) -> Text {
         .max_lines(1)
 }
 
-/// The words of a report's first line.
-fn head(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> Text {
+/// A line of words: one row the room's end cuts (a report), or wrapped by
+/// word in a card, where `fit` counts the rows it takes (oracle: the card's
+/// `word_wrap_lines`).
+pub(super) fn words(shown: String, style: Style, fit: Option<Fit>) -> Item {
+    match fit {
+        None => Item::one(line(shown, style)),
+        Some(fit) => {
+            let rows = fit.rows(&shown);
+            Item::new(Text::new(shown).style(style).wrap(TextWrap::Word), rows)
+        }
+    }
+}
+
+/// Spans in one row cut with an ellipsis (a report), or wrapped by word in
+/// a card.
+fn spans_row(spans: Vec<Span>, fit: Option<Fit>) -> Item {
+    match fit {
+        None => Item::one(text(spans)),
+        Some(fit) => {
+            let shown: String = spans.iter().map(|span| span.text.as_str()).collect();
+            Item::new(Text::rich(spans).wrap(TextWrap::Word), fit.rows(&shown))
+        }
+    }
+}
+
+/// The words of a report's first line and their style.
+fn head(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> (String, Style) {
     match &report.head {
-        Head::Relative => line(strings.relative_head, look.secondary.clone()),
+        Head::Relative => (strings.relative_head.to_owned(), look.secondary.clone()),
         Head::Total {
             amount,
             unit,
             reported,
-        } => line(
+        } => (
             strings.total_line(amount, *unit, *reported, num),
             look.accent.clone(),
         ),
     }
 }
 
-fn note(note: Note, strings: &Strings, look: &Look) -> Text {
-    line(
-        match note {
-            Note::Approximate => strings.approximate,
-            Note::TurnStart => strings.turn_start,
-        },
-        look.secondary.clone(),
-    )
+fn note(note: Note, strings: &Strings) -> &'static str {
+    match note {
+        Note::Approximate => strings.approximate,
+        Note::TurnStart => strings.turn_start,
+    }
 }
 
 /// The head, the notes and the plot (or why there is none).
-fn lead(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .child(head(report, strings, num, look));
+fn lead(
+    report: &Report,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    fit: Option<Fit>,
+) -> Vec<Item> {
+    let (shown, style) = head(report, strings, num, look);
+    let mut items = vec![words(shown, style, fit)];
     for entry in &report.notes {
-        column = column.child(note(*entry, strings, look));
+        items.push(words(
+            note(*entry, strings).to_owned(),
+            look.secondary.clone(),
+            fit,
+        ));
     }
     match &report.body {
-        Body::Plot(plot) => column = column.child(plot_view(plot, look)),
-        Body::Empty(unit) => {
-            column = column.child(line(
-                unit.map_or_else(
-                    || strings.no_activity_range.to_owned(),
-                    |unit| strings.no_unit_range(unit, num),
-                ),
-                look.secondary.clone(),
-            ));
-        }
+        Body::Plot(plot) => items.push(Item::new(plot_view(plot, look), plot.rows.len())),
+        Body::Empty(unit) => items.push(words(
+            unit.map_or_else(
+                || strings.no_activity_range.to_owned(),
+                |unit| strings.no_unit_range(unit, num),
+            ),
+            look.secondary.clone(),
+            fit,
+        )),
         Body::Hidden => {}
     }
-    column.into()
+    items
+}
+
+/// The items one under the other.
+fn stacked(items: Vec<Item>, cross: CrossAxisAlignment) -> AnyWidget {
+    Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(cross)
+        .children(items.into_iter().map(|item| item.widget))
+        .into()
 }
 
 /// A label at the left and its value at the right (oracle: `columns`): the
@@ -273,19 +320,23 @@ fn entry(row: &Line, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget
 
 /// The selected day: its date and summary, then its breakdown (or the
 /// message that replaces both when the day has none).
-fn table(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+fn table(
+    report: &Report,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    fit: Option<Fit>,
+) -> Vec<Item> {
     let table = &report.table;
     let date = strings.date_short(table.date.ymd(), true, num);
-    let mut column = Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let mut items = Vec::new();
     if report.zoomed {
-        column = column.child(
+        items.push(Item::one(
             Divider::new()
                 .kind(rtwk::layout::BorderType::Single)
                 .style(look.dim.clone())
                 .merge(false),
-        );
+        ));
     }
     if let Some(message) = table.message {
         // The message keeps the rows the table measured (oracle: the table
@@ -295,8 +346,8 @@ fn table(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyW
             Message::NoUnit(unit) => strings.day_no_unit(unit, &date, num),
         };
         let rows = report.table_rows() - usize::from(report.zoomed);
-        return column
-            .child(SizedBox::new(
+        items.push(Item::new(
+            SizedBox::new(
                 None,
                 Some(rows as i32),
                 Some(
@@ -305,8 +356,10 @@ fn table(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyW
                         .child(text(vec![Span::styled(shown, look.secondary.clone())]))
                         .into(),
                 ),
-            ))
-            .into();
+            ),
+            rows,
+        ));
+        return items;
     }
     let summary = match &table.summary {
         Summary::NotReported => Span::styled(strings.summary_not_reported, look.secondary.clone()),
@@ -319,20 +372,29 @@ fn table(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyW
             look.accent.clone(),
         ),
     };
-    column = column.child(text(vec![Span::styled(date, look.bold.clone()), summary]));
+    items.push(spans_row(
+        vec![Span::styled(date, look.bold.clone()), summary],
+        fit,
+    ));
     if let Some((left, right)) = table.header {
-        column = column.child(header(left, right, strings, look));
+        items.push(Item::one(header(left, right, strings, look)));
     }
     for row in &table.rows {
-        column = column.child(entry(row, strings, num, look));
+        items.push(Item::one(entry(row, strings, num, look)));
     }
-    column.into()
+    items
 }
 
 /// The report: the table beside the plot from 140 cells, below it otherwise.
 fn report_view(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
-    let lead = lead(report, strings, num, look);
-    let table = table(report, strings, num, look);
+    let lead = stacked(
+        lead(report, strings, num, look, None),
+        CrossAxisAlignment::Start,
+    );
+    let table = stacked(
+        table(report, strings, num, look, None),
+        CrossAxisAlignment::Stretch,
+    );
     if report.side_by_side {
         return Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -360,4 +422,59 @@ fn report_view(report: &Report, strings: &Strings, num: &NumSyms, look: &Look) -
             Some(table),
         ))
         .into()
+}
+
+/// What a card holds of the report of `section`, the plot `fit.plot_rows` tall
+/// (oracle: `dashboard_lines`, `history_lines`): the report as in the
+/// focused view, the table of the two first rows, the time it was updated
+/// last, each with the rows it takes. A report that is not ready says why.
+pub fn card(
+    model: &Model,
+    section: Section,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    shown: Shown,
+    fit: Fit,
+) -> Vec<Item> {
+    let report = is_chart(section)
+        .then(|| {
+            let view = ReportView {
+                cursor: shown.cursor,
+                detail: shown.detail,
+                zoomed: false,
+                viewport: fit.plot_rows,
+            };
+            let date_label = |date: codex_tui_core::screens::usage::NaiveDate, month: bool| {
+                strings.date_short(date.ymd(), month, num)
+            };
+            model.report(section, view, fit.width, fit.plot_rows, &date_label)
+        })
+        .flatten();
+    let Some(report) = report else {
+        return message_text(model, section, strings)
+            .map(|message| words(message, look.secondary.clone(), Some(fit)))
+            .into_iter()
+            .collect();
+    };
+    let mut items = lead(&report, strings, num, look, Some(fit));
+    items.push(Item::new(gap(), 1));
+    let table = table(&report, strings, num, look, Some(fit));
+    let rows = table.iter().map(|item| item.rows).sum();
+    items.push(Item::new(
+        SizedBox::new(
+            Some(report.table_width as i32),
+            None,
+            Some(stacked(table, CrossAxisAlignment::Stretch)),
+        ),
+        rows,
+    ));
+    if let Some(updated) = report.updated {
+        items.push(words(
+            strings.updated_card(updated, model.hour24, num),
+            look.secondary.clone(),
+            Some(fit),
+        ));
+    }
+    items
 }

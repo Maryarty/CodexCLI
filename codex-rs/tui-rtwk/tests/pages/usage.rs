@@ -11,6 +11,7 @@ use crate::common::{Harness, start_sized};
 const SUMMARY: &str =
     "analytics/snapshots/codex_tui__analytics__tests__summary__summary_daily_wide.snap";
 const REFUNDS: &str = "snapshots/codex_tui__analytics__tests__analytics_maximized_refunds_leave_room_for_both_bands.snap";
+const DASHBOARD: &str = "analytics/snapshots/codex_tui__analytics__tests__dashboard__dashboard_cards_align_and_keep_stable_summary_heights.snap";
 const PANELS: &str = "snapshots/codex_tui__analytics__tests__analytics_loading_errors_and_empty_reports_stay_independent.snap";
 
 fn open(entry: &str, width: u16, height: u16) -> Harness {
@@ -211,8 +212,8 @@ fn the_arrows_scroll_the_overview_a_row() {
     assert_eq!(before, h.t.screen());
 }
 
-/// A click on `label` (the first row that holds it).
-fn tap(h: &mut Harness, label: &str) {
+/// The cell of the first row that holds `label`.
+fn find(h: &Harness, label: &str) -> (u16, u16) {
     let screen = h.t.screen();
     let (y, row) = screen
         .lines()
@@ -220,8 +221,22 @@ fn tap(h: &mut Harness, label: &str) {
         .find(|(_, row)| row.contains(label))
         .unwrap_or_else(|| panic!("no `{label}` on\n{screen}"));
     let x = row[..row.find(label).unwrap_or(0)].chars().count();
-    h.t.click(x as u16 + 1, y as u16);
-    h.settle();
+    (x as u16 + 1, y as u16)
+}
+
+/// A click on `label`, then the time a double tap would have taken.
+fn tap(h: &mut Harness, label: &str) {
+    let (x, y) = find(h, label);
+    h.t.click(x, y);
+    h.advance(500);
+}
+
+/// Two clicks on `label` in a row.
+fn double_tap(h: &mut Harness, label: &str) {
+    let (x, y) = find(h, label);
+    h.t.click(x, y);
+    h.t.click(x, y);
+    h.advance(500);
 }
 
 /// A click on a tab picks its report (oracle: `mouse.rs`, the tab hits).
@@ -280,4 +295,110 @@ fn the_wheel_scrolls_the_overview() {
     }
     h.settle();
     assert!(h.t.screen().contains("Example User"), "{}", h.t.screen());
+}
+
+/// The oracle's snapshot joins two screens with a blank row: the wide one
+/// (144x64) and the narrow one (72x48).
+fn dashboard_halves() -> (Vec<String>, Vec<String>) {
+    let mut wide = oracle_snap::rows(DASHBOARD);
+    let narrow = wide.split_off(65);
+    assert_eq!(wide.pop().as_deref(), Some(""), "the separating row");
+    assert_eq!(wide.len(), 64);
+    (wide, narrow)
+}
+
+/// `z` shows the cards (oracle: `dashboard_cards_align_and_keep_stable_
+/// summary_heights`, the wide half): two columns, the report in front marked,
+/// each card keeping its height whatever its report holds.
+#[test]
+fn dashboard_cards_align_in_two_columns_at_144() {
+    let mut h = open("dashboard", 144, 64);
+    h.press("z");
+    oracle_snap::assert_same(
+        "dashboard_wide",
+        &oracle_snap::screen(&h.t),
+        &dashboard_halves().0,
+    );
+}
+
+/// The narrow half: one column at 72 cells, the day moved with the left arrow,
+/// the Plugins report refused; Enter focuses the report again and keeps the
+/// section, the day and the grouping.
+#[test]
+fn dashboard_cards_stack_in_one_column_at_72() {
+    let mut h = open("dashboard_denied", 72, 48);
+    h.press("z");
+    h.press("left");
+    oracle_snap::assert_same(
+        "dashboard_narrow",
+        &oracle_snap::screen(&h.t),
+        &dashboard_halves().1,
+    );
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Dashboard \u{b7}"), "{screen}");
+    assert!(screen.contains("Sep 1 \u{b7} 100 usage units"), "{screen}");
+}
+
+/// Esc closes the page from the dashboard (oracle: `overview_closes_on_escape_
+/// with_retained_day_details`).
+#[test]
+fn escape_on_the_dashboard_closes_the_page() {
+    let mut h = open("dashboard", 144, 64);
+    h.press("z");
+    assert!(
+        h.t.screen().contains("Dashboard \u{b7}"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("esc");
+    assert!(
+        !h.t.screen().contains("Usage \u{b7} Plus"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// Moving to a card scrolls it into view (oracle: the dashboard follows the
+/// selected card on a section change, not on the wheel).
+#[test]
+fn the_dashboard_follows_the_selected_card() {
+    let mut h = open("dashboard", 80, 24);
+    h.press("z");
+    h.press("6");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25b8} 6 Chats"), "{screen}");
+    assert!(!screen.contains("1 Overview"), "{screen}");
+}
+
+/// A tap on a card selects its report; a second tap opens it (ADR-011).
+#[test]
+fn a_tap_selects_a_card_and_a_double_tap_opens_it() {
+    let mut h = open("dashboard", 144, 64);
+    h.press("z");
+    tap(&mut h, "3 Messages \u{2500}");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{25b8} 3 Messages"), "{screen}");
+    assert!(screen.contains("Dashboard \u{b7}"), "{screen}");
+    double_tap(&mut h, "3 Messages \u{2500}");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Dashboard \u{b7}"), "{screen}");
+}
+
+/// The report's time shows in the help, on its card and in the controls
+/// (oracle: `help_lines`, the card's footer, the controls' last row).
+#[test]
+fn the_report_time_shows_in_the_help_the_card_and_the_controls() {
+    let mut h = open("updated", 144, 64);
+    let focused = h.t.screen();
+    assert!(
+        focused.contains("Updated \u{b7} Sep 2 16:30 UTC"),
+        "{focused}"
+    );
+    h.press("z");
+    let cards = h.t.screen();
+    assert!(cards.contains("Updated Sep 2 16:30 UTC"), "{cards}");
+    h.press("?");
+    let help = h.t.screen();
+    assert!(help.contains("Report updated Sep 2 16:30 UTC"), "{help}");
 }

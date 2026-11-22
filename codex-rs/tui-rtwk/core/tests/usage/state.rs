@@ -26,6 +26,7 @@ fn reply(plan: PlanType) -> AccountReply {
         plan_enabled: false,
         model_names: vec![("gpt-5".into(), "GPT-5".into())],
         credit_groups: vec![0, 2],
+        hour24: false,
     }
 }
 
@@ -508,4 +509,28 @@ fn zero_credit_groups_and_task_metric_toggle_in_the_model() {
     assert_eq!(model.chat_metric, 2);
     step(&mut model, Intent::TaskMetric { count: 3 });
     assert_eq!(model.chat_metric, 0);
+}
+
+/// The account's clock preference settles with the account (oracle:
+/// `ClockFormat`, read once when the page opens): the report times and the
+/// dashboard's hour column follow it.
+#[test]
+fn the_account_settles_the_clock_format() {
+    let mut model = Model::default();
+    assert!(!model.hour24);
+    for hour24 in [true, false] {
+        let asks = step(&mut model, Intent::Open { view: None });
+        settle(
+            &mut model,
+            Ev::Account {
+                session: asks[0].session,
+                stamp: asks[0].stamp,
+                result: Ok(AccountReply {
+                    hour24,
+                    ..reply(PlanType::Plus)
+                }),
+            },
+        );
+        assert_eq!(model.hour24, hour24);
+    }
 }

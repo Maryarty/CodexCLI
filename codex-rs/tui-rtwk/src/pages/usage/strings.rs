@@ -13,6 +13,7 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::screens::usage::NaiveDate;
 use codex_tui_core::screens::usage::report::Unit;
 
 use crate::l10n::Lang;
@@ -176,6 +177,26 @@ pub struct Strings {
     pub hint_refresh: &'static str,
     pub hint_retry: &'static str,
     pub hint_tab_key: &'static str,
+    /// Oracle: `controls.rs`, `chart.rs`, `chrome.rs`: the times (`Updated`,
+    /// `Report updated`) on the user's clock, `ClockFormat::date_time_format`.
+    date_time_24: Msg<4>,
+    date_time_12: Msg<5>,
+    pub am: &'static str,
+    pub pm: &'static str,
+    updated_card: Msg<1>,
+    updated_controls: Msg<1>,
+    help_updated: Msg<1>,
+    /// Oracle: `controls.rs`: the dashboard's control and its key hint.
+    pub dashboard: &'static str,
+    dashboard_focus: Msg<1>,
+    /// Oracle: `dashboard.rs`: a card's title, its range and grouping lines
+    /// and the mark of a cut card.
+    card_title: Msg<2>,
+    card_range_model: Msg<2>,
+    card_group: Msg<1>,
+    pub card_maximize: &'static str,
+    /// The mark before the focused card's name.
+    pub card_mark: &'static str,
 }
 
 /// English: the oracle's text.
@@ -317,6 +338,20 @@ pub const EN: Strings = Strings {
     hint_refresh: "refresh",
     hint_retry: "retry",
     hint_tab_key: "tab",
+    date_time_24: msg!("{0} {1} {2}:{3}"),
+    date_time_12: msg!("{0} {1} {2}:{3} {4}"),
+    am: "AM",
+    pm: "PM",
+    updated_card: msg!("Updated {0} UTC"),
+    updated_controls: msg!("Updated \u{b7} {0} UTC"),
+    help_updated: msg!("Report updated {0} UTC"),
+    dashboard: "Dashboard",
+    dashboard_focus: msg!(" \u{b7} {0} focus"),
+    card_title: msg!(" {0} {1} "),
+    card_range_model: msg!("{0} \u{b7} {1}"),
+    card_group: msg!("By {0}"),
+    card_maximize: "\u{2026} z to maximize",
+    card_mark: "\u{25b8}",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -495,6 +530,93 @@ impl Strings {
         } else {
             day.to_string()
         }
+    }
+
+    /// `Sep 2 16:00`, or `Sep 2 4:00 PM` on a 12-hour clock (chrono's
+    /// `%b %-d %H:%M` and `%b %-d %-I:%M %p`) of a Unix time in UTC.
+    pub fn date_time(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let (_, month, day) = NaiveDate::from_unix_secs(seconds).ymd();
+        let of_day = seconds.rem_euclid(86_400);
+        let (hour, minute) = ((of_day / 3_600) as u64, (of_day % 3_600 / 60) as u64);
+        let (month, day) = (Arg::Text(self.month(month)), Arg::Int(u64::from(day)));
+        let minute = format!("{minute:02}");
+        if hour24 {
+            let hour = format!("{hour:02}");
+            return Fmt::new(
+                self.date_time_24,
+                [month, day, Arg::Text(&hour), Arg::Text(&minute)],
+                num,
+            )
+            .to_string();
+        }
+        let shown = match hour % 12 {
+            0 => 12,
+            hour => hour,
+        };
+        let hour_text = shown.to_string();
+        Fmt::new(
+            self.date_time_12,
+            [
+                month,
+                day,
+                Arg::Text(&hour_text),
+                Arg::Text(&minute),
+                Arg::Text(if hour >= 12 { self.pm } else { self.am }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `Updated Sep 2 16:00 UTC` (a card).
+    pub fn updated_card(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.updated_card, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Updated · Sep 2 16:00 UTC` (the controls' last row).
+    pub fn updated_controls(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.updated_controls, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Report updated Sep 2 16:00 UTC` (the help).
+    pub fn help_updated(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.help_updated, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// ` · enter focus` after `Dashboard`.
+    pub fn dashboard_focus(&self, accept: &str, num: &NumSyms) -> String {
+        Fmt::new(self.dashboard_focus, [Arg::Text(accept)], num).to_string()
+    }
+
+    /// ` 2 Usage `, the words of a card's title.
+    pub fn card_title(&self, number: u64, name: &str, num: &NumSyms) -> String {
+        Fmt::new(self.card_title, [Arg::Int(number), Arg::Text(name)], num).to_string()
+    }
+
+    /// `7d`, `30d`, with ` · <model>` after it on a business Usage card.
+    pub fn card_range(&self, long: bool, model: Option<&str>, num: &NumSyms) -> String {
+        let days = if long {
+            self.range_month
+        } else {
+            self.range_week
+        };
+        match model {
+            Some(model) => Fmt::new(
+                self.card_range_model,
+                [Arg::Text(days), Arg::Text(model)],
+                num,
+            )
+            .to_string(),
+            None => days.to_owned(),
+        }
+    }
+
+    /// `By feature`: the grouping's name in lower case.
+    pub fn card_group(&self, group: &str, num: &NumSyms) -> String {
+        Fmt::new(self.card_group, [Arg::Text(&group.to_lowercase())], num).to_string()
     }
 
     fn month(&self, month: u32) -> &'static str {

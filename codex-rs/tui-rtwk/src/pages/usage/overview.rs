@@ -22,6 +22,7 @@ use codex_tui_core::screens::usage::profile::{
 use codex_tui_core::screens::usage::{Load, Model, Section, TokenActivityView};
 
 use super::Look;
+use super::cards::{Fit, Item};
 use super::strings::Strings;
 use super::{gap, line, nothing};
 
@@ -42,28 +43,67 @@ pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width:
         }
     };
     let inner = width.min(BLOCK);
-    let view = VIEWS[model.groups[Section::Summary as usize]];
     let (strings, num, look) = (*strings, *num, look.clone());
     let model = model.clone();
     LayoutBuilder::new(move |_, constraints| {
         let inner = constraints.max_width.min(inner).max(1);
-        let block = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(identity(&model, &profile, &strings, &look))
-            .child(figures(&profile.stats, inner, &strings, &num, &look))
-            .child(line(strings.activity, look.bold.clone()))
-            .child(line(strings.last_year, look.dim.clone()))
-            .child(gap())
-            .child(chart(&profile, &model, view, inner, &strings, &num, &look))
-            .child(gap())
-            .child(insights(&profile.stats, inner, &strings, &num, &look))
-            .child(footer(&profile, &strings, &num, &look));
-        Center::new(SizedBox::new(Some(inner), None, Some(block.into())))
-            .height_factor(1)
-            .into()
+        centred_block(&model, &profile, inner, &strings, &num, &look).0
     })
     .into()
+}
+
+/// The profile block `inner` cells wide, centred, and the rows it takes.
+fn centred_block(
+    model: &Model,
+    profile: &Profile,
+    inner: i32,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+) -> (AnyWidget, usize) {
+    let view = VIEWS[model.groups[Section::Summary as usize]];
+    let items = [
+        identity(model, profile, strings, look),
+        figures(&profile.stats, inner, strings, num, look),
+        Item::one(line(strings.activity, look.bold.clone())),
+        Item::one(line(strings.last_year, look.dim.clone())),
+        Item::one(gap()),
+        chart(profile, model, view, inner, strings, num, look),
+        Item::one(gap()),
+        insights(&profile.stats, inner, strings, num, look),
+        footer(profile, strings, num, look),
+    ];
+    let rows = items.iter().map(|item| item.rows).sum();
+    let block = Column::new()
+        .main_axis_size(MainAxisSize::Min)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children(items.into_iter().map(|item| item.widget));
+    let widget = Center::new(SizedBox::new(Some(inner), None, Some(block.into())))
+        .height_factor(1)
+        .into();
+    (widget, rows)
+}
+
+/// What a card holds of the Overview: the block at most `BLOCK` cells wide
+/// in the card's width, or why there is no profile (oracle: `summary_lines`).
+pub fn card(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, fit: Fit) -> Vec<Item> {
+    match &model.profile {
+        Load::Ready(profile) => {
+            let inner = i32::try_from(fit.width).unwrap_or(i32::MAX).min(BLOCK);
+            let (widget, rows) = centred_block(model, profile, inner, strings, num, look);
+            vec![Item::new(widget, rows)]
+        }
+        other => other
+            .message()
+            .map(|message| {
+                Item::new(
+                    Text::new(message.to_owned()).wrap(TextWrap::Word),
+                    fit.rows(message),
+                )
+            })
+            .into_iter()
+            .collect(),
+    }
 }
 
 fn centred(shown: String, style: &Style) -> AnyWidget {
@@ -73,17 +113,20 @@ fn centred(shown: String, style: &Style) -> AnyWidget {
 }
 
 /// The name, the handle and the plan, centred, then a blank row.
-fn identity(model: &Model, profile: &Profile, strings: &Strings, look: &Look) -> AnyWidget {
+fn identity(model: &Model, profile: &Profile, strings: &Strings, look: &Look) -> Item {
+    let mut rows = 1;
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
     if let Some(identity) = &profile.identity {
         let name = identity.display_name.as_deref().map(str::trim);
         if let Some(name) = name.filter(|name| !name.is_empty()) {
+            rows += 1;
             column = column.child(centred(name.to_owned(), &look.bold));
         }
         let handle = identity.username.as_deref().map(str::trim);
         if let Some(handle) = handle.filter(|handle| !handle.is_empty()) {
+            rows += 1;
             column = column.child(centred(
                 format!("@{}", handle.trim_start_matches('@')),
                 &look.dim,
@@ -91,16 +134,17 @@ fn identity(model: &Model, profile: &Profile, strings: &Strings, look: &Look) ->
         }
     }
     if let Some(plan) = model.account.ready() {
+        rows += 1;
         column = column.child(centred(plan_label(*plan).to_owned(), &look.dim));
     }
     let _ = strings;
-    column.child(gap()).into()
+    Item::new(column.child(gap()), rows)
 }
 
 /// The five figures, as many to a row as the room holds (oracle:
 /// `summary_panel.rs`, 5 from 90 cells, 3 from 54, 2 from 36), each a bold
 /// value over its dim label, a blank row after each pair.
-fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &Look) -> Item {
     let value = |amount: Option<String>| amount.unwrap_or_else(|| strings.dash.to_owned());
     let days = |days: Option<i64>| days.map(|days| strings.days(days.max(0) as u64, num));
     let figures = [
@@ -146,13 +190,15 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let mut rows = 0;
     for chunk in figures.chunks(count) {
+        rows += 3;
         column = column
             .child(row(chunk, true))
             .child(row(chunk, false))
             .child(gap());
     }
-    column.into()
+    Item::new(column, rows)
 }
 
 /// The activity chart: the month marks over seven rows of cells, then the
@@ -165,16 +211,19 @@ fn chart(
     strings: &Strings,
     num: &NumSyms,
     look: &Look,
-) -> AnyWidget {
+) -> Item {
     let Some(buckets) = &profile.stats.daily_usage_buckets else {
-        return line(strings.history_unavailable, look.dim.clone()).into();
+        return Item::one(line(strings.history_unavailable, look.dim.clone()));
     };
     let chart = Chart::build(view, buckets, model.end_date, inner.max(0) as usize);
     let indent = |cells: i32, child: AnyWidget| -> AnyWidget {
         Padding::new(EdgeInsets::only(cells, 0, 0, 0), child).into()
     };
     if chart.too_narrow {
-        return indent(3, line(strings.narrow_chart, look.dim.clone()).into());
+        return Item::one(indent(
+            3,
+            line(strings.narrow_chart, look.dim.clone()).into(),
+        ));
     }
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
@@ -227,7 +276,9 @@ fn chart(
         ]),
     };
     let _ = num;
-    column.child(caption.wrap(TextWrap::None)).into()
+    // The months, the rows, a blank row and the caption.
+    let rows = chart.rows.len() + 3;
+    Item::new(column.child(caption.wrap(TextWrap::None)), rows)
 }
 
 /// The left gutter of a row: weekday names, or the axis of the bar views.
@@ -268,7 +319,7 @@ fn entry(label: String, value: String, label_style: &Style, value_style: &Style)
 
 /// The insights, and the most used plugins and skills beside them from
 /// `TWO_COLUMNS` cells, below otherwise.
-fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &Look) -> Item {
     let plain = Style::default();
     let reasoning = match stats.most_used_reasoning_effort.as_deref() {
         Some(effort) => strings.reasoning_value(
@@ -288,6 +339,7 @@ fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &
         (strings.skills_used, count_value(stats.total_skills_used)),
         (strings.total_chats, count_value(stats.total_threads)),
     ];
+    let metrics_count = metrics.len();
     let mut left = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -301,6 +353,8 @@ fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(line(strings.top_uses, look.bold.clone()))
         .child(gap());
+    // The heading, a blank row and the rows below.
+    let mut right_rows = 2;
     match &stats.top_invocations {
         Some(invocations) => {
             let rows = invocations
@@ -320,51 +374,64 @@ fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &
                 .take(TOP_ROWS)
                 .collect::<Vec<_>>();
             if rows.is_empty() {
+                right_rows += 1;
                 right = right.child(line(strings.no_top, look.dim.clone()));
             }
             for (name, runs) in rows {
+                right_rows += 1;
                 right = right.child(entry(name, runs, &plain, &look.dim));
             }
         }
-        None => right = right.child(line(strings.top_unavailable, look.dim.clone())),
+        None => {
+            right_rows += 1;
+            right = right.child(line(strings.top_unavailable, look.dim.clone()));
+        }
     }
+    // The heading, a blank row and the metrics.
+    let left_rows = 2 + metrics_count;
     if inner >= TWO_COLUMNS {
         let column = (inner - 4) / 2;
-        SizedBox::new(
-            Some(2 * column + 4),
-            None,
-            Some(
-                Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(SizedBox::new(Some(column), None, Some(left.into())))
-                    .child(SizedBox::fixed(4, 1))
-                    .child(SizedBox::new(Some(column), None, Some(right.into())))
-                    .into(),
+        Item::new(
+            SizedBox::new(
+                Some(2 * column + 4),
+                None,
+                Some(
+                    Row::new()
+                        .cross_axis_alignment(CrossAxisAlignment::Start)
+                        .child(SizedBox::new(Some(column), None, Some(left.into())))
+                        .child(SizedBox::fixed(4, 1))
+                        .child(SizedBox::new(Some(column), None, Some(right.into())))
+                        .into(),
+                ),
             ),
+            left_rows.max(right_rows),
         )
-        .into()
     } else {
-        Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(left)
-            .child(gap())
-            .child(right)
-            .into()
+        Item::new(
+            Column::new()
+                .main_axis_size(MainAxisSize::Min)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(left)
+                .child(gap())
+                .child(right),
+            left_rows + 1 + right_rows,
+        )
     }
 }
 
 /// A blank row, then the date the statistics are as of and, when the backend
 /// reported one, that some are unavailable.
-fn footer(profile: &Profile, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+fn footer(profile: &Profile, strings: &Strings, num: &NumSyms, look: &Look) -> Item {
     let Some(metadata) = &profile.metadata else {
-        return nothing();
+        return Item::new(nothing(), 0);
     };
+    let mut rows = 1;
     let mut column = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(gap());
     if let Some(date) = metadata.as_of() {
+        rows += 1;
         column = column.child(line(strings.as_of(date.ymd(), num), look.dim.clone()));
     }
     if metadata
@@ -372,7 +439,8 @@ fn footer(profile: &Profile, strings: &Strings, num: &NumSyms, look: &Look) -> A
         .as_deref()
         .is_some_and(|error| !error.trim().is_empty())
     {
+        rows += 1;
         column = column.child(line(strings.stats_error, look.dim.clone()));
     }
-    column.into()
+    Item::new(column, rows)
 }

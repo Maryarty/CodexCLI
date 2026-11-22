@@ -4,6 +4,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+mod dashboard;
 mod normalize;
 mod plot;
 mod report;

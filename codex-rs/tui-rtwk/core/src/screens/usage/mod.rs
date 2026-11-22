@@ -25,6 +25,7 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod activity;
+pub mod dashboard;
 pub mod data;
 pub mod date;
 pub mod models;
@@ -59,6 +60,8 @@ pub struct Model {
     /// The signed-in account's label beside the heading (the e-mail).
     pub account_label: Option<String>,
     pub plan_enabled: bool,
+    /// The times are shown on a 24-hour clock (the user's preference).
+    pub hour24: bool,
     /// Model id -> display name, from the model list.
     pub model_names: Rc<BTreeMap<String, String>>,
     /// The last day every report asks for, fixed per session.
@@ -93,6 +96,7 @@ impl Default for Model {
             account: Load::Unavailable,
             account_label: None,
             plan_enabled: false,
+            hour24: false,
             model_names: Rc::default(),
             end_date: NaiveDate::from_unix_secs(0),
             section: Section::Summary,
@@ -155,6 +159,10 @@ pub struct AccountReply {
     /// The groupings the account's credit report supports.
     #[serde(default)]
     pub credit_groups: Vec<usize>,
+    /// The 24-hour clock is the user's preference (oracle: `ClockFormat`,
+    /// detected once; unknown keeps 12-hour): the times of the page.
+    #[serde(default)]
+    pub hour24: bool,
 }
 
 /// A report's answer: the history, and what the host learned making it.
@@ -397,6 +405,7 @@ impl Model {
         self.account_label = reply.label;
         self.end_date = reply.today;
         self.plan_enabled = reply.plan_enabled;
+        self.hour24 = reply.hour24;
         self.model_names = Rc::new(reply.model_names.into_iter().collect());
         self.credit_groups = if reply.credit_groups.is_empty() {
             vec![0]
