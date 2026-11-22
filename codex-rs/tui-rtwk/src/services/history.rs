@@ -3,12 +3,13 @@
 //! The prompt history is the oracle's `history.jsonl` under the Codex home
 //! (`codex-message-history`: metadata, append, entry and batch reads;
 //! `app/thread_routing.rs` runs them). In Flutter this is a repository behind
-//! an interface: [`HistoryFile`] is the interface, the host implements it over
-//! the backend crate (this library links none), and the functions here run it
+//! an interface: [`HistoryFile`] is the interface, [`file::MessageHistory`] is
+//! the implementation over the backend crate, and the functions here run it
 //! as the oracle does: the blocking reads on the blocking pool, every answer
 //! one `popovers::Ev` for the app to apply. The `$` picks file is
 //! [`usage::MentionFile`].
 
+pub mod file;
 pub mod usage;
 
 use std::future::Future;
