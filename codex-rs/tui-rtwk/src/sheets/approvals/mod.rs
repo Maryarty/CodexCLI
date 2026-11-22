@@ -5,6 +5,8 @@
 //! directories (bar their test files) needs an edit when it grows.
 
 mod banner;
+mod clip;
+mod decision_cell;
 mod dialog;
 mod dismiss;
 mod form;
@@ -27,6 +29,7 @@ use crate::app::debug::seeded::Seeded;
 pub mod strings;
 
 pub use banner::PendingThreadApprovals;
+pub use decision_cell::DecisionCell;
 
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.
@@ -46,6 +49,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "exec_request",
             "make_exec_request: echo hi, a reason, Accept and Cancel",
             include_str!("fixtures/exec_request.jsonl"),
+        ),
+        (
+            "exec_clipped",
+            "a header cut to the pane: `[… N lines] ⌃a view all`",
+            include_str!("fixtures/exec_clipped.jsonl"),
         ),
         (
             "exec_url_reason",
@@ -206,6 +214,11 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "user_input_url_question",
             "a freeform question whose text holds a URL",
             include_str!("fixtures/user_input_url_question.jsonl"),
+        ),
+        (
+            "user_input_auto_resolution",
+            "not blocking: a countdown, then an empty answer",
+            include_str!("fixtures/user_input_auto_resolution.jsonl"),
         ),
         (
             "user_verification",

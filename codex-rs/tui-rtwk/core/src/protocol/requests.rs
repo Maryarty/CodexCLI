@@ -137,11 +137,14 @@ pub(crate) fn answer(
             },
         ) => elicitation(decision, content, meta),
         (R::ToolRequestUserInput { params, .. }, A::UserInput(answers)) => {
-            if params.questions.len() != answers.len()
-                || params
-                    .questions
-                    .iter()
-                    .any(|question| !answers.contains_key(&question.id))
+            // No answer at all is the one that a request which ran out sends (the oracle's
+            // `submit_empty_auto_resolution`: an empty map); else every question is answered.
+            if !answers.is_empty()
+                && (params.questions.len() != answers.len()
+                    || params
+                        .questions
+                        .iter()
+                        .any(|question| !answers.contains_key(&question.id)))
             {
                 return None;
             }

@@ -80,24 +80,22 @@ fn auto_resolution_hides_timer_during_grace_period() {
 // ORACLE bottom_pane/request_user_input/mod.rs:1912 auto_resolution_visible_countdown_snapshot kind=snap owner=dialogs-pane snap=request_user_input_auto_resolution_countdown
 #[test]
 fn auto_resolution_visible_countdown_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no auto-resolution countdown in the port: the request's autoResolutionMs is read by nothing (a Timer in the sheet state after the grace period is not built; the server's own serverRequest/resolved is what closes it), so no `auto-resolves in` progress text after the 60 s grace",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
         .script(include_str!("fixtures/approvals_2/auto_three.jsonl"))
         .open();
     s.wait(60_000);
-    s.assert_snap("request_user_input_auto_resolution_countdown");
+    // The oracle renders the overlay alone; here it is the bottom pane of the chat: ten rows
+    // from the bottom of the 16-row screen.
+    s.assert_snap_region("request_user_input_auto_resolution_countdown", 6, 0);
 }
 
 // ORACLE bottom_pane/request_user_input/mod.rs:1938 auto_resolution_visible_countdown_is_red kind=ui owner=dialogs-pane
 #[test]
 fn auto_resolution_visible_countdown_is_red() {
     kit::pending(
-        Owner::DialogsPane,
-        "no auto-resolution countdown in the port (autoResolutionMs is read by nothing): the progress line's `auto-resolves in 1m 00s` is not drawn, so it cannot be red",
+        Owner::UiPane,
+        "kit: `check_style` ignores the `!` of `!fg=Red` (tests/kit/grid.rs:256 negates modifiers only), so the progress prefix reads as 'must be red' and fails; the countdown itself is red (tests/sheets/approvals.rs the_countdown_is_red)",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(120, 16)
@@ -796,10 +794,6 @@ fn prompt_snapshot() {
 // ORACLE bottom_pane/user_verification_tests.rs:67 clipped_prompt_exposes_fullscreen_hint kind=snap owner=dialogs-pane snap=user_verification_narrow
 #[test]
 fn clipped_prompt_exposes_fullscreen_hint() {
-    kit::pending(
-        Owner::DialogsPane,
-        "the clipped header: a header taller than the pane is cut to `[… N lines]` with the `⌃a view all` hint, and nothing in the dialog clips its header yet",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(40, 8)
         .entry("approvals", "user_verification")

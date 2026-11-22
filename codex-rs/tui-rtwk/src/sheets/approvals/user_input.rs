@@ -11,7 +11,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtwk::binding::AppBinding;
+use rtwk::binding::{AppBinding, Timer};
 use rtwk::editing::{EditingKeys, TextArea, TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::layout::{
@@ -27,7 +27,7 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::approvals::input::{self, Draft};
+use codex_tui_core::screens::approvals::input::{self, AutoResolution, Draft};
 use codex_tui_core::screens::approvals::{Intent, Prompt, Question};
 
 use super::strings::{self, Strings};
@@ -49,6 +49,11 @@ impl UserInputView {
             Prompt::UserInput(input) => &input.questions,
             _ => &[],
         }
+    }
+
+    /// The request is not blocking: it answers itself when nobody does.
+    fn can_auto_resolve(&self) -> bool {
+        matches!(&*self.prompt, Prompt::UserInput(input) if input.can_auto_resolve)
     }
 }
 
@@ -88,10 +93,21 @@ pub struct UserInputViewState {
     confirming: bool,
     confirm: Options,
     node: FocusNode,
+    /// The countdown of a request that answers itself (Flutter: a `Timer.periodic` the state
+    /// owns): the app clock when the dialog opened, the seconds since, and whether a key or a
+    /// paste stopped it.
+    clock: Option<Duration>,
+    elapsed: Duration,
+    snoozed: bool,
+    timer: Option<Timer>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
+    /// A second of the countdown passed.
+    Tick,
+    /// A key or a paste: the request no longer answers itself.
+    Snooze,
     /// Esc: closes the notes, else interrupts; in the confirmation, goes back.
     Cancel,
     /// Ctrl+C: clears typed notes, else interrupts.
@@ -141,6 +157,10 @@ impl StatefulWidget for UserInputView {
             confirming: false,
             confirm: Options::new(),
             node: FocusNode::new(),
+            clock: None,
+            elapsed: Duration::ZERO,
+            snoozed: false,
+            timer: None,
         }
     }
 }
@@ -239,6 +259,48 @@ impl UserInputViewState {
                 answer,
             }),
         );
+    }
+
+    /// Where the countdown of a request that answers itself stands.
+    fn auto_resolution(&self, w: &UserInputView) -> AutoResolution {
+        input::auto_resolution(w.can_auto_resolve(), self.snoozed, self.elapsed)
+    }
+
+    /// A key, a paste or typed text: the request waits for the user from now on.
+    fn stop_countdown(&mut self) {
+        self.snoozed = true;
+        if let Some(timer) = self.timer.take() {
+            timer.cancel();
+        }
+    }
+
+    /// A second of the countdown: the clock decides how much time passed (a frame that came late
+    /// counts what it missed); a request that ran out is answered empty.
+    fn tick(&mut self, w: &UserInputView, cx: &mut Cx<'_, Self>) -> Rebuild {
+        self.elapsed = match (
+            self.clock,
+            AppBinding::maybe_of(cx).and_then(|b| b.ticker()),
+        ) {
+            (Some(start), Some(ticker)) => ticker.now().saturating_sub(start),
+            _ => self.elapsed + Duration::from_secs(1),
+        };
+        match self.auto_resolution(w) {
+            AutoResolution::Due => {
+                self.confirming = false;
+                self.stop_countdown();
+                let hs = read::<Hs, _>(cx);
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Approvals(Intent::Respond {
+                        key: w.key.clone(),
+                        answer: input::empty_answer(),
+                    }),
+                );
+                Rebuild::No
+            }
+            AutoResolution::VisibleCountdown { .. } => Rebuild::Yes,
+            AutoResolution::HiddenGrace { .. } | AutoResolution::Disabled => Rebuild::No,
+        }
     }
 
     /// The oracle's interrupt: the request is dismissed and the dialog closes.
@@ -347,19 +409,33 @@ impl State for UserInputViewState {
     type Widget = UserInputView;
     type Msg = Msg;
 
-    fn init_state(&mut self, _: &UserInputView, cx: &mut Cx<'_, Self>) {
+    fn init_state(&mut self, w: &UserInputView, cx: &mut Cx<'_, Self>) {
         let send = cx.local_sender();
         self.node
-            .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| match msg_of(&key) {
-                Some(msg) => {
-                    send(msg);
-                    KeyEventResult::Handled
+            .set_on_key_event(Some(Rc::new(move |_, key: KeyPress| {
+                // Any key of the dialog ends the countdown, whether the dialog takes it or not.
+                send(Msg::Snooze);
+                match msg_of(&key) {
+                    Some(msg) => {
+                        send(msg);
+                        KeyEventResult::Handled
+                    }
+                    None => KeyEventResult::Ignored,
                 }
-                None => KeyEventResult::Ignored,
             })));
+        if w.can_auto_resolve()
+            && let Some(binding) = AppBinding::maybe_of(cx)
+        {
+            self.clock = binding.ticker().map(|ticker| ticker.now());
+            self.timer =
+                Some(binding.start_periodic(Duration::from_secs(1), cx.map(|(): ()| Msg::Tick)));
+        }
     }
 
     fn dispose(&mut self) {
+        if let Some(timer) = self.timer.take() {
+            timer.cancel();
+        }
         self.node.set_on_key_event(None);
         self.confirm.dispose();
         for state in &self.questions {
@@ -369,6 +445,15 @@ impl State for UserInputViewState {
     }
 
     fn update(&mut self, msg: Msg, w: &UserInputView, cx: &mut Cx<'_, Self>) -> Rebuild {
+        match msg {
+            Msg::Snooze => {
+                self.stop_countdown();
+                return Rebuild::Yes;
+            }
+            Msg::Tick => return self.tick(w, cx),
+            Msg::Edited => self.stop_countdown(),
+            _ => {}
+        }
         let questions = w.questions();
         let Some(question) = questions.get(self.current) else {
             return Rebuild::No;
@@ -548,6 +633,14 @@ impl UserInputViewState {
             progress.push(Span::styled(
                 s.question_unanswered(unanswered).to_string(),
                 tokens.dim(),
+            ));
+        }
+        if let AutoResolution::VisibleCountdown { remaining } = self.auto_resolution(w) {
+            progress.push(Span::styled(s.countdown_separator, tokens.dim()));
+            progress.push(Span::styled(
+                s.auto_resolves_in(&input::remaining_text(remaining))
+                    .to_string(),
+                tokens.error(),
             ));
         }
         let text = Text::new(question.text.clone())

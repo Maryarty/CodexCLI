@@ -5,8 +5,65 @@
 //! `submit_answers`).
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use super::{Question, RequestAnswer};
+
+/// A request that is not blocking waits this long before its countdown shows (the oracle's
+/// `AUTO_RESOLUTION_HIDDEN_GRACE`).
+pub const AUTO_RESOLUTION_HIDDEN_GRACE: Duration = Duration::from_secs(60);
+/// The countdown shows for this long, then the request is answered empty (the oracle's
+/// `AUTO_RESOLUTION_VISIBLE_COUNTDOWN`).
+pub const AUTO_RESOLUTION_VISIBLE_COUNTDOWN: Duration = Duration::from_secs(60);
+
+/// Where a request that may answer itself stands, `elapsed` after it was shown (the oracle's
+/// `AutoResolutionTiming`; the policy is the TUI's own, `autoResolutionMs` is deprecated).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoResolution {
+    /// A blocking request, or one the user touched: it waits for the answer.
+    Disabled,
+    HiddenGrace { remaining: Duration },
+    VisibleCountdown { remaining: Duration },
+    Due,
+}
+
+/// The timing of a request: `can_auto_resolve` is `!isBlocking`, `snoozed` a key or a paste
+/// since it was shown (`auto_resolution_timing_at`).
+pub fn auto_resolution(can_auto_resolve: bool, snoozed: bool, elapsed: Duration) -> AutoResolution {
+    if !can_auto_resolve || snoozed {
+        return AutoResolution::Disabled;
+    }
+    if elapsed < AUTO_RESOLUTION_HIDDEN_GRACE {
+        return AutoResolution::HiddenGrace {
+            remaining: AUTO_RESOLUTION_HIDDEN_GRACE.saturating_sub(elapsed),
+        };
+    }
+    let visible = elapsed.saturating_sub(AUTO_RESOLUTION_HIDDEN_GRACE);
+    if visible < AUTO_RESOLUTION_VISIBLE_COUNTDOWN {
+        return AutoResolution::VisibleCountdown {
+            remaining: AUTO_RESOLUTION_VISIBLE_COUNTDOWN.saturating_sub(visible),
+        };
+    }
+    AutoResolution::Due
+}
+
+/// The time left as the countdown writes it: `59s`, `1m 00s` (`format_auto_resolution_remaining`;
+/// a started second counts whole).
+pub fn remaining_text(remaining: Duration) -> String {
+    let mut seconds = remaining.as_secs();
+    if remaining.subsec_nanos() > 0 {
+        seconds = seconds.saturating_add(1);
+    }
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    format!("{}m {:02}s", seconds / 60, seconds % 60)
+}
+
+/// The answer of a request that ran out: no question answered.
+pub fn empty_answer() -> RequestAnswer {
+    RequestAnswer::UserInput(BTreeMap::new())
+}
 
 /// The answer a choice of the "other" row sends (the oracle's `OTHER_OPTION_LABEL`: the model
 /// reads this text on the wire, the sheet shows its own words on the row).

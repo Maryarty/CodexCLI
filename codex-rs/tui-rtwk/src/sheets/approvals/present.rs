@@ -126,7 +126,9 @@ fn lead(
         header.push(Line::Blank);
     }
     if let Some(reason) = reason {
-        header.push(labelled(s.reason, reason, Tone::Italic));
+        // The oracle draws the reason as one span: its line breaks have no width, the sentences
+        // of a multi-line reason run together (`clipped_exec_approval_opens_the_complete_command`).
+        header.push(labelled(s.reason, &reason.replace('\n', ""), Tone::Italic));
         header.push(Line::Blank);
     }
 }
@@ -135,10 +137,15 @@ fn lead(
 /// elicitation, the questions of a `request_user_input`).
 pub fn body(prompt: &Prompt, s: &Strings) -> Option<Body> {
     let mut body = build(prompt, s)?;
-    // The oracle leaves two blank rows between the header and the options.
-    body.header.extend([Line::Blank, Line::Blank]);
+    // The oracle leaves two blank rows between the header and the options (`header_gap`): the
+    // last `GAP` lines of the header, which a dialog short of room gives up before it cuts the
+    // header (`clip.rs`).
+    body.header.extend(std::iter::repeat_n(Line::Blank, GAP));
     Some(body)
 }
+
+/// The blank rows the oracle's list view puts between the header and the options.
+pub const GAP: usize = 2;
 
 fn build(prompt: &Prompt, s: &Strings) -> Option<Body> {
     Some(match prompt {

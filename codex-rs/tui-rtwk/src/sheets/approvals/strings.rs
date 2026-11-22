@@ -133,6 +133,48 @@ pub struct Strings {
     // bottom_pane/request_user_input: the options form.
     pub question_progress: Msg<2>,
     pub question_unanswered: Msg<1>,
+    /// Between the progress and the countdown of a request that answers itself.
+    pub countdown_separator: &'static str,
+    pub auto_resolves_in: Msg<1>,
+    /// The row that stands for the header rows that did not fit (`[… 7 lines] ⌃a view all`).
+    pub clipped_lines: Msg<1>,
+    pub view_all_key: &'static str,
+    pub view_all: &'static str,
+    /// The marks of a decision cell and who decided (`history_cell/approvals.rs`).
+    pub approved_mark: &'static str,
+    pub refused_mark: &'static str,
+    pub you: &'static str,
+    pub auto_reviewer: &'static str,
+    pub verb_approved: &'static str,
+    pub verb_persisted: &'static str,
+    pub verb_denied: &'static str,
+    pub verb_did_not_approve: &'static str,
+    pub verb_canceled: &'static str,
+    pub verb_timed_out: &'static str,
+    pub cell_request: &'static str,
+    pub cell_review: &'static str,
+    pub cell_codex_to_run: &'static str,
+    pub cell_this_request: &'static str,
+    pub cell_this_time: &'static str,
+    pub cell_every_time: &'static str,
+    pub cell_always_run: &'static str,
+    pub cell_network_to: &'static str,
+    pub cell_persisted_network_to: &'static str,
+    pub cell_saved_rule: &'static str,
+    pub cell_canceled_run: &'static str,
+    pub cell_canceled_network: &'static str,
+    pub cell_denied_run: &'static str,
+    pub cell_timed_out_run: &'static str,
+    pub cell_timed_out_request: &'static str,
+    pub cell_timed_out_access: &'static str,
+    /// A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
+    pub cell_more_lines: &'static str,
+    pub cell_cut: &'static str,
+    /// What a permissions answer says (`handle_permissions_decision`).
+    pub granted_nothing: &'static str,
+    pub granted_turn: &'static str,
+    pub granted_strict: &'static str,
+    pub granted_session: &'static str,
     pub none_of_the_above: &'static str,
     pub none_description: &'static str,
     pub notes_placeholder: &'static str,
@@ -251,6 +293,46 @@ pub const EN: Strings = Strings {
     param_line: msg!("{0}: {1}"),
     question_progress: msg!("Question {0}/{1}"),
     question_unanswered: msg!(" ({0} unanswered)"),
+    countdown_separator: " \u{b7} ",
+    auto_resolves_in: msg!("auto-resolves in {0}"),
+    clipped_lines: msg!("[\u{2026} {0} lines]"),
+    view_all_key: "\u{2303}a",
+    view_all: " view all",
+    // The marks of a decision cell and who decided (`history_cell/approvals.rs`).
+    approved_mark: "\u{2714} ",
+    refused_mark: "\u{2717} ",
+    you: "You ",
+    auto_reviewer: "Auto-reviewer ",
+    verb_approved: "approved",
+    verb_persisted: "persisted",
+    verb_denied: "denied",
+    verb_did_not_approve: "did not approve",
+    verb_canceled: "canceled",
+    verb_timed_out: "timed out",
+    cell_request: "Request ",
+    cell_review: "Review ",
+    cell_codex_to_run: " codex to run ",
+    cell_this_request: " this request",
+    cell_this_time: " this time",
+    cell_every_time: " every time this session",
+    cell_always_run: " codex to always run commands that start with ",
+    cell_network_to: " codex network access to ",
+    cell_persisted_network_to: " Codex network access to ",
+    cell_saved_rule: " and saved that rule",
+    cell_canceled_run: " the request to run ",
+    cell_canceled_network: " the request for codex network access to ",
+    cell_denied_run: " for codex to run ",
+    cell_timed_out_run: " before codex could run ",
+    cell_timed_out_request: " before this request could be approved",
+    cell_timed_out_access: " before codex could access ",
+    // A command of several lines shows its first, and these dots; one over eighty graphemes ends in the others.
+    cell_more_lines: " ...",
+    cell_cut: "...",
+    // What a permissions answer says (`handle_permissions_decision`).
+    granted_nothing: "You did not grant additional permissions",
+    granted_turn: "You granted additional permissions",
+    granted_strict: "You granted additional permissions with strict auto review",
+    granted_session: "You granted additional permissions for this session",
     none_of_the_above: "None of the above",
     none_description: "Optionally, add details in notes (tab)",
     notes_placeholder: "Add notes",
@@ -328,6 +410,18 @@ impl Strings {
     pub fn question_progress(&self, index: usize, total: usize) -> Fmt<'_, 2> {
         let int = |n: usize| Arg::Int(u64::try_from(n).unwrap_or(u64::MAX));
         Fmt::new(self.question_progress, [int(index), int(total)], &self.num)
+    }
+
+    pub fn auto_resolves_in<'a>(&'a self, remaining: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.auto_resolves_in, [Arg::Text(remaining)], &self.num)
+    }
+
+    pub fn header_cut(&self, rows: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.clipped_lines,
+            [Arg::Int(u64::try_from(rows).unwrap_or(u64::MAX))],
+            &self.num,
+        )
     }
 
     pub fn question_unanswered(&self, count: usize) -> Fmt<'_, 1> {

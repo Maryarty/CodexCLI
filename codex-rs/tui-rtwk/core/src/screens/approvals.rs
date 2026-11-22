@@ -14,8 +14,10 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod decided;
 pub mod form;
 pub mod input;
+pub mod order;
 
 pub use form::{Entered, Form};
 
@@ -60,6 +62,9 @@ pub struct ExecPrompt {
     pub command: String,
     pub environment: Option<String>,
     pub network_host: Option<String>,
+    /// What network access the request is about, as the history says it: the target the
+    /// command names (`network-access <target>`), else the context's `scheme://host`.
+    pub network_target: Option<String>,
     /// The rule of the additional permissions the command asks for.
     pub permission_rule: Vec<Rule>,
     /// What a `writeStdin` request sends to the terminal (shown as `Input:`
@@ -111,6 +116,10 @@ pub struct UserVerificationPrompt {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UserInputPrompt {
     pub questions: Vec<Question>,
+    /// The request is not blocking (`isBlocking: false`): it answers itself, empty, once the
+    /// grace and the countdown ran out (`input::auto_resolution`). A request that does not say
+    /// is blocking, as the protocol reads it.
+    pub can_auto_resolve: bool,
 }
 
 /// What the user can decide, the oracle's `ApprovalDecision` of every kind of
@@ -313,7 +322,11 @@ pub struct ThreadPart {}
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadEv {}
+pub enum ThreadEv {
+    /// An answer left a record in the history (`decided::Decided::of`, the app's call once the
+    /// request is resolved); the thread keeps it among its items.
+    Decided(decided::Decided),
+}
 
 /// The RPCs of this screen: requested with `ThreadFx::request`, which stamps
 /// the thread and the ticket; the shell sends them through `wire`.
@@ -330,7 +343,10 @@ pub enum Ctx {}
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = (part, fx);
-    match ev {}
+    match ev {
+        // The history is the thread's items (`threads.rs`), not this part's.
+        ThreadEv::Decided(_) => {}
+    }
 }
 
 pub fn apply_reply(
@@ -509,6 +525,8 @@ pub fn prompt_of(request: &ServerRequest) -> Option<Entry> {
             })
         }
         "item/tool/requestUserInput" => Prompt::UserInput(UserInputPrompt {
+            can_auto_resolve: params.get("isBlocking").and_then(serde_json::Value::as_bool)
+                == Some(false),
             questions: params
                 .get("questions")
                 .and_then(|q| q.as_array())
@@ -576,17 +594,50 @@ fn exec_prompt(params: &serde_json::Value) -> ExecPrompt {
         }
     };
     let write_stdin = params.get("kind").and_then(|k| k.as_str()) == Some("writeStdin");
-    let command = text("command").unwrap_or_default();
+    let raw = text("command").unwrap_or_default();
+    let command = strip_shell_wrapper(&raw);
+    let network_target = network_target(params, &command, network_host.as_deref());
     ExecPrompt {
         thread_label: None,
         reason: text("reason"),
-        input: write_stdin.then(|| split_words(&command).pop().unwrap_or_default()),
-        command: strip_shell_wrapper(&command),
+        input: write_stdin.then(|| split_words(&raw).pop().unwrap_or_default()),
+        command,
         environment: text("environmentId"),
         network_host,
+        network_target,
         permission_rule,
         decisions,
     }
+}
+
+/// `network_approval_command_target` and `network_approval_target`: the command names its target
+/// (`network-access <target>`), or the context's protocol and host say it.
+fn network_target(
+    params: &serde_json::Value,
+    command: &str,
+    host: Option<&str>,
+) -> Option<String> {
+    let named = command
+        .strip_prefix("network-access ")
+        .filter(|target| !target.is_empty());
+    let Some(host) = host else {
+        return named.map(str::to_string);
+    };
+    if let Some(target) = named {
+        return Some(target.to_string());
+    }
+    let scheme = match params
+        .get("networkApprovalContext")
+        .and_then(|c| c.get("protocol"))
+        .and_then(|p| p.as_str())
+    {
+        Some("http") => "http://",
+        Some("https") => "https://",
+        Some("socks5Tcp") => "socks5-tcp://",
+        Some("socks5Udp") => "socks5-udp://",
+        _ => "",
+    };
+    Some(format!("{scheme}{host}"))
 }
 
 fn decision_of(value: &serde_json::Value) -> Option<Decision> {
