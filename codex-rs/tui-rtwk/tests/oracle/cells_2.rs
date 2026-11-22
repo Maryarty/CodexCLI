@@ -235,19 +235,20 @@ fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
 // ORACLE history_cell/messages_tests.rs:316 raw_markdown_bypasses_the_rich_render_cache kind=ui owner=chat-live
 #[test]
 fn raw_markdown_bypasses_the_rich_render_cache() {
-    kit::pending(
-        Owner::ChatLive,
-        "the raw view of the cell (`finalized **markdown**`, toggle_raw_output, keymap/bindings.rs:343) is step 11 of the cells brief (alt+r, `CellMode.raw`); the rich half below is drawn",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(48, 10)
+    // 14 rows, not the oracle's 10: our toggle note ("Raw output mode on", two rows at 48
+    // columns) joins the history below the cell, which the 7-row history of a 10-row
+    // terminal cannot hold with the cell above it.
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(48, 14)
         .script(include_str!(
             "fixtures/cells_2/raw_markdown_bypasses_the_rich_render_cache.jsonl"
         ))
         .open();
     s.assert_has_row("• finalized markdown");
-    // Raw half, not ported: after the raw toggle the screen shows the source row
-    // `finalized **markdown**` (the oracle's display_lines_for_mode(Raw)).
+    // Raw half: after the raw toggle the screen shows the source row.
+    s.keys("alt+r");
+    s.assert_has_row("finalized **markdown**");
+    s.assert_absent("• finalized markdown");
 }
 
 // ORACLE history_cell/messages_tests.rs:331 visualization_directives_are_not_cached kind=ui owner=chat-live

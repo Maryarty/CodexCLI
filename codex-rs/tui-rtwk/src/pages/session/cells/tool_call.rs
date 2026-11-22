@@ -180,7 +180,7 @@ pub fn transcript(call: McpCall, strings: &'static Strings, tokens: Tokens) -> A
 
 /// What a block says, worded (oracle `render_full`: media and embedded
 /// resources are markers).
-fn body_text<'a>(body: &BlockBody<'a>, strings: &Strings) -> Cow<'a, str> {
+pub(super) fn body_text<'a>(body: &BlockBody<'a>, strings: &Strings) -> Cow<'a, str> {
     match body {
         BlockBody::Text(text) => text.clone(),
         BlockBody::Image => Cow::Borrowed(strings.tool_result_image),

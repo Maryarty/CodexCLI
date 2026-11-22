@@ -8,7 +8,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rtwk::gestures::SelectionArea;
-use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
+use rtwk::layout::{Column, CrossAxisAlignment, MainAxisSize};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
@@ -25,6 +25,7 @@ use crate::l10n::strings as l10n;
 use crate::widgets::thread_ui::Follow;
 
 use super::cells::strings as cells_strings;
+use super::cells::{CellEnv, Place, cell};
 use super::strings as chat_strings;
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
@@ -72,7 +73,7 @@ impl ViewportState {
         let mut rows: Vec<Range<usize>> = Vec::new();
         let mut run = None;
         for (index, (key, item)) in transcript.iter().enumerate() {
-            if !detailed && item.is_detailed_only() {
+            if !detailed && (item.is_detailed_only() || is_terminal_interaction(item)) {
                 continue;
             }
             let kind = item.group().map(|group| (group, &key.turn));
@@ -130,6 +131,12 @@ impl ViewportState {
             index
         });
     }
+}
+
+/// The write to a background terminal shows only in the detailed
+/// transcript (oracle `UnifiedExecInteractionCell` has no display lines).
+fn is_terminal_interaction(item: &Item) -> bool {
+    matches!(item, Item::Notice(notice) if notice.detailed_only())
 }
 
 /// A hash of what the row shows, to tell that it changed (`Item` has no
@@ -216,6 +223,7 @@ impl State for ViewportState {
         let thread_id = thread.id().clone();
         let can_load = thread.can_load_history();
         let detailed = widget.detailed;
+        let raw = select::<ScreenStates, _, _>(cx, |states| states.chat.raw_output);
         let rows = self.rows(&thread, detailed);
         let reverse = !thread.read_only() && header.is_none();
         let header = header.filter(|_| !can_load);
@@ -242,199 +250,35 @@ impl State for ViewportState {
             };
             let previous = index.checked_sub(1).and_then(|index| transcript.get(index));
             let separator = previous.is_some() || header.is_some();
-            let row: AnyWidget = match item {
-                Item::User(prompt) => {
-                    let joins_prompt = matches!(previous, Some((_, Item::User(_))))
-                        && transcript.timing_after(index.saturating_sub(1)).is_none();
-                    let panel = super::cells::user::panel(
-                        prompt,
-                        &super::cells::user::Look {
-                            surface: prompt_surface.clone(),
-                            tokens: &tokens,
-                            chat: table,
-                            cells,
-                            markdown: &markdown,
-                            highlighted: marked.as_ref() == Some(key),
-                        },
-                        joins_prompt,
-                    );
-                    // A separator belongs to the transcript, outside the prompt surface.
-                    Padding::new(
-                        EdgeInsets::only(0, i32::from(separator && !joins_prompt), 0, 0),
-                        panel,
-                    )
-                    .into()
-                }
-                Item::Agent { text, .. } => cell(
-                    separator,
-                    super::cells::agent::message(
-                        text,
-                        transcript.is_agent_streaming(key),
-                        cwd.as_deref(),
-                        &super::cells::agent::Look {
-                            bullet: &bullet,
-                            bullet_style: agent_style.clone(),
-                            markdown: &markdown,
-                            cells,
-                        },
-                    ),
-                ),
-                Item::Tool(tool) => Padding::new(
-                    EdgeInsets::only(0, i32::from(separator), 0, 0),
-                    super::transcript_activity::ToolRow {
-                        first: tool.clone(),
-                        rest: (index + 1..range.end)
-                            .filter_map(|index| match transcript.get(index) {
-                                Some((_, Item::Tool(tool))) => Some(tool.clone()),
-                                _ => None,
-                            })
-                            .collect(),
-                        detailed,
-                    },
-                )
-                .into(),
-                Item::Patch(activity) => cell(
-                    separator,
-                    super::cells::patch::PatchCell {
-                        activity: activity.clone(),
-                        cwd: cwd.clone(),
-                        detailed,
-                    }
-                    .into(),
-                ),
-                Item::Web(activity) => cell(
-                    separator,
-                    super::cells::web::WebCell {
-                        activity: activity.clone(),
-                    }
-                    .into(),
-                ),
-                Item::ImageView { name, path } => cell(
-                    separator,
-                    super::cells::viewed_image::ViewedImageCell {
-                        name: name.clone(),
-                        path: path.clone(),
-                        detailed,
-                    }
-                    .into(),
-                ),
-                Item::Notice(notice) => cell(
-                    separator,
-                    super::cells::notice::NoticeCell {
-                        notice: notice.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Note(note) => cell(
-                    separator,
-                    super::cells::note::NoteCell { note: note.clone() }.into(),
-                ),
-                Item::Plan { text } => cell(
-                    separator,
-                    super::cells::plan::proposed_plan(
-                        text,
-                        cwd.as_deref(),
-                        prompt_surface.clone(),
-                        &markdown,
-                        &tokens,
-                        cells,
-                    ),
-                ),
-                Item::Delegated(message) => cell(
-                    separator,
-                    super::cells::delegated::DelegatedCell {
-                        message: message.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Generated(image) => cell(
-                    separator,
-                    super::cells::generated_image::GeneratedImageCell {
-                        image: image.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Collab(event) => cell(
-                    separator,
-                    super::cells::collab::CollabCell {
-                        event: event.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Hook(run) => cell(
-                    separator,
-                    super::cells::hook::HookCell { run: run.clone() }.into(),
-                ),
-                Item::PlanUpdate(update) => cell(
-                    separator,
-                    super::cells::plan_update::PlanUpdateCell {
-                        update: update.clone(),
-                        detailed,
-                    }
-                    .into(),
-                ),
-                Item::Error { message } => cell(
-                    separator,
-                    super::cells::error::ErrorCell {
-                        message: message.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Deprecation { summary, details } => cell(
-                    separator,
-                    super::cells::deprecation::DeprecationCell {
-                        summary: summary.clone(),
-                        details: details.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Warning { message } => cell(
-                    separator,
-                    super::cells::warning::WarningCell {
-                        message: message.clone(),
-                    }
-                    .into(),
-                ),
-                Item::LocalWarning(warning) => cell(
-                    separator,
-                    super::cells::warning::WarningCell {
-                        message: table.local_warning(*warning).to_string(),
-                    }
-                    .into(),
-                ),
-                Item::StartupWarning(warning) => cell(
-                    separator,
-                    super::cells::warning::WarningCell {
-                        message: table.mcp_warning(warning),
-                    }
-                    .into(),
-                ),
-                Item::HighLoad => cell(
-                    separator,
-                    super::cells::error::ErrorCell {
-                        message: table.high_load.to_string(),
-                    }
-                    .into(),
-                ),
-                Item::Decision(decided) => cell(
-                    separator,
-                    crate::sheets::approvals::DecisionCell {
-                        decided: decided.clone(),
-                    }
-                    .into(),
-                ),
-                Item::Review(line) => cell(
-                    separator,
-                    crate::sheets::approvals::ReviewLineCell { line: line.clone() }.into(),
-                ),
-                Item::Reasoning { summary } => cell(
-                    separator,
-                    super::cells::reasoning::ReasoningCell {
-                        summary: summary.clone(),
-                    }
-                    .into(),
-                ),
+            let place = Place {
+                separator,
+                joins_prompt: matches!(previous, Some((_, Item::User(_))))
+                    && transcript.timing_after(index.saturating_sub(1)).is_none(),
+                highlighted: marked.as_ref() == Some(key),
+                streaming: transcript.is_agent_streaming(key),
+                rest: (index + 1..range.end)
+                    .filter_map(|index| match transcript.get(index) {
+                        Some((_, Item::Tool(tool))) => Some(tool.clone()),
+                        _ => None,
+                    })
+                    .collect(),
             };
+            let row = cell(
+                item,
+                &CellEnv {
+                    tokens: &tokens,
+                    markdown: &markdown,
+                    prompt_surface: &prompt_surface,
+                    chat: table,
+                    cells,
+                    bullet: &bullet,
+                    bullet_style: &agent_style,
+                    cwd: cwd.as_deref(),
+                    detailed,
+                    raw,
+                },
+                &place,
+            );
             // The cell is always the first child of one column, so a timing row
             // arriving below it does not rebuild the cell's state (the patch
             // disclosure's `expanded`).
@@ -481,10 +325,3 @@ impl State for ViewportState {
 }
 
 impl_widget!(stateful eq Pane);
-
-/// A cell below the one before it, a blank row between them; it takes the
-/// whole width (only the agent's answer keeps a column free, oracle
-/// messages.rs `right_reserve = 1`).
-fn cell(separator: bool, child: AnyWidget) -> AnyWidget {
-    Padding::new(EdgeInsets::only(0, i32::from(separator), 0, 0), child).into()
-}

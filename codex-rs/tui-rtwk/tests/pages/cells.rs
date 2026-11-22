@@ -2147,6 +2147,132 @@ mod notice_cells {
     }
 }
 
+mod raw_mode {
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_completed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+
+    use codex_tui_core::threads::Item;
+    use codex_tui_rtwk::pages::session::cells::{raw, strings};
+
+    use crate::common::{Harness, start};
+
+    const SOURCE: &str = "- first item\n\nfinalized **markdown**\n\n```text\ncopy me\n```";
+
+    fn chat_with_an_answer() -> Harness {
+        let mut h = start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            agent_completed(FAKE_THREAD, "turn-1", "item-1", SOURCE),
+            turn_completed(FAKE_THREAD, "turn-1"),
+        ]);
+        h.t.type_text("hi");
+        h.press("enter");
+        h.wait_for("the answer", |s| s.contains("finalized"));
+        h.wait_idle();
+        h
+    }
+
+    #[test]
+    fn source_lines_keep_blank_lines_and_drop_the_trailing_newline() {
+        // oracle history_cell/tests.rs raw_lines_from_source_* (the lines of a source)
+        assert_eq!(raw::source_lines("alpha\n\nbeta"), ["alpha", "", "beta"]);
+        assert_eq!(raw::source_lines("alpha\n"), ["alpha"]);
+        assert_eq!(raw::source_lines("alpha\n\n"), ["alpha", ""]);
+        assert!(raw::source_lines("").is_empty());
+    }
+
+    #[test]
+    fn an_item_with_a_source_has_raw_lines_and_one_without_has_none() {
+        let text = |item: Item| raw::lines(&item, &strings::EN);
+        let agent = Item::Agent {
+            text: "- a\n\n| A |\n".into(),
+            phase: None,
+        };
+        assert_eq!(text(agent).unwrap(), ["- a", "", "| A |"]);
+        let plan = Item::Plan {
+            text: "1. Inspect\n\n```sh\ncargo test\n```".into(),
+        };
+        assert_eq!(
+            text(plan).unwrap(),
+            ["1. Inspect", "", "```sh", "cargo test", "```"]
+        );
+        let reasoning = Item::Reasoning {
+            summary: "first thought\n\nsecond thought\n".into(),
+        };
+        assert_eq!(
+            text(reasoning).unwrap(),
+            ["first thought", "", "second thought"]
+        );
+    }
+
+    #[test]
+    fn alt_r_flips_an_answer_between_its_rendering_and_its_source() {
+        // oracle history_cell/messages_tests.rs raw_markdown_bypasses_the_rich_render_cache,
+        // history_cell/tests.rs raw_mode_toggle_transcript_snapshot (the agent cell)
+        let mut h = chat_with_an_answer();
+        let rich = h.t.screen();
+        assert!(rich.contains("• "), "{rich}");
+        assert!(!rich.contains("**markdown**"), "{rich}");
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        let raw = h.t.screen();
+        let rows: Vec<&str> = raw.lines().map(str::trim_end).collect();
+        let at = rows
+            .iter()
+            .position(|row| *row == "- first item")
+            .unwrap_or_else(|| panic!("{raw}"));
+        // the source lines, a blank row kept, no bullet, no fence drawn as a rule
+        assert_eq!(rows[at + 1], "", "{raw}");
+        assert_eq!(rows[at + 2], "finalized **markdown**", "{raw}");
+        assert_eq!(rows[at + 4], "```text", "{raw}");
+        assert_eq!(rows[at + 5], "copy me", "{raw}");
+        assert_eq!(rows[at + 6], "```", "{raw}");
+        assert!(raw.contains("Raw output mode on"), "{raw}");
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("Raw output mode off"));
+    }
+
+    #[test]
+    fn a_prompt_is_its_text_without_the_chevron_in_raw_mode() {
+        // oracle source_backed_cells_render_raw_source_without_prefix_or_style (the prompt)
+        let mut h = chat_with_an_answer();
+        assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
+        h.press("alt+r");
+        h.wait_for("raw", |s| s.contains("Raw output mode on"));
+        let screen = h.t.screen();
+        assert!(!screen.contains("› hi"), "{screen}");
+        assert!(screen.lines().any(|row| row.trim_end() == "hi"), "{screen}");
+    }
+
+    #[test]
+    fn the_toggle_changes_the_cells_and_leaves_the_rest_of_the_page_alone() {
+        // Flutter: a ListView's items rebuild when the mode flag changes, the composer
+        // above/below them is a different subtree: its draft and caret stay.
+        let mut h = chat_with_an_answer();
+        h.t.type_text("a draft");
+        h.wait_for("the draft", |s| s.contains("› a draft"));
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        assert!(h.t.screen().contains("› a draft"), "{}", h.t.screen());
+        h.t.type_text("!");
+        h.wait_for("the caret kept", |s| s.contains("› a draft!"));
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("› a draft!"), "{}", h.t.screen());
+    }
+
+    #[test]
+    fn the_slash_command_and_the_key_are_one_toggle() {
+        let mut h = chat_with_an_answer();
+        h.t.type_text("/raw");
+        h.press("enter");
+        h.wait_for("raw on", |s| s.contains("finalized **markdown**"));
+        h.press("alt+r");
+        h.wait_for("raw off", |s| !s.contains("**markdown**"));
+    }
+}
+
 mod errors_and_warnings_in_the_chat {
     use codex_app_server_protocol::{ServerNotification, WarningNotification};
     use codex_tui_core::app::BackendEv;

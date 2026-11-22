@@ -519,6 +519,18 @@ impl State for ChatState {
                         ScreenIntent::from(chat::Intent::Note { thread, note }),
                     );
                 }
+                // `toggle_raw_output_mode_and_notify`: what `/raw` does
+                Action::ToggleRaw => {
+                    let thread = read::<SessionSlice, _>(cx).active.clone();
+                    cx.emit(
+                        &hs.screen,
+                        ScreenIntent::from(chat::Intent::Session {
+                            thread,
+                            command: SlashCommand::Raw,
+                            intent: codex_tui_core::commands::SessionIntent::Raw { on: None },
+                        }),
+                    );
+                }
                 Action::OpenWarnings => open_warnings(cx, &hs),
                 other => {
                     if let Some(target) = other.target() {

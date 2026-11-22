@@ -24,6 +24,8 @@ pub enum Action {
     ToggleVoice,
     /// `toggle_side_conversation`: Ctrl+/.
     ToggleSide,
+    /// `toggle_raw_output`: Alt+R (the same as `/raw`).
+    ToggleRaw,
 }
 
 impl Action {
@@ -33,7 +35,7 @@ impl Action {
             Action::FindTranscript => Some(Target::Pager),
             Action::OpenWarnings => Some(Target::Dialogs),
             Action::ToggleVoice => Some(Target::Voice),
-            Action::OpenTranscript | Action::ToggleSide => None,
+            Action::OpenTranscript | Action::ToggleSide | Action::ToggleRaw => None,
         }
     }
 }
@@ -51,5 +53,6 @@ pub fn defaults() -> Vec<(Action, KeyPress)> {
         // sent as the C0 byte 0x1f (rtwk reads Ctrl+_), and Ctrl+7 shares it.
         (Action::ToggleSide, ctrl('_')),
         (Action::ToggleSide, ctrl('7')),
+        (Action::ToggleRaw, KeyPress::char('r').with_mods(Mods::ALT)),
     ]
 }
