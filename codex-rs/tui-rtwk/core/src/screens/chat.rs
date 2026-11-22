@@ -96,6 +96,8 @@ pub struct StatusFacts {
     pub account_usage: bool,
     pub empty_state: bool,
     pub notification_policy: NotificationPolicy,
+    /// What the config says of `/permissions` (guardian, requirements, limits).
+    pub permissions: super::select::permissions::Facts,
 }
 
 impl Default for StatusFacts {
@@ -124,6 +126,7 @@ impl Default for StatusFacts {
             account_usage: false,
             empty_state: false,
             notification_policy: NotificationPolicy::default(),
+            permissions: Default::default(),
         }
     }
 }

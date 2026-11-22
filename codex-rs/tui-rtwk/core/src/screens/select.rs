@@ -135,6 +135,24 @@ pub enum Note {
     AppLinkUnavailable(apps::Status),
 }
 
+impl Note {
+    /// The oracle says each as information or as an error.
+    pub fn tone(&self) -> crate::threads::Tone {
+        use crate::threads::Tone;
+        match self {
+            Note::ModelsNotLoaded | Note::SaveFailed { .. } | Note::AppsFailed(_) => Tone::Error,
+            _ => Tone::Info,
+        }
+    }
+
+    /// Whether the main transcript shows the line: the two warnings
+    /// (`add_warning_message`: `visible_in_transcript: false`) are for the
+    /// detailed transcript only.
+    pub fn in_transcript(&self) -> bool {
+        !matches!(self, Note::UltraConcurrency(_) | Note::Overridden(_))
+    }
+}
+
 /// What a failed or overridden write was for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Setting {
@@ -271,7 +289,16 @@ impl Model {
         use permissions::Step;
         match step {
             Step::None => {}
-            Step::Replace(menu) => {
+            Step::Replace(mut menu) => {
+                // The catalog is the app's cache of `model/list`
+                // (`model_catalog.try_list_models()`): unknown stays plain.
+                if let permissions::PermissionsMenu::FullAccess { current, .. } = &mut menu {
+                    let cyber = current
+                        .model
+                        .as_deref()
+                        .is_some_and(|model| self.catalog.is_cyber(model));
+                    current.cyber |= cyber;
+                }
                 self.stack.pop();
                 self.stack.push(Menu::Permissions(Box::new(menu)));
             }
@@ -290,6 +317,11 @@ impl Model {
     fn open_permissions(&mut self, current: permissions::Current) {
         use permissions::PermissionsMenu as Perms;
         self.stack.clear();
+        // The cyber warning of full access reads the model catalog: have it
+        // before the confirmation (a request in flight serves as well).
+        if self.catalog.presets.is_empty() && self.catalog.pending.is_none() {
+            self.catalog.request();
+        }
         let menu = if !current.discover {
             Perms::Presets(current)
         } else if self.profiles.found.is_some() {

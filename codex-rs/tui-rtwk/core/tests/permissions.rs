@@ -639,3 +639,33 @@ fn the_wire_requests_and_answers_decode() {
         Some(Disabled::NotOnServer)
     );
 }
+
+/// The opener takes the config's part from the status facts the host read
+/// (guardian, requirements, limits) and the model of the thread.
+#[test]
+fn the_opener_carries_the_configs_facts() {
+    use codex_tui_core::screens::chat::StatusFacts;
+    use codex_tui_core::screens::select::permissions::{Facts, Limit, Limits};
+    let facts = StatusFacts {
+        model: Some("gpt-sol".into()),
+        permissions: Facts {
+            guardian: true,
+            auto_required: true,
+            auto_available: true,
+            limits: Limits {
+                approvals: vec![Limit {
+                    approval: codex_app_server_protocol::AskForApproval::Never,
+                    reason: "forbidden by requirements".into(),
+                }],
+                reviewer_user: Some("no user reviewer".into()),
+                reviewer_auto: None,
+            },
+        },
+        ..StatusFacts::default()
+    };
+    let current = Current::from_facts(&facts);
+    assert!(current.guardian && current.auto_required && current.auto_available);
+    assert_eq!(current.limits, facts.permissions.limits);
+    assert_eq!(current.model.as_deref(), Some("gpt-sol"));
+    assert!(current.discover);
+}

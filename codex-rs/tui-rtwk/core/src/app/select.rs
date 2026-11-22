@@ -44,6 +44,22 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         );
     }
     picks(app, fx);
+    drain(app, fx);
+}
+
+/// What the screen said (`add_info_message` of the pickers) goes into the
+/// transcript of the thread in use, as typed notes: the screen keeps no
+/// history of its own.
+fn drain(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.screens.select.notes.is_empty() {
+        return;
+    }
+    let said = std::mem::take(&mut Rc::make_mut(&mut app.screens).select.notes);
+    let thread = app.session.active.clone();
+    for note in said.into_iter().filter(select::Note::in_transcript) {
+        let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
+        super::session_note(app, thread.clone(), note, fx);
+    }
 }
 
 /// The picks the screen holds, applied: the thread's settings change for its
@@ -83,6 +99,7 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     let before = app.screens.select.apps.pending;
     select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     asked_apps(app, before, fx);
+    drain(app, fx);
 }
 
 /// The `app/list` the screen left pending since `before`, asked for.
@@ -212,6 +229,11 @@ fn text(error: RpcError) -> String {
 
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
+    answered(app, ctx, answer, fx);
+    drain(app, fx);
+}
+
+fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {
         Answer::Screen(ScreenReply::Select(reply)) => Ok(reply),
         Answer::Failed(error) => Err(error),

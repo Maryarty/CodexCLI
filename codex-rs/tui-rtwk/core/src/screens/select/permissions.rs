@@ -92,6 +92,20 @@ pub struct Limits {
     pub reviewer_auto: Option<String>,
 }
 
+/// What the config says of the permissions (the host reads them with the
+/// other status facts): the part of `Current` the thread does not know.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct Facts {
+    /// `Feature::GuardianApproval`: the `Approve for me` row exists.
+    pub guardian: bool,
+    /// The requirements make auto-review mandatory for the model in use.
+    pub auto_required: bool,
+    /// `auto_review_available(config)`.
+    pub auto_available: bool,
+    pub limits: Limits,
+}
+
 /// What the thread had when the menu opened: the opener reads it from the
 /// thread and the config and the menu keeps it (a snapshot that dies with the
 /// menu, not a copy of the thread).
@@ -118,6 +132,9 @@ pub struct Current {
     /// `auto_review_available(config)`: the cyber warning recommends it.
     pub auto_available: bool,
     pub limits: Limits,
+    /// The model of the thread: the full-access warning is the cyber one when
+    /// the catalog says it is a cyber model.
+    pub model: Option<String>,
 }
 
 impl Current {
@@ -146,6 +163,11 @@ impl Current {
             matches,
             profile: matches.map(|preset| preset.profile().to_owned()),
             discover: true,
+            guardian: facts.permissions.guardian,
+            auto_required: facts.permissions.auto_required,
+            auto_available: facts.permissions.auto_available,
+            limits: facts.permissions.limits.clone(),
+            model: facts.model.clone(),
             ..Current::default()
         }
     }
@@ -164,6 +186,7 @@ impl Default for Current {
             cyber: false,
             auto_available: false,
             limits: Limits::default(),
+            model: None,
         }
     }
 }
