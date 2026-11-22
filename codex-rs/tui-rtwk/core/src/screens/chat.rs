@@ -316,6 +316,8 @@ pub struct ThreadPart {
     /// The thread is controlled by its parent: it takes no direct input
     /// (`thread_blocks_direct_input`).
     pub parent_owned: bool,
+    /// The thread is not kept (`config.ephemeral`).
+    pub ephemeral: bool,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub provider: Option<String>,
@@ -432,6 +434,7 @@ pub enum ThreadEv {
         cwd: String,
         path: Option<String>,
         parent_owned: bool,
+        ephemeral: bool,
         model: Option<String>,
         effort: Option<String>,
         provider: String,
@@ -501,6 +504,7 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
         cwd: thread.cwd.display().to_string(),
         path: thread.path.as_ref().map(|path| path.display().to_string()),
         parent_owned: blocks_direct_input(thread),
+        ephemeral: thread.ephemeral,
         model: thread.model.clone(),
         effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
         provider: thread.model_provider.clone(),
@@ -626,12 +630,13 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, path, parent_owned, model, effort, provider, daybreak } => {
+        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak } => {
             part.name = name;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
             part.path = path;
             part.parent_owned = parent_owned;
+            part.ephemeral = ephemeral;
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);

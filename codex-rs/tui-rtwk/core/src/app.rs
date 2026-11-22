@@ -1347,9 +1347,9 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             } => {
                 let result = match answer {
                     Answer::ThreadStarted { thread } => Ok((thread, None)),
-                    Answer::Screen(ScreenReply::Agents(agents::Reply::Forked(thread))) => {
-                        Ok((ThreadId::new(&thread.id), Some(thread)))
-                    }
+                    Answer::Screen(ScreenReply::Agents(
+                        agents::Reply::Forked(thread) | agents::Reply::Started(thread),
+                    )) => Ok((ThreadId::new(&thread.id), Some(thread))),
                     Answer::Failed(error) => Err(error),
                     _ => Err(RpcError::Mismatch),
                 };

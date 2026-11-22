@@ -1553,13 +1553,22 @@ mod effects {
     use super::*;
 
     /// `thread/started` of the thread, as the server describes it.
-    fn started(cwd: &str, path: Option<&str>, can_accept: Option<bool>) -> AppEv {
+    pub(super) fn started(cwd: &str, path: Option<&str>, can_accept: Option<bool>) -> AppEv {
+        started_with(cwd, path, can_accept, false)
+    }
+
+    pub(super) fn started_with(
+        cwd: &str,
+        path: Option<&str>,
+        can_accept: Option<bool>,
+        ephemeral: bool,
+    ) -> AppEv {
         let notification: ServerNotification = serde_json::from_value(serde_json::json!({
             "method": "thread/started",
             "params": {"thread": {
                 "id": T, "environments": null, "extra": null, "sessionId": T,
                 "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
-                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+                "preview": "", "ephemeral": ephemeral, "section": null, "sectionEnteredAt": null,
                 "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
                 "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
                 "recencyAt": 0, "status": {"type": "idle"}, "path": path, "cwd": cwd,
@@ -1834,5 +1843,306 @@ mod effects {
         ] {
             assert_eq!(parent_owned_takes(line, flags), takes, "{line}");
         }
+    }
+}
+
+/// `/cd`: `request_working_directory_change` (chatwidget/working_directory.rs)
+/// and `AppEvent::ChangeWorkingDirectory` (app/event_dispatch.rs). The session
+/// goes on in the directory: a fork of the conversation when it has history,
+/// a fresh thread when it has none.
+mod directory {
+    use codex_app_server_protocol::ServerNotification;
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent};
+    use codex_tui_core::commands::resolve_directory;
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::{
+        ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, ScreenThreadIntent, agents, chat,
+    };
+    use codex_tui_core::threads::{CdRefusal, Note, NoteKey, ThreadAsk, UserMessage};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    use super::effects::{started, started_with};
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    fn notified(app: &mut CodexApp, notification: serde_json::Value) {
+        let notification: ServerNotification =
+            serde_json::from_value(notification).expect("notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        );
+    }
+
+    fn turn_started(app: &mut CodexApp) {
+        notified(
+            app,
+            json!({"method": "turn/started", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "full", "status": "inProgress",
+                "error": null}}}),
+        );
+    }
+
+    /// One whole turn: the agent said something and the turn ended.
+    fn a_turn_with_history(app: &mut CodexApp) {
+        turn_started(app);
+        notified(
+            app,
+            json!({"method": "item/completed", "params": {"threadId": T, "turnId": "turn-1",
+                "completedAtMs": 0, "startedAtMs": 0,
+                "item": {"type": "agentMessage", "id": "a1", "text": "done", "phase": null}}}),
+        );
+        notified(
+            app,
+            json!({"method": "turn/completed", "params": {"threadId": T, "turn": {
+                "id": "turn-1", "items": [], "itemsView": "notLoaded", "status": "completed",
+                "error": null}}}),
+        );
+    }
+
+    fn cd(app: &mut CodexApp, thread: Option<&str>, path: &str) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: thread.map(ThreadId::new),
+                command: SlashCommand::Cd,
+                intent: SessionIntent::Cd {
+                    path: path.to_string(),
+                },
+            }))),
+        )
+    }
+
+    fn asks(fx: &AppFx) -> Vec<ThreadAsk> {
+        fx.commands()
+            .iter()
+            .filter_map(|c| match c {
+                Command::Screen {
+                    command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+                    ..
+                } => Some(ask.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn refusal(why: CdRefusal) -> Vec<Note> {
+        vec![Note::from(NoteKey::CdRefused(why))]
+    }
+
+    fn queue(app: &mut CodexApp) {
+        run(
+            app,
+            AppEv::Intent(Intent::ThreadScreen {
+                thread: ThreadId::new(T),
+                intent: ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(UserMessage::text("q"))),
+            }),
+        );
+    }
+
+    fn submit(app: &mut CodexApp) {
+        run(
+            app,
+            AppEv::Intent(Intent::Submit {
+                thread: Some(ThreadId::new(T)),
+                message: UserMessage::text("s"),
+            }),
+        );
+    }
+
+    /// The oracle's table of `can_change_working_directory`.
+    #[test]
+    fn the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one() {
+        let states: [(&str, fn(&mut CodexApp)); 7] = [
+            ("pending", submit),
+            ("active", turn_started),
+            ("queued", |app| {
+                turn_started(app);
+                queue(app);
+            }),
+            ("steer", |app| {
+                turn_started(app);
+                submit(app);
+            }),
+            ("side", |app| {
+                run(
+                    app,
+                    AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
+                        side_conversation_active: true,
+                        ..CommandFlags::default()
+                    }))),
+                );
+            }),
+            ("owned", |app| {
+                run(app, started("/tmp", None, Some(false)));
+            }),
+            ("ephemeral", |app| {
+                run(app, started_with("/tmp", None, Some(true), true));
+            }),
+        ];
+        for (state, setup) in states {
+            let mut app = ready();
+            setup(&mut app);
+            let fx = cd(&mut app, Some(T), "/tmp");
+            assert!(asks(&fx).is_empty(), "{state}: {:?}", fx.commands());
+            assert!(
+                !fx.commands()
+                    .iter()
+                    .any(|c| matches!(c, Command::StartThread { .. })),
+                "{state}: {:?}",
+                fx.commands()
+            );
+            assert_eq!(
+                notes_of(&app.active_thread())
+                    .into_iter()
+                    .filter(|note| matches!(note.key, NoteKey::CdRefused(_)))
+                    .collect::<Vec<_>>(),
+                refusal(CdRefusal::NotIdle),
+                "{state}"
+            );
+        }
+    }
+
+    #[test]
+    fn cd_before_the_session_starts_says_so() {
+        let mut app = CodexApp::new();
+        run(&mut app, AppEv::Connected);
+        let fx = cd(&mut app, None, "/tmp");
+        assert!(asks(&fx).is_empty(), "{:?}", fx.commands());
+        assert_eq!(
+            app.screens().chat.notes,
+            refusal(CdRefusal::NotStarted),
+            "no thread yet: the answer waits above the composer"
+        );
+    }
+
+    #[test]
+    fn a_conversation_with_history_is_forked_into_the_directory() {
+        let mut app = ready();
+        run(
+            &mut app,
+            started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+        );
+        a_turn_with_history(&mut app);
+        let fx = cd(&mut app, Some(T), "/tmp");
+        assert_eq!(
+            asks(&fx),
+            [ThreadAsk::ForkAt {
+                thread: T.to_string(),
+                cwd: Some("/tmp".to_string())
+            }]
+        );
+        assert_eq!(notes_of(&app.active_thread()), []);
+    }
+
+    #[test]
+    fn a_conversation_without_history_starts_afresh_in_the_directory() {
+        let mut app = ready();
+        run(
+            &mut app,
+            started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+        );
+        let fx = cd(&mut app, Some(T), "sub");
+        assert_eq!(
+            asks(&fx),
+            [ThreadAsk::Start {
+                cwd: Some("/tmp/project/sub".to_string())
+            }]
+        );
+    }
+
+    #[test]
+    fn history_the_server_has_not_saved_cannot_be_carried_over() {
+        let mut app = ready();
+        run(&mut app, started("/tmp/project", None, Some(true)));
+        a_turn_with_history(&mut app);
+        let fx = cd(&mut app, Some(T), "/tmp");
+        assert!(asks(&fx).is_empty(), "{:?}", fx.commands());
+        assert_eq!(
+            notes_of(&app.active_thread()),
+            refusal(CdRefusal::HistoryNotSaved)
+        );
+    }
+
+    /// The new conversation takes the screen, as `/new` and `/fork` do.
+    #[test]
+    fn the_session_goes_on_in_the_conversation_the_server_started() {
+        for with_history in [true, false] {
+            let mut app = ready();
+            run(
+                &mut app,
+                started("/tmp/project", Some("/tmp/r.jsonl"), Some(true)),
+            );
+            if with_history {
+                a_turn_with_history(&mut app);
+            }
+            let fx = cd(&mut app, Some(T), "/tmp");
+            let ticket = fx
+                .commands()
+                .iter()
+                .find_map(|c| match c {
+                    Command::Screen { ticket, .. } => Some(*ticket),
+                    _ => None,
+                })
+                .expect("the ask");
+            let thread = serde_json::from_value(json!({
+                "id": "moved-1", "environments": null, "extra": null, "sessionId": "moved-1",
+                "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+                "preview": "", "ephemeral": false, "section": null, "sectionEnteredAt": null,
+                "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+                "model": null, "reasoningEffort": null, "createdAt": 0, "updatedAt": 0,
+                "recencyAt": 0, "status": {"type": "idle"}, "path": null, "cwd": "/tmp",
+                "cliVersion": "0.0.0", "originator": null, "source": "cli",
+                "canAcceptDirectInput": true, "threadSource": null, "agentNickname": null,
+                "agentRole": null, "gitInfo": null, "name": null, "daybreakEnabled": null,
+                "turns": []
+            }))
+            .expect("a thread");
+            let reply = if with_history {
+                agents::Reply::Forked(Box::new(thread))
+            } else {
+                agents::Reply::Started(Box::new(thread))
+            };
+            run(
+                &mut app,
+                AppEv::Reply(ticket, Reply::screen(ScreenReply::Agents(reply))),
+            );
+            assert_eq!(
+                app.session().active,
+                Some(ThreadId::new("moved-1")),
+                "with_history={with_history}"
+            );
+        }
+    }
+
+    /// `AbsolutePathBuf::resolve_path_against_base`.
+    #[test]
+    fn the_directory_is_resolved_against_the_threads_own() {
+        let home = Some("/home/me");
+        for (requested, expected) in [
+            ("/tmp", "/tmp"),
+            ("~", "/home/me"),
+            ("~/work", "/home/me/work"),
+            ("sub/dir", "/tmp/project/sub/dir"),
+            ("./sub", "/tmp/project/sub"),
+            ("..", "/tmp"),
+            ("../other", "/tmp/other"),
+            ("/a/b/../c/./d", "/a/c/d"),
+            ("/../..", "/"),
+            ("", "/tmp/project"),
+        ] {
+            assert_eq!(
+                resolve_directory(requested, "/tmp/project", home),
+                expected,
+                "{requested:?}"
+            );
+        }
+        // without a home the tilde is an ordinary name
+        assert_eq!(
+            resolve_directory("~", "/tmp/project", None),
+            "/tmp/project/~"
+        );
     }
 }

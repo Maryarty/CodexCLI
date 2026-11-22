@@ -26,7 +26,7 @@ pub use cells::{
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
-pub use note::{Note, NoteKey, Stub, Tone};
+pub use note::{CdRefusal, Note, NoteKey, Stub, Tone};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;

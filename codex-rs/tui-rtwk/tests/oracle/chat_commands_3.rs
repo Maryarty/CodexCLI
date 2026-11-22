@@ -546,7 +546,7 @@ fn slash_cd_changes_current_session_after_replay_and_defaults_to_home() {
 fn slash_cd_rejects_pending_input_and_unsupported_session_ownership() {
     kit::pending(
         Owner::ChatNavPane,
-        "the /cd rejection messages need the session states new, queued input (seed not registered); the states are not reachable black-box",
+        "the snapshot's second half is the idle session with a queued message: the port drains its queue at turn end and refuses /cd while a task runs, so no key sequence reaches that state; the oracle's whole table of states is carried by core/tests/commands.rs directory::the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one and ::cd_before_the_session_starts_says_so",
     );
     // State \"new\": no session yet.
     let mut s = Screen::build(Owner::ChatNavPane)

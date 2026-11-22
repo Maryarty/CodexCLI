@@ -72,6 +72,10 @@ pub struct Strings {
     pub stub_memory_maintenance: &'static str,
     /// `PARENT_OWNED_INPUT_MESSAGE`.
     pub parent_owned: &'static str,
+    /// `working_directory.rs`, `event_dispatch.rs`: why `/cd` did nothing.
+    pub cd_not_started: &'static str,
+    pub cd_not_idle: &'static str,
+    pub cd_history_not_saved: &'static str,
     /// `skill_popup.rs`, `mentions_v2/candidate.rs`: the tags of a row.
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
@@ -190,6 +194,9 @@ pub const EN: Strings = Strings {
     stub: msg!("{0}: Not available in TUI yet."),
     stub_memory_maintenance: "Memory maintenance",
     parent_owned: "This sub-agent is controlled by its parent. Direct input is disabled.",
+    cd_not_started: "The session must start before you can change its working directory.",
+    cd_not_idle: "Changing directories requires an idle primary session without queued input.",
+    cd_history_not_saved: "Conversation history is not saved.",
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
@@ -388,7 +395,7 @@ impl Strings {
 
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
-        use codex_tui_core::threads::{NoteKey, Stub};
+        use codex_tui_core::threads::{CdRefusal, NoteKey, Stub};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
@@ -401,6 +408,9 @@ impl Strings {
             NoteKey::RawOutput(true) => self.raw_output_on.to_string(),
             NoteKey::RawOutput(false) => self.raw_output_off.to_string(),
             NoteKey::ParentOwned => self.parent_owned.to_string(),
+            NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),
+            NoteKey::CdRefused(CdRefusal::NotIdle) => self.cd_not_idle.to_string(),
+            NoteKey::CdRefused(CdRefusal::HistoryNotSaved) => self.cd_history_not_saved.to_string(),
         }
     }
 

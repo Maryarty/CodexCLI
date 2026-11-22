@@ -46,6 +46,21 @@ step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/
   startup seam `host/src/startup.rs:98`) and an answer for `/app`.
 - Gap for the transcript chunk: `/raw` flips `Model.raw_output` and says so; the transcript's raw rendering (`cells/raw.rs` of chunk-cells) does not read it yet.
 
+## Step 4 — /cd (oracle chatwidget/working_directory.rs:22-60, app/event_dispatch.rs:374-418, app/working_directory.rs:127-)
+- Core: `session::change_directory`. Refusals as `NoteKey::CdRefused(CdRefusal::{NotStarted, NotIdle, HistoryNotSaved})` (error tone, words in
+  `strings::note`): no thread yet; not an idle primary session (a turn running or about to start, a queued message, a pending steer, a side conversation,
+  a parent-owned thread, an ephemeral one: `can_change_working_directory`); history that has no rollout path ("Conversation history is not saved.").
+- Otherwise the session goes on in the directory through `AppCtx::NewConversation`, as `/new` and `/fork` do: a fork (`ThreadAsk::ForkAt{cwd}`) when the
+  thread has history (the oracle's `fork_thread_for_directory_change`), a fresh start (`ThreadAsk::Start{cwd}`) when it has none. `commands::resolve_directory`
+  expands `~` (`agents.home`), joins a relative path to the thread's cwd and folds `.`/`..` (no file system read: core has none).
+- Tests: core/tests/commands.rs `directory` (7: the table of states, not started, fork with history, fresh start, history not saved, the new conversation takes
+  the screen for Forked and Started, path resolution); page tests `cd_starts_the_session_afresh_in_the_directory`, `cd_in_a_conversation_with_history_…`.
+- Oracle s3 `slash_cd_rejects_pending_input_…` stays pending with a true reason (its second half is the idle session with a queued message; the port drains the
+  queue at turn end and refuses `/cd` while a task runs, so no key sequence reaches it); the whole table of states is the core test. s3 `slash_cd_changes_…` is n/a.
+- Not built, named (no chunk of this wave owns them): the directory check of the oracle ("Not a directory: …", "Cannot access directory …": a `Workspace`
+  method and a command for it in src/services/agents/workspace.rs, host-services), the remote-workspace refusal (needs a fact from the host), the unified-exec
+  process and MCP-inventory-loading refusals (core holds neither state), trust confirmation of an untrusted directory, the permission-profile checks.
+
 ## Outside-area edits (minimal, additive unless noted)
 - core/src/threads.rs (chunk-live): `mod note; pub use note::{Note, NoteKey, Tone};`, variant `Item::Note(Note)`.
 - core/src/app.rs (chunk-live): one arm `Intent::Screen(ScreenIntent::Chat(chat::Intent::Note{..})) => session_note(..)`; `session_note` in the `use session::{..}`.
@@ -59,3 +74,6 @@ step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/
 - core/src/threads.rs (chunk-live), step 3: `ThreadAsk::CleanTerminals` (+ `thread()`, `wire`), the `parent_owned` refusal arm of `apply_ev` (`Submit`, `Compact`), re-export of `Stub`.
 - core/src/screens/chat.rs (chunk-live), step 3: `ThreadPart.{path, parent_owned}`, `ThreadEv::Metadata` fields, `blocks_direct_input`, `ThreadIntent/Command/Ctx::CleanTerminals`, `Model.raw_output` + `Intent::RawOutput`.
 - tests/kit/mod.rs, tests/kit/seed.rs (chunk-live): `Screen::commands`, `Open::held_start`.
+- core/src/app.rs (chunk-live), step 4: the `NewConversation` answer also takes `agents::Reply::Started` (a fresh thread in a directory).
+- core/src/screens/chat.rs (chunk-live), step 4: `ThreadPart.ephemeral`, `ThreadEv::Metadata.ephemeral`.
+- core/src/threads.rs (chunk-live), step 4: re-export of `CdRefusal`; core/src/threads/note.rs: `CdRefusal`, `NoteKey::CdRefused`.

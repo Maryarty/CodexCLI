@@ -96,6 +96,32 @@ impl SlashCommand {
     }
 }
 
+/// `AbsolutePathBuf::resolve_path_against_base`: the directory `/cd` names,
+/// `~` expanded to `home`, a relative path joined to `base`, `.` and `..`
+/// folded away (no file system is read).
+pub fn resolve_directory(requested: &str, base: &str, home: Option<&str>) -> String {
+    use std::path::{Component, Path, PathBuf};
+    let expanded = match home {
+        Some(home) if requested == "~" => PathBuf::from(home),
+        Some(home) => match requested.strip_prefix("~/") {
+            Some(rest) => Path::new(home).join(rest),
+            None => PathBuf::from(requested),
+        },
+        None => PathBuf::from(requested),
+    };
+    let mut folded = PathBuf::new();
+    for part in Path::new(base).join(expanded).components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                folded.pop();
+            }
+            part => folded.push(part.as_os_str()),
+        }
+    }
+    folded.display().to_string()
+}
+
 /// `handle_parent_owned_submission`: whether a thread its parent controls
 /// takes this composer line: a built-in command by its own name (not an
 /// alias) that `allowed_when_parent_owned`. Text, `!cmd` and every other

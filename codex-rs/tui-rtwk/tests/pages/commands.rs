@@ -279,3 +279,42 @@ fn init_sends_the_prompt_as_a_message_and_clears_the_composer() {
     });
     assert!(!h.t.screen().contains("› /init"), "{}", h.t.screen());
 }
+
+#[test]
+fn cd_starts_the_session_afresh_in_the_directory() {
+    let mut h = start();
+    h.wait_idle();
+    send(&mut h, "/cd /tmp");
+    h.wait_until("thread/start in /tmp", |h| {
+        h.fake.commands().iter().any(|c| {
+            matches!(
+                c,
+                codex_tui_core::app::Command::Screen {
+                    command: codex_tui_core::screens::ScreenCommand::Agents(
+                        codex_tui_core::screens::agents::Command::Thread(
+                            codex_tui_core::threads::ThreadAsk::Start { cwd: Some(cwd) }
+                        )
+                    ),
+                    ..
+                } if cwd == "/tmp"
+            )
+        })
+    });
+}
+
+#[test]
+fn cd_in_a_conversation_with_history_says_what_it_cannot_carry_over() {
+    let mut h = chat();
+    send(&mut h, "/cd /tmp");
+    h.wait_for("the refusal", |s| {
+        s.contains("■ Conversation history is not saved.")
+    });
+    assert!(
+        !h.fake
+            .requests()
+            .iter()
+            .any(|r| r["method"] == "thread/start" && r["params"]["cwd"] == "/tmp"),
+        "{:?}",
+        h.fake.requests()
+    );
+}

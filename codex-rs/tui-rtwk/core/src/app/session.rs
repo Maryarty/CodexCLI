@@ -5,7 +5,7 @@ use std::rc::Rc;
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
 use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, status};
-use crate::threads::{Item, Note, NoteKey, Stub, ThreadAsk, ThreadEv, UserMessage};
+use crate::threads::{CdRefusal, Item, Note, NoteKey, Stub, ThreadAsk, ThreadEv, UserMessage};
 
 /// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
 /// id after it.
@@ -116,6 +116,7 @@ pub(super) fn session_intent(
             );
             fx.commands.push(request);
         }
+        S::Cd { path } => change_directory(app, source, &path, fx),
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
@@ -205,7 +206,6 @@ pub(super) fn session_intent(
         | S::Copy
         | S::Export { .. }
         | S::Tui
-        | S::Cd { .. }
         | S::Mcp { .. }
         | S::Apps
         | S::Plugins
@@ -230,6 +230,82 @@ pub(super) fn session_intent(
             fx,
         ),
     }
+}
+
+/// `/cd` (`request_working_directory_change`, `AppEvent::ChangeWorkingDirectory`):
+/// the session goes on in the directory, as a fork of the conversation when it
+/// has history to keep and as a fresh thread when it has none. The new thread
+/// takes the screen as `/new` and `/fork` do (`AppCtx::NewConversation`).
+fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx: &mut AppFx) {
+    let refuse = |app: &mut CodexApp, source: Option<ThreadId>, why, fx: &mut AppFx| {
+        session_note(app, source, Note::from(NoteKey::CdRefused(why)), fx);
+    };
+    let Some((thread, model)) = source.as_ref().and_then(|id| {
+        app.threads
+            .get(id)
+            .map(|model| (id.clone(), Rc::clone(model)))
+    }) else {
+        return refuse(app, source, CdRefusal::NotStarted, fx);
+    };
+    let part = &model.screen_slots().chat;
+    // `can_change_working_directory`: an idle primary session, nothing queued.
+    let idle = !model.is_running()
+        && !model.can_interrupt()
+        && model.queue().is_empty()
+        && model.pending_steers().is_empty();
+    if !idle
+        || app.screens.chat.flags.side_conversation_active
+        || part.parent_owned
+        || part.ephemeral
+    {
+        return refuse(app, source, CdRefusal::NotIdle, fx);
+    }
+    let has_history = model
+        .transcript()
+        .iter()
+        .any(|(_, item)| !matches!(item, Item::Note(_)));
+    if has_history && part.path.is_none() {
+        return refuse(app, source, CdRefusal::HistoryNotSaved, fx);
+    }
+    if app
+        .outgoing
+        .any(|ctx| matches!(ctx, AppCtx::NewConversation { .. }))
+    {
+        return;
+    }
+    let base = part
+        .cwd
+        .clone()
+        .or_else(|| app.screens.chat.status.cwd.clone())
+        .unwrap_or_default();
+    let cwd = Some(crate::commands::resolve_directory(
+        path,
+        &base,
+        app.screens.agents.home.as_deref(),
+    ));
+    let ask = if has_history {
+        ThreadAsk::ForkAt {
+            thread: thread.to_string(),
+            cwd,
+        }
+    } else {
+        ThreadAsk::Start { cwd }
+    };
+    let ticket = app.mint.next();
+    let backend = app.screens.agents.owner_of(thread.as_str());
+    app.outgoing.insert(
+        ticket,
+        AppCtx::NewConversation {
+            source,
+            backend,
+            name: None,
+        },
+    );
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(agents::Command::Thread(ask)),
+    });
 }
 
 /// `config.cwd`: the directory of the thread, else the one the host read for

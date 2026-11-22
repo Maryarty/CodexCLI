@@ -20,6 +20,18 @@ pub enum Stub {
     MemoryMaintenance,
 }
 
+/// Why `/cd` did not change the directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CdRefusal {
+    /// The session has not started (`request_working_directory_change`).
+    NotStarted,
+    /// Not an idle primary session without queued input
+    /// (`can_change_working_directory`).
+    NotIdle,
+    /// The conversation has no saved history to carry over.
+    HistoryNotSaved,
+}
+
 /// What a note says, before the UI words it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoteKey {
@@ -40,6 +52,8 @@ pub enum NoteKey {
     RawOutput(bool),
     /// The thread is controlled by its parent: it takes no direct input.
     ParentOwned,
+    /// `/cd` was refused.
+    CdRefused(CdRefusal),
 }
 
 impl NoteKey {
@@ -47,7 +61,7 @@ impl NoteKey {
     pub fn tone(&self) -> Tone {
         match self {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
-            NoteKey::Stub(_) | NoteKey::ParentOwned => Tone::Error,
+            NoteKey::Stub(_) | NoteKey::ParentOwned | NoteKey::CdRefused(_) => Tone::Error,
             NoteKey::Command(_)
             | NoteKey::WorkingDirectory(_)
             | NoteKey::Rollout(_)
