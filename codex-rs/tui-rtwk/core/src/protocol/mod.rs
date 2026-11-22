@@ -98,7 +98,11 @@ pub fn client_request(
         | Command::SaveGrouping { .. }
         | Command::Startup { .. }
         | Command::OpenUrl { .. }
-        | Command::Import { .. } => None,
+        | Command::Import { .. }
+        | Command::Popovers { .. }
+        | Command::Usage { .. }
+        | Command::Effect { .. }
+        | Command::VerifyUser { .. } => None,
     }
 }
 
@@ -183,7 +187,11 @@ pub fn reply(
         | Command::SaveGrouping { .. }
         | Command::Startup { .. }
         | Command::OpenUrl { .. }
-        | Command::Import { .. } => None,
+        | Command::Import { .. }
+        | Command::Popovers { .. }
+        | Command::Usage { .. }
+        | Command::Effect { .. }
+        | Command::VerifyUser { .. } => None,
     }
 }
 
