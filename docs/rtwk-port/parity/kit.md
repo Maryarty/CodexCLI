@@ -54,4 +54,4 @@ rustfmt change from my earlier commit; merge conflicts there are formatting only
 `check.py --bin rtwk --bin oracle --only exec-approval`: PASS both (7.9 s / 8.3 s). The kit is test-only: the
 binary is unchanged by this task, so one scenario is the check. Rows: equal.
 
-Final gate at 85445ccc4 (after merging claude/tui-rtwk 6e2ac4060): fmt, clippy --workspace, nextest 2402/2402 (--retries 1), shards.py --check OK. Oracle profile: 2 reds, neither the kit: onboarding::long_paths_keep_disclosure_and_choices_visible (passes in the full default run) and small_dialogs_2::warning_pages_wrap_and_scroll_long_diagnostics (script warnings page shows "starting…": not in any file of this task).
+Final gate at 85445ccc4 (after merging claude/tui-rtwk 6e2ac4060): fmt, clippy --workspace, nextest 2402/2402 (--retries 1), shards.py --check OK. Oracle profile: summary.py listed 2 reds (composer_popups long_paths, since re-pended) and small_dialogs_2::warning_pages_wrap_and_scroll_long_diagnostics (script warnings page shows "starting…" in place of the dialog: not in any file of this task, red on the merged tip).
