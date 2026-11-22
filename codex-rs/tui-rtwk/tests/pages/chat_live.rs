@@ -276,28 +276,22 @@ fn ctrl_c_interrupts_a_running_turn_and_keeps_the_app() {
     assert!(h.t.is_running());
 }
 
-/// Tab queues, Enter steers (the person, 2026-11-22).
+/// Tab queues, Enter steers (the person, 2026-11-22). The preview lists every
+/// queued message under its header (oracle `pending_input_preview.rs`).
 #[test]
-fn messages_queued_during_a_turn_show_above_the_composer_with_the_count_of_the_rest() {
+fn messages_queued_during_a_turn_show_above_the_composer_under_one_header() {
     let mut h = running();
-    for (text, shown) in [
-        ("one", "(queued) one"),
-        ("two", "(queued) two"),
-        ("three", "(queued) three"),
-        ("four", "… and 1 more"),
-        ("five", "… and 2 more"),
-    ] {
+    for text in ["one", "two", "three", "four", "five"] {
         h.t.type_text(text);
         h.wait_for("the queue hint", |s| s.contains("tab to queue message"));
         h.press("tab");
-        h.wait_for("the message queued", |s| s.contains(shown));
+        h.wait_for("the message queued", |s| s.contains(&format!("↳ {text}")));
     }
     let screen = h.t.screen();
-    for text in ["one", "two", "three"] {
-        assert!(screen.contains(&format!("(queued) {text}")), "{screen}");
+    assert!(screen.contains("• Queued follow-up inputs"), "{screen}");
+    for text in ["one", "two", "three", "four", "five"] {
+        assert!(screen.contains(&format!("↳ {text}")), "{screen}");
     }
-    assert!(!screen.contains("(queued) four"), "{screen}");
-    assert!(screen.contains("… and 2 more"), "{screen}");
 }
 
 /// The edit-queued key (`alt-up` by default) takes the newest queued message
@@ -309,16 +303,14 @@ fn the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer() {
         h.t.type_text(text);
         h.wait_for("the queue hint", |s| s.contains("tab to queue message"));
         h.press("tab");
-        h.wait_for("the message queued", |s| {
-            s.contains(&format!("(queued) {text}"))
-        });
+        h.wait_for("the message queued", |s| s.contains(&format!("↳ {text}")));
     }
     h.press("alt+up");
     h.wait_for("the message back in the composer", |s| {
-        !s.contains("(queued) two") && s.contains("› two")
+        !s.contains("↳ two") && s.contains("› two")
     });
     let screen = h.t.screen();
-    assert!(screen.contains("(queued) one"), "{screen}");
+    assert!(screen.contains("↳ one"), "{screen}");
 }
 
 /// A chat on `model` whose account read carried the Luna Reserve banner; `draft` is typed first.

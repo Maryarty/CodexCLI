@@ -1,0 +1,8 @@
+# The program-status sequence (terminal_program_status.rs session_status_follows_existing_lifecycle_state): a turn, an exec approval answered with y, a unified-exec command, the turn done.
+{"step": "seed", "seed": "session", "thread": "thread-1"}
+{"step": "screen", "dir": "chat", "ev": {"status": {"items": []}}}
+{"step": "notify", "message": {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "inProgress", "error": null, "startedAt": 1700000000, "completedAt": null, "durationMs": null}}}}
+{"step": "request", "message": {"method": "item/commandExecution/requestApproval", "id": 1, "params": {"kind": "command", "itemId": "session-status-call", "approvalId": "session-status-call", "environmentId": null, "command": "echo hello", "cwd": "/workspace", "reason": "need confirmation", "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
+{"step": "key", "keys": "y"}
+{"step": "notify", "message": {"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "background-call", "command": "sleep 5", "cwd": "/workspace", "processId": "42", "source": "unifiedExecStartup", "status": "inProgress", "commandActions": [], "aggregatedOutput": null, "exitCode": null, "durationMs": null}, "threadId": "thread-1", "turnId": "turn-1", "startedAtMs": 0}}}
+{"step": "notify", "message": {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "rootTurnId": null, "items": [], "itemsView": "full", "status": "completed", "error": null, "startedAt": 1700000000, "completedAt": 1700000001, "durationMs": null}}}}

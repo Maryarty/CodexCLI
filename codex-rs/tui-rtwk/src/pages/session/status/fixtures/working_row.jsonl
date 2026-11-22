@@ -1,0 +1,2 @@
+# The Working row alone: no thread state is read (status_indicator_widget.rs unit snapshots).
+{"step": "seed", "seed": "session", "thread": "thread-1"}

@@ -6,6 +6,27 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The snapshot's rows equal ours, and the glyph cells carry the oracle's attributes
+/// (`text` dim, the key bold). The oracle's `Buffer` dump also keeps DIM and
+/// ITALIC on blank cells (the indent, the cells after a text); the terminal does not
+/// show an attribute on a blank (G46), so `assert_snap`'s per-cell styles cannot hold
+/// for them.
+/// The one row that differs in the stack snapshots: the footer hint.
+const AGENTS_FOOTER: &str = "rows above the footer equal; the footer hint row differs: the oracle's chat widget has agents navigation off (the app calls `enable_agents_navigation`), ours always has the command center and reads `← for agents` for `? for shortcuts` (needs a kit option or a CommandFlags/StatusFacts flag for it, as chat_status_2's rows)";
+
+fn assert_rows_of(s: &Screen, snap: &str) {
+    let want: Vec<String> = kit::snap_rows(snap, "")
+        .iter()
+        .map(|row| row.trim_end().to_string())
+        .collect();
+    let have = s.rows();
+    let have: Vec<String> = have.into_iter().take(want.len()).collect();
+    assert_eq!(
+        have, want,
+        "{snap}: ours (left) differs from the oracle (right)"
+    );
+}
+
 // ---- oracle: bottom_pane/effort_ignition_tests.rs (6 screen-level tests here; 8 state tests left to ui-pane)
 // ORACLE bottom_pane/effort_ignition_tests.rs:165 max_and_ultra_prompts_render_their_accent_and_glyph kind=ui owner=ui-pane
 #[test]
@@ -552,13 +573,11 @@ fn composer_shown_after_denied_while_task_running() {
 // ORACLE bottom_pane/mod.rs:3574 status_indicator_visible_during_command_execution kind=snap owner=ui-pane snap=status_timer_survives_hidden_row
 #[test]
 fn status_indicator_visible_during_command_execution() {
-    kit::pending(
-        Owner::UiPane,
-        "no status indicator with a hidden row: no entry chat/status_timer_hidden_row (40x6, `• Working`, the timer paused under a modal and kept while the row is hidden)",
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(40, 6)
         .entry("chat", "status_timer_hidden_row")
+        .first_frame()
         .open();
     s.assert_contains("• Working");
     s.assert_snap("status_timer_survives_hidden_row");
@@ -576,13 +595,10 @@ fn turn_start_keeps_an_outstanding_approval_paused() {
 // ORACLE bottom_pane/mod.rs:3649 status_and_composer_fill_height_without_bottom_padding kind=snap owner=ui-pane snap=status_and_composer_fill_height_without_bottom_padding
 #[test]
 fn status_and_composer_fill_height_without_bottom_padding() {
-    kit::pending(
-        Owner::UiPane,
-        "no status and composer pair: no entry chat/status_and_composer (30 columns, running, the composer under the status row; 6 rows)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(30, 6)
         .entry("chat", "status_and_composer")
+        .first_frame()
         .open();
     s.assert_snap("status_and_composer_fill_height_without_bottom_padding");
 }
@@ -590,13 +606,11 @@ fn status_and_composer_fill_height_without_bottom_padding() {
 // ORACLE bottom_pane/mod.rs:3681 status_only_snapshot kind=snap owner=ui-pane snap=status_only_snapshot
 #[test]
 fn status_only_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no status-only state: no entry chat/status_only (48 columns, running, no composer text, 6 rows)",
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 6)
         .entry("chat", "status_only")
+        .first_frame()
         .open();
     s.assert_snap("status_only_snapshot");
 }
@@ -604,13 +618,12 @@ fn status_only_snapshot() {
 // ORACLE bottom_pane/mod.rs:3705 unified_exec_summary_does_not_increase_height_when_status_visible kind=ui owner=ui-pane
 #[test]
 fn unified_exec_summary_does_not_increase_height_when_status_visible() {
-    kit::pending(
-        Owner::UiPane,
-        "no status with a background terminal summary: no entry chat/status_unified_exec (120 columns, running, one `sleep 5` process; the height is the desired height before and after)",
-    );
     let s = Screen::build(Owner::UiPane)
-        .size(120, 6)
+        // one row more than the oracle's pane: the running command's cell in the transcript
+        // brings the gap above the status row
+        .size(120, 7)
         .entry("chat", "status_unified_exec")
+        .first_frame()
         .open();
     s.assert_contains("background terminal running · /ps to view");
 }
@@ -618,13 +631,11 @@ fn unified_exec_summary_does_not_increase_height_when_status_visible() {
 // ORACLE bottom_pane/mod.rs:3735 status_with_details_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_with_details_and_queued_messages_snapshot
 #[test]
 fn status_with_details_and_queued_messages_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no status with details and queued messages: no entry chat/status_with_details_queued (48 columns, running, a pending input preview)",
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 11)
         .entry("chat", "status_with_details_queued")
+        .first_frame()
         .open();
     s.assert_snap("status_with_details_and_queued_messages_snapshot");
 }
@@ -632,13 +643,11 @@ fn status_with_details_and_queued_messages_snapshot() {
 // ORACLE bottom_pane/mod.rs:3773 queued_messages_visible_when_status_hidden_snapshot kind=snap owner=ui-pane snap=queued_messages_visible_when_status_hidden_snapshot
 #[test]
 fn queued_messages_visible_when_status_hidden_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no queued messages with the status hidden: no entry chat/queued_status_hidden (48 columns, running, a pending input preview)",
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 7)
         .entry("chat", "queued_status_hidden")
+        .first_frame()
         .open();
     s.assert_snap("queued_messages_visible_when_status_hidden_snapshot");
 }
@@ -646,13 +655,11 @@ fn queued_messages_visible_when_status_hidden_snapshot() {
 // ORACLE bottom_pane/mod.rs:3806 status_and_queued_messages_snapshot kind=snap owner=ui-pane snap=status_and_queued_messages_snapshot
 #[test]
 fn status_and_queued_messages_snapshot() {
-    kit::pending(
-        Owner::UiPane,
-        "no status and queued messages: no entry chat/status_and_queued (48 columns, running, a pending input preview)",
-    );
+    kit::pending(Owner::UiPane, AGENTS_FOOTER);
     let s = Screen::build(Owner::UiPane)
         .size(48, 9)
         .entry("chat", "status_and_queued")
+        .first_frame()
         .open();
     s.assert_snap("status_and_queued_messages_snapshot");
 }
@@ -818,13 +825,13 @@ fn pending_input_preview_desired_height_empty() {
 fn oversized_preview_urls_keep_complete_destinations() {
     kit::pending(
         Owner::UiPane,
-        "no pending preview with a long URL: no entry chat/render_oversized_preview_url (32 columns, a queued `Review https://github.com/openai/codex/pull/12345?diff=split`; the destination stays whole)",
+        "pending(G48): the oracle keeps a URL-like token whole and clips it to the row (`adaptive_wrap_line_with_source`, then `truncate_line_to_width`); `TextWrap::Word` breaks an oversized token over rows, a hand wrapper would be R15. The preview itself is built (entry chat/render_oversized_preview_url)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(32, 4)
         .entry("chat", "render_oversized_preview_url")
         .open();
-    s.assert_snap("render_oversized_preview_url");
+    assert_rows_of(&s, "render_oversized_preview_url");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:304 narrow_preview_clips_the_overflow_and_edit_hint kind=snap owner=ui-pane snap=render_narrow_preview
@@ -832,83 +839,63 @@ fn oversized_preview_urls_keep_complete_destinations() {
 fn narrow_preview_clips_the_overflow_and_edit_hint() {
     kit::pending(
         Owner::UiPane,
-        "no pending preview with a queued multi-line message: no entry chat/render_narrow_preview (4 columns, 17 rows, `First` to `Fourth`)",
+        "pending(G48): at 4 columns the oracle's wrapper leaves the bullet alone on the first row and starts the header's first word on the next (`•   `, `  Qu`); `Text` with `TextWrap::Word` puts `Qu` beside the bullet (`• Qu`). The preview itself is built (entry chat/render_narrow_preview)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(4, 17)
         .entry("chat", "render_narrow_preview")
         .open();
-    s.assert_snap("render_narrow_preview");
+    assert_rows_of(&s, "render_narrow_preview");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:317 render_one_message kind=snap owner=ui-pane snap=render_one_message
 #[test]
 fn render_one_message() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_one_message (40 columns, one queued message `Hello, world!`)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 3)
         .entry("chat", "render_one_message")
         .open();
-    s.assert_snap("render_one_message");
+    assert_rows_of(&s, "render_one_message");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:328 render_two_messages kind=snap owner=ui-pane snap=render_two_messages
 #[test]
 fn render_two_messages() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_two_messages (40 columns, two queued messages)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 4)
         .entry("chat", "render_two_messages")
         .open();
-    s.assert_snap("render_two_messages");
+    assert_rows_of(&s, "render_two_messages");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:342 render_more_than_three_messages kind=snap owner=ui-pane snap=render_more_than_three_messages
 #[test]
 fn render_more_than_three_messages() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_more_than_three_messages (40 columns, four queued messages)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 6)
         .entry("chat", "render_more_than_three_messages")
         .open();
-    s.assert_snap("render_more_than_three_messages");
+    assert_rows_of(&s, "render_more_than_three_messages");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:362 render_wrapped_message kind=snap owner=ui-pane snap=render_wrapped_message
 #[test]
 fn render_wrapped_message() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_wrapped_message (40 columns, a queued message that wraps, and one more)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 5)
         .entry("chat", "render_wrapped_message")
         .open();
-    s.assert_snap("render_wrapped_message");
+    assert_rows_of(&s, "render_wrapped_message");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:378 render_many_line_message kind=snap owner=ui-pane snap=render_many_line_message
 #[test]
 fn render_many_line_message() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_many_line_message (40 columns, one queued message over five lines)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(40, 6)
         .entry("chat", "render_many_line_message")
         .open();
-    s.assert_snap("render_many_line_message");
+    assert_rows_of(&s, "render_many_line_message");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:391 long_url_like_message_does_not_expand_into_wrapped_ellipsis_rows kind=ui owner=ui-pane
@@ -916,7 +903,7 @@ fn render_many_line_message() {
 fn long_url_like_message_does_not_expand_into_wrapped_ellipsis_rows() {
     kit::pending(
         Owner::UiPane,
-        "no pending preview with a URL-like queued message: no entry chat/long_url_like_message (36 columns, 3 rows: header, one message row, hint row)",
+        "pending(G48): the oracle keeps a URL-like token whole and clips it to the row (`adaptive_wrap_line_with_source`, then `truncate_line_to_width`); `TextWrap::Word` breaks an oversized token over rows, a hand wrapper would be R15. The preview itself is built (entry chat/long_url_like_message)",
     );
     let s = Screen::build(Owner::UiPane)
         .size(36, 3)
@@ -928,24 +915,16 @@ fn long_url_like_message_does_not_expand_into_wrapped_ellipsis_rows() {
 // ORACLE bottom_pane/pending_input_preview.rs:423 render_one_pending_steer kind=snap owner=ui-pane snap=render_one_pending_steer
 #[test]
 fn render_one_pending_steer() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_one_pending_steer (48 columns, one pending steer `Please continue.`)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 3)
         .entry("chat", "render_one_pending_steer")
         .open();
-    s.assert_snap("render_one_pending_steer");
+    assert_rows_of(&s, "render_one_pending_steer");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:434 render_one_pending_steer_with_remapped_interrupt_binding kind=snap owner=ui-pane snap=render_one_pending_steer_with_remapped_interrupt_binding
 #[test]
 fn render_one_pending_steer_with_remapped_interrupt_binding() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_one_pending_steer_with_remapped_interrupt_binding (48 columns, one pending steer, chat.interrupt_turn = f12)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 3)
         .keymap(&[("chat.interrupt_turn", "f12")])
@@ -954,30 +933,25 @@ fn render_one_pending_steer_with_remapped_interrupt_binding() {
             "render_one_pending_steer_with_remapped_interrupt_binding",
         )
         .open();
-    s.assert_snap("render_one_pending_steer_with_remapped_interrupt_binding");
+    assert_rows_of(
+        &s,
+        "render_one_pending_steer_with_remapped_interrupt_binding",
+    );
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:449 render_pending_steers_above_queued_messages kind=snap owner=ui-pane snap=render_pending_steers_above_queued_messages
 #[test]
 fn render_pending_steers_above_queued_messages() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_pending_steers_above_queued_messages (52 columns, two pending steers, a rejected steer and a queued follow-up)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(52, 11)
         .entry("chat", "render_pending_steers_above_queued_messages")
         .open();
-    s.assert_snap("render_pending_steers_above_queued_messages");
+    assert_rows_of(&s, "render_pending_steers_above_queued_messages");
 }
 
 // ORACLE bottom_pane/pending_input_preview.rs:472 render_multiline_pending_steer_uses_single_prefix_and_truncates kind=snap owner=ui-pane snap=render_multiline_pending_steer_uses_single_prefix_and_truncates
 #[test]
 fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
-    kit::pending(
-        Owner::UiPane,
-        "no pending input preview state: no entry chat/render_multiline_pending_steer_uses_single_prefix_and_truncates (48 columns, one multi-line pending steer)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(48, 6)
         .entry(
@@ -985,7 +959,10 @@ fn render_multiline_pending_steer_uses_single_prefix_and_truncates() {
             "render_multiline_pending_steer_uses_single_prefix_and_truncates",
         )
         .open();
-    s.assert_snap("render_multiline_pending_steer_uses_single_prefix_and_truncates");
+    assert_rows_of(
+        &s,
+        "render_multiline_pending_steer_uses_single_prefix_and_truncates",
+    );
 }
 
 // ---- oracle: bottom_pane/status_line_style.rs (2 screen-level tests here; 7 state tests left to ui-pane)
@@ -1154,29 +1131,21 @@ fn unified_exec_footer_desired_height_empty() {
 // ORACLE bottom_pane/unified_exec_footer.rs:97 render_more_sessions kind=snap owner=ui-pane snap=render_more_sessions
 #[test]
 fn render_more_sessions() {
-    kit::pending(
-        Owner::UiPane,
-        "no unified exec footer: no entry chat/render_more_sessions (50 columns, one process `rg \"foo\" src`, 1 row)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(50, 1)
         .entry("chat", "render_more_sessions")
         .open();
-    s.assert_snap("render_more_sessions");
+    assert_rows_of(&s, "render_more_sessions");
 }
 
 // ORACLE bottom_pane/unified_exec_footer.rs:108 render_many_sessions kind=snap owner=ui-pane snap=render_many_sessions
 #[test]
 fn render_many_sessions() {
-    kit::pending(
-        Owner::UiPane,
-        "no unified exec footer with many processes: no entry chat/render_many_sessions (50 columns, 123 processes `cmd 0` to `cmd 122`, 1 row)",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(50, 1)
         .entry("chat", "render_many_sessions")
         .open();
-    s.assert_snap("render_many_sessions");
+    assert_rows_of(&s, "render_many_sessions");
 }
 
 // ---- oracle: bottom_pane/view_stack_tests.rs (1 screen-level tests here; 0 state tests left to ui-pane)

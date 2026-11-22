@@ -16,10 +16,10 @@ mod footer;
 mod keys;
 mod live;
 pub mod open;
-mod pending_input;
 pub mod popovers;
 mod popup;
 mod session_page;
+pub mod status;
 mod status_surfaces;
 pub mod transcript;
 mod transcript_activity;
@@ -55,6 +55,7 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         }),
     }];
     entries.extend(footer::entries::debug_entries());
+    entries.extend(status::entries::debug_entries());
     entries
 }
 

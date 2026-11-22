@@ -26,6 +26,13 @@ pub enum ToolKind {
         exit_code: Option<i32>,
         duration_ms: Option<u64>,
         user_shell: bool,
+        /// The server's process id of a unified-exec command (oracle
+        /// `process_id`): the key of its background terminal.
+        process_id: Option<String>,
+        /// The command started a unified-exec session (oracle
+        /// `ExecCommandSource::UnifiedExecStartup`): while it runs it is a
+        /// background terminal.
+        unified_exec: bool,
     },
     /// An `mcpToolCall` item (oracle `McpToolCallCell`).
     Mcp(McpCall),
@@ -359,6 +366,7 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
             exit_code,
             duration_ms,
             source,
+            process_id,
             ..
         } => (
             id,
@@ -372,6 +380,8 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
                 exit_code: *exit_code,
                 duration_ms: duration_ms.and_then(|millis| u64::try_from(millis).ok()),
                 user_shell: *source == CommandExecutionSource::UserShell,
+                process_id: process_id.clone(),
+                unified_exec: *source == CommandExecutionSource::UnifiedExecStartup,
             },
             match status {
                 CommandExecutionStatus::InProgress => Running,

@@ -1270,6 +1270,21 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
                     refresh_rates(app, active_backend(app), fx);
                 }
+                // The details under a thread's status row are the thread's.
+                ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
+                    let ev = ThreadEv::Screen(ScreenThreadEv::Chat(chat::ThreadEv::Details(
+                        details.clone(),
+                    )));
+                    apply_thread(app, &ThreadId::new(thread), ev, fx);
+                }
+                ScreenEv::Chat(chat::Ev::Pending { thread, pending }) => {
+                    apply_thread(
+                        app,
+                        &ThreadId::new(thread),
+                        ThreadEv::Preview(pending.clone()),
+                        fx,
+                    );
+                }
                 ScreenEv::Agents(agents::Ev::Current(id)) => {
                     if let Some(id) = id {
                         app.threads.open(id, Origin::Resumed);

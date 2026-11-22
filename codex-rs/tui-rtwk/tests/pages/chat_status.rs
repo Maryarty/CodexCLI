@@ -76,7 +76,8 @@ fn a_click_on_the_queue_hint_queues_the_draft() {
     s.type_text("later");
     s.assert_contains("tab to queue message");
     s.click_text("tab to queue message");
-    s.assert_contains("(queued) later");
+    s.assert_contains("Queued follow-up inputs");
+    s.assert_contains("↳ later");
     s.assert_absent("tab to queue message");
 }
 

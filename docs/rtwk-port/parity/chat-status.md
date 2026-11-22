@@ -135,3 +135,16 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
 3 status items, warnings, title; (4 the `?` overlay: done);
 5 Working row, preview, background terminals; 6 effort transition/ignition; 7 sparkle; 8 voice footer/strip. Then the pty run (idle footer, `?`, a running turn with a queued
 message, a 40-column terminal), the 6 ui_tree status-line tests last (person decision pending), and the final checks.
+
+## Working row, pending preview, background terminals (tm `chunk-status`)
+- Shards (summary.py, oracle profile; pass / n-a / pending): chat_status_3 9/1/22 · pane_footer_2 14/11/49 · chat_status_1 2/6/50 · pane_footer_1 6/0/49; 0 red, 0 stale; shell/pages/screens/rules 1031 passed.
+- `status/` (`pending.rs`, `terminals.rs`, `entries.rs`): the preview (steers, rejected steers, queue; three rows a message, then `…`), the background-terminals line and the Working row, each a selector over the thread (ADR-003). Core keeps `ToolKind::Shell{process_id, unified_exec}`, the terminals, the hook status and `ThreadEv::Preview`.
+- `activity.rs`: the Working row with the oracle's `summary_shimmer` header (terminal fg/bg blend, 4 s cadence), the bullet pulse or 600 ms blink, the bold interrupt key; `StatusSlot` lays out as `FlexRenderable` does (status, else hook, else terminals; blank rows between).
+- Under four rows the chat draws nothing: a stateless `LayoutBuilder` lays a blank sheet over the page in a `Stack` (the page keeps its layout and clips, `overflow_intended`). A `LayoutBuilder` around the page itself lost the second Ctrl+T after two disclosure clicks (`shell_agents::a_thread_with_another_writer_opens_read_only_with_its_history`), so no builder holds page state.
+- Pending: the footer `← for agents` (the oracle's chat widget has agents navigation off; needs a kit option / StatusFacts flag), the reasoning header `Analyzing` (thread model, chunk-live), the hook reveal delay (300 ms), G44 (hook test), G46 (blank-cell DIM), G48/G49 (URL preview tests).
+
+### Binary run beside the oracle (pty `unified-exec`, `check.py --bin rtwk --bin oracle`; both PASS; captures `/tmp/cs-cap/unified-exec/{rtwk,oracle}/turn-1-working.ansi`)
+Differing rows, last frame of the turn (the background terminal started, the model still running):
+- oracle `Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close` (the terminals text joins the Working row's header, `status_indicator_widget` inline message); ours `• Running /bin/cat` (the header from the tool call) over the separate line `· 1 background terminal running · /ps to view · /stop to close`. Need: the unified-exec footer text as the Working row's inline message while a turn runs, and the header staying `Working` while the tool runs (chat-status step for the header).
+- oracle window title `Mock scenario | work` while working, ours `⠋ work` (the thread title is chat_status_2's).
+- the footer hint `← for agents` (the oracle's chat widget has it off under a running turn in its tests) is on in both binaries here: no difference in the real binary.
