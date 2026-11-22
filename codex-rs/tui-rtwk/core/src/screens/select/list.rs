@@ -611,7 +611,13 @@ impl Browse<'_> {
                     format!("    {label}. ")
                 } else {
                     number += 1;
-                    format!(" {number}. ")
+                    // A digit key reaches the first nine rows; the rest show
+                    // the blank gutter of a disabled row (the oracle's snapshots).
+                    if number > 9 {
+                        format!(" {}", " ".repeat(number_width + 2))
+                    } else {
+                        format!(" {number}. ")
+                    }
                 };
                 let toggle = match item.toggle {
                     Some(true) if item.checkbox => "[x] ",
