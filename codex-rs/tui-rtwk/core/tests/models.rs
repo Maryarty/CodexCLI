@@ -824,12 +824,21 @@ fn a_menu_a_script_seeds_is_the_only_one_on_the_stack() {
     assert_eq!(depth(&s), 0);
 }
 
-fn reasoning(sandbox: &mut Sandbox, model: &str, effort: Option<Effort>, direction: Direction, plan: bool) {
+fn reasoning(
+    sandbox: &mut Sandbox,
+    model: &str,
+    effort: Option<Effort>,
+    direction: Direction,
+    plan: bool,
+) {
     intent(
         sandbox,
         SelectIntent::Reasoning {
             direction,
-            current: Current { effort, ..Current::new(model) },
+            current: Current {
+                effort,
+                ..Current::new(model)
+            },
             plan,
             started: true,
         },
@@ -842,13 +851,33 @@ use codex_tui_core::screens::select::reasoning::Direction;
 fn a_reasoning_step_walks_the_advertised_efforts_with_the_advanced_ones_last() {
     let mut s = sandbox(presets());
     // gpt-5.5 advertises low, medium, high, xhigh and persistent
-    reasoning(&mut s, "gpt-5.5", Some(Effort::Medium), Direction::Raise, false);
-    reasoning(&mut s, "gpt-5.5", Some(Effort::Medium), Direction::Lower, false);
+    reasoning(
+        &mut s,
+        "gpt-5.5",
+        Some(Effort::Medium),
+        Direction::Raise,
+        false,
+    );
+    reasoning(
+        &mut s,
+        "gpt-5.5",
+        Some(Effort::Medium),
+        Direction::Lower,
+        false,
+    );
     assert_eq!(
         model(&s).picked,
         [
-            Picked::Effort { model: "gpt-5.5".into(), effort: Effort::High, plan: false },
-            Picked::Effort { model: "gpt-5.5".into(), effort: Effort::Low, plan: false },
+            Picked::Effort {
+                model: "gpt-5.5".into(),
+                effort: Effort::High,
+                plan: false
+            },
+            Picked::Effort {
+                model: "gpt-5.5".into(),
+                effort: Effort::Low,
+                plan: false
+            },
         ]
     );
 }
@@ -859,7 +888,11 @@ fn an_unset_effort_anchors_to_the_model_default() {
     reasoning(&mut s, "gpt-5.5", None, Direction::Raise, true);
     assert_eq!(
         model(&s).picked,
-        [Picked::Effort { model: "gpt-5.5".into(), effort: Effort::High, plan: true }]
+        [Picked::Effort {
+            model: "gpt-5.5".into(),
+            effort: Effort::High,
+            plan: true
+        }]
     );
 }
 
@@ -867,29 +900,63 @@ fn an_unset_effort_anchors_to_the_model_default() {
 fn a_raise_stops_before_ultra_and_says_where_it_is() {
     let mut s = sandbox(presets());
     // gpt-astra: max then ultra
-    reasoning(&mut s, "gpt-astra", Some(Effort::Max), Direction::Raise, false);
+    reasoning(
+        &mut s,
+        "gpt-astra",
+        Some(Effort::Max),
+        Direction::Raise,
+        false,
+    );
     assert!(model(&s).picked.is_empty());
     assert_eq!(model(&s).notes, [Note::UltraAvailable("gpt-astra".into())]);
     // and lowering out of Ultra is a step
-    reasoning(&mut s, "gpt-astra", Some(Effort::Ultra), Direction::Lower, false);
+    reasoning(
+        &mut s,
+        "gpt-astra",
+        Some(Effort::Ultra),
+        Direction::Lower,
+        false,
+    );
     assert_eq!(
         model(&s).picked,
-        [Picked::Effort { model: "gpt-astra".into(), effort: Effort::Max, plan: false }]
+        [Picked::Effort {
+            model: "gpt-astra".into(),
+            effort: Effort::Max,
+            plan: false
+        }]
     );
 }
 
 #[test]
 fn the_ends_and_the_unknowns_change_nothing() {
     let mut s = sandbox(presets());
-    reasoning(&mut s, "gpt-sol", Some(Effort::High), Direction::Raise, false);
-    reasoning(&mut s, "gpt-sol", Some(Effort::High), Direction::Lower, false);
+    reasoning(
+        &mut s,
+        "gpt-sol",
+        Some(Effort::High),
+        Direction::Raise,
+        false,
+    );
+    reasoning(
+        &mut s,
+        "gpt-sol",
+        Some(Effort::High),
+        Direction::Lower,
+        false,
+    );
     reasoning(&mut s, "no-such-model", None, Direction::Raise, false);
     assert!(model(&s).picked.is_empty());
     assert_eq!(
         model(&s).notes,
         [
-            Note::ReasoningBound { direction: Direction::Raise, effort: Effort::High },
-            Note::ReasoningBound { direction: Direction::Lower, effort: Effort::High },
+            Note::ReasoningBound {
+                direction: Direction::Raise,
+                effort: Effort::High
+            },
+            Note::ReasoningBound {
+                direction: Direction::Lower,
+                effort: Effort::High
+            },
             Note::ReasoningUnavailable("no-such-model".into()),
         ]
     );
@@ -914,11 +981,26 @@ fn a_shortcut_before_the_session_is_configured_says_so() {
 #[test]
 fn a_service_tier_command_toggles_against_the_tier_the_thread_runs_on() {
     let mut s = sandbox(presets());
-    intent(&mut s, SelectIntent::ServiceTier { id: "priority".into(), current: None });
-    intent(&mut s, SelectIntent::ServiceTier { id: "priority".into(), current: Some("priority".into()) });
+    intent(
+        &mut s,
+        SelectIntent::ServiceTier {
+            id: "priority".into(),
+            current: None,
+        },
+    );
+    intent(
+        &mut s,
+        SelectIntent::ServiceTier {
+            id: "priority".into(),
+            current: Some("priority".into()),
+        },
+    );
     assert_eq!(
         model(&s).picked,
-        [Picked::Tier("priority".into()), Picked::Tier("default".into())]
+        [
+            Picked::Tier("priority".into()),
+            Picked::Tier("default".into())
+        ]
     );
 }
 
@@ -953,7 +1035,10 @@ fn the_reserve_only_menu_offers_the_normal_model_it_borrows_and_nothing_else() {
     let mut s = sandbox(presets());
     open(&mut s, reserve_current(Some("gpt-5.5")));
     let page = page_of(&s);
-    assert_eq!(page.heading, codex_tui_core::screens::select::models::Heading::Reserve);
+    assert_eq!(
+        page.heading,
+        codex_tui_core::screens::select::models::Heading::Reserve
+    );
     assert_eq!(page.rows.len(), 1);
     assert_eq!(page.rows[0].id, "gpt-reserve");
     assert_eq!(page.rows[0].name, "GPT-5.5");

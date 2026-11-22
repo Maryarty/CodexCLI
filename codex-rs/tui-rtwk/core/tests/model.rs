@@ -166,8 +166,9 @@ fn steered(turn: &str) -> Reply {
 fn connected_starts_the_first_thread() {
     let mut app = app();
     let fx = run(&mut app, AppEv::Connected);
-    // The thread start, and the startup page's launch facts (startup-flow).
-    assert_eq!(fx.commands().len(), 2);
+    // The thread start, the startup page's launch facts (startup-flow) and
+    // the model catalog the /model page and its shortcuts read.
+    assert_eq!(fx.commands().len(), 3);
     assert!(
         fx.commands()
             .iter()

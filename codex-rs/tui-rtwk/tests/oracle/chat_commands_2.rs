@@ -46,7 +46,11 @@ fn service_tier_commands_and_saved_selection_respect_independent_speed_policy() 
         s.type_text("/model").keys("enter");
         s.keys("esc");
         s.type_text("/ultra");
-        let row = s.rows().iter().position(|r| r.contains("› /ultra") && !r.contains("/ultrafast")).expect("the composer row");
+        let row = s
+            .rows()
+            .iter()
+            .position(|r| r.contains("› /ultra") && !r.contains("/ultrafast"))
+            .expect("the composer row");
         if ultrafast {
             // the oracle draws the popup row above the composer, the port below it: the
             // popup row and the footer are compared as the snapshot has them

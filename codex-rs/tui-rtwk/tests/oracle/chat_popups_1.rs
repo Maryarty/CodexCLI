@@ -73,15 +73,60 @@ fn bedrock_govcloud_model_pickers() {
 fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
     // (name, model, bundled catalog, the custom catalog's `model/list` answer)
     let cases = [
-        ("mantle", "openai.gpt-6-astra", MANTLE, include_str!("fixtures/chat_popups_1/mantle_custom.json")),
-        ("runtime_global", "global.openai.gpt-6-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_custom.json")),
-        ("runtime_us", "us.openai.gpt-6-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_custom.json")),
-        ("mantle_sol61", "openai.gpt-6.1-sol", MANTLE, include_str!("fixtures/chat_popups_1/mantle_sol61_custom.json")),
-        ("runtime_global_sol61", "global.openai.gpt-6.1-sol", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_sol61_custom.json")),
-        ("runtime_us_sol61", "us.openai.gpt-6.1-sol", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_sol61_custom.json")),
-        ("mantle_astra62", "openai.gpt-6.2-astra", MANTLE, include_str!("fixtures/chat_popups_1/mantle_astra62_custom.json")),
-        ("runtime_global_astra62", "global.openai.gpt-6.2-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_global_astra62_custom.json")),
-        ("runtime_us_astra62", "us.openai.gpt-6.2-astra", RUNTIME, include_str!("fixtures/chat_popups_1/runtime_us_astra62_custom.json")),
+        (
+            "mantle",
+            "openai.gpt-6-astra",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_custom.json"),
+        ),
+        (
+            "runtime_global",
+            "global.openai.gpt-6-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_custom.json"),
+        ),
+        (
+            "runtime_us",
+            "us.openai.gpt-6-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_custom.json"),
+        ),
+        (
+            "mantle_sol61",
+            "openai.gpt-6.1-sol",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_sol61_custom.json"),
+        ),
+        (
+            "runtime_global_sol61",
+            "global.openai.gpt-6.1-sol",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_sol61_custom.json"),
+        ),
+        (
+            "runtime_us_sol61",
+            "us.openai.gpt-6.1-sol",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_sol61_custom.json"),
+        ),
+        (
+            "mantle_astra62",
+            "openai.gpt-6.2-astra",
+            MANTLE,
+            include_str!("fixtures/chat_popups_1/mantle_astra62_custom.json"),
+        ),
+        (
+            "runtime_global_astra62",
+            "global.openai.gpt-6.2-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_global_astra62_custom.json"),
+        ),
+        (
+            "runtime_us_astra62",
+            "us.openai.gpt-6.2-astra",
+            RUNTIME,
+            include_str!("fixtures/chat_popups_1/runtime_us_astra62_custom.json"),
+        ),
     ];
     for (name, model, bundled, custom) in cases {
         let mut s = on_catalog(100, 6, model, bundled);
@@ -95,22 +140,35 @@ fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         // kit does not parse (kit gap), and draws the popup above the composer: the row
         // the popup lists is what is compared.
         s.type_text("/ultrafast");
-        s.assert_contains("/ultrafast  The fastest available responses for latency-sensitive work.");
+        s.assert_contains(
+            "/ultrafast  The fastest available responses for latency-sensitive work.",
+        );
         // Enter switches the tier on: the thread's settings and the saved default
         s.keys("enter");
         let patches = s.request_params("thread/settings/update");
-        assert!(patches.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {patches:?}");
+        assert!(
+            patches.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {patches:?}"
+        );
         let writes = s.request_params("config/batchWrite");
-        assert!(writes.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {writes:?}");
+        assert!(
+            writes.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {writes:?}"
+        );
         // the server's catalog turns custom: its one tier is named Express
         let custom = custom.trim();
-        s.feed(&format!(r#"{{"step":"respond","method":"model/list","result":{custom}}}"#));
+        s.feed(&format!(
+            r#"{{"step":"respond","method":"model/list","result":{custom}}}"#
+        ));
         refresh(&mut s);
         s.type_text("/express");
         s.assert_contains("/express  My custom Bedrock tier.");
         s.keys("enter");
         let writes = s.request_params("config/batchWrite");
-        assert!(writes.iter().any(|p| p.to_string().contains("ultrafast")), "{name}: {writes:?}");
+        assert!(
+            writes.iter().any(|p| p.to_string().contains("ultrafast")),
+            "{name}: {writes:?}"
+        );
         let _ = bundled;
     }
 }
@@ -316,7 +374,12 @@ fn custom_model_display_name_in_pickers_preserves_selection_slug() {
     // Enter applies the slug (`ApplyModelSelection`)
     s.keys("enter");
     let patches = s.request_params("thread/settings/update");
-    assert!(patches.iter().any(|p| p.to_string().contains("us.openai.gpt-5.6-luna")), "{patches:?}");
+    assert!(
+        patches
+            .iter()
+            .any(|p| p.to_string().contains("us.openai.gpt-5.6-luna")),
+        "{patches:?}"
+    );
 }
 
 // ORACLE chatwidget/tests/model_display_name_tests.rs:62 custom_model_display_name_in_status_line_and_fallback kind=snap owner=dialogs-pane snap=custom_model_display_name_status_line

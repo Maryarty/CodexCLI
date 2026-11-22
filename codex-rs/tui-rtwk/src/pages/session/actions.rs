@@ -8,7 +8,8 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{
-    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers, parent_owned_takes,
+    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch_with_tiers,
+    parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
@@ -89,8 +90,16 @@ pub(super) fn reasoning_shortcut(
     }
     let states = read::<ScreenStates, _>(cx);
     let slots = thread.screen_slots();
-    let model = slots.chat.model.clone().or_else(|| states.chat.status.model.clone());
-    let effort = slots.chat.effort.as_deref().or(states.chat.status.effort.as_deref());
+    let model = slots
+        .chat
+        .model
+        .clone()
+        .or_else(|| states.chat.status.model.clone());
+    let effort = slots
+        .chat
+        .effort
+        .as_deref()
+        .or(states.chat.status.effort.as_deref());
     let current = Current {
         effort: effort.and_then(|name| name.parse::<Effort>().ok()),
         ..Current::new(model.unwrap_or_default())
@@ -100,7 +109,12 @@ pub(super) fn reasoning_shortcut(
     let started = matches!(read::<SessionSlice, _>(cx).status, Session::Ready);
     cx.emit(
         &hs.screen,
-        ScreenIntent::Select(Intent::Reasoning { direction, current, plan, started }),
+        ScreenIntent::Select(Intent::Reasoning {
+            direction,
+            current,
+            plan,
+            started,
+        }),
     );
 }
 
@@ -322,7 +336,11 @@ fn reserve_only(
 ) -> Option<codex_tui_core::screens::select::models::ReserveOnly> {
     use codex_tui_core::screens::select::models::{RESERVE_MODEL, ReserveOnly};
     let slots = thread.screen_slots();
-    let model = slots.chat.model.as_deref().or(states.chat.status.model.as_deref())?;
+    let model = slots
+        .chat
+        .model
+        .as_deref()
+        .or(states.chat.status.model.as_deref())?;
     if model != RESERVE_MODEL {
         return None;
     }
@@ -331,7 +349,9 @@ fn reserve_only(
     if facts.is_some_and(|facts| facts.recovered) {
         return None;
     }
-    Some(ReserveOnly { normal_model: facts.and_then(|facts| facts.normal_model.clone()) })
+    Some(ReserveOnly {
+        normal_model: facts.and_then(|facts| facts.normal_model.clone()),
+    })
 }
 
 /// The menu a slash command opens in the selection dialog, built from the

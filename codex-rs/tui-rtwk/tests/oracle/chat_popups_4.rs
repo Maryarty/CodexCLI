@@ -281,13 +281,19 @@ fn model_picker_refreshes_service_tier_controls() {
     s.type_text("/fast");
     s.assert_contains("/fast");
     s.keys("ctrl+u");
-    s.feed(&format!(r#"{{"step":"respond","method":"model/list","result":{refreshed}}}"#));
+    s.feed(&format!(
+        r#"{{"step":"respond","method":"model/list","result":{refreshed}}}"#
+    ));
     s.type_text("/model");
     s.keys("enter");
     s.keys("esc");
     // the model no longer offers a tier: the effective tier is none and `/fast` lists nothing
     s.type_text("/fast");
-    let row = s.rows().iter().position(|r| r.starts_with("› /fast")).expect("the composer row");
+    let row = s
+        .rows()
+        .iter()
+        .position(|r| r.starts_with("› /fast"))
+        .expect("the composer row");
     s.assert_snap_region("model_picker_refreshes_service_tier_controls", row, 0);
 }
 
@@ -447,15 +453,29 @@ fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
             s.type_text("/model");
             s.keys("enter");
             s.keys("esc");
-            s.feed(&settings_updated("gpt-5.5", "xhigh", if plan_mode { "plan" } else { "default" }));
+            s.feed(&settings_updated(
+                "gpt-5.5",
+                "xhigh",
+                if plan_mode { "plan" } else { "default" },
+            ));
             s.keys(key);
             let sent = s.request_params("thread/settings/update");
-            let sent = sent.last().expect("the shortcut asks the server for the effort").to_string();
-            assert!(sent.contains(r#""max""#), "{key} in plan={plan_mode} sent {sent}");
+            let sent = sent
+                .last()
+                .expect("the shortcut asks the server for the effort")
+                .to_string();
+            assert!(
+                sent.contains(r#""max""#),
+                "{key} in plan={plan_mode} sent {sent}"
+            );
             // Plan mode steps the Plan override: the mode rides with the effort
             assert_eq!(sent.contains(r#""plan""#), plan_mode, "{key}: {sent}");
             // the server answers with the settings it took; the footer reads them
-            s.feed(&settings_updated("gpt-5.5", "max", if plan_mode { "plan" } else { "default" }));
+            s.feed(&settings_updated(
+                "gpt-5.5",
+                "max",
+                if plan_mode { "plan" } else { "default" },
+            ));
             if key == "alt+." {
                 // The snapshot's rows; its hint row reads `? for shortcuts` where ours adds
                 // `← for agents` (the oracle's chat widget has agents navigation off: a gap
@@ -474,8 +494,14 @@ fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
 #[test]
 fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
     for (catalog, model) in [
-        (include_str!("fixtures/chat_popups_4/ultra_catalog.json").trim(), "gpt-5.5"),
-        (include_str!("fixtures/chat_popups_4/ultra_auto_catalog.json").trim(), "codex-auto-test"),
+        (
+            include_str!("fixtures/chat_popups_4/ultra_catalog.json").trim(),
+            "gpt-5.5",
+        ),
+        (
+            include_str!("fixtures/chat_popups_4/ultra_auto_catalog.json").trim(),
+            "codex-auto-test",
+        ),
     ] {
         let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
         s.feed(&format!(
@@ -489,8 +515,14 @@ fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
         let before = s.request_params("thread/settings/update").len();
         s.keys("alt+.");
         // The oracle's inline literal "• Ultra is available under /model → <model path> → More reasoning…".
-        let path = if model.starts_with("codex-auto-") { model.to_string() } else { format!("All models → {model}") };
-        s.assert_contains(&format!("• Ultra is available under /model → {path} → More reasoning…"));
+        let path = if model.starts_with("codex-auto-") {
+            model.to_string()
+        } else {
+            format!("All models → {model}")
+        };
+        s.assert_contains(&format!(
+            "• Ultra is available under /model → {path} → More reasoning…"
+        ));
         // and nothing was asked of the server
         assert_eq!(s.request_params("thread/settings/update").len(), before);
     }

@@ -123,7 +123,8 @@ impl StatusContext<'_> {
         // `processing_tier_display_name`: the name the model's catalog entry gives the tier;
         // without one the fast tier is `Fast`
         let tier_name = tier.as_deref().and_then(|id| {
-            let offered = slug.and_then(|slug| self.catalog.presets.iter().find(|p| p.model == slug));
+            let offered =
+                slug.and_then(|slug| self.catalog.presets.iter().find(|p| p.model == slug));
             offered
                 .and_then(|preset| preset.service_tiers.iter().find(|t| t.id == id))
                 .map(|t| t.name.clone())
@@ -138,12 +139,10 @@ impl StatusContext<'_> {
         let context_usage = usage.and_then(|usage| usage.context);
         match id {
             "model" | "model-name" => model.map(str::to_owned),
-            "model-with-reasoning" => model.map(|model| {
-                match &tier_name {
-                    Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
-                    Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
-                    None => format!("{model} {effort}"),
-                }
+            "model-with-reasoning" => model.map(|model| match &tier_name {
+                Some(name) if name == "Fast" => self.strings.status_model_fast(model, effort),
+                Some(name) => format!("{model} {effort} {}", name.to_lowercase()),
+                None => format!("{model} {effort}"),
             }),
             "fast-mode" => Some(tier_name.unwrap_or_else(|| "Standard".to_string())),
             // the preference is off until the thread says it is on (`daybreak_enabled` is false by default)

@@ -5,8 +5,8 @@
 //! A pure function of the line and of a few facts of the session.
 
 use super::CommandFlags;
-use super::SlashCommand;
 use super::ServiceTierCommand;
+use super::SlashCommand;
 use super::SlashCommandItem;
 use super::find_slash_command;
 use super::parse_slash_name;

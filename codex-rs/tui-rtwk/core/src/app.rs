@@ -1006,7 +1006,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                     // (`invalidate_ordinary_usage_recovery`)
                     if (note.rate_limits.rate_limit_reached_type.is_some()
                         || note.rate_limits.spend_control_reached == Some(true))
-                        && let Some(reserve) = Rc::make_mut(&mut app.session).reserve.get_mut(&origin)
+                        && let Some(reserve) =
+                            Rc::make_mut(&mut app.session).reserve.get_mut(&origin)
                     {
                         reserve.recovered = false;
                     }
@@ -1533,8 +1534,15 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
             AppCtx::RateLimits { backend } => {
-                if let Answer::RateLimits { limits, banner, reserve } = answer {
-                    Rc::make_mut(&mut app.session).reserve.insert(backend, reserve);
+                if let Answer::RateLimits {
+                    limits,
+                    banner,
+                    reserve,
+                } = answer
+                {
+                    Rc::make_mut(&mut app.session)
+                        .reserve
+                        .insert(backend, reserve);
                     install_rates(app, backend, limits);
                     install_banner(app, backend, banner.map(|banner| *banner));
                 }

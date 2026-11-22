@@ -267,7 +267,10 @@ fn parent_owned_thread_blocks_settings_shortcuts() {
     let said = s
         .rows()
         .iter()
-        .filter(|row| row.trim_end() == "■ This sub-agent is controlled by its parent. Direct input is disabled.")
+        .filter(|row| {
+            row.trim_end()
+                == "■ This sub-agent is controlled by its parent. Direct input is disabled."
+        })
         .count();
     assert_eq!(said, 3, "{}", s.text());
     // and neither the mode nor the effort was asked for
