@@ -1,4 +1,4 @@
 # The Example skill and src/example.rs of mentions_layout_tests.rs (fallback_completions).
 {"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"screen","dir":"popovers","ev":{"mentions":[{"kind":"skill","name":"Example skill","description":"Review this checkout","insert":"example"}]}}
-{"step":"screen","dir":"popovers","ev":{"files":["src/example.rs"]}}
+{"step":"screen","dir":"popovers","ev":{"file_matches":{"query":"ex","matches":[{"path":"src/example.rs","score":50}]}}}

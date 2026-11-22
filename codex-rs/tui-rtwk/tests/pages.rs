@@ -20,6 +20,8 @@ mod composer_draft;
 mod composer_history;
 #[path = "pages/composer_images.rs"]
 mod composer_images;
+#[path = "pages/composer_mentions.rs"]
+mod composer_mentions;
 #[path = "pages/composer_mouse.rs"]
 mod composer_mouse;
 #[path = "pages/composer_startup.rs"]

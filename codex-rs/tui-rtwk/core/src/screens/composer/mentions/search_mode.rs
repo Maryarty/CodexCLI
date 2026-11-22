@@ -36,13 +36,6 @@ impl SearchMode {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Results => "All Results",
-            Self::FilesystemOnly => "Filesystem Only",
-            Self::Tools => "Plugins",
-        }
-    }
 }
 
 #[cfg(test)]
