@@ -2522,7 +2522,9 @@ pub fn apply_thread(app: &mut CodexApp, thread: &ThreadId, ev: ThreadEv, fx: &mu
         threads::apply(
             model,
             ev,
-            &mut ThreadFx::new(thread, fx, &mut app.mint).stamped(daybreak),
+            &mut ThreadFx::new(thread, fx, &mut app.mint)
+                .stamped(daybreak)
+                .at(app.screens.agents.now),
         );
     }
 }
