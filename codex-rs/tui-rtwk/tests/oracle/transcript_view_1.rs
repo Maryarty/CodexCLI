@@ -19,10 +19,6 @@ fn at(s: &Screen, text: &str) -> (u16, u16) {
 // ORACLE app/owned_transcript_browsing_tests.rs:11 provider_error_escape_opens_resume_picker kind=ui owner=chat-live
 #[test]
 fn provider_error_escape_opens_resume_picker() {
-    kit::pending(
-        Owner::ChatLive,
-        "no provider-error seed: a model-provider mismatch (show_provider_error) has no kit call; Esc after it opens the resume picker and keeps the draft",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
@@ -206,10 +202,6 @@ fn configured_ctrl_space_submit_wins_over_transcript_selection() {
 // ORACLE app/owned_transcript_input_tests.rs:140 default_page_up_still_scrolls_the_transcript kind=ui owner=chat-live
 #[test]
 fn default_page_up_still_scrolls_the_transcript() {
-    kit::pending(
-        Owner::ChatLive,
-        "no owned transcript: the 30 rows of a plain cell do not scroll with PageUp in the port's chat yet (no transcript view, no follow state drawn)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
@@ -290,7 +282,7 @@ fn plan_menu_allows_transcript_selection_and_copy_but_respects_popup_bounds() {
 fn empty_enter_returns_to_latest_with_contextual_hints() {
     kit::pending(
         Owner::ChatLive,
-        "no owned transcript view: the 'enter/esc latest' hint while scrolled, the draft's 'esc latest' hint and the Enter that returns to latest are not built",
+        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll; the kit also has no bytes for shift+enter (no kitty keyboard protocol) and the 40-wide pass opens the detailed view (ctrl+t: the pager, task pager). The hints and the Enter back are built: tests/pages/transcript_follow.rs",
     );
     for (width, detailed) in [(80, false), (40, true)] {
         let mut s = Screen::build(Owner::ChatLive)
@@ -335,10 +327,6 @@ fn submitting_a_draft_from_history_queues_once_and_follows_immediately() {
 // ORACLE app/owned_transcript_input_tests.rs:594 enter_preserves_search_backtrack_and_modal_ownership_while_scrolled kind=ui owner=chat-live
 #[test]
 fn enter_preserves_search_backtrack_and_modal_ownership_while_scrolled() {
-    kit::pending(
-        Owner::ChatLive,
-        "no owned transcript view: Enter while searching, Esc with an empty selection anchor, the backtrack priming and the open modals (remote images, the 'Enable subagents?' prompt) over a scrolled transcript are not built",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
@@ -358,7 +346,7 @@ fn enter_preserves_search_backtrack_and_modal_ownership_while_scrolled() {
 fn escape_returns_to_latest_without_changing_the_composer_draft() {
     kit::pending(
         Owner::ChatLive,
-        "no owned transcript view: the 'New activity · esc latest' hint with new output while scrolled, and Esc returning to latest with the draft kept (snapshot escape_returns_to_latest) are not built",
+        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll; the snapshot's plain-label sections ('before', 'after') do not parse in the kit (no frame `before`). The 'New activity · esc latest' hint and the Esc back are built: tests/pages/transcript_follow.rs",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -420,10 +408,6 @@ fn accepted_find_defers_paste_rendering_but_keeps_enter() {
 // ORACLE app/owned_transcript_input_tests.rs:899 composer_paste_releases_selection_and_retains_normal_cursor_movement kind=ui owner=chat-live
 #[test]
 fn composer_paste_releases_selection_and_retains_normal_cursor_movement() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript selection to release: the oracle's select_transcript helper starts a selection, which the port's chat has no key for (select_transcript is unbound by default); a paste into the composer then has to release it and keep the cursor movement",
-    );
     for detailed in [false, true] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 12).live().open();
         s.type_text("draft ");
@@ -551,7 +535,7 @@ fn recap_spacing_belongs_to_the_transcript_tail() {
 fn owned_transcript_reserves_a_row_above_the_composer() {
     kit::pending(
         Owner::ChatLive,
-        "no owned transcript gap row: the row above the composer is not reserved in the port's chat, the 'Back to bottom' row of a reading view and the detailed view with an image cell are not drawn (snapshot owned_transcript_composer_gap, one section per label)",
+        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll; the snapshot's plain-label sections ('Latest', 'Reading', ...) do not parse in the kit (no frame `Latest`), and the Detailed pass opens the pager (ctrl+t, task pager). The reserved row and its control are built: tests/pages/transcript_follow.rs",
     );
     for (label, width, height, draft) in [
         ("Latest", 80, 12, "draft"),
@@ -591,10 +575,6 @@ fn owned_transcript_reserves_a_row_above_the_composer() {
 // ORACLE app/owned_transcript_tests.rs:422 owned_drag_stops_when_focus_or_input_ownership_is_lost kind=ui owner=chat-live
 #[test]
 fn owned_drag_stops_when_focus_or_input_ownership_is_lost() {
-    kit::pending(
-        Owner::ChatLive,
-        "no owned transcript selection: a drag over the scrolled rows selects text, and the selection stops when focus is lost, the session resumes, an overlay or a popup takes the input; none of that is built (the focus, resume, overlay and popup events have no kit call)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(40, 12)
         .script(include_str!("fixtures/transcript_view_1/row_nn.jsonl"))
@@ -632,10 +612,6 @@ fn owned_details_keep_the_composer_cursor_and_screen() {
 // ORACLE app/owned_transcript_tests.rs:709 owned_transcript_keeps_text_out_of_the_pet_columns kind=ui owner=chat-live
 #[test]
 fn owned_transcript_keeps_text_out_of_the_pet_columns() {
-    kit::pending(
-        Owner::ChatLive,
-        "no ambient pet column: the kitty pet image support and its reserved columns are not built; the screen draws the long row, the blank columns right of the history wrap width are not checked (no kit call for the pet)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/long_row.jsonl"))
@@ -646,10 +622,6 @@ fn owned_transcript_keeps_text_out_of_the_pet_columns() {
 // ORACLE app/owned_transcript_tests.rs:851 cancelling_owned_backtrack_returns_arrow_keys_to_the_composer kind=ui owner=chat-live
 #[test]
 fn cancelling_owned_backtrack_returns_arrow_keys_to_the_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no owned transcript overlay with a backtrack preview: Esc primes it, an ordinary key cancels the preview and the arrow keys reach the composer; the typed-key variant of the oracle loop is not ported (the paste variant is)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
@@ -820,10 +792,6 @@ fn find_refreshes_live_details_before_searching_the_first_query() {
 // ORACLE app/owned_transcript_tests.rs:1750 fullscreen_composer_mouse_copy_and_input_ownership kind=snap owner=chat-live snap=fullscreen_composer_right_click_copy
 #[test]
 fn fullscreen_composer_mouse_copy_and_input_ownership() {
-    kit::pending(
-        Owner::ChatLive,
-        "no right-click copy on the owned composer: the kit has no right-button call (Down/Up Right), so the copy gestures, the 'Copied 5 chars to host clipboard' row and the whole right_click_copy frame are not ported; the drag selection of the draft and its reverse video are ported",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
@@ -840,10 +808,6 @@ fn fullscreen_composer_mouse_copy_and_input_ownership() {
 // ORACLE app/owned_transcript_tests.rs:1928 inline_confirmation_preserves_compact_viewport_without_replaying_history kind=ui owner=chat-live
 #[test]
 fn inline_confirmation_preserves_compact_viewport_without_replaying_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "no replace-goal confirmation over the inline chat (show_replace_thread_goal_confirmation with the draft 'A replacement goal'): the confirmation, its Esc, the compact viewport height and the no-history-tail check are not built; only the draft row is ported",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
@@ -919,10 +883,6 @@ fn fullscreen_composer_remote_images_leave_an_editable_prompt_row() {
 // ORACLE app/owned_transcript_tests.rs:2212 footer_selection_defers_warning_clicks_and_preserves_the_draft kind=snap owner=chat-live snap=fullscreen_footer_selection
 #[test]
 fn footer_selection_defers_warning_clicks_and_preserves_the_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no warning history cell seed (a warning with a long URL and eight padding lines inserted into the history) and no selection on the warning badge; the owned test terminal size is taken as 80x24 (unchecked); the snapshot fullscreen_footer_selection and the warning viewer opened by a stationary click are not built",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
@@ -937,7 +897,7 @@ fn footer_selection_defers_warning_clicks_and_preserves_the_draft() {
 fn visible_updates_and_empty_tail_cells_do_not_report_activity() {
     kit::pending(
         Owner::ChatLive,
-        "no unseen-activity footer on the chat screen: the scrolled-up transcript, the new visible output that raises it and the footer that disappears at the bottom are not built; the view test scrolls a 3-row viewport, which the kit does not size per area",
+        "passes only while G63 keeps the fixture's rows from scrolling (MarkdownView joins the single newlines into one paragraph); with the rows broken the scrolled-up reader has the new output below its viewport (the port shows New activity) and the test expects the text on the screen",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -960,10 +920,6 @@ fn unchanged_live_revisions_do_not_report_activity_but_hidden_text_does() {
 // ORACLE transcript_view/activity_tests.rs:65 escape_closes_selection_and_search_before_returning_to_latest kind=ui owner=chat-live
 #[test]
 fn escape_closes_selection_and_search_before_returning_to_latest() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript selection (begin_selection with three clicks), no Find (begin_search) and no footer on the chat screen: the Esc chain (selection, then search, then return to latest) is not drivable by the kit's keys here; the footer absence after the last Esc is the visible part",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/rows_30.jsonl"))
@@ -1050,10 +1006,6 @@ fn pending_copy_feedback_survives_expiry_and_selection_replacement() {
 // ORACLE transcript_view/composer_gap_tests.rs:85 copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery kind=snap owner=chat-live snap=copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery
 #[test]
 fn copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery() {
-    kit::pending(
-        Owner::ChatLive,
-        "no copy feedback row through the kit for Pending, Busy, Confirmed, Unconfirmed and Err results at 80, 32 and 18 columns: the clipboard results are not seedable; the rows are the snapshot of the gap text, right-aligned with a blank last column",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!("fixtures/transcript_view_1/select.jsonl"))
@@ -1066,7 +1018,7 @@ fn copy_feedback_is_right_aligned_and_does_not_claim_terminal_delivery() {
 fn feedback_releases_navigation_targets_and_expiry_restores_them() {
     kit::pending(
         Owner::ChatLive,
-        "no 'Back to bottom' gap row through the kit: scrolling up five lines of a 3-row view, a copy feedback that hides it until it expires, and jump_to_latest are not drivable here; the visible part is the 'Back to bottom' text",
+        "G63: the fixture's rows are joined by single newlines, which MarkdownView joins into one paragraph (the oracle breaks the line), so the rows never scroll; with the rows broken (hard breaks) the test passes",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(60, 24)

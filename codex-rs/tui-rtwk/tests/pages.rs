@@ -26,6 +26,8 @@ mod composer_startup;
 mod composer_suggest;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
+#[path = "pages/transcript_follow.rs"]
+mod transcript_follow;
 
 mod rtwk_g46;
 mod rtwk_g49_g51;

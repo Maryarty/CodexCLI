@@ -17,11 +17,51 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    /// The follow control's labels, the widest first, a blank each side
+    /// (`transcript_view/follow_control.rs`); the last that fits the row.
+    pub follow_back: [&'static str; 5],
+    /// The same while the transcript has news (`unseen_activity`).
+    pub follow_new: [&'static str; 5],
+    /// The footer's hint for the way back (`app/owned_transcript.rs`,
+    /// `transcript_view/footer.rs`): the keys, then what they do.
+    pub latest_keys_enter: &'static str,
+    pub latest_keys: &'static str,
+    pub latest_action: &'static str,
+    /// The news in the footer, whole and short, and what joins it to the keys.
+    pub new_activity: &'static str,
+    pub new_short: &'static str,
+    pub footer_joiner: &'static str,
+    /// What the empty composer adds after the hint while it fits: the key
+    /// that opens the shortcuts and its action (`render_transcript_footer`).
+    pub shortcuts_key: &'static str,
+    pub shortcuts_action: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
 pub const EN: Strings = Strings {
     title: "transcript view",
+    follow_back: [
+        " ↓ Back to bottom · esc ",
+        " ↓ Back to bottom ",
+        " ↓ Bottom · esc ",
+        " ↓ Bottom ",
+        " ↓ ",
+    ],
+    follow_new: [
+        " New activity · ↓ Back to bottom · esc ",
+        " New activity · ↓ Bottom ",
+        " New · ↓ Bottom ",
+        " ↓ Bottom ",
+        " ↓ ",
+    ],
+    latest_keys_enter: "enter/esc",
+    latest_keys: "esc",
+    latest_action: " latest",
+    new_activity: "New activity",
+    new_short: "New",
+    footer_joiner: " · ",
+    shortcuts_key: "?",
+    shortcuts_action: " shortcuts",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

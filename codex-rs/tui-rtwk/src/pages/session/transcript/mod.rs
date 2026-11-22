@@ -12,6 +12,7 @@ use codex_tui_core::screens::transcript::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
+pub mod follow;
 pub mod strings;
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
