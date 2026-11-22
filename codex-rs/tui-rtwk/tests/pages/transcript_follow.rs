@@ -193,6 +193,26 @@ fn the_footer_names_the_keys_that_return() {
 }
 
 #[test]
+fn the_empty_composer_adds_its_shortcuts_key_to_the_footer_while_it_fits() {
+    // `render_transcript_footer`: ` · ? shortcuts` after the hint of a
+    // non-interactive transcript footer, only while the composer is empty and
+    // the line holds it (the footer's row is two cells narrower than the window)
+    let mut s = chat(80, 12);
+    s.keys("pageup");
+    s.assert_contains("enter/esc latest · ? shortcuts");
+    s.type_text("d");
+    s.assert_absent("shortcuts");
+    let mut narrow = chat(31, 12);
+    narrow.keys("pageup");
+    // 16 cells of hint, 14 of shortcuts: 30 does not fit in 29
+    narrow.assert_contains("enter/esc latest");
+    narrow.assert_absent("shortcuts");
+    let mut wide = chat(32, 12);
+    wide.keys("pageup");
+    wide.assert_contains("enter/esc latest · ? shortcuts");
+}
+
+#[test]
 fn new_output_while_away_is_named_in_the_footer_until_the_reader_returns() {
     let mut s = chat(80, 12);
     s.keys("pageup");

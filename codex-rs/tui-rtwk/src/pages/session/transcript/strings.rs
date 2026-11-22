@@ -31,6 +31,10 @@ pub struct Strings {
     pub new_activity: &'static str,
     pub new_short: &'static str,
     pub footer_joiner: &'static str,
+    /// What the empty composer adds after the hint while it fits: the key
+    /// that opens the shortcuts and its action (`render_transcript_footer`).
+    pub shortcuts_key: &'static str,
+    pub shortcuts_action: &'static str,
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
@@ -56,6 +60,8 @@ pub const EN: Strings = Strings {
     new_activity: "New activity",
     new_short: "New",
     footer_joiner: " · ",
+    shortcuts_key: "?",
+    shortcuts_action: " shortcuts",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);

@@ -88,7 +88,7 @@ No new gap row: G63 is the one that applies.
 
 ## Tests first
 
-`tests/pages/transcript_follow.rs`, 21 tests (22 on the WIP branch), shown
+`tests/pages/transcript_follow.rs`, 22 tests, shown
 failing before the code: label ladder at 80/20/17/12/9 (and with news), hidden
 at the tail, the reserved row at the tail (last row + 3 = prompt), click returns
 and keeps the draft, a click where the control is hidden reaches nothing,
@@ -149,14 +149,17 @@ Ns • HH:MM` (the row exists in both, the colour differs: `dim indexed(245)` ag
 `dim`), one blank row, the composer's surface row, the prompt. The bullets are
 `indexed(116)` in the oracle and `brightBlue` here (cells).
 
-### Open delta (found by the walk, fixed on a WIP branch, not verified)
+### Delta found by the walk, fixed
 
 The oracle appends ` · ? shortcuts` to the return hint while the composer is empty and
-it fits (`bottom_pane/chat_composer/footer_state.rs` `render_transcript_footer`).
-Written on branch `chat-transcript-shortcuts-wip` (commit e880b2713: `follow.rs`
-footer, two strings, test `the_empty_composer_adds_its_shortcuts_key_to_the_footer_while_it_fits`);
-the disk filled up before it could be built, so it is unbuilt and untested. Cherry-pick,
-build, run `-E 'test(transcript_follow)'`, check the 31/32-column numbers of the test.
+it fits (`bottom_pane/chat_composer/footer_state.rs` `render_transcript_footer`). Now the
+footer does the same (`follow.rs` footer, two strings), test
+`the_empty_composer_adds_its_shortcuts_key_to_the_footer_while_it_fits` (80 columns: shown;
+31: absent; 32: shown; red without the code, once). After it: `pages` + `rules` 188 of 188,
+clippy `--lib --test pages` clean, fmt clean. The whole nextest, the oracle profile and
+`clippy --workspace --all-targets` ran before this last change (the disk filled up twice
+during the final run: `No space left on device` from other builds); it touches only the
+footer's text for the away reader.
 
 ## `session_page.rs` edits (for chat-live's carve)
 

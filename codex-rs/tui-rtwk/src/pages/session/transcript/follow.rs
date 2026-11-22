@@ -216,12 +216,24 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, follow: Follow, enter: bool, keys: AnyWidge
                 i32::try_from(cells).unwrap_or(i32::MAX) <= constraints.max_width
             };
             // none fits: the shortest, clipped
-            let chosen = candidates
+            let mut chosen = candidates
                 .iter()
                 .find(|spans| fits(spans))
                 .or(candidates.last())
                 .cloned()
                 .unwrap_or_default();
+            // an empty composer adds the key of its shortcuts when it fits
+            if enter {
+                let shortcuts = [
+                    Span::styled(table.footer_joiner, dim.clone()),
+                    Span::styled(table.shortcuts_key, key_style.clone()),
+                    Span::styled(table.shortcuts_action, dim.clone()),
+                ];
+                let both: Vec<Span> = chosen.iter().cloned().chain(shortcuts).collect();
+                if fits(&both) {
+                    chosen = both;
+                }
+            }
             Text::rich(chosen).into()
         })
         .into();
