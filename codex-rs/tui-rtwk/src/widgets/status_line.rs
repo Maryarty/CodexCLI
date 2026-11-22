@@ -5,13 +5,13 @@
 //! Oracle: `bottom_pane/status_line_style.rs` (`status_line_from_segments`,
 //! `StatusLineAccent::for_item`, `fallback_color`).
 
+use crate::widgets::measure::Measure;
 use rtwk::layout::{Expanded, Row, SizedBox};
 use rtwk::style::{Span, Style};
-use rtwk::text::TextOverflow;
+use rtwk::text::{TextOverflow, segmenter_of};
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, LayoutBuilder};
 use rtwk_core::style::Attrs;
-use rtwk_core::unicode::{TextMode, string_width};
 
 use crate::app::theme::Tokens;
 
@@ -170,11 +170,8 @@ impl Notice<'_> {
     }
 }
 
-fn labels_width(parts: &[(String, Style)]) -> i32 {
-    parts
-        .iter()
-        .map(|(text, _)| string_width(text, TextMode::Graphemes, 1) as i32)
-        .sum()
+fn labels_width(seg: Measure, parts: &[(String, Style)]) -> i32 {
+    parts.iter().map(|(text, _)| seg.width(text) as i32).sum()
 }
 
 /// `footer` with the oracle's warning notice at its right (`warning_notice_layout`):
@@ -185,7 +182,8 @@ pub fn with_warning_notice(footer: AnyWidget, count: usize, notice: Notice<'stat
     if count == 0 {
         return footer;
     }
-    LayoutBuilder::new(move |_, constraints| {
+    LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
         let footer = footer.clone();
         let available = (constraints.max_width - 1).max(0);
         let budget = (available / 2).max(14).min(available);
@@ -193,7 +191,7 @@ pub fn with_warning_notice(footer: AnyWidget, count: usize, notice: Notice<'stat
         let [full, compact, only] = labels;
         let chosen = [full, compact, only]
             .into_iter()
-            .find(|parts| labels_width(parts) <= budget);
+            .find(|parts| labels_width(seg, parts) <= budget);
         match chosen {
             Some(parts) => {
                 // One line of spans: the notice is the secondary style with

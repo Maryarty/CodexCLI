@@ -2,6 +2,7 @@
 //! keyboard diagram (the keyboard page). Oracle: `bottom_pane/shortcut_overlay.rs`
 //! (`lines`, column padding) and `shortcut_overlay/keyboard.rs`.
 
+use crate::widgets::measure::Measure;
 use rtwk::LayoutBuilder;
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::layout::{
@@ -10,9 +11,9 @@ use rtwk::layout::{
 };
 use rtwk::overlay::Dialog;
 use rtwk::scroll::{NeverScrollableScrollPhysics, SingleChildScrollView};
+use rtwk::text::segmenter_of;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx};
-use rtwk_core::unicode::{TextMode, string_width};
 use std::rc::Rc;
 
 use codex_tui_core::screens::dialogs::ShortcutView;
@@ -57,8 +58,9 @@ pub(super) fn build(view: ShortcutView, s: &Strings, cx: &mut Cx<'_, SmallDialog
 /// body's rows what its own arrangement holds (`groups`).
 pub(super) fn panel(s: &'static Strings, tokens: &Tokens, sections: Vec<Resolved>) -> AnyWidget {
     let tokens = tokens.clone();
-    let inner = LayoutBuilder::new(move |_, constraints| {
-        let (groups, group_rows) = groups(&tokens, &sections, constraints.max_width);
+    let inner = LayoutBuilder::new(move |cx, constraints| {
+        let seg = segmenter_of(cx);
+        let (groups, group_rows) = groups(seg, &tokens, &sections, constraints.max_width);
         // the title, a blank, the groups, a blank
         let body_rows = 3 + group_rows;
         let body = Column::new()
@@ -163,8 +165,8 @@ const COLUMN_GAP: i32 = 4;
 
 /// The groups in as many columns as `room` holds (`group_lines`): three; the
 /// first and the other two stacked; or all stacked.
-fn groups(tokens: &Tokens, sections: &[Resolved], room: i32) -> (AnyWidget, i32) {
-    let cells = |text: &str| string_width(text, TextMode::Graphemes, 1) as i32;
+fn groups(seg: Measure, tokens: &Tokens, sections: &[Resolved], room: i32) -> (AnyWidget, i32) {
+    let cells = |text: &str| seg.width(text) as i32;
     let widths: Vec<i32> = sections
         .iter()
         .map(|group| {
@@ -292,4 +294,34 @@ fn keyboard_rows(s: &Strings, tokens: &Tokens) -> Vec<AnyWidget> {
         .collect();
     out.push(Text::new(String::new()).into());
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtwk::prelude::ThemeData;
+    use rtwk_core::unicode::TextSegmenter;
+
+    fn sections() -> Vec<Resolved> {
+        // the first group's label is `ｶﾞ`: 4 cells clustered, 5 in legacy, as wide as
+        // the others' rows, so three columns need 4 + 4 + 4 + 2 gaps of 4 = 20
+        let group = |label: &'static str| Resolved {
+            heading: "h",
+            rows: vec![("a".to_string(), label)],
+        };
+        vec![group("\u{ff76}\u{ff9e}"), group("x"), group("x")]
+    }
+
+    /// The rows the arrangement takes: the three columns are as tall as the tallest group,
+    /// the first and the other two stacked are the second's and third's and a blank.
+    fn rows(seg: TextSegmenter) -> i32 {
+        let tokens = Tokens::new(Rc::new(ThemeData::DARK));
+        groups(seg, &tokens, &sections(), 20).1
+    }
+
+    #[test]
+    fn the_groups_are_arranged_by_the_terminals_count() {
+        assert_eq!(rows(TextSegmenter::default()), 2);
+        assert_eq!(rows(TextSegmenter::legacy()), 5);
+    }
 }
