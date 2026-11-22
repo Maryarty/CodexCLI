@@ -19,6 +19,34 @@ pub struct Secondary {
     pub hint: String,
 }
 
+/// What a run of a row's text means. The view turns each into a style of its
+/// theme (the oracle writes `"L".underlined()`, `"Ready".green().italic()`:
+/// raw styles; here they are roles, ADR-010).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    #[default]
+    Plain,
+    /// A mnemonic letter: underlined.
+    Key,
+    /// A state that is fine (`Ready`): the success colour, italic.
+    Success,
+    /// A state that needs a look: the warning colour, italic.
+    Warning,
+    /// Secondary text: dim.
+    Dim,
+    /// Emphasis: bold.
+    Strong,
+}
+
+/// A run of text and its role (`name_prefix_spans`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct Span {
+    pub text: String,
+    pub role: Role,
+}
+
 /// One row (`SelectionItem`). A row is disabled when `disabled` is set or a
 /// `disabled_reason` is given; it cannot be accepted and the cursor skips it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -52,6 +80,9 @@ pub struct Item {
     pub orderable: bool,
     /// A rule is drawn under the row, unless it is the last one shown.
     pub section_break_after: bool,
+    /// Runs drawn after the row's number and before its name, each in its
+    /// role (`name_prefix_spans`).
+    pub prefix_spans: Vec<Span>,
 }
 
 impl Item {
@@ -236,6 +267,8 @@ pub struct Row {
     pub reason: Option<String>,
     /// A rule row follows this one (`Item::section_break_after`).
     pub section_break: bool,
+    /// The runs between the prefix and the name (`Item::prefix_spans`).
+    pub prefix_spans: Vec<Span>,
 }
 
 impl List {
@@ -576,6 +609,7 @@ impl Browse<'_> {
                     current: item.current,
                     reason: item.disabled_reason.clone(),
                     section_break: item.section_break_after && pos + 1 < visible.len(),
+                    prefix_spans: item.prefix_spans.clone(),
                 }
             })
             .collect()

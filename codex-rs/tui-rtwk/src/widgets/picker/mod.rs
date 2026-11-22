@@ -399,9 +399,13 @@ impl State for PickerState {
                 max_rows: list.max_rows(),
                 styles: RowStyles {
                     cursor: tokens.accent().attrs(Attrs::BOLD),
+                    cursor_description: tokens.accent(),
                     label: Style::new(),
                     description: tokens.dim(),
                     disabled: tokens.dim(),
+                    key: Style::new().attrs(Attrs::UNDERLINE),
+                    success: tokens.success().attrs(Attrs::ITALIC),
+                    warning: tokens.warning().attrs(Attrs::ITALIC),
                 },
                 single_line: list.single_line,
                 name_width: list.name_column_width,
@@ -410,7 +414,13 @@ impl State for PickerState {
                     current: s.current,
                     disabled: s.disabled_mark,
                     reason_after: s.reason_after,
-                    reason_alone: s.reason_alone,
+                    // A list that hides its description column when narrow shows
+                    // a disabled row's reason bare (`combined_description`).
+                    reason_alone: if list.hide_description_below.is_some() {
+                        ""
+                    } else {
+                        s.reason_alone
+                    },
                     reason_close: s.reason_close,
                     mark_on: s.mark_on,
                     mark_off: s.mark_off,

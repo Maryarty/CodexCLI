@@ -703,9 +703,9 @@ fn shrinking_the_browser_keeps_the_selected_row_visible() {
 /// The description column hides below 24 cells and the rows keep their whole
 /// width: at 48 cells the names stand alone, at 49 the details come back
 /// (`description_column_visibility`; the oracle's test draws raw rows: the
-/// second one carries its number by hand and a bare reason, while a disabled
-/// row of the list has no number and says `disabled: Unavailable`, as
-/// `selection_row_layout.rs` does).
+/// second one carries its number `2.` by hand, while a disabled row of the
+/// list has none; the reason is bare under this layout, as
+/// `selection_row_layout.rs` `combined_description` says).
 #[test]
 fn the_description_column_hides_when_it_would_be_narrow() {
     for width in [48u16, 49, 80] {
@@ -714,7 +714,7 @@ fn the_description_column_hides_when_it_would_be_narrow() {
         let (first, second) = if width >= 49 {
             (
                 format!("› 1. 日本語{}Details", " ".repeat(14)),
-                "     Blocked (disabled)  disabled: Unavailable".to_string(),
+                "     Blocked (disabled)  Unavailable".to_string(),
             )
         } else {
             (
@@ -865,4 +865,135 @@ fn the_standard_footer_follows_the_configured_bindings() {
         "{}",
         screen_of(&h)
     );
+}
+
+/// The cell of the first `text` on the screen, as (column, row).
+fn find(h: &Harness, text: &str) -> (usize, usize) {
+    h.t.screen()
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| line.find(text).map(|at| (line[..at].chars().count(), y)))
+        .unwrap_or_else(|| panic!("`{text}` is not on the screen:\n{}", h.t.screen()))
+}
+
+/// `selection_popup_common.rs:986`: the runs of a highlighted row keep their
+/// roles: the mnemonic underlined and bold with the accent, the status in the
+/// success colour, italic and bold, the description in the accent but not bold.
+#[test]
+fn the_runs_of_a_highlighted_row_keep_their_roles() {
+    use rtwk_core::style::{Attrs, Color};
+    let h = keyed(48, 1, "semantic_spans", &[]);
+    let (l, y) = find(&h, "L");
+    let (ready, _) = find(&h, "Ready");
+    let (details, _) = find(&h, "secondary");
+    let (name, _) = find(&h, "provider");
+    let key = h.t.cell(l, y);
+    assert!(
+        key.attrs.intersects(Attrs::BOLD | Attrs::UNDERLINE),
+        "{key:?}"
+    );
+    assert!(key.attrs.intersects(Attrs::UNDERLINE), "{key:?}");
+    let status = h.t.cell(ready, y);
+    assert_eq!(status.fg, Color::GREEN, "{status:?}");
+    assert!(status.attrs.intersects(Attrs::BOLD), "{status:?}");
+    assert!(status.attrs.intersects(Attrs::ITALIC), "{status:?}");
+    assert!(!h.t.cell(name, y).attrs.intersects(Attrs::UNDERLINE));
+    assert!(!h.t.cell(details, y).attrs.intersects(Attrs::BOLD));
+    assert_eq!(h.t.cell(details, y).fg, h.t.cell(l, y).fg);
+}
+
+/// `selection_popup_common.rs:1089`: the highlighted row is bold in the
+/// accent; a row beside it is plain.
+#[test]
+fn the_highlighted_row_is_bold_in_the_accent() {
+    use rtwk_core::style::Attrs;
+    let h = keyed(16, 1, "selected_row", &[]);
+    let mark = h.t.cell(0, 0);
+    assert!(mark.attrs.intersects(Attrs::BOLD), "{mark:?}");
+    assert_ne!(mark.fg, rtwk_core::style::Color::DEFAULT, "{mark:?}");
+}
+
+/// `selection_popup_common.rs:965`: a line break in a name keeps the second
+/// line under the first, one in a description stays a break in its column.
+#[test]
+fn line_breaks_in_a_name_and_a_description_stay_breaks() {
+    let h = keyed(24, 4, "hard_breaks", &[]);
+    let screen = screen_of(&h);
+    let rows: Vec<&str> = screen.lines().collect();
+    assert!(rows[0].ends_with("first"), "{screen}");
+    assert_eq!(rows[1].trim_end(), "  second", "{screen}");
+    let column = |row: &str, text: &str| row.find(text).map(|at| row[..at].chars().count());
+    assert!(
+        rows[2].contains("x") && rows[2].contains("alpha"),
+        "{screen}"
+    );
+    assert_eq!(
+        column(rows[3], "beta"),
+        column(rows[2], "alpha"),
+        "{screen}"
+    );
+}
+
+/// `selection_picker_tests.rs` `shared_menu_presentation_at_wide_and_narrow_sizes`:
+/// the two frames of the oracle's snapshot, a described row's long label cut
+/// with an ellipsis beside its description, a disabled row's reason bare, the
+/// label wrapped when the description column hides. The oracle draws the view
+/// into the whole area (footer on the last row); the dialog is as tall as its
+/// content, so the rows are compared from the blank row above the title on,
+/// and the footer row last.
+#[test]
+fn the_shared_menu_matches_the_oracle_at_both_sizes() {
+    let frames: [(u16, u16, &[&str]); 2] = [
+        (
+            80,
+            24,
+            &[
+                "",
+                "  Choose an option",
+                "  A menu with descriptions and disabled choices.",
+                "",
+                "",
+                "› 1. Recommended option                                 The description column",
+                "                                                        is visible when it fits.",
+                "  2. A long option label that still wraps at narrow wi… Additional details",
+                "     Unavailable (disabled)                             This option needs a",
+                "                                                        connected server.",
+            ],
+        ),
+        (
+            40,
+            16,
+            &[
+                "",
+                "  Choose an option",
+                "  A menu with descriptions and",
+                "  disabled choices.",
+                "",
+                "",
+                "› 1. Recommended option",
+                "  2. A long option label that still",
+                "     wraps at narrow widths",
+                "     Unavailable (disabled)",
+            ],
+        ),
+    ];
+    for (width, height, expected) in frames {
+        let h = keyed(width, height, "shared_menu", &[]);
+        let screen = screen_of(&h);
+        let rows: Vec<&str> = screen.lines().map(str::trim_end).collect();
+        let title = rows
+            .iter()
+            .position(|r| *r == "  Choose an option")
+            .unwrap_or(1);
+        let from = title - 1;
+        assert_eq!(
+            &rows[from..from + expected.len()],
+            expected,
+            "{width}x{height}:\n{screen}"
+        );
+        assert!(
+            rows.contains(&"  enter select · esc back"),
+            "{width}x{height}:\n{screen}"
+        );
+    }
 }

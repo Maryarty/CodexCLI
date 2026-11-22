@@ -17,13 +17,13 @@ use std::rc::Rc;
 use rtwk::controls::SelectionController;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{GestureDetector, PointerEvent};
-use rtwk::layout::{CrossAxisAlignment, Expanded, Row as Line, SizedBox};
+use rtwk::layout::{CrossAxisAlignment, Expanded, Flexible, Row as Line, SizedBox};
 use rtwk::scroll::{ListController, ListView};
-use rtwk::style::Style;
+use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, Handler};
 
-use codex_tui_core::screens::select::list::Row;
+use codex_tui_core::screens::select::list::{Role, Row};
 
 use crate::widgets::measure::{self, Measure};
 
@@ -31,9 +31,31 @@ use crate::widgets::measure::{self, Measure};
 #[derive(Clone, Debug)]
 pub struct RowStyles {
     pub cursor: Style,
+    /// The description of the cursor row: its accent, not bold (the oracle's
+    /// `apply_row_state_style` takes the bold off secondary spans).
+    pub cursor_description: Style,
     pub label: Style,
     pub description: Style,
     pub disabled: Style,
+    /// What the roles of a row's runs add to the row's own style (merged on
+    /// it, so a selected row's bold and accent stay under them).
+    pub key: Style,
+    pub success: Style,
+    pub warning: Style,
+}
+
+impl RowStyles {
+    /// The style a run of `role` adds.
+    fn of(&self, role: Role) -> Style {
+        match role {
+            Role::Plain => Style::new(),
+            Role::Key => self.key.clone(),
+            Role::Success => self.success.clone(),
+            Role::Warning => self.warning.clone(),
+            Role::Dim => self.description.clone(),
+            Role::Strong => Style::new().attrs(Attrs::BOLD),
+        }
+    }
 }
 
 /// The words a row adds to what the model holds (strings.rs).
@@ -54,14 +76,27 @@ pub struct Words {
 impl Words {
     /// The name with its marks.
     fn name(&self, row: &Row) -> String {
+        let mut name = self.stem(row);
+        name.push_str(self.suffix(row));
+        name
+    }
+
+    /// The name and the mark of the row in use: what a column cuts.
+    fn stem(&self, row: &Row) -> String {
         let mut name = row.name.clone();
         if row.current {
             name.push_str(self.current);
         }
-        if row.reason.is_some() {
-            name.push_str(self.disabled);
-        }
         name
+    }
+
+    /// The mark of a disabled row, which stays after a cut name.
+    fn suffix(&self, row: &Row) -> &'static str {
+        if row.reason.is_some() {
+            self.disabled
+        } else {
+            ""
+        }
     }
 
     /// The description, the reason of a disabled row in it; `selected`: the
@@ -157,7 +192,6 @@ impl Rows {
         lines: &dyn Fn(&str, usize) -> usize,
         room: usize,
     ) -> Layout {
-        let mark = width(self.words.mark_off);
         let described = self
             .rows
             .iter()
@@ -169,7 +203,7 @@ impl Rows {
             let widest = self
                 .rows
                 .iter()
-                .map(|row| mark + width(&row.prefix) + width(&self.words.name(row)))
+                .map(|row| self.hang(row, width) + width(&self.words.name(row)))
                 .max()
                 .unwrap_or(0);
             self.name_width
@@ -190,7 +224,7 @@ impl Rows {
                 let height = if self.single_line {
                     1
                 } else {
-                    self.row_height(row, label, mark, width, lines, room)
+                    self.row_height(row, label, width, lines, room)
                 };
                 [Some(height), rule].into_iter().flatten()
             })
@@ -213,6 +247,17 @@ impl Rows {
         entries
     }
 
+    /// The cells before a row's name: the cursor's mark, the prefix, the runs.
+    fn hang(&self, row: &Row, width: &dyn Fn(&str) -> usize) -> usize {
+        width(self.words.mark_off)
+            + width(&row.prefix)
+            + row
+                .prefix_spans
+                .iter()
+                .map(|span| width(&span.text))
+                .sum::<usize>()
+    }
+
     /// The rule row of a section break: dim, one line.
     fn rule(&self) -> AnyWidget {
         Text::line(self.words.section_break.to_string())
@@ -225,12 +270,11 @@ impl Rows {
         &self,
         row: &Row,
         label: Option<usize>,
-        mark: usize,
         width: &dyn Fn(&str) -> usize,
         lines: &dyn Fn(&str, usize) -> usize,
         room: usize,
     ) -> i32 {
-        let hung = mark + width(&row.prefix);
+        let hung = self.hang(row, width);
         let name = self.words.name(row);
         let taken = match label {
             Some(label) => {
@@ -242,7 +286,15 @@ impl Rows {
                     .map(|text| lines(text, beside))
                     .max()
                     .unwrap_or(1);
-                lines(&name, label.saturating_sub(hung)).max(described)
+                // A row with a description keeps its name on one line, cut at
+                // the label column; one without wraps it over the room.
+                let whole = lines(&name, room.saturating_sub(hung));
+                let name_lines = [false, true]
+                    .into_iter()
+                    .map(|selected| if text(selected).is_some() { 1 } else { whole })
+                    .max()
+                    .unwrap_or(1);
+                name_lines.max(described)
             }
             None => lines(&name, room.saturating_sub(hung)),
         };
@@ -293,7 +345,7 @@ impl Rows {
         let (label_style, description_style) = if row.disabled {
             (styles.disabled.clone(), styles.disabled.clone())
         } else if cursor {
-            (styles.cursor.clone(), styles.cursor.clone())
+            (styles.cursor.clone(), styles.cursor_description.clone())
         } else {
             (styles.label.clone(), styles.description.clone())
         };
@@ -304,22 +356,52 @@ impl Rows {
         };
         let gutter = [mark, row.prefix.as_str()].concat();
         let name = self.words.name(row);
-        // The gutter stays put; a name that wraps hangs after it.
+        // The gutter (with the runs of the row) stays put; a name that wraps
+        // hangs after it.
+        let mut head = vec![Span::new(gutter)];
+        head.extend(
+            row.prefix_spans
+                .iter()
+                .map(|span| Span::styled(span.text.clone(), styles.of(span.role))),
+        );
+        let described = label_width.is_some() && self.words.description(row, cursor).is_some();
         let label: AnyWidget = if self.single_line {
-            self.text([gutter.as_str(), name.as_str()].concat(), label_style)
+            head.push(Span::new(name));
+            Text::rich_line(head)
+                .style(label_style)
+                .overflow(TextOverflow::Ellipsis)
                 .into()
+        } else if described {
+            // Beside a description the name is one line cut with an ellipsis
+            // at the label column; the mark of a disabled row stays after it.
+            let mut line = Line::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(Text::rich_line(head).style(label_style.clone()))
+                .child(Flexible::new(
+                    1,
+                    Text::line(self.words.stem(row))
+                        .style(label_style.clone())
+                        .overflow(TextOverflow::Ellipsis),
+                ));
+            let suffix = self.words.suffix(row);
+            if !suffix.is_empty() {
+                line = line.child(Text::line(suffix.to_string()).style(label_style));
+            }
+            line.into()
         } else {
             Line::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(Text::line(gutter).style(label_style.clone()))
+                .child(Text::rich_line(head).style(label_style.clone()))
                 .child(Expanded::new(1, self.text(name, label_style)))
                 .into()
         };
         match (self.words.description(row, cursor), label_width) {
             (Some(text), Some(width)) => Line::new()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(SizedBox::new(Some(width), None, Some(label)))
-                .child(SizedBox::new(Some(2), None, None))
+                // The oracle cuts a long name to the column's width and adds
+                // the ellipsis after it, in the first cell of the gap.
+                .child(SizedBox::new(Some(width + 1), None, Some(label)))
+                .child(SizedBox::new(Some(1), None, None))
                 .child(Expanded::new(1, self.text(text, description_style)))
                 .into(),
             _ => label,

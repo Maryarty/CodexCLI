@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 61] = [
+    let entries: [(&'static str, &'static str, &'static str); 64] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -325,6 +325,21 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "hint_picker",
             "one row, the standard footer, shared picker preset",
             include_str!("fixtures/hint_picker.jsonl"),
+        ),
+        (
+            "semantic_spans",
+            "a row with underlined, success and dim runs",
+            include_str!("fixtures/semantic_spans.jsonl"),
+        ),
+        (
+            "selected_row",
+            "one highlighted row in the accent style",
+            include_str!("fixtures/selected_row.jsonl"),
+        ),
+        (
+            "hard_breaks",
+            "a two-line name, a two-line description",
+            include_str!("fixtures/hard_breaks.jsonl"),
         ),
     ];
     entries
