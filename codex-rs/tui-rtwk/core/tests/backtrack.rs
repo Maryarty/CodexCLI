@@ -454,7 +454,6 @@ fn the_persisted_prompt_keeps_elements_images_skills_and_mentions() {
 /// times (`ThreadPart::awaiting`, `ThreadIntent::Expired`).
 mod edit {
     use super::*;
-    use pretty_assertions::assert_eq;
     use codex_app_server_protocol::ServerNotification;
     use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
     use codex_tui_core::rpc::Reply;
@@ -462,6 +461,7 @@ mod edit {
         Command as BacktrackCommand, Draft, EditError, Reply as BacktrackReply, ThreadIntent,
     };
     use codex_tui_core::screens::{ScreenCommand, ScreenReply, ScreenThreadIntent};
+    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     const T: &str = "thread-1";
@@ -493,7 +493,10 @@ mod edit {
                 _ => None,
             })
             .expect("a StartThread");
-        run(&mut app, AppEv::Reply(ticket, Reply::thread_started(thread(T))));
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(thread(T))),
+        );
         notified(
             &mut app,
             json!({"method": "turn/started", "params": {"threadId": T, "turn": {
@@ -551,7 +554,11 @@ mod edit {
             .expect("a request of the backtrack")
     }
 
-    fn answer(app: &mut CodexApp, ticket: codex_tui_core::ids::Ticket, reply: BacktrackReply) -> AppFx {
+    fn answer(
+        app: &mut CodexApp,
+        ticket: codex_tui_core::ids::Ticket,
+        reply: BacktrackReply,
+    ) -> AppFx {
         run(
             app,
             AppEv::Reply(ticket, Reply::screen(ScreenReply::Backtrack(reply))),
@@ -571,10 +578,13 @@ mod edit {
         let fx = answer(
             app,
             ticket,
-            BacktrackReply::Resolved(Ok((TurnId::new("turn-1"), Prompt {
-                text: "first".into(),
-                ..Prompt::default()
-            }))),
+            BacktrackReply::Resolved(Ok((
+                TurnId::new("turn-1"),
+                Prompt {
+                    text: "first".into(),
+                    ..Prompt::default()
+                },
+            ))),
         );
         let (ticket, command) = asked(&fx);
         assert_eq!(
@@ -587,7 +597,8 @@ mod edit {
     }
 
     #[test]
-    fn the_prompt_goes_to_the_composer_when_the_server_reverted_and_the_edit_waits_for_the_notice() {
+    fn the_prompt_goes_to_the_composer_when_the_server_reverted_and_the_edit_waits_for_the_notice()
+    {
         let mut app = app_with_a_prompt();
         reverted_and_waiting(&mut app);
         let part = part(&app);

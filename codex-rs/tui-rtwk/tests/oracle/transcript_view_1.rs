@@ -58,10 +58,6 @@ fn escape_restores_reading_origin_after_details_navigation_and_resize() {
 // ORACLE app/owned_transcript_browsing_tests.rs:171 browsing_search_and_selection_consume_escape_before_mode_exit kind=ui owner=chat-live
 #[test]
 fn browsing_search_and_selection_consume_escape_before_mode_exit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript browsing with find (F3) and keyboard selection: the search bar and the selection are not built, so Esc does not yet close them before browsing",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 16)
         .script(include_str!("fixtures/transcript_view_1/two_prompts.jsonl"))
@@ -122,10 +118,6 @@ fn browsing_details_use_the_remapped_chord_without_cancelling_preview() {
 // ORACLE app/owned_transcript_browsing_tests.rs:558 browsing_arrows_and_vim_keys_navigate_without_editing_the_draft kind=ui owner=chat-live
 #[test]
 fn browsing_arrows_and_vim_keys_navigate_without_editing_the_draft() {
-    kit::pending(
-        Owner::ChatLive,
-        "no transcript browsing selection: Esc primes it, and the arrows and vim keys move the selected prompt while the composer draft stays; the browsing selection is not built",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 16)
         .script(include_str!(

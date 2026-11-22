@@ -70,7 +70,7 @@ pub struct ChatState {
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
     /// The same for the prompt an edit of the transcript's backtrack put back
-    /// (`ThreadPart::restore`).
+    /// (the edit of a past prompt).
     edited: Option<(ThreadId, Option<u64>)>,
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
@@ -340,7 +340,12 @@ impl State for ChatState {
         let edited = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
             (
                 thread.id().clone(),
-                thread.screen_slots().backtrack.restore.as_ref().map(|restore| restore.seq),
+                thread
+                    .screen_slots()
+                    .backtrack
+                    .restore
+                    .as_ref()
+                    .map(|restore| restore.seq),
             )
         });
         if let Some((thread, before)) = &self.edited

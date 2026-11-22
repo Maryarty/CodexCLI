@@ -13,7 +13,9 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::{ThreadId, Ticket};
-use codex_tui_core::screens::backtrack::{CONFIRM_SECS, EditError, ID, NAME, Selection, ThreadIntent};
+use codex_tui_core::screens::backtrack::{
+    CONFIRM_SECS, EditError, ID, NAME, Selection, ThreadIntent,
+};
 use codex_tui_core::screens::{ScreenStates, ScreenThreadIntent};
 use codex_tui_core::threads::ThreadModel;
 
@@ -71,8 +73,15 @@ impl State for ScreenState {
 /// The intent of the prompt the reader chose (Enter while browsing): the edit, or the
 /// refusal of a side conversation (the chat's flag, which the thread slot does not see).
 /// None when the prompt is no longer in the transcript.
-pub fn edit_intent<S>(cx: &mut Cx<'_, S>, thread: &ThreadModel, chosen: &Selection) -> Option<ScreenThreadIntent> {
-    let side = read::<ScreenStates, _>(cx).chat.flags.side_conversation_active;
+pub fn edit_intent<S>(
+    cx: &mut Cx<'_, S>,
+    thread: &ThreadModel,
+    chosen: &Selection,
+) -> Option<ScreenThreadIntent> {
+    let side = read::<ScreenStates, _>(cx)
+        .chat
+        .flags
+        .side_conversation_active;
     let intent = if side {
         ThreadIntent::Unavailable
     } else {
@@ -94,13 +103,24 @@ pub struct EditWatchState {
     waiting: Option<(ThreadId, Ticket, Timer)>,
 }
 
+/// The thread and the ticket the edit waits on for the server's notice.
+fn waiting_for(cx: &mut Cx<'_, EditWatchState>) -> (ThreadId, Option<Ticket>) {
+    select::<ThreadModel, (ThreadId, Option<Ticket>), _>(cx, |thread| {
+        (
+            thread.id().clone(),
+            thread.screen_slots().backtrack.awaiting(),
+        )
+    })
+}
+
 impl EditWatchState {
     fn watch(&mut self, cx: &mut Cx<'_, Self>) {
-        let now = select::<ThreadModel, (ThreadId, Option<Ticket>), _>(cx, |thread| {
-            (thread.id().clone(), thread.screen_slots().backtrack.awaiting())
-        });
+        let now = waiting_for(cx);
         let wanted = now.1.map(|ticket| (now.0, ticket));
-        let armed = self.waiting.as_ref().map(|(thread, ticket, _)| (thread.clone(), *ticket));
+        let armed = self
+            .waiting
+            .as_ref()
+            .map(|(thread, ticket, _)| (thread.clone(), *ticket));
         if armed == wanted {
             return;
         }
@@ -159,6 +179,8 @@ impl State for EditWatchState {
     }
 
     fn build(&self, _: &EditWatch, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        // each build selects anew: the ticket stays a dependency of `did_change_dependencies`
+        waiting_for(cx);
         let error = select::<ThreadModel, Option<EditError>, _>(cx, |thread| {
             thread.screen_slots().backtrack.error.clone()
         });
