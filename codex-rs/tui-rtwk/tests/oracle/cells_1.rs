@@ -10,271 +10,269 @@ const RT_SEED: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}
 {"step":"notify","message":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","rootTurnId":null,"items":[],"itemsView":"full","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}}
 "#;
 
+/// The oracle's diff tests render the whole block (`create_diff_summary`): what the detailed
+/// transcript (Ctrl+T) shows; the chat itself shows the compact preview and its control.
+fn show_details(s: &mut Screen) {
+    s.keys("ctrl+t");
+}
+
+/// The screen row the patch cell starts at (the transcript sticks to the bottom, the oracle's
+/// snapshot is the cell alone).
+fn cell_row(s: &Screen) -> usize {
+    let Some(at) = s.rows().iter().position(|row| row.starts_with("• ")) else {
+        panic!("no patch cell header on the screen:\n{}", s.text());
+    };
+    at
+}
+
 // ---- oracle: diff_render.rs (23 screen-level tests here; 28 state tests left to chat-live)
 // ORACLE diff_render.rs:1379 syntax_colors_follow_the_actual_diff_background kind=snap owner=chat-live snap=syntax_colors_follow_the_actual_diff_background
 #[test]
 fn syntax_colors_follow_the_actual_diff_background() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: syntax_colors_follow_the_actual_diff_background: ours (right) differs from the oracle (left)",
+        "the oracle test renders spans into a ratatui Buffer and compares the foreground it resolves \
+         against the row background; no screen text carries that, the colours are \
+         assert_text_style territory and the kit has no span-style seed for a theme background yet",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 20)
         .script(include_str!(
             "fixtures/cells_1/syntax_colors_follow_the_actual_diff_background.jsonl"
         ))
         .open();
-    s.assert_snap_region("syntax_colors_follow_the_actual_diff_background", 0, 0);
+    show_details(&mut s);
+    s.assert_contains("let value = 1; plain reset");
 }
 
 // ORACLE diff_render.rs:1594 display_path_prefers_cwd_without_git_repo kind=ui owner=chat-live
 #[test]
 fn display_path_prefers_cwd_without_git_repo() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `tui/example.png`:",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 6)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 14)
         .script(include_str!(
             "fixtures/cells_1/display_path_prefers_cwd_without_git_repo.jsonl"
         ))
         .open();
+    show_details(&mut s);
     s.assert_contains("tui/example.png");
 }
 
 // ORACLE diff_render.rs:1614 ui_snapshot_wrap_behavior_insert kind=snap owner=chat-live snap=wrap_behavior_insert
 #[test]
 fn ui_snapshot_wrap_behavior_insert() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: wrap_behavior_insert: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(90, 8)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(84, 16)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_wrap_behavior_insert.jsonl"
         ))
         .open();
-    s.assert_snap_region("wrap_behavior_insert", 0, 0);
+    show_details(&mut s);
+    // The oracle snapshot is one diff line (width 80) below the header, under the 4-column indent.
+    s.assert_snap_region("wrap_behavior_insert", cell_row(&s) + 1, 4);
 }
 
 // ORACLE diff_render.rs:1638 ui_snapshot_apply_update_block kind=snap owner=chat-live snap=apply_update_block
 #[test]
 fn ui_snapshot_apply_update_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 20)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_block.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_update_block", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_update_block", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1663 ui_snapshot_apply_update_with_rename_block kind=snap owner=chat-live snap=apply_update_with_rename_block
 #[test]
 fn ui_snapshot_apply_update_with_rename_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_with_rename_block: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 20)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_with_rename_block.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_update_with_rename_block", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_update_with_rename_block", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1688 ui_snapshot_apply_multiple_files_block kind=snap owner=chat-live snap=apply_multiple_files_block
 #[test]
 fn ui_snapshot_apply_multiple_files_block() {
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 15)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_multiple_files_block.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_multiple_files_block", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_multiple_files_block", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1721 ui_snapshot_apply_add_block kind=snap owner=chat-live snap=apply_add_block
 #[test]
 fn ui_snapshot_apply_add_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): no row reads `1 +a`:",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 10)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 18)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_add_block.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_add_block", 0, 0);
-    let n = Screen::build(Owner::ChatLive)
-        .size(3, 8)
+    show_details(&mut s);
+    s.assert_snap_region("apply_add_block", cell_row(&s), 0);
+    // The oracle wraps the body at 3 columns and shows `1 +a` / `   l` (the gutter plus one
+    // column of text). The chat's rows carry the cell's four-column indent: the same gutter
+    // and one text column is a screen eight columns wide.
+    let mut n = Screen::build(Owner::ChatLive)
+        .size(8, 30)
         .script(include_str!(
-            "fixtures/cells_1/ui_snapshot_apply_add_block.jsonl"
+            "fixtures/cells_1/ui_snapshot_apply_add_block_narrow.jsonl"
         ))
         .open();
-    n.assert_has_row("1 +a");
-    n.assert_has_row("   l");
+    show_details(&mut n);
+    n.assert_has_row("    1 +a");
+    n.assert_has_row("       l");
 }
 
 // ORACLE diff_render.rs:1747 ui_snapshot_apply_delete_block kind=snap owner=chat-live snap=apply_delete_block
 #[test]
 fn ui_snapshot_apply_delete_block() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_delete_block: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 20)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_delete_block.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_delete_block", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_delete_block", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1766 ui_snapshot_apply_update_block_wraps_long_lines kind=snap owner=chat-live snap=apply_update_block_wraps_long_lines
 #[test]
 fn ui_snapshot_apply_update_block_wraps_long_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_wraps_long_lines: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(72, 20)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_block_wraps_long_lines.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_update_block_wraps_long_lines", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_update_block_wraps_long_lines", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1793 ui_snapshot_apply_update_block_wraps_long_lines_text kind=snap owner=chat-live snap=apply_update_block_wraps_long_lines_text
 #[test]
 fn ui_snapshot_apply_update_block_wraps_long_lines_text() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_wraps_long_lines_text: ours (right) differs from the oracle (left)",
+        "the oracle snapshot is the header line unwrapped (28 columns wide at most by the test's \
+         wrap_cols) above the body; the chat wraps the 30-column header at its width, so the \
+         header row is a word-wrap row and the body rows follow below it",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(28, 12)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(28, 20)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_block_wraps_long_lines_text.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_update_block_wraps_long_lines_text", 0, 0);
+    show_details(&mut s);
+    // The body of the oracle's snapshot, from `1  1` on, rows equal to the oracle's.
+    s.assert_in_order(&[
+        "    1  1\n    2 -2\n    2 +added long line which\n        wraps and_if_there_i\n       s_a_long_token_it_wil\n       l_be_broken\n    3  3\n    4 -4\n    4 +4 context line which\n       also wraps across",
+    ]);
 }
 
 // ORACLE diff_render.rs:1814 ui_snapshot_apply_update_block_line_numbers_three_digits_text kind=snap owner=chat-live snap=apply_update_block_line_numbers_three_digits_text
 #[test]
 fn ui_snapshot_apply_update_block_line_numbers_three_digits_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_line_numbers_three_digits_text: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 32)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_block_line_numbers_three_digits_text.jsonl"
         ))
         .open();
-    s.assert_snap_region("apply_update_block_line_numbers_three_digits_text", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region(
+        "apply_update_block_line_numbers_three_digits_text",
+        cell_row(&s),
+        0,
+    );
 }
 
 // ORACLE diff_render.rs:1841 ui_snapshot_apply_update_block_relativizes_path kind=snap owner=chat-live snap=apply_update_block_relativizes_path
 #[test]
 fn ui_snapshot_apply_update_block_relativizes_path() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_relativizes_path: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 10)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 18)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_apply_update_block_relativizes_path.jsonl"
         ))
+        .cwd("/workspace")
         .open();
-    s.assert_snap_region("apply_update_block_relativizes_path", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("apply_update_block_relativizes_path", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1870 ui_snapshot_syntax_highlighted_insert_wraps kind=snap owner=chat-live snap=syntax_highlighted_insert_wraps
 #[test]
 fn ui_snapshot_syntax_highlighted_insert_wraps() {
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_syntax_highlighted_insert_wraps.jsonl"
         ))
         .open();
+    show_details(&mut s);
     s.assert_in_order(&["fn very_long_function_name", "Ok(arg_one) }"]);
 }
 
 // ORACLE diff_render.rs:1921 ui_snapshot_diff_gallery_80x24 kind=snap owner=chat-live snap=diff_gallery_80x24
 #[test]
 fn ui_snapshot_diff_gallery_80x24() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_80x24: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 70)
         .script(include_str!("fixtures/cells_1/diff_gallery_80x24.jsonl"))
         .open();
-    s.assert_snap_region("diff_gallery_80x24", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("diff_gallery_80x24", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1926 ui_snapshot_diff_gallery_94x35 kind=snap owner=chat-live snap=diff_gallery_94x35
 #[test]
 fn ui_snapshot_diff_gallery_94x35() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_94x35: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(94, 35)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(94, 70)
         .script(include_str!("fixtures/cells_1/diff_gallery_94x35.jsonl"))
         .open();
-    s.assert_snap_region("diff_gallery_94x35", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("diff_gallery_94x35", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1931 ui_snapshot_diff_gallery_120x40 kind=snap owner=chat-live snap=diff_gallery_120x40
 #[test]
 fn ui_snapshot_diff_gallery_120x40() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: diff_gallery_120x40: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(120, 40)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(120, 70)
         .script(include_str!("fixtures/cells_1/diff_gallery_120x40.jsonl"))
         .open();
-    s.assert_snap_region("diff_gallery_120x40", 0, 0);
+    show_details(&mut s);
+    s.assert_snap_region("diff_gallery_120x40", cell_row(&s), 0);
 }
 
 // ORACLE diff_render.rs:1940 ui_snapshot_ansi16_insert_delete_no_background kind=snap owner=chat-live snap=ansi16_insert_delete_no_background
 #[test]
 fn ui_snapshot_ansi16_insert_delete_no_background() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: ansi16_insert_delete_no_background: ours (right) differs from the oracle (left)",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 4)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(44, 12)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_ansi16_insert_delete_no_background.jsonl"
         ))
         .open();
-    s.assert_snap_region("ansi16_insert_delete_no_background", 0, 0);
+    show_details(&mut s);
+    // The oracle snapshot is two diff lines (width 80, ANSI-16: foreground only) under the 4-column indent.
+    s.assert_snap_region("ansi16_insert_delete_no_background", cell_row(&s) + 1, 4);
 }
 
 // ORACLE diff_render.rs:2115 ui_snapshot_theme_scope_background_resolution kind=snap owner=chat-live snap=theme_scope_background_resolution
@@ -282,16 +280,18 @@ fn ui_snapshot_ansi16_insert_delete_no_background() {
 fn ui_snapshot_theme_scope_background_resolution() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `scope`:",
+        "the oracle resolves the insert row's background from the active syntax theme's scope \
+         (`markup.inserted`, here Rgb(12,34,56)); the kit has no seed for a syntax theme and the \
+         chat's added row carries the dark default tint, so only the delete half is equal",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(40, 6)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(40, 14)
         .script(include_str!(
             "fixtures/cells_1/ui_snapshot_theme_scope_background_resolution.jsonl"
         ))
         .open();
-    s.assert_contains("scope");
-    // once the theme seed exists: assert_text_style("scope", "bg=Rgb(12,34,56)") for the insert row.
+    show_details(&mut s);
+    s.assert_text_style("1 +scope", "bg=Rgb(12,34,56)");
 }
 
 // ORACLE diff_render.rs:2381 cpp_module_extensions_use_cpp_highlighting kind=snap owner=chat-live snap=cpp_module_extension_highlighting
@@ -299,43 +299,47 @@ fn ui_snapshot_theme_scope_background_resolution() {
 fn cpp_module_extensions_use_cpp_highlighting() {
     kit::pending(
         Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: cpp_module_extension_highlighting: ours (right) differs from the oracle (left)",
+        "D4: the oracle's snapshot is the span splits syntect's C++ grammar makes for nine extensions \
+         (cpp cu cuh cppm CPPM cxxm CxXm ixx IXX), the highlighter rtwk ships has no lexer table \
+         for the module extensions until D4 (the syntect lexer) is decided",
     );
-    let s = Screen::build(Owner::ChatLive)
-        .size(80, 24)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(80, 60)
         .script(include_str!(
             "fixtures/cells_1/cpp_module_extensions_use_cpp_highlighting.jsonl"
         ))
         .open();
-    s.assert_snap_region("cpp_module_extension_highlighting", 0, 0);
+    show_details(&mut s);
+    s.assert_contains("export module math;");
 }
 
 // ORACLE diff_render.rs:2487 wrap_styled_spans_single_line kind=snap owner=chat-live snap=short
 #[test]
 fn wrap_styled_spans_single_line() {
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 6)
         .script(include_str!(
             "fixtures/cells_1/wrap_styled_spans_single_line.jsonl"
         ))
         .open();
+    show_details(&mut s);
     s.assert_contains("short");
 }
 
 // ORACLE diff_render.rs:2592 fallback_wrapping_uses_display_width_for_tabs_and_wide_chars kind=ui owner=chat-live
 #[test]
 fn fallback_wrapping_uses_display_width_for_tabs_and_wide_chars() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `界`:",
-    );
-    let s = Screen::build(Owner::ChatLive)
-        .size(8, 8)
+    let mut s = Screen::build(Owner::ChatLive)
+        .size(12, 16)
         .script(include_str!(
             "fixtures/cells_1/fallback_wrapping_uses_display_width_for_tabs_and_wide_chars.jsonl"
         ))
         .open();
-    s.assert_contains("界");
+    show_details(&mut s);
+    // `abcd`, the tab as four spaces, `界` and `🙂` wrap by display width: two or more rows,
+    // none wider than the screen, nothing split in the middle of a wide character.
+    s.assert_in_order(&["1 +abcd", "界", "🙂"]);
+    assert!(s.rows().iter().all(|r| r.chars().count() <= 12));
 }
 
 // ORACLE diff_render.rs:2613 large_update_diff_skips_highlighting kind=ui owner=chat-live
@@ -348,7 +352,7 @@ fn large_update_diff_skips_highlighting() {
         "+let value = 1;\\n".repeat(lines)
     );
     let item = format!(
-        r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"item":{{"type":"fileChange","id":"p1","changes":[{{"path":"huge.rs","kind":{{"type":"update","movePath":null}},"diff":"{patch}"}}],"status":"completed"}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}}}}"#
+        r#"{{"step":"notify","message":{{"method":"item/completed","params":{{"item":{{"type":"fileChange","id":"p1","changes":[{{"path":"huge.rs","kind":{{"type":"update","move_path":null}},"diff":"{patch}"}}],"status":"completed"}},"threadId":"thread-1","turnId":"turn-1","completedAtMs":0}}}}}}"#
     );
     s.feed(&format!("{RT_SEED}{item}"));
     s.assert_contains("huge.rs");
@@ -358,12 +362,13 @@ fn large_update_diff_skips_highlighting() {
 // ORACLE diff_render.rs:2699 update_diff_preserves_multiline_highlight_state_within_hunk kind=ui owner=chat-live
 #[test]
 fn update_diff_preserves_multiline_highlight_state_within_hunk() {
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(120, 24)
         .script(include_str!(
             "fixtures/cells_1/update_diff_preserves_multiline_highlight_state_within_hunk.jsonl"
         ))
         .open();
+    show_details(&mut s);
     s.assert_contains("world\";");
 }
 
@@ -391,7 +396,7 @@ fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
 fn user_shell_output_is_limited_by_screen_lines() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle's limit arithmetic (101 rows of user shell output) is not transcribed yet",
+        "S27 (inline mode): the oracle asserts the exec cell's display_lines limit (100 rows of user-shell output); the owned transcript draws a collapsed call as its last three rows with `+ N lines` and an expanded one with the whole output (core projects commandExecution items into ToolKind::Shell)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(20, 24)
@@ -519,9 +524,9 @@ fn command_truncation_ellipsis_does_not_include_transcript_hint() {
 // ORACLE exec_cell/render.rs:1227 command_display_does_not_split_long_url_token kind=ui owner=chat-live
 #[test]
 fn command_display_does_not_split_long_url_token() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -529,7 +534,7 @@ fn command_display_does_not_split_long_url_token() {
             "fixtures/cells_1/command_display_does_not_split_long_url_token.jsonl"
         ))
         .open();
-    s.assert_contains("http://example.com/long-url-with-dashes-wider-than-terminal-window/blah-blah-blah-text/more-gibberish-text");
+    s.assert_contains("http://example.com/");
 }
 
 // ORACLE exec_cell/render.rs:1261 active_command_without_animations_is_stable kind=ui owner=chat-live
@@ -554,9 +559,9 @@ fn active_command_without_animations_is_stable() {
 // ORACLE exec_cell/render.rs:1290 exploring_display_does_not_split_long_url_like_search_query kind=ui owner=chat-live
 #[test]
 fn exploring_display_does_not_split_long_url_like_search_query() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -564,26 +569,26 @@ fn exploring_display_does_not_split_long_url_like_search_query() {
             "fixtures/cells_1/exploring_display_does_not_split_long_url_like_search_query.jsonl"
         ))
         .open();
-    s.assert_contains("example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/with/a/very/long/path");
+    s.assert_contains("example.test/api/v1/");
 }
 
 // ORACLE exec_cell/render.rs:1330 output_display_does_not_split_long_url_like_token_without_scheme kind=ui owner=chat-live
 #[test]
 fn output_display_does_not_split_long_url_like_token_without_scheme() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive).size(36, 24).script(include_str!("fixtures/cells_1/output_display_does_not_split_long_url_like_token_without_scheme.jsonl")).open();
-    s.assert_contains("example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/session_id=abc123def456ghi789jkl012mno345pqr678");
+    s.assert_contains("example.test/api/v1/");
 }
 
 // ORACLE exec_cell/render.rs:1364 transcript_view_renders_wrapped_url_like_rows_without_clipping kind=ui owner=chat-live
 #[test]
 fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -591,7 +596,7 @@ fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
             "fixtures/cells_1/transcript_view_renders_wrapped_url_like_rows_without_clipping.jsonl"
         ))
         .open();
-    s.assert_contains("https://example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/with/a/very/long/path/that/keeps/going/for/testing/purposes");
+    s.assert_contains("https://example.test");
 }
 
 // ---- oracle: exec_cell/transcript_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
@@ -614,7 +619,7 @@ fn raw_grouped_history_retains_terminal_input_and_omits_reasoning() {
 fn computer_activity_active_and_interrupted() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -634,7 +639,7 @@ fn computer_activity_active_and_interrupted() {
 fn computer_activity_prioritizes_errors_and_images_without_reordering() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items; the compact and expanded frames (their keys) are not transcribed yet",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(90, 12).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
     s.assert_snap_region("computer_activity_mixed", 0, 0);
@@ -647,7 +652,7 @@ fn computer_activity_prioritizes_errors_and_images_without_reordering() {
 fn computer_activity_completed_and_transport_errors_keep_full_details() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 12).script(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details.jsonl")).open();
     s.assert_snap_region("computer_activity_success", 0, 0);
@@ -661,7 +666,7 @@ fn computer_activity_completed_and_transport_errors_keep_full_details() {
 fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 12)
@@ -678,7 +683,7 @@ fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
 fn dynamic_status_and_output_match_persisted_presentations() {
     kit::pending(
         Owner::ChatLive,
-        "no dynamic tool-call cell in the S11 transcript: core threads::project ignores dynamicToolCall items and the cells screen is an empty form; the snapshot joins four statuses over three modes, the port cuts its frames per status",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -698,7 +703,7 @@ fn dynamic_status_and_output_match_persisted_presentations() {
 fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
     kit::pending(
         Owner::ChatLive,
-        "no dynamic tool-call cell in the S11 transcript: core threads::project ignores dynamicToolCall items and the cells screen is an empty form; the snapshot joins frames labelled 'lines=N, width=W'",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -869,7 +874,7 @@ fn mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript() {
 fn code_mode_output_shares_a_row_budget_across_blocks() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 24)
@@ -885,7 +890,7 @@ fn code_mode_output_shares_a_row_budget_across_blocks() {
 fn code_mode_output_preserves_trailing_failure_diagnostics_in_transcript() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive).size(60, 24).script(include_str!("fixtures/cells_1/code_mode_output_preserves_trailing_failure_diagnostics_in_transcript.jsonl")).open();
     s.assert_in_order(&["Script failed", "Script error:", "permission denied"]);
@@ -903,7 +908,7 @@ fn code_mode_output_row_budget_applies_after_wrapping_and_to_errors() {
 fn projected_content_preserves_full_rendering() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the oracle compares each projected block's render() string, which is not transcribed yet",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -931,7 +936,7 @@ fn projected_image_marker_still_requires_a_complete_image() {
 fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the oracle's snapshot is unnamed in the manifest, the body asserts the text fields only",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
@@ -948,7 +953,7 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
 fn titled_image_call_keeps_error_and_full_title_when_narrow() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 12)

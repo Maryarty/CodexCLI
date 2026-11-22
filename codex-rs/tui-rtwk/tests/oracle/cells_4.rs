@@ -97,10 +97,6 @@ fn unified_exec_interaction_details_wrap_long_input() {
 // ORACLE history_cell/tests.rs:1386 web_search_history_cell_snapshot kind=snap owner=chat-live snap=web_search_history_cell_snapshot
 #[test]
 fn web_search_history_cell_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: web_search_history_cell_snapshot: ours (right) differs from the oracle (left)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(
@@ -145,10 +141,6 @@ fn pnpm_update_available_history_cell_snapshot() {
 // ORACLE history_cell/tests.rs:1429 web_search_history_cell_without_detail_snapshot kind=snap owner=chat-live snap=web_search_history_cell_without_detail_snapshot
 #[test]
 fn web_search_history_cell_without_detail_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: web_search_history_cell_without_detail_snapshot: ours (right) differs from the oracle (left)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(64, 8)
         .script(include_str!(

@@ -11,7 +11,10 @@ mod cells;
 pub mod citations;
 mod collab;
 pub mod directives;
+pub mod followups;
+pub mod inline_vis;
 mod message;
+pub mod stream_preview;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};

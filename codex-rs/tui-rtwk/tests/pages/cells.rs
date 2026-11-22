@@ -239,6 +239,51 @@ mod patch_preview {
             "a wrapped line takes the rows it needs: {shown:#?}"
         );
     }
+
+    #[test]
+    fn an_added_or_removed_row_is_tinted_over_its_whole_width_and_context_is_not() {
+        // oracle `style_line_bg_for`: the tint fills the row from the indent to the right edge,
+        // not only the text; the two tints differ, the context row has none.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
+        t.pump_widget(PatchCell {
+            detailed: true,
+            ..cell("@@ -1,2 +1,2 @@\n-a\n+b\n c\n")
+        });
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|l| l.trim_end().to_string())
+            .collect();
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|row| row.ends_with(needle))
+                .unwrap_or_else(|| panic!("no row ends with `{needle}`: {rows:#?}"))
+        };
+        let (removed, added, context) = (at("1 -a"), at("1 +b"), at("2  c"));
+        for x in [0, 3, 7, 29] {
+            assert_eq!(
+                t.cell(x, removed).bg,
+                t.cell(0, removed).bg,
+                "removed row at {x}"
+            );
+            assert_eq!(t.cell(x, added).bg, t.cell(0, added).bg, "added row at {x}");
+        }
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, context).bg,
+            "the added row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, removed).bg,
+            t.cell(0, context).bg,
+            "the removed row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, removed).bg,
+            "the two tints differ"
+        );
+    }
 }
 
 // ---- a revealed patch survives the turn's timing row (the row sits in the
@@ -415,13 +460,13 @@ mod reasoning_style {
 // text, escaped and nested directives stay literal) ----
 
 mod citations {
-    use codex_tui_rtwk::pages::session::cells::citation;
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
 
     const C: &str = r#":codex-file-citation{path="/tmp/report.xlsx" purpose="output"}"#;
 
     fn show(source: &str, cwd: Option<&str>) -> (rtwk_test::Tester, Vec<String>) {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(80, 12));
-        t.pump_widget(citation::view(source, cwd));
+        t.pump_widget(citation::view(source, false, cwd, &strings::EN));
         let mut rows: Vec<String> = t
             .screen()
             .lines()
@@ -1773,13 +1818,13 @@ mod plan_in_transcript {
 // is a line break of the screen, except before a `:` that follows such a link ----
 
 mod local_links {
-    use codex_tui_rtwk::pages::session::cells::citation;
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
 
     const CWD: Option<&str> = Some("/work/repo");
 
     fn show(source: &str) -> (rtwk_test::Tester, Vec<String>) {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(60, 12));
-        t.pump_widget(citation::view(source, CWD));
+        t.pump_widget(citation::view(source, false, CWD, &strings::EN));
         let mut rows: Vec<String> = t
             .screen()
             .lines()
@@ -1875,11 +1920,11 @@ mod local_links {
 
 // What the Markdown widget rewrites besides links (`widgets/markdown/inlines.rs`).
 mod markdown_inlines {
-    use codex_tui_rtwk::pages::session::cells::citation;
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
 
     fn rows(source: &str) -> Vec<String> {
         let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(40, 8));
-        t.pump_widget(citation::view(source, None));
+        t.pump_widget(citation::view(source, false, None, &strings::EN));
         let mut rows: Vec<String> = t
             .screen()
             .lines()
@@ -1908,5 +1953,78 @@ mod markdown_inlines {
             rows("https://example.com/?a=1&b=2&nope;"),
             ["https://example.com/?a=1&b=2&nope;"]
         );
+    }
+}
+
+// ---- the preview of an answer that is still streaming (oracle streaming/prose_preview.rs
+// `rich_safe_len`, markdown_render/inline_directives.rs follow-up labels, inline_visualization.rs):
+// the unfinished tail waits, a follow-up reads as its label once closed ----
+
+mod streaming_preview {
+    use codex_tui_rtwk::pages::session::cells::{citation, strings};
+
+    fn rows(source: &str, live: bool) -> Vec<String> {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(50, 8));
+        t.pump_widget(citation::view(source, live, None, &strings::EN));
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    #[test]
+    fn a_live_answer_hides_the_prompt_of_an_open_follow_up() {
+        let open = "Next:\n:codex-followup[Try it]{prompt=\"run the su";
+        assert_eq!(rows(open, true), ["Next:"]);
+        // The finished answer holds the same text: nothing is held back.
+        assert_ne!(rows(open, false), ["Next:"]);
+    }
+
+    #[test]
+    fn a_closed_follow_up_reads_as_its_label_and_never_shows_the_prompt() {
+        let closed = "Next: :codex-followup[Try **it**]{prompt=\"run the suite\"}";
+        for live in [true, false] {
+            let got = rows(closed, live).join("\n");
+            assert!(got.contains("Try it"), "{got}");
+            assert!(!got.contains("run the suite"), "{got}");
+            assert!(!got.contains("codex-followup"), "{got}");
+        }
+    }
+
+    #[test]
+    fn an_unfinished_link_destination_waits_for_its_closing_paren() {
+        // The destination waits: only what stands before its `(` shows.
+        assert_eq!(rows("See [docs](https://exam", true), ["See [docs]"]);
+        assert_eq!(
+            rows("See [docs](https://example.com) now", true),
+            ["See docs now"]
+        );
+        // Finished, the unclosed destination is plain text, as the oracle's finalize shows it.
+        assert_eq!(
+            rows("See [docs](https://exam", false),
+            ["See [docs](https://exam"]
+        );
+    }
+
+    #[test]
+    fn complete_lines_show_whole_and_an_unfinished_table_row_waits() {
+        assert_eq!(rows("one\ntwo", true), ["one", "two"]);
+        assert_eq!(rows("one\n| a | b", true), ["one"]);
+    }
+
+    #[test]
+    fn a_visualization_line_reads_as_the_unavailable_note_and_code_is_untouched() {
+        let got = rows("::codex-inline-vis{file=\"x.html\"}\n", true).join("\n");
+        assert!(
+            got.contains("Visualization unavailable on this device."),
+            "{got}"
+        );
+        let code = rows("```\n::codex-inline-vis{file=\"x.html\"}\n```\n", false).join("\n");
+        assert!(code.contains("::codex-inline-vis"), "{code}");
     }
 }
