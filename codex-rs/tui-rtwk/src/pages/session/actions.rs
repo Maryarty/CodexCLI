@@ -143,6 +143,14 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 };
                 cx.emit(&hs.screen, intent);
             }
+            // The settings dialogs are built by the model from its facts
+            // (the dialog the command names), then shown by `open`.
+            if let Some(dialog) = settings_dialog(opened.command) {
+                cx.emit(
+                    &hs.screen,
+                    ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
+                );
+            }
             if opened.command == SlashCommand::Warnings {
                 open_warnings(cx, hs);
             } else {
@@ -165,5 +173,16 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         Outcome::Quit => cx.emit(&hs.quit, ()),
         // The line stays in the composer to be corrected.
         Outcome::Notice(notice) => screen(cx, chat::Intent::Notice(notice)),
+    }
+}
+
+/// The settings dialog a slash command opens, when the model builds it
+/// (the others open their slot empty until their sheet lands).
+fn settings_dialog(command: SlashCommand) -> Option<codex_tui_core::screens::settings::Dialog> {
+    use codex_tui_core::screens::settings::Dialog;
+    match command {
+        SlashCommand::Theme => Some(Dialog::Theme),
+        SlashCommand::Memories => Some(Dialog::Memories),
+        _ => None,
     }
 }

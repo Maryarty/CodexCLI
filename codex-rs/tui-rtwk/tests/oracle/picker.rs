@@ -70,13 +70,9 @@ fn renders_blank_line_between_subtitle_and_items() {
 // ORACLE bottom_pane/list_selection_view.rs:2184 theme_picker_subtitle_uses_fallback_text_in_94x35_terminal kind=ui owner=ui-pane
 #[test]
 fn theme_picker_subtitle_uses_fallback_text_in_94x35_terminal() {
-    kit::pending(
-        Owner::UiPane,
-        "no theme picker entry: the port has no theme picker (build_theme_picker_params), so the fallback subtitle is not drawn",
-    );
     let s = Screen::build(Owner::UiPane)
         .size(94, 35)
-        .entry("select", "theme_picker")
+        .entry("settings", "theme_picker")
         .open();
     s.assert_contains("Move up/down to live preview themes");
 }

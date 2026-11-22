@@ -17,6 +17,27 @@ use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
 
+/// How a line of the theme preview changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    Context,
+    Added,
+    Removed,
+}
+
+/// One line of the theme preview's sample diff (`theme_picker.rs`:
+/// `PreviewRow`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreviewRow {
+    pub no: &'static str,
+    pub change: Change,
+    pub code: &'static str,
+}
+
+const fn row(no: &'static str, change: Change, code: &'static str) -> PreviewRow {
+    PreviewRow { no, change, code }
+}
+
 /// The strings of this screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strings {
@@ -41,6 +62,8 @@ pub struct Strings {
     /// The marker of the row with the cursor, and the blank under it.
     pub cursor_marker: &'static str,
     pub indent: &'static str,
+    /// The cell before the sign of a diff line.
+    pub diff_gutter: &'static str,
     pub more_above: &'static str,
     pub more_below: &'static str,
     pub no_matches: &'static str,
@@ -58,8 +81,14 @@ pub struct Strings {
     // theme_picker.rs
     pub theme_title: &'static str,
     pub theme_subtitle: &'static str,
-    /// The narrow preview: a diff of a Rust function.
-    pub theme_preview: [&'static str; 4],
+    pub theme_search_placeholder: &'static str,
+    /// The subtitle when the custom themes' directory is known and fits.
+    pub theme_custom_dir: Msg<1>,
+    pub theme_custom_mark: &'static str,
+    /// The narrow preview (stacked below the rows): a diff of a Rust function.
+    pub theme_narrow: [PreviewRow; 4],
+    /// The wide preview (beside the rows).
+    pub theme_wide: [PreviewRow; 8],
     /// bottom_pane/popup_consts.rs: `standard_popup_hint_line`.
     pub popup_hint: &'static str,
     // bottom_pane/status_line_setup.rs
@@ -69,9 +98,48 @@ pub struct Strings {
     pub use_theme_colors: &'static str,
     pub use_theme_colors_description: &'static str,
     pub status_hint: &'static str,
+    // bottom_pane/title_setup.rs: the same view with a title of its own.
+    pub title_setup_title: &'static str,
+    pub title_setup_subtitle: &'static str,
+    // bottom_pane/skills_toggle_view.rs
+    pub skills_title: &'static str,
+    pub skills_subtitle: &'static str,
+    pub skills_search_placeholder: &'static str,
+    pub skills_hint: &'static str,
+    // bottom_pane/experimental_features_view.rs
+    pub features_title: &'static str,
+    pub features_subtitle: &'static str,
+    pub features_loading: &'static str,
+    pub features_saving: &'static str,
+    pub features_none: &'static str,
+    pub features_unavailable: &'static str,
+    pub features_no_rows: &'static str,
+    pub features_read_only: &'static str,
+    pub features_hint: &'static str,
+    pub features_hint_saving: &'static str,
+    pub features_hint_retained: &'static str,
     pub check_on: &'static str,
     pub check_off: &'static str,
     pub section_break: &'static str,
+    // bottom_pane/memories_settings_view.rs
+    pub memories_title: &'static str,
+    pub memories_subtitle: &'static str,
+    pub memories_use: &'static str,
+    pub memories_use_description: &'static str,
+    pub memories_generate: &'static str,
+    pub memories_generate_description: &'static str,
+    pub memories_reset: &'static str,
+    pub memories_reset_description: &'static str,
+    pub memories_docs: &'static str,
+    pub memories_docs_url: &'static str,
+    pub memories_hint: &'static str,
+    pub reset_title: &'static str,
+    pub reset_subtitle: &'static str,
+    pub reset_yes: &'static str,
+    pub reset_yes_description: &'static str,
+    pub reset_no: &'static str,
+    pub reset_no_description: &'static str,
+    pub reset_hint: &'static str,
     // keymap_setup/picker.rs
     pub keymap_search_placeholder: &'static str,
     pub keymap_hint: &'static str,
@@ -110,6 +178,7 @@ pub const EN: Strings = Strings {
     search_description: msg!("{0} \u{b7} {1}"),
     cursor_marker: "\u{203a} ",
     indent: "  ",
+    diff_gutter: " ",
     more_above: "\u{2191}",
     more_below: "\u{2193}",
     no_matches: "no matches",
@@ -125,11 +194,48 @@ pub const EN: Strings = Strings {
     config_search_hint_toggle: "enter toggle \u{b7} esc clear search",
     theme_title: "Select Syntax Theme",
     theme_subtitle: "Move up/down to live preview themes",
-    theme_preview: [
-        "12  fn greet(name: &str) -> String {",
-        "13 -    format!(\"Hello, {}!\", name)",
-        "13 +    format!(\"Hello, {name}!\")",
-        "14  }",
+    theme_search_placeholder: "Type to filter themes...",
+    theme_custom_dir: msg!("Custom .tmTheme files can be added to the {0} directory."),
+    theme_custom_mark: " (custom)",
+    theme_narrow: [
+        row("12", Change::Context, "fn greet(name: &str) -> String {"),
+        row("13", Change::Removed, "    format!(\"Hello, {}!\", name)"),
+        row("13", Change::Added, "    format!(\"Hello, {name}!\")"),
+        row("14", Change::Context, "}"),
+    ],
+    theme_wide: [
+        row(
+            "31",
+            Change::Context,
+            "fn summarize(users: &[User]) -> String {",
+        ),
+        row(
+            "32",
+            Change::Removed,
+            "    let active = users.iter().filter(|u| u.is_active).count();",
+        ),
+        row(
+            "32",
+            Change::Added,
+            "    let active = users.iter().filter(|u| u.is_active()).count();",
+        ),
+        row(
+            "33",
+            Change::Context,
+            "    let names: Vec<&str> = users.iter().map(User::name).take(3).collect();",
+        ),
+        row(
+            "34",
+            Change::Removed,
+            "    format!(\"{} active: {}\", active, names.join(\", \"))",
+        ),
+        row(
+            "34",
+            Change::Added,
+            "    format!(\"{active} active users: {}\", names.join(\", \"))",
+        ),
+        row("35", Change::Added, "        .trim()"),
+        row("36", Change::Context, "}"),
     ],
     popup_hint: "Press enter to confirm or esc to go back",
     status_title: "Configure Status Line",
@@ -140,7 +246,42 @@ pub const EN: Strings = Strings {
     check_on: "[x] ",
     check_off: "[ ] ",
     section_break: "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+    memories_title: "Memories",
+    memories_subtitle: "Choose how Codex uses and creates memories. Changes are saved to config.toml",
+    memories_use: "Use memories",
+    memories_use_description: "Use memories starting with the next thread",
+    memories_generate: "Generate memories",
+    memories_generate_description: "Generate memories from this thread and future threads",
+    memories_reset: "Reset all memories",
+    memories_reset_description: "Clear local memory files and summaries without changing existing threads",
+    memories_docs: "Learn more: ",
+    memories_docs_url: "https://developers.openai.com/codex/memories",
+    memories_hint: "space toggle \u{b7} enter save/select \u{b7} esc cancel",
+    reset_title: "Reset all memories?",
+    reset_subtitle: "This clears local memory files and rollout summaries for the current Codex home.",
+    reset_yes: "Reset all memories",
+    reset_yes_description: "Delete local memory files and rollout summaries",
+    reset_no: "Go back",
+    reset_no_description: "Return to memory settings",
+    reset_hint: "enter select \u{b7} esc back",
     status_hint: "space toggle \u{b7} \u{2190}/\u{2192} reorder \u{b7} enter save \u{b7} esc cancel",
+    title_setup_title: "Configure Terminal Title",
+    title_setup_subtitle: "Select which items to display in the terminal title.",
+    skills_title: "Enable/Disable Skills",
+    skills_subtitle: "Turn skills on or off. Your changes are saved automatically.",
+    skills_search_placeholder: "Type to search skills",
+    skills_hint: "space/enter toggle \u{b7} esc close",
+    features_title: "Experimental features",
+    features_subtitle: "Checked features are configured on. Some experimental features take effect only in new tasks or after restarting the Codex server.",
+    features_loading: "Loading server experiments\u{2026}",
+    features_saving: "Saving experimental features\u{2026}",
+    features_none: "No server experiments available.",
+    features_unavailable: "Server experiments unavailable. Reopen /experimental to retry; restart this Codex client if requests remain unanswered.",
+    features_no_rows: "No experimental features available for now",
+    features_read_only: " (read-only)",
+    features_hint: "space toggle \u{b7} enter save \u{b7} esc save/close",
+    features_hint_saving: "Saving\u{2026} Closing this popup will not cancel the write.",
+    features_hint_retained: "Selections retained. Save to retry, or cancel to close.",
     keymap_search_placeholder: "Type to search shortcuts",
     keymap_hint: "left/right group \u{b7} enter edit shortcut \u{b7} * custom \u{b7} - unbound \u{b7} esc close",
     keymap_empty: "No shortcuts in this group",
@@ -169,6 +310,11 @@ impl Strings {
     /// "Automatic ›".
     pub fn choice<'a>(&'a self, label: &'a str) -> Fmt<'a, 1> {
         Fmt::new(self.value_choice, [Arg::Text(label)], &self.num)
+    }
+
+    /// "Custom .tmTheme files can be added to the ~/.codex/themes directory.".
+    pub fn custom_dir<'a>(&'a self, dir: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.theme_custom_dir, [Arg::Text(dir)], &self.num)
     }
 
     /// "12 actions.".

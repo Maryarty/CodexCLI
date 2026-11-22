@@ -123,42 +123,35 @@ pub struct Row {
     pub value: Value,
 }
 
-/// The configuration panel (`config_panel/`): one group at a time, or every
-/// group while a search is typed.
+/// The configuration panel (`config_panel/`): the rows of the catalogue. The
+/// group shown, the highlighted row and the search text are the view's
+/// (`TabController`, `SelectionController`, `TextEditingController`); what
+/// they leave visible is a function of them (`visible`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigPanel {
     pub rows: Vec<Row>,
-    /// The group shown, an index into `Section::ALL`.
-    pub tab: usize,
-    /// The highlighted row, an index into `visible()`.
-    pub cursor: usize,
-    pub query: String,
 }
 
 impl ConfigPanel {
     pub fn new(rows: Vec<Row>) -> Self {
-        Self {
-            rows,
-            tab: 0,
-            cursor: 0,
-            query: String::new(),
-        }
+        Self { rows }
     }
 
-    /// The group shown.
-    pub fn section(&self) -> Section {
-        Section::ALL[self.tab]
+    /// The row editing `id`.
+    pub fn row(&self, id: SettingId) -> Option<&Row> {
+        self.rows.iter().find(|row| row.id == id)
     }
 
-    /// The rows shown, as indices into `rows`.
-    pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.trim().to_lowercase();
+    /// The rows of `section`, or, while `query` has text, every row that
+    /// matches it; as indices into `rows`.
+    pub fn visible(&self, section: Section, query: &str) -> Vec<usize> {
+        let query = query.trim().to_lowercase();
         self.rows
             .iter()
             .enumerate()
             .filter(|(_, row)| {
                 if query.is_empty() {
-                    row.section == self.section()
+                    row.section == section
                 } else {
                     // `config_panel/render.rs`: the row's `search_value`.
                     format!(
@@ -183,9 +176,42 @@ impl ConfigPanel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThemePicker {
     pub themes: Vec<String>,
-    pub cursor: usize,
-    /// The theme to restore when the picker is cancelled.
+    /// The names among `themes` that are the user's own `.tmTheme` files
+    /// (shown with "(custom)").
+    pub custom: Vec<String>,
+    /// The theme to restore when the picker is cancelled; the row the cursor
+    /// starts on.
     pub original: Option<String>,
+    /// The directory of the custom themes as the subtitle names it
+    /// (`~/.codex/themes`); none when it is not below the home directory.
+    pub themes_dir: Option<String>,
+}
+
+impl ThemePicker {
+    /// The themes a search leaves, as indices into `themes`: those whose
+    /// name holds the text typed, in any case (`SelectionItem::search_value`).
+    pub fn visible(&self, query: &str) -> Vec<usize> {
+        let query = query.to_lowercase();
+        self.themes
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| name.to_lowercase().contains(&query))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// The theme is one of the user's own files.
+    pub fn is_custom(&self, name: &str) -> bool {
+        self.custom.iter().any(|custom| custom == name)
+    }
+
+    /// The row the cursor starts on: the theme in force.
+    pub fn initial(&self) -> usize {
+        self.original
+            .as_ref()
+            .and_then(|name| self.themes.iter().position(|theme| theme == name))
+            .unwrap_or(0)
+    }
 }
 
 /// The id of the status-line setup's first row, "Use theme colors"
@@ -196,6 +222,8 @@ pub const USE_THEME_COLORS: &str = "use_theme_colors";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupItem {
     pub id: String,
+    /// What the row shows when it is not the id (a skill's display name).
+    pub label: String,
     pub description: String,
     pub enabled: bool,
     /// May be moved with the arrow keys.
@@ -205,51 +233,131 @@ pub struct SetupItem {
     pub placeholder: String,
 }
 
-/// The status-line setup (`bottom_pane/status_line_setup.rs`).
+/// Which surface a setup configures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupKind {
+    /// `bottom_pane/status_line_setup.rs`.
+    StatusLine,
+    /// `bottom_pane/title_setup.rs`: the terminal title.
+    Title,
+    /// `bottom_pane/skills_toggle_view.rs`: Enable/Disable Skills, a plain
+    /// checklist with a search (no order, no preview); each toggle is saved
+    /// as it is made.
+    Skills,
+}
+
+/// The status-line and terminal-title setups: `MultiSelectPicker` with the
+/// items of the surface. The highlighted row and the search text are the
+/// view's; the order and the checks are the model's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StatusLineSetup {
+pub struct Setup {
+    pub kind: SetupKind,
     pub items: Vec<SetupItem>,
     /// Runtime values of the items, by id.
     pub values: BTreeMap<String, String>,
-    pub cursor: usize,
-    pub query: String,
 }
 
-impl StatusLineSetup {
-    /// The rows shown, as indices into `items`.
-    pub fn visible(&self) -> Vec<usize> {
-        let query: Vec<char> = self.query.trim().to_lowercase().chars().collect();
-        self.items
+/// The id of the title's activity item, the one that needs spaces around it.
+pub const ACTIVITY: &str = "activity";
+
+/// What the preview of a title with `activity` starts with
+/// (`ACTION_REQUIRED_PREVIEW_PREFIX`).
+pub const ACTION_REQUIRED_PREFIX: &str = "[ ! ] Action Required";
+
+impl SetupItem {
+    /// The name the row shows.
+    pub fn name(&self) -> &str {
+        if self.label.is_empty() {
+            &self.id
+        } else {
+            &self.label
+        }
+    }
+}
+
+impl Setup {
+    /// The rows a search leaves, as indices into `items`: a fuzzy match on the
+    /// id, best score first, ties by name (`MultiSelectPicker::apply_filter`);
+    /// every row in order while the search is empty. The skills match the
+    /// display name first, then the skill's own name (`match_skill`), ties by
+    /// display name.
+    pub fn visible(&self, query: &str) -> Vec<usize> {
+        let query = query.trim();
+        if query.is_empty() {
+            return (0..self.items.len()).collect();
+        }
+        let skills = self.kind == SetupKind::Skills;
+        let mut found: Vec<(usize, i32)> = self
+            .items
             .iter()
             .enumerate()
-            .filter(|(_, item)| {
-                // `multi_select_picker.rs`: a fuzzy match on the name.
-                let name = item.id.replace('_', " ").to_lowercase();
-                let mut rest = query.iter().peekable();
-                for c in name.chars() {
-                    if rest.peek() == Some(&&c) {
-                        rest.next();
-                    }
-                }
-                rest.peek().is_none()
+            .filter_map(|(index, item)| {
+                let item_match = if skills {
+                    crate::commands::fuzzy_match(item.name(), query)
+                        .or_else(|| {
+                            (item.name() != item.id)
+                                .then(|| crate::commands::fuzzy_match(&item.id, query))
+                                .flatten()
+                        })
+                } else {
+                    crate::commands::fuzzy_match(&item.id, query)
+                };
+                item_match.map(|(_, score)| (index, score))
             })
-            .map(|(index, _)| index)
-            .collect()
+            .collect();
+        found.sort_by(|a, b| {
+            a.1.cmp(&b.1).then_with(|| {
+                if skills {
+                    self.items[a.0].name().cmp(self.items[b.0].name())
+                } else {
+                    self.items[a.0].id.cmp(&self.items[b.0].id)
+                }
+            })
+        });
+        found.into_iter().map(|(index, _)| index).collect()
     }
 
-    /// The status line the enabled items make, in order (`status_line_for_items`).
+    /// The item `id`, as an index into `items`.
+    pub fn position(&self, id: &str) -> Option<usize> {
+        self.items.iter().position(|item| item.id == id)
+    }
+
+    /// The line the enabled items make, in order: the status line joins the
+    /// values with ` · ` (`status_line_for_items`); the title with ` | `, and
+    /// leads with the action-required prefix when it holds the activity item
+    /// (`preview_line_for_title_items`).
     pub fn preview(&self) -> String {
-        self.items
+        if self.kind == SetupKind::Skills {
+            return String::new();
+        }
+        let values = self
+            .items
             .iter()
-            .filter(|item| item.enabled && item.id != USE_THEME_COLORS)
+            .filter(|item| item.enabled && item.id != USE_THEME_COLORS && item.id != ACTIVITY)
             .map(|item| {
                 self.values
                     .get(&item.id)
                     .unwrap_or(&item.placeholder)
                     .as_str()
             })
-            .collect::<Vec<_>>()
-            .join(" · ")
+            .filter(|value| !value.is_empty());
+        match self.kind {
+            SetupKind::StatusLine | SetupKind::Skills => {
+                values.collect::<Vec<_>>().join(" · ")
+            }
+            SetupKind::Title => {
+                let activity = self
+                    .items
+                    .iter()
+                    .any(|item| item.enabled && item.id == ACTIVITY);
+                let mut parts: Vec<&str> = Vec::new();
+                if activity {
+                    parts.push(ACTION_REQUIRED_PREFIX);
+                }
+                parts.extend(values);
+                parts.join(" | ")
+            }
+        }
     }
 }
 
@@ -284,25 +392,17 @@ pub struct KeymapTab {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeymapPicker {
     pub tabs: Vec<KeymapTab>,
-    pub tab: usize,
-    /// The highlighted row, an index into `visible()`.
-    pub cursor: usize,
-    pub query: String,
 }
 
 impl KeymapPicker {
-    /// The actions of the tab shown.
-    pub fn items(&self) -> &[ActionItem] {
-        &self.tabs[self.tab].items
-    }
-
-    /// The rows shown, as indices into `items()`: those whose search text
-    /// holds every word typed (the oracle ranks by fuzzy match; here a
-    /// plain match in the catalogue's order).
-    pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.trim().to_lowercase();
+    /// The rows of `tab` a search leaves, as indices into its items: those
+    /// whose search text holds every word typed (the oracle ranks by fuzzy
+    /// match; here a plain match in the catalogue's order).
+    pub fn visible(&self, tab: usize, query: &str) -> Vec<usize> {
+        let query = query.trim().to_lowercase();
         let words: Vec<&str> = query.split_whitespace().collect();
-        self.items()
+        self.tabs[tab]
+            .items
             .iter()
             .enumerate()
             .filter(|(_, item)| {
@@ -315,12 +415,123 @@ impl KeymapPicker {
 }
 
 /// The settings dialog open now.
+/// One experimental feature of the dialog (`ExperimentalFeatureItem`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Feature {
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub enabled: bool,
+    /// Read-only features cannot be flipped (`item.writable`).
+    #[serde(default = "writable")]
+    pub writable: bool,
+}
+
+fn writable() -> bool {
+    true
+}
+
+/// The line under the subtitle of the experimental features: the state of
+/// the catalogue and of the write (`discovery_status`). The words are the
+/// view's (ADR-010); only what the server said is text here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FeaturesStatus {
+    #[default]
+    Quiet,
+    /// The server's catalogue was asked for.
+    Loading,
+    /// The write was sent.
+    Saving,
+    /// The catalogue came with nothing in it.
+    NoExperiments,
+    /// The catalogue request failed.
+    Unavailable,
+    /// What the write answered: a warning or an error of the server.
+    Message(String),
+}
+
+/// `ExperimentalFeaturesView`: the features, what each was when the dialog
+/// last agreed with the config, and where discovery and the write stand.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Experimental {
+    pub features: Vec<Feature>,
+    /// What each feature was at the last agreement (`initial_enabled`).
+    pub initial: Vec<bool>,
+    /// The keys a write was sent for and did not confirm: Enter sends them
+    /// again (`unconfirmed`).
+    pub unconfirmed: Vec<String>,
+    pub status: FeaturesStatus,
+    /// The catalogue is on its way (`catalog_rx.is_some()`).
+    pub loading: bool,
+    /// A write is on its way (`write_rx.is_some()`).
+    pub saving: bool,
+    /// Which open of the dialog the answers belong to; an answer of
+    /// another one is stale and dropped.
+    pub generation: u64,
+}
+
+impl Experimental {
+    pub fn new(features: Vec<Feature>, loading: bool, generation: u64) -> Self {
+        Self {
+            initial: features.iter().map(|feature| feature.enabled).collect(),
+            features,
+            unconfirmed: Vec::new(),
+            status: if loading {
+                FeaturesStatus::Loading
+            } else {
+                FeaturesStatus::Quiet
+            },
+            loading,
+            saving: false,
+            generation,
+        }
+    }
+
+    /// `save_changes`: what a write would send, in the dialog's order.
+    fn updates(&self) -> Vec<(String, bool)> {
+        self.features
+            .iter()
+            .zip(&self.initial)
+            .filter(|(feature, initial)| {
+                feature.writable
+                    && (feature.enabled != **initial || self.unconfirmed.contains(&feature.key))
+            })
+            .map(|(feature, _)| (feature.key.clone(), feature.enabled))
+            .collect()
+    }
+}
+
+/// What a write answered (`FeatureWriteResult`): the features as the config
+/// reads them again, and a warning that keeps the dialog open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Written {
+    pub features: Vec<(String, bool)>,
+    pub warning: Option<String>,
+}
+
+/// `MemoriesSettingsView`: the two switches and whether the reset
+/// confirmation is up (`reset_confirmation`). The cursor of either list is
+/// the view's controller.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Memories {
+    pub use_memories: bool,
+    pub generate_memories: bool,
+    pub confirming: bool,
+}
+
+/// The ids of the two switches of the memories dialog (`Intent::Toggle`).
+pub const MEMORIES_USE: &str = "use";
+pub const MEMORIES_GENERATE: &str = "generate";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Open {
     Config(ConfigPanel),
     Theme(ThemePicker),
-    StatusLine(StatusLineSetup),
+    Setup(Setup),
     Keymap(KeymapPicker),
+    Experimental(Experimental),
+    Memories(Memories),
 }
 
 /// What a settings dialog asked the app to do (the oracle's `AppEvent`s).
@@ -333,19 +544,127 @@ pub enum Edit {
     Editor(SettingId),
     /// `SyntaxThemeSelected`.
     ThemeSelected(String),
-    /// `StatusLineSetup`: the enabled items in order.
-    StatusLineSaved {
+    /// A skill was switched (`AppEvent::SetSkillEnabled`): its id, its value.
+    SkillToggled(String, bool),
+    /// The skills toggle was closed (`AppEvent::ManageSkillsClosed`: the
+    /// skills are read again).
+    SkillsClosed,
+    /// `StatusLineSetup` / `TerminalTitleSetup`: the enabled items in order.
+    SetupSaved {
+        kind: SetupKind,
         items: Vec<String>,
         use_theme_colors: bool,
     },
-    StatusLineCancelled,
+    SetupCancelled(SetupKind),
+    /// `AppEvent::SaveExperimentalFeatures`: the keys and values to write.
+    FeaturesSave(Vec<(String, bool)>),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
+    /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
+    MemoriesSaved {
+        use_memories: bool,
+        generate_memories: bool,
+    },
+    /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
+    MemoriesReset,
+}
+
+/// What the dialogs open from, read of the config and the disk by the host
+/// and sent as `Ev::Facts` (the model reads no files: ADR-003).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Facts {
+    /// `[tui] theme` of the config: the syntax theme in force.
+    pub syntax_theme: Option<String>,
+    /// The `.tmTheme` files of `{codex_home}/themes` (file stems).
+    pub custom_themes: Vec<String>,
+    /// That directory as the subtitle names it (`~/.codex/themes`); none when
+    /// it is not below the home directory.
+    pub themes_dir: Option<String>,
+    /// The memory tool is on (`Feature::MemoryTool`) with these switches
+    /// (`config.memories`); none: it is off and `/memories` offers to turn it
+    /// on (that prompt is not built).
+    pub memories: Option<MemoryFacts>,
+}
+
+/// `config.memories`: the two switches of the memories dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MemoryFacts {
+    pub use_memories: bool,
+    pub generate_memories: bool,
+}
+
+/// The bundled syntax themes in kebab-case, alphabetical
+/// (`render/highlight.rs`: `BUILTIN_THEME_NAMES`).
+pub const BUILTIN_THEMES: [&str; 32] = [
+    "1337",
+    "ansi",
+    "base16",
+    "base16-256",
+    "base16-eighties-dark",
+    "base16-mocha-dark",
+    "base16-ocean-dark",
+    "base16-ocean-light",
+    "catppuccin-frappe",
+    "catppuccin-latte",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
+    "coldark-cold",
+    "coldark-dark",
+    "dark-neon",
+    "dracula",
+    "github",
+    "gruvbox-dark",
+    "gruvbox-light",
+    "inspired-github",
+    "monokai-extended",
+    "monokai-extended-bright",
+    "monokai-extended-light",
+    "monokai-extended-origin",
+    "nord",
+    "one-half-dark",
+    "one-half-light",
+    "solarized-dark",
+    "solarized-light",
+    "sublime-snazzy",
+    "two-dark",
+    "zenburn",
+];
+
+/// The dialog a slash command opens, built from the facts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dialog {
+    /// `/theme`.
+    Theme,
+    /// `/memories`.
+    Memories,
+}
+
+impl Facts {
+    /// The picker `/theme` opens: the bundled names and the custom files,
+    /// sorted together case-insensitively (`list_available_themes`).
+    fn theme_picker(&self) -> ThemePicker {
+        let mut themes: Vec<String> = BUILTIN_THEMES.iter().map(ToString::to_string).collect();
+        let mut custom = Vec::new();
+        for name in &self.custom_themes {
+            if !themes.contains(name) {
+                themes.push(name.clone());
+                custom.push(name.clone());
+            }
+        }
+        themes.sort_by_cached_key(|name| (name.to_ascii_lowercase(), name.clone()));
+        ThemePicker {
+            themes,
+            custom,
+            original: self.syntax_theme.clone(),
+            themes_dir: self.themes_dir.clone(),
+        }
+    }
 }
 
 /// The app-scoped model state of this screen, changed only by `apply`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
+    pub facts: Facts,
     pub open: Option<Open>,
     /// The syntax theme in force (the oracle: `highlight::current_syntax_theme`):
     /// the picker previews by changing it.
@@ -359,25 +678,51 @@ pub struct Model {
 pub enum Ev {
     /// A settings dialog was opened.
     Opened(Open),
+    /// The config's values and the disk's files the dialogs open from.
+    Facts(Facts),
+    /// The server's catalogue of the experimental features arrived; none:
+    /// the request failed. The host leaves out what the dialog hides (the
+    /// stages other than beta, the retired features).
+    FeaturesDiscovered {
+        generation: u64,
+        features: Option<Vec<Feature>>,
+    },
+    /// The write of the experimental features was answered.
+    FeaturesSaved {
+        generation: u64,
+        result: Result<Written, String>,
+    },
 }
 
-/// The intents of this screen; a variant of the root `ScreenIntent`.
+/// The intents of this screen; a variant of the root `ScreenIntent`. The
+/// cursor, the group tab and the search text are the view's controllers; an
+/// intent names what it acts on by id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// Left / Right: the group of the panel, the tab of the keymap picker.
-    Tab(i32),
-    /// Up / Down: the highlighted row; wraps.
-    Move(i32),
-    /// The search text changed.
-    Search(String),
-    /// Enter.
-    Activate,
-    /// Space in the status-line setup.
-    Toggle,
-    /// Left / Right in the status-line setup: move the row among the orderable.
-    Reorder(i32),
-    /// Esc.
+    /// Enter on a row of the panel: flips a toggle, opens the editor of the
+    /// row, sends the test notification.
+    Activate(SettingId),
+    /// The cursor of the theme picker is on this theme: it is shown.
+    Preview(String),
+    /// Enter in the theme picker.
+    Pick(String),
+    /// Space in a setup: flips the item.
+    Toggle(String),
+    /// Left / Right in a setup: moves the item one step among the orderable
+    /// ones.
+    Move { id: String, delta: i32 },
+    /// Enter in a setup.
+    Save,
+    /// Enter in the keymap picker.
+    KeymapPick(String),
+    /// Enter on "Reset all memories": the confirmation opens.
+    ConfirmReset,
+    /// Enter on "Reset all memories" in the confirmation.
+    Reset,
+    /// Esc (the memories confirmation goes back to the switches).
     Close,
+    /// A slash command opens a dialog, built from the facts.
+    Open(Dialog),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -389,68 +734,102 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
             }
             model.open = Some(open);
         }
+        Ev::Facts(facts) => {
+            // The syntax theme in force follows the config, but not while a
+            // picker previews another one.
+            if !matches!(model.open, Some(Open::Theme(_))) {
+                model.syntax_theme = facts.syntax_theme.clone();
+            }
+            model.facts = facts;
+        }
+        Ev::FeaturesDiscovered {
+            generation,
+            features,
+        } => {
+            let Some(Open::Experimental(dialog)) = &mut model.open else {
+                return;
+            };
+            if dialog.generation != generation || !dialog.loading {
+                return;
+            }
+            dialog.loading = false;
+            match features {
+                Some(features) => {
+                    for feature in features {
+                        dialog.initial.push(feature.enabled);
+                        dialog.features.push(feature);
+                    }
+                    dialog.status = if dialog.features.is_empty() {
+                        FeaturesStatus::NoExperiments
+                    } else {
+                        FeaturesStatus::Quiet
+                    };
+                }
+                None => dialog.status = FeaturesStatus::Unavailable,
+            }
+        }
+        Ev::FeaturesSaved { generation, result } => {
+            let Some(Open::Experimental(dialog)) = &mut model.open else {
+                return;
+            };
+            if dialog.generation != generation || !dialog.saving {
+                return;
+            }
+            dialog.saving = false;
+            match result {
+                Ok(written) => {
+                    for feature in &mut dialog.features {
+                        if let Some((_, enabled)) =
+                            written.features.iter().find(|(key, _)| *key == feature.key)
+                        {
+                            feature.enabled = *enabled;
+                        }
+                    }
+                    dialog.unconfirmed.clear();
+                    dialog.initial = dialog.features.iter().map(|f| f.enabled).collect();
+                    dialog.status = match written.warning {
+                        Some(warning) => FeaturesStatus::Message(warning),
+                        None => FeaturesStatus::Quiet,
+                    };
+                    if dialog.status == FeaturesStatus::Quiet {
+                        model.open = None;
+                    }
+                }
+                Err(error) => dialog.status = FeaturesStatus::Message(error),
+            }
+        }
     }
-}
-
-/// `index + delta` on a ring of `len` rows.
-fn wrap(index: usize, delta: i32, len: usize) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    (index as i64 + i64::from(delta)).rem_euclid(len as i64) as usize
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
+    if let Intent::Open(dialog) = intent {
+        match dialog {
+            Dialog::Theme => {
+                let picker = model.facts.theme_picker();
+                model.syntax_theme = picker.original.clone();
+                model.open = Some(Open::Theme(picker));
+            }
+            Dialog::Memories => {
+                if let Some(facts) = model.facts.memories {
+                    model.open = Some(Open::Memories(Memories {
+                        use_memories: facts.use_memories,
+                        generate_memories: facts.generate_memories,
+                        confirming: false,
+                    }));
+                }
+            }
+        }
+        return;
+    }
     let Some(open) = &mut model.open else {
         return;
     };
     match (open, intent) {
-        (Open::Config(panel), Intent::Tab(delta)) => {
-            panel.tab = wrap(panel.tab, delta, Section::ALL.len());
-            panel.cursor = 0;
-        }
-        (Open::Keymap(picker), Intent::Tab(delta)) => {
-            picker.tab = wrap(picker.tab, delta, picker.tabs.len());
-            picker.cursor = 0;
-        }
-        (Open::Config(panel), Intent::Move(delta)) => {
-            panel.cursor = wrap(panel.cursor, delta, panel.visible().len());
-        }
-        (Open::Theme(picker), Intent::Move(delta)) => {
-            picker.cursor = wrap(picker.cursor, delta, picker.themes.len());
-            if let Some(theme) = picker.themes.get(picker.cursor) {
-                model.syntax_theme = Some(theme.clone());
-            }
-        }
-        (Open::StatusLine(setup), Intent::Move(delta)) => {
-            setup.cursor = wrap(setup.cursor, delta, setup.visible().len());
-        }
-        (Open::Keymap(picker), Intent::Move(delta)) => {
-            picker.cursor = wrap(picker.cursor, delta, picker.visible().len());
-        }
-        (Open::Config(panel), Intent::Search(query)) => {
-            panel.query = query;
-            panel.cursor = 0;
-        }
-        (Open::StatusLine(setup), Intent::Search(query)) => {
-            setup.query = query;
-            setup.cursor = 0;
-        }
-        (Open::Keymap(picker), Intent::Search(query)) => {
-            picker.query = query;
-            picker.cursor = 0;
-        }
-        (Open::Config(panel), Intent::Activate) => {
-            let Some(row) = panel
-                .visible()
-                .get(panel.cursor)
-                .copied()
-                .and_then(|index| panel.rows.get_mut(index))
-            else {
+        (Open::Config(panel), Intent::Activate(id)) => {
+            let Some(row) = panel.rows.iter_mut().find(|row| row.id == id) else {
                 return;
             };
-            let id = row.id;
             match &mut row.value {
                 Value::Toggle(enabled) => {
                     *enabled = !*enabled;
@@ -461,14 +840,78 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 Value::Unavailable => {}
             }
         }
-        (Open::Theme(picker), Intent::Activate) => {
-            if let Some(theme) = picker.themes.get(picker.cursor).cloned() {
+        (Open::Theme(picker), Intent::Preview(theme)) => {
+            if picker.themes.contains(&theme) {
+                model.syntax_theme = Some(theme);
+            }
+        }
+        (Open::Theme(picker), Intent::Pick(theme)) => {
+            if picker.themes.contains(&theme) {
                 model.syntax_theme = Some(theme.clone());
                 model.edits.push(Edit::ThemeSelected(theme));
                 model.open = None;
             }
         }
-        (Open::StatusLine(setup), Intent::Activate) => {
+        (Open::Experimental(dialog), Intent::Toggle(key)) => {
+            if dialog.saving {
+                return;
+            }
+            if let Some(feature) = dialog
+                .features
+                .iter_mut()
+                .find(|feature| feature.key == key && feature.writable)
+            {
+                feature.enabled = !feature.enabled;
+            }
+        }
+        // Enter: a write for what changed, or the close when nothing did;
+        // while a write is on its way it closes (`save_changes`).
+        (Open::Experimental(dialog), Intent::Save) => {
+            let updates = dialog.updates();
+            if dialog.saving || updates.is_empty() {
+                model.open = None;
+                return;
+            }
+            dialog.saving = true;
+            // A failed answer can follow a committed write: these keys stay
+            // dirty so that putting a value back still sends a correction.
+            dialog.unconfirmed = updates.iter().map(|(key, _)| key.clone()).collect();
+            dialog.status = FeaturesStatus::Saving;
+            model.edits.push(Edit::FeaturesSave(updates));
+        }
+        // Esc saves what changed and closes (`on_ctrl_c`); after a write
+        // that did not confirm it only closes, so that it always can.
+        (Open::Experimental(dialog), Intent::Close) => {
+            if dialog.unconfirmed.is_empty() {
+                let updates = dialog.updates();
+                if !dialog.saving && !updates.is_empty() {
+                    model.edits.push(Edit::FeaturesSave(updates));
+                }
+            }
+            model.open = None;
+        }
+        (Open::Setup(setup), Intent::Toggle(id)) => {
+            if let Some(item) = setup.items.iter_mut().find(|item| item.id == id) {
+                item.enabled = !item.enabled;
+                if setup.kind == SetupKind::Skills {
+                    model.edits.push(Edit::SkillToggled(id, item.enabled));
+                }
+            }
+        }
+        (Open::Setup(setup), Intent::Move { id, delta }) => {
+            let Some(at) = setup.position(&id) else {
+                return;
+            };
+            let to = match at.checked_add_signed(delta.signum() as isize) {
+                Some(to) if to < setup.items.len() => to,
+                _ => return,
+            };
+            // A row that is not orderable neither moves nor is crossed.
+            if setup.items[at].orderable && setup.items[to].orderable {
+                setup.items.swap(at, to);
+            }
+        }
+        (Open::Setup(setup), Intent::Save) if setup.kind != SetupKind::Skills => {
             let items = setup
                 .items
                 .iter()
@@ -479,67 +922,55 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 .items
                 .iter()
                 .any(|item| item.id == USE_THEME_COLORS && item.enabled);
-            model.edits.push(Edit::StatusLineSaved {
+            model.edits.push(Edit::SetupSaved {
+                kind: setup.kind,
                 items,
                 use_theme_colors,
             });
             model.open = None;
         }
-        (Open::Keymap(picker), Intent::Activate) => {
-            let at = picker.visible().get(picker.cursor).copied();
-            if let Some(item) = at.and_then(|index| picker.items().get(index)) {
-                model.edits.push(Edit::KeymapPicked(item.name.clone()));
+        (Open::Memories(dialog), Intent::Toggle(id)) if !dialog.confirming => {
+            match id.as_str() {
+                MEMORIES_USE => dialog.use_memories = !dialog.use_memories,
+                MEMORIES_GENERATE => dialog.generate_memories = !dialog.generate_memories,
+                _ => {}
             }
         }
-        (Open::StatusLine(setup), Intent::Toggle) => {
-            // An item with an action of its own is not a toggle; none here.
-            if let Some(item) = setup
-                .visible()
-                .get(setup.cursor)
-                .copied()
-                .and_then(|index| setup.items.get_mut(index))
+        (Open::Memories(dialog), Intent::Save) if !dialog.confirming => {
+            model.edits.push(Edit::MemoriesSaved {
+                use_memories: dialog.use_memories,
+                generate_memories: dialog.generate_memories,
+            });
+            model.open = None;
+        }
+        (Open::Memories(dialog), Intent::ConfirmReset) => dialog.confirming = true,
+        (Open::Memories(dialog), Intent::Reset) if dialog.confirming => {
+            model.edits.push(Edit::MemoriesReset);
+            model.open = None;
+        }
+        // Esc, or "Go back": the confirmation goes back to the switches.
+        (Open::Memories(dialog), Intent::Close) if dialog.confirming => dialog.confirming = false,
+        (Open::Keymap(picker), Intent::KeymapPick(name)) => {
+            if picker
+                .tabs
+                .iter()
+                .any(|tab| tab.items.iter().any(|item| item.name == name))
             {
-                item.enabled = !item.enabled;
-            }
-        }
-        (Open::StatusLine(setup), Intent::Reorder(delta)) => {
-            if !setup.query.trim().is_empty() {
-                return;
-            }
-            let at = setup.cursor;
-            let to = match at.checked_add_signed(delta.signum() as isize) {
-                Some(to) if to < setup.items.len() => to,
-                _ => return,
-            };
-            if setup.items[at].orderable && setup.items[to].orderable {
-                setup.items.swap(at, to);
-                setup.cursor = to;
-            }
-        }
-        (Open::Config(panel), Intent::Close) => {
-            if panel.query.is_empty() {
-                model.open = None;
-            } else {
-                panel.query.clear();
-                panel.cursor = 0;
+                model.edits.push(Edit::KeymapPicked(name));
             }
         }
         (Open::Theme(picker), Intent::Close) => {
             model.syntax_theme = picker.original.clone();
             model.open = None;
         }
-        (Open::StatusLine(_), Intent::Close) => {
-            model.edits.push(Edit::StatusLineCancelled);
+        (Open::Setup(setup), Intent::Close) => {
+            model.edits.push(match setup.kind {
+                SetupKind::Skills => Edit::SkillsClosed,
+                kind => Edit::SetupCancelled(kind),
+            });
             model.open = None;
         }
-        (Open::Keymap(picker), Intent::Close) => {
-            if picker.query.is_empty() {
-                model.open = None;
-            } else {
-                picker.query.clear();
-                picker.cursor = 0;
-            }
-        }
+        (_, Intent::Close) => model.open = None,
         _ => {}
     }
 }
@@ -593,8 +1024,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
     match *command {}
 }
 
-/// One action of the status-line catalogue (`StatusLineItem` with its
-/// description and preview placeholder).
+/// One item of a setup's catalogue (`StatusLineItem` / `TerminalTitleItem`
+/// with its description and preview placeholder).
 #[derive(Clone, Debug, serde::Deserialize)]
 struct CatalogueItem {
     id: String,
@@ -605,7 +1036,9 @@ struct CatalogueItem {
 /// The seed forms of this screen's events (`kind`): `config_panel` with its
 /// `rows`; `theme_picker` with `themes` and the `current` one;
 /// `status_line` with `use_theme_colors`, the `selected` ids in order, the
-/// `catalogue` and the runtime `values`; `keymap` with its `tabs`.
+/// `catalogue` and the runtime `values`; `title` the same without the colour
+/// preference; `keymap` with its `tabs`; `memories` with its two switches;
+/// `facts` with `memories`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -615,7 +1048,11 @@ enum SeedEv {
     ThemePicker {
         themes: Vec<String>,
         #[serde(default)]
+        custom: Vec<String>,
+        #[serde(default)]
         current: Option<String>,
+        #[serde(default)]
+        themes_dir: Option<String>,
     },
     StatusLine {
         use_theme_colors: bool,
@@ -624,29 +1061,86 @@ enum SeedEv {
         #[serde(default)]
         values: BTreeMap<String, String>,
     },
+    Title {
+        selected: Vec<String>,
+        catalogue: Vec<CatalogueItem>,
+        #[serde(default)]
+        values: BTreeMap<String, String>,
+    },
     Keymap {
         tabs: Vec<KeymapTab>,
     },
+    Skills {
+        items: Vec<SkillSeed>,
+    },
+    Experimental {
+        features: Vec<Feature>,
+        #[serde(default)]
+        loading: bool,
+        /// Keys whose write did not confirm.
+        #[serde(default)]
+        unconfirmed: Vec<String>,
+        /// What the failed write answered.
+        #[serde(default)]
+        failed: Option<String>,
+        #[serde(default)]
+        generation: u64,
+    },
+    FeaturesDiscovered {
+        #[serde(default)]
+        generation: u64,
+        #[serde(default)]
+        features: Option<Vec<Feature>>,
+    },
+    Memories {
+        use_memories: bool,
+        generate_memories: bool,
+        #[serde(default)]
+        confirming: bool,
+    },
+    /// The config's values the dialogs open from (`Ev::Facts`).
+    Facts {
+        #[serde(default)]
+        memories: Option<MemoryFacts>,
+    },
 }
 
-/// `StatusLineSetupView::new`: the selected items first, in order and
-/// enabled, then the rest disabled; "use theme colors" leads.
-fn status_line(
-    use_theme_colors: bool,
+/// One skill of the toggle (`SkillsToggleItem`).
+#[derive(Clone, Debug, serde::Deserialize)]
+struct SkillSeed {
+    /// The skill's own name (`skill_name`).
+    id: String,
+    /// Its display name.
+    name: String,
+    description: String,
+    enabled: bool,
+}
+
+/// `StatusLineSetupView::new` / `TerminalTitleSetupView::new`: the selected
+/// items first, in order and enabled, then the rest disabled; the status
+/// line's "use theme colors" leads.
+fn setup(
+    kind: SetupKind,
+    use_theme_colors: Option<bool>,
     selected: &[String],
     catalogue: Vec<CatalogueItem>,
     values: BTreeMap<String, String>,
-) -> StatusLineSetup {
-    let mut items = vec![SetupItem {
-        id: USE_THEME_COLORS.to_string(),
-        description: String::new(),
-        enabled: use_theme_colors,
-        orderable: false,
-        section_break_after: true,
-        placeholder: String::new(),
-    }];
+) -> Setup {
+    let mut items = Vec::new();
+    if let Some(enabled) = use_theme_colors {
+        items.push(SetupItem {
+            id: USE_THEME_COLORS.to_string(),
+            label: String::new(),
+            description: String::new(),
+            enabled,
+            orderable: false,
+            section_break_after: true,
+            placeholder: String::new(),
+        });
+    }
     let item = |entry: &CatalogueItem, enabled: bool| SetupItem {
         id: entry.id.clone(),
+        label: String::new(),
         description: entry.description.clone(),
         enabled,
         orderable: true,
@@ -668,11 +1162,10 @@ fn status_line(
             items.push(item(entry, false));
         }
     }
-    StatusLineSetup {
+    Setup {
+        kind,
         items,
         values,
-        cursor: 0,
-        query: String::new(),
     }
 }
 
@@ -681,34 +1174,110 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
     let seed: SeedEv = serde_json::from_value(value)
         .map_err(|err| crate::screens::SeedError::Bad(err.to_string()))?;
     Ok(Ev::Opened(match seed {
-        SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
-        SeedEv::ThemePicker { themes, current } => {
-            let cursor = current
-                .as_ref()
-                .and_then(|name| themes.iter().position(|theme| theme == name))
-                .unwrap_or(0);
-            Open::Theme(ThemePicker {
-                themes,
-                cursor,
-                original: current,
-            })
+        SeedEv::FeaturesDiscovered {
+            generation,
+            features,
+        } => {
+            return Ok(Ev::FeaturesDiscovered {
+                generation,
+                features,
+            });
         }
+        SeedEv::Facts { memories } => {
+            return Ok(Ev::Facts(Facts {
+                memories,
+                ..Facts::default()
+            }));
+        }
+        SeedEv::Memories {
+            use_memories,
+            generate_memories,
+            confirming,
+        } => Open::Memories(Memories {
+            use_memories,
+            generate_memories,
+            confirming,
+        }),
+        SeedEv::Experimental {
+            features,
+            loading,
+            unconfirmed,
+            failed,
+            generation,
+        } => {
+            let mut dialog = Experimental::new(features, loading, generation);
+            if let Some(error) = failed {
+                dialog.status = FeaturesStatus::Message(error);
+            }
+            // A write that failed: the baseline is the config's, which the
+            // flips differ from.
+            if !unconfirmed.is_empty() {
+                for (feature, initial) in dialog.features.iter().zip(&mut dialog.initial) {
+                    if unconfirmed.contains(&feature.key) {
+                        *initial = !feature.enabled;
+                    }
+                }
+                dialog.unconfirmed = unconfirmed;
+            }
+            Open::Experimental(dialog)
+        }
+        SeedEv::ConfigPanel { rows } => Open::Config(ConfigPanel::new(rows)),
+        SeedEv::ThemePicker {
+            themes,
+            custom,
+            current,
+            themes_dir,
+        } => Open::Theme(ThemePicker {
+            themes,
+            custom,
+            original: current,
+            themes_dir,
+        }),
         SeedEv::StatusLine {
             use_theme_colors,
             selected,
             catalogue,
             values,
-        } => Open::StatusLine(status_line(use_theme_colors, &selected, catalogue, values)),
+        } => Open::Setup(setup(
+            SetupKind::StatusLine,
+            Some(use_theme_colors),
+            &selected,
+            catalogue,
+            values,
+        )),
+        SeedEv::Title {
+            selected,
+            catalogue,
+            values,
+        } => Open::Setup(setup(
+            SetupKind::Title,
+            None,
+            &selected,
+            catalogue,
+            values,
+        )),
+        SeedEv::Skills { items } => Open::Setup(Setup {
+            kind: SetupKind::Skills,
+            items: items
+                .into_iter()
+                .map(|skill| SetupItem {
+                    id: skill.id,
+                    label: skill.name,
+                    description: skill.description,
+                    enabled: skill.enabled,
+                    orderable: false,
+                    section_break_after: false,
+                    placeholder: String::new(),
+                })
+                .collect(),
+            values: BTreeMap::new(),
+        }),
         SeedEv::Keymap { tabs } => {
             if tabs.is_empty() {
                 return Err(crate::screens::SeedError::Bad("no tabs".into()));
             }
-            Open::Keymap(KeymapPicker {
-                tabs,
-                tab: 0,
-                cursor: 0,
-                query: String::new(),
-            })
+            Open::Keymap(KeymapPicker { tabs })
         }
     }))
 }
+

@@ -496,16 +496,14 @@ fn background_prefill_preserves_replace_backspace_recovery() {
 // ORACLE bottom_pane/experimental_features_view_tests.rs:5 experimental_features_keep_following_choice_at_wrap_boundary kind=snap owner=dialogs-pane snap=experimental_features_keep_following_choice_at_wrap_boundary
 #[test]
 fn experimental_features_keep_following_choice_at_wrap_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no experimental features entry with the two features First and Last (`experimental_features_two`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(72, 20)
-        .entry("dialogs", "experimental_features_two")
+        .size(72, 11)
+        .entry("settings", "experimental_features_two")
         .open();
-    for width in [68, 69, 70, 71, 72] {
-        s.resize(width, 20);
+    // The oracle renders into `desired_height(width)` rows: the screen is the
+    // sheet alone (ours sits at the bottom edge over the debug menu).
+    for (width, height) in [(68, 13), (69, 13), (70, 12), (71, 11), (72, 11)] {
+        s.resize(width, height);
         s.assert_snap_section(
             "experimental_features_keep_following_choice_at_wrap_boundary",
             &format!("width={width}"),
@@ -516,23 +514,21 @@ fn experimental_features_keep_following_choice_at_wrap_boundary() {
 // ORACLE bottom_pane/experimental_features_view_tests.rs:90 experimental_features_discovery_preserves_server_order_and_accepts_new_keys kind=snap owner=dialogs-pane snap=experimental_features_save_failed snap=experimental_features_saving snap=experimental_features_server_discovery
 #[test]
 fn experimental_features_discovery_preserves_server_order_and_accepts_new_keys() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no experimental features entry for a server catalog that arrives after open (`experimental_features_discovery`) nor for its save responses (`experimental_features_save_failed`)",
-    );
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(100, 20)
-        .entry("dialogs", "experimental_features_discovery")
+        .size(100, 12)
+        .entry("settings", "experimental_features_discovery")
         .open();
     s.assert_snap("experimental_features_server_discovery");
     // Space toggles the selected row: the second off, the first off, the third off.
-    s.keys("down space up space down down space");
+    // The oracle flips the third row directly and leaves its cursor on the
+    // first; the keys go there and come back.
+    s.keys("down space up space down down space up up");
     s.resize(80, 13);
     s.keys("enter");
     s.assert_snap("experimental_features_saving");
     let s = Screen::build(Owner::DialogsPane)
         .size(80, 13)
-        .entry("dialogs", "experimental_features_save_failed")
+        .entry("settings", "experimental_features_save_failed")
         .open();
     s.assert_snap("experimental_features_save_failed");
 }
@@ -540,10 +536,6 @@ fn experimental_features_discovery_preserves_server_order_and_accepts_new_keys()
 // ORACLE bottom_pane/experimental_features_view_tests.rs:206 experimental_features_empty_error_and_cancel_remain_usable kind=snap owner=dialogs-pane snap=experimental_features_changed_default snap=experimental_features_empty snap=experimental_features_unavailable
 #[test]
 fn experimental_features_empty_error_and_cancel_remain_usable() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no experimental features entries `experimental_features_empty`, `experimental_features_unavailable`, `experimental_features_changed_default`",
-    );
     for (entry, rows) in [
         ("experimental_features_empty", 11),
         ("experimental_features_unavailable", 12),
@@ -551,7 +543,7 @@ fn experimental_features_empty_error_and_cancel_remain_usable() {
     ] {
         let mut s = Screen::build(Owner::DialogsPane)
             .size(80, rows)
-            .entry("dialogs", entry)
+            .entry("settings", entry)
             .open();
         s.assert_snap(entry);
         s.keys("ctrl+c");

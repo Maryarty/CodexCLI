@@ -69,7 +69,7 @@ fn apps_popup_for_not_installed_app_uses_install_only_selected_description() {
 fn experimental_features_popup_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port (`/experimental`): the feature list with its checkboxes and the configured list-accept chord have no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane)
         .size(80, 13)
@@ -88,7 +88,7 @@ fn experimental_features_popup_snapshot() {
 fn experimental_features_toggle_saves_on_exit() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the toggle row, the remapped cancel key (F2) that saves and closes, and the save-on-exit have no widget and no keymap seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/experimental");
@@ -104,7 +104,7 @@ fn experimental_features_toggle_saves_on_exit() {
 fn experimental_popup_loading_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the startup history cell and the loading popup while the feature list is fetched have no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let mut s = Screen::build(Owner::DialogsPane).size(80, 24).live().open();
     s.type_text("/experimental");
@@ -119,7 +119,7 @@ fn experimental_popup_loading_snapshot() {
 fn experimental_popup_available_snapshot() {
     kit::pending(
         Owner::DialogsPane,
-        "no experimental-features popup in the port: the available-features list after the fetch has no widget and no seed",
+        "the experimental sheet exists (entries settings/experimental_features_*), `/experimental` does not open it: the feature list and the server catalogue come from the host (needs, parity/settings.md) and the keymap is not read",
     );
     let s = Screen::build(Owner::DialogsPane).size(80, 12).live().open();
     s.assert_snap("experimental_features_available_popup");
@@ -141,28 +141,34 @@ fn feature_enable_prompts_snapshot() {
 // ORACLE chatwidget/tests/popups_and_settings.rs:3289 memories_settings_popup_snapshot kind=snap owner=dialogs-pane snap=memories_settings_popup
 #[test]
 fn memories_settings_popup_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no memories settings popup in the port (`/memories`): the toggles have no widget and no MemoryTool feature-flag seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 13).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 14)
+        .script(include_str!(
+            "fixtures/chat_popups_4/memories_enabled.jsonl"
+        ))
+        .open();
     s.type_text("/memories");
     s.keys("enter");
-    s.assert_snap("memories_settings_popup");
+    // The oracle's `render_bottom_popup` trims the blank row above the popup;
+    // the sheet keeps it (row 0: the screen is as tall as the sheet).
+    s.assert_snap_region("memories_settings_popup", 1, 0);
 }
 
 // ORACLE chatwidget/tests/popups_and_settings.rs:3302 memories_reset_confirmation_snapshot kind=snap owner=dialogs-pane snap=memories_reset_confirmation
 #[test]
 fn memories_reset_confirmation_snapshot() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no memories settings popup in the port: the reset row and its confirmation have no widget and no MemoryTool feature-flag seed",
-    );
-    let mut s = Screen::build(Owner::DialogsPane).size(80, 11).live().open();
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(80, 14)
+        .script(include_str!(
+            "fixtures/chat_popups_4/memories_enabled.jsonl"
+        ))
+        .open();
     s.type_text("/memories");
     s.keys("enter");
     s.keys("down down enter");
-    s.assert_snap("memories_reset_confirmation");
+    // The confirmation is shorter than the settings sheet the screen is sized
+    // for and sits at the bottom: its title is on row 3.
+    s.assert_snap_region("memories_reset_confirmation", 3, 0);
     s.keys("esc");
     s.assert_contains("Choose how Codex uses");
     s.keys("esc");

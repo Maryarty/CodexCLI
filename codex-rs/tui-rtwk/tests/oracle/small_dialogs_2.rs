@@ -397,36 +397,33 @@ fn esc_routes_through_the_view() {
 // ORACLE bottom_pane/memories_settings_view_tests.rs:6 reset_confirmation_keeps_both_choices_at_wrap_boundary kind=snap owner=dialogs-pane snap=reset_confirmation_keeps_both_choices_at_wrap_boundary
 #[test]
 fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no memories settings view in the port: no entry settings/memories_reset_confirmation",
-    );
+    // Each width is one screen; the heights are the view's desired_height(width):
+    // the sheet sits at the bottom edge of the screen over the debug menu.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(68, 14)
+        .size(68, 13)
         .entry("settings", "memories_reset_confirmation")
         .open();
-    // Each width is one screen; the heights are the view's desired_height(width).
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=68",
     );
     s.assert_contains("Go back");
-    s.resize(69, 14);
+    s.resize(69, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=69",
     );
-    s.resize(70, 14);
+    s.resize(70, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=70",
     );
-    s.resize(71, 14);
+    s.resize(71, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=71",
     );
-    s.resize(72, 14);
+    s.resize(72, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=72",
@@ -466,13 +463,9 @@ fn shortcut_overlay_clipping_preserves_customization_in_small_areas() {
 // ORACLE bottom_pane/skills_toggle_view.rs:422 renders_basic_popup kind=snap owner=dialogs-pane snap=skills_toggle_basic
 #[test]
 fn renders_basic_popup() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_basic (Repo Scout enabled, Changelog Writer disabled)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 12)
-        .entry("dialogs", "skills_basic")
+        .entry("settings", "skills_basic")
         .open();
     s.assert_snap("skills_toggle_basic");
 }
@@ -480,16 +473,15 @@ fn renders_basic_popup() {
 // ORACLE bottom_pane/skills_toggle_view.rs:473 filtering_long_skill_names_preserves_the_matching_row kind=snap owner=dialogs-pane snap=skills_toggle_pasted_search
 #[test]
 fn filtering_long_skill_names_preserves_the_matching_row() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names (two long polish skills); the oracle also asserts the built row names, which is model state (the one visible row is the snapshot's)",
-    );
+    // The oracle's snapshot is the view at the height its one filtered row
+    // needs (`desired_height`): the screen starts at the two rows' and shrinks.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(96, 11)
-        .entry("dialogs", "skills_long_names")
+        .size(96, 12)
+        .entry("settings", "skills_long_names")
         .open();
     s.keys("c");
     s.paste("  ompletion\r\n\t ");
+    s.resize(96, 11);
     s.assert_snap("skills_toggle_pasted_search");
     s.paste(" \r\n\t ");
     s.assert_snap("skills_toggle_pasted_search");
@@ -498,13 +490,9 @@ fn filtering_long_skill_names_preserves_the_matching_row() {
 // ORACLE bottom_pane/skills_toggle_view.rs:503 renders_long_names_using_available_width kind=snap owner=dialogs-pane snap=skills_toggle_long_names_use_available_width
 #[test]
 fn renders_long_names_using_available_width() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(96, 12)
-        .entry("dialogs", "skills_long_names")
+        .entry("settings", "skills_long_names")
         .open();
     s.assert_snap("skills_toggle_long_names_use_available_width");
 }
@@ -512,13 +500,9 @@ fn renders_long_names_using_available_width() {
 // ORACLE bottom_pane/skills_toggle_view.rs:519 renders_long_names_at_narrow_width kind=snap owner=dialogs-pane snap=skills_toggle_long_names_at_narrow_width
 #[test]
 fn renders_long_names_at_narrow_width() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_long_names",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(48, 13)
-        .entry("dialogs", "skills_long_names")
+        .entry("settings", "skills_long_names")
         .open();
     s.assert_snap("skills_toggle_long_names_at_narrow_width");
 }
@@ -528,7 +512,7 @@ fn renders_long_names_at_narrow_width() {
 fn footer_hint_uses_list_keymap_accept_and_cancel() {
     kit::pending(
         Owner::DialogsPane,
-        "no skills toggle in the port: no entry dialogs/skills_empty_custom_keys (no skills; keymap list.accept ctrl+t and list.cancel ctrl+x: no keymap seed exists)",
+        "the skills sheet exists (entry settings/skills_empty) but its hint reads no keymap: the port has no keymap config (list.accept ctrl+t, list.cancel ctrl+x), the kit has no `.keymap()`; waits for the keymap setup slice and the host keymap feed",
     );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 8)
@@ -546,7 +530,7 @@ fn footer_hint_uses_list_keymap_accept_and_cancel() {
 fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
     kit::pending(
         Owner::DialogsPane,
-        "no status line picker entries settings/status_line_pr_plain and settings/status_line_pr_theme (the setting's core seed exists; no debug entry)",
+        "no entries settings/status_line_pr_plain and settings/status_line_pr_theme, and the setup model holds no link for the preview item (core Setup.values are text); the preview would need a hyperlink on the PR item",
     );
     let plain = Screen::build(Owner::DialogsPane)
         .size(80, 12)
@@ -565,10 +549,6 @@ fn picker_previews_the_pr_link_and_preserves_the_color_preference() {
 // ORACLE bottom_pane/status_line_setup.rs:728 setup_view_snapshot_uses_runtime_preview_values kind=snap owner=dialogs-pane snap=setup_view_snapshot_uses_runtime_preview_values
 #[test]
 fn setup_view_snapshot_uses_runtime_preview_values() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_preview: the status line seed exists in core but settings registers no debug entries (the fixture status_line.jsonl is not registered)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(72, 17)
         .entry("settings", "status_line_preview")
@@ -579,10 +559,6 @@ fn setup_view_snapshot_uses_runtime_preview_values() {
 // ORACLE bottom_pane/status_line_setup.rs:763 setup_view_snapshot_includes_thread_usage_items kind=snap owner=dialogs-pane snap=setup_view_snapshot_includes_thread_usage_items
 #[test]
 fn setup_view_snapshot_includes_thread_usage_items() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_thread_usage (thread credits and estimated cost preview items)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 17)
         .entry("settings", "status_line_thread_usage")
@@ -593,10 +569,6 @@ fn setup_view_snapshot_includes_thread_usage_items() {
 // ORACLE bottom_pane/status_line_setup.rs:789 setup_view_snapshot_includes_hostname kind=snap owner=dialogs-pane snap=setup_view_snapshot_includes_hostname
 #[test]
 fn setup_view_snapshot_includes_hostname() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no entry settings/status_line_hostname (hostname and current dir preview items)",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(100, 17)
         .entry("settings", "status_line_hostname")
@@ -608,10 +580,6 @@ fn setup_view_snapshot_includes_hostname() {
 // ORACLE bottom_pane/title_setup.rs:433 renders_title_setup_popup kind=snap owner=dialogs-pane snap=terminal_title_setup_basic
 #[test]
 fn renders_title_setup_popup() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no terminal title setup in the port: no core seed for it (settings' SeedEv has no title) and no entry settings/terminal_title",
-    );
     let s = Screen::build(Owner::DialogsPane)
         .size(84, 17)
         .entry("settings", "terminal_title")
