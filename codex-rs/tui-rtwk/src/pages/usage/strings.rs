@@ -15,9 +15,13 @@ use rtwk::l10n::msg;
 
 use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::GroupName;
+use codex_tui_core::screens::usage::LoadError;
 use codex_tui_core::screens::usage::NaiveDate;
 use codex_tui_core::screens::usage::Note;
+use codex_tui_core::screens::usage::normalize;
+use codex_tui_core::screens::usage::plan;
 use codex_tui_core::screens::usage::report::Unit;
+use codex_tui_core::screens::usage::tokens;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -78,6 +82,24 @@ pub struct Strings {
     /// Oracle: `Load::message`: what a load says before it is ready.
     note_loading: &'static str,
     note_unavailable: &'static str,
+    /// Oracle: `analytics/{normalize,tokens,plan}.rs`: what a load says when its
+    /// reply was not valid (one line per `LoadError` variant).
+    err_date: &'static str,
+    err_amount: &'static str,
+    err_message_grouping: &'static str,
+    err_attribution_grouping: &'static str,
+    err_plan_credits: &'static str,
+    err_message_total: &'static str,
+    err_model_turns: &'static str,
+    err_tool_activity: &'static str,
+    err_token_date: &'static str,
+    err_token_breakdown: &'static str,
+    err_token_count: &'static str,
+    err_token_counts: &'static str,
+    err_plan_timestamp: &'static str,
+    err_plan_periods: &'static str,
+    err_plan_window: &'static str,
+    err_plan_period: &'static str,
     /// Oracle: `controls.rs`: the range, group and model controls.
     pub range_key: &'static str,
     pub range_week: &'static str,
@@ -353,6 +375,22 @@ pub const EN: Strings = Strings {
     group_cumulative: "Cumulative",
     note_loading: "Loading\u{2026}",
     note_unavailable: "No history has been reported.",
+    err_date: "Analytics returned an invalid date.",
+    err_amount: "Analytics returned an invalid amount.",
+    err_message_grouping: "Unsupported message count grouping.",
+    err_attribution_grouping: "unsupported analytics grouping",
+    err_plan_credits: "Plan usage amount was not reported.",
+    err_message_total: "Message count is unavailable.",
+    err_model_turns: "Turn count is unavailable.",
+    err_tool_activity: "Tool activity is unavailable.",
+    err_token_date: "Invalid token report date.",
+    err_token_breakdown: "Token breakdown is not available in this report.",
+    err_token_count: "Invalid token count.",
+    err_token_counts: "Token counts were not reported.",
+    err_plan_timestamp: "Invalid plan history timestamp.",
+    err_plan_periods: "Plan history contains too many periods.",
+    err_plan_window: "Unsupported plan history window.",
+    err_plan_period: "Invalid plan history period.",
     range_key: "r",
     range_week: "7d",
     range_month: "30d",
@@ -620,7 +658,41 @@ impl Strings {
         match note {
             Note::Loading => self.note_loading,
             Note::Unavailable => self.note_unavailable,
-            Note::Error(message) => message,
+            Note::Error(error) => self.load_error(error),
+        }
+    }
+
+    /// The words of a failed load: the host's message as it came, or one
+    /// line per thing a normaliser found wrong.
+    fn load_error<'a>(&'a self, error: &'a LoadError) -> &'a str {
+        match error {
+            LoadError::Host(message) => message,
+            LoadError::Report(error) => match error {
+                normalize::Error::InvalidDate => self.err_date,
+                normalize::Error::UnsupportedMessageGrouping(_) => self.err_message_grouping,
+                normalize::Error::UnsupportedAttributionGrouping(_) => {
+                    self.err_attribution_grouping
+                }
+                normalize::Error::InvalidAmount(_) => self.err_amount,
+                normalize::Error::Unreported(gap) => match gap {
+                    normalize::Gap::PlanCredits => self.err_plan_credits,
+                    normalize::Gap::MessageTotal => self.err_message_total,
+                    normalize::Gap::ModelTurns => self.err_model_turns,
+                    normalize::Gap::ToolActivity => self.err_tool_activity,
+                },
+            },
+            LoadError::Tokens(error) => match error {
+                tokens::Error::InvalidDate => self.err_token_date,
+                tokens::Error::MissingBreakdown => self.err_token_breakdown,
+                tokens::Error::InvalidCount => self.err_token_count,
+                tokens::Error::MissingCounts => self.err_token_counts,
+            },
+            LoadError::Plan(error) => match error {
+                plan::Error::InvalidTimestamp => self.err_plan_timestamp,
+                plan::Error::TooManyPeriods => self.err_plan_periods,
+                plan::Error::UnsupportedWindow => self.err_plan_window,
+                plan::Error::InvalidPeriod => self.err_plan_period,
+            },
         }
     }
 

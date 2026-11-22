@@ -50,8 +50,43 @@ pub const GROUP_NAMES: [GroupName; 7] = [
 pub enum Note {
     Loading,
     Unavailable,
-    /// The host's message of a failed load.
-    Error(String),
+    /// Why the load failed.
+    Error(LoadError),
+}
+
+/// Why a load failed: the host's own message (a request that failed) or what
+/// a normaliser found wrong in the reply (the page words each variant).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoadError {
+    Host(String),
+    Report(super::normalize::Error),
+    Tokens(super::tokens::Error),
+    Plan(super::plan::Error),
+}
+
+/// A message of the host (a failed request, a timeout).
+impl From<String> for LoadError {
+    fn from(message: String) -> Self {
+        Self::Host(message)
+    }
+}
+
+impl From<super::normalize::Error> for LoadError {
+    fn from(error: super::normalize::Error) -> Self {
+        Self::Report(error)
+    }
+}
+
+impl From<super::tokens::Error> for LoadError {
+    fn from(error: super::tokens::Error) -> Self {
+        Self::Tokens(error)
+    }
+}
+
+impl From<super::plan::Error> for LoadError {
+    fn from(error: super::plan::Error) -> Self {
+        Self::Plan(error)
+    }
 }
 
 /// The number of one request: a reply settles the load only when it carries
@@ -64,7 +99,7 @@ pub enum Load<T> {
     Loading(Stamp),
     Ready(T),
     Unavailable,
-    Error(String),
+    Error(LoadError),
 }
 
 // Not derived: a derive would ask `T: Default`.
@@ -107,7 +142,7 @@ impl<T> Load<T> {
     /// The reply of the request stamped `stamp` (the oracle's `poll`):
     /// `Some(data)` is ready, `None` unavailable, an error is shown as its
     /// text. A reply of another stamp changes nothing.
-    pub fn settle(&mut self, stamp: Stamp, result: Result<Option<T>, String>) -> bool {
+    pub fn settle(&mut self, stamp: Stamp, result: Result<Option<T>, LoadError>) -> bool {
         if self.stamp() != Some(stamp) {
             return false;
         }
