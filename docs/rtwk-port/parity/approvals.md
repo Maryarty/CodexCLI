@@ -8,7 +8,105 @@ Oracle `bottom_pane/approval_overlay.rs`, `mcp_server_elicitation.rs`, `request_
 answer is `ScreenIntent::Approvals(Intent::Answer | Respond)` through the app's effect path, the
 sheet never sends an RPC and holds no thread state (ADR-003).
 
-## Built
+## chunk-approvals (approvals in the live chat), state at the handoff
+Brief `research/briefs/chat-approvals-live.md` §6. Branch `worktree-agent-a3b475490f68cf717`, rebased on
+claude/tui-rtwk `2614ef5ff`; 4 commits. Steps 6 (view side), 8a, 2 (in-area part), 3d (order) and 1
+(re-tags) are done; steps 9, 4, 5, 7, 10 and most of 3 are NOT (handover below).
+
+### Built in this job
+- **Auto-resolution countdown** (step 8a): `core approvals/input.rs` `auto_resolution(can, snoozed,
+  elapsed)` (hidden grace 60 s, visible 60 s, due), `UserInputPrompt.can_auto_resolve` from
+  `isBlocking == false`; the sheet runs a periodic timer (`AppBinding::start_periodic`), draws the
+  red `auto-resolves in 1m 00s` in the progress row, any key or paste snoozes it, due answers `{}`
+  (`requests::answer` accepts an empty map: the oracle's `submit_empty_auto_resolution`).
+- **Clipped header** (step 6, view side): `sheets/approvals/clip.rs` `Pane`: a `LayoutBuilder` +
+  `segmenter_of(cx)` + `widgets/measure.rs` rows picks the composition (whole column, or the header
+  in a `SizedOverflowBox` of the room above the dim `[… N lines] ⌃a view all` row); the gap, then the
+  blank row before the hint, give way first (the oracle's `picker_areas` order). Entry `exec_clipped`.
+- **Decision cells** (step 2): core `approvals/decided.rs` `Decided::of(prompt, decision)` (exec:
+  command or network target, six outcomes, actor User/Guardian; permissions: four plain grants; none
+  for another thread, a patch, a form, a question; `AllowHost` has no wire answer so no record),
+  `ExecPrompt.network_target`, `ThreadEv::Decided`; view `sheets/approvals/decision_cell.rs`
+  `DecisionCell` (mark `✔ `/`✗ `, bold verbs, dim snippet, two-column hanging indent as
+  `Row[SizedBox(2), Expanded(Text.rich)]`, `...` after the first line of a multi-line command, 80
+  graphemes by `rtwk_core::unicode::grapheme_boundaries`). Wording is the oracle's, byte for byte.
+- **Order** (step 3d): core `approvals/order.rs` `to_show(queue)` (the view on top is the last run of
+  one kind; approvals newest first, forms and questions oldest first) and the presenter follows it.
+- **Re-tags** (step 1): the 35 non-approval `exec_flow` pendings in `chat_approvals_1.rs` name their
+  chunk (cells 23, status 4, chat-commands 4, live 3); `apply_patch_request_omits_diff_summary_from_modal`
+  runs on a real request (`fixtures/chat_approvals_1/patch_omits_diff.jsonl`) and passes.
+
+### Counts (`summary.py --run`, pass / n/a / pending / red)
+| shard | start | now |
+|---|---|---|
+| approvals_1 | 15 / 17 / 26 / 0 | 15 / 17 / 26 / 0 |
+| approvals_2 | 31 / 14 / 22 / 0 | 33 / 14 / 20 / 0 |
+| chat_approvals_1 | 2 / 5 / 47 / 0 | 3 / 5 / 46 / 0 |
+| chat_approvals_2 | 0 / 18 / 30 / 0 | 0 / 18 / 30 / 0 |
+| total | 48 / 54 / 125 / 0 | 51 / 54 / 122 / 0 |
+Checks at the tip: `acargo fmt`, clippy `--workspace --all-targets -D warnings` exit 0, whole nextest 1634
+run / 1634 pass, `shards.py --check` 0 files stale. Own tests: `core/tests/approvals.rs` 55 (decided 9,
+order 6, auto_resolution 6), `tests/sheets/approvals.rs` 57 (decision_cell 11, countdown 3, clip 3);
+one `#[ignore]` there for G49 (the exact four rows of `exec_history_cell_wraps_with_two_space_indent`).
+Binary: `check.py --bin rtwk --bin oracle --only exec-approval` and `--only request-user-input`: PASS on
+both; the oracle capture never holds the dialog at a checkpoint (as before), so no row diff of the
+request against the oracle binary; the rows equal the oracle snapshots in the sheet and shard tests.
+
+### Gap rows (no new row; existing ones used)
+- G49 (`TextWrap::Word` does not break after `/`): the decision cell of a path-long command wraps at
+  spaces and cuts a path at the width; the oracle breaks after the slash. `#[ignore = "pending(G49)"]`
+  in `tests/sheets/approvals.rs`.
+- G72, G39b: as before (wrapped URL autolink, a column measured over the rows in view).
+- G-new (mouse yield for links in an expanded question) and G55 (secret field reveal): not reached.
+
+### Small deltas (one line each)
+- Another kind of request does not stack over the shown dialog at once: one dialog is open at a
+  time, `to_show` picks the next when it closes (the oracle stacks on arrival; only visible with
+  two kinds queued).
+- `to_show` has no "current of a covered view" (oracle: A1, A2 queued, E1 stacks over, after E1 the A view
+  resumes with A1; ours shows A2, the newest). Needs the presenter to keep the shown stack.
+- `ctrl+a` / `ctrl+shift+a` are dead until the static-pager hook exists (`open.rs`, transcript chunk);
+  the `⌃a view all` hint is drawn as the oracle does when the header is cut.
+- The options rows are measured at the list's width less the cursor mark (an approximation of the
+  oracle's `wrap_row_lines`); the reason's newlines are joined (the oracle draws one span).
+- The red-countdown oracle test stays pending on the kit's negated-fg check (`tests/kit/grid.rs:256`);
+  the sheet test `user_input_the_countdown_is_red` pins it.
+
+### Needs (files of other owners; each is a one-line request)
+1. `core/src/threads.rs` (+ `threads/cells.rs`): `Item::Decision(approvals::decided::Decided)` built from
+   `ThreadEv::Screen(Approvals(ThreadEv::Decided(d)))`; `Item::Agent` keeps `questions` (step 10).
+2. `src/pages/session/transcript_pane.rs`: arm `Item::Decision(d) => sheets::approvals::DecisionCell { decided: d }`
+   (the brief placed the widget in `cells/decision.rs`; it lives in the sheet dir because `cells/mod.rs`
+   registration is not this area's; moving it is a rename).
+3. `core/src/app.rs` (keymap holds it): in `resolve_request`, when the request's thread is the active one,
+   `Decided::of(&prompt, &decision)` -> `ThreadEv::Decided` (Esc/ctrl+c record `Cancel`); label from
+   (request thread, active thread) at present time instead of at push (930-980); patch changes from the
+   thread's `Item::Patch`; `Intent::CancelRequests` on ctrl+c (drops queued approvals unanswered); RUI Esc ->
+   `Intent::Interrupt` + drop queued RUI; the user-verification controller (+ `Command::VerifyUser`);
+   the stream-deferral flag the presenter reads.
+4. `core/src/protocol/targets.rs` (+3 guardian arms: `item/autoApprovalReview/started|completed`,
+   `guardianWarning`), `core/src/protocol/mod.rs` (`thread/approveGuardianDeniedAction`,
+   `userVerification/verify`), `src/services/backend/fake.rs`, `core/src/screens/mod.rs` routing.
+5. `src/pages/session/session_page.rs`: mount `PendingThreadApprovals` (banner) and the question editor
+   above the composer; `activity.rs`: status header `Reviewing approval request`; composer chunk: a
+   "last edited" signal for the typing-idle delay (step 4).
+6. `src/pages/session/open.rs` / transcript chunk: `Target::StaticPager { title, body }` for ctrl+a.
+7. `src/widgets/options.rs`: an empty-cursor state (`backspace_in_options_clears_selection`).
+8. Kit (`tests/kit/*`): `.keymap(..)` seed (15 keymap tests + the ctrl+g clipped test), `check_style` with
+   negated fg/bg, kitty bytes for shift+enter and ctrl+5, a seed that opens the unanswered confirmation.
+9. `tests/oracle/pane_footer_2.rs` 454-584 (chat-status's file): `s.feed(request)` in the six approval tests.
+
+### Next steps for the porter who continues (in this order)
+1. Step 9 core: `approvals::ThreadPart { reviews, recent_denials }`, `ThreadEv::Guardian(..)` carrying the
+   protocol's `GuardianApprovalReviewAction`/status, denied and timed-out cells (command actions already
+   read off `Decided` with `Actor::Guardian`; patch/action summaries need two more `Decided` variants,
+   wording at `history_cell/approvals.rs` 282-351, summaries `auto_review_denials::action_summary`);
+   `/auto-review` sheet `src/sheets/approvals/auto_review.rs` (`Auto-review Denials`, Action/Rationale
+   header, search) with a debug entry; tests from `chat_approvals_2` guardian 11 and permission_popups 184-270.
+2. Step 3 rest and 7, 4, 5, 10 as the needs above land (all wait on app.rs / threads.rs / session_page.rs).
+3. Un-pend as the needs land: approvals_1 3 decision-cell tests, chat_approvals_1 network x3, `exec_approval_*`.
+
+## Built (the mock-dialogs slice, before chunk-approvals)
 - **A, exec / permissions / apply patch**: `present::body` (pieces, highlighted command through
   rtwk-rich `Highlighter`, bold keys, thread label and the `o` key) drawn by `dialog.rs` on
   `Options::view_rich`; a tap moves the cursor, a tap on the cursor row answers (ADR-011).
@@ -31,7 +129,7 @@ sheet never sends an RPC and holds no thread state (ADR-003).
   `user_input*`, 3 `user_verification*`. Entry rows fit the menu's width (the skeleton test finds
   them by text).
 
-## Shard counts (pass / n/a / pending / red), `summary.py --run` of the four shards
+## Shard counts of the mock-dialogs slice (superseded by the chunk-approvals table above)
 - approvals_1: 15 / 17 / 26 / 0 of 58
 - approvals_2: 31 / 14 / 22 / 0 of 67
 - chat_approvals_1: 2 / 5 / 47 / 0 of 54
