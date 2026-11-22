@@ -6,7 +6,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rtwk::binding::TerminalTitle;
-use rtwk::controls::{Callout, Hyperlink, StatusKind};
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
@@ -15,16 +14,15 @@ use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
 use rtwk::style::Theme;
-use rtwk::text::TextOverflow;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::app::{ConnectionState, RequestQueue, Session, SessionSlice};
+use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
-use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
+use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
-use codex_tui_core::threads::{Failure, ThreadModel, TurnState};
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::menu::DebugMenu;
 use crate::app::theme;
@@ -42,7 +40,9 @@ use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::actions::*;
-use super::activity::Activity;
+use super::activity::{Run, StatusSlot};
+use super::banners::{BackendBanners, NoticeLine};
+use super::pending_input::PendingInput;
 use super::search_key::*;
 use super::status_surfaces::StatusContext;
 use super::transcript_pane::TranscriptPane;
@@ -100,7 +100,6 @@ pub enum ChatMsg {
     ForkWriter,
     QuitReadOnly,
     CtrlD,
-    DismissBanner(BackendId, Ticket),
     /// The hidden key: the debug menu over the chat.
     DebugMenu,
     /// A key action of the chat (`keys::defaults`).
@@ -320,9 +319,6 @@ impl State for ChatState {
                     self.shortcuts = false;
                 }
             }
-            ChatMsg::DismissBanner(backend, ticket) => {
-                cx.emit(&hs.dismiss_banner, (backend, ticket))
-            }
             ChatMsg::Cycle if !self.shortcuts => cx.emit(&hs.cycle, ()),
             ChatMsg::Cycle => {}
             ChatMsg::Shortcuts => self.shortcuts = !self.shortcuts,
@@ -453,67 +449,10 @@ impl State for ChatState {
         {
             transcript = transcript.child(super::blossom::welcome());
         }
-        // The session's failure first, then the thread's last one.
-        let screen_error = thread.screen_slots().chat.error.clone().map(Failure::from);
-        let failure = match (
-            &session.status,
-            thread.last_error().or(screen_error.as_ref()),
-        ) {
-            (Session::Failed(failure), _) | (_, Some(failure)) => Some(failure),
-            _ => None,
-        };
-        let running = match thread.turn() {
-            TurnState::Running(running) => Some(running),
-            TurnState::Idle => None,
-        };
-        let compacting = slots.chat.is_compacting();
-        let status: Option<AnyWidget> = if thread.read_only() {
-            None
-        } else if connection == Some(&ConnectionState::Reconnecting) {
-            Some(
-                Text::new(strings.chat.reconnecting)
-                    .style(tokens.dim())
-                    .into(),
-            )
-        } else if let Some(failure) = failure {
-            Some(
-                Text::new(failure_text(strings, failure))
-                    .style(tokens.error())
-                    .into(),
-            )
-        } else if session.status == Session::Starting {
-            Some(Text::new(strings.chat.starting).style(tokens.dim()).into())
-        } else if running.is_some() || compacting {
-            let offset_seconds = running
-                .and_then(|running| running.started_at)
-                .filter(|started| *started > 0)
-                .map(|started| {
-                    u64::try_from(states.agents.now.saturating_sub(started)).unwrap_or(0)
-                })
-                .unwrap_or(0);
-            Some(
-                AnyWidget::from(Activity {
-                    show_interrupt: thread.can_interrupt(),
-                    spinner: facts.animations && facts.progress_effect,
-                    shimmer: facts.animations && facts.shimmer_effect,
-                    header: if compacting {
-                        strings.chat.compacting
-                    } else if slots.chat.activity == chat::ActivityPhase::Thinking {
-                        strings.chat.thinking
-                    } else {
-                        strings.chat.working
-                    },
-                    step: slots.chat.step.clone(),
-                    offset_seconds,
-                })
-                .with_key(Key::value((
-                    thread.id().clone(),
-                    running.map(|running| running.turn.clone()),
-                ))),
-            )
-        } else {
-            None
-        };
+        let run = Run::of(&thread);
+        let reconnecting = connection == Some(&ConnectionState::Reconnecting);
+        let running = run.running();
+        let compacting = run.compacting();
         let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
         let search = states.popovers.search.clone();
@@ -559,7 +498,7 @@ impl State for ChatState {
                     FooterLine::Close(close)
                 } else if self.esc_primed && !thread.transcript().is_empty() {
                     FooterLine::Hint(strings.chat.backtrack_hint)
-                } else if running.is_some() && !self.draft_empty {
+                } else if running && !self.draft_empty {
                     FooterLine::Hint(strings.chat.queue_hint)
                 } else {
                     FooterLine::Keys
@@ -594,66 +533,24 @@ impl State for ChatState {
         } else {
             footer
         };
+        // The status row, the queued messages and the notices are widgets of
+        // their own (`activity`, `pending_input`, `banners`): each reads what
+        // it shows from the providers.
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(Expanded::new(1, transcript));
-        if let Some(status) = status {
-            if !thread.transcript().is_empty() {
-                body = body.child(SizedBox::new(None, Some(1), None));
-            }
-            body = body.child(status);
-        }
-        const QUEUE_PREVIEW: usize = 3;
-        for message in thread.queue().iter().take(QUEUE_PREVIEW) {
-            body = body.child(
-                Text::new(strings.queued(&message.text).to_string())
-                    .max_lines(Some(2))
-                    .overflow(TextOverflow::Ellipsis)
-                    .style(tokens.dim()),
-            );
-        }
-        let remaining = thread.queue().len().saturating_sub(QUEUE_PREVIEW);
-        if remaining > 0 {
-            body = body.child(Text::line(strings.more_queued(remaining)).style(tokens.dim()));
-        }
-        if let Some(notice) = &states.chat.notice {
-            let notice = match notice {
-                chat::ChatNotice::Command(notice) => notice.clone(),
-                chat::ChatNotice::NotAvailable(command) => {
-                    codex_tui_core::commands::Notice::NotAvailable(*command)
-                }
-            };
-            // `add_info_message` is plain text, `add_error_message` is red.
-            let text = Text::new(chat_strings.notice(&notice));
-            body = body.child(if notice.is_info() {
-                text
-            } else {
-                text.style(tokens.error())
-            });
-        }
+            .child(Expanded::new(1, transcript))
+            .child(StatusSlot)
+            .child(PendingInput)
+            .child(NoticeLine);
         if self.shortcuts && search.is_none() {
             body = body.child(panel);
         }
-        let run_state = if compacting {
-            "Compacting"
-        } else if running.is_some() {
-            match slots.chat.activity {
-                chat::ActivityPhase::Working => "Working",
-                chat::ActivityPhase::Thinking => "Thinking",
-            }
-        } else if connection == Some(&ConnectionState::Reconnecting) {
-            "Reconnecting"
-        } else if failure.is_some() {
-            "Error"
-        } else {
-            "Ready"
-        };
         let context = StatusContext {
             thread_id: session.active.as_ref(),
             thread: Some(&slots.chat),
             usage: Some(&slots.status),
             rate_limits: session.rate_limits.get(&backend),
-            run_state: Some(run_state),
+            run_state: Some(run.word(&session, reconnecting)),
             strings,
         };
         let line = status_line(context.items_for(facts), facts.colors, &tokens);
@@ -673,38 +570,7 @@ impl State for ChatState {
                     .child(Text::new(chat_strings.backend_cycle).style(tokens.dim())),
             );
         }
-        let active_model = slots.chat.model.as_deref().or(facts.model.as_deref());
-        if let Some(occurrence) = session
-            .backend_banners
-            .get(&backend)
-            .filter(|occurrence| occurrence.is_visible(active_model))
-        {
-            let banner = &occurrence.banner;
-            let (title, description) = if banner.reserve_pending(active_model) {
-                (
-                    strings.chat.usage_limit_title,
-                    strings.chat.usage_limit_detail,
-                )
-            } else {
-                (banner.title(), banner.description())
-            };
-            let mut callout = Callout::text(description.to_owned())
-                .title(title.to_owned())
-                .kind(StatusKind::Warning)
-                .actions(
-                    banner
-                        .links()
-                        .map(|(label, url)| Hyperlink::new(url).text(label.to_owned()).into()),
-                );
-            if occurrence.is_dismissible() {
-                let ticket = occurrence.ticket;
-                callout = callout.on_dismissed(cx.send(ChatMsg::DismissBanner(backend, ticket)));
-            }
-            body = body.child(AnyWidget::from(callout).with_key(Key::value(occurrence.ticket)));
-        }
-        if let Some(notice) = session.backend_notices.get(&backend) {
-            body = body.child(Text::new(notice.clone()).style(tokens.dim()));
-        }
+        let body = body.child(BackendBanners);
         let mut body = if thread.read_only() {
             body.child(composer)
         } else {
@@ -729,7 +595,7 @@ impl State for ChatState {
         if action.is_none()
             && facts.animations
             && facts.progress_effect
-            && (running.is_some() || compacting)
+            && (running || compacting)
             && StatusContext::title_has_activity(facts)
         {
             let mut parts = context.title_parts(facts, Some(""));
@@ -768,7 +634,7 @@ impl State for ChatState {
             .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
         // Tab queues while a turn runs and submits otherwise, but not a
         // shell command (`queue_keys` in `handle_key_event_without_popup`).
-        if (running.is_some() || !self.draft_shell) && !self.draft_empty && search.is_none() {
+        if (running || !self.draft_shell) && !self.draft_empty && search.is_none() {
             focus = focus.bind(KeyPress::code(KeyCode::Tab), cx.send(ChatMsg::QueueDraft));
         }
         if thread.read_only() {

@@ -534,10 +534,6 @@ fn collab_mode_applies_default_preset() {
 // ORACLE chatwidget/tests/plan_mode.rs:1736 plan_update_renders_history_cell kind=ui owner=chat-live
 #[test]
 fn plan_update_renders_history_cell() {
-    kit::pending(
-        Owner::ChatLive,
-        "no plan-update history cell: the port's chat does not draw turn/plan/updated, so the Updated Plan cell and its steps are not in the transcript",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(PLAN_UPDATE)

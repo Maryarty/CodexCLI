@@ -890,10 +890,6 @@ fn startup_config_warning_is_not_repeated_by_thread() {
 // ORACLE chatwidget/tests/app_server.rs:1294 live_app_server_file_change_item_started_preserves_changes kind=snap owner=chat-live
 #[test]
 fn live_app_server_file_change_item_started_preserves_changes() {
-    kit::pending(
-        Owner::ChatLive,
-        "no file-change cell on the chat screen: the chat model keeps only user and agent message items (core/src/threads.rs item_upsert), so the patch is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&item_started(

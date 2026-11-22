@@ -127,10 +127,6 @@ fn steer_refused() -> String {
 // ORACLE chatwidget/tests/review_mode.rs:106 entered_review_mode_uses_request_hint kind=ui owner=chat-live
 #[test]
 fn entered_review_mode_uses_request_hint() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no '>> Code review started: <hint> <<' banner",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("feature branch"));
     s.assert_has_row(">> Code review started: feature branch <<");
@@ -139,10 +135,6 @@ fn entered_review_mode_uses_request_hint() {
 // ORACLE chatwidget/tests/review_mode.rs:119 entered_review_mode_defaults_to_current_changes_banner kind=ui owner=chat-live
 #[test]
 fn entered_review_mode_defaults_to_current_changes_banner() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no 'current changes' banner",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("current changes"));
     s.assert_has_row(">> Code review started: current changes <<");
@@ -465,10 +457,6 @@ fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
 // ORACLE chatwidget/tests/review_mode.rs:1087 ctrl_c_cleared_prompt_is_recoverable_via_history kind=ui owner=chat-live
 #[test]
 fn ctrl_c_cleared_prompt_is_recoverable_via_history() {
-    kit::pending(
-        Owner::ChatLive,
-        "history recall does not restore images: the prompt history is text only (`popovers.history: Vec<String>`, shared with Ctrl+R search and the persisted history), so after Up `[Image #1]` is plain text and Enter sends no image; the oracle's recalled draft carries `preview.png` (take_recent_submission_images)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.type_text("draft message ");
     // oracle: attach_image(/tmp/preview.png) appends "[Image #1]" to the draft

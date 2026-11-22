@@ -7,12 +7,14 @@
 mod actions;
 mod activity;
 pub mod backtrack;
+mod banners;
 pub(crate) mod blossom;
 pub mod cells;
 pub mod composer;
 mod external_writer;
 mod keys;
 pub mod open;
+mod pending_input;
 pub mod popovers;
 mod popup;
 mod search_key;
