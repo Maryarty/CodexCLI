@@ -105,7 +105,9 @@ pub fn parse_row(row: &str) -> (String, Vec<usize>) {
                     .to_ascii_lowercase()
                     .starts_with("hidden by multi-width symbols");
                 if !rest.is_empty() && !note {
-                    return raw;
+                    // TestBackend's rows are not escaped: a quote inside the text is the text.
+                    text.push('"');
+                    continue;
                 }
                 return (
                     text,

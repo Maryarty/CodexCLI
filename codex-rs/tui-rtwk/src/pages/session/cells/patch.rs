@@ -8,11 +8,12 @@
 //! three changed lines a file, until it is tapped or the transcript is
 //! detailed (a `StatefulWidget` holding `expanded`, like an `ExpansionTile`).
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use rtwk::layout::{
-    Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
-    SizedBox,
+    ColoredBox, Column, ConstrainedBox, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize,
+    Padding, Row, SizedBox,
 };
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{TextAlign, TextWrap};
@@ -247,11 +248,23 @@ fn count_spans((added, removed): (usize, usize), styles: &PatchStyles<'_>) -> Ve
     ]
 }
 
+/// oracle diff_render.rs `TAB_REPLACEMENT`: a tab in a diff line is four blanks (the
+/// content rule, so the lexer's offsets and the painted text agree).
+const TAB_REPLACEMENT: &str = "    ";
+
+fn expand_tabs(text: &str) -> Cow<'_, str> {
+    if text.contains('\t') {
+        Cow::Owned(text.replace('\t', TAB_REPLACEMENT))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 /// One numbered line in the oracle's order: number, sign, text.
 struct Numbered<'a> {
     number: usize,
     kind: DiffLineKind,
-    text: &'a str,
+    text: Cow<'a, str>,
 }
 
 fn change_lines(
@@ -286,7 +299,7 @@ fn change_lines(
                     .map(|(index, text)| Numbered {
                         number: index + 1,
                         kind,
-                        text,
+                        text: expand_tabs(text),
                     })
                     .collect(),
             );
@@ -305,7 +318,7 @@ fn change_lines(
                                 }
                                 .unwrap_or_default(),
                                 kind: line.kind,
-                                text: line.text.as_str(),
+                                text: expand_tabs(line.text.as_str()),
                             })
                             .collect(),
                     );
@@ -334,14 +347,14 @@ fn change_lines(
         }
         let source: String = hunk
             .iter()
-            .map(|line| line.text)
+            .map(|line| line.text.as_ref())
             .collect::<Vec<_>>()
             .join("\n");
         let highlighted = language.map(|language| {
             let lexer = Highlighter::new(language, &source);
             (0..hunk.len())
                 .map(|row| {
-                    let text = hunk[row].text;
+                    let text = hunk[row].text.as_ref();
                     styles
                         .syntax
                         .spans(text, lexer.tokens(row))
@@ -365,38 +378,46 @@ fn change_lines(
             };
             let body = match highlighted.as_ref().and_then(|rows| rows.get(row)) {
                 Some(spans) if !spans.is_empty() => spans.clone(),
-                _ => vec![Span::styled(line.text.to_owned(), sign_style.clone())],
+                _ => vec![Span::styled(line.text.to_string(), sign_style.clone())],
             };
             // Fixed columns: the indent, the number aligned right, its blank
             // and the sign (a line's trailing blanks take no room).
             let width = |columns: usize, child: AnyWidget| {
                 SizedBox::new(Some(columns as i32), None, Some(child))
             };
-            out.push(
-                Row::new()
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .child(width(
-                        strings.diff_indent.len(),
-                        Text::new(strings.gap).into(),
-                    ))
-                    .child(width(
-                        gutter,
-                        Text::new(line.number.to_string())
-                            .style(styles.tokens.dim())
-                            .text_align(TextAlign::Right)
-                            .into(),
-                    ))
-                    .child(width(
-                        2,
-                        Text::rich(vec![
-                            Span::new(strings.gap),
-                            Span::styled(sign, sign_style.clone()),
-                        ])
+            let row_widget: AnyWidget = Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(width(
+                    strings.diff_indent.len(),
+                    Text::new(strings.gap).into(),
+                ))
+                .child(width(
+                    gutter,
+                    Text::new(line.number.to_string())
+                        .style(styles.tokens.dim())
+                        .text_align(TextAlign::Right)
                         .into(),
-                    ))
-                    .child(Expanded::new(1, Text::rich(body).wrap(TextWrap::Grapheme)))
+                ))
+                .child(width(
+                    2,
+                    Text::rich(vec![
+                        Span::new(strings.gap),
+                        Span::styled(sign, sign_style.clone()),
+                    ])
                     .into(),
-            );
+                ))
+                .child(Expanded::new(1, Text::rich(body).wrap(TextWrap::Grapheme)))
+                .into();
+            // oracle `style_line_bg_for`: the whole row, indent to the right edge, is tinted.
+            out.push(match line.kind {
+                DiffLineKind::Added => {
+                    ColoredBox::new(styles.tokens.diff_line(true), row_widget).into()
+                }
+                DiffLineKind::Removed => {
+                    ColoredBox::new(styles.tokens.diff_line(false), row_widget).into()
+                }
+                DiffLineKind::Context => row_widget,
+            });
         }
     }
     out

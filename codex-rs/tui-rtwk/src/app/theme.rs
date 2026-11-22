@@ -163,6 +163,18 @@ impl Tokens {
     pub fn error(&self) -> Style {
         self.0.error.clone()
     }
+
+    /// The row background of an added or removed diff line (oracle diff_render.rs, the
+    /// truecolor palette: dark tints, GitHub's on a light terminal; the presenter lowers it
+    /// to the terminal's depth, as the oracle's 256-colour table does).
+    pub fn diff_line(&self, added: bool) -> Color {
+        match (self.0.brightness == Brightness::Dark, added) {
+            (true, true) => Color::rgb(33, 58, 43),
+            (true, false) => Color::rgb(74, 34, 29),
+            (false, true) => Color::rgb(218, 251, 225),
+            (false, false) => Color::rgb(255, 235, 233),
+        }
+    }
 }
 
 pub(crate) fn shimmer_style(style: &Style, base: Color, highlight: Color, strength: f64) -> Style {

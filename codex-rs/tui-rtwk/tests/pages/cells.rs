@@ -239,6 +239,51 @@ mod patch_preview {
             "a wrapped line takes the rows it needs: {shown:#?}"
         );
     }
+
+    #[test]
+    fn an_added_or_removed_row_is_tinted_over_its_whole_width_and_context_is_not() {
+        // oracle `style_line_bg_for`: the tint fills the row from the indent to the right edge,
+        // not only the text; the two tints differ, the context row has none.
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(30, 12));
+        t.pump_widget(PatchCell {
+            detailed: true,
+            ..cell("@@ -1,2 +1,2 @@\n-a\n+b\n c\n")
+        });
+        let rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|l| l.trim_end().to_string())
+            .collect();
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|row| row.ends_with(needle))
+                .unwrap_or_else(|| panic!("no row ends with `{needle}`: {rows:#?}"))
+        };
+        let (removed, added, context) = (at("1 -a"), at("1 +b"), at("2  c"));
+        for x in [0, 3, 7, 29] {
+            assert_eq!(
+                t.cell(x, removed).bg,
+                t.cell(0, removed).bg,
+                "removed row at {x}"
+            );
+            assert_eq!(t.cell(x, added).bg, t.cell(0, added).bg, "added row at {x}");
+        }
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, context).bg,
+            "the added row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, removed).bg,
+            t.cell(0, context).bg,
+            "the removed row is tinted"
+        );
+        assert_ne!(
+            t.cell(0, added).bg,
+            t.cell(0, removed).bg,
+            "the two tints differ"
+        );
+    }
 }
 
 // ---- a revealed patch survives the turn's timing row (the row sits in the
