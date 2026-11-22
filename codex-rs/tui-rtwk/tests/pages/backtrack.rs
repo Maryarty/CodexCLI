@@ -61,7 +61,9 @@ fn chat_with_a_prompt() -> Harness {
     h.fake.script_turn(vec![]);
     h.t.type_text("go");
     h.press("enter");
-    h.wait_for("the prompt", |s| s.contains("go"));
+    h.wait_for("the prompt in the transcript", |s| {
+        s.contains("› go") && s.contains("Ask Codex to do anything")
+    });
     let epoch = h.fake.epoch().expect("attached");
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
@@ -77,15 +79,20 @@ fn methods(h: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// The edit is chosen: Esc Esc, Enter; the server has read and reverted.
+/// The edit is chosen: Esc Esc, Enter; the server has read and reverted, and the prompt
+/// is in the composer.
 fn edit_the_prompt(h: &mut Harness) {
+    h.wait_for("the turn to end", |s| s.contains("? for shortcuts"));
     h.press("esc");
+    h.wait_for("the first Esc to prime", |s| {
+        s.contains("esc again to edit")
+    });
     h.press("esc");
     h.press("enter");
     h.wait_until("the revert", |h| {
         methods(h).iter().any(|method| method == "thread/revert")
     });
-    h.settle();
+    h.wait_for("the prompt in the composer", in_the_composer);
 }
 
 /// The prompt twice: in the transcript and in the composer.
