@@ -144,3 +144,31 @@ Luna Reserve selector, automatic switch and usage notice (step 5 rest; the 12 `c
 
 ## Checks (ac5e0427b)
 fmt, clippy `--workspace --all-targets -D warnings` clean, whole nextest 1909 passed 17 skipped (one load flake, `importing_sends_the_checked_items_and_leaves_the_page_for_the_chat`, passes alone and on rerun), `shards.py --check` 0 stale. Binary run of the banner not done (no check.py scenario serves an upsell response).
+
+# chunk-live C6 — Luna Reserve selector, notify-owner nudge, account update (brief §6 step 5, second part; ab316c468)
+
+## Built (ADR-003: core owns the state, one writer; the page reads and emits)
+- Luna Reserve selector: `ReserveSelector` (pages/session/banners.rs) is the oracle's modal `list_selection_view` as an inline `Picker` brick in the bottom pane (title, subtitle, numbered rows, `standard_hint`; the "Continue with Luna Reserve" row and the `Press {accept} to confirm or {cancel} to continue working` hint only when no CTA is pending). A pick = `Hs.pick_banner`, Esc / "continue" = `Hs.dismiss_banner` (the oracle's `picker_dismissed`); the draft stays in `UiApp.ui` and focus returns to the composer. Core: `Banner::is_reserve()`; `dismiss(ticket)` accepts a dismissible or reserve banner; `submit` dismisses a dismissible banner at a new turn (C5 tip, 50a7eece4).
+- Notify owner: `Command::SendAddCreditsNudge{ticket, backend, nudge}` (the only request builder is `protocol::client_request`), `AppCtx::Nudge` is the one-in-flight guard and the stale-reply guard (an account change drops it), reply -> `NudgeOutcome::{Sent, Cooldown, Failed}` -> `ThreadEv::Appended{item: Notice::AddCreditsNudge}` on the thread; notice cell = dim bullet + message (credits / usage-limit wording, 3 outcomes each; words in `cells/strings.rs`).
+- `account/updated` (`update_account_state`): removes the banner, the nudge in flight and the rate-limit warnings of that backend.
+- Tests: core model (`reserve_selector…`, `notify_owner…`, `account_update…`), `tests/pages/chat_live.rs` (`reserve…`: rows, Esc keeps the draft and returns focus, pick routes, a continue row only when nothing is pending), kit (`opened_urls`, `nudges`, `answer_request`), oracle `chat_live_2`: owner notification + luna reserve selector on (3 reasons updated).
+
+## Needs (other owners' files; nothing here is worked around)
+- host/shell: an arm for `Command::OpenUrl` (browser seam) and for `Command::SendAddCreditsNudge` as a request via the existing `client_request` path; the fake lists both.
+- chat-status (footer): the usage notice (`UsageNoticeState`, thresholds, `first_fitting_line`, `format_reset_timestamp`) is a footer element, and the Luna status label "Luna Reserve default"; both wait for its footer and a clock format (now, utc offset, hour24).
+- Automatic model switch and `ReserveReturnModel` persistence: need the model catalog and config write (IO owners).
+- chunk-transcript-2 not landed yet (`git log claude/tui-rtwk` has no TranscriptSheet / Modes / core Backtrack): `ModeKeys` wrapper, Esc / Ctrl+T / F3 forwarding, mount of `TranscriptSheet` and the one-line `backtrack::apply_thread(.., Reverted)` stay to do.
+- popups: a `List.header` slot with roles, so the selector's description is plain, not dim (see Deltas).
+
+## Deltas (open)
+- The `Picker` brick draws the selector description dim; the oracle draws it plain.
+- `{time}` in banner copy not built (no clock facts in chat core).
+- `luna_reserve_notice_account_id` (a later reserve occurrence of the same account arrives already dismissed) not built.
+- A dismissible banner that no frame has drawn is dismissed by a submit; the oracle's fourth case has no retained-UI counterpart.
+- `Notice::{Interrupted, InterruptedForSteer, GoalBudgetReached}` still to add for step 7.
+
+## Left
+Usage notice and automatic switch (above) · 3 rest (error wording through `codex_error_info`, provider error, Worked-for line, startup warnings panel) · 7 rest (review prompt hidden, Esc warning with review-queued steers, goal budget notices, side gates) · 10 replay (30 todo `chat_live_2`) · 8 external writer · 4 safety buffering · 9 plan mode · 1 layout into `live/` · the `session_page.rs` transcript wiring.
+
+## Checks (ab316c468, on the claude/tui-rtwk tip 9797c17f9)
+fmt, clippy `--workspace --all-targets -D warnings` clean, whole nextest `--no-fail-fast` 1940 passed 17 skipped, 2 failed (`import::flow::enter_toggles_in_the_checklist_and_the_toggled_selection_is_imported`, `startup::session::a_remembered_mode_opens_without_a_prompt`: both pass alone, load flakes) plus the known-red `shell_agents::typing_a_word_asks_the_server_once`. Oracle `chat_live_1..6` (summary.py, pass/n/a/pending/todo/red): 5/8/15/2/10/0 pass, 0 red, 0 stale; `shards.py --check` 0 stale. Binary run of the selector not done (no check.py scenario serves an upsell response).
