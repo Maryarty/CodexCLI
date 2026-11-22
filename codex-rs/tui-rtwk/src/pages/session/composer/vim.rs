@@ -459,17 +459,7 @@ pub fn normal(data: &KeyData, c: &TextEditingController, key: &KeyPress, mode: &
     if let (Pending::None, Input::Normal(command @ (Normal::MoveUp | Normal::MoveDown))) =
         (mode.pending, input)
     {
-        let history = &data.history;
-        let shell = draft.shell();
-        let took = draft.walks_history(c, history.len())
-            && if command == Normal::MoveUp {
-                draft.history_up(c, history)
-            } else {
-                draft.history_down(c, history)
-            };
-        if draft.shell() != shell {
-            (data.tell)(ComposerMsg::Shell);
-        }
+        let took = super::editing::walk_history(data, c, command == Normal::MoveUp);
         if took {
             (data.tell)(ComposerMsg::Redraw);
             return true;

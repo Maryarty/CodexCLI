@@ -18,7 +18,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## chunk-composer (the whole composer as one job; in progress, steps 1-5 and 7 of 11 landed)
+## chunk-composer (the whole composer as one job; in progress, steps 1-7 of 11 landed)
 Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
 
 Done:
@@ -54,12 +54,58 @@ Done:
   with placeholder and caret for Esc and Ctrl+C, footer styles, a click in the preview), each
   shown biting once.
 
+- Step 6, persistent history (pure core, ADR-003): the shared half and the per-composer half
+  are split. Core `screens/composer/history.rs` (no rtwk, no IO), a split carry of the oracle's
+  `ChatComposerHistory` and `search_batch.rs`:
+  - `Store` (shared, changed only through `apply`; `popovers::Model.history: Shared<Store>`):
+    the thread's log id and entry count, the entries and batches the host answered (`on_entry`,
+    `on_batch`, `on_batch_error`), `rev` for polling. A reply with a stale `log_id` is ignored.
+  - `History` (one per composer draft, `ComposerDraft`): the oracle's one offset space
+    (persistent entries, then local ones), the walk cursor, the local submissions, replay seeds
+    (`record_replayed_submission`), the last recalled text, `navigate_up/down`, `search`,
+    `poll`. It never reads or writes the store: it takes `&Store` and puts the reads it needs
+    into a `Vec<Lookup>` outbox (`Lookup::Entry{log_id, offset}`, `Lookup::Batch{log_id,
+    end_offset}`), so a lookup is a value, not a call.
+  - Ctrl+R as the oracle: probe the newest entry as one read, then bounded batches, dedupe by
+    exact text, a failed batch retried `MAX_BATCH_READ_RETRIES` = 2 times, then `NoMatch`.
+    `SearchStatus::Searching` is drawn in the footer (`searching history`, dim) until the
+    reply comes; `Preview::{Show, Original, Keep}` says what the draft shows meanwhile.
+  - Recording as the oracle: a submit records the expanded text with its image placeholders and
+    local image paths; Ctrl+C records the placeholder text plus `pending_pastes` and writes no
+    file; a search accept and a cancel reset the walk as `reset_search`/`reset_navigation` do;
+    Vim Normal's last-character caret counts as the end (`vim_end`, `history_navigation_cursor`).
+  - Outbox: `popovers::Ask::{Append(text), Lookup(Lookup)}` in `Model.asks`, drained with
+    `take_asks()`; events `Ev::{History(seed), HistoryMetadata, HistoryEntry, HistoryBatch,
+    HistoryBatchFailed}`; intents `Intent::{Record, Lookup}`.
+  - View: `ComposerDraft` keeps `prompts: History` (the old `recalled`/`local` are gone);
+    `ComposerMsg::{Lookups, Polled}` send the draft's lookups out through `cx.emit` and resume
+    the walk when the store changed (`history_poll`, sent from `build` while waiting).
+    `page/composer/{editing,vim,search,strings}.rs` use it.
+  - Tests: `core/tests/composer_history.rs` (21: the oracle's history and batch tests carried,
+    3 new: a late metadata keeps the replay seeds, a stale log id is ignored, local entries
+    survive a metadata change), `core/tests/popovers.rs` (history search over the store, a
+    Pending/Unavailable test), `tests/pages/composer_history.rs` (7: Up asks the host and the answer fills the draft,
+    an answer for another log is ignored, Ctrl+R says `searching` until the host answers and
+    then previews the match, a failed read restores the draft and says nothing, Ctrl+C keeps
+    the draft for Up but writes no file, a submit is appended and found by Up, Vim Normal
+    walks on from the last character); shown biting once (the lookup left out, the poll left
+    out, the Vim end left out).
+
 Counts now (`summary.py --run` of the six shards): composer_1 8/1/41/0 of 50, composer_2
 30/4/16/0 of 50, composer_3 33/2/21/0 of 56, composer_4 16/2/55/0 of 73, composer_popups
 14/0/29/0 of 43, textarea 18/2/39/0 of 59: 119 pass, 11 n/a, 201 pending, 0 red (109 pass
 before this job's Vim steps). `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole
 `--workspace` nextest 1906 passed, 17 skipped; fmt, clippy `--workspace --all-targets
 -D warnings`: clean.
+
+Step 6 counts: core 914 passed (1 skipped), UI crate 955 passed (16 skipped), whole `--workspace`
+nextest 1951 passed, 17 skipped (one earlier run failed `startup::session::a_remembered_mode_opens_without_a_prompt`
+"the resume never came" under load, startup's, passes alone and in the rerun); fmt, clippy
+`--workspace --all-targets -D warnings`, `shards.py --check` (55 shards, 2560 tests, 0 stale): clean; the six shards
+are unchanged (119 / 11 / 201 / 0, 0 stale): every pending marker that step 6 touches also
+needs a seed this job does not own (see Needs) or a later step (remote image URLs: step 9;
+mentions: step 8; a keymap seed: kit). With `KIT_PROBE_PENDING=1` 29 pending bodies pass; their
+markers say they would be half passes, so they stay.
 
 Imported oracle tests corrected (the kit's expectation was not the oracle's):
 - `removing_the_shell_prefix_is_its_own_undoable_edit`: the oracle compares the whole draft
@@ -84,6 +130,15 @@ sets the caret to offset 2 as the oracle does (`home right right`), it passes.
 Stale marker for its owner: `pane_footer_2::ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint`
 passes with the marker probing (ui-pane's shard, not edited here).
 
+Step 6 deltas: a search accept keeps the walk cursor, as the oracle does (the old port had no
+place in the walk); `startup_local_history` and its test do not apply (the thread's composer
+starts empty and the store comes from the host); images in a recalled entry pair with
+`local_image_paths` by position, not by seq or label number (step 9 relabels);
+`remote_image_urls` and `mention_bindings` are carried in `HistoryEntry` but not applied to the
+draft yet (steps 8 and 9; `HistoryEntry::persisted` is the mention-codec hook, and
+`persistent_restore_gates_at_mentions` waits for step 8); replay seeds and local entries
+survive a metadata change (each thread has its own composer and store).
+
 Deltas (one line each): `word_pieces` by separator class, not UAX29; no counts (as in the
 oracle); a dot-repeated `Yank` replays the register text only; mouse selection is not in
 the engine; paste-burst x Replace (`retract_paste_burst`) and `absorb_prompt_prefix` not
@@ -96,16 +151,21 @@ Needs (other owners' files):
 - `actions.rs` `Outcome::Session{intent: Vim}`: toggle the draft's Vim plus the info cell
   "Vim mode enabled."/"disabled." (core `app/session.rs`, `chat.rs`, `dispatch.rs`); the
   `tui.vim_mode_default` config.
-- `core/src/app.rs` and `host`: history Commands (`HistoryMetadata/Append/Lookup/Batch`),
-  FileSearch (`fuzzyFileSearch`, D1), ClipboardImage, `host/Cargo.toml` deps.
+- `core/src/app.rs` and `host` (chunk-live): history. Core: `Command::History(popovers::Ask)`
+  and a drain of `model.popovers.take_asks()` after every apply (until then the outbox only
+  grows; `Append` is never persisted). Host: arms over `codex-message-history`
+  (`history_metadata`, `append_entry`, `lookup`, `lookup_batch`), its dependency in
+  `host/Cargo.toml` in its own commit; the replies map to `popovers::Ev::HistoryEntry`,
+  `HistoryBatch{rows, next_older}`, `HistoryBatchFailed`; the host keeps the
+  `HistoryBatchCursor` byte anchors by `end_offset`; the metadata is read when a thread opens
+  and delivered as `Ev::HistoryMetadata{log_id, entry_count}`.
+- Also there: FileSearch (`fuzzyFileSearch`, D1), ClipboardImage.
 - Kit (`tests/kit/*`): a Vim seed, SUPER/kitty modifiers, terminal default colours, right
   click, parent-owned and disconnected seeds, a caret-row/multi-frame snapshot compare.
 - `CORE_DEPS` in `tests/rules/layers.rs` when core gets a dependency.
 
-Left (steps 6, 8-11): persistent history (core `composer/history.rs`, the `Searching` status
-and the lookup of a search; Command/AppEv/host are needs); re-add `vim_normal_end_cursor` for
-history navigation (also unblocks `remapped_history_search_does_not_fall_back_to_ctrl_r`);
-the `@` mentions popup
+Left (steps 8-11): the `remapped_history_search_does_not_fall_back_to_ctrl_r` test needs a
+keymap seed (kit); the `@` mentions popup
 with file search and tabs; images and attachments (Ctrl+V needs host); reconnect/offline and
 Ctrl+G (G67 pending); remaining tests, gap rows (G-new-1 Ctrl+R match highlight and links, G65, G66,
 G67, G68, G11), the embedded plain-text composer (D4), the binary run and `check.py`.

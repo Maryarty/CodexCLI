@@ -19,6 +19,7 @@ mod backend_switch;
 mod cells;
 mod citations;
 mod commands;
+mod composer_history;
 mod composer_shell;
 mod composer_vim;
 mod dialogs;

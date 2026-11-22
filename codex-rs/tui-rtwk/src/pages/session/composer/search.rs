@@ -14,6 +14,7 @@ use rtwk::{AnyWidget, Cx};
 use codex_tui_core::keymap::actions::{
     COMPOSER_HISTORY_SEARCH_NEXT, COMPOSER_HISTORY_SEARCH_PREVIOUS,
 };
+use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::sanitize_paste;
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
 
@@ -41,17 +42,18 @@ pub fn begin(data: &KeyData, c: &TextEditingController) {
 /// key is consumed (`_ => (InputResult::None, true)`).
 pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     let draft = &data.draft;
-    let history = &data.history;
+    let store = &data.history;
+    let mut asks = Vec::new();
     let plain = key.mods == Mods::NONE;
     let ctrl = |ch: char| *key == KeyPress::char(ch).with_mods(Mods::CTRL);
     if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_PREVIOUS, key)
         || (key.code == KeyCode::Up && plain)
     {
-        draft.search_step(c, history, Direction::Older);
+        draft.search_step(c, store, Direction::Older, &mut asks);
     } else if pressed(&data.keymap, COMPOSER_HISTORY_SEARCH_NEXT, key)
         || (key.code == KeyCode::Down && plain)
     {
-        draft.search_step(c, history, Direction::Newer);
+        draft.search_step(c, store, Direction::Newer, &mut asks);
     } else if key.code == KeyCode::Escape
         || ctrl('c')
         || (key.mods.is_empty() && key.text() == Some("\u{3}"))
@@ -60,29 +62,39 @@ pub fn key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
     } else if key.code == KeyCode::Enter && plain {
         draft.search_accept(c);
     } else if key.code == KeyCode::Backspace || ctrl('h') {
-        draft.search_edit(c, history, |query| {
+        draft.search_edit(c, store, &mut asks, |query| {
             query.pop();
         });
     } else if ctrl('u') {
-        draft.search_edit(c, history, String::clear);
+        draft.search_edit(c, store, &mut asks, String::clear);
     } else if let Some(text) = key.as_text() {
-        draft.search_edit(c, history, |query| query.push_str(text));
+        draft.search_edit(c, store, &mut asks, |query| query.push_str(text));
     } else if key.code == KeyCode::F12 {
         // the port's own hidden debug key is not the oracle's to swallow
         return false;
     }
+    ask(data, asks);
     (data.tell)(ComposerMsg::Searched);
     true
+}
+
+/// The reads the search needs go to the app.
+fn ask(data: &KeyData, asks: Vec<Lookup>) {
+    if !asks.is_empty() {
+        (data.tell)(ComposerMsg::Lookups(asks));
+    }
 }
 
 /// A paste while the search is open goes into the query, in full and
 /// sanitized; an empty one changes nothing (`apply_paste`).
 pub fn paste(data: &KeyData, c: &TextEditingController, text: &str) {
     let pasted = sanitize_paste(text);
+    let mut asks = Vec::new();
     if !pasted.is_empty() {
         data.draft
-            .search_edit(c, &data.history, |query| query.push_str(&pasted));
+            .search_edit(c, &data.history, &mut asks, |query| query.push_str(&pasted));
     }
+    ask(data, asks);
     (data.tell)(ComposerMsg::Searched);
 }
 
@@ -100,6 +112,7 @@ pub fn footer<S>(cx: &mut Cx<'_, S>, query: String, status: SearchStatus) -> Any
     ];
     match status {
         SearchStatus::Idle => {}
+        SearchStatus::Searching => spans.push(Span::styled(strings.search_searching, dim)),
         SearchStatus::Match => spans.extend([
             Span::styled(strings.search_gap, dim.clone()),
             Span::styled(strings.search_accept_key, tokens.bold()),

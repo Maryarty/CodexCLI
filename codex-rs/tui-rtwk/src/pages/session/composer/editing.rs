@@ -21,6 +21,8 @@ use codex_tui_core::keymap::actions::{
     EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
+use codex_tui_core::screens::Shared;
+use codex_tui_core::screens::composer::history::Store;
 use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
 
 use super::ComposerMsg;
@@ -38,7 +40,8 @@ use crate::widgets::composer_draft::ComposerDraft;
 #[derive(Clone)]
 pub struct KeyData {
     pub draft: ComposerDraft,
-    pub history: Rc<[String]>,
+    /// The message history file as far as it was read (shared, a handle).
+    pub history: Shared<Store>,
     pub tell: Rc<dyn Fn(ComposerMsg)>,
     pub burst: Option<BurstEnv>,
     /// The popup's rows: it takes Up, Down, Enter and Tab while it shows.
@@ -46,6 +49,24 @@ pub struct KeyData {
     /// The user's bindings (`tui.keymap`): the Composer and Editor contexts
     /// say which key is which edit.
     pub keymap: Rc<Keymap>,
+}
+
+/// Up (`up`) or Down at the draft's ends: the history's entry replaces the
+/// draft (`navigate_up`, `navigate_down`). A read the store lacks goes to
+/// the app, and the draft waits for it. `false`: the caret moves instead.
+pub(super) fn walk_history(data: &KeyData, c: &TextEditingController, up: bool) -> bool {
+    let draft = &data.draft;
+    let shell = draft.shell();
+    let mut asks = Vec::new();
+    let took = draft.history_step(c, &data.history, up, &mut asks);
+    if !asks.is_empty() {
+        (data.tell)(ComposerMsg::Lookups(asks));
+    }
+    // an entry's leading `!` is shell mode again
+    if draft.shell() != shell {
+        (data.tell)(ComposerMsg::Shell);
+    }
+    took
 }
 
 fn only(key: &KeyPress, mods: Mods) -> bool {
@@ -527,21 +548,7 @@ fn edit_arms(
             c.move_caret(e.end, !plain);
             true
         }
-        (KeyCode::Up | KeyCode::Down, _) if plain => {
-            let history = &data.history;
-            let shell = draft.shell();
-            let took = draft.walks_history(c, history.len())
-                && if key.code == KeyCode::Up {
-                    draft.history_up(c, history)
-                } else {
-                    draft.history_down(c, history)
-                };
-            // an entry's leading `!` is shell mode again
-            if draft.shell() != shell {
-                (data.tell)(ComposerMsg::Shell);
-            }
-            took
-        }
+        (KeyCode::Up | KeyCode::Down, _) if plain => walk_history(data, c, key.code == KeyCode::Up),
         (KeyCode::Char, Some('k')) if ctrl && collapsed => {
             let text = c.buffer();
             let end = text.line_end(text.line_of(caret));
@@ -638,7 +645,7 @@ mod tests {
     fn data() -> KeyData {
         KeyData {
             draft: ComposerDraft::default(),
-            history: Rc::from(Vec::new()),
+            history: Shared::default(),
             tell: Rc::new(|_| {}),
             burst: None,
             suggest: Rc::default(),

@@ -16,6 +16,8 @@ mod agents_mouse;
 mod composer_burst;
 #[path = "pages/composer_draft.rs"]
 mod composer_draft;
+#[path = "pages/composer_history.rs"]
+mod composer_history;
 #[path = "pages/composer_images.rs"]
 mod composer_images;
 #[path = "pages/composer_mouse.rs"]

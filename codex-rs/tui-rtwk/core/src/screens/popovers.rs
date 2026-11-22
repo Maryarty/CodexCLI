@@ -12,6 +12,8 @@ use crate::commands::fuzzy_match;
 use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
+use crate::screens::Shared;
+use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
 use crate::threads::ThreadFx;
 
 pub const NAME: &str = "popovers";
@@ -19,16 +21,33 @@ pub const ID: &str = "S12";
 pub const KIND: Kind = Kind::Part;
 
 /// The app-scoped model state of this screen, changed only by `apply`: the
-/// data the `@` and `$` popups list, the prompts history search walks, and
-/// the history the search reads. The backend would supply the data; scripts seed it.
+/// data the `@` and `$` popups list and what the message history file said
+/// (Ctrl+R, Up and Down read it). The backend supplies the data; scripts
+/// seed it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     /// Paths relative to the working directory (`@` file search).
     pub files: Vec<String>,
     /// Skills, apps and plugins (`$`, `@`).
     pub mentions: Vec<Mention>,
-    /// Submitted prompts, oldest first (Ctrl+R).
-    pub history: Vec<String>,
+    /// The message history file as far as it was read. Shared: `ScreenStates`
+    /// is cloned on every change of any screen, a long history is not.
+    pub history: Shared<Store>,
+    /// What the host is asked to do with the history file, drained by
+    /// [`Model::take_asks`] after each `apply`.
+    asks: Vec<Ask>,
+}
+
+/// What the history needs of the host (the file is IO: `codex-message-history`).
+/// The answers are the `Ev::History*` events.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// Append a submitted prompt to the file (`AppendMessageHistoryEntry`);
+    /// no answer.
+    Append(String),
+    /// Read an entry or a batch; answered with `Ev::HistoryEntry`,
+    /// `Ev::HistoryBatch` or `Ev::HistoryBatchFailed`.
+    Lookup(Lookup),
 }
 
 /// What a mention is.
@@ -70,6 +89,16 @@ pub struct Candidate {
 }
 
 impl Model {
+    /// The asks since the last call, oldest first: what the host runs.
+    pub fn take_asks(&mut self) -> Vec<Ask> {
+        std::mem::take(&mut self.asks)
+    }
+
+    /// The asks not taken yet, oldest first.
+    pub fn pending_asks(&self) -> &[Ask] {
+        &self.asks
+    }
+
     /// The rows of a popup for `query`: best match first, ties in the data's
     /// order. `$` lists skills and apps; `@` files, skills, plugins and apps
     /// (a skill picked from `@` is inserted as `$name`).
@@ -132,27 +161,38 @@ pub enum Sigil {
     At,
 }
 
-/// Where reverse history search stands (`history_search.rs`).
+/// Where reverse history search stands (`HistorySearchStatus`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchStatus {
-    /// The query is empty: nothing is previewed.
+    /// The query is empty (or a read failed): the draft shows as it was.
     #[default]
     Idle,
+    /// A persistent read is outstanding.
+    Searching,
     /// A match is previewed.
     Match,
     NoMatch,
 }
 
-/// Reverse history search: the query and the history entry the preview
-/// shows (`chat_composer/history_search.rs`, with the history of
-/// `chat_composer_history.rs`: a case-insensitive substring, newest first).
-/// The composer owns it with the draft it will restore (UI state, one per
-/// thread's draft): the model holds only the history it reads.
+/// What the draft shows after a search step.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Preview {
+    /// The entry that was found.
+    Show(HistoryEntry),
+    /// The draft as it was when the search opened.
+    Original,
+    /// What is shown stays.
+    Keep,
+}
+
+/// Reverse history search: the query and where it stands
+/// (`chat_composer/history_search.rs`); the walk over the entries is the
+/// composer's [`History`]. The composer owns it with the draft it will
+/// restore (UI state, one per thread's draft).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HistorySearch {
     pub query: String,
     pub status: SearchStatus,
-    cursor: Option<usize>,
 }
 
 /// Which way the search walks.
@@ -169,77 +209,122 @@ impl HistorySearch {
         Self::default()
     }
 
-    /// The entry the preview shows; none while idle or without a match, and
-    /// the composer then shows its own draft.
-    pub fn preview<'a>(&self, history: &'a [String]) -> Option<&'a str> {
-        self.index().and_then(|i| history.get(i)).map(String::as_str)
-    }
-
-    /// The history index of the match the preview shows.
-    pub fn index(&self) -> Option<usize> {
-        match self.status {
-            SearchStatus::Match => self.cursor,
-            SearchStatus::Idle | SearchStatus::NoMatch => None,
-        }
-    }
-
     /// The query as the footer shows it: a newline and a tab as marks
     /// (`display_query`); matching keeps the query as it is.
     pub fn display_query(&self) -> String {
         self.query.replace('\n', "\u{21b5}").replace('\t', "\u{21e5}")
     }
 
-    /// The query changed: the search restarts from the newest entry.
-    pub fn set_query(&mut self, query: String, history: &[String]) {
+    /// The query changed (`update_history_search_query`): the draft goes
+    /// back to its original first, the search restarts from the newest
+    /// entry, and an empty query ends the walk and stays open.
+    pub fn set_query(
+        &mut self,
+        query: String,
+        history: &mut History,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> Preview {
         self.query = query;
-        self.cursor = None;
+        self.status = SearchStatus::Searching;
         if self.query.is_empty() {
+            history.reset_search();
             self.status = SearchStatus::Idle;
-        } else {
-            self.step(Direction::Older, history);
+            return Preview::Original;
+        }
+        let result = history.search(store, &self.query, Direction::Older, true, fx);
+        match self.apply(result) {
+            Preview::Show(entry) => Preview::Show(entry),
+            _ => Preview::Original,
         }
     }
 
-    /// Walks to the next older or newer match; at the end of the matches the
-    /// current one stays (no "no match" flicker).
-    pub fn step(&mut self, direction: Direction, history: &[String]) {
+    /// The next older or newer match (`history_search_in_direction`); at the
+    /// end of the matches the current one stays (no "no match" flicker).
+    pub fn step(
+        &mut self,
+        direction: Direction,
+        history: &mut History,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> Preview {
         if self.query.is_empty() {
+            history.reset_search();
             self.status = SearchStatus::Idle;
-            return;
+            return Preview::Original;
         }
-        let needle = self.query.to_lowercase();
-        let hit = |i: &usize| history[*i].to_lowercase().contains(&needle);
-        let found = match (direction, self.cursor) {
-            (Direction::Older, None) => (0..history.len()).rev().find(hit),
-            (Direction::Older, Some(at)) => (0..at.min(history.len())).rev().find(hit),
-            (Direction::Newer, None) => None,
-            (Direction::Newer, Some(at)) => (at + 1..history.len()).find(hit),
-        };
-        match (found, self.cursor) {
-            (Some(i), _) => {
-                self.cursor = Some(i);
+        let result = history.search(store, &self.query, direction, false, fx);
+        self.apply(result)
+    }
+
+    /// What a step or a read that came in says (`apply_history_search_result`):
+    /// `Found` previews, `Pending` waits, `AtBoundary` keeps the match,
+    /// `NotFound` puts the original back with "no match" and `Unavailable`
+    /// with nothing said.
+    pub fn apply(&mut self, result: SearchResult) -> Preview {
+        match result {
+            SearchResult::Found(entry) => {
                 self.status = SearchStatus::Match;
+                Preview::Show(entry)
             }
-            (None, Some(_)) => self.status = SearchStatus::Match,
-            (None, None) => self.status = SearchStatus::NoMatch,
+            SearchResult::Pending => {
+                self.status = SearchStatus::Searching;
+                Preview::Keep
+            }
+            SearchResult::AtBoundary => {
+                self.status = SearchStatus::Match;
+                Preview::Keep
+            }
+            SearchResult::NotFound => {
+                self.status = SearchStatus::NoMatch;
+                Preview::Original
+            }
+            SearchResult::Unavailable => {
+                self.status = SearchStatus::Idle;
+                Preview::Original
+            }
         }
     }
 }
 
 /// The events of this screen (backend results, tickets); a variant of the
-/// root `ScreenEv`. Only scripts make them yet.
+/// root `ScreenEv`. The history ones are the host's answers to [`Ask`]s
+/// (and the metadata read when a thread opens).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ev {
     Files(Vec<String>),
     Mentions(Vec<Mention>),
+    /// A history file of these prompts, oldest first, all read (a script's
+    /// seed).
     History(Vec<String>),
+    /// The file was opened: its log id and entry count
+    /// (`history_metadata`).
+    HistoryMetadata { log_id: u64, entry_count: usize },
+    /// One entry read, `None` when the row could not be read.
+    HistoryEntry {
+        log_id: u64,
+        offset: usize,
+        text: Option<String>,
+    },
+    /// A batch read: the rows (offset, text) and where the next older batch
+    /// ends.
+    HistoryBatch {
+        log_id: u64,
+        end_offset: usize,
+        rows: Vec<(usize, Option<String>)>,
+        next_older: Option<usize>,
+    },
+    /// A batch read failed.
+    HistoryBatchFailed { log_id: u64, end_offset: usize },
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
-    /// A prompt was submitted: history search finds it later.
+    /// A prompt was submitted: the file keeps it for the next sessions.
     Record(String),
+    /// A composer's history needs a read it did not find in the store.
+    Lookup(Lookup),
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -247,7 +332,29 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
     match ev {
         Ev::Files(files) => model.files = files,
         Ev::Mentions(mentions) => model.mentions = mentions,
-        Ev::History(history) => model.history = history,
+        Ev::History(history) => *model.history = Store::seeded(history),
+        Ev::HistoryMetadata {
+            log_id,
+            entry_count,
+        } => model.history.set_metadata(log_id, entry_count),
+        Ev::HistoryEntry {
+            log_id,
+            offset,
+            text,
+        } => {
+            model.history.on_entry(log_id, offset, text);
+        }
+        Ev::HistoryBatch {
+            log_id,
+            end_offset,
+            rows,
+            next_older,
+        } => {
+            model.history.on_batch(log_id, end_offset, rows, next_older);
+        }
+        Ev::HistoryBatchFailed { log_id, end_offset } => {
+            model.history.on_batch_error(log_id, end_offset);
+        }
     }
 }
 
@@ -255,10 +362,11 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
     let _ = fx;
     match intent {
         Intent::Record(text) => {
-            if !text.trim().is_empty() && model.history.last() != Some(&text) {
-                model.history.push(text);
+            if !text.trim().is_empty() {
+                model.asks.push(Ask::Append(text));
             }
         }
+        Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
     }
 }
 
