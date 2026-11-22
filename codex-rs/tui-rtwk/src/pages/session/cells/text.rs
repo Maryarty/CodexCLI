@@ -24,7 +24,9 @@ use codex_tui_core::threads::Item;
 use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
-use super::{deprecation, error, generated_image, hook, note, notice, user, viewed_image, warning, web};
+use super::{
+    deprecation, error, generated_image, hook, note, notice, user, viewed_image, warning, web,
+};
 
 /// What the texts are read with: the tables, and the two things of the
 /// transcript's view state a cell's rows depend on.

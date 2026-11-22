@@ -267,7 +267,6 @@ mod page {
     use codex_tui_core::app::AppEv;
     use codex_tui_core::screens::ScreenEv;
     use codex_tui_core::screens::popovers::{Ask, Ev};
-    use codex_tui_rtwk::app::UiApp;
     use codex_tui_rtwk::widgets::thread_ui::ThreadUi;
 
     use super::*;
@@ -305,8 +304,17 @@ mod page {
         }
     }
 
+    /// What the composer asked of the host: the app drains the model's asks into one
+    /// `Command::Popovers` each, the fake records them.
     fn asks(h: &Harness) -> Vec<Ask> {
-        h.t.read_app(|app: &UiApp| app.core.screens().popovers.pending_asks().to_vec())
+        h.fake
+            .commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Popovers { ask, .. } => Some(ask),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
