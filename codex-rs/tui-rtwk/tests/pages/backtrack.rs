@@ -10,6 +10,7 @@
 
 use codex_tui_core::app::AppEv;
 use codex_tui_core::fixtures::builders::turn_completed;
+use codex_tui_rtwk::app::UiApp;
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use serde_json::{Value, json};
 
@@ -127,18 +128,29 @@ fn enter_on_the_marked_prompt_reverts_before_it_and_puts_it_in_the_composer() {
 fn ten_seconds_without_the_servers_notice_say_so_and_the_composer_keeps_the_text() {
     let mut h = chat_with_a_prompt();
     edit_the_prompt(&mut h);
-    h.t.pump_for(ms(9_000));
+    // the revert's answer comes in real time: the ten seconds run from the moment it is in
+    h.wait_until("the wait for the notice", |h| {
+        h.t.read_app(|app: &UiApp| {
+            app.core
+                .active_thread()
+                .screen_slots()
+                .backtrack
+                .awaiting()
+                .is_some()
+        })
+    });
+    h.t.pump_for(ms(100));
     assert!(
         !h.t.screen().contains("could not be confirmed"),
         "{}",
         h.t.screen()
     );
-    h.t.pump_for(ms(1_500));
+    h.t.pump_for(ms(10_500));
+    // the expiry goes through the ingress, which the backend thread drains in real time
+    h.wait_for("the error line", |screen| {
+        screen.contains("prompt edit could not be confirmed")
+    });
     let screen = h.t.screen();
-    assert!(
-        screen.contains("prompt edit could not be confirmed"),
-        "{screen}"
-    );
     assert!(in_the_composer(&screen), "{screen}");
 }
 
