@@ -23,6 +23,20 @@
   `docs/rtwk-port/refs/codex-registry.csv`. Oracle binary:
   `~/.cache/codexcli/oracle-bin/`.
 
+## Where things are (core; look each name up with `sym`)
+- A server notification enters `threads::project` / `project_unrouted`
+  (core/src/threads.rs) or a screen's own `project` (e.g.
+  core/src/screens/chat.rs), becomes a `ThreadEv`, and lands in
+  `threads::apply` (thread state) or `app::apply_app` / `apply_thread`
+  (core/src/app.rs).
+- Asks going out: `Command` and `AppFx` (app.rs), `ThreadFx` (threads.rs);
+  the host answers them in host/src (`effects.rs`, `facts.rs`).
+- Protocol types: `sym --proto Name`. Oracle code: `sym --oracle Name`.
+- A core state test to copy: core/tests/status_facts.rs (JSONL script steps:
+  the header of core/src/fixtures/script.rs; `Sandbox` in fixtures/sandbox.rs).
+- Oracle shard tests: tests/oracle/<shard>.rs, run by
+  `python3 -I tests/oracle/tools/summary.py --run <shard>`.
+
 ## Architecture
 - Core (`codex-tui-core`): models, `apply`, protocol mapping, command parsing.
 - UI: widgets, `strings.rs`, debug entries; UI-only state in `UiApp.ui`.

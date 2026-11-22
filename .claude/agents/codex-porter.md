@@ -12,14 +12,20 @@ oracle, read-only) carried onto rtwk (`/Users/admin/Documents/dev_projects/rtwk`
 read-only) as `codex-rs/tui-rtwk`. Your prompt names the task and your worktree.
 
 ## Start
-1. `task_start <task>`. It returns the assignment (description), the checkpoint
-   and the fleet rules. That is all you need to begin.
-2. In ONE turn of parallel calls: read the files and ranges the assignment or
-   the checkpoint's `read:` list names, and start
+1. `task_start <task>` (not `get_task`: it returns the same). It gives the
+   assignment, the checkpoint and the fleet rules. Your branch is fresh from
+   the tip: no git log/status/merge-base checks.
+2. In ONE turn of parallel calls: Read the ranges the assignment's Files (or
+   the checkpoint's `read:`) names, and start
    `~/.cache/rtwk/bgrun.sh run build -- ~/.cache/rtwk/acargo check --tests --quiet`.
-3. Edit. Your first edit comes within ~10 calls.
-4. A widget question: grep `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`
-   or `guides/widgets-by-need.md` for that widget.
+3. Split the assignment into its items (one fact, one cell, one key...). Take
+   the FIRST item, trace only its path (oracle origin -> our landing site,
+   the fleet brief's "Where things are"), and edit. Trace the next item after
+   the first one compiles. Never research all items before the first edit.
+4. Definitions and types: `~/.cache/codexcli/sym A B C` in one call
+   (`--oracle` codex-rs/tui, `--proto` the protocol crates), not chains of
+   `rg -A`. A widget: grep
+   `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`.
 5. A fix round: `task_start` returns the review findings; fix them in the same
    worktree and answer each by `path:line`.
 
@@ -54,7 +60,7 @@ differing rows in the pack.
 ## Tools
 - Long commands: `~/.cache/rtwk/bgrun.sh run <name> -- <cmd>` (starts and waits
   110 s); `bgrun.sh wait <name>` to wait again.
-- Definitions: `~/.cache/codexcli/sym A B C` (`--oracle` for codex-rs/tui).
+- Definitions: `~/.cache/codexcli/sym A B C` (`--oracle` codex-rs/tui, `--proto` protocol crates).
 - Independent reads go out together in one turn; ranges of ≤120 lines.
 - Build and test output: failures and the summary only.
 - Known reds: `~/.cache/codexcli/known-red.txt`.
