@@ -122,7 +122,7 @@ impl ActionId {
 
     /// `tui.keymap.<context>.<action>`, as an error names it.
     pub fn config_path(self) -> String {
-        format!("tui.keymap.{}.{}", self.context.config_name(), self.name)
+        ["tui", "keymap", self.context.config_name(), self.name].join(".")
     }
 
     /// Whether two actions can be active together

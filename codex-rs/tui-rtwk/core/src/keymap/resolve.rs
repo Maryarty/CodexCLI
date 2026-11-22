@@ -7,7 +7,7 @@
 //! over the catalogue's rows, with the same rules and the same error texts.
 
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::sync::OnceLock;
 
 use super::catalogue::{
@@ -20,6 +20,9 @@ use super::spec::KeymapSpec;
 
 /// The most chords the leader keys expand to (`MAX_LEADER_CHORD_BINDINGS`).
 const MAX_LEADER_CHORDS: usize = 1024;
+
+/// The config's keyword for a leader chord: `leader c`.
+const LEADER: &str = "leader ";
 
 const DOCS: &str = "See the Codex keymap documentation for supported actions and examples.";
 
@@ -55,7 +58,7 @@ struct Bound {
 
 impl Bound {
     fn is_leader(&self) -> bool {
-        self.spec.starts_with("leader ")
+        self.spec.starts_with(LEADER)
     }
 }
 
@@ -351,7 +354,7 @@ Reduce `tui.keymap.global.leader` alternatives or `leader ...` bindings."
                 }
                 self.slots[index].bound.push(Bound {
                     binding,
-                    spec: format!("leader {completion}"),
+                    spec: format!("{LEADER}{completion}"),
                 });
                 remaining -= 1;
                 if remaining == 0 {
@@ -639,10 +642,19 @@ fn ambiguous(scope: &Scope, first: ActionId, second: ActionId) -> KeymapError {
             short_name(id)
         }
     };
-    let relation = if scope.shadowed.is_none() {
-        format!("`{}` and `{}` use the same key", name(first), name(second))
+    // A config diagnostic, as the oracle words it: typed errors and a strings
+    // table are the debt of `KeymapError` (parity/keymap.md).
+    let mut relation = String::new();
+    let _ = if scope.shadowed.is_none() {
+        write!(
+            relation,
+            "`{}` and `{}` use the same key",
+            name(first),
+            name(second)
+        )
     } else {
-        format!(
+        write!(
+            relation,
             "`{}` shadows `{}` with the same key",
             name(first),
             name(second)
@@ -716,7 +728,7 @@ fn parse_configured(spec: &KeymapSpec, strict: bool) -> Result<Vec<Parsed>, Keym
                 Err(_) if !strict => continue,
                 Err(_) => {
                     let path = entry.id.config_path();
-                    return Err(KeymapError::new(if raw.starts_with("leader ") {
+                    return Err(KeymapError::new(if raw.starts_with(LEADER) {
                         format!(
                             "Invalid `{path}` = `{raw}`. Use `leader` followed by one key, such as \
 `leader c`."
