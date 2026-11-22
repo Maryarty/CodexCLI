@@ -3260,6 +3260,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-message-history"
+version = "0.170.0"
+dependencies = [
+ "codex-config",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "codex-model-provider"
 version = "0.170.0"
 dependencies = [
@@ -3911,6 +3923,9 @@ dependencies = [
  "arboard",
  "chrono",
  "codex-app-server-protocol",
+ "codex-config",
+ "codex-file-search",
+ "codex-message-history",
  "codex-shell-command",
  "codex-tui-core",
  "codex-utils-elapsed",
@@ -3931,6 +3946,7 @@ dependencies = [
  "similar",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
