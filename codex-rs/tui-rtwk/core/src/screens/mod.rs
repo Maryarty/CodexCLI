@@ -17,6 +17,7 @@ use crate::threads::ThreadFx;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScreenThreadIntent {
     Chat(chat::ThreadIntent),
+    Backtrack(backtrack::ThreadIntent),
 }
 
 pub(crate) fn apply_thread_intent(
@@ -28,6 +29,9 @@ pub(crate) fn apply_thread_intent(
     match intent {
         ScreenThreadIntent::Chat(intent) => {
             chat::apply_thread_intent(&mut slots.chat, intent, busy, fx)
+        }
+        ScreenThreadIntent::Backtrack(intent) => {
+            backtrack::apply_thread_intent(&mut slots.backtrack, intent, fx)
         }
     }
 }

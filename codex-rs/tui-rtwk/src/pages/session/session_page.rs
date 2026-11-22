@@ -41,6 +41,7 @@ use crate::widgets::thread_ui::{Modes, ThreadUi};
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
+use super::backtrack::{self, EditWatch};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
 use super::live::put_back;
@@ -68,6 +69,9 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
+    /// The same for the prompt an edit of the transcript's backtrack put back
+    /// (`ThreadPart::restore`).
+    edited: Option<(ThreadId, Option<u64>)>,
     /// How many removals (the app counts them) the chat has answered with
     /// the command center.
     removed: Option<u32>,
@@ -158,6 +162,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
+            edited: None,
             removed: None,
             shortcuts: false,
             draft_empty: self.ui.composer.text().is_empty(),
@@ -331,6 +336,26 @@ impl State for ChatState {
             }
         }
         self.restored = Some(restore);
+        // The prompt an edit of the backtrack put back, once (`restore_user_message_to_composer`).
+        let edited = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
+            (
+                thread.id().clone(),
+                thread.screen_slots().backtrack.restore.as_ref().map(|restore| restore.seq),
+            )
+        });
+        if let Some((thread, before)) = &self.edited
+            && *thread == edited.0
+            && *before != edited.1
+            && edited.1.is_some()
+        {
+            let model = read::<ThreadModel, _>(cx);
+            if let Some(restore) = &model.screen_slots().backtrack.restore {
+                let table = crate::pages::session::composer::strings::of(cx);
+                put_back(&w.ui, &restore.draft.message(), |n| table.image(n));
+                self.sync_draft(w);
+            }
+        }
+        self.edited = Some(edited);
         // The thread was archived or deleted (`/archive`, `/delete`): the chat
         // is empty again and the command center opens over it
         // (`return_to_agents_after_removal`); under a sheet it waits until the
@@ -417,9 +442,12 @@ impl State for ChatState {
                 // the prompt chosen: the transcript is the chat's again; the
                 // edit itself is the thread's intent (`ThreadIntent::EditPrompt`)
                 if step == Browse::Confirm
-                    && modes.confirm(Some(thread.id()), targets.count).is_some()
+                    && let Some(chosen) = modes.confirm(Some(thread.id()), targets.count)
                 {
                     modes.close();
+                    if let Some(intent) = backtrack::edit_intent(cx, &thread, &chosen) {
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                 }
             }
             ChatMsg::QueueDraft => {
@@ -753,7 +781,8 @@ impl State for ChatState {
             .main_axis_size(MainAxisSize::Min)
             .child(StatusSlot)
             .child(PendingInput)
-            .child(NoticeLine);
+            .child(NoticeLine)
+            .child(EditWatch);
         if self.shortcuts && searching.is_none() {
             body = body.child(panel);
         }

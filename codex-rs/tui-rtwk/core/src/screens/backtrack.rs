@@ -40,11 +40,18 @@ use crate::threads::ItemKey;
 use crate::threads::ThreadAsk;
 use crate::threads::ThreadFx;
 use crate::threads::Transcript;
+use crate::threads::LocalImage;
+use crate::threads::UserMessage;
 use crate::threads::UserPrompt;
 
 pub const NAME: &str = "backtrack";
 pub const ID: &str = "S17";
 pub const KIND: Kind = Kind::Part;
+
+/// How long the edit waits for the server's `ThreadReverted` after `thread/revert`
+/// answered. The oracle waits without a limit; ours says so after this long (the
+/// view arms the timer, core has no clock: `ThreadPart::awaiting`).
+pub const CONFIRM_SECS: u64 = 10;
 
 /// Why an edit did not happen. The words are the chat's strings (ADR-010):
 /// core says which one, with the server's own message for a failure.
@@ -162,6 +169,15 @@ pub enum EscStep {
 pub struct Selection {
     pub thread: ThreadId,
     pub nth: usize,
+}
+
+impl Selection {
+    /// The edit of the chosen prompt: its server ids, and the prompt as the transcript
+    /// shows it (what goes back to the composer if the edit fails).
+    pub fn edit(&self, transcript: &Transcript) -> Option<Edit> {
+        let (key, prompt) = nth_user(transcript, self.nth)?;
+        Some(Edit { key: key.clone(), shown: prompt.clone() })
+    }
 }
 
 impl Backtrack {
@@ -406,6 +422,36 @@ pub enum Draft {
     Shown(UserPrompt),
 }
 
+impl Draft {
+    /// The draft as the composer takes a message (`restore_user_message_to_composer`):
+    /// the text, and each image placeholder of the persisted prompt paired with its local
+    /// image in order. Skills, mentions, remote images and pasted-content elements are the
+    /// composer's to bind (Need chunk-composer): their text stays as the server stored it.
+    pub fn message(&self) -> UserMessage {
+        match self {
+            Draft::Shown(prompt) => UserMessage::text(prompt.text.clone()),
+            Draft::Persisted(prompt) => {
+                let placeholders = prompt.elements.iter().filter(|element| {
+                    element
+                        .placeholder
+                        .as_deref()
+                        .is_some_and(|text| text.starts_with("[Image #"))
+                });
+                UserMessage {
+                    text: prompt.text.clone(),
+                    images: placeholders
+                        .zip(&prompt.local_images)
+                        .map(|(element, path)| LocalImage {
+                            path: path.clone(),
+                            range: element.range.clone(),
+                        })
+                        .collect(),
+                }
+            }
+        }
+    }
+}
+
 /// A draft for the composer, once per `seq` (the page applies each once).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DraftRestore {
@@ -417,7 +463,8 @@ pub struct DraftRestore {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Stage {
     Reading,
-    Reverting(Prompt),
+    /// `thread/revert` is out; `confirmed` = `ThreadReverted` came before its answer.
+    Reverting { prompt: Prompt, confirmed: bool },
     /// Reverted; waiting for the server's `ThreadReverted` (10 s, ticket-guarded).
     Awaiting(Ticket),
 }
@@ -440,6 +487,15 @@ impl ThreadPart {
         self.edit.is_some()
     }
 
+    /// The ticket the edit waits on for the server's `ThreadReverted`: the view starts
+    /// its `CONFIRM_SECS` timer when it appears and sends `ThreadIntent::Expired` with it.
+    pub fn awaiting(&self) -> Option<Ticket> {
+        match self.edit {
+            Some((_, Stage::Awaiting(ticket))) => Some(ticket),
+            _ => None,
+        }
+    }
+
     fn give(&mut self, draft: Draft) {
         self.seq += 1;
         self.restore = Some(DraftRestore { seq: self.seq, draft });
@@ -460,7 +516,7 @@ impl ThreadPart {
         match found {
             Ok((turn, prompt)) => {
                 let (_, stage) = self.edit.as_mut()?;
-                *stage = Stage::Reverting(prompt);
+                *stage = Stage::Reverting { prompt, confirmed: false };
                 Some(turn)
             }
             Err(error) => {
@@ -474,12 +530,15 @@ impl ThreadPart {
     /// oracle does not wait for the notification) and the edit waits for it.
     fn reverted(&mut self, ticket: Ticket) {
         let Some((edit, stage)) = self.edit.take() else { return };
-        let Stage::Reverting(prompt) = stage else {
+        let Stage::Reverting { prompt, confirmed } = stage else {
             self.edit = Some((edit, stage));
             return;
         };
         self.give(Draft::Persisted(prompt));
-        self.edit = Some((edit, Stage::Awaiting(ticket)));
+        // the notification may have come before the answer: nothing to wait for
+        if !confirmed {
+            self.edit = Some((edit, Stage::Awaiting(ticket)));
+        }
     }
 }
 
@@ -488,6 +547,11 @@ impl ThreadPart {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadIntent {
     EditPrompt(Edit),
+    /// The chosen prompt cannot be edited: the thread is a side conversation (the chat's
+    /// flag, which the thread slot does not see).
+    Unavailable,
+    /// The view's `CONFIRM_SECS` timer for `ThreadPart::awaiting` ran out.
+    Expired(Ticket),
 }
 
 /// An event of one thread for this screen; a variant of `ThreadEv::Screen`.
@@ -557,17 +621,21 @@ pub fn apply_thread_intent(part: &mut ThreadPart, intent: ThreadIntent, fx: &mut
             fx.request(Ctx::Read, Command::Read { key });
         }
         ThreadIntent::EditPrompt(_) => {}
+        ThreadIntent::Unavailable => {
+            part.error = Some(EditError::Side);
+        }
+        ThreadIntent::Expired(ticket) => apply_thread(part, ThreadEv::NotConfirmed(ticket), fx),
     }
 }
 
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Reverted => {
-            if matches!(part.edit, Some((_, Stage::Awaiting(_)))) {
-                part.edit = None;
-            }
-        }
+        ThreadEv::Reverted => match &mut part.edit {
+            Some((_, Stage::Awaiting(_))) => part.edit = None,
+            Some((_, Stage::Reverting { confirmed, .. })) => *confirmed = true,
+            _ => {}
+        },
         ThreadEv::NotConfirmed(ticket) => {
             if matches!(part.edit, Some((_, Stage::Awaiting(waiting))) if waiting == ticket) {
                 part.edit = None;

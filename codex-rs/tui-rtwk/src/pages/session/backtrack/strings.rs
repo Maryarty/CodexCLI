@@ -17,11 +17,29 @@ use crate::l10n::lang;
 pub struct Strings {
     /// The name of this screen in the debug menu and on its slot dialog.
     pub title: &'static str,
+    /// `restore_backtrack_prompt_after_revert_error` (`app_backtrack.rs`): before the
+    /// server's own message.
+    pub failed: &'static str,
+    /// `SIDE_EDIT_PREVIOUS_UNAVAILABLE_MESSAGE` (`app_backtrack.rs`).
+    pub side: &'static str,
+    /// The revert was not confirmed in time (`event_dispatch.rs`, the error after a
+    /// revert the server did not answer).
+    pub not_confirmed: &'static str,
+}
+
+impl Strings {
+    /// The error line of a failed edit, with the server's message.
+    pub fn failed_with(&self, message: &str) -> String {
+        [self.failed, message].concat()
+    }
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
 pub const EN: Strings = Strings {
     title: "backtrack (Esc Esc)",
+    failed: "Failed to edit the selected prompt: ",
+    side: "Editing previous prompts is unavailable in side conversations.",
+    not_confirmed: "prompt edit could not be confirmed; resume this session to reload its history",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
