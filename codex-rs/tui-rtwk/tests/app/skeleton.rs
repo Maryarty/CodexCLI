@@ -613,7 +613,7 @@ fn running_shell_preview_keeps_its_output_when_completion_omits_it() {
     h.wait_for("full command and intact draft", |s| {
         s.contains("$ printf test") && s.contains("tool output") && s.contains("pending draft")
     });
-    h.press("escape");
+    h.press("ctrl+t");
     h.wait_for("compact command and intact draft", |s| {
         s.contains("Ran printf test") && s.contains("pending draft")
     });
