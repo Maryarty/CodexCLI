@@ -45,6 +45,7 @@ use super::banners::{BackendBanners, NoticeLine};
 use super::pending_input::PendingInput;
 use super::search_key::*;
 use super::status_surfaces::StatusContext;
+use super::transcript;
 use super::transcript_pane::TranscriptPane;
 
 /// The chat screen of one thread's controllers.
@@ -104,6 +105,8 @@ pub enum ChatMsg {
     DebugMenu,
     /// A key action of the chat (`keys::defaults`).
     Action(Action),
+    /// PageUp (-1) and PageDown (1): the transcript a page.
+    Page(i8),
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
@@ -176,6 +179,10 @@ impl State for ChatState {
                 }
             } else {
                 leader.set(false);
+            }
+            if let Some(pages) = transcript::follow::pager_key(&key, &composer.borrow()) {
+                send(ChatMsg::Page(pages));
+                return KeyEventResult::Handled;
             }
             // keys held as a paste are the paste's, not the shortcuts'
             // (`is_in_paste_burst`)
@@ -263,8 +270,13 @@ impl State for ChatState {
                     run_line(&text, w, cx, &hs);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
+                } else if !previous.1 {
+                    // an Enter on the empty composer is the reader's way
+                    // back (`empty_enter_returns_to_latest`)
+                    w.ui.follow.jump_to_latest();
                 }
             }
+            ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
                 if !draft.is_empty() {
@@ -361,6 +373,15 @@ impl State for ChatState {
                     return Rebuild::Yes;
                 }
                 let thread = read::<ThreadModel, _>(cx);
+                // Esc is the reader's way back before it is the chat's
+                // (`handle_scroll_key`); on an empty composer it also primes
+                // the backtrack, below.
+                if !thread.read_only() && w.ui.follow.away() {
+                    w.ui.follow.jump_to_latest();
+                    if !w.ui.composer.text().is_empty() || thread.can_interrupt() {
+                        return Rebuild::No;
+                    }
+                }
                 if thread.can_interrupt() {
                     let hs = read::<Hs, _>(cx);
                     cx.emit(&hs.interrupt, thread.id().clone());
@@ -435,7 +456,7 @@ impl State for ChatState {
         let mut transcript = Stack::new()
             .alignment(Alignment::CENTER)
             .child(TranscriptPane(
-                w.ui.transcript.clone(),
+                w.ui.follow.clone(),
                 self.detailed_transcript,
             ));
         if facts.animations
@@ -504,6 +525,16 @@ impl State for ChatState {
                     FooterLine::Keys
                 };
                 let footer = footer(cx, line);
+                let footer = if line == FooterLine::Keys {
+                    transcript::follow::footer(
+                        cx,
+                        w.ui.follow.clone(),
+                        self.draft_empty && !self.esc_primed,
+                        footer,
+                    )
+                } else {
+                    footer
+                };
                 let footer = if self.draft_shell {
                     with_shell_mode(cx, footer)
                 } else {
@@ -536,6 +567,11 @@ impl State for ChatState {
         // The status row, the queued messages and the notices are widgets of
         // their own (`activity`, `pending_input`, `banners`): each reads what
         // it shows from the providers.
+        // Whether `StatusSlot` shows a row: the reader's gap then sets itself
+        // apart from it with a blank row.
+        let status_above = !run.read_only
+            && (run.word(&session, reconnecting) != "Ready"
+                || matches!(session.status, codex_tui_core::app::Session::Starting));
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .child(Expanded::new(1, transcript))
@@ -574,7 +610,13 @@ impl State for ChatState {
         let mut body = if thread.read_only() {
             body.child(composer)
         } else {
-            body.child(
+            // the row the reader's control takes (`composer_gap`)
+            body.child(transcript::follow::gap(
+                cx,
+                w.ui.follow.clone(),
+                status_above,
+            ))
+            .child(
                 BoxWidget::new()
                     .style(tokens.prompt_surface(cx, false))
                     .padding(EdgeInsets::only(0, 1, 1, 1))
@@ -631,7 +673,9 @@ impl State for ChatState {
                 cx.send(ChatMsg::CtrlD),
             )
             .bind(KeyPress::code(KeyCode::F12), cx.send(ChatMsg::DebugMenu))
-            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape));
+            .bind(KeyPress::ESC, cx.send(ChatMsg::Escape))
+            .bind(KeyPress::code(KeyCode::PageUp), cx.send(ChatMsg::Page(-1)))
+            .bind(KeyPress::code(KeyCode::PageDown), cx.send(ChatMsg::Page(1)));
         // Tab queues while a turn runs and submits otherwise, but not a
         // shell command (`queue_keys` in `handle_key_event_without_popup`).
         if (running || !self.draft_shell) && !self.draft_empty && search.is_none() {

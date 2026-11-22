@@ -8,7 +8,7 @@ use std::rc::Rc;
 use rtwk::gestures::SelectionArea;
 use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
 use rtwk::provider::{read, select, watch};
-use rtwk::scroll::{ListController, ListView, ScrollNotification};
+use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
@@ -20,15 +20,18 @@ use codex_tui_core::threads::{Item, ThreadModel};
 use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
+use crate::widgets::thread_ui::Follow;
 
 use super::cells::strings as cells_strings;
 use super::strings as chat_strings;
 
 #[derive(Clone, PartialEq)]
-pub(super) struct TranscriptPane(pub ListController, pub bool);
+pub(super) struct TranscriptPane(pub Follow, pub bool);
 
 pub(super) struct ViewportState {
     layout: RefCell<Option<RowLayout>>,
+    /// The last visible row the reader's thread had, to see it change.
+    tail: Option<(ThreadId, usize, Item)>,
 }
 
 struct RowLayout {
@@ -87,6 +90,7 @@ impl StatefulWidget for TranscriptPane {
     fn create_state(&self) -> Self::State {
         ViewportState {
             layout: RefCell::default(),
+            tail: None,
         }
     }
 }
@@ -94,6 +98,26 @@ impl StatefulWidget for TranscriptPane {
 impl State for ViewportState {
     type Widget = TranscriptPane;
     type Msg = ThreadId;
+
+    fn did_change_dependencies(&mut self, widget: &TranscriptPane, cx: &mut Cx<'_, Self>) {
+        // The end of the transcript changed while the reader is away (a new
+        // row, or the last one grew): news for the control and the footer
+        // (`sync_history_tail`). A thread the reader has just opened has none.
+        let thread = watch::<ThreadModel, _>(cx);
+        let rows = self.rows(&thread, widget.1);
+        let transcript = thread.transcript();
+        let tail = rows
+            .last()
+            .and_then(|range| transcript.get(range.end - 1))
+            .map(|(_, item)| (thread.id().clone(), rows.len(), item.clone()));
+        if let (Some(before), Some(now)) = (&self.tail, &tail)
+            && before.0 == now.0
+            && before != now
+        {
+            widget.0.note_activity();
+        }
+        self.tail = tail;
+    }
 
     fn update(&mut self, thread: ThreadId, _: &TranscriptPane, cx: &mut Cx<'_, Self>) -> Rebuild {
         let handlers = read::<Hs, _>(cx);
@@ -317,10 +341,11 @@ impl State for ViewportState {
             let row: AnyWidget = column.into();
             row.with_key(Key::value(key.clone()))
         })
-        .controller(widget.0.clone())
+        .controller(widget.0.scroll())
         .stick_to_bottom(!reverse)
         .reverse(reverse);
         let send = cx.local_sender();
+        let follow = widget.0.clone();
         SelectionArea::new(
             NotificationListener::<ScrollNotification>::new(list).on_notification(move |scroll| {
                 let metrics = scroll.metrics;
@@ -331,6 +356,10 @@ impl State for ViewportState {
                 };
                 if can_load && scroll.depth() == 0 && distance <= 3 {
                     send(thread_id.clone());
+                }
+                // back at the last row: the news is seen
+                if follow.at_tail() {
+                    follow.clear_unseen();
                 }
                 false
             }),
