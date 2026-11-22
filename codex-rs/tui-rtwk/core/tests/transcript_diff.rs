@@ -9,7 +9,9 @@
 //! (:607, :688) test git's own behaviour with a process and are not state
 //! tests of the sequence.
 
-use codex_tui_core::screens::transcript::diff::{Call, Diff, Limits, Output, Report, Step};
+use codex_tui_core::screens::transcript::diff::{
+    Call, Diff, DiffStep, Failure, Limits, Output, Report,
+};
 use pretty_assertions::assert_eq;
 
 const FILTER_PATTERN: &str = r"^filter\..*\.(clean|process)$";
@@ -75,17 +77,17 @@ fn filter_env(driver: &str) -> Vec<(String, String)> {
 /// The shell's end of the test: each command the machine asks for must be the
 /// next scripted one (`FakeRunner`); returns the machine's result and the
 /// commands it asked for.
-fn drive(responses: Vec<(Vec<String>, i32, &str)>) -> (Result<Report, String>, Vec<Call>) {
+fn drive(responses: Vec<(Vec<String>, i32, &str)>) -> (Result<Report, Failure>, Vec<Call>) {
     let mut responses = responses.into_iter();
     let mut asked = Vec::new();
     let (mut diff, mut step) = Diff::start();
     loop {
         match step {
-            Step::Done(result) => {
+            DiffStep::Done(result) => {
                 assert_eq!(responses.len(), 0, "unused scripted responses");
                 return (result, asked);
             }
-            Step::Run(calls) => {
+            DiffStep::Run(calls) => {
                 let mut outputs = Vec::new();
                 for call in calls {
                     let (argv, exit_code, stdout) = responses
@@ -302,7 +304,19 @@ fn another_exit_code_of_the_diff_is_an_error_naming_the_command() {
     ]);
     assert_eq!(
         result,
-        Err("git [\"diff\", \"--no-textconv\", \"--no-ext-diff\", \"--submodule=short\", \"--ignore-submodules=dirty\", \"--color\"] failed with status 2".to_owned())
+        Err(Failure::Git {
+            args: [
+                "diff",
+                "--no-textconv",
+                "--no-ext-diff",
+                "--submodule=short",
+                "--ignore-submodules=dirty",
+                "--color",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            status: 2
+        })
     );
     assert_limits(&asked);
 }
@@ -333,7 +347,7 @@ fn several_untracked_files_are_diffed_one_after_the_other_and_a_failure_ends_the
         ls_files("false", "a.txt\nb.txt\n"),
         new_file("false", "a.txt", 128, ""),
     ]);
-    assert!(result.is_err_and(|error| error.ends_with("failed with status 128")));
+    assert!(matches!(result, Err(Failure::Git { status: 128, .. })));
 }
 
 #[test]
@@ -341,9 +355,18 @@ fn a_filter_listing_that_fails_for_another_reason_ends_the_run() {
     let (result, _) = drive(vec![inside(), raw_probe(1, ""), filters("false", 129, "")]);
     assert_eq!(
         result,
-        Err(format!(
-            "git [\"config\", \"--null\", \"--name-only\", \"--get-regexp\", {FILTER_PATTERN:?}] failed with status 129"
-        ))
+        Err(Failure::Git {
+            args: [
+                "config",
+                "--null",
+                "--name-only",
+                "--get-regexp",
+                FILTER_PATTERN
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            status: 129
+        })
     );
 }
 
@@ -352,7 +375,7 @@ fn a_command_that_cannot_run_ends_the_run_with_its_error() {
     let (mut diff, _) = Diff::start();
     assert_eq!(
         diff.feed(vec![Err("the server is gone".to_owned())]),
-        Step::Done(Err("the server is gone".to_owned()))
+        DiffStep::Done(Err(Failure::Shell("the server is gone".to_owned())))
     );
 }
 

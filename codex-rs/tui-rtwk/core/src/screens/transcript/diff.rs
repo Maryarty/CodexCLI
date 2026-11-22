@@ -1,7 +1,7 @@
 //! `/diff`: the git commands of the oracle's `get_git_diff.rs` as a step machine.
 //!
-//! The machine is pure (R10): it says which commands to run (`Step::Run`), is
-//! told what they printed (`feed`), and ends with the diff (`Step::Done`). Where
+//! The machine is pure (R10): it says which commands to run (`DiffStep::Run`), is
+//! told what they printed (`feed`), and ends with the diff (`DiffStep::Done`). Where
 //! and how a command runs (the app server's `command/exec`, a fake in a test) is
 //! the shell's; the runner that drives it is `services/shell.rs`.
 //!
@@ -19,6 +19,13 @@ const DISABLE_HOOKS_CONFIG: &str = if cfg!(windows) {
 } else {
     "core.hooksPath=/dev/null"
 };
+/// The environment names of git's config-from-environment overrides.
+const CONFIG_KEY: &str = "GIT_CONFIG_KEY_";
+const CONFIG_VALUE: &str = "GIT_CONFIG_VALUE_";
+/// The settings of a filter driver the overrides blank.
+const CLEAN: &str = "clean";
+const PROCESS: &str = "process";
+const REQUIRED: &str = "required";
 const NULL_DEVICE: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
 const EXECUTABLE_FILTER_CONFIG_PATTERN: &str = r"^filter\..*\.(clean|process)$";
 const DIFF_ARGS: [&str; 6] = [
@@ -83,12 +90,25 @@ pub struct Report {
     pub text: String,
 }
 
+/// Why a diff did not come out: typed here, worded by whoever shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// The shell could not run the command (the host's own text).
+    Shell(String),
+    /// git ran and exited with a status that is no answer.
+    Git { args: Vec<String>, status: i32 },
+    /// The shell answered fewer commands than were asked.
+    NoAnswer,
+    /// The machine was fed after it had ended.
+    Finished,
+}
+
 /// What the machine wants next.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Step {
+pub enum DiffStep {
     /// Run these commands together (their outputs come back in this order).
     Run(Vec<Call>),
-    Done(Result<Report, String>),
+    Done(Result<Report, Failure>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,31 +162,31 @@ pub struct Diff {
 
 impl Diff {
     /// The machine and its first commands.
-    pub fn start() -> (Diff, Step) {
+    pub fn start() -> (Diff, DiffStep) {
         let first = git_call(Fsmonitor::Disabled, &[], &["rev-parse", "--is-inside-work-tree"]);
         (
             Diff {
                 phase: Phase::InsideRepo,
             },
-            Step::Run(vec![first]),
+            DiffStep::Run(vec![first]),
         )
     }
 
-    /// The outputs of the commands the last `Step::Run` asked for, in order.
-    pub fn feed(&mut self, outputs: Vec<Result<Output, String>>) -> Step {
+    /// The outputs of the commands the last `DiffStep::Run` asked for, in order.
+    pub fn feed(&mut self, outputs: Vec<Result<Output, String>>) -> DiffStep {
         let mut outputs = outputs.into_iter();
         let (Some(first), second) = (outputs.next(), outputs.next()) else {
-            return self.fail("the shell answered no command".to_owned());
+            return self.fail(Failure::NoAnswer);
         };
         match std::mem::replace(&mut self.phase, Phase::Finished) {
             Phase::InsideRepo => match first {
-                Err(error) => Step::Done(Err(error)),
+                Err(error) => DiffStep::Done(Err(Failure::Shell(error))),
                 Ok(output) if output.exit_code == 0 => {
                     self.phase = Phase::ProbeRaw;
-                    Step::Run(vec![probe_call(&["config", "--null", "--get", "core.fsmonitor"])])
+                    DiffStep::Run(vec![probe_call(&["config", "--null", "--get", "core.fsmonitor"])])
                 }
                 // not a repository: no probe may run outside one
-                Ok(_) => Step::Done(Ok(Report {
+                Ok(_) => DiffStep::Done(Ok(Report {
                     in_repo: false,
                     text: String::new(),
                 })),
@@ -189,7 +209,7 @@ impl Diff {
                 } else {
                     // a number, a valueless key, a helper path: git decides
                     self.phase = Phase::ProbeTyped;
-                    Step::Run(vec![probe_call(&[
+                    DiffStep::Run(vec![probe_call(&[
                         "config",
                         "--null",
                         "--type=bool",
@@ -224,18 +244,18 @@ impl Diff {
             Phase::Filters { fsmonitor } => {
                 let args = ["config", "--null", "--name-only", "--get-regexp", EXECUTABLE_FILTER_CONFIG_PATTERN];
                 let output = match first {
-                    Err(error) => return Step::Done(Err(error)),
+                    Err(error) => return DiffStep::Done(Err(Failure::Shell(error))),
                     Ok(output) => output,
                 };
                 if output.exit_code != 0 && output.exit_code != 1 {
-                    return Step::Done(Err(failed(&args, output.exit_code)));
+                    return DiffStep::Done(Err(failed(&args, output.exit_code)));
                 }
                 let overrides = filter_overrides(&output.stdout);
                 self.phase = Phase::Tracked {
                     fsmonitor,
                     overrides: overrides.clone(),
                 };
-                Step::Run(vec![
+                DiffStep::Run(vec![
                     git_call(fsmonitor, &overrides, &DIFF_ARGS),
                     git_call(
                         fsmonitor,
@@ -250,14 +270,14 @@ impl Diff {
             } => {
                 let tracked = match diff_output(first, &DIFF_ARGS) {
                     Ok(text) => text,
-                    Err(error) => return Step::Done(Err(error)),
+                    Err(error) => return DiffStep::Done(Err(error)),
                 };
                 let listed = match second {
-                    None => return Step::Done(Err("the shell answered no command".to_owned())),
-                    Some(Err(error)) => return Step::Done(Err(error)),
+                    None => return DiffStep::Done(Err(Failure::NoAnswer)),
+                    Some(Err(error)) => return DiffStep::Done(Err(Failure::Shell(error))),
                     Some(Ok(output)) if output.exit_code == 0 => output.stdout,
                     Some(Ok(output)) => {
-                        return Step::Done(Err(failed(
+                        return DiffStep::Done(Err(failed(
                             &["ls-files", "--others", "--exclude-standard"],
                             output.exit_code,
                         )));
@@ -281,27 +301,27 @@ impl Diff {
                 let args = untracked_args(&files[at]);
                 match diff_output(first, &args) {
                     Ok(diff) => text.push_str(&diff),
-                    Err(error) => return Step::Done(Err(error)),
+                    Err(error) => return DiffStep::Done(Err(error)),
                 }
                 self.untracked(fsmonitor, overrides, files, at + 1, text)
             }
-            Phase::Finished => Step::Done(Err("the diff had already finished".to_owned())),
+            Phase::Finished => DiffStep::Done(Err(Failure::Finished)),
         }
     }
 
-    fn fail(&mut self, error: String) -> Step {
+    fn fail(&mut self, failure: Failure) -> DiffStep {
         self.phase = Phase::Finished;
-        Step::Done(Err(error))
+        DiffStep::Done(Err(failure))
     }
 
-    fn capability(&mut self) -> Step {
+    fn capability(&mut self) -> DiffStep {
         self.phase = Phase::ProbeCapability;
-        Step::Run(vec![probe_call(&["version", "--build-options"])])
+        DiffStep::Run(vec![probe_call(&["version", "--build-options"])])
     }
 
-    fn filters(&mut self, fsmonitor: Fsmonitor) -> Step {
+    fn filters(&mut self, fsmonitor: Fsmonitor) -> DiffStep {
         self.phase = Phase::Filters { fsmonitor };
-        Step::Run(vec![git_call(
+        DiffStep::Run(vec![git_call(
             fsmonitor,
             &[],
             &[
@@ -322,9 +342,9 @@ impl Diff {
         files: Vec<String>,
         at: usize,
         text: String,
-    ) -> Step {
+    ) -> DiffStep {
         let Some(file) = files.get(at) else {
-            return Step::Done(Ok(Report {
+            return DiffStep::Done(Ok(Report {
                 in_repo: true,
                 text,
             }));
@@ -337,7 +357,7 @@ impl Diff {
             at,
             text,
         };
-        Step::Run(vec![call])
+        DiffStep::Run(vec![call])
     }
 }
 
@@ -367,8 +387,8 @@ fn git_call(fsmonitor: Fsmonitor, overrides: &[(String, String)], args: &[&str])
     if !overrides.is_empty() {
         env.push(("GIT_CONFIG_COUNT".to_owned(), overrides.len().to_string()));
         for (index, (key, value)) in overrides.iter().enumerate() {
-            env.push((format!("GIT_CONFIG_KEY_{index}"), key.clone()));
-            env.push((format!("GIT_CONFIG_VALUE_{index}"), value.clone()));
+            env.push((format!("{CONFIG_KEY}{index}"), key.clone()));
+            env.push((format!("{CONFIG_VALUE}{index}"), value.clone()));
         }
     }
     Call {
@@ -403,8 +423,8 @@ fn probed(output: Result<Output, String>) -> Option<String> {
 }
 
 /// The output of a diff, where git's exit code 1 means "there are differences".
-fn diff_output(output: Result<Output, String>, args: &[&str]) -> Result<String, String> {
-    let output = output?;
+fn diff_output(output: Result<Output, String>, args: &[&str]) -> Result<String, Failure> {
+    let output = output.map_err(Failure::Shell)?;
     if output.exit_code == 0 || output.exit_code == 1 {
         Ok(output.stdout)
     } else {
@@ -412,8 +432,16 @@ fn diff_output(output: Result<Output, String>, args: &[&str]) -> Result<String, 
     }
 }
 
-fn failed(args: &[&str], exit_code: i32) -> String {
-    format!("git {args:?} failed with status {exit_code}")
+fn failed(args: &[&str], status: i32) -> Failure {
+    Failure::Git {
+        args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+        status,
+    }
+}
+
+/// The name of a driver's setting in git's config.
+fn driver_key(driver: &str, setting: &str) -> String {
+    format!("{driver}.{setting}")
 }
 
 /// The overrides that blank every configured filter driver: for each driver
@@ -432,9 +460,9 @@ fn filter_overrides(stdout: &str) -> Vec<(String, String)> {
         .into_iter()
         .flat_map(|driver| {
             [
-                (format!("{driver}.clean"), String::new()),
-                (format!("{driver}.process"), String::new()),
-                (format!("{driver}.required"), "false".to_owned()),
+                (driver_key(driver, CLEAN), String::new()),
+                (driver_key(driver, PROCESS), String::new()),
+                (driver_key(driver, REQUIRED), "false".to_owned()),
             ]
         })
         .collect()

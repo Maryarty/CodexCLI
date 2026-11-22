@@ -227,12 +227,12 @@ pub trait WorkspaceExec: Send + Sync {
 
 /// The diff of `cwd` (oracle `get_git_diff`): the core's step machine driven
 /// to its end over `exec`, each batch of commands in order.
-pub async fn git_diff(exec: &dyn WorkspaceExec, cwd: &Path) -> Result<diff::Report, String> {
+pub async fn git_diff(exec: &dyn WorkspaceExec, cwd: &Path) -> Result<diff::Report, diff::Failure> {
     let (mut machine, mut step) = diff::Diff::start();
     loop {
         match step {
-            diff::Step::Done(result) => return result,
-            diff::Step::Run(calls) => {
+            diff::DiffStep::Done(result) => return result,
+            diff::DiffStep::Run(calls) => {
                 let mut outputs = Vec::with_capacity(calls.len());
                 for call in calls {
                     outputs.push(exec.run(call, cwd).await);
@@ -332,6 +332,9 @@ mod git_diff_tests {
 
         let report = git_diff(&exec, Path::new("/workspace")).await;
 
-        assert_eq!(report, Err("the app server went away".to_owned()));
+        assert_eq!(
+            report,
+            Err(diff::Failure::Shell("the app server went away".to_owned()))
+        );
     }
 }

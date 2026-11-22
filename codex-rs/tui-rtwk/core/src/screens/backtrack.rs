@@ -23,9 +23,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ImageReference;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ThreadItemPayload;
-use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
-use codex_app_server_protocol::ThreadRevertParams;
 use codex_app_server_protocol::ThreadRevertResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnStatus;
@@ -39,6 +37,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::Item;
 use crate::threads::ItemKey;
+use crate::threads::ThreadAsk;
 use crate::threads::ThreadFx;
 use crate::threads::Transcript;
 use crate::threads::UserPrompt;
@@ -606,21 +605,18 @@ fn rpc_message(error: &RpcError) -> String {
     }
 }
 
-/// The wire request of `command` for `thread`.
+/// The wire request of `command` for `thread`: the thread RPCs are the
+/// thread's own (ADR-003, `threads::ThreadAsk`), this screen only names which.
 pub fn wire(command: &Command, thread: &ThreadId, id: RequestId) -> ClientRequest {
+    let thread = thread.to_string();
     match command {
-        Command::Read { .. } => ClientRequest::ThreadRead {
-            request_id: id,
-            params: ThreadReadParams { thread_id: thread.to_string(), include_turns: true },
-        },
-        Command::Revert { before_turn } => ClientRequest::ThreadRevert {
-            request_id: id,
-            params: ThreadRevertParams {
-                thread_id: thread.to_string(),
-                before_turn_id: before_turn.as_str().to_string(),
-            },
+        Command::Read { .. } => ThreadAsk::ReadTurns { thread },
+        Command::Revert { before_turn } => ThreadAsk::Revert {
+            thread,
+            before_turn: before_turn.clone(),
         },
     }
+    .wire(id)
 }
 
 /// The reply `result` (the JSON result of the request) is for `command`.
