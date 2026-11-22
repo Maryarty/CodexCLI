@@ -29,19 +29,23 @@ Navigator, showDialog/showModalBottomSheet — then use rtwk's counterpart (rtwk
 Flutter's model on cells). Never translate the oracle's ratatui code line by line.
 Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 
-1. `memory_task_start` then `task_start` on your task; read the returned
-   brief (`.tm/fleet-brief.md`) whole once, and the notes. The task's
-   description is your brief (goal, oracle rows, sections, area, the rtwk
-   widgets to use, evidence). Read process.md, the fleet brief and the rtwk
-   skill from the MAIN checkout /Users/admin/Documents/dev_projects/CodexCLI
-   (they change during the day; your worktree may hold a stale copy). Do not load tm skills.
-2. Read `docs/rtwk-port/process.md` Part 1 §2–§4 once (the concept map,
-   the eight steps of translating a screen, the worked example) and work by
-   its steps; read `docs/rtwk-port/architecture.md` only at the sections your
-   task names. Read `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/SKILL.md` once at the start, then the
-   one `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/` file that matches the widget (`grep`
-   `references/widgets.md` or `guides/widgets-by-need.md` first); open rtwk
-   source in ranges, only for what they do not answer.
+FIRST EDIT WITHIN ~10 CALLS (the person, 2026-11-22: 54 calls before the first
+edit was measured; 6–10 is normal). Reading is for the change at hand, not a tour.
+1. `task_start` on your task (no `memory_task_start` first). It returns the
+   description (your brief), the checkpoint and the fleet brief — those ARE your
+   rules; do not Read `.tm/fleet-brief.md`, process.md or the agent file again.
+2. Checkpoint present (a relaunch or next step): read its `read:` ranges and
+   the pack section it names in ONE turn of parallel calls, start
+   `bgrun.sh run build -- acargo check --tests --quiet` in the same turn, then edit.
+   No re-reading of what the checkpoint already summarises, no probe build
+   before the first edit, no SKILL/process/architecture re-read.
+3. No checkpoint (a fresh chunk): ONE turn of parallel reads — the brief's
+   named sections, the oracle ranges of the first step, the own files it
+   changes — then edit. Read process.md Part 1 §2–§4 and the rtwk SKILL only
+   if this is your first chunk in this context and the step builds a new kind
+   of view; a widget question: grep `/Users/admin/Documents/dev_projects/CodexCLI/.claude/skills/rtwk/references/widgets.md`
+   or `guides/widgets-by-need.md` for that widget only. Rules files live in
+   the MAIN checkout (your worktree copy may be stale).
    Before writing any mechanism (scroll, selection, paging, editing, tabs,
    widths, truncation), find the rtwk widget or controller that owns it; the
    oracle's behaviour is the spec, its mechanics are not. A brief that names
