@@ -24,7 +24,7 @@ a foreign-writer screen asked for one resume (a plain screen 0), a replay resume
 
 ## Un-pended (now green)
 approvals_2 (shift_enter, countdown_is_red), composer_3 (non_text_input), chat_commands_1 (4 of 6 tests, with
-fixture `fixtures/chat_commands_1/completed.jsonl`), picker (snapshot_auto), composer_popups (long_paths), and the
+fixture `fixtures/chat_commands_1/completed.jsonl`), picker (snapshot_auto), and the
 env/input rows of approvals_1, composer_1/3/4, transcript_view_3/4/5. Run: `summary.py --run <17 shards>`:
 241 pass, 117 n/a, 598 pending, 0 todo, 0 red, 0 stale.
 
@@ -34,7 +34,7 @@ env/input rows of approvals_1, composer_1/3/4, transcript_view_3/4/5. Run: `summ
 - chat_live_1 external-writer tests (3): seeded with `.foreign_writer(..)`; the chat draws no read-only notice, no
   fork-pending frame and no transcript shortcut label.
 - chat_commands_1 (2): composer history recall (Up) screen feature; cells_5 three-palette body: cell styling;
-  composer_popups `history_search_paste_uses_full_sanitized_text`: search row overflow bug; picker, pane_footer_2,
+  composer_popups `history_search_paste_uses_full_sanitized_text`: search row overflow bug, and `long_paths_keep_distinguishing_filenames_and_original_selection` (green before the merge, red once chunk-composer step 8b mounted the mentions view: re-pended on it); picker, pane_footer_2,
   markdown_streaming_2/3: reasons updated.
 
 ## Gaps
@@ -53,3 +53,5 @@ rustfmt change from my earlier commit; merge conflicts there are formatting only
 ## Run it
 `check.py --bin rtwk --bin oracle --only exec-approval`: PASS both (7.9 s / 8.3 s). The kit is test-only: the
 binary is unchanged by this task, so one scenario is the check. Rows: equal.
+
+Final gate at 85445ccc4 (after merging claude/tui-rtwk 6e2ac4060): fmt, clippy --workspace, nextest 2402/2402 (--retries 1), shards.py --check OK. Oracle profile: 2 reds, neither the kit: onboarding::long_paths_keep_disclosure_and_choices_visible (passes in the full default run) and small_dialogs_2::warning_pages_wrap_and_scroll_long_diagnostics (script warnings page shows "starting…": not in any file of this task).
