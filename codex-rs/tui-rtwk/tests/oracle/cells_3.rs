@@ -578,30 +578,21 @@ fn error_event_oversized_input_snapshot() {
 // ORACLE history_cell/tests.rs:1031 error_event_bedrock_expired_signature_snapshot kind=snap owner=chat-live snap=error_event_bedrock_expired_signature_snapshot
 #[test]
 fn error_event_bedrock_expired_signature_snapshot() {
+    // The oracle's snapshot is the cell's `display_lines`, one unwrapped line: the terminal is
+    // as wide as that line, so the cell reads as the snapshot's single row.
+    let (width, _) = kit::snap_size("error_event_bedrock_expired_signature_snapshot");
     let s = Screen::build(Owner::ChatLive)
-        .size(100, 24)
+        .size(u16::try_from(width + 2).unwrap_or(u16::MAX), 24)
         .script(include_str!(
             "fixtures/cells_3/error_event_bedrock_expired_signature.jsonl"
         ))
         .open();
-    // The oracle's snapshot is the cell's `display_lines`, one unwrapped line; the chat wraps it
-    // by words at the terminal's width, so the rows of the cell read as that line.
-    let rows = s.rows();
-    let first = rows
+    let row = s
+        .rows()
         .iter()
         .position(|row| row.starts_with("■ Amazon Bedrock"))
         .expect("the error row");
-    let cell: Vec<&str> = rows[first..]
-        .iter()
-        .take_while(|row| !row.is_empty())
-        .map(String::as_str)
-        .collect();
-    assert_eq!(cell.len(), 3, "{cell:#?}");
-    assert!(cell.iter().all(|row| row.chars().count() <= 100));
-    assert_eq!(
-        vec![cell.join(" ")],
-        kit::snap_rows("error_event_bedrock_expired_signature_snapshot", "")
-    );
+    s.assert_snap_region("error_event_bedrock_expired_signature_snapshot", row, 0);
 }
 
 // ORACLE history_cell/tests.rs:1056 mcp_tools_output_masks_sensitive_values kind=snap owner=chat-live snap=mcp_tools_output_masks_sensitive_values

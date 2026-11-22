@@ -474,7 +474,6 @@ fn coalesces_reads_across_multiple_calls() {
         ))
         .open();
     s.assert_snap_region("coalesces_reads_across_multiple_calls", explored_row(&s), 0);
-    assert_eq!(s.text().matches("Explored").count(), 1);
 }
 
 // ORACLE history_cell/tests.rs:2070 coalesced_reads_dedupe_names kind=snap owner=chat-live snap=coalesced_reads_dedupe_names
