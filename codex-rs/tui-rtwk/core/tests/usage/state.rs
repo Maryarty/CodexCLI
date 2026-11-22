@@ -9,8 +9,8 @@
 use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, Control, Ev, Intent, Load, Model, ReportReply, Section, Stamp, What, settle,
-    step,
+    AccountReply, Ask, AskKind, Control, Ev, Intent, Load, Model, ReportReply, Section, Stamp,
+    settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -42,7 +42,7 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
     let mut model = Model::default();
     let asks = step(&mut model, Intent::Open { view: None });
     assert_eq!(asks.len(), 1);
-    assert_eq!(asks[0].what, What::Account);
+    assert_eq!(asks[0].what, AskKind::Account);
     let asks = settle(
         &mut model,
         Ev::Account {
@@ -55,7 +55,7 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
 }
 
 fn answer(model: &mut Model, ask: &Ask) {
-    let What::Report { section, .. } = ask.what else {
+    let AskKind::Report { section, .. } = ask.what else {
         panic!("{ask:?}")
     };
     settle(
@@ -76,7 +76,7 @@ fn answer(model: &mut Model, ask: &Ask) {
 fn sections_asked(asks: &[Ask]) -> Vec<Section> {
     asks.iter()
         .filter_map(|ask| match ask.what {
-            What::Report { section, .. } => Some(section),
+            AskKind::Report { section, .. } => Some(section),
             _ => None,
         })
         .collect()
@@ -142,7 +142,12 @@ fn account_pending_and_error_start_no_report() {
     let mut model = Model::default();
     let asks = step(&mut model, Intent::Open { view: None });
     assert!(model.account.is_loading());
-    assert!(model.histories.iter().all(|load| *load == Load::Unavailable));
+    assert!(
+        model
+            .histories
+            .iter()
+            .all(|load| *load == Load::Unavailable)
+    );
     let asks = settle(
         &mut model,
         Ev::Account {
@@ -157,13 +162,18 @@ fn account_pending_and_error_start_no_report() {
         Some("Sign in again to view Analytics.")
     );
     assert!(model.visible_sections().is_empty());
-    assert!(model.histories.iter().all(|load| *load == Load::Unavailable));
+    assert!(
+        model
+            .histories
+            .iter()
+            .all(|load| *load == Load::Unavailable)
+    );
 }
 
 #[test]
 fn an_account_starts_only_its_eligible_reports_once() {
     let (model, asks) = opened(PlanType::Plus);
-    assert_eq!(asks[0].what, What::Profile);
+    assert_eq!(asks[0].what, AskKind::Profile);
     assert_eq!(
         sections_asked(&asks),
         [
@@ -204,7 +214,7 @@ fn the_first_asks_carry_the_groups_and_ranges_of_the_oracle() {
     let usage = asks
         .iter()
         .find_map(|ask| match &ask.what {
-            What::Report {
+            AskKind::Report {
                 section: Section::Usage,
                 days,
                 group,
@@ -222,7 +232,7 @@ fn the_first_asks_carry_the_groups_and_ranges_of_the_oracle() {
         let group = asks
             .iter()
             .find_map(|ask| match &ask.what {
-                What::Report {
+                AskKind::Report {
                     section: Section::Usage,
                     group,
                     ..
@@ -247,9 +257,13 @@ fn a_range_change_reloads_only_its_group_and_keeps_the_other_reports() {
     assert_eq!(sections_asked(&asks), [Section::Usage]);
     assert_eq!(model.ranges, [1, 0, 0]);
     assert!(model.histories[Section::Usage as usize].is_loading());
-    assert!(model.histories[Section::Activity as usize].ready().is_some());
+    assert!(
+        model.histories[Section::Activity as usize]
+            .ready()
+            .is_some()
+    );
     match &asks[0].what {
-        What::Report { days, .. } => assert_eq!(*days, 30),
+        AskKind::Report { days, .. } => assert_eq!(*days, 30),
         other => panic!("{other:?}"),
     }
     // Plugins and Skills share the tools group.
@@ -289,7 +303,15 @@ fn an_unattributed_consumer_falls_back_to_the_product_grouping() {
     let (mut model, asks) = opened(PlanType::Plus);
     let usage = asks
         .iter()
-        .find(|ask| matches!(ask.what, What::Report { section: Section::Usage, .. }))
+        .find(|ask| {
+            matches!(
+                ask.what,
+                AskKind::Report {
+                    section: Section::Usage,
+                    ..
+                }
+            )
+        })
         .unwrap();
     settle(
         &mut model,
@@ -315,7 +337,15 @@ fn the_business_model_control_cycles_the_models_and_filters_the_tokens() {
     let (mut model, asks) = opened(PlanType::Business);
     let usage = asks
         .iter()
-        .find(|ask| matches!(ask.what, What::Report { section: Section::Usage, .. }))
+        .find(|ask| {
+            matches!(
+                ask.what,
+                AskKind::Report {
+                    section: Section::Usage,
+                    ..
+                }
+            )
+        })
         .unwrap();
     settle(
         &mut model,
@@ -335,14 +365,18 @@ fn the_business_model_control_cycles_the_models_and_filters_the_tokens() {
     let mut seen = Vec::new();
     for _ in 0..3 {
         let asks = step(&mut model, Intent::Model);
-        let What::Report { model: filter, .. } = &asks[0].what else {
+        let AskKind::Report { model: filter, .. } = &asks[0].what else {
             panic!("{asks:?}")
         };
         seen.push(filter.clone());
     }
     assert_eq!(
         seen,
-        [Some("gpt-5".to_string()), Some("gpt-5-mini".to_string()), None]
+        [
+            Some("gpt-5".to_string()),
+            Some("gpt-5-mini".to_string()),
+            None
+        ]
     );
     // A consumer has no model control.
     let (mut consumer, _) = opened(PlanType::Plus);
@@ -356,7 +390,15 @@ fn a_stale_or_foreign_reply_settles_nothing() {
     let (mut model, asks) = opened(PlanType::Plus);
     let usage = asks
         .iter()
-        .find(|ask| matches!(ask.what, What::Report { section: Section::Usage, .. }))
+        .find(|ask| {
+            matches!(
+                ask.what,
+                AskKind::Report {
+                    section: Section::Usage,
+                    ..
+                }
+            )
+        })
         .unwrap()
         .clone();
     // A range change replaces the load: the first answer is stale.
@@ -385,7 +427,12 @@ fn a_refresh_starts_a_session_and_a_close_drops_every_load() {
     let asks = step(&mut model, Intent::Refresh);
     assert_eq!((model.session, asks.len()), (session + 1, 1));
     assert_eq!(model.section, Section::Skills);
-    assert!(model.histories.iter().all(|load| *load == Load::Unavailable));
+    assert!(
+        model
+            .histories
+            .iter()
+            .all(|load| *load == Load::Unavailable)
+    );
     assert!(model.profile == Load::Unavailable);
     step(&mut model, Intent::Close);
     assert!(!model.open);

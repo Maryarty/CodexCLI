@@ -117,11 +117,11 @@ impl Default for Model {
 pub struct Ask {
     pub session: u32,
     pub stamp: Stamp,
-    pub what: What,
+    pub what: AskKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum What {
+pub enum AskKind {
     /// The account behind the session (oracle: `Live::session`), with the
     /// facts the page needs of the configuration.
     Account,
@@ -285,7 +285,7 @@ impl Model {
         Stamp(self.next_stamp)
     }
 
-    fn ask(&self, stamp: Stamp, what: What) -> Ask {
+    fn ask(&self, stamp: Stamp, what: AskKind) -> Ask {
         Ask {
             session: self.session,
             stamp,
@@ -309,7 +309,7 @@ impl Model {
         }
         let stamp = self.next_stamp();
         self.account = Load::Loading(stamp);
-        vec![self.ask(stamp, What::Account)]
+        vec![self.ask(stamp, AskKind::Account)]
     }
 
     /// Once the account is known, every visible report starts, once
@@ -356,7 +356,7 @@ impl Model {
     fn load_profile(&mut self) -> Ask {
         let stamp = self.next_stamp();
         self.profile = Load::Loading(stamp);
-        self.ask(stamp, What::Profile)
+        self.ask(stamp, AskKind::Profile)
     }
 
     /// Starts the section's report again (oracle: `load_report`); the sections
@@ -370,7 +370,7 @@ impl Model {
             .flatten();
         Some(self.ask(
             stamp,
-            What::Report {
+            AskKind::Report {
                 section,
                 days: self.days_of(section),
                 group: self.groups[section as usize],

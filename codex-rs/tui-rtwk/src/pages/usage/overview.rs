@@ -5,15 +5,15 @@
 //! `Profile` and `Chart` (the chart's cells and levels are core's pure
 //! functions, painted here).
 
+use rtwk::l10n::NumSyms;
 use rtwk::layout::{
     Center, Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row, SizedBox,
 };
-use rtwk::l10n::NumSyms;
 use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextAlign, TextWrap};
 use rtwk::{AnyWidget, LayoutBuilder};
 
-use codex_tui_core::screens::usage::activity::{CHART_LEFT_WIDTH, Caption, Cell, Chart, VIEWS};
+use codex_tui_core::screens::usage::activity::{CHART_LEFT_WIDTH, Caption, Chart, Square, VIEWS};
 use codex_tui_core::screens::usage::data::compact_amount;
 use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::profile::{
@@ -67,7 +67,9 @@ pub fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width:
 }
 
 fn centred(shown: String, style: &Style) -> AnyWidget {
-    line(shown, style.clone()).text_align(TextAlign::Center).into()
+    line(shown, style.clone())
+        .text_align(TextAlign::Center)
+        .into()
 }
 
 /// The name, the handle and the plan, centred, then a blank row.
@@ -114,8 +116,14 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
             value(stats.longest_running_turn_sec.map(duration)),
             strings.longest_chat,
         ),
-        (value(days(stats.current_streak_days)), strings.current_streak),
-        (value(days(stats.longest_streak_days)), strings.longest_streak),
+        (
+            value(days(stats.current_streak_days)),
+            strings.current_streak,
+        ),
+        (
+            value(days(stats.longest_streak_days)),
+            strings.longest_streak,
+        ),
     ];
     let count = match inner {
         90.. => 5,
@@ -139,7 +147,10 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch);
     for chunk in figures.chunks(count) {
-        column = column.child(row(chunk, true)).child(row(chunk, false)).child(gap());
+        column = column
+            .child(row(chunk, true))
+            .child(row(chunk, false))
+            .child(gap());
     }
     column.into()
 }
@@ -194,7 +205,12 @@ fn chart(
                 if level > 0 {
                     spans.push(Span::styled(strings.cell_gap, Style::default()));
                 }
-                spans.push(glyph(TokenActivityView::Daily, Cell::Level(level), strings, look));
+                spans.push(glyph(
+                    TokenActivityView::Daily,
+                    Square::Level(level),
+                    strings,
+                    look,
+                ));
             }
             spans.push(Span::styled(strings.cell_gap, look.dim.clone()));
             spans.push(Span::styled(strings.more, look.dim.clone()));
@@ -228,10 +244,10 @@ fn gutter(view: TokenActivityView, row: usize, strings: &Strings) -> String {
 
 /// A cell: the hollow glyph for an empty day, the full one for the others;
 /// bars are full blocks (oracle: `palette.rs`, the low-colour spelling).
-fn glyph(view: TokenActivityView, cell: Cell, strings: &Strings, look: &Look) -> Span {
+fn glyph(view: TokenActivityView, cell: Square, strings: &Strings, look: &Look) -> Span {
     let level = match cell {
-        Cell::Blank => return Span::styled(strings.cell_gap, Style::default()),
-        Cell::Level(level) => level,
+        Square::Blank => return Span::styled(strings.cell_gap, Style::default()),
+        Square::Level(level) => level,
     };
     let (shown, style) = match (view, level) {
         (TokenActivityView::Daily, 0) => (strings.cell_empty, look.dim.clone()),
@@ -265,7 +281,10 @@ fn insights(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &
     let metrics = [
         (strings.fast_mode, percent(stats.fast_mode_usage_percentage)),
         (strings.reasoning, reasoning),
-        (strings.skills_explored, count_value(stats.unique_skills_used)),
+        (
+            strings.skills_explored,
+            count_value(stats.unique_skills_used),
+        ),
         (strings.skills_used, count_value(stats.total_skills_used)),
         (strings.total_chats, count_value(stats.total_threads)),
     ];

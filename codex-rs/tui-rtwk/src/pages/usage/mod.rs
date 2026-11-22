@@ -11,16 +11,16 @@ use std::rc::Rc;
 
 use rtwk::focus::{Focus, KeyPress};
 use rtwk::gestures::{GestureDetector, PointerEvent};
+use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding, Row,
-    SizedBox,
+    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
+    Row, SizedBox,
 };
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
-use rtwk::l10n::NumSyms;
 
 use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::{
@@ -232,13 +232,13 @@ fn tabs(
 
 /// One control: its key, a blank and its label, a click on it does its
 /// action (oracle: `controls.rs`).
-fn control(
-    spans: Vec<Span>,
-    tap: &Option<Handler<PointerEvent>>,
-) -> AnyWidget {
+fn control(spans: Vec<Span>, tap: &Option<Handler<PointerEvent>>) -> AnyWidget {
     let text: AnyWidget = Text::rich(spans).wrap(TextWrap::None).max_lines(1).into();
     match tap {
-        Some(tap) => GestureDetector::new().on_tap(tap.clone()).child(text).into(),
+        Some(tap) => GestureDetector::new()
+            .on_tap(tap.clone())
+            .child(text)
+            .into(),
         None => text,
     }
 }
@@ -301,7 +301,11 @@ fn controls(
             .as_deref()
             .map_or(strings.all_models, |name| model.model_name(name));
         rows[option_row].push(control(
-            vec![key(strings.model_key), blank(), Span::styled(name.to_owned(), Style::default())],
+            vec![
+                key(strings.model_key),
+                blank(),
+                Span::styled(name.to_owned(), Style::default()),
+            ],
             &taps.model,
         ));
     }
@@ -431,10 +435,7 @@ impl State for ScreenState {
         };
         if let Some(view) = w.open {
             let hs = read::<Hs, _>(cx);
-            cx.emit(
-                &hs.screen,
-                ScreenIntent::Usage(UsageIntent::Open { view }),
-            );
+            cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Open { view }));
         }
     }
 
@@ -443,7 +444,9 @@ impl State for ScreenState {
         let model = watch::<ScreenStates, _>(cx).usage.clone();
         let visible = model.visible_sections();
         let intent = match msg {
-            Msg::Pick(index) => visible.get(index).map(|section| UsageIntent::Select(*section)),
+            Msg::Pick(index) => visible
+                .get(index)
+                .map(|section| UsageIntent::Select(*section)),
             Msg::Step(delta) if !visible.is_empty() => {
                 let at = visible
                     .iter()

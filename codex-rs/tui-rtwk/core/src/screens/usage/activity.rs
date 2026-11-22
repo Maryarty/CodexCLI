@@ -56,7 +56,7 @@ impl TokenActivityView {
 
 /// One cell of the grid: nothing (a future day of the last week), or a level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Cell {
+pub enum Square {
     Blank,
     Level(usize),
 }
@@ -79,7 +79,7 @@ pub struct Chart {
     /// The month row, one char per cell column (after the gutter).
     pub months: String,
     /// Seven rows of `shown` cells each, Sunday first.
-    pub rows: Vec<Vec<Cell>>,
+    pub rows: Vec<Vec<Square>>,
     pub caption: Caption,
 }
 
@@ -110,9 +110,9 @@ impl Chart {
                         if view == TokenActivityView::Daily
                             && cell_date(today, index).is_some_and(|date| date > today)
                         {
-                            Cell::Blank
+                            Square::Blank
                         } else {
-                            Cell::Level(levels[index])
+                            Square::Level(levels[index])
                         }
                     })
                     .collect()
