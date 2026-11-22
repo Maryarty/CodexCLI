@@ -86,8 +86,8 @@ pub enum Left {
     Plugin,
     Skill,
     Chat,
-    /// The grouping's label, `Model`, `Surface`, ...
-    Group(&'static str),
+    /// The grouping's name, `Model`, `Surface`, ...
+    Group(super::data::GroupName),
 }
 
 /// The second column's header.
@@ -381,7 +381,7 @@ impl Model {
                     Section::Plugins => Left::Plugin,
                     Section::Skills => Left::Skill,
                     Section::Chats => Left::Chat,
-                    _ => Left::Group(self.group_label(section, group)),
+                    _ => Left::Group(self.group_name(section, group)),
                 },
                 if history.unit == AccountAnalyticsUnit::Tokens {
                     Right::Tokens

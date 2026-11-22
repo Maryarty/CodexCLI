@@ -471,10 +471,6 @@ fn service_tier_slash_command_dispatches_from_catalog_name() {
 // ORACLE bottom_pane/chat_composer.rs:9550 slash_init_dispatches_command_and_does_not_submit_literal_text kind=ui owner=chat-live
 #[test]
 fn slash_init_dispatches_command_and_does_not_submit_literal_text() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "`/init` is not available yet in the port (SessionIntent::Init has no handler: \"'/init' is not available yet.\"), so the command is not dispatched",
-    );
     let mut s = ready(100, 24);
     s.type_text("/init").keys("enter");
     // the command is dispatched and the draft cleared: no literal `/init` is submitted

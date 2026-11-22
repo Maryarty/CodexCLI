@@ -110,6 +110,8 @@ pub struct Startup {
     /// Restarts the embedded server with a reloaded config whose provider
     /// changed (lib.rs: `config.model_provider_id != previous_provider`).
     pub restart: tokio::sync::mpsc::UnboundedSender<Restart>,
+    /// The usage page's open session (S20).
+    pub analytics: crate::analytics::Store,
 }
 
 /// A restart of the embedded server with a config. `done` answers once the
@@ -939,6 +941,7 @@ mod tests {
             },
             target,
             browser,
+            analytics: Default::default(),
         };
         (startup, dir)
     }

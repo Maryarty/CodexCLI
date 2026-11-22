@@ -48,6 +48,10 @@ pub struct Preset {
     pub default_effort: Effort,
     #[serde(default)]
     pub efforts: Vec<EffortOption>,
+    /// `model_specialty`: `cyber` for the models the full-access warning is
+    /// stronger for.
+    #[serde(default)]
+    pub specialty: Option<String>,
 }
 
 fn yes() -> bool {
@@ -71,6 +75,7 @@ impl Preset {
                     description: option.description.clone(),
                 })
                 .collect(),
+            specialty: model.model_specialty.clone(),
         }
     }
 
@@ -149,6 +154,14 @@ impl Catalog {
         self.issued += 1;
         self.pending = Some(self.issued);
         self.issued
+    }
+
+    /// `MODEL_SPECIALTY_CYBER`: the catalog knows `model` as a cyber model.
+    pub fn is_cyber(&self, model: &str) -> bool {
+        self.find(model).is_some_and(|preset| {
+            preset.specialty.as_deref()
+                == Some(codex_protocol::openai_models::MODEL_SPECIALTY_CYBER)
+        })
     }
 
     fn find(&self, model: &str) -> Option<&Preset> {

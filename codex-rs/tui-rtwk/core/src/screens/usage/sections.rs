@@ -1,5 +1,5 @@
 //! Account-specific section order, request eligibility and independent report
-//! ranges (oracle: `analytics/sections.rs`, `chrome.rs` `tab_label`,
+//! ranges (oracle: `analytics/sections.rs`, `chrome.rs`,
 //! `controls.rs` `control_available`). The oracle keeps these on
 //! `AnalyticsView` next to its widget state; here they are pure functions of
 //! the model, which holds only what chooses the requests.
@@ -7,6 +7,7 @@
 use codex_protocol::account::PlanType;
 
 use super::Model;
+use super::data::GroupName;
 use super::date::NaiveDate;
 use super::models::{AccountAnalyticsReport, AccountKind};
 
@@ -132,20 +133,6 @@ impl Model {
         )
     }
 
-    pub fn tab_label(&self, section: Section) -> &'static str {
-        match section {
-            Section::Summary => "Overview",
-            Section::Usage if self.business() => "Tokens",
-            Section::Usage => "Usage",
-            Section::Credits => "Credits",
-            Section::Activity => "Messages",
-            Section::Plugins => "Plugins",
-            Section::Skills => "Skills",
-            Section::Chats => "Chats",
-            Section::Plan => "Plan",
-        }
-    }
-
     pub fn range_group(&self, section: Section) -> RangeGroup {
         match section {
             Section::Usage if self.business() => RangeGroup::Activity,
@@ -180,17 +167,21 @@ impl Model {
         }
     }
 
-    pub fn group_label(&self, section: Section, group: usize) -> &'static str {
+    pub fn group_name(&self, section: Section, group: usize) -> GroupName {
         if section == Section::Summary {
-            return super::activity::VIEWS[group].label();
+            return match super::activity::VIEWS[group] {
+                super::activity::TokenActivityView::Daily => GroupName::Daily,
+                super::activity::TokenActivityView::Weekly => GroupName::Weekly,
+                super::activity::TokenActivityView::Cumulative => GroupName::Cumulative,
+            };
         }
         if group == 0
             && (section == Section::Credits
                 || (section == Section::Usage && !self.consumer_attribution()))
         {
-            "Product"
+            GroupName::Product
         } else {
-            super::data::GROUP_LABELS[group]
+            super::data::GROUP_NAMES[group]
         }
     }
 

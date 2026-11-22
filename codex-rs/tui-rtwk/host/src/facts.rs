@@ -14,6 +14,7 @@ use codex_core::config::Config;
 use codex_tui_core::keymap::{Keymap, KeymapSpec};
 use codex_tui_core::screens::chat::{NotificationPolicy, StatusFacts};
 use codex_tui_core::screens::dialogs::Warning;
+use codex_tui_core::screens::select::permissions::{Facts, Limit, Limits};
 
 /// `format_directory_display` without a width: `~` for the home, `~/x` below
 /// it, the path as it is otherwise.
@@ -92,6 +93,67 @@ pub async fn status(config: &Config) -> StatusFacts {
             enabled,
             always: notifications.condition == NotificationCondition::Always,
             kinds,
+        },
+        permissions: permissions(config),
+    }
+}
+
+/// What `/permissions` reads of the config: the guardian feature, what the
+/// requirements forbid (`can_set` errors as the oracle shows them) and whether
+/// auto-review is mandatory or available.
+/// Oracle: `permission_popups.rs` (`open_legacy_permissions_popup`),
+/// `permissions_menu.rs` (`cyber_model_approval_reviewer`).
+pub fn permissions(config: &Config) -> Facts {
+    use codex_app_server_protocol::AskForApproval;
+    use codex_config::types::ApprovalsReviewer;
+    use codex_features::Feature;
+    use codex_protocol::protocol::AskForApproval as CoreApproval;
+
+    let guardian = config.features.enabled(Feature::GuardianApproval);
+    let guardian_disabled_reason = |enabled: bool| {
+        let mut next = config.features.get().clone();
+        next.set_enabled(Feature::GuardianApproval, enabled);
+        config
+            .features
+            .can_set(&next)
+            .err()
+            .map(|error| error.to_string())
+    };
+    let approvals = [CoreApproval::OnRequest, CoreApproval::Never]
+        .into_iter()
+        .filter_map(|approval| {
+            config
+                .permissions
+                .approval_policy
+                .can_set(&approval)
+                .err()
+                .map(|error| Limit {
+                    approval: AskForApproval::from(approval),
+                    reason: error.to_string(),
+                })
+        })
+        .collect();
+    let requirements = config.config_layer_stack.requirements();
+    let auto_available = requirements
+        .approval_policy
+        .can_set(&CoreApproval::OnRequest)
+        .is_ok()
+        && guardian
+        && requirements
+            .approvals_reviewer
+            .can_set(&ApprovalsReviewer::AutoReview)
+            .is_ok();
+    Facts {
+        guardian,
+        auto_required: config
+            .model
+            .as_deref()
+            .is_some_and(|model| requirements.auto_review_required_for_model(model)),
+        auto_available,
+        limits: Limits {
+            approvals,
+            reviewer_user: guardian_disabled_reason(false),
+            reviewer_auto: guardian_disabled_reason(true),
         },
     }
 }

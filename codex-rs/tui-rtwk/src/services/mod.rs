@@ -14,6 +14,7 @@ pub mod agents;
 pub mod backend;
 pub mod cli_help;
 pub mod clipboard;
+pub mod clock;
 pub mod effects;
 pub mod exec;
 pub mod file_search;

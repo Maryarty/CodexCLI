@@ -117,6 +117,9 @@ pub enum Note {
     UltraConcurrency(usize),
     /// `Permissions updated to {label}`.
     PermissionsUpdated(permissions::Label),
+    /// `Permission selection requested: {label}`: the server took a profile
+    /// pick of a thread.
+    PermissionSelectionRequested(permissions::Label),
     /// `Failed to save default model: {error}`, or `Failed to set permission
     /// profile`: what was being stored and the server's text.
     SaveFailed { setting: Setting, error: String },
@@ -133,6 +136,24 @@ pub enum Note {
     /// `{status} · App link unavailable`: an app without an install URL was
     /// picked.
     AppLinkUnavailable(apps::Status),
+}
+
+impl Note {
+    /// The oracle says each as information or as an error.
+    pub fn tone(&self) -> crate::threads::Tone {
+        use crate::threads::Tone;
+        match self {
+            Note::ModelsNotLoaded | Note::SaveFailed { .. } | Note::AppsFailed(_) => Tone::Error,
+            _ => Tone::Info,
+        }
+    }
+
+    /// Whether the main transcript shows the line: the two warnings
+    /// (`add_warning_message`: `visible_in_transcript: false`) are for the
+    /// detailed transcript only.
+    pub fn in_transcript(&self) -> bool {
+        !matches!(self, Note::UltraConcurrency(_) | Note::Overridden(_))
+    }
 }
 
 /// What a failed or overridden write was for.
@@ -271,7 +292,16 @@ impl Model {
         use permissions::Step;
         match step {
             Step::None => {}
-            Step::Replace(menu) => {
+            Step::Replace(mut menu) => {
+                // The catalog is the app's cache of `model/list`
+                // (`model_catalog.try_list_models()`): unknown stays plain.
+                if let permissions::PermissionsMenu::FullAccess { current, .. } = &mut menu {
+                    let cyber = current
+                        .model
+                        .as_deref()
+                        .is_some_and(|model| self.catalog.is_cyber(model));
+                    current.cyber |= cyber;
+                }
                 self.stack.pop();
                 self.stack.push(Menu::Permissions(Box::new(menu)));
             }
@@ -290,6 +320,11 @@ impl Model {
     fn open_permissions(&mut self, current: permissions::Current) {
         use permissions::PermissionsMenu as Perms;
         self.stack.clear();
+        // The cyber warning of full access reads the model catalog: have it
+        // before the confirmation (a request in flight serves as well).
+        if self.catalog.presets.is_empty() && self.catalog.pending.is_none() {
+            self.catalog.request();
+        }
         let menu = if !current.discover {
             Perms::Presets(current)
         } else if self.profiles.found.is_some() {
@@ -674,9 +709,11 @@ pub enum Ctx {
         found: Vec<permissions::Profile>,
         pages: u8,
     },
-    /// A pick's settings update: what to tell if it fails.
+    /// A pick's settings update: what to tell if it fails, and the line that
+    /// follows once the server took it.
     Settings {
         setting: Setting,
+        then: Option<Note>,
     },
     /// A pick's write: the pick whose line follows a saved write.
     Write {

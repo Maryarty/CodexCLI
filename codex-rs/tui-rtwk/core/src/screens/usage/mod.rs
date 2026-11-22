@@ -25,10 +25,13 @@ use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
 pub mod activity;
+pub mod dashboard;
+pub mod chats;
 pub mod data;
 pub mod date;
 pub mod models;
 pub mod normalize;
+pub mod plan;
 pub mod plot;
 pub mod profile;
 pub mod report;
@@ -37,7 +40,7 @@ pub mod sections;
 pub mod tokens;
 
 pub use activity::TokenActivityView;
-pub use data::{Load, Stamp};
+pub use data::{GroupName, Load, Note, Stamp};
 pub use date::NaiveDate;
 pub use models::{AccountAnalyticsHistory as History, AccountKind};
 pub use sections::{Control, RangeGroup, Section};
@@ -59,6 +62,8 @@ pub struct Model {
     /// The signed-in account's label beside the heading (the e-mail).
     pub account_label: Option<String>,
     pub plan_enabled: bool,
+    /// The times are shown on a 24-hour clock (the user's preference).
+    pub hour24: bool,
     /// Model id -> display name, from the model list.
     pub model_names: Rc<BTreeMap<String, String>>,
     /// The last day every report asks for, fixed per session.
@@ -76,6 +81,12 @@ pub struct Model {
     pub show_zero_credit_groups: bool,
     pub chat_metric: usize,
     pub histories: [Load<Rc<History>>; Section::COUNT],
+    /// The Plan section's allowance history (oracle: `plan::State::report`).
+    pub plan: Load<Rc<plan::Report>>,
+    /// The Chats section's listing of a business account (oracle: `chats`).
+    pub chats: Load<Rc<chats::ChatList>>,
+    /// The Chats section's listing of a consumer account (oracle: `tasks`).
+    pub tasks: Load<Rc<chats::TaskList>>,
     pub profile: Load<Rc<profile::Profile>>,
     reports_started: bool,
 }
@@ -93,6 +104,7 @@ impl Default for Model {
             account: Load::Unavailable,
             account_label: None,
             plan_enabled: false,
+            hour24: false,
             model_names: Rc::default(),
             end_date: NaiveDate::from_unix_secs(0),
             section: Section::Summary,
@@ -105,6 +117,9 @@ impl Default for Model {
             show_zero_credit_groups: false,
             chat_metric: 0,
             histories: std::array::from_fn(|_| Load::Unavailable),
+            plan: Load::Unavailable,
+            chats: Load::Unavailable,
+            tasks: Load::Unavailable,
             profile: Load::Unavailable,
             reports_started: false,
         }
@@ -112,9 +127,7 @@ impl Default for Model {
 }
 
 /// What the host is asked, answered with the matching `Ev` under the same
-/// session and stamp. The host runs `Ask`s as `Command::Usage { ask }` (a
-/// variant the keymap owner adds to `core/src/app.rs`: a need in the parity
-/// pack); until then `emit` has nowhere to send them.
+/// session and stamp. The host runs `Ask`s as `Command::Usage { ask }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
     pub session: u32,
@@ -137,6 +150,12 @@ pub enum AskKind {
         model: Option<String>,
     },
     Profile,
+    /// The Plan section's allowance history (oracle: `Live::plan_history`).
+    Plan,
+    /// The recent root chats with their estimates (a business account).
+    Chats,
+    /// The recent root chats with their task usage (a consumer account).
+    Tasks,
 }
 
 /// The settled account: the plan, and what the host knows of the session.
@@ -155,6 +174,10 @@ pub struct AccountReply {
     /// The groupings the account's credit report supports.
     #[serde(default)]
     pub credit_groups: Vec<usize>,
+    /// The 24-hour clock is the user's preference (oracle: `ClockFormat`,
+    /// detected once; unknown keeps 12-hour): the times of the page.
+    #[serde(default)]
+    pub hour24: bool,
 }
 
 /// A report's answer: the history, and what the host learned making it.
@@ -189,6 +212,21 @@ pub enum Ev {
         stamp: Stamp,
         result: Result<Option<Box<profile::Profile>>, String>,
     },
+    Plan {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<plan::Data>, String>,
+    },
+    Chats {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<chats::ChatList>, String>,
+    },
+    Tasks {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<chats::TaskList>, String>,
+    },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
     Invalidated { session: u32 },
@@ -221,6 +259,14 @@ pub struct Seed {
     pub histories: Vec<HistorySeed>,
     #[serde(default)]
     pub profile: Option<SeedLoad<profile::Profile>>,
+    /// The Plan section's load: the wire's history, checked as the host's
+    /// reply is.
+    #[serde(default)]
+    pub plan: Option<SeedLoad<plan::Data>>,
+    #[serde(default)]
+    pub chats: Option<SeedLoad<chats::ChatList>>,
+    #[serde(default)]
+    pub tasks: Option<SeedLoad<chats::TaskList>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -278,7 +324,7 @@ pub enum Intent {
     /// `a`: zero-credit groups in the expanded details.
     ZeroCreditGroups,
     /// `s`: the next chat sort metric of the `count` the page offers.
-    TaskMetric { count: usize },
+    TaskMetric,
 }
 
 impl Model {
@@ -302,6 +348,9 @@ impl Model {
         self.open = true;
         self.histories = std::array::from_fn(|_| Load::Unavailable);
         self.profile = Load::Unavailable;
+        self.plan = Load::Unavailable;
+        self.chats = Load::Unavailable;
+        self.tasks = Load::Unavailable;
         self.reports_started = false;
         self.token_model = None;
         self.token_models.clear();
@@ -352,6 +401,21 @@ impl Model {
         for section in visible {
             asks.extend(self.load_report(*section));
         }
+        if visible.contains(&Section::Plan) {
+            let stamp = self.next_stamp();
+            self.plan = Load::Loading(stamp);
+            asks.push(self.ask(stamp, AskKind::Plan));
+        }
+        if visible.contains(&Section::Chats) {
+            let stamp = self.next_stamp();
+            if self.business() {
+                self.chats = Load::Loading(stamp);
+                asks.push(self.ask(stamp, AskKind::Chats));
+            } else {
+                self.tasks = Load::Loading(stamp);
+                asks.push(self.ask(stamp, AskKind::Tasks));
+            }
+        }
         asks
     }
 
@@ -397,6 +461,7 @@ impl Model {
         self.account_label = reply.label;
         self.end_date = reply.today;
         self.plan_enabled = reply.plan_enabled;
+        self.hour24 = reply.hour24;
         self.model_names = Rc::new(reply.model_names.into_iter().collect());
         self.credit_groups = if reply.credit_groups.is_empty() {
             vec![0]
@@ -437,6 +502,22 @@ impl Model {
         if let Some(profile) = seed.profile {
             self.profile = profile.into_load(Rc::new);
         }
+        if let Some(chats) = seed.chats {
+            self.chats = chats.into_load(Rc::new);
+        }
+        if let Some(tasks) = seed.tasks {
+            self.tasks = tasks.into_load(Rc::new);
+        }
+        if let Some(history) = seed.plan {
+            self.plan = match history {
+                SeedLoad::Ready(data) => match plan::Report::parse(data) {
+                    Ok(Some(report)) => Load::Ready(Rc::new(report)),
+                    Ok(None) => Load::Unavailable,
+                    Err(message) => Load::Error(message),
+                },
+                other => other.into_load(|_: plan::Data| unreachable!("`Ready` is handled above")),
+            };
+        }
         let visible = self.visible_sections();
         self.section = seed
             .section
@@ -456,6 +537,9 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.open = false;
             model.histories = std::array::from_fn(|_| Load::Unavailable);
             model.profile = Load::Unavailable;
+            model.plan = Load::Unavailable;
+            model.chats = Load::Unavailable;
+            model.tasks = Load::Unavailable;
             model.account = Load::Unavailable;
             Vec::new()
         }
@@ -513,8 +597,15 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.show_zero_credit_groups = !model.show_zero_credit_groups;
             Vec::new()
         }
-        Intent::TaskMetric { count } => {
-            model.chat_metric = (model.chat_metric + 1) % count.max(1);
+        Intent::TaskMetric => {
+            if model.control_available(Control::TaskMetric, false) {
+                let metrics = model.task_metrics();
+                let at = metrics
+                    .iter()
+                    .position(|metric| *metric == model.task_metric())
+                    .unwrap_or_default();
+                model.chat_metric = metrics[(at + 1) % metrics.len()].index();
+            }
             Vec::new()
         }
     }
@@ -580,15 +671,52 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
                 .settle(stamp, result.map(|profile| profile.map(|profile| Rc::new(*profile))));
             Vec::new()
         }
-        Ev::Account { .. } | Ev::Report { .. } | Ev::Profile { .. } => Vec::new(),
+        Ev::Plan {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            let result = result.and_then(|data| match data {
+                Some(data) => plan::Report::parse(data),
+                None => Ok(None),
+            });
+            model.plan.settle(stamp, result.map(|report| report.map(Rc::new)));
+            Vec::new()
+        }
+        Ev::Chats {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            model
+                .chats
+                .settle(stamp, result.map(|list| list.map(Rc::new)));
+            Vec::new()
+        }
+        Ev::Tasks {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            model
+                .tasks
+                .settle(stamp, result.map(|list| list.map(Rc::new)));
+            Vec::new()
+        }
+        Ev::Account { .. }
+        | Ev::Report { .. }
+        | Ev::Profile { .. }
+        | Ev::Plan { .. }
+        | Ev::Chats { .. }
+        | Ev::Tasks { .. } => Vec::new(),
     }
 }
 
-/// Sends the asks to the host. The root `Command` has no variant for them
-/// yet: a need in the parity pack (`Command::Usage { ask }`, answered with
-/// `Ev` under the ask's session and stamp, like `Command::Import`).
+/// Sends the asks to the host as `Command::Usage { ask }`, answered with the
+/// matching `Ev` under the ask's session and stamp.
 fn emit(fx: &mut AppFx, asks: Vec<Ask>) {
-    let _ = (fx, asks);
+    fx.commands
+        .extend(asks.into_iter().map(|ask| crate::app::Command::Usage { ask }));
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {

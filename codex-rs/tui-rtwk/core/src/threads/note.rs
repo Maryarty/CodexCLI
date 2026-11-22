@@ -68,6 +68,9 @@ pub enum NoteKey {
     CdRefused(CdRefusal),
     /// `/archive` or `/delete` did not remove the thread.
     Remove(Action, RemoveNote),
+    /// What a picker (`/model`, `/permissions`, `/apps`) said after a pick or
+    /// an answer (`select::Note`).
+    Select(crate::screens::select::Note),
 }
 
 impl NoteKey {
@@ -75,6 +78,7 @@ impl NoteKey {
     pub fn tone(&self) -> Tone {
         match self {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
+            NoteKey::Select(note) => note.tone(),
             NoteKey::Stub(_)
             | NoteKey::ParentOwned
             | NoteKey::CdRefused(_)

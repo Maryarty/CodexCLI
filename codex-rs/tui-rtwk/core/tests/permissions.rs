@@ -506,6 +506,7 @@ fn a_builtin_mode_of_the_catalog_is_final_and_carries_its_policy() {
                 preset: Preset::Auto,
                 reviewer: Reviewer::AutoReview
             },
+            unchanged: false,
         }]
     );
     assert_eq!(depth(&sandbox), 0);
@@ -525,6 +526,7 @@ fn a_servers_profile_is_final_with_neither_policy_nor_reviewer() {
             approval: None,
             reviewer: None,
             label: Label::Profile("locked-down".into()),
+            unchanged: false,
         }]
     );
 }
@@ -546,6 +548,7 @@ fn full_access_of_the_catalog_asks_first_and_applies_as_a_profile() {
                 preset: Preset::FullAccess,
                 reviewer: Reviewer::User
             },
+            unchanged: false,
         }]
     );
     // declining reopens the catalog's menu, not the legacy list
@@ -638,4 +641,34 @@ fn the_wire_requests_and_answers_decode() {
         found.disabled(":nope", None, None),
         Some(Disabled::NotOnServer)
     );
+}
+
+/// The opener takes the config's part from the status facts the host read
+/// (guardian, requirements, limits) and the model of the thread.
+#[test]
+fn the_opener_carries_the_configs_facts() {
+    use codex_tui_core::screens::chat::StatusFacts;
+    use codex_tui_core::screens::select::permissions::{Facts, Limit, Limits};
+    let facts = StatusFacts {
+        model: Some("gpt-sol".into()),
+        permissions: Facts {
+            guardian: true,
+            auto_required: true,
+            auto_available: true,
+            limits: Limits {
+                approvals: vec![Limit {
+                    approval: codex_app_server_protocol::AskForApproval::Never,
+                    reason: "forbidden by requirements".into(),
+                }],
+                reviewer_user: Some("no user reviewer".into()),
+                reviewer_auto: None,
+            },
+        },
+        ..StatusFacts::default()
+    };
+    let current = Current::from_facts(&facts);
+    assert!(current.guardian && current.auto_required && current.auto_available);
+    assert_eq!(current.limits, facts.permissions.limits);
+    assert_eq!(current.model.as_deref(), Some("gpt-sol"));
+    assert!(current.discover);
 }

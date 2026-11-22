@@ -725,6 +725,19 @@ impl ComposerDraft {
         Some((full, cursor))
     }
 
+    /// The caret at the draft's end, where a recalled entry or an accepted
+    /// search match leaves it; Vim's Normal mode rests on the last
+    /// character instead (the textarea clamps it).
+    pub(super) fn rest_at_end(&self, c: &TextEditingController) {
+        let end = c.text().len();
+        let at = if end > 0 && self.0.borrow().vim.vim.is_normal() {
+            self.vim_end(c)
+        } else {
+            end
+        };
+        c.set_selection(TextSelection::collapsed(at));
+    }
+
     /// The caret that stands for the last item in Vim's Normal mode
     /// (`vim_normal_end_cursor`): the start of the last character or
     /// element.
@@ -849,7 +862,7 @@ impl ComposerDraft {
             // a recalled entry is a new draft: Vim's undo steps were of the old one
             inner.vim.history.reset();
         }
-        c.set_selection(TextSelection::collapsed(text.len()));
+        self.rest_at_end(c);
         let shown = if shell { format!("!{text}") } else { text };
         self.0.borrow_mut().prompts.record_recalled_text(shown);
     }

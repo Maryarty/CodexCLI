@@ -13,6 +13,10 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_protocol::account::PlanType;
+use codex_tui_core::screens::usage::GroupName;
+use codex_tui_core::screens::usage::NaiveDate;
+use codex_tui_core::screens::usage::Note;
 use codex_tui_core::screens::usage::report::Unit;
 
 use crate::l10n::Lang;
@@ -45,6 +49,35 @@ pub struct Strings {
     pub tab_skills: &'static str,
     pub tab_chats: &'static str,
     pub tab_plan: &'static str,
+    /// Oracle: `subscription.rs`, `SubscriptionDisplay::Analytics`: the
+    /// subscription's name on the heading and the profile block.
+    plan_free: &'static str,
+    plan_go: &'static str,
+    plan_plus: &'static str,
+    plan_pro: &'static str,
+    plan_pro_lite: &'static str,
+    plan_pro_max: &'static str,
+    plan_business: &'static str,
+    plan_enterprise: &'static str,
+    plan_education: &'static str,
+    plan_sci: &'static str,
+    plan_sci_plus: &'static str,
+    plan_account: &'static str,
+    /// Oracle: `GROUP_LABELS` and the Overview's chart views.
+    group_surface: &'static str,
+    group_feature: &'static str,
+    group_model: &'static str,
+    group_turn_start: &'static str,
+    group_speed: &'static str,
+    group_reasoning: &'static str,
+    group_token_type: &'static str,
+    group_product: &'static str,
+    group_daily: &'static str,
+    group_weekly: &'static str,
+    group_cumulative: &'static str,
+    /// Oracle: `Load::message`: what a load says before it is ready.
+    note_loading: &'static str,
+    note_unavailable: &'static str,
     /// Oracle: `controls.rs`: the range, group and model controls.
     pub range_key: &'static str,
     pub range_week: &'static str,
@@ -176,6 +209,104 @@ pub struct Strings {
     pub hint_refresh: &'static str,
     pub hint_retry: &'static str,
     pub hint_tab_key: &'static str,
+    /// Oracle: `controls.rs`, `chart.rs`, `chrome.rs`: the times (`Updated`,
+    /// `Report updated`) on the user's clock, `ClockFormat::date_time_format`.
+    date_time_24: Msg<4>,
+    date_time_12: Msg<5>,
+    pub am: &'static str,
+    pub pm: &'static str,
+    updated_card: Msg<1>,
+    updated_controls: Msg<1>,
+    help_updated: Msg<1>,
+    /// Oracle: `controls.rs`: the dashboard's control and its key hint.
+    pub dashboard: &'static str,
+    dashboard_focus: Msg<1>,
+    /// Oracle: `dashboard.rs`: a card's title, its range and grouping lines
+    /// and the mark of a cut card.
+    card_title: Msg<2>,
+    card_range_model: Msg<2>,
+    card_group: Msg<1>,
+    pub card_maximize: &'static str,
+    /// The mark before the focused card's name.
+    pub card_mark: &'static str,
+    /// Oracle: `plan_panel.rs`, `controls.rs`: the two tables of the plan
+    /// history, their rows and the notes under them.
+    pub plan_five: &'static str,
+    pub plan_week: &'static str,
+    /// The mark before the table in front and before the row under the cursor.
+    pub plan_mark: &'static str,
+    plan_period: Msg<4>,
+    pub plan_current: &'static str,
+    plan_percent: Msg<1>,
+    pub plan_unknown: &'static str,
+    pub plan_incomplete: &'static str,
+    pub plan_no_breakdown: &'static str,
+    plan_indented: Msg<1>,
+    pub plan_empty: &'static str,
+    pub plan_unavailable: &'static str,
+    pub plan_turn_note: &'static str,
+    pub plan_gaps: &'static str,
+    plan_as_of: Msg<1>,
+    plan_since: Msg<1>,
+    pub plan_approximate: &'static str,
+    /// The control that picks the table, without its keys.
+    pub plan_window_five: &'static str,
+    pub plan_window_week: &'static str,
+    pub plan_window_slash: &'static str,
+    /// Between the two keys that move to the other table.
+    pub plan_key_join: &'static str,
+    /// Oracle: `chat_panel.rs`: the business account's chats.
+    pub chat_blurb: &'static str,
+    pub chat_none: &'static str,
+    chat_missing_one: Msg<1>,
+    chat_missing_many: Msg<1>,
+    pub chat_unavailable: &'static str,
+    pub chat_head_chat: &'static str,
+    pub chat_head_stacked: &'static str,
+    pub chat_head_usd: &'static str,
+    pub chat_head_credits: &'static str,
+    pub chat_mark_on: &'static str,
+    pub chat_mark_off: &'static str,
+    pub chat_dash: &'static str,
+    pub chat_indent_blank: &'static str,
+    pub chat_not_reported: &'static str,
+    pub chat_group_model: &'static str,
+    pub chat_group_effort: &'static str,
+    pub chat_group_speed: &'static str,
+    pub chat_group_credits: &'static str,
+    pub chat_group_narrow: &'static str,
+    pub chat_no_breakdown: &'static str,
+    chat_zero: Msg<4>,
+    chat_zero_group: &'static str,
+    chat_zero_groups: &'static str,
+    chat_zero_hidden: &'static str,
+    chat_zero_hide: &'static str,
+    chat_zero_show: &'static str,
+    chat_showing: Msg<3>,
+    pub chat_coverage: &'static str,
+    pub chat_card_blurb: &'static str,
+    pub chat_card_coverage: &'static str,
+    pub chat_card_missing: &'static str,
+    chat_effort_speed: Msg<2>,
+    chat_indent: Msg<1>,
+    /// Oracle: `task_panel.rs`: the consumer account's chats.
+    pub task_weekly: &'static str,
+    pub task_five_hour: &'static str,
+    pub task_balance: &'static str,
+    task_blurb: Msg<1>,
+    pub task_basis_balance: &'static str,
+    pub task_basis_limit: &'static str,
+    pub task_no_report: &'static str,
+    task_partial_ranking: Msg<2>,
+    pub task_partial_mark: &'static str,
+    pub task_unavailable: &'static str,
+    task_showing_top: Msg<2>,
+    pub task_coverage: &'static str,
+    pub task_truncated: &'static str,
+    task_updated: Msg<1>,
+    pub task_sort: &'static str,
+    pub sort_key: &'static str,
+    task_group_tags: Msg<3>,
 }
 
 /// English: the oracle's text.
@@ -197,6 +328,31 @@ pub const EN: Strings = Strings {
     tab_skills: "Skills",
     tab_chats: "Chats",
     tab_plan: "Plan",
+    plan_free: "Free",
+    plan_go: "Go",
+    plan_plus: "Plus",
+    plan_pro: "Pro 200",
+    plan_pro_lite: "Pro 100",
+    plan_pro_max: "Pro 500",
+    plan_business: "Business",
+    plan_enterprise: "Enterprise",
+    plan_education: "Education",
+    plan_sci: "Academic Researchers",
+    plan_sci_plus: "Academic Researchers Plus",
+    plan_account: "Account",
+    group_surface: "Surface",
+    group_feature: "Feature",
+    group_model: "Model",
+    group_turn_start: "Turn start",
+    group_speed: "Speed",
+    group_reasoning: "Reasoning",
+    group_token_type: "Token type",
+    group_product: "Product",
+    group_daily: "Daily",
+    group_weekly: "Weekly",
+    group_cumulative: "Cumulative",
+    note_loading: "Loading\u{2026}",
+    note_unavailable: "No history has been reported.",
     range_key: "r",
     range_week: "7d",
     range_month: "30d",
@@ -317,6 +473,91 @@ pub const EN: Strings = Strings {
     hint_refresh: "refresh",
     hint_retry: "retry",
     hint_tab_key: "tab",
+    date_time_24: msg!("{0} {1} {2}:{3}"),
+    date_time_12: msg!("{0} {1} {2}:{3} {4}"),
+    am: "AM",
+    pm: "PM",
+    updated_card: msg!("Updated {0} UTC"),
+    updated_controls: msg!("Updated \u{b7} {0} UTC"),
+    help_updated: msg!("Report updated {0} UTC"),
+    dashboard: "Dashboard",
+    dashboard_focus: msg!(" \u{b7} {0} focus"),
+    card_title: msg!(" {0} {1} "),
+    card_range_model: msg!("{0} \u{b7} {1}"),
+    card_group: msg!("By {0}"),
+    card_maximize: "\u{2026} z to maximize",
+    card_mark: "\u{25b8}",
+    plan_five: "5-hour limits",
+    plan_week: "Weekly limits",
+    plan_mark: "\u{203a}",
+    plan_period: msg!("{0} {1} \u{2013} {2}{3}"),
+    plan_current: " *",
+    plan_percent: msg!("{0}%"),
+    plan_unknown: "Not available",
+    plan_incomplete: "  Some usage is unavailable; this period may be incomplete",
+    plan_no_breakdown: "  Breakdown isn't available for this period",
+    plan_indented: msg!("  {0}"),
+    plan_empty: "No limit periods in this date range",
+    plan_unavailable: "Limit history isn't available yet",
+    plan_turn_note: "By turn start includes Tasks only; percentages use the full period limit",
+    plan_gaps: "Some periods aren't available yet",
+    plan_as_of: msg!("Usage as of {0} UTC \u{b7} * current at last update"),
+    plan_since: msg!("Available since {0} UTC"),
+    plan_approximate: "Amounts and period boundaries are approximate; recent activity may be delayed",
+    plan_window_five: "5-hour",
+    plan_window_week: "Weekly",
+    plan_window_slash: " / ",
+    plan_key_join: "/",
+    chat_blurb: "Active in past 30 days \u{b7} sorted by lifetime credits",
+    chat_none: "No recent local chats.",
+    chat_missing_one: msg!("{0} chat estimate unavailable"),
+    chat_missing_many: msg!("{0} chat estimates unavailable"),
+    chat_unavailable: "Chat usage unavailable",
+    chat_head_chat: "  Chat",
+    chat_head_stacked: "Est. $ / credits",
+    chat_head_usd: "Est. $ spent",
+    chat_head_credits: "Lifetime credits",
+    chat_mark_on: "\u{203a}",
+    chat_mark_off: " ",
+    chat_indent_blank: "  ",
+    chat_dash: "\u{2014}",
+    chat_not_reported: "Not reported",
+    chat_group_model: "Model",
+    chat_group_effort: "Effort",
+    chat_group_speed: "Speed",
+    chat_group_credits: "Credits",
+    chat_group_narrow: "  Model / effort / speed",
+    chat_no_breakdown: "  Breakdown unavailable",
+    chat_zero: msg!("  {0} zero-credit {1}{2} \u{b7} a {3}"),
+    chat_zero_group: "group",
+    chat_zero_groups: "groups",
+    chat_zero_hidden: " hidden",
+    chat_zero_hide: "hide zeros",
+    chat_zero_show: "show all",
+    chat_showing: msg!("Showing {0}\u{2013}{1} of {2} chats"),
+    chat_card_blurb: "30d active \u{b7} lifetime credits",
+    chat_card_coverage: "Local chats \u{b7} excludes subagents",
+    chat_card_missing: "Some estimates unavailable",
+    chat_coverage: "Local chats \u{b7} excludes archived chats and subagent usage",
+    chat_effort_speed: msg!("    {0} \u{b7} {1}"),
+    chat_indent: msg!("  {0}"),
+    task_weekly: "Weekly %",
+    task_five_hour: "5-hour %",
+    task_balance: "Balance credits",
+    task_blurb: msg!("Usage estimates \u{b7} active in past 30 days \u{b7} sorted by {0}"),
+    task_basis_balance: "Credits debited from balance \u{b7} includes adjustments",
+    task_basis_limit: "Recorded usage / current full limit \u{b7} may exceed 100%",
+    task_no_report: "No task usage reported.",
+    task_partial_ranking: msg!("Partial ranking \u{b7} {0} partial \u{b7} {1} unavailable"),
+    task_partial_mark: " \u{b7} partial",
+    task_unavailable: "  Task usage unavailable.",
+    task_showing_top: msg!("Showing top {0} of {1} chats"),
+    task_coverage: "Local chats \u{b7} includes discovered descendants \u{b7} excludes archived roots",
+    task_truncated: "Partial ranking \u{b7} 100 most recently active chats",
+    task_updated: msg!("Updated {0} UTC \u{b7} recent activity may be delayed"),
+    task_sort: " sort: ",
+    sort_key: "s",
+    task_group_tags: msg!("    {0} \u{b7} {1} \u{b7} {2}"),
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -333,6 +574,56 @@ pub fn title(lang: Lang) -> &'static str {
 }
 
 impl Strings {
+    /// The subscription's name (oracle: `SubscriptionDisplay::Analytics`).
+    pub fn plan_name(&self, plan: PlanType) -> &'static str {
+        match plan {
+            PlanType::Free => self.plan_free,
+            PlanType::Go => self.plan_go,
+            PlanType::Plus => self.plan_plus,
+            PlanType::Pro => self.plan_pro,
+            PlanType::ProLite => self.plan_pro_lite,
+            PlanType::ProMax => self.plan_pro_max,
+            PlanType::Team
+            | PlanType::SelfServeBusinessUsageBased
+            | PlanType::Business
+            | PlanType::SelfServeBusinessProLite => self.plan_business,
+            PlanType::EnterpriseCbpAutomation
+            | PlanType::Enterprise
+            | PlanType::Ent26
+            | PlanType::EnterpriseCbpUsageBased => self.plan_enterprise,
+            PlanType::Edu | PlanType::EduPlus | PlanType::EduPro => self.plan_education,
+            PlanType::Sci => self.plan_sci,
+            PlanType::SciPlus => self.plan_sci_plus,
+            PlanType::Unknown => self.plan_account,
+        }
+    }
+
+    /// A grouping's name (oracle: `GROUP_LABELS`).
+    pub fn group_name(&self, name: GroupName) -> &'static str {
+        match name {
+            GroupName::Surface => self.group_surface,
+            GroupName::Feature => self.group_feature,
+            GroupName::Model => self.group_model,
+            GroupName::TurnStart => self.group_turn_start,
+            GroupName::Speed => self.group_speed,
+            GroupName::Reasoning => self.group_reasoning,
+            GroupName::TokenType => self.group_token_type,
+            GroupName::Product => self.group_product,
+            GroupName::Daily => self.group_daily,
+            GroupName::Weekly => self.group_weekly,
+            GroupName::Cumulative => self.group_cumulative,
+        }
+    }
+
+    /// What a load says before it is ready (oracle: `Load::message`).
+    pub fn note<'a>(&'a self, note: &'a Note) -> &'a str {
+        match note {
+            Note::Loading => self.note_loading,
+            Note::Unavailable => self.note_unavailable,
+            Note::Error(message) => message,
+        }
+    }
+
     pub fn heading_with(&self, plan: &str, num: &NumSyms) -> String {
         Fmt::new(self.heading_plan, [Arg::Text(plan)], num).to_string()
     }
@@ -495,6 +786,257 @@ impl Strings {
         } else {
             day.to_string()
         }
+    }
+
+    /// `\u{203a} Sep 2 10:00 \u{2013} Sep 2 15:00 *` (a period's row, the mark empty
+    /// or `\u{203a}`, a `*` when it is the one in progress).
+    pub fn plan_period(
+        &self,
+        marked: bool,
+        start: i64,
+        end: i64,
+        current: bool,
+        hour24: bool,
+        num: &NumSyms,
+    ) -> String {
+        let (start, end) = (
+            self.date_time(start, hour24, num),
+            self.date_time(end, hour24, num),
+        );
+        Fmt::new(
+            self.plan_period,
+            [
+                Arg::Text(if marked { self.plan_mark } else { self.blank }),
+                Arg::Text(&start),
+                Arg::Text(&end),
+                Arg::Text(if current { self.plan_current } else { "" }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `3 chat estimates unavailable`.
+    pub fn chat_missing(&self, count: usize, num: &NumSyms) -> String {
+        let msg = if count == 1 {
+            self.chat_missing_one
+        } else {
+            self.chat_missing_many
+        };
+        Fmt::new(msg, [Arg::Int(count as u64)], num).to_string()
+    }
+
+    /// `  1 zero-credit group hidden \u{b7} a show all`.
+    pub fn chat_zero(&self, count: usize, shown: bool, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_zero,
+            [
+                Arg::Int(count as u64),
+                Arg::Text(if count == 1 {
+                    self.chat_zero_group
+                } else {
+                    self.chat_zero_groups
+                }),
+                Arg::Text(if shown { "" } else { self.chat_zero_hidden }),
+                Arg::Text(if shown {
+                    self.chat_zero_hide
+                } else {
+                    self.chat_zero_show
+                }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `Showing 1\u{2013}5 of 5 chats`.
+    pub fn chat_showing(&self, first: usize, last: usize, count: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_showing,
+            [
+                Arg::Int(first as u64),
+                Arg::Int(last as u64),
+                Arg::Int(count as u64),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `    high \u{b7} standard`.
+    pub fn chat_effort_speed(&self, effort: &str, speed: &str, num: &NumSyms) -> String {
+        Fmt::new(
+            self.chat_effort_speed,
+            [Arg::Text(effort), Arg::Text(speed)],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `  <title>` (a breakdown row's model).
+    pub fn chat_indent(&self, text: &str, num: &NumSyms) -> String {
+        Fmt::new(self.chat_indent, [Arg::Text(text)], num).to_string()
+    }
+
+    /// The name of a sort metric (0 weekly, 1 five-hour, else balance).
+    pub fn task_metric(&self, index: usize) -> &'static str {
+        match index {
+            0 => self.task_weekly,
+            1 => self.task_five_hour,
+            _ => self.task_balance,
+        }
+    }
+
+    pub fn task_blurb(&self, metric: &str, num: &NumSyms) -> String {
+        Fmt::new(self.task_blurb, [Arg::Text(metric)], num).to_string()
+    }
+
+    pub fn task_partial_ranking(&self, partial: usize, missing: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.task_partial_ranking,
+            [Arg::Int(partial as u64), Arg::Int(missing as u64)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn task_showing_top(&self, shown: usize, count: usize, num: &NumSyms) -> String {
+        Fmt::new(
+            self.task_showing_top,
+            [Arg::Int(shown as u64), Arg::Int(count as u64)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn task_updated(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.task_updated, [Arg::Text(&time)], num).to_string()
+    }
+
+    pub fn task_group_tags(
+        &self,
+        effort: &str,
+        speed: &str,
+        product: &str,
+        num: &NumSyms,
+    ) -> String {
+        Fmt::new(
+            self.task_group_tags,
+            [Arg::Text(effort), Arg::Text(speed), Arg::Text(product)],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `125%` for the percentage (`amount` is the shown number).
+    pub fn plan_percent(&self, amount: &str, num: &NumSyms) -> String {
+        Fmt::new(self.plan_percent, [Arg::Text(amount)], num).to_string()
+    }
+
+    /// `  <label>` (a breakdown row).
+    pub fn plan_indented(&self, label: &str, num: &NumSyms) -> String {
+        Fmt::new(self.plan_indented, [Arg::Text(label)], num).to_string()
+    }
+
+    /// `Usage as of Sep 2 12:00 UTC \u{b7} * current at last update`.
+    pub fn plan_as_of(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.plan_as_of, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Available since Sep 1 00:00 UTC`.
+    pub fn plan_since(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.plan_since, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Sep 2 16:00`, or `Sep 2 4:00 PM` on a 12-hour clock (chrono's
+    /// `%b %-d %H:%M` and `%b %-d %-I:%M %p`) of a Unix time in UTC.
+    pub fn date_time(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let (_, month, day) = NaiveDate::from_unix_secs(seconds).ymd();
+        let of_day = seconds.rem_euclid(86_400);
+        let (hour, minute) = ((of_day / 3_600) as u64, (of_day % 3_600 / 60) as u64);
+        let (month, day) = (Arg::Text(self.month(month)), Arg::Int(u64::from(day)));
+        let minute = format!("{minute:02}");
+        if hour24 {
+            let hour = format!("{hour:02}");
+            return Fmt::new(
+                self.date_time_24,
+                [month, day, Arg::Text(&hour), Arg::Text(&minute)],
+                num,
+            )
+            .to_string();
+        }
+        let shown = match hour % 12 {
+            0 => 12,
+            hour => hour,
+        };
+        let hour_text = shown.to_string();
+        Fmt::new(
+            self.date_time_12,
+            [
+                month,
+                day,
+                Arg::Text(&hour_text),
+                Arg::Text(&minute),
+                Arg::Text(if hour >= 12 { self.pm } else { self.am }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `Updated Sep 2 16:00 UTC` (a card).
+    pub fn updated_card(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.updated_card, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Updated · Sep 2 16:00 UTC` (the controls' last row).
+    pub fn updated_controls(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.updated_controls, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Report updated Sep 2 16:00 UTC` (the help).
+    pub fn help_updated(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.help_updated, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// ` · enter focus` after `Dashboard`.
+    pub fn dashboard_focus(&self, accept: &str, num: &NumSyms) -> String {
+        Fmt::new(self.dashboard_focus, [Arg::Text(accept)], num).to_string()
+    }
+
+    /// ` 2 Usage `, the words of a card's title.
+    pub fn card_title(&self, number: u64, name: &str, num: &NumSyms) -> String {
+        Fmt::new(self.card_title, [Arg::Int(number), Arg::Text(name)], num).to_string()
+    }
+
+    /// `7d`, `30d`, with ` · <model>` after it on a business Usage card.
+    pub fn card_range(&self, long: bool, model: Option<&str>, num: &NumSyms) -> String {
+        let days = if long {
+            self.range_month
+        } else {
+            self.range_week
+        };
+        match model {
+            Some(model) => Fmt::new(
+                self.card_range_model,
+                [Arg::Text(days), Arg::Text(model)],
+                num,
+            )
+            .to_string(),
+            None => days.to_owned(),
+        }
+    }
+
+    /// `By feature`: the grouping's name in lower case.
+    pub fn card_group(&self, group: GroupName, num: &NumSyms) -> String {
+        let name = self.group_name(group).to_lowercase();
+        Fmt::new(self.card_group, [Arg::Text(&name)], num).to_string()
     }
 
     fn month(&self, month: u32) -> &'static str {

@@ -9,8 +9,8 @@
 use codex_protocol::account::PlanType;
 use codex_tui_core::screens::usage::models::{AccountAnalyticsHistory, AccountAnalyticsUnit};
 use codex_tui_core::screens::usage::{
-    AccountReply, Ask, AskKind, Control, Ev, Intent, Load, Model, ReportReply, Section, Stamp,
-    settle, step,
+    AccountReply, Ask, AskKind, Control, Ev, GroupName, Intent, Load, Model, Note, ReportReply,
+    Section, Stamp, settle, step,
 };
 use pretty_assertions::assert_eq;
 
@@ -26,6 +26,7 @@ fn reply(plan: PlanType) -> AccountReply {
         plan_enabled: false,
         model_names: vec![("gpt-5".into(), "GPT-5".into())],
         credit_groups: vec![0, 2],
+        hour24: false,
     }
 }
 
@@ -55,6 +56,32 @@ fn opened(plan: PlanType) -> (Model, Vec<Ask>) {
 }
 
 fn answer(model: &mut Model, ask: &Ask) {
+    let (session, stamp) = (ask.session, ask.stamp);
+    match ask.what {
+        AskKind::Tasks => {
+            settle(
+                model,
+                Ev::Tasks {
+                    session,
+                    stamp,
+                    result: Ok(Some(Default::default())),
+                },
+            );
+            return;
+        }
+        AskKind::Chats => {
+            settle(
+                model,
+                Ev::Chats {
+                    session,
+                    stamp,
+                    result: Ok(Some(Default::default())),
+                },
+            );
+            return;
+        }
+        _ => {}
+    }
     let AskKind::Report { section, .. } = ask.what else {
         panic!("{ask:?}")
     };
@@ -128,13 +155,13 @@ fn account_layouts_show_the_reports_of_each_kind() {
 }
 
 #[test]
-fn tabs_are_named_per_account_kind() {
+fn the_usage_tab_is_the_business_one_per_account_kind() {
+    // The words of the tabs live in the page's string table; the core only
+    // says which account kind a tab is for.
     let (consumer, _) = opened(PlanType::Plus);
     let (business, _) = opened(PlanType::Business);
-    assert_eq!(consumer.tab_label(Section::Usage), "Usage");
-    assert_eq!(business.tab_label(Section::Usage), "Tokens");
-    assert_eq!(consumer.tab_label(Section::Summary), "Overview");
-    assert_eq!(consumer.tab_label(Section::Activity), "Messages");
+    assert!(!consumer.business());
+    assert!(business.business());
 }
 
 #[test]
@@ -158,8 +185,8 @@ fn account_pending_and_error_start_no_report() {
     );
     assert!(asks.is_empty());
     assert_eq!(
-        model.account.message(),
-        Some("Sign in again to view Analytics.")
+        model.account.note(),
+        Some(Note::Error("Sign in again to view Analytics.".to_owned()))
     );
     assert!(model.visible_sections().is_empty());
     assert!(
@@ -329,7 +356,7 @@ fn an_unattributed_consumer_falls_back_to_the_product_grouping() {
     assert_eq!(model.groups[Section::Usage as usize], 0);
     step(&mut model, Intent::Select(Section::Usage));
     assert_eq!(model.group_options(), [0, 2]);
-    assert_eq!(model.group_label(Section::Usage, 0), "Product");
+    assert_eq!(model.group_name(Section::Usage, 0), GroupName::Product);
 }
 
 #[test]
@@ -500,12 +527,103 @@ fn the_date_range_of_a_section_ends_on_the_session_day() {
 
 #[test]
 fn zero_credit_groups_and_task_metric_toggle_in_the_model() {
-    let (mut model, _) = opened(PlanType::Business);
+    use codex_tui_core::screens::usage::chats::{
+        Amounts, Decimal, Metric, Status, Task, TaskList, TaskRow,
+    };
+    let (mut model, _) = opened(PlanType::Plus);
     step(&mut model, Intent::ZeroCreditGroups);
     assert!(model.show_zero_credit_groups);
-    step(&mut model, Intent::TaskMetric { count: 3 });
-    step(&mut model, Intent::TaskMetric { count: 3 });
+    // The metrics offered are the ones some row reports: the balance, then
+    // the percentages the rows have.
+    model.section = Section::Chats;
+    model.tasks = codex_tui_core::screens::usage::Load::Ready(std::rc::Rc::new(TaskList {
+        rows: vec![TaskRow {
+            title: "A task".into(),
+            task: Some(Task {
+                status: Status::Available,
+                amounts: Amounts {
+                    weekly_percent: Some(1.0),
+                    five_hour_percent: Some(2.0),
+                    balance: Some(Decimal::new("3")),
+                },
+                groups: Vec::new(),
+            }),
+        }],
+        ..TaskList::default()
+    }));
+    assert_eq!(model.task_metrics(), Metric::ALL.to_vec());
+    step(&mut model, Intent::TaskMetric);
+    step(&mut model, Intent::TaskMetric);
     assert_eq!(model.chat_metric, 2);
-    step(&mut model, Intent::TaskMetric { count: 3 });
+    step(&mut model, Intent::TaskMetric);
     assert_eq!(model.chat_metric, 0);
+}
+
+/// The account's clock preference settles with the account (oracle:
+/// `ClockFormat`, read once when the page opens): the report times and the
+/// dashboard's hour column follow it.
+#[test]
+fn the_account_settles_the_clock_format() {
+    let mut model = Model::default();
+    assert!(!model.hour24);
+    for hour24 in [true, false] {
+        let asks = step(&mut model, Intent::Open { view: None });
+        settle(
+            &mut model,
+            Ev::Account {
+                session: asks[0].session,
+                stamp: asks[0].stamp,
+                result: Ok(AccountReply {
+                    hour24,
+                    ..reply(PlanType::Plus)
+                }),
+            },
+        );
+        assert_eq!(model.hour24, hour24);
+    }
+}
+
+#[test]
+fn the_asks_go_to_the_host_as_usage_commands_and_the_answers_come_back_through_the_app() {
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent as AppIntent, apply_app};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent};
+
+    let mut app = CodexApp::new();
+    app.attach();
+    let mut fx = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Intent(AppIntent::Screen(ScreenIntent::Usage(Intent::Open {
+            view: None,
+        }))),
+        &mut fx,
+    );
+    let asks = fx
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Usage { ask, .. } => Some(ask.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(asks.len(), 1, "the account first: {:?}", fx.commands());
+    assert_eq!(asks[0].what, AskKind::Account);
+
+    // The account's answer, through the app, starts the reports.
+    let mut fx = AppFx::default();
+    apply_app(
+        &mut app,
+        AppEv::Screen(ScreenEv::Usage(Ev::Account {
+            session: asks[0].session,
+            stamp: asks[0].stamp,
+            result: Ok(reply(PlanType::Plus)),
+        })),
+        &mut fx,
+    );
+    let later = fx
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, Command::Usage { .. }))
+        .count();
+    assert!(later > 1, "the reports are asked: {:?}", fx.commands());
 }

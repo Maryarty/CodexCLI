@@ -15,6 +15,7 @@ use super::safety;
 use super::strings::Strings;
 use super::text::Part;
 use super::update_available;
+use super::{interaction, request_input, session_info};
 
 /// The mark and its blank (oracle `"⚠ "` and `"  "`).
 const MARK_COLUMNS: i32 = 2;
@@ -59,6 +60,20 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
             }
             parts
         }
+        Notice::TerminalInteraction { command, stdin } => {
+            interaction::texts(command.as_deref(), stdin, strings)
+        }
+        Notice::RecapLoading => row([
+            strings.bullet,
+            strings.recap_loading.0,
+            strings.recap_loading.1,
+        ]
+        .concat()),
+        Notice::Questions {
+            questions,
+            interrupted,
+        } => request_input::texts(questions, *interrupted, strings),
+        Notice::SessionInfo(info) => session_info::texts(info, strings),
     }
 }
 
@@ -166,6 +181,24 @@ impl StatelessWidget for NoticeCell {
                     ))
                     .child(Expanded::new(1, body))
                     .into()
+            }
+            Notice::TerminalInteraction { command, stdin } => {
+                interaction::cell(command.as_deref(), stdin, &tokens, strings)
+            }
+            // static bullet: the oracle's reduced-motion form
+            Notice::RecapLoading => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(strings.recap_loading.0, tokens.bold()),
+                Span::styled(strings.recap_loading.1, tokens.dim()),
+            ])
+            .into(),
+            Notice::Questions {
+                questions,
+                interrupted,
+            } => request_input::cell(questions, *interrupted, &tokens, strings),
+            Notice::SessionInfo(info) => {
+                let markdown = tokens.transcript_markdown(cx);
+                session_info::cell(info, markdown, &tokens, strings)
             }
         }
     }

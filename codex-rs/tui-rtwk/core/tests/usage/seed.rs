@@ -2,7 +2,7 @@
 
 use codex_protocol::account::PlanType;
 use codex_tui_core::fixtures::sandbox::Sandbox;
-use codex_tui_core::screens::usage::{Load, Section};
+use codex_tui_core::screens::usage::{Load, Note, Section};
 use pretty_assertions::assert_eq;
 
 const SESSION: &str = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
@@ -41,8 +41,8 @@ fn a_seed_settles_the_account_the_reports_and_the_profile() {
     assert!(model.histories[Section::Usage as usize].ready().is_some());
     assert!(model.histories[Section::Activity as usize].is_loading());
     assert_eq!(
-        model.histories[Section::Skills as usize].message(),
-        Some("temporary failure")
+        model.histories[Section::Skills as usize].note(),
+        Some(Note::Error("temporary failure".to_owned()))
     );
     assert_eq!(
         model.profile.ready().unwrap().stats.lifetime_tokens,

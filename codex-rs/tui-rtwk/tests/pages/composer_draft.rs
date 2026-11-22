@@ -131,21 +131,6 @@ fn ask(h: &mut Harness, text: &str, turn: &str) {
 }
 
 #[test]
-fn the_history_walk_goes_on_over_a_submit_the_thread_did_not_take() {
-    let mut h = chat();
-    ask(&mut h, "one", "turn-1");
-    ask(&mut h, "two", "turn-2");
-    h.press("up");
-    assert_eq!(prompt(&h), "› two");
-    h.inject([AppEv::Disconnected]);
-    h.press("enter");
-    assert_eq!(prompt(&h), "› two", "nothing was taken");
-    // still walking: Up goes on to the entry before the one recalled
-    h.press("up");
-    assert_eq!(prompt(&h), "› one");
-}
-
-#[test]
 fn a_pasted_bang_at_the_start_is_shell_mode() {
     let mut h = chat();
     h.t.paste("!ls -la");
@@ -161,4 +146,123 @@ fn a_pasted_bang_after_text_stays_text() {
     h.t.paste("!ls");
     h.advance(100);
     assert_eq!(prompt(&h), "› echo !ls");
+}
+
+/// The composer of an offline chat (`reconnect.offline`): the draft stays
+/// editable, Enter runs only what needs no connection.
+mod offline {
+    use super::*;
+    use codex_tui_core::screens::ScreenEv;
+    use codex_tui_core::screens::agents::Ev;
+
+    fn offline() -> Harness {
+        let mut h = chat();
+        h.inject([AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))]);
+        h
+    }
+
+    fn big() -> String {
+        "x".repeat(1001)
+    }
+
+    /// `reconnect_expands_pastes_preserving_images_and_cursor` through the
+    /// page: the paste shows what Enter would run at once.
+    #[test]
+    fn a_paste_is_expanded_where_it_lands() {
+        let mut h = offline();
+        h.t.paste(&big());
+        h.advance(100);
+        assert!(h.t.screen().contains(&"x".repeat(60)));
+        assert!(!h.t.screen().contains("[Pasted Content"));
+        // the caret is after the text: the key lands there
+        h.t.type_text("!");
+        h.advance(100);
+        assert!(h.t.screen().lines().any(|row| row.trim() == "!"));
+    }
+
+    /// The same paste before the connection was lost is a placeholder, and
+    /// the loss expands it.
+    #[test]
+    fn the_loss_of_the_connection_expands_a_placeholder_already_there() {
+        let mut h = chat();
+        h.t.paste(&big());
+        h.advance(100);
+        assert!(h.t.screen().contains("[Pasted Content"));
+        h.inject([AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))]);
+        h.advance(100);
+        assert!(!h.t.screen().contains("[Pasted Content"));
+    }
+
+    /// `reconnect_edit_removes_deleted_attachment_and_paste_metadata`.
+    #[test]
+    fn ctrl_u_removes_the_draft_and_its_paste() {
+        let mut h = offline();
+        h.t.paste(&big());
+        h.press("ctrl+u");
+        h.advance(100);
+        assert_eq!(prompt(&h), "› Ask Codex to do anything");
+        assert!(!h.t.screen().contains("xxxxxxxx"));
+    }
+
+    #[test]
+    fn enter_and_tab_edit_nothing_and_a_prompt_stays_in_the_draft() {
+        let mut h = offline();
+        h.t.type_text("hello");
+        h.press("enter");
+        h.press("tab");
+        h.advance(100);
+        assert_eq!(prompt(&h), "› hello");
+        assert!(
+            h.fake
+                .commands()
+                .iter()
+                .all(|c| !matches!(c, codex_tui_core::app::Command::StartTurn { .. })),
+            "no turn went out"
+        );
+    }
+
+    /// `restricted_input_preserves_blocked_drafts`: a command that needs the
+    /// connection stays in the draft, with no popup over it.
+    #[test]
+    fn a_command_that_needs_the_connection_stays_in_the_draft() {
+        let mut h = offline();
+        h.t.type_text("/status");
+        h.advance(100);
+        h.press("enter");
+        h.advance(100);
+        assert_eq!(prompt(&h), "› /status");
+    }
+
+    /// Up and Down are the caret's: no history walk.
+    #[test]
+    fn up_is_no_history_walk() {
+        let mut h = chat();
+        ask(&mut h, "one", "turn-1");
+        h.inject([AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))]);
+        h.press("up");
+        assert_eq!(prompt(&h), "› Ask Codex to do anything");
+    }
+
+    /// Back online the composer is whole again: Up walks, Enter submits.
+    #[test]
+    fn the_composer_is_whole_again_when_the_connection_is_back() {
+        let mut h = chat();
+        ask(&mut h, "one", "turn-1");
+        h.inject([AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting))]);
+        h.inject([AppEv::Screen(ScreenEv::Agents(Ev::Reconnected))]);
+        h.press("up");
+        assert_eq!(prompt(&h), "› one");
+    }
+
+    /// `disconnected_input_dispatches_local_config_command`: `/warnings`
+    /// runs offline and takes the line.
+    #[test]
+    fn a_local_command_runs_and_takes_the_line() {
+        let mut h = offline();
+        h.t.type_text("/warnings");
+        h.advance(100);
+        h.press("enter");
+        h.advance(200);
+        assert!(!h.t.screen().contains("› /warnings"), "the line went");
+    }
 }

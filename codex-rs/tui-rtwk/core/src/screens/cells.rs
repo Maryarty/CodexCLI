@@ -40,6 +40,53 @@ pub enum Daybreak {
     Enabled,
 }
 
+/// One question of a `request_user_input` exchange as the result cell
+/// shows it (oracle `RequestUserInputResultCell`: the question, whether its
+/// answer is secret and whether it offered options, and the answers the
+/// user gave: option labels and a `user_note: ` entry for a typed note).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnsweredQuestion {
+    pub question: String,
+    pub secret: bool,
+    pub has_options: bool,
+    pub answers: Vec<String>,
+}
+
+impl AnsweredQuestion {
+    /// Whether the user answered it (an empty list is no answer).
+    pub fn answered(&self) -> bool {
+        !self.answers.is_empty()
+    }
+
+    /// The answers split into option labels and the typed note (oracle
+    /// `split_request_user_input_answer`).
+    pub fn split(&self) -> (Vec<&str>, Option<&str>) {
+        let mut options = Vec::new();
+        let mut note = None;
+        for entry in &self.answers {
+            match entry.strip_prefix("user_note: ") {
+                Some(text) => note = Some(text),
+                None => options.push(entry.as_str()),
+            }
+        }
+        (options, note)
+    }
+}
+
+/// What the startup card adds under the session header (oracle
+/// `new_session_info`): the help of the first session, else a tip and the
+/// note that the server used another model than the one asked for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionInfo {
+    /// The first event of the session with tooltips on: the getting-started
+    /// help (and no tip).
+    pub help: bool,
+    /// The tip's Markdown source (the host picks it from the tips catalog).
+    pub tip: Option<String>,
+    /// `(requested, used)` when the model differs.
+    pub model_changed: Option<(String, String)>,
+}
+
 /// How a web link's destination is written in a message (oracle `markdown_render/web_links.rs`
 /// `WebLinkDisplay`): after the label, or not at all because the terminal shows the label as a
 /// hyperlink. The oracle reads this once from the terminal (identity, multiplexer, `TERM`, a

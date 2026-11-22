@@ -78,17 +78,14 @@ const POPUP_ROWS: &str = "G68: the popup is a floating OptionList (a `▎` bar, 
 
 #[test]
 fn vim_normal_j_k_navigate_history_at_history_boundaries() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!(
+            "fixtures/composer_popups/h_first_second.jsonl"
+        ))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("second").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› second");
     s.keys("k");
@@ -102,16 +99,16 @@ fn vim_normal_j_k_navigate_history_at_history_boundaries() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:602 remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k kind=ui owner=chat-nav-pane
 #[test]
 fn remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the keymap rebinding of vim_normal move_up/move_down has no seed",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!("fixtures/composer_popups/h_first.jsonl"))
+        .keymap(&[
+            ("global.toggle_vim_mode", "f9"),
+            ("vim_normal.move_up", "f2"),
+            ("vim_normal.move_down", "f3"),
+        ])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› Ask Codex to do anything");
     s.keys("f2");
@@ -123,34 +120,33 @@ fn remapped_vim_normal_history_navigation_does_not_fall_back_to_j_k() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:638 vim_normal_j_k_fall_back_to_multiline_cursor_movement kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_j_k_fall_back_to_multiline_cursor_movement() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the oracle's check is the cursor line, which is not in the rows",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
+    s.keys("f9");
     s.paste("one\ntwo");
-    s.type_text("/vim").keys("enter esc");
+    // the oracle's `set_cursor(0)`: the first line's start
+    s.keys("esc k 0");
+    let first = prompt(&s);
     s.keys("j");
-    s.assert_row(prompt(&s), "two");
+    s.assert_cursor(2, first + 1);
+    s.keys("k");
+    s.assert_cursor(2, first);
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:663 vim_normal_operator_motion_does_not_navigate_history kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_operator_motion_does_not_navigate_history() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
-        .script(include_str!("fixtures/composer_popups/h_empty.jsonl"))
+        .script(include_str!(
+            "fixtures/composer_popups/h_first_second.jsonl"
+        ))
+        .keymap(&[("global.toggle_vim_mode", "f9")])
         .open();
-    s.type_text("first").keys("enter");
-    s.type_text("second").keys("enter");
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("k");
     s.assert_row(prompt(&s), "› second");
     s.keys("d k");
@@ -189,19 +185,19 @@ fn history_search_accepts_matching_entry() {
 // ORACLE bottom_pane/chat_composer/history_search.rs:815 vim_normal_history_search_preview_places_cursor_on_last_char kind=ui owner=chat-nav-pane
 #[test]
 fn vim_normal_history_search_preview_places_cursor_on_last_char() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the composer's Vim normal mode is not built: `/vim` is a command name only; the oracle's check is the cursor column, which is not in the rows",
-    );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)
         .script(include_str!("fixtures/composer_popups/h_git_status.jsonl"))
+        // the oracle clears `vim_normal.redo`: Ctrl+R is free for the search
+        .keymap(&[("global.toggle_vim_mode", "f9"), ("vim_normal.redo", "")])
         .open();
-    s.type_text("/vim").keys("enter esc");
+    s.keys("f9 esc");
     s.keys("ctrl+r");
     s.type_text("git");
     s.assert_row(prompt(&s), "› git status");
     s.assert_contains("reverse-i-search: git");
+    // the caret is on the last character of the preview
+    s.assert_cursor(2 + "git statu".len(), prompt(&s));
 }
 
 // ORACLE bottom_pane/chat_composer/history_search.rs:844 history_search_stays_on_single_match_at_boundaries kind=ui owner=chat-nav-pane

@@ -44,6 +44,22 @@ pub(super) fn intent(app: &mut CodexApp, intent: select::Intent, fx: &mut AppFx)
         );
     }
     picks(app, fx);
+    drain(app, fx);
+}
+
+/// What the screen said (`add_info_message` of the pickers) goes into the
+/// transcript of the thread in use, as typed notes: the screen keeps no
+/// history of its own.
+fn drain(app: &mut CodexApp, fx: &mut AppFx) {
+    if app.screens.select.notes.is_empty() {
+        return;
+    }
+    let said = std::mem::take(&mut Rc::make_mut(&mut app.screens).select.notes);
+    let thread = app.session.active.clone();
+    for note in said.into_iter().filter(select::Note::in_transcript) {
+        let note = crate::threads::Note::from(crate::threads::NoteKey::Select(note));
+        super::session_note(app, thread.clone(), note, fx);
+    }
 }
 
 /// The picks the screen holds, applied: the thread's settings change for its
@@ -83,6 +99,7 @@ pub(super) fn event(app: &mut CodexApp, ev: select::Ev, fx: &mut AppFx) {
     let before = app.screens.select.apps.pending;
     select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     asked_apps(app, before, fx);
+    drain(app, fx);
 }
 
 /// The `app/list` the screen left pending since `before`, asked for.
@@ -119,6 +136,7 @@ fn settings(
     app: &mut CodexApp,
     patch: crate::threads::SettingsPatch,
     setting: select::Setting,
+    then: Option<select::Note>,
     fx: &mut AppFx,
 ) -> bool {
     let Some(thread) = app.session.active.as_ref().map(ToString::to_string) else {
@@ -127,7 +145,7 @@ fn settings(
     ask(
         app,
         select::Command::Settings { thread, patch },
-        select::Ctx::Settings { setting },
+        select::Ctx::Settings { setting, then },
         fx,
     );
     true
@@ -146,7 +164,7 @@ fn model_pick(app: &mut CodexApp, selection: select::Selection, fx: &mut AppFx) 
         session,
     };
     if let Some(patch) = effects.patch {
-        settings(app, patch, select::Setting::Model, fx);
+        settings(app, patch, select::Setting::Model, None, fx);
     }
     if effects.edits.is_empty() {
         // Plan mode only saves a key and says nothing of the model.
@@ -180,10 +198,24 @@ fn permissions_pick(app: &mut CodexApp, selection: permissions::Selection, fx: &
         permissions::Selection::Profile { label, .. } => label.clone(),
     };
     let patch = select::persist::permissions_patch(&selection);
-    // Without a thread the legacy list has nothing to update: the oracle's
-    // config is the host's, and its line is still said.
-    settings(app, patch, select::Setting::Permissions, fx);
-    notes(app, [select::Note::PermissionsUpdated(label)]);
+    match &selection {
+        // A catalog pick of a thread: asked of the server, the line follows
+        // its answer; a profile the thread has says nothing
+        // (`apply_permission_profile_selection`, `already_selected`).
+        permissions::Selection::Profile { id, unchanged, .. } => {
+            if *unchanged && id.starts_with(':') {
+                return;
+            }
+            let then = select::Note::PermissionSelectionRequested(label);
+            settings(app, patch, select::Setting::Permissions, Some(then), fx);
+        }
+        // Without a thread the legacy list has nothing to update: the
+        // oracle's config is the host's, and its line is still said.
+        permissions::Selection::Preset { .. } => {
+            settings(app, patch, select::Setting::Permissions, None, fx);
+            notes(app, [select::Note::PermissionsUpdated(label)]);
+        }
+    }
 }
 
 fn ask(app: &mut CodexApp, command: select::Command, ctx: select::Ctx, fx: &mut AppFx) {
@@ -212,6 +244,11 @@ fn text(error: RpcError) -> String {
 
 /// The answer of one of those RPCs.
 pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
+    answered(app, ctx, answer, fx);
+    drain(app, fx);
+}
+
+fn answered(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &mut AppFx) {
     let result = match answer {
         Answer::Screen(ScreenReply::Select(reply)) => Ok(reply),
         Answer::Failed(error) => Err(error),
@@ -221,17 +258,16 @@ pub(super) fn answer(app: &mut CodexApp, ctx: select::Ctx, answer: Answer, fx: &
         select::apply(&mut Rc::make_mut(&mut app.screens).select, ev, fx);
     };
     match (ctx, result) {
-        (select::Ctx::Settings { setting }, result) => {
-            if let Err(error) = result {
-                notes(
-                    app,
-                    [select::Note::SaveFailed {
-                        setting,
-                        error: text(error),
-                    }],
-                );
-            }
-        }
+        (select::Ctx::Settings { setting, then }, result) => match result {
+            Ok(_) => notes(app, then),
+            Err(error) => notes(
+                app,
+                [select::Note::SaveFailed {
+                    setting,
+                    error: text(error),
+                }],
+            ),
+        },
         (select::Ctx::Write { setting, then }, result) => match result {
             Ok(select::Reply::Written { overridden }) => {
                 if overridden {

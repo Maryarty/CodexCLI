@@ -22,6 +22,7 @@ use codex_tui_core::keymap::actions::{
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
 use codex_tui_core::screens::composer::history::Store;
+use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
 use codex_tui_core::screens::{ScreenStates, Shared};
 
@@ -52,6 +53,9 @@ pub struct KeyData {
     pub keymap: Rc<Keymap>,
     /// The app's data the mention popups read (their sources).
     pub states: Rc<ScreenStates>,
+    /// Why the composer may only edit and run a few commands (`None`: it is
+    /// whole).
+    pub restricted: Option<Restricted>,
 }
 
 /// Up (`up`) or Down at the draft's ends: the history's entry replaces the
@@ -59,6 +63,10 @@ pub struct KeyData {
 /// the app, and the draft waits for it. `false`: the caret moves instead.
 pub(super) fn walk_history(data: &KeyData, c: &TextEditingController, up: bool) -> bool {
     let draft = &data.draft;
+    // an offline draft is a text only: Up and Down move the caret
+    if data.restricted.is_some() {
+        return false;
+    }
     let shell = draft.shell();
     let mut asks = Vec::new();
     let took = draft.history_step(c, &data.history, up, &mut asks);
@@ -83,6 +91,11 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if kcx.read_only {
         return false;
     }
+    if let Some(mode) = data.restricted
+        && let Some(took) = restricted_key(data, c, key, mode)
+    {
+        return took;
+    }
     if pressed(&data.keymap, GLOBAL_TOGGLE_VIM_MODE, key) {
         vim::toggle(data);
         return true;
@@ -92,7 +105,7 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         return true;
     }
     // reverse history search owns every key while it is open
-    if data.draft.searching() {
+    if data.restricted.is_none() && data.draft.searching() {
         return search::key(data, c, key);
     }
     let mode = vim::mode(&data.draft);
@@ -106,12 +119,16 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     }
     // a `$skill` completion's space lasts for the next key only
     let skill_space = data.draft.take_skill_space();
+    // a restricted composer only edits: no popup, burst, history, search or
+    // submit of its own (`handle_input_basic`)
+    let free = data.restricted.is_none();
     // `/` is a search in Normal mode, not a command's name being typed
-    if !mode.normal && data.suggest.take_slash(c, key, &*data.tell) {
+    if free && !mode.normal && data.suggest.take_slash(c, key, &*data.tell) {
         return true;
     }
     // Normal mode's keys are commands: nothing is typed text to hold back
-    if !mode.normal
+    if free
+        && !mode.normal
         && let Some(env) = &data.burst
         && burst::take(data, env, c, key, skill_space)
     {
@@ -119,24 +136,28 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     }
     // a popup with rows takes the keys of its list before the editing keys
     // (history on Up and Down, the queue key on Tab)
-    if mentions::take_key(data, c, key) {
+    if free && mentions::take_key(data, c, key) {
         return true;
     }
-    if data.suggest.take_key(c, key, &*data.tell) {
+    if free && data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
     // the rows of remote images above the draft take Up, Down and Delete
-    if remote_key(data, c, key) {
+    if free && remote_key(data, c, key) {
         return true;
     }
-    // Ctrl+R opens the search (Vim's Normal mode keeps it for redo)
-    if !mode.normal && search::opens(data, key) {
+    // Ctrl+R opens the search (Vim's Normal mode took it for redo above, if
+    // redo is bound to it)
+    if free && search::opens(data, key) {
         search::begin(data, c);
         return true;
     }
     // a command waiting for its next key takes Enter too (it is no submit)
     let waiting = mode.normal && mode.pending != Pending::None;
-    if !waiting && let Some(took) = composer_key(data, c, key) {
+    if free
+        && !waiting
+        && let Some(took) = composer_key(data, c, key)
+    {
         return took;
     }
     if mode.normal {
@@ -152,6 +173,33 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         vim::typed(data, key);
     }
     took
+}
+
+/// The keys of a restricted composer (`handle_restricted_key`): the history
+/// search ends, no remote image row is selected, the popups close and the
+/// pastes are expanded where they stand (a key that expanded one runs no
+/// command: it must be on the screen before Enter sends it); then Enter and
+/// Tab, whatever they are bound to, are not edits, and Enter runs the draft
+/// when it is a command the mode lets pass. `None`: an edit, the rest of the
+/// composer's own.
+fn restricted_key(
+    data: &KeyData,
+    c: &TextEditingController,
+    key: &KeyPress,
+    mode: Restricted,
+) -> Option<bool> {
+    let expanded = data.draft.restrict(c);
+    data.suggest.hide(c.text());
+    let submit = pressed(&data.keymap, COMPOSER_SUBMIT, key);
+    let queue = pressed(&data.keymap, COMPOSER_QUEUE, key);
+    let plain = key.mods == Mods::NONE && matches!(key.code, KeyCode::Enter | KeyCode::Tab);
+    if !(submit || queue || plain) {
+        return None;
+    }
+    if submit && !expanded && mode.dispatches(&c.text()) {
+        (data.tell)(ComposerMsg::Submitted(c.text()));
+    }
+    Some(true)
 }
 
 /// Ctrl+V or Alt+V (`fixed.paste_image`): the clipboard's image is asked
@@ -712,6 +760,7 @@ mod tests {
             suggest: Rc::default(),
             keymap: Rc::new(Keymap::defaults()),
             states: Rc::default(),
+            restricted: None,
         }
     }
 
@@ -820,6 +869,110 @@ mod tests {
         KeyData {
             keymap: Rc::new(Keymap::resolve_unchecked(&spec)),
             ..data()
+        }
+    }
+
+    /// The restricted composer (`reconnect_tests.rs`): Enter and Tab are not
+    /// edits, Enter tells the composer only for a command the mode passes and
+    /// a key that expanded a paste ran none; every other key is an edit.
+    mod restricted {
+        use std::cell::RefCell;
+
+        use super::*;
+
+        fn told_by(mode: Restricted) -> (KeyData, Rc<RefCell<Vec<String>>>) {
+            let told: Rc<RefCell<Vec<String>>> = Rc::default();
+            let log = told.clone();
+            let d = KeyData {
+                tell: Rc::new(move |msg| log.borrow_mut().push(format!("{msg:?}"))),
+                restricted: Some(mode),
+                ..data()
+            };
+            (d, told)
+        }
+
+        /// Whether the restricted door took `key` (an edit is not its).
+        fn key(d: &KeyData, c: &TextEditingController, key: KeyPress) -> bool {
+            let mode = d.restricted.expect("a restricted composer");
+            restricted_key(d, c, &key, mode) == Some(true)
+        }
+
+        fn enter() -> KeyPress {
+            KeyPress::code(KeyCode::Enter)
+        }
+
+        #[test]
+        fn enter_runs_a_command_the_mode_passes_and_swallows_the_rest() {
+            let (d, told) = told_by(Restricted::Disconnected);
+            let c = at("/quit", 5);
+            assert!(key(&d, &c, enter()));
+            assert_eq!(told.borrow().len(), 1);
+            let c = at("/status", 7);
+            assert!(key(&d, &c, enter()));
+            assert!(key(&d, &c, KeyPress::code(KeyCode::Tab)));
+            assert_eq!(told.borrow().len(), 1, "nothing else was told");
+            assert_eq!(c.text().as_ref(), "/status");
+            let c = at("hello", 5);
+            assert!(key(&d, &c, enter()));
+            assert_eq!(told.borrow().len(), 1);
+        }
+
+        #[test]
+        fn a_handoff_runs_nothing() {
+            let (d, told) = told_by(Restricted::DraftHandoff);
+            let c = at("/quit", 5);
+            assert!(key(&d, &c, enter()));
+            assert!(told.borrow().is_empty());
+        }
+
+        #[test]
+        fn an_unavailable_thread_runs_its_recovery_commands() {
+            let (d, told) = told_by(Restricted::UnavailableThread);
+            let c = at("/new", 4);
+            assert!(key(&d, &c, enter()));
+            assert_eq!(told.borrow().len(), 1);
+        }
+
+        #[test]
+        fn the_key_that_expands_a_paste_runs_no_command() {
+            let (d, told) = told_by(Restricted::UnavailableThread);
+            let c = at("", 0);
+            let big = ["x"; 1001].concat();
+            assert!(d.draft.paste(
+                &c,
+                &["/clear ", big.as_str()].concat(),
+                |n| format!("[{n}]"),
+                |n| format!("<{n}>")
+            ));
+            assert!(key(&d, &c, enter()));
+            assert!(
+                told.borrow().is_empty(),
+                "the command is on the screen first"
+            );
+            assert!(c.text().starts_with("/clear xxx"));
+            // the next Enter runs it
+            assert!(key(&d, &c, enter()));
+            assert_eq!(told.borrow().len(), 1);
+        }
+
+        /// `reconnect_edit_removes_deleted_attachment_and_paste_metadata`:
+        /// Ctrl+U on an offline draft is the edit it is.
+        #[test]
+        fn other_keys_are_edits() {
+            let (d, told) = told_by(Restricted::Disconnected);
+            let c = at("abc def", 7);
+            // the door lets it by, and the composer's own edit takes it
+            assert!(!key(&d, &c, ctrl('u')));
+            assert!(edit_key(&d, &c, &ctrl('u'), None));
+            assert_eq!(c.text().as_ref(), "");
+            assert!(told.borrow().is_empty());
+        }
+
+        #[test]
+        fn up_is_the_carets_not_the_historys() {
+            let (d, _) = told_by(Restricted::Disconnected);
+            let c = at("abc", 3);
+            assert!(!walk_history(&d, &c, true));
         }
     }
 

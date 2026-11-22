@@ -7,6 +7,7 @@
 //! places the composer and runs what it submits. Oracle:
 //! `bottom_pane/chat_composer.rs`, `bottom_pane/textarea.rs`.
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -25,9 +26,12 @@ use rtwk::widgets::Text;
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
+use codex_tui_core::app::{ConnectionState, SessionSlice};
 use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
+use codex_tui_core::screens::composer::restricted::Restricted;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
+use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::seeded::Seeded;
 use crate::app::debug::{DebugEntry, DebugOpen, EntryOpen};
@@ -88,6 +92,10 @@ pub struct Composer {
     /// Shell mode as the page built this widget: the page resets it when
     /// the composer clears, and the prompt follows.
     shell: bool,
+    /// Why the page restricts the composer (a thread that cannot take a
+    /// turn, a draft handed over to a cloud switch); a lost connection is
+    /// the composer's own to see.
+    restricted: Option<Restricted>,
 }
 
 impl PartialEq for Composer {
@@ -100,6 +108,7 @@ impl PartialEq for Composer {
             && self.on_queue == other.on_queue
             && self.bare == other.bare
             && self.shell == other.shell
+            && self.restricted == other.restricted
     }
 }
 
@@ -115,6 +124,7 @@ impl Composer {
             on_picked: None,
             on_queue: None,
             bare: false,
+            restricted: None,
         }
     }
 
@@ -129,6 +139,7 @@ impl Composer {
             on_picked: None,
             on_queue: None,
             bare: true,
+            restricted: None,
         }
     }
 
@@ -136,6 +147,14 @@ impl Composer {
     #[must_use]
     pub fn on_changed(mut self, h: Handler<Rc<str>>) -> Composer {
         self.on_changed = Some(h);
+        self
+    }
+
+    /// The composer only edits, and Enter runs only the commands `mode` lets
+    /// pass (`handle_restricted_key`).
+    #[must_use]
+    pub fn restricted(mut self, mode: Restricted) -> Composer {
+        self.restricted = Some(mode);
         self
     }
 
@@ -191,6 +210,7 @@ impl StatefulWidget for Composer {
         ComposerState {
             listener: None,
             suggest: Rc::default(),
+            restricted: Cell::new(false),
         }
     }
 }
@@ -203,6 +223,9 @@ pub struct ComposerState {
     listener: Option<(Rc<ThreadUi>, VoidCallback, VoidCallback)>,
     /// The popup's rows and highlight, read by the key hook.
     suggest: Rc<suggest::Suggest>,
+    /// Whether the last build saw a restricted composer: a change into it
+    /// restricts the draft.
+    restricted: Cell<bool>,
 }
 
 /// What the composer's own children tell it.
@@ -256,6 +279,9 @@ pub enum ComposerMsg {
     ImageArrived,
     /// A remote image row was selected, deselected or removed.
     Remote,
+    /// The composer became restricted: what a burst holds goes in, the
+    /// history search ends, the popups close and the pastes are expanded.
+    Restrict,
 }
 
 /// The reads the history needs from the file go to the app, which asks the
@@ -312,6 +338,27 @@ impl ComposerState {
 }
 
 impl ComposerState {
+    /// Why this composer is restricted now: the page's reason, or the lost
+    /// connection of the thread's backend (`reconnect.offline`: reconnecting
+    /// or given up). The bare text area is never.
+    fn mode(&self, w: &Composer, cx: &mut Cx<'_, Self>) -> Option<Restricted> {
+        if w.bare {
+            return None;
+        }
+        if w.restricted.is_some() {
+            return w.restricted;
+        }
+        let session = watch::<SessionSlice, _>(cx);
+        let states = watch::<ScreenStates, _>(cx);
+        let thread = read::<ThreadModel, _>(cx);
+        let backend = states.agents.owner_of(thread.id().as_str());
+        matches!(
+            session.connections.get(&backend),
+            Some(ConnectionState::Reconnecting | ConnectionState::Disconnected)
+        )
+        .then_some(Restricted::Disconnected)
+    }
+
     /// `field` with the popup of the suggestions over or under it: a
     /// `Popover` of an `OptionList` (no focus of its own, the caret stays
     /// in the field), closed by Esc, a press outside or the focus leaving.
@@ -410,6 +457,12 @@ impl State for ComposerState {
                 }
             }
             ComposerMsg::Pasted => {
+                // an offline draft shows what Enter would run at once (the
+                // app's Null key after a paste); the other modes expand it
+                // on the next key
+                if self.mode(w, cx).is_some_and(Restricted::expands_on_paste) {
+                    w.ui.draft.expand_pastes(&w.ui.composer);
+                }
                 let table = strings::of(cx);
                 w.ui.draft
                     .relabel_images(&w.ui.composer, |n| table.image(n));
@@ -577,6 +630,20 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::Remote => return rtwk::Rebuild::Yes,
+            ComposerMsg::Restrict => {
+                if let Some(binding) = AppBinding::maybe_of(cx) {
+                    let table = strings::of(cx);
+                    let tell = cx.local_sender();
+                    let env = burst_env(&binding, cx, table);
+                    burst::flush_held_with(&w.ui.draft, &*tell, &env, &w.ui.composer);
+                }
+                w.ui.draft.restrict(&w.ui.composer);
+                self.suggest.hide(w.ui.composer.text());
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
         }
         rtwk::Rebuild::No
     }
@@ -613,7 +680,14 @@ impl State for ComposerState {
             // the clipboard's image this draft asked for is in
             cx.local_sender()(ComposerMsg::ImageArrived);
         }
+        let restricted = self.mode(w, cx);
+        if self.restricted.replace(restricted.is_some()) != restricted.is_some()
+            && restricted.is_some()
+        {
+            cx.local_sender()(ComposerMsg::Restrict);
+        }
         let data = KeyData {
+            restricted,
             draft: w.ui.draft.clone(),
             history: states.popovers.history.clone(),
             tell: cx.local_sender(),

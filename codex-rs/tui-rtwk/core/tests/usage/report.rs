@@ -6,7 +6,7 @@ use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::usage::report::{
     Body, Head, Label, Left, Message, ReportView, Right, Summary, Unit,
 };
-use codex_tui_core::screens::usage::{Model, Section};
+use codex_tui_core::screens::usage::{GroupName, Model, Section};
 use pretty_assertions::assert_eq;
 
 fn days(refund: bool) -> String {
@@ -108,7 +108,7 @@ fn the_head_the_summary_and_the_columns_of_the_focused_credits_report() {
     );
     assert_eq!(
         report.table.header,
-        Some((Left::Group("Product"), Right::Credits))
+        Some((Left::Group(GroupName::Product), Right::Credits))
     );
     assert_eq!(report.table.message, None);
     let names: Vec<_> = report

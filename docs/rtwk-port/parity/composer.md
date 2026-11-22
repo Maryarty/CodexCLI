@@ -167,13 +167,13 @@ Done:
     oracle's own footer (pane-footer). (4) The oracle's cap of the rows at `min(count, height-2)` is
     not drawn: a window shorter than the rows would clip the draft (risk).
 - Step 10, reconnect / offline / unavailable thread / draft handoff (`chat_composer/reconnect.rs`),
-  FIRST HALF (the pure parts, no view wiring yet):
+  both halves done (9fd0a4808):
   - Core `core/src/screens/composer/restricted.rs`: `Restricted::{Disconnected, UnavailableThread,
     DraftHandoff}`, `dispatches(text)` (what Enter may run: one line, `parse_slash_name` +
     `SlashCommand::parse`, an argument only for `supports_inline_args`; Disconnected runs only
     the four local commands `Warnings|Config|Quit|Exit`, UnavailableThread adds
-    `available_when_thread_unavailable`, DraftHandoff runs nothing) and `keeps_placeholders()`
-    (only DraftHandoff). 5 core tests mapped from `reconnect_tests.rs`
+    `available_when_thread_unavailable`, DraftHandoff runs nothing) and `expands_on_paste()`
+    (only Disconnected: the app's Null key after a paste; the unavailable thread expands on the next key, a handoff keeps the placeholder). 5 core tests mapped from `reconnect_tests.rs`
     (`unavailable_thread_dispatches_recovery_and_local_commands`, `..._inline_commands...`,
     `disconnected_input_dispatches_local_config_command`, `restricted_input_preserves_blocked_drafts...`,
     handoff runs nothing).
@@ -183,19 +183,24 @@ Done:
     the change through `sync`, the caret keeps its place, images and mentions stay). 3 draft tests
     (`reconnect_expands_pastes_preserving_images_and_cursor` mapped; one shown biting: with the caret
     restore commented out two failed; a caret before a paste stays; `restrict` ends the remote row).
-  - LEFT (second half, the view): `restricted: Option<Restricted>` in `KeyData` (`editing.rs`) and
-    in `Composer` (`mod.rs`, its `PartialEq`) with a `Composer::restricted(mode)` builder;
-    `Disconnected` derived in `build` from `watch::<SessionSlice>` (`connections`) and
-    `ScreenStates.agents.owner_of`, never for `bare`; `take_key` gated on it (Enter/Tab swallowed, a
-    submit through `tell(ComposerMsg::Submitted(text))` only when `mode.dispatches(text)` and no
-    paste was expanded by that key); a self-sent `ComposerMsg::Restrict` on the transition (flush the
-    held burst, `draft.restrict(c)`, close the suggest popup); `expand_pastes` in the paste handler
-    when Disconnected/UnavailableThread; key tests in `editing.rs` `tests::restricted` (the oracle's
-    `handoff_edit_discards_stale_command_before_ordinary_enter`,
-    `reconnect_edit_removes_deleted_attachment_and_paste_metadata` (Ctrl+U),
-    `reconnect_edit_cancels_history_preview_without_losing_original_draft`,
-    `offline_delete_reveals_the_edited_row_without_moving_the_caret`); page tests in
-    `tests/pages/composer_draft.rs` through an injected `agents::Ev::Reconnecting`/`Reconnected`.
+  - View (second half): `KeyData.restricted` and `Composer.restricted` (+ `PartialEq`, builder
+    `Composer::restricted(mode)` for the page's UnavailableThread / DraftHandoff, not wired: their
+    states are not in the app); `Disconnected` is derived in `build` (`SessionSlice.connections` of
+    `agents.owner_of(thread)` is Reconnecting or Disconnected; never for `bare`). `take_key`:
+    `restricted_key` first (restrict the draft, close the suggest popup; Enter, Tab and the bound
+    submit/queue keys are not edits; the submit key tells `Submitted` only when `dispatches(text)`
+    and no paste was expanded by that very key), and no popup, burst, history walk (`walk_history`
+    is the caret's), remote row, Ctrl+R or composer_key while restricted. `ComposerMsg::Restrict`
+    self-sent on the transition (flush the held burst, `restrict`, close the popup, tell the
+    page); the paste handler expands on landing when `expands_on_paste`. Tests: 6 key tests in
+    `editing.rs` `tests::restricted` (command passes / rest swallowed, handoff none, unavailable
+    recovery, the expanding key runs none and the next does, Ctrl+U is an edit, Up is the caret's),
+    7 page tests in `tests/pages/composer_draft.rs` `offline` through an injected
+    `agents::Ev::Reconnecting` / `Reconnected` (paste expands where it lands; the loss expands a
+    placeholder already there; Ctrl+U clears paste and text; Enter/Tab edit nothing and a prompt
+    stays; `/status` stays; `/warnings` runs and takes the line; Up is no walk; whole again after
+    `Reconnected`). The old test `the_history_walk_goes_on_over_a_submit_the_thread_did_not_take`
+    (a Disconnected composer that walks history) is dropped: the oracle's offline Up is the caret's.
   - NEEDS (not mine, for the second half too): UnavailableThread needs a pub accessor for the
     thread's attachment (`core/src/threads.rs`); DraftHandoff needs a cloud-switch state in the app;
     the footer's "Ctrl+C quit" override is chat-status's; Left-key agents navigation in
@@ -256,110 +261,34 @@ Done:
     walks on from the last character); shown biting once (the lookup left out, the poll left
     out, the Vim end left out).
 
-Counts now (`summary.py --run` of the six shards): composer_1 8/1/41/0 of 50, composer_2
-30/4/16/0 of 50, composer_3 33/2/21/0 of 56, composer_4 16/2/55/0 of 73, composer_popups
-14/0/29/0 of 43, textarea 18/2/39/0 of 59: 119 pass, 11 n/a, 201 pending, 0 red (109 pass
-before this job's Vim steps). `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole
-`--workspace` nextest 1906 passed, 17 skipped; fmt, clippy `--workspace --all-targets
--D warnings`: clean.
+Counts now, end of step 11 (`summary.py --run` of the six shards): composer_1 8/1/41/0 of 50,
+composer_2 31/4/15/0 of 50, composer_3 34/2/20/0 of 56, composer_4 18/2/53/0 of 73,
+composer_popups 19/0/24/0 of 43, textarea 18/2/39/0 of 59: 128 pass, 11 n/a, 192 pending, 0 red
+(109 pass before this job's Vim steps). Step 11 turned on: the 4 Vim normal history tests of
+composer_popups (kit `keymap` seeds F9 = `global.toggle_vim_mode`, `vim_normal.redo` unbound,
+`vim_normal.move_up/down` on F2/F3; two fixtures `h_first.jsonl`, `h_first_second.jsonl`), the
+Vim preview test (the caret of a recalled entry or an accepted search match rests on the last
+character in Normal mode, `rest_at_end`; Ctrl+R opens the search in Normal mode when redo is not
+bound to it), `slash_init_dispatches_...` (the command exists now), and 2 of the 3 reconnect
+tests (`fixtures/composer_4/offline.jsonl`: `agents` `reconnecting`). The stale pending reasons
+(`no Vim mode`, `no image rows above the composer`, `no disconnected composer`) now say what is
+really missing. `shards.py --check`: 0 stale.
 
-Step 6 counts: core 914 passed (1 skipped), UI crate 955 passed (16 skipped), whole `--workspace`
-nextest 1951 passed, 17 skipped (one earlier run failed `startup::session::a_remembered_mode_opens_without_a_prompt`
-"the resume never came" under load, startup's, passes alone and in the rerun); fmt, clippy
-`--workspace --all-targets -D warnings`, `shards.py --check` (55 shards, 2560 tests, 0 stale): clean; the six shards
-are unchanged (119 / 11 / 201 / 0, 0 stale): every pending marker that step 6 touches also
-needs a seed this job does not own (see Needs) or a later step (remote image URLs: step 9;
-mentions: step 8; a keymap seed: kit). With `KIT_PROBE_PENDING=1` 29 pending bodies pass; their
-markers say they would be half passes, so they stay.
+Gap rows G-new-1, G65-G68 and G11 are in `rtwk-gaps.md`. Left: the embedded plain-text composer
+(D4: a question sheet's answer composer, no sheet to host it yet).
 
-Imported oracle tests corrected (the kit's expectation was not the oracle's):
-- `removing_the_shell_prefix_is_its_own_undoable_edit`: the oracle compares the whole draft
-  (`draft_snapshot() == before`): undo returns to shell mode with "foo", drawn `! foo`.
-- `undo_and_redo_restore_deleted_large_paste_payload`: the oracle sets the caret after
-  "alpha " and presses `i`; Esc leaves the caret on the space, so the test presses `A`.
-- `vim_e_advances_from_each_word_end` stays pending (the snapshot joins three states with
-  caret rows; the page test drives the three `e` presses).
+## Binary run (end of chunk-composer, debug build)
+`check.py --bin rtwk --bin oracle --only multi-turn,text-100 --capture-dir /tmp/cc-cap` (PTY): 4/4
+pass (both binaries, the same composer rows at `ready` and after each turn; the rtwk multi-turn
+sentinel is `no` as on the base). The restricted (offline) composer is not reachable from a mock
+scenario: the mock model never drops the connection, so its keys are held by the page tests
+(`tests/pages/composer_draft.rs` `offline`, injected `Reconnecting`) and the key tests in
+`composer/editing.rs`. Differing rows: none seen in the two scenarios; the 3 composer_4 reconnect
+screen tests: 2 green, `offline_delete_reveals_...` pending (the page's `Reconnecting…` row and
+footer around the composer, no `↑` cue on a wheel-scrolled composer).
 
-Step 7 deltas: while the search is open the terminal cursor stays at the preview's caret (the
-oracle puts it at the end of the footer's query, clamped to the last column: `Some((31, 4))`,
-`Some((79, 4))`); the Flutter way is a focused read-only `TextField` for the query in the
-footer (rtwk's caret belongs to the focused editing widget), not built: the key owner would
-move to it. No match highlight (G-new-1: `TextArea` paints no per-range style, the Flutter
-`buildTextSpan` override). The `Searching` state of a background lookup and the lookup are
-step 6. The four paste snapshot tests (`history_search_pasted_query`, `_large_paste_cursor`,
-`_empty_paste`, `_pasted_separators`) are pending `BARE_COMPOSER`: the oracle renders a bare
-composer at 5 rows (textarea with a spare row, cursor in the footer), the chat draws the same
-composer one row lower under its gap row; the page tests hold the text, marks, footer and
-caret. `history_search_paste_preserves_original_draft_on_miss_and_cancel`: the shard body now
-sets the caret to offset 2 as the oracle does (`home right right`), it passes.
-Stale marker for its owner: `pane_footer_2::ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint`
-passes with the marker probing (ui-pane's shard, not edited here).
-
-Step 6 deltas: a search accept keeps the walk cursor, as the oracle does (the old port had no
-place in the walk); `startup_local_history` and its test do not apply (the thread's composer
-starts empty and the store comes from the host); images in a recalled entry pair with
-`local_image_paths` by position, not by seq or label number (step 9 relabels);
-`remote_image_urls` and `mention_bindings` are carried in `HistoryEntry` but not applied to the
-draft yet (steps 8 and 9; `HistoryEntry::persisted` is the mention-codec hook, and
-`persistent_restore_gates_at_mentions` waits for step 8); replay seeds and local entries
-survive a metadata change (each thread has its own composer and store).
-
-Deltas (one line each): `word_pieces` by separator class, not UAX29; no counts (as in the
-oracle); a dot-repeated `Yank` replays the register text only; mouse selection is not in
-the engine; paste-burst x Replace (`retract_paste_burst`) and `absorb_prompt_prefix` not
-ported; Vim j/k move by logical lines; text typed through the paste-burst flush is not
-recorded for `.`; `MoveLineStart/End` pass `move_up_at_bol`/`move_down_at_eol` false.
-
-Needs (other owners' files):
-- Footer (`composer/footer.rs`, `strings.rs`; chunk-status): the `Vim: <mode>` label, the `/`
-  query line and the context line; every composer-alone frame includes the footer row.
-- `actions.rs` `Outcome::Session{intent: Vim}`: toggle the draft's Vim plus the info cell
-  "Vim mode enabled."/"disabled." (core `app/session.rs`, `chat.rs`, `dispatch.rs`); the
-  `tui.vim_mode_default` config.
-- `core/src/app.rs` and `host` (chunk-live): history. Core: `Command::History(popovers::Ask)`
-  and a drain of `model.popovers.take_asks()` after every apply (until then the outbox only
-  grows; `Append` is never persisted). Host: arms over `codex-message-history`
-  (`history_metadata`, `append_entry`, `lookup`, `lookup_batch`), its dependency in
-  `host/Cargo.toml` in its own commit; the replies map to `popovers::Ev::HistoryEntry`,
-  `HistoryBatch{rows, next_older}`, `HistoryBatchFailed`; the host keeps the
-  `HistoryBatchCursor` byte anchors by `end_offset`; the metadata is read when a thread opens
-  and delivered as `Ev::HistoryMetadata{log_id, entry_count}`.
-- File-search backend choice open (the person's): app-server session API (default,
-  `AppServerSearch`) vs in-process `codex-file-search`; both are an implementation of the same
-  `FileSearchBackend` trait.
-- Step 8 needs of `core/src/app.rs` and `host` (chunk-live): the drain of
-  `popovers::Model::take_asks` also runs `Ask::FileSearch` (through `FileSearchBackend::requests`
-  to `fuzzyFileSearch/sessionStart|Update|Stop`) and `Ask::RecordMention` (the `mention_usage`
-  file); the `fuzzyFileSearch/sessionUpdated` notification maps to `Ev::FileMatches` (via
-  `AppServerSearch::matches_of`), the task-mention thread search to `Ev::Tasks`, the usage file
-  to `Ev::MentionUsage`; skills/plugins/apps arrive as `Ev::Mentions` with
-  `path`/`plugin_id`/`capabilities`; `UserMessage` gets mention bindings and task references;
-  an image-path pick needs the host to read image dimensions (step 9). The legacy file popup
-  (`mentions_v2` off) is not ported.
-- Also there: ClipboardImage.
-- Kit (`tests/kit/*`): a Vim seed, SUPER/kitty modifiers, terminal default colours, right
-  click, parent-owned and disconnected seeds, a caret-row/multi-frame snapshot compare.
-- `CORE_DEPS` in `tests/rules/layers.rs` when core gets a dependency.
-
-Left (steps 8-11): the `remapped_history_search_does_not_fall_back_to_ctrl_r` test needs a
-keymap seed (kit); the `@` mentions popup
-with file search and tabs; images and attachments (Ctrl+V needs host); reconnect/offline and
-Ctrl+G (G67 pending); remaining tests, gap rows (G-new-1 Ctrl+R match highlight and links, G65, G66,
-G67, G68, G11), the embedded plain-text composer (D4), the binary run and `check.py`.
-
-## Shard counts (pass / n/a / pending / red of total), composer-2 third run (paste burst in)
-- composer_1: 8 / 1 / 41 / 0 of 50
-- composer_2: 24 / 4 / 22 / 0 of 50
-- composer_3: 20 / 2 / 34 / 0 of 56
-- composer_4: 11 / 2 / 60 / 0 of 73
-- composer_popups: 12 / 0 / 31 / 0 of 43
-- textarea: 11 / 2 / 46 / 0 of 59
-- total 86 pass, 11 n/a, 234 pending, 0 red, 0 stale (77 pass at the first handoff, 74 at
-  the fix round of the first run). `summary.py --run` of the six shards.
-`shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole default nextest
-(`--workspace`): 1058 passed, 15 skipped, 0 failed (including `composer_draft` 5,
-`composer_mouse` 2 + 1 ignored, the sanitize unit test). fmt `--check` and clippy
-`--workspace --all-targets -D warnings`: clean.
+## Shard counts
+See "Counts now, end of step 11" above (the third-run table that stood here was stale).
 
 Reds on the base tip that this branch moved: 9 composer_2 and 15 composer_popups
 tests were red on `claude/tui-rtwk` itself (checked first, as the checkpoint asked).

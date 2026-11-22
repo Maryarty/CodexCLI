@@ -1,7 +1,6 @@
 //! Private analytics display types, independent of the app-server wire protocol.
 
 use codex_protocol::account::PlanType;
-use codex_protocol::auth::KnownPlan;
 
 
 /// Billing families match the App's consumer, business, and workspace scopes.
@@ -105,28 +104,3 @@ pub struct AccountAnalyticsValue {
 // Every number in a history was checked finite by `normalize`/`tokens` (the
 // seed form is held to it by the fixtures), so the equality is total.
 impl Eq for AccountAnalyticsHistory {}
-
-/// The subscription's name on the dashboard heading and the profile block
-/// (oracle: `subscription.rs`, `SubscriptionDisplay::Analytics`).
-pub fn plan_label(plan: PlanType) -> &'static str {
-    match plan {
-        PlanType::Free => "Free",
-        PlanType::Go => "Go",
-        PlanType::Plus => "Plus",
-        PlanType::Pro => "Pro 200",
-        PlanType::ProLite => "Pro 100",
-        PlanType::ProMax => "Pro 500",
-        PlanType::Team
-        | PlanType::SelfServeBusinessUsageBased
-        | PlanType::Business
-        | PlanType::SelfServeBusinessProLite => "Business",
-        PlanType::EnterpriseCbpAutomation
-        | PlanType::Enterprise
-        | PlanType::Ent26
-        | PlanType::EnterpriseCbpUsageBased => "Enterprise",
-        PlanType::Edu | PlanType::EduPlus | PlanType::EduPro => "Education",
-        PlanType::Sci => KnownPlan::Sci.display_name(),
-        PlanType::SciPlus => KnownPlan::SciPlus.display_name(),
-        PlanType::Unknown => "Account",
-    }
-}
