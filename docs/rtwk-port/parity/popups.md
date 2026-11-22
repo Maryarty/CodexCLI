@@ -11,25 +11,17 @@ and every one of them waits on a file I do not own (see Needs). A successor cont
 | chat_popups_1 | 0 | 5 | 21 | 26 |
 | chat_popups_2 | 1 | 6 | 39 | 46 |
 | chat_popups_3 | 0 | 2 | 41 | 43 |
-| picker | 24 | 3 | 36 | 63 |
+| picker | 43 | 5 | 15 | 63 |
 
-Unchanged by this chunk so far, because `tests/oracle/picker.rs` is not in my area (the claim guard refuses the edit: held by nobody, but
-outside the task's area; widening the area is the orchestrator's decision) and every chat_popups pending waits on a seed or routing I do not own.
-Under `KIT_PROBE_PENDING=1 summary.py --run picker --list stale` **10 pending picker tests pass already**: delete their `kit::pending(..)` call and
-picker goes 24 -> 34 pass, 3 n/a, 26 pending:
-
-`horizontal_list_keys_reorder_orderable_items`, `searchable_plain_j_updates_query_instead_of_navigating`, `browser_page_navigation_uses_rows_that_fit`,
-`overflow_arrows_follow_the_painted_picker_surface`, `shrinking_the_browser_keeps_selection_visible_without_navigation`,
-`tiny_viewports_preserve_query_and_selection_when_enlarged`, `configured_cancel_binding_takes_precedence_over_space_toggle`,
-`searchable_list_honors_configured_printable_accept_alternative`, `selected_rows_use_the_shared_accent_style`,
-`selection_preserves_semantic_spans_and_secondary_hierarchy`.
-
-Red under probe (each needs a change in picker.rs / the kit, nothing in the Picker; see Needs): `configured_list_binding_takes_precedence_over_search_toggle_key`
-(expects `› 2. Next`), `c0_ctrl_*` (entry name), the two `*_page_and_jump_*` (size), `non_orderable_items_cannot_move_or_be_crossed`,
-`section_break_after_item_renders_separator_row` (sizes), `popup_hints_follow_configured_bindings` (size 60x7 for the picker preset),
-`picker_appearance_renders_checkboxes_preview_and_overflow` (frames), `short_browser_*`, `narrow_description_columns_*` (kit resize),
-`shared_menu_*`, `snapshot_auto_*`, `snapshot_narrow_width_counts_halfwidth_*` (kit header kinds), `wrapped_two_column_rows_preserve_hard_line_breaks`
-(raw rows), `filled_tab_unknown_palette_*` (G54).
+`tests/oracle/picker.rs` joined the area on the re-grant (07e2b0234): the 10 stale pendings are dropped, the keymap tests' sizes and entries are the
+picker's (`› First`/`› Second`/`› Next` for a searchable list, `first_second_searchable_second`, 60x12 list page/jump, 60x18 multi page/jump, 60x12
+non-orderable, 60x9 section break, `hint_default` 6 / `hint_picker` 7 rows), `picker_appearance_renders_checkboxes_preview_and_overflow` reads its three
+frames through `assert_snap_section` (First page / Last page / No matches) and stays pending with its reason (frame 2: G39b, the Auto-visible column is
+measured over the window rows in the oracle; frame 1/3 and every frame: the oracle's Buffer dump says `bg: Reset`, our dialog paints the host
+background; the sheet test `the_multi_select_appearance_matches_the_oracle_in_three_frames` holds the three frames' rows), the two side-content
+clearing tests are `kit::na`. Two Picker facts found on the way: the `SECTION_BREAK_ROW` rule sizes the label column (oracle `ColumnWidthMode`), and no
+arrows are drawn over an empty search result. 15 pending are the raw-row tests, G54, G44, G39b, the side background (`Tokens::tone`), the kit header
+kinds, the kit's resize to the same size, the `shared_menu_*` whole-area frame and the palette seed (see Needs).
 
 ## Done
 
@@ -96,14 +88,6 @@ Red under probe (each needs a change in picker.rs / the kit, nothing in the Pick
 
 ## Needs from other owners (nothing done in their files)
 
-- `tests/oracle/picker.rs` (outside my area; nobody holds it): delete the 10 `kit::pending(..)` calls listed above (picker 24 -> 34); fix the
-  expectations the keymap tests wrote for a numbered list: a searchable list has no numbers (`› Next`, `› Second`, `› First`), c0 test 1 opens entry
-  `first_second_searchable_second`, the two `*_page_and_jump_*` tests need 60x12 (page = min(8, rows that fit)); `popup_hints_follow_configured_bindings`
-  opens the `picker` entry at 60x7 (the preset's blank top row); `picker_appearance_renders_checkboxes_preview_and_overflow` has three frames in one
-  snapshot, use `assert_snap_section(.., "First page:")` etc.; `non_orderable_items_cannot_move_or_be_crossed` (60x8) and
-  `section_break_after_item_renders_separator_row` (60x6): the multi-select footer never yields, so at those heights the rows are hidden; 60x10 / 60x9 show
-  them (the same assertions pass at 24 rows in tests/sheets/select.rs); `exact_fit`, `hard_breaks`, `wrap_halfwidth` and `wrapped_urls`/`fuzzy_emoji`
-  are raw-row tests that stay pending with the reasons above.
 - tests/kit `Screen::resize(w, h)` at the size the screen already has: the Tester fills the new screen with `#` junk and rtwk repaints only on a size
   change, so `short_browser_keeps_header_tabs_search_and_footer` and `narrow_description_columns_*` read a `#` screen. Skip the resize when the size is equal.
 - tests/oracle_snap/mod.rs `header()` has no `label:` kind (`before scroll:`, `width 20:`, `height=N`, `80x24`, `prefix label:`): 8 picker tests wait.
@@ -119,7 +103,7 @@ Red under probe (each needs a change in picker.rs / the kit, nothing in the Pick
 - `core/src/app.rs` AppCtx routing and `host/src/facts.rs`: app RPCs `model/list`, `permissionProfile/list`, `collaborationMode/list`, plugin/app RPCs for steps 2-6.
 - `chat.rs ThreadPart` fields (chat-live): policy / collaboration_mode read by /permissions and /plan (one field, one writer).
 - `src/pages/session/open.rs` (chunk-transcript-2): pass the command to `select::open`.
-- `tests/oracle/picker.rs` and `chat_popups_4.rs` (settings): turn the shard tests on once handed over.
+- `chat_popups_4.rs` (settings): turn the shard tests on once handed over.
 
 ## Run it (real binary, `codex-rtwk --debug-screens`, a pty driver of my own: /tmp/popups-drive/drive.py, not kept)
 
@@ -132,7 +116,7 @@ the last row (see Needs). Earlier (1c/1d): `browser_keymap` at 80x24 equals the 
 search, `description_hide_when_narrow` hides at 48 columns and shows at 49. The mouse in the binary was not re-walked (a click went to the debug list's
 background row); the mouse is covered by the tap/wheel tests in tests/sheets/select.rs.
 
-## Checks at the tip (0b2c1f4ca)
+## Checks at the tip (07e2b0234)
 
-fmt clean; `clippy --workspace --all-targets -D warnings` no error (warnings only in the backend pin); whole nextest 1913 passed, 17 skipped;
-`shards.py --check`: 55 shards, 2560 tests, 0 stale; select sheet tests 43 pass; oracle shards as in the table above.
+fmt clean; `clippy --workspace --all-targets -D warnings` no error (warnings only in the backend pin); whole nextest 1935 passed, 17 skipped;
+`shards.py --check`: 55 shards, 2560 tests, 0 stale; select sheet tests 44 pass; oracle shards as in the table above.
