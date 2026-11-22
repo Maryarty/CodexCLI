@@ -44,7 +44,6 @@ pub fn texts(current: &str, latest: &str, command: Option<&str>, strings: &Strin
             [
                 strings.update_mark,
                 strings.update_title,
-                " ",
                 &strings.fill(strings.update_versions, &[current, latest]),
             ]
             .concat(),
@@ -88,7 +87,6 @@ pub fn cell(
                 .child(Text::rich(vec![
                     Span::styled(strings.update_mark, title.clone()),
                     Span::styled(strings.update_title, title),
-                    Span::new(" "),
                     Span::styled(
                         strings.fill(strings.update_versions, &[current, latest]),
                         tokens.bold(),

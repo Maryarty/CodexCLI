@@ -422,7 +422,7 @@ pub const EN: Strings = Strings {
     action_separator: ": ",
     update_mark: "✨\u{200A}",
     update_title: "Update available!",
-    update_versions: "{0} -> {1}",
+    update_versions: " {0} -> {1}",
     update_run: ("Run ", " to update."),
     update_see: ("See ", " for installation options."),
     update_install_url: "https://github.com/openai/codex",
