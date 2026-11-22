@@ -1032,3 +1032,381 @@ mod guardian {
         );
     }
 }
+
+/// What the server said about an assistant message (oracle `AgentMarkdownCell::phase`): kept on
+/// the item, none for a streamed message, and what a restored turn's snapshot says.
+mod phase {
+    use codex_app_server_protocol::{
+        ItemCompletedNotification, ServerNotification, ThreadItem, ThreadItemPayload,
+    };
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
+    use codex_tui_core::fixtures::builders::{agent_completed, agent_delta, turn_started};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::threads::{Item, MessagePhase};
+    use pretty_assertions::assert_eq;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    fn completed(item: &str, text: &str, phase: Option<MessagePhase>) -> AppEv {
+        AppEv::Backend(BackendEv::Notification(Box::new(
+            ServerNotification::ItemCompleted(ItemCompletedNotification {
+                item: ThreadItem::untimed(ThreadItemPayload::AgentMessage {
+                    moderation: None,
+                    id: item.to_string(),
+                    text: text.to_string(),
+                    phase,
+                    memory_citation: None,
+                    delivery: None,
+                    questions: None,
+                }),
+                thread_id: T.to_string(),
+                turn_id: "turn-1".to_string(),
+                content_token_count: None,
+                completed_at_ms: 0,
+            }),
+        )))
+    }
+
+    fn agents(app: &CodexApp) -> Vec<(String, Option<MessagePhase>)> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| match transcript.get(index)?.1 {
+                Item::Agent { text, phase } => Some((text.clone(), phase.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_completed_message_keeps_its_phase() {
+        let mut app = ready();
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        run(
+            &mut app,
+            completed("a", "looking", Some(MessagePhase::Commentary)),
+        );
+        run(
+            &mut app,
+            completed("b", "done", Some(MessagePhase::FinalAnswer)),
+        );
+        run(&mut app, completed("c", "old model", None));
+        assert_eq!(
+            agents(&app),
+            vec![
+                ("looking".to_string(), Some(MessagePhase::Commentary)),
+                ("done".to_string(), Some(MessagePhase::FinalAnswer)),
+                ("old model".to_string(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_streamed_message_has_none_until_it_completes() {
+        let mut app = ready();
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        run(
+            &mut app,
+            AppEv::Backend(agent_delta(T, "turn-1", "a", "par")),
+        );
+        assert_eq!(agents(&app), vec![("par".to_string(), None)]);
+        run(
+            &mut app,
+            completed("a", "partial", Some(MessagePhase::PartialAnswer)),
+        );
+        assert_eq!(
+            agents(&app),
+            vec![("partial".to_string(), Some(MessagePhase::PartialAnswer))]
+        );
+    }
+
+    #[test]
+    fn the_untagged_builder_leaves_it_none() {
+        let mut app = ready();
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        run(
+            &mut app,
+            AppEv::Backend(agent_completed(T, "turn-1", "a", "hi")),
+        );
+        assert_eq!(agents(&app), vec![("hi".to_string(), None)]);
+    }
+}
+
+/// How a folded turn counts its calls (oracle `tool_call_labels().len()` and `ToolGroup`).
+mod calls {
+    use std::sync::Arc;
+
+    use codex_tui_core::threads::{
+        ExplorationAction, Item, PatchActivity, ShellClass, ToolActivity, ToolKind, ToolStatus,
+    };
+    use pretty_assertions::assert_eq;
+
+    fn shell(
+        actions: Vec<ExplorationAction>,
+        exit_code: Option<i32>,
+        user_shell: bool,
+        status: ToolStatus,
+    ) -> Item {
+        Item::Tool(Arc::new(ToolActivity {
+            kind: ToolKind::Shell {
+                command: "ls".into(),
+                actions,
+                exit_code,
+                duration_ms: None,
+                user_shell,
+            },
+            status,
+            output: None,
+        }))
+    }
+
+    fn read() -> Vec<ExplorationAction> {
+        vec![ExplorationAction::Read(vec!["a.rs".into()])]
+    }
+
+    #[test]
+    fn a_models_shell_command_is_one_call_and_the_users_is_none() {
+        let ran = shell(Vec::new(), Some(0), false, ToolStatus::Completed);
+        let user = shell(Vec::new(), Some(0), true, ToolStatus::Completed);
+        assert_eq!((ran.call_count(), user.call_count()), (1, 0));
+    }
+
+    #[test]
+    fn messages_and_notices_add_no_call() {
+        let agent = Item::Agent {
+            text: "x".into(),
+            phase: None,
+        };
+        assert_eq!(agent.call_count(), 0);
+        let patch = Item::Patch(Arc::new(PatchActivity {
+            changes: Vec::new(),
+            status: ToolStatus::Completed,
+        }));
+        assert_eq!(patch.call_count(), 1);
+    }
+
+    #[test]
+    fn a_finished_command_counts_as_explored_or_ran() {
+        let explored = shell(read(), Some(0), false, ToolStatus::Completed);
+        let ran = shell(Vec::new(), Some(0), false, ToolStatus::Completed);
+        assert_eq!(explored.shell_class(), Some(ShellClass::Explored));
+        assert_eq!(ran.shell_class(), Some(ShellClass::Ran));
+    }
+
+    #[test]
+    fn a_command_that_runs_failed_or_is_the_users_counts_as_neither() {
+        let running = shell(read(), None, false, ToolStatus::Running);
+        let failed = shell(read(), Some(1), false, ToolStatus::Failed);
+        let declined = shell(Vec::new(), None, false, ToolStatus::Declined);
+        let user = shell(Vec::new(), Some(0), true, ToolStatus::Completed);
+        for item in [running, failed, declined, user] {
+            assert_eq!(item.shell_class(), None, "{item:?}");
+        }
+    }
+}
+
+/// The state of the older pages of a thread's history (oracle `TranscriptHistoryState`
+/// `Complete`, `Partial`, `LoadingOlder`, `Failed`).
+mod history_state {
+    use codex_app_server_protocol::Thread;
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::fixtures::script::build;
+    use codex_tui_core::ids::{ThreadId, Ticket};
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::agents::{
+        Command as AgentsCommand, Ev, Page, Reply as AgentsReply,
+    };
+    use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenReply};
+    use codex_tui_core::threads::{HistoryState, ThreadAsk};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    const A: &str = "thread-1";
+    const B: &str = "00000000-0000-0000-0000-000000000002";
+
+    fn thread(id: &str) -> Thread {
+        serde_json::from_value(json!({
+            "id": id, "environments": null, "extra": null, "sessionId": id,
+            "forkedFromId": null, "attachedToThreadId": null, "parentThreadId": null,
+            "preview": id, "ephemeral": false, "section": null, "sectionEnteredAt": null,
+            "projectId": null, "historyMode": "legacy", "modelProvider": "openai",
+            "model": null, "reasoningEffort": null, "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_000, "recencyAt": 1_700_000_000,
+            "status": {"type": "idle"}, "path": null,
+            "cwd": "/tmp/project", "cliVersion": "0.0.0", "originator": null, "source": "cli",
+            "canAcceptDirectInput": true, "threadSource": null,
+            "agentNickname": null, "agentRole": null, "gitInfo": null, "name": id,
+            "daybreakEnabled": null, "turns": []
+        }))
+        .expect("a thread")
+    }
+
+    fn send(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// B listed beside the seeded chat thread, opened and resumed: its first page was asked.
+    fn opened() -> (CodexApp, Ticket) {
+        let script = r#"{"step":"seed","seed":"session","thread":"thread-1"}"#;
+        let mut app = build(&format!("{script}\n")).expect("plays").app;
+        send(
+            &mut app,
+            AppEv::Screen(ScreenEv::Agents(Ev::Listed(Page {
+                threads: vec![thread(A), thread(B)],
+                unread: Vec::new(),
+                next_cursor: None,
+                append: false,
+                pins: None,
+            }))),
+        );
+        let fx = send(
+            &mut app,
+            AppEv::Intent(Intent::OpenThread(ThreadId::new(B))),
+        );
+        let resume = ticket_of(
+            &fx,
+            |ask| matches!(ask, ThreadAsk::Resume { thread } if thread == B),
+        )
+        .expect("a resume");
+        let fx = send(
+            &mut app,
+            AppEv::Reply(
+                resume,
+                Reply::screen(ScreenReply::Agents(AgentsReply::Resumed(Box::new(thread(
+                    B,
+                ))))),
+            ),
+        );
+        let first = ticket_of(&fx, |ask| {
+            matches!(ask, ThreadAsk::History { cursor: None, .. })
+        })
+        .expect("the first page");
+        (app, first)
+    }
+
+    fn ticket_of(fx: &AppFx, wanted: impl Fn(&ThreadAsk) -> bool) -> Option<Ticket> {
+        fx.commands().iter().find_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(AgentsCommand::Thread(ask)),
+                ..
+            } if wanted(ask) => Some(*ticket),
+            _ => None,
+        })
+    }
+
+    fn page(next: Option<&str>) -> Reply {
+        Reply::screen(ScreenReply::Agents(AgentsReply::History {
+            turns: Vec::new(),
+            next: next.map(str::to_owned),
+        }))
+    }
+
+    fn state(app: &CodexApp) -> HistoryState {
+        app.thread(&ThreadId::new(B))
+            .expect("thread B")
+            .history_state()
+    }
+
+    fn scroll(app: &mut CodexApp) -> AppFx {
+        send(
+            app,
+            AppEv::Intent(Intent::LoadOlderHistory(ThreadId::new(B))),
+        )
+    }
+
+    fn older(fx: &AppFx) -> Option<Ticket> {
+        ticket_of(fx, |ask| {
+            matches!(
+                ask,
+                ThreadAsk::History {
+                    cursor: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
+    #[test]
+    fn a_thread_with_older_pages_is_partial_until_the_last_is_read() {
+        let (mut app, first) = opened();
+        send(&mut app, AppEv::Reply(first, page(Some("older"))));
+        assert_eq!(state(&app), HistoryState::Partial);
+        let ask = older(&scroll(&mut app)).expect("the older page");
+        send(&mut app, AppEv::Reply(ask, page(None)));
+        assert_eq!(state(&app), HistoryState::Complete);
+    }
+
+    #[test]
+    fn asking_for_an_older_page_is_loading_until_it_answers() {
+        let (mut app, first) = opened();
+        send(&mut app, AppEv::Reply(first, page(Some("older"))));
+        let ask = older(&scroll(&mut app)).expect("the older page");
+        assert_eq!(state(&app), HistoryState::Loading);
+        send(&mut app, AppEv::Reply(ask, page(Some("oldest"))));
+        assert_eq!(state(&app), HistoryState::Partial);
+    }
+
+    #[test]
+    fn a_failed_page_is_failed_and_asking_again_retries_the_same_cursor() {
+        let (mut app, first) = opened();
+        send(&mut app, AppEv::Reply(first, page(Some("older"))));
+        let ask = older(&scroll(&mut app)).expect("the older page");
+        send(&mut app, AppEv::Reply(ask, Reply::failed("server said no")));
+        assert_eq!(state(&app), HistoryState::Failed);
+        let retry = scroll(&mut app);
+        assert_eq!(state(&app), HistoryState::Loading);
+        let cursor = retry.commands().iter().find_map(|command| match command {
+            Command::Screen {
+                command:
+                    ScreenCommand::Agents(AgentsCommand::Thread(ThreadAsk::History { cursor, .. })),
+                ..
+            } => cursor.clone(),
+            _ => None,
+        });
+        assert_eq!(cursor.as_deref(), Some("older"));
+    }
+
+    #[test]
+    fn a_lost_connection_fails_the_page_it_was_waiting_for() {
+        let (mut app, first) = opened();
+        send(&mut app, AppEv::Reply(first, page(Some("older"))));
+        older(&scroll(&mut app)).expect("the older page");
+        send(&mut app, AppEv::Screen(ScreenEv::Agents(Ev::Reconnecting)));
+        assert_eq!(state(&app), HistoryState::Failed);
+    }
+
+    #[test]
+    fn a_failed_first_read_is_not_a_failed_history() {
+        let (mut app, first) = opened();
+        send(&mut app, AppEv::Reply(first, Reply::failed("no")));
+        assert_eq!(state(&app), HistoryState::Complete);
+    }
+}

@@ -292,7 +292,7 @@ fn events_before_the_resume_reply_replay_in_wire_order() {
     assert!(app.active_thread().is_running());
     let rows = app.active_thread();
     assert!(
-        matches!(rows.transcript().get(0), Some((_, Item::Agent { text })) if text == "one two")
+        matches!(rows.transcript().get(0), Some((_, Item::Agent { text, .. })) if text == "one two")
     );
     assert!(
         app.thread(&ThreadId::new(A))
@@ -385,7 +385,7 @@ fn the_full_history_turn_replaces_live_rows_with_different_ids() {
     assert_eq!(model.transcript().len(), 1);
     assert!(!model.is_running());
     assert!(
-        matches!(model.transcript().get(0), Some((_, Item::Agent { text })) if text == "saved")
+        matches!(model.transcript().get(0), Some((_, Item::Agent { text, .. })) if text == "saved")
     );
 }
 

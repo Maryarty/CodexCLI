@@ -279,7 +279,7 @@ impl State for ViewportState {
                     )
                     .into()
                 }
-                Item::Agent { text } => {
+                Item::Agent { text, .. } => {
                     let markdown = crate::widgets::markdown::themed(
                         super::cells::citation::view(
                             text,

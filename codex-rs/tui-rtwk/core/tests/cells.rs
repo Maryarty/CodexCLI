@@ -988,7 +988,7 @@ fn a_loaded_failed_turn_shows_its_error_after_its_items() {
         .transcript()
         .iter()
         .map(|(_, item)| match item {
-            Item::Agent { text } => text.clone(),
+            Item::Agent { text, .. } => text.clone(),
             Item::Error { message } => format!("error: {message}"),
             other => format!("{other:?}"),
         })

@@ -7,6 +7,7 @@ mod previews;
 pub use previews::{ThreadPreview, ThreadPreviews};
 
 mod activity;
+pub mod calls;
 mod cells;
 pub mod citations;
 mod collab;
@@ -20,11 +21,13 @@ pub mod stream_preview;
 mod user_prompt;
 
 pub use activity::{ExplorationAction, ToolActivity, ToolKind, ToolMedia, ToolStatus};
+pub use calls::ShellClass;
 pub use cells::{
     DelegatedMessage, GeneratedImage, HookEntry, HookEntryKind, HookRun, HookStatus, Notice,
     PatchActivity, PatchChange, PatchKind, PlanStep, PlanUpdate, StepStatus, WebAction,
     WebActivity,
 };
+pub use codex_protocol::models::MessagePhase;
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
@@ -92,8 +95,12 @@ pub struct ItemKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     User(UserPrompt),
+    /// An assistant message. `phase` is what the server said about it (oracle
+    /// `AgentMarkdownCell::phase`): none for a streamed message or a legacy model, so
+    /// callers treat none as "unknown".
     Agent {
         text: String,
+        phase: Option<MessagePhase>,
     },
     Tool(Arc<ToolActivity>),
     /// The model's reasoning summary; shown only in the detailed transcript
@@ -188,6 +195,27 @@ pub struct Transcript {
 struct StreamingItem {
     item: Rc<Item>,
     committed: usize,
+}
+
+/// How much of a thread's history the transcript holds (oracle `TranscriptHistoryState`
+/// `Complete`, `Partial`, `LoadingOlder`, `Failed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryState {
+    /// The oldest page was read.
+    Complete,
+    /// Older pages exist and none is being read.
+    Partial,
+    /// An older page was asked for and has not come.
+    Loading,
+    /// The last ask for an older page failed; asking again retries it.
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoryAsk {
+    Idle,
+    Loading,
+    Failed,
 }
 
 /// Timing data is separate from item IDs so a summary cannot collide with a server item.
@@ -363,7 +391,7 @@ impl Transcript {
     /// The source eligible for a stable commit. The raw item retains its
     /// partial line for rtwk's live preview.
     pub fn committed_agent_text(&self, key: &ItemKey) -> Option<&str> {
-        let Item::Agent { text } = self.item(key)? else {
+        let Item::Agent { text, .. } = self.item(key)? else {
             return None;
         };
         Some(
@@ -385,7 +413,7 @@ impl Transcript {
             Entry::Vacant(entry) => {
                 let (item, committed) = match self.items.get(entry.key()) {
                     Some(item) => match item.as_ref() {
-                        Item::Agent { text } => (item.clone(), text.len()),
+                        Item::Agent { text, .. } => (item.clone(), text.len()),
                         _ => return,
                     },
                     None => {
@@ -394,6 +422,7 @@ impl Transcript {
                         (
                             Rc::new(Item::Agent {
                                 text: String::new(),
+                                phase: None,
                             }),
                             0,
                         )
@@ -402,7 +431,7 @@ impl Transcript {
                 entry.insert(StreamingItem { item, committed })
             }
         };
-        if let Item::Agent { text } = Rc::make_mut(&mut live.item) {
+        if let Item::Agent { text, .. } = Rc::make_mut(&mut live.item) {
             if let Some(last) = delta.rfind('\n') {
                 live.committed = text.len() + last + 1;
             }
@@ -679,6 +708,10 @@ pub enum ThreadEv {
         turns: Vec<HistoryTurn>,
         next: Option<String>,
     },
+    /// The app asked for the next older page (`HistoryState::Loading` until it answers).
+    HistoryRequested,
+    /// The ask for an older page failed or its connection went (`HistoryState::Failed`).
+    HistoryFailed,
     TurnStarted {
         turn: TurnId,
         started_at: Option<i64>,
@@ -837,6 +870,8 @@ pub struct ThreadModel {
     /// The cursor of the next older page of history; none once the oldest
     /// page was read.
     history_next: Option<String>,
+    /// What became of the last ask for an older page.
+    history_ask: HistoryAsk,
     /// The thread's goal (`thread/goal/updated|cleared`, the answers of `thread/goal/get|set`).
     goal: Option<Goal>,
     writer: Writer,
@@ -979,6 +1014,7 @@ impl ThreadModel {
             authoritative_turns: Rc::default(),
             completed_items: HashSet::new(),
             history_next: None,
+            history_ask: HistoryAsk::Idle,
             writer: Writer::Detached,
         }
     }
@@ -993,6 +1029,17 @@ impl ThreadModel {
 
     pub fn can_load_history(&self) -> bool {
         self.history_next.is_some()
+    }
+
+    /// How much of the thread's history the transcript holds (oracle `TranscriptHistoryState`;
+    /// its `LoadingBeginning` is the sheet's own walk to the start, a controller's state).
+    pub fn history_state(&self) -> HistoryState {
+        match self.history_ask {
+            HistoryAsk::Loading => HistoryState::Loading,
+            HistoryAsk::Failed => HistoryState::Failed,
+            HistoryAsk::Idle if self.history_next.is_some() => HistoryState::Partial,
+            HistoryAsk::Idle => HistoryState::Complete,
+        }
     }
 
     pub fn transcript(&self) -> &Transcript {
@@ -1714,9 +1761,15 @@ fn item_entry(payload: &ThreadItemPayload, completed: bool) -> Option<(ItemId, I
         ThreadItemPayload::UserMessage { id, content, .. } => {
             (ItemId::new(id), Item::User(UserPrompt::from_input(content)))
         }
-        ThreadItemPayload::AgentMessage { id, text, .. } => {
-            (ItemId::new(id), Item::Agent { text: text.clone() })
-        }
+        ThreadItemPayload::AgentMessage {
+            id, text, phase, ..
+        } => (
+            ItemId::new(id),
+            Item::Agent {
+                text: text.clone(),
+                phase: phase.clone(),
+            },
+        ),
         _ => {
             return activity::tool(payload)
                 .map(|(id, tool)| (id, Item::Tool(Arc::new(tool))))
@@ -1788,6 +1841,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::Reverted => {
             model.transcript.reset();
             model.history_next = None;
+            model.history_ask = HistoryAsk::Idle;
             Rc::make_mut(&mut model.finished_turns).clear();
             Rc::make_mut(&mut model.authoritative_turns).clear();
             model.completed_items.clear();
@@ -1825,7 +1879,15 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             model.transcript.prepend_snapshots(turns);
             model.transcript.remember_timings(timings);
             model.history_next = next.filter(|cursor| Some(cursor) != model.history_next.as_ref());
+            model.history_ask = HistoryAsk::Idle;
         }
+        ThreadEv::HistoryRequested => model.history_ask = HistoryAsk::Loading,
+        // Without a cursor there is no page to retry: the first read's failure is the
+        // session's, not the history's.
+        ThreadEv::HistoryFailed if model.history_next.is_some() => {
+            model.history_ask = HistoryAsk::Failed;
+        }
+        ThreadEv::HistoryFailed => model.history_ask = HistoryAsk::Idle,
         ThreadEv::Submit { message } if model.has_writer() => {
             // The decision is here (R10). Enter during a running turn steers
             // it (`turn/steer`); while the turn is only starting (no turn id

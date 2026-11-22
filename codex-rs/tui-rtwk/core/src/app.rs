@@ -1225,6 +1225,20 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             }
                             _ => true,
                         });
+                        // An older page that will never come is a failed one: asking again
+                        // retries it.
+                        let unanswered: Vec<_> = app
+                            .threads
+                            .iter()
+                            .filter(|(id, model)| {
+                                model.history_state() == threads::HistoryState::Loading
+                                    && app.screens.agents.owner_of(id.as_str()) == origin
+                            })
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        for thread in unanswered {
+                            apply_thread(app, &thread, ThreadEv::HistoryFailed, fx);
+                        }
                         if !app.outgoing.any(|ctx| {
                             matches!(
                                 ctx,
@@ -2012,6 +2026,9 @@ fn fetch_history(app: &mut CodexApp, id: &ThreadId, fx: &mut AppFx) {
 }
 
 fn request_history(app: &mut CodexApp, id: &ThreadId, cursor: Option<String>, fx: &mut AppFx) {
+    if cursor.is_some() {
+        apply_thread(app, id, ThreadEv::HistoryRequested, fx);
+    }
     send_agents(
         app,
         vec![agents::Out {
@@ -2109,6 +2126,9 @@ fn screen_answer(app: &mut CodexApp, ctx: agents::Ctx, answer: Answer, fx: &mut 
     {
         let thread = ThreadId::new(thread);
         apply_thread(app, &thread, threads::history_page(turns, next.clone()), fx);
+    }
+    if let (agents::Ctx::History { thread }, Err(_)) = (&ctx, &result) {
+        apply_thread(app, &ThreadId::new(thread), ThreadEv::HistoryFailed, fx);
     }
     let outs = agents::apply_answer(
         &mut Rc::make_mut(&mut app.screens).agents,

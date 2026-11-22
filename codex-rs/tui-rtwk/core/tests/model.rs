@@ -461,7 +461,8 @@ fn a_delta_before_its_item_creates_the_entry() {
     assert_eq!(
         transcript.get(0).map(|(_, item)| item.clone()),
         Some(Item::Agent {
-            text: "Hello".into()
+            text: "Hello".into(),
+            phase: None,
         })
     );
 }
@@ -486,7 +487,8 @@ fn the_completed_item_replaces_the_streamed_text_in_place() {
                 ..Default::default()
             }),
             Item::Agent {
-                text: "Hello".into()
+                text: "Hello".into(),
+                phase: None,
             },
         ]
     );
@@ -504,6 +506,7 @@ fn replace_turn_takes_the_snapshot_wholesale() {
             ItemId::new("msg-1"),
             Item::Agent {
                 text: "fresh".into(),
+                phase: None,
             },
         )],
     );
@@ -513,7 +516,8 @@ fn replace_turn_takes_the_snapshot_wholesale() {
         Some((
             key("msg-1"),
             Item::Agent {
-                text: "fresh".into()
+                text: "fresh".into(),
+                phase: None,
             }
         ))
     );

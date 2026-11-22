@@ -3,7 +3,7 @@
 Task `core-wiring` (the person, 2026-11-22: logic and data first, UI chunks only compose widgets). Area: `core/src/app.rs`,
 `core/src/threads.rs`, `core/src/protocol/{mod,import,onboarding,requests,targets}.rs`, `core/src/fixtures/script.rs`,
 `src/app/view.rs`, `tests/app/skeleton.rs`, `core/tests/app_wiring.rs`, new files `core/src/app/effects.rs`,
-`core/src/threads/{phase,decision,history_state}.rs`. Base: `claude/tui-rtwk` 1759cf2bc.
+`core/src/threads/{decision,goal,calls}.rs`. Base: `claude/tui-rtwk` 1759cf2bc.
 
 How to read: **Need** = what the pack of the asking chunk says is missing on the shared files; **Who** = the asking chunk; **Where** = the
 file (pack / brief line); **Oracle** = the codex-tui source that is the spec; **State** = `done-by-owner` (landed or in the owner's branch: not
@@ -31,7 +31,7 @@ not yet on the tip were read from the owners' branches (read-only).
 | 1.11 | `RateLimits{origin}` with `RateLimitOrigin`, `refresh_rates`, clock facts `status::Ev::Clock`, `account/updated` clears the store | status-card, usage, chat-live | status-card checkpoint bd241cb48 (branch), usage Needs, chat-live C5/C6 | `status/rate_limits.rs`, `app/background_requests.rs` | done-by-owner (status-card branch `worktree-agent-af31519f2b1f93b55`; `account/updated` done in chat-live C6): not redone, to avoid a double write of `app.rs` |
 | 1.12 | `model/list`, `permissionProfile/list`, `configRequirements/read`, `collaborationMode/list`, `plugin/*`, `app/list` requests and the `app/list/updated` notification into `select::Ev` | popups | popups.md Needs, brief popups §3/§5 | `bottom_pane/list_selection_view.rs`, `model_popup.rs`, `permissions_popup.rs` | open (E): the `select` types of step 2/3 (`Ev::Fetched/Discovered/Listed`, `permissions::*_request`) are in chunk-popups' branch only; one `Command::Select` over the owner's wire/decode lands after it is on the tip |
 | 1.13 | Persistence of settings/config edits: one root command for `Edit::ThemeSelected`, `SetupSaved`, `SkillToggled`, `Toggled`, `FeaturesSave`, hook edits, with a confirmation `Ev`; also `ReserveReturnModel`, model picks (`config/batchWrite`) | settings, popups, chat-live | settings.md Needs outside the area; popups; chat-live C6 | `config_panel`, `config/batchWrite` | built A (Effect seam): `Ask::ConfigWrite { edits: Vec<ConfigEdit { key_path, value }> }` -> `Done::Config(Result<(), String>)` (`config/batchWrite`, value replaces); one command for theme/setup/skills/toggles/features/hook edits/model picks. Unblocks settings, popups (`Model::picked`), chat-live C6 |
-| 1.14 | Host sends `cells::Ev::{LinkDisplay, Clock, RuntimeMetrics}`; `Notice::UpdateAvailable` / `ServerVersion` appended by the app | cells | cells.md "Needs for other owners" | `update_available`, `version_notice` | built D2 (`Appended` of both notices); the Ev senders are host |
+| 1.14 | Host sends `cells::Ev::{LinkDisplay, Clock, RuntimeMetrics}`; `Notice::UpdateAvailable` / `ServerVersion` appended by the app | cells | cells.md "Needs for other owners" | `update_available`, `version_notice` | open (D2): the arm is a one-liner (`ThreadEv::Appended { item: Item::Notice(..) }`) but `Notice::{UpdateAvailable, ServerVersion}` live in chunk-cells' `threads/cells.rs` (their branch has them, the tip does not); the `cells::Ev` senders are host |
 | 1.15 | `Command::OpenUrl` host arm and the fake recording it; `SendAddCreditsNudge` host arm | chat-live | chat-live C5/C6 Needs | `AppEvent::OpenUrlInBrowser` | host (the fake logs every command already) |
 | 1.16 | Workspace headline (`account/workspaceMessages/read`), thread usage (`account/usage/read`), git summary probe, `workspace.remote` fact | chat-status, chat-commands | brief chat-status §5 | `status_surfaces.rs:640`, `thread_usage.rs` | open: status-card step 3 and host facts (`host/src/facts.rs`, host-services) |
 | 1.17 | `Command::HooksList`, skills config, experimental feature list/save | settings | settings.md Needs | `hooks/list`, `skills/config/write` | open (E): typed as `ConfigWrite` edits where it is a write; the reads need the owner's `Open::Hooks` types after the settings pack lands |
@@ -48,18 +48,18 @@ not yet on the tip were read from the owners' branches (read-only).
 | 2.6 | `ThreadAsk::Steer` and pending steers / queue categories / restore | chat-live | chat-live C2 | `input_queue`, `turn/steer` | done-by-owner (on the tip) |
 | 2.7 | Guardian history drain: after `ScreenThreadEv::Approvals`, `slots.approvals.take_history()` becomes items (decision, visible warning, error, info); `TurnEnded` applied to the slot | approvals (2) | approvals.md Needs 2 | `chatwidget/approvals.rs`, `guardian review` cells | built C2 (`Item::Decision(Decided)`, `Item::Review(ReviewLine)` as interim typed values until chunk-commands' `Item::Note` lands; `append_history` after `ThreadEv::Screen`; `TurnEnded` applied in `end_turn`; tests `guardian::*` in `core/tests/app_wiring.rs`); the reviewer's warning is an `Item::Warning` (oracle `on_warning`); the "Automatic approval review approved (" notice is dropped by the slot |
 | 2.8 | Routing of the three guardian notifications (`item/autoApprovalReview/started|completed`, `guardianWarning`) in `protocol/targets.rs` | approvals (1) | approvals.md Needs 1 | `protocol/common.rs` | built C2 (`targets.rs` `notification_thread`; `threads.rs` `project` chains `screens::approvals::project` after `screens::project_thread`, which is chunk-popups' file: when it adds the arm the chain entry can go) |
-| 2.9 | `Item::Agent` carries the message phase (`MessagePhase`: commentary / final answer), explored-vs-ran class of a call, per-call labels and ids, the turn-completion marker, `Item::Status`, history states `Partial/Loading/Failed/Complete` | transcript-2 (2), cells, status-card | transcript-2 checkpoint "UNBLOCKS (2)", transcript.md Needs 5 | `history_cell/agent.rs`, `transcript_view/turn_details.rs`, `thread/read` history | built C1 (phase, turn marker, history state, call labels); `Item::Status` built C4 over the status-card's `Model.cell` |
+| 2.9 | `Item::Agent` carries the message phase (`MessagePhase`: commentary / final answer), explored-vs-ran class of a call, per-call labels and ids, the turn-completion marker, `Item::Status`, history states `Partial/Loading/Failed/Complete` | transcript-2 (2), cells, status-card | transcript-2 checkpoint "UNBLOCKS (2)", transcript.md Needs 5 | `history_cell/agent.rs`, `transcript_view/turn_details.rs`, `thread/read` history | built C1: `Item::Agent { text, phase: Option<MessagePhase> }` (`item/completed` and restored snapshots carry the server's phase, a stream has none until it completes; tests `phase::*`); `Item::call_count()` and `Item::shell_class() -> Option<ShellClass::{Explored, Ran}>` (`threads/calls.rs`, tests `calls::*`: typed facts, the label words and the `exec:`/`mcp:` ids are the view's, the id is the `ItemKey`); history states `ThreadModel::history_state() -> HistoryState::{Complete, Partial, Loading, Failed}` (`ThreadEv::{HistoryRequested, HistoryFailed}`: asked on `LoadOlderHistory`, failed on an error reply or a lost connection, retried by asking again on the same cursor; a failed first read is not a history state; tests `history_state::*`; oracle `LoadingBeginning` is the sheet controller's); the turn-completion marker is `Transcript::timing_after(index)` (already there: duration and completion time of a finished turn); `Item::Status` is chunk-status-card's (`Model.cell`) and `Item::Note` chunk-commands'. Open: the live fallback of the marker (local clock + the status timer when the server sent no timing) and the runtime-metrics-only marker need a clock/metrics fact from the host |
 | 2.10 | `tui.collapse_turn_details` reader | transcript-2 | checkpoint (2) | `turn_details` setting | open: a config fact (`StatusFacts` in chat.rs, chunk-live) |
 | 2.11 | `Item::Note` / `NoteKey` and `chat::Intent::Note` | commands | chat-commands.md | `history_cell/notices.rs:334-357` | done-by-owner (chunk-commands branch a8d68e986): not redone |
-| 2.12 | `Fault` arm: cyber-policy error stamps Daybreak kind and appends `Notice::CyberPolicy(kind)`; biology-policy appends `Notice::SafetyAccessBlock`; the oracle cause lines from `codex_error_info` | cells, chat-live | cells.md "Needs for other owners (chat-live)" | `chatwidget/protocol.rs`, `provider_error.rs:84-124` | built D1 |
-| 2.13 | `item/plan/delta` into a streaming `Item::Plan` | cells | cells.md | `plan_stream` | built D3 |
+| 2.12 | `Fault` arm: cyber-policy error stamps Daybreak kind and appends `Notice::CyberPolicy(kind)`; biology-policy appends `Notice::SafetyAccessBlock`; the oracle cause lines from `codex_error_info` | cells, chat-live | cells.md "Needs for other owners (chat-live)" | `chatwidget/protocol.rs`, `provider_error.rs:84-124` | open (D1): needs `Notice::{CyberPolicy(Daybreak), SafetyAccessBlock}` and `screens::cells::Daybreak` from chunk-cells' branch (not on the tip); then the `Fault` arm of `threads.rs` appends them |
+| 2.13 | `item/plan/delta` into a streaming `Item::Plan` | cells | cells.md | `plan_stream` | open (D3): `Item::Plan { text }` exists (`threads/cells.rs`, from `item/completed`); the delta needs `N::PlanDelta` in `targets.rs`, a `ThreadEv::PlanDelta` and `Transcript::append_agent` generalised over the item kind (a streaming `Item::Plan` through the same `streaming` map) |
 | 2.14 | `UserPrompt` keeps local/remote images and element placeholders; composer restore | transcript, composer | transcript.md Need 3/4 | `backtrack_revert` | done-by-owner (cells `threads/user_prompt.rs`, composer 7/8) |
 
 ## 3. Fixture script (core/src/fixtures/script.rs)
 
 | # | Need | Who | Oracle | State |
 |---|---|---|---|---|
-| 3.1 | `reply` step: answers the next request of a method (cells brief §5; transcript `history_pages`) | cells, transcript | n/a (test seam) | built F1 |
+| 3.1 | `reply` step: answers the next request of a method (cells brief §5; transcript `history_pages`) | cells, transcript | n/a (test seam) | open (F1): not built; the shipped steps are in `core/src/fixtures/script.rs` as on the tip |
 | 3.2 | `lagged` step | chat-live | n/a | done-by-owner |
 | 3.3 | `respond` step (answering a server request) | chat-live | n/a | open: `Screen::respond` is in `tests/kit/mod.rs` (not mine) |
 
@@ -72,4 +72,29 @@ not yet on the tip were read from the owners' branches (read-only).
 
 ## Done / Checks
 
-(filled per group below)
+Landed groups (commit by commit on `worktree-agent-aeab30e88cd08c2d7`, each after fmt, clippy `--workspace --all-targets -D warnings`,
+whole nextest, `shards.py --check`):
+
+| Group | Commit | What | Unblocks |
+|---|---|---|---|
+| A | 58bb980b0 | popovers asks, usage ask, the Effect seam (copy/diff/title/export/config), user verification driven by the app, `CancelRequests` | composer (popovers), transcript-2 (copy), commands (export/title), usage |
+| B | 4b59a0fee | thread asks: `Review`, `GoalGet/Set/Clear` as the user, `CleanTerminals`, `SettingsUpdate` patch; the goal fact in `ThreadModel` | commands (`/review`, `/goal`, `/stop`), popups (settings effects), chat-live (goal) |
+| C2 | dcc863fd6 | the approvals slot through the app: guardian reviews, decisions in the history (`Item::Decision`, `Item::Review`), `Intent::AutoReview` | approvals, commands (until `Item::Note`) |
+| C1 | the commit this pack is in | `Item::Agent.phase`, `Item::call_count/shell_class`, `ThreadModel::history_state` (+ app wiring and retry) | transcript-2 step 10 (turn details) and the history rows of the sheet footer (need 5), cells (`AgentMarkdownCell::phase`) |
+
+Open (the next core task takes them, in this order): D1/D2 (waits for chunk-cells to land the `Notice` variants and `Daybreak`), D3
+(`item/plan/delta`), F1 (`reply` step), the `tui.collapse_turn_details` reader (2.10, a config fact in `StatusFacts`: chunk-live's file),
+the clock/runtime-metrics facts of the live turn marker (2.9), the rows marked `open` above.
+
+Edits outside the task's area that the compiler forced (the owners should know):
+- `src/pages/session/transcript_pane.rs` (chunk-transcript-2): two `Item` arms (`Decision`, `Review`) and `{ text, .. }` for the new field.
+- `core/tests/{model,cells,backtrack,adr003}.rs` (chunk-live, chunk-cells, chunk-transcript-2, chunk-status-card): `Item::Agent`
+  constructors/patterns carry `phase`; `core/tests/script.rs` (nobody's): same, and its dropped-delta test now expects the fixture's
+  `final_answer` phase.
+- `core/tests/all.rs` (+`mod app_wiring`), `tests/pages/composer_history.rs`, `src/services/backend/fake.rs`: group A/B arms.
+- Mine, area widened: `src/sheets/approvals/{decision_cell,strings,mod}.rs`, `tests/sheets/approvals.rs` (`ReviewLineCell`).
+
+Checks of C1: fmt clean; clippy `--workspace --all-targets -D warnings` no error; nextest of the whole workspace: the only reds are
+`codex-rtwk::session_sse embedded_server_resolves_exec_approval` and `standalone_escape_disconnects_the_live_stream` (SIGABRT, the machine
+load of the day; they fail identically on another agent's binary and are not mine); the 12 new tests of `core/tests/app_wiring.rs`
+(`phase::*`, `calls::*`, `history_state::*`) pass, `history_state` shown biting once (the `Err` arm of `Ctx::History` removed: red).
