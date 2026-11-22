@@ -120,3 +120,41 @@ the help; needs `clock_format`), Chats (business table with details, consumer ta
 `host/src/analytics.rs` (+ `codex-backend-client` in its own commit), usage menu + reset credits (`chat_live_6` 26,
 blocked as above), English text of core into string tables (`plan_label`, `GROUP_LABELS`, `group_label`,
 `tab_label`, `Load::message`, normalize errors), the generated shard (after the person's yes).
+
+## chunk-usage, state at partial 4 (step 1 of the second re-grant: the card dashboard `z`)
+Branch `worktree-agent-afdce575fa199675f`, step 1 on `6c8adf127` (rebased onto `af5799546`).
+
+### Built
+- **Dashboard `z`** (`src/pages/usage/cards.rs`, `core/src/screens/usage/dashboard.rs`): six cards of titled
+  rounded boxes (`BoxWidget` + `Stack`/`Positioned` for the two-style title `▸`/section name, cut by the text's
+  own ellipsis), two columns from 104 cells, one below; heights from core (`dashboard::Geometry`: 16-24 rows,
+  the plot grows with the tallest card, never with a card's content), the card's lead from `Model::card_lead`
+  (range, model, grouping, the long range on the cards of its group), `OverflowBox` in a `SizedBox` cuts a taller
+  card at its rows. One `ListView` + `ListController` (the dashboard's `ScrollController`); the selected card is
+  brought into view only when it changes (`Reveal`, a small stateful widget: `did_update_widget`), as the oracle
+  follows the selection on a section change and not on the wheel/page keys.
+- Tap selects a card, double tap opens its report (`Msg::Open`), Esc closes the page from the dashboard, Enter
+  focuses the report keeping section, day and grouping; the `Dashboard` control returns to the report (ADR-011).
+- Help ends with `Report updated {time} UTC`; cards carry `Updated {time} UTC`, the controls' last row
+  `Updated · {time} UTC`; the account's clock preference (`hour24`) settles with the account in core
+  (`AccountReply`, serde default false) and drives every time here.
+- Fixtures through the core `apply` (`fixtures/dashboard.jsonl`, `dashboard_denied.jsonl`, `updated.jsonl`; the
+  series and weights are the oracle's `test_fixtures.rs` formulas); debug entries `dashboard`, `dashboard_denied`,
+  `updated`.
+- Tests: `dashboard_cards_align_in_two_columns_at_144` and `dashboard_cards_stack_in_one_column_at_72` compare
+  the two halves of the oracle snapshot `dashboard_cards_align_and_keep_stable_summary_heights` row for row
+  (equal; the narrow one after the Plugins report is refused, the day moved with Left, then Enter focuses it
+  again with the day kept); Esc; follow-the-card at 80x24; tap and double tap; the report time in help, card and
+  controls; 9 core tests (`tests/usage/dashboard.rs`: geometry, lead, plot rows; `hour24` settling in `state.rs`).
+  Shown biting: double tap mapped to select -> the tap test red; `Reveal` never scrolling -> the follow test red.
+
+### Checks at this tip
+`acargo fmt`; clippy `--workspace --all-targets -D warnings` exit 0; whole nextest 2043 run, 2042 pass, 1 fail:
+`chat::chat_live::a_tap_on_a_row_chooses_it` (not this area; passes alone: a load flake of the whole run);
+`shards.py --check` 55 shards, 0 stale. Rules green (R14: the controllers are made in `Default for ScreenState`
+by a loop, not a closure; R15).
+
+### Chats and Plan cards
+Placeholders until step 2: the cards show the section's load message ("No history has been reported." in the
+oracle's fixture, which has no chats), so the snapshot equality holds; the cards of real Chats/Plan data come
+with their loads.
