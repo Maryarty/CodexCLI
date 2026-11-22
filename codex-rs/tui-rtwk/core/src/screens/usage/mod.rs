@@ -30,6 +30,7 @@ pub mod data;
 pub mod date;
 pub mod models;
 pub mod normalize;
+pub mod plan;
 pub mod plot;
 pub mod profile;
 pub mod report;
@@ -79,6 +80,8 @@ pub struct Model {
     pub show_zero_credit_groups: bool,
     pub chat_metric: usize,
     pub histories: [Load<Rc<History>>; Section::COUNT],
+    /// The Plan section's allowance history (oracle: `plan::State::report`).
+    pub plan: Load<Rc<plan::Report>>,
     pub profile: Load<Rc<profile::Profile>>,
     reports_started: bool,
 }
@@ -109,6 +112,7 @@ impl Default for Model {
             show_zero_credit_groups: false,
             chat_metric: 0,
             histories: std::array::from_fn(|_| Load::Unavailable),
+            plan: Load::Unavailable,
             profile: Load::Unavailable,
             reports_started: false,
         }
@@ -141,6 +145,8 @@ pub enum AskKind {
         model: Option<String>,
     },
     Profile,
+    /// The Plan section's allowance history (oracle: `Live::plan_history`).
+    Plan,
 }
 
 /// The settled account: the plan, and what the host knows of the session.
@@ -197,6 +203,11 @@ pub enum Ev {
         stamp: Stamp,
         result: Result<Option<Box<profile::Profile>>, String>,
     },
+    Plan {
+        session: u32,
+        stamp: Stamp,
+        result: Result<Option<plan::Data>, String>,
+    },
     /// The signed-in identity changed under the session: everything again
     /// (oracle: `identity_invalidated` -> `refresh`).
     Invalidated { session: u32 },
@@ -229,6 +240,10 @@ pub struct Seed {
     pub histories: Vec<HistorySeed>,
     #[serde(default)]
     pub profile: Option<SeedLoad<profile::Profile>>,
+    /// The Plan section's load: the wire's history, checked as the host's
+    /// reply is.
+    #[serde(default)]
+    pub plan: Option<SeedLoad<plan::Data>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -310,6 +325,7 @@ impl Model {
         self.open = true;
         self.histories = std::array::from_fn(|_| Load::Unavailable);
         self.profile = Load::Unavailable;
+        self.plan = Load::Unavailable;
         self.reports_started = false;
         self.token_model = None;
         self.token_models.clear();
@@ -359,6 +375,11 @@ impl Model {
         let mut asks = vec![self.load_profile()];
         for section in visible {
             asks.extend(self.load_report(*section));
+        }
+        if visible.contains(&Section::Plan) {
+            let stamp = self.next_stamp();
+            self.plan = Load::Loading(stamp);
+            asks.push(self.ask(stamp, AskKind::Plan));
         }
         asks
     }
@@ -446,6 +467,16 @@ impl Model {
         if let Some(profile) = seed.profile {
             self.profile = profile.into_load(Rc::new);
         }
+        if let Some(history) = seed.plan {
+            self.plan = match history {
+                SeedLoad::Ready(data) => match plan::Report::parse(data) {
+                    Ok(Some(report)) => Load::Ready(Rc::new(report)),
+                    Ok(None) => Load::Unavailable,
+                    Err(message) => Load::Error(message),
+                },
+                other => other.into_load(|_: plan::Data| unreachable!("`Ready` is handled above")),
+            };
+        }
         let visible = self.visible_sections();
         self.section = seed
             .section
@@ -465,6 +496,7 @@ pub fn step(model: &mut Model, intent: Intent) -> Vec<Ask> {
             model.open = false;
             model.histories = std::array::from_fn(|_| Load::Unavailable);
             model.profile = Load::Unavailable;
+            model.plan = Load::Unavailable;
             model.account = Load::Unavailable;
             Vec::new()
         }
@@ -589,7 +621,21 @@ pub fn settle(model: &mut Model, ev: Ev) -> Vec<Ask> {
                 .settle(stamp, result.map(|profile| profile.map(|profile| Rc::new(*profile))));
             Vec::new()
         }
-        Ev::Account { .. } | Ev::Report { .. } | Ev::Profile { .. } => Vec::new(),
+        Ev::Plan {
+            session,
+            stamp,
+            result,
+        } if session == model.session => {
+            let result = result.and_then(|data| match data {
+                Some(data) => plan::Report::parse(data),
+                None => Ok(None),
+            });
+            model.plan.settle(stamp, result.map(|report| report.map(Rc::new)));
+            Vec::new()
+        }
+        Ev::Account { .. } | Ev::Report { .. } | Ev::Profile { .. } | Ev::Plan { .. } => {
+            Vec::new()
+        }
     }
 }
 

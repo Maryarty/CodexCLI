@@ -158,3 +158,27 @@ by a loop, not a closure; R15).
 Placeholders until step 2: the cards show the section's load message ("No history has been reported." in the
 oracle's fixture, which has no chats), so the snapshot equality holds; the cards of real Chats/Plan data come
 with their loads.
+
+## chunk-usage, step 2a: the Plan report (card and focused)
+Core: `core/src/screens/usage/plan.rs` (`Data`/`Report::parse` of the wire's history, `Pos`/`Step` for the cursors,
+`Model::plan_view` -> `View { tables, notes }` of `Line`s, `side_by_side`/`table_width`), `Model.plan: Load<Rc<Report>>`,
+`AskKind::Plan`, `Ev::Plan`, `Seed.plan`; asked only for a consumer account with the feature on; refresh/close drop it.
+Page: `src/pages/usage/plan.rs` (a table is a `Column` of rows, each wrapped by word at its width; a period's row puts
+its share at the right when the pair fits one row and wraps as one text when not, as the oracle's `columns` + wrap;
+the row under the cursor of the table in front is a `BoxWidget` filled with the selection style; two tables in a
+`Row` of two fixed-width `SizedBox`es from 100 cells, one under the other below), `strings.rs` (plan words),
+controls row `←/→ 5-hour / Weekly` (click: the other table), `list.rs` (Plan keys), `hints.rs` (`enter details` where a
+period is under the cursor), `cards.rs` (the Plan card: first period of each table + notes).
+Mouse (ADR-011, beyond the oracle's control hit): a tap on a period picks it in its table, a second opens its details,
+a third closes them (handlers made by `retap`, as many as the history holds).
+Fixtures (core `apply`): `plan`, `plan_twelve_hour`, `plan_unavailable`, `plan_empty`, `plan_zero`, `plan_future`,
+`plan_many`; debug entries of the same names.
+Tests: oracle snapshots equal row for row: `period_navigation_...` both screens (120x30, 58x30), `unavailable_empty_and_
+zero_history_are_distinct` (four states at a body of 100), `plan_clocks_twelve_hour`; `plan_escape_collapses_details_
+before_closing`, `moving_period_selection_collapses_its_previous_details`, control click (only on painted cells), period
+click, `enter details` hint, the Plan card; core: window split/sort, invalid history refused without wire text, plan
+asked only where shown, settle by stamp, drop on refresh/close, the keys (`Pos::step`), Esc order, new snapshot resets,
+click picks, card vs report rows, notes, side-by-side width. Shown biting: Esc always closing -> `plan_escape_...` red.
+Gap filed: **G-new-usage-1** (the Plan report and the chart reports do not follow the cursor: `Scrollable.ensureVisible`
+of a row is not reachable from a State), `the_plan_report_follows_the_cursor_row` pending; the oracle's
+`resize_keeps_visible_weekly_selection_and_respects_manual_scroll` rests on it and is not ported.

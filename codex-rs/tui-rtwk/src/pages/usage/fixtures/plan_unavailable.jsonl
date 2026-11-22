@@ -1,0 +1,3 @@
+# `unavailable_empty_and_zero_history_are_distinct`, state 1: the history has not been loaded.
+{"step":"seed","seed":"session","thread":"thread-1"}
+{"step":"screen","dir":"usage","ev":{"account":{"plan":"plus","today":"2026-09-02","hour24":true,"plan_enabled":true},"section":"plan","plan":"unavailable"}}

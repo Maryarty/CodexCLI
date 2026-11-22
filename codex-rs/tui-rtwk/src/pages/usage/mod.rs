@@ -25,6 +25,7 @@ use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget
 
 use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::usage::models::plan_label;
+use codex_tui_core::screens::usage::plan::{PlanStep, Pos as PlanPos};
 use codex_tui_core::screens::usage::{
     Control, Intent as UsageIntent, Model, Section, TokenActivityView,
 };
@@ -44,6 +45,7 @@ mod hints;
 mod keys;
 mod list;
 pub mod overview;
+mod plan;
 pub mod report;
 pub mod strings;
 
@@ -83,6 +85,48 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "updated",
             description: "the dashboard's Usage report with the time the host made it (help, card, controls)",
             script: include_str!("fixtures/updated.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan",
+            description: "a Plus account's plan history: one 5-hour and one weekly period, the Plan report in front",
+            script: include_str!("fixtures/plan.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_twelve_hour",
+            description: "the same history on a 12-hour clock",
+            script: include_str!("fixtures/plan_twelve_hour.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_unavailable",
+            description: "the plan history was never loaded",
+            script: include_str!("fixtures/plan_unavailable.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_empty",
+            description: "the plan history with complete coverage and no periods",
+            script: include_str!("fixtures/plan_empty.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_zero",
+            description: "a 5-hour period that used nothing",
+            script: include_str!("fixtures/plan_zero.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_future",
+            description: "a 5-hour period that starts after the snapshot",
+            script: include_str!("fixtures/plan_future.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "plan_many",
+            description: "fourteen 5-hour periods and one weekly one",
+            script: include_str!("fixtures/plan_many.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
         },
         DebugEntry {
@@ -142,6 +186,7 @@ struct Taps {
     range: Option<Handler<PointerEvent>>,
     group: Option<Handler<PointerEvent>>,
     model: Option<Handler<PointerEvent>>,
+    plan_window: Option<Handler<PointerEvent>>,
 }
 
 /// The reports of an account (the model's `Section`s).
@@ -157,6 +202,11 @@ pub struct ScreenState {
     taps: Taps,
     cursors: [usize; SECTIONS],
     details: [Option<usize>; SECTIONS],
+    /// The plan report's table in front, its rows and open details (core's).
+    plan: PlanPos,
+    /// A click on each period of the plan report, remade when the history
+    /// has other counts.
+    plan_taps: Option<([usize; 2], plan::RowTaps)>,
     zoomed: bool,
     /// `?` is open: the help replaces the report.
     help: bool,
@@ -187,6 +237,8 @@ impl Default for ScreenState {
             taps: Taps::default(),
             cursors: [LAST_DAY; SECTIONS],
             details: [None; SECTIONS],
+            plan: PlanPos::default(),
+            plan_taps: None,
             zoomed: true,
             help: false,
             scrolls,
@@ -204,6 +256,10 @@ pub enum Msg {
     Range,
     Group,
     Model,
+    /// The other table of the Plan report (a click on its control).
+    PlanWindow,
+    /// A click on the `index`-th period of table `window`.
+    PlanRow(usize, usize),
     Refresh,
     Close,
     /// What the list keys ask of the surface in front (`keys::ListAct`).
@@ -351,6 +407,8 @@ struct Page<'a> {
     /// The selected day of each report (the cards show them).
     cursors: &'a [usize; SECTIONS],
     list: &'a ListController,
+    plan: &'a PlanPos,
+    plan_taps: Option<plan::RowTaps>,
 }
 
 impl Page<'_> {
@@ -393,6 +451,7 @@ impl Page<'_> {
                 look: (*look).clone(),
                 cursors: *self.cursors,
                 list: self.list.clone(),
+                plan: self.plan.clone(),
                 taps: self.taps.clone(),
             });
         }
@@ -414,6 +473,15 @@ impl Page<'_> {
                 })
                 .into()
             }
+            Section::Plan => plan::body(
+                model,
+                self.plan,
+                strings,
+                num,
+                look,
+                self.plan_taps.clone(),
+                self.scroll().clone(),
+            ),
             section => report::body(
                 model,
                 section,
@@ -510,6 +578,27 @@ impl Page<'_> {
                 &taps.model,
             ));
         }
+        if model.control_available(Control::PlanWindow, false) {
+            let hints = [keys::LEFT, keys::RIGHT]
+                .into_iter()
+                .map(|id| keys::hint(keymap, id))
+                .filter(|hint| !hint.is_empty())
+                .collect::<Vec<_>>()
+                .join(strings.plan_key_join);
+            let on = look.accent.clone().attrs(Attrs::BOLD);
+            let pick = |active: bool| if active { on.clone() } else { look.dim.clone() };
+            let mut spans = Vec::new();
+            if !hints.is_empty() {
+                spans.push(Span::styled(hints, look.dim.clone()));
+                spans.push(blank());
+            }
+            spans.extend([
+                Span::styled(strings.plan_window_five, pick(self.plan.window == 0)),
+                Span::styled(strings.plan_window_slash, look.dim.clone()),
+                Span::styled(strings.plan_window_week, pick(self.plan.window == 1)),
+            ]);
+            rows[usize::from(inner < 100)].push(control(spans, &taps.plan_window));
+        }
         if !shown.zoomed {
             let mut spans = vec![Span::styled(strings.dashboard, look.bold.clone())];
             let accept = keys::hint(keymap, keys::ACCEPT);
@@ -584,6 +673,7 @@ impl Page<'_> {
                 keymap: self.keymap.clone(),
                 shown: self.shown,
                 help: self.help,
+                row_details: self.plan.has_row(model.plan.ready().map(|r| &**r)),
                 controller: self.scroll().clone(),
                 key: look.dim.clone(),
                 hint: look.dim.clone(),
@@ -611,6 +701,31 @@ fn panels(model: &Model, strings: &Strings, look: &Look) -> AnyWidget {
         .into()
 }
 
+impl ScreenState {
+    /// The handlers of the clicks on the Plan report's periods, as many as
+    /// each table holds (made here, not in `build`: a handler made there
+    /// would not compare equal and rebuild every row).
+    fn retap(&mut self, cx: &mut Cx<'_, Self>) {
+        let model = read::<ScreenStates, _>(cx).usage.clone();
+        let counts = model.plan.ready().map_or([0, 0], |report| {
+            [0, 1].map(|window| report.periods[window].len())
+        });
+        if self
+            .plan_taps
+            .as_ref()
+            .is_some_and(|(was, _)| *was == counts)
+        {
+            return;
+        }
+        let taps = [0, 1].map(|window| {
+            (0..counts[window])
+                .map(|index| cx.map(move |_: PointerEvent| Msg::PlanRow(window, index)))
+                .collect::<Vec<_>>()
+        });
+        self.plan_taps = Some((counts, Rc::new(taps)));
+    }
+}
+
 impl State for ScreenState {
     type Widget = Screen;
     type Msg = Msg;
@@ -627,11 +742,17 @@ impl State for ScreenState {
             range: Some(cx.map(|_: PointerEvent| Msg::Range)),
             group: Some(cx.map(|_: PointerEvent| Msg::Group)),
             model: Some(cx.map(|_: PointerEvent| Msg::Model)),
+            plan_window: Some(cx.map(|_: PointerEvent| Msg::PlanWindow)),
         };
+        self.retap(cx);
         if let Some(view) = w.open {
             let hs = read::<Hs, _>(cx);
             cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Open { view }));
         }
+    }
+
+    fn did_change_dependencies(&mut self, _: &Screen, cx: &mut Cx<'_, Self>) {
+        self.retap(cx);
     }
 
     fn update(&mut self, msg: Msg, _: &Screen, cx: &mut Cx<'_, Self>) -> Rebuild {
@@ -710,6 +831,18 @@ impl State for ScreenState {
             }
             Msg::Group => Some(UsageIntent::Group),
             Msg::Model => Some(UsageIntent::Model),
+            Msg::PlanRow(window, index) => {
+                self.plan
+                    .pick(window, index, model.plan.ready().map(|r| &**r));
+                rebuild = Rebuild::Yes;
+                None
+            }
+            Msg::PlanWindow => {
+                self.plan
+                    .step(PlanStep::Switch, model.plan.ready().map(|r| &**r));
+                rebuild = Rebuild::Yes;
+                None
+            }
             Msg::Refresh => Some(UsageIntent::Refresh),
             Msg::Close => {
                 cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
@@ -739,6 +872,8 @@ impl State for ScreenState {
         };
         let (help, scrolls) = (self.help, self.scrolls.clone());
         let (cursors, list) = (self.cursors, self.dashboard.clone());
+        let plan = self.plan.clone();
+        let plan_taps = self.plan_taps.as_ref().map(|(_, taps)| taps.clone());
         let look = Look {
             dim: tokens.dim(),
             secondary: tokens.dim(),
@@ -771,6 +906,8 @@ impl State for ScreenState {
                     scrolls: &scrolls,
                     cursors: &cursors,
                     list: &list,
+                    plan: &plan,
+                    plan_taps: plan_taps.clone(),
                 }
                 .dashboard(constraints.max_width)
             }

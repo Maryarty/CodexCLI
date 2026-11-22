@@ -34,6 +34,8 @@ pub(super) struct Facts<'a> {
     pub help: bool,
     /// Whether the report scrolls (it is taller than its room).
     pub scrollable: bool,
+    /// There is a row under the cursor to open (a period of the Plan).
+    pub row_details: bool,
 }
 
 /// A hint: the keys as shown and what they do (empty: the keys alone).
@@ -76,6 +78,7 @@ pub(super) fn rows(facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
         shown,
         help,
         scrollable,
+        row_details,
     } = facts;
     let hint = |id| keys::hint(keymap, id);
     let pair = |a, b| format!("{}/{}", hint(a), hint(b));
@@ -94,7 +97,11 @@ pub(super) fn rows(facts: &Facts<'_>, width: i32) -> [Vec<Part>; 2] {
             Section::Chats => actions.push((pair(keys::UP, keys::DOWN), word(strings.hint_row))),
             _ => actions.push((pair(keys::LEFT, keys::RIGHT), word(strings.hint_day))),
         }
-        if report::is_chart(section) && model.day_has_details(section, shown.cursor) {
+        let details = match section {
+            Section::Plan => *row_details,
+            section => report::is_chart(section) && model.day_has_details(section, shown.cursor),
+        };
+        if details {
             actions.push((hint(keys::ACCEPT), word(strings.hint_details)));
         }
     }
@@ -158,6 +165,7 @@ pub(super) struct Footer {
     pub keymap: Rc<Keymap>,
     pub shown: report::Shown,
     pub help: bool,
+    pub row_details: bool,
     pub controller: ScrollController,
     pub key: Style,
     pub hint: Style,
@@ -173,6 +181,7 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
         keymap,
         shown,
         help,
+        row_details,
         controller,
         key,
         hint,
@@ -194,6 +203,7 @@ pub(super) fn footer(footer: Footer) -> AnyWidget {
                 shown,
                 help,
                 scrollable,
+                row_details,
             };
             let [first, second] = rows(&facts, constraints.max_width);
             let row = |parts: Vec<Part>| -> AnyWidget {

@@ -197,6 +197,32 @@ pub struct Strings {
     pub card_maximize: &'static str,
     /// The mark before the focused card's name.
     pub card_mark: &'static str,
+    /// Oracle: `plan_panel.rs`, `controls.rs`: the two tables of the plan
+    /// history, their rows and the notes under them.
+    pub plan_five: &'static str,
+    pub plan_week: &'static str,
+    /// The mark before the table in front and before the row under the cursor.
+    pub plan_mark: &'static str,
+    plan_period: Msg<4>,
+    pub plan_current: &'static str,
+    plan_percent: Msg<1>,
+    pub plan_unknown: &'static str,
+    pub plan_incomplete: &'static str,
+    pub plan_no_breakdown: &'static str,
+    plan_indented: Msg<1>,
+    pub plan_empty: &'static str,
+    pub plan_unavailable: &'static str,
+    pub plan_turn_note: &'static str,
+    pub plan_gaps: &'static str,
+    plan_as_of: Msg<1>,
+    plan_since: Msg<1>,
+    pub plan_approximate: &'static str,
+    /// The control that picks the table, without its keys.
+    pub plan_window_five: &'static str,
+    pub plan_window_week: &'static str,
+    pub plan_window_slash: &'static str,
+    /// Between the two keys that move to the other table.
+    pub plan_key_join: &'static str,
 }
 
 /// English: the oracle's text.
@@ -352,6 +378,27 @@ pub const EN: Strings = Strings {
     card_group: msg!("By {0}"),
     card_maximize: "\u{2026} z to maximize",
     card_mark: "\u{25b8}",
+    plan_five: "5-hour limits",
+    plan_week: "Weekly limits",
+    plan_mark: "\u{203a}",
+    plan_period: msg!("{0} {1} \u{2013} {2}{3}"),
+    plan_current: " *",
+    plan_percent: msg!("{0}%"),
+    plan_unknown: "Not available",
+    plan_incomplete: "  Some usage is unavailable; this period may be incomplete",
+    plan_no_breakdown: "  Breakdown isn't available for this period",
+    plan_indented: msg!("  {0}"),
+    plan_empty: "No limit periods in this date range",
+    plan_unavailable: "Limit history isn't available yet",
+    plan_turn_note: "By turn start includes Tasks only; percentages use the full period limit",
+    plan_gaps: "Some periods aren't available yet",
+    plan_as_of: msg!("Usage as of {0} UTC \u{b7} * current at last update"),
+    plan_since: msg!("Available since {0} UTC"),
+    plan_approximate: "Amounts and period boundaries are approximate; recent activity may be delayed",
+    plan_window_five: "5-hour",
+    plan_window_week: "Weekly",
+    plan_window_slash: " / ",
+    plan_key_join: "/",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -530,6 +577,56 @@ impl Strings {
         } else {
             day.to_string()
         }
+    }
+
+    /// `\u{203a} Sep 2 10:00 \u{2013} Sep 2 15:00 *` (a period's row, the mark empty
+    /// or `\u{203a}`, a `*` when it is the one in progress).
+    pub fn plan_period(
+        &self,
+        marked: bool,
+        start: i64,
+        end: i64,
+        current: bool,
+        hour24: bool,
+        num: &NumSyms,
+    ) -> String {
+        let (start, end) = (
+            self.date_time(start, hour24, num),
+            self.date_time(end, hour24, num),
+        );
+        Fmt::new(
+            self.plan_period,
+            [
+                Arg::Text(if marked { self.plan_mark } else { self.blank }),
+                Arg::Text(&start),
+                Arg::Text(&end),
+                Arg::Text(if current { self.plan_current } else { "" }),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    /// `125%` for the percentage (`amount` is the shown number).
+    pub fn plan_percent(&self, amount: &str, num: &NumSyms) -> String {
+        Fmt::new(self.plan_percent, [Arg::Text(amount)], num).to_string()
+    }
+
+    /// `  <label>` (a breakdown row).
+    pub fn plan_indented(&self, label: &str, num: &NumSyms) -> String {
+        Fmt::new(self.plan_indented, [Arg::Text(label)], num).to_string()
+    }
+
+    /// `Usage as of Sep 2 12:00 UTC \u{b7} * current at last update`.
+    pub fn plan_as_of(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.plan_as_of, [Arg::Text(&time)], num).to_string()
+    }
+
+    /// `Available since Sep 1 00:00 UTC`.
+    pub fn plan_since(&self, seconds: i64, hour24: bool, num: &NumSyms) -> String {
+        let time = self.date_time(seconds, hour24, num);
+        Fmt::new(self.plan_since, [Arg::Text(&time)], num).to_string()
     }
 
     /// `Sep 2 16:00`, or `Sep 2 4:00 PM` on a 12-hour clock (chrono's

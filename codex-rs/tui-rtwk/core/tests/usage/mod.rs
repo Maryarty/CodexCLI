@@ -6,6 +6,7 @@
 
 mod dashboard;
 mod normalize;
+mod plan;
 mod plot;
 mod report;
 mod seed;

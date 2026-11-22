@@ -402,3 +402,239 @@ fn the_report_time_shows_in_the_help_the_card_and_the_controls() {
     let help = h.t.screen();
     assert!(help.contains("Report updated Sep 2 16:30 UTC"), "{help}");
 }
+
+const PLAN_NAVIGATION: &str = "analytics/snapshots/codex_tui__analytics__plan__tests__period_navigation_preserves_unknowns_and_resets_on_new_snapshot.snap";
+const PLAN_STATES: &str = "analytics/snapshots/codex_tui__analytics__plan__tests__unavailable_empty_and_zero_history_are_distinct.snap";
+const PLAN_CLOCKS: &str =
+    "analytics/snapshots/codex_tui__analytics__plan__tests__plan_clocks_twelve_hour.snap";
+
+/// The oracle's snapshot of two screens, 120x30 and 58x30, joined with a blank
+/// row.
+fn plan_halves() -> (Vec<String>, Vec<String>) {
+    let mut wide = oracle_snap::rows(PLAN_NAVIGATION);
+    let narrow = wide.split_off(31);
+    assert_eq!(wide.pop().as_deref(), Some(""), "the separating row");
+    (wide, narrow)
+}
+
+/// The Plan report in front: both tables open to their first period with
+/// the details of each (a 5-hour period with an incomplete day and its
+/// breakdown, a weekly one without one), the tables side by side from 100
+/// cells and one under the other below (oracle: `period_navigation_preserves_
+/// unknowns_and_resets_on_new_snapshot`, both screens).
+#[test]
+fn period_details_open_in_both_tables_wide_and_narrow() {
+    let mut h = open("plan", 120, 30);
+    for key in ["enter", "right", "enter"] {
+        h.press(key);
+    }
+    let (wide, narrow) = plan_halves();
+    oracle_snap::assert_same("plan_wide", &oracle_snap::screen(&h.t), &wide);
+    h.t.resize(58, 30);
+    oracle_snap::assert_same("plan_narrow", &oracle_snap::screen(&h.t), &narrow);
+}
+
+/// The body without the page's inset, from the row that starts `from`.
+fn plan_body(h: &Harness, from: &str, rows: usize) -> Vec<String> {
+    let screen = oracle_snap::screen(&h.t);
+    let at = screen
+        .iter()
+        .position(|row| row.trim_start().starts_with(from))
+        .unwrap_or_else(|| panic!("no `{from}` on\n{}", screen.join("\n")));
+    screen
+        .iter()
+        .skip(at)
+        .take(rows)
+        .map(|row| row.strip_prefix(' ').unwrap_or(row).trim_end().to_owned())
+        .collect()
+}
+
+/// The history is not loaded, has no periods, used nothing, or the period
+/// has not started: four different bodies (oracle: `unavailable_empty_and_
+/// zero_history_are_distinct`, at a body 100 cells wide).
+#[test]
+fn unavailable_empty_and_zero_history_are_distinct() {
+    let rows = oracle_snap::rows(PLAN_STATES);
+    let mut states: Vec<Vec<String>> = Vec::new();
+    for row in rows {
+        if row.starts_with("\u{203a} 5-hour limits") {
+            states.push(Vec::new());
+        }
+        if let Some(state) = states.last_mut() {
+            state.push(row);
+        }
+    }
+    assert_eq!(states.len(), 4);
+    for (state, entry) in
+        states
+            .iter_mut()
+            .zip(["plan_unavailable", "plan_empty", "plan_zero", "plan_future"])
+    {
+        if state.last().is_some_and(String::is_empty) {
+            state.pop();
+        }
+        let h = open(entry, 102, 30);
+        let got = plan_body(&h, "\u{203a} 5-hour limits", state.len());
+        oracle_snap::assert_same(entry, &got, state);
+    }
+}
+
+/// Times follow the clock preference and stay UTC (oracle: `plan_clocks_follow_
+/// preference_and_keep_utc`, a body 80 cells wide).
+#[test]
+fn plan_clocks_follow_preference_and_keep_utc() {
+    let h = open("plan_twelve_hour", 82, 30);
+    let expected = oracle_snap::rows(PLAN_CLOCKS);
+    let got = plan_body(&h, "\u{203a} 5-hour limits", expected.len());
+    oracle_snap::assert_same("plan_clocks_twelve_hour", &got, &expected);
+}
+
+/// Esc closes the details of the period before it closes the page (oracle:
+/// `plan_escape_collapses_details_before_closing`).
+#[test]
+fn plan_escape_collapses_details_before_closing() {
+    let mut h = open("plan", 120, 30);
+    h.press("enter");
+    assert!(h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    h.press("escape");
+    assert!(!h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    assert!(h.t.screen().contains("5-hour limits"), "the page stays");
+    h.press("escape");
+    assert!(!h.t.screen().contains("5-hour limits"), "{}", h.t.screen());
+}
+
+/// Moving to another period closes the open one; the other table's key
+/// moves to its table, leaving the cursor of this one where it was (oracle:
+/// `moving_period_selection_collapses_its_previous_details`).
+#[test]
+fn moving_period_selection_collapses_its_previous_details() {
+    let mut h = open("plan_many", 120, 30);
+    h.press("enter");
+    assert!(h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    h.press("down");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Tasks"), "{screen}");
+    assert!(
+        screen.contains("\u{203a} Sep 2 05:00"),
+        "the second row: {screen}"
+    );
+    h.press("right");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} Weekly limits"), "{screen}");
+    assert!(!screen.contains("  \u{203a} 5-hour limits"), "{screen}");
+    // The tab leaves the report and the shift tab comes back to it with
+    // the cursors where they were.
+    h.press("tab");
+    assert!(!h.t.screen().contains("5-hour limits"), "{}", h.t.screen());
+    h.press("shift+tab");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} Weekly limits"), "{screen}");
+    assert!(screen.contains("\u{203a} Sep 2 05:00"), "{screen}");
+}
+
+/// The oracle follows the cursor: the rows of the period under it stay in
+/// view as it moves down a long table and to the other table (`follow_
+/// selection_on_focus`). Flutter: `Scrollable.ensureVisible(context)` of the
+/// selected row.
+#[test]
+#[ignore = "pending(G-new-usage-1): no ensure_visible of a row from a State; the Plan report does not follow its cursor"]
+fn the_plan_report_follows_the_cursor_row() {
+    let mut h = open("plan_many", 80, 24);
+    for _ in 0..13 {
+        h.press("down");
+    }
+    assert!(
+        h.t.screen().contains("\u{203a} Sep 2 05:00"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("right");
+    assert!(
+        h.t.screen()
+            .contains("\u{203a} Sep 1 00:00 \u{2013} Sep 8 00:00"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// A click on the control that names the tables puts the other one in front,
+/// where it is painted and not beside it (oracle: `mouse_tests`, the
+/// `PlanWindow` hit).
+#[test]
+fn clicking_the_plan_window_control_puts_the_other_table_in_front() {
+    let mut h = open("plan", 120, 30);
+    assert!(
+        h.t.screen().contains("\u{203a} 5-hour limits"),
+        "{}",
+        h.t.screen()
+    );
+    let (x, y) = find(&h, "5-hour /");
+    // Right of the control's last cell: no table changes.
+    let width = "\u{2190}/\u{2192} 5-hour / Weekly".chars().count() as u16;
+    let (start, _) = find(&h, "\u{2190}/\u{2192}");
+    h.t.click(start + width, y);
+    h.advance(500);
+    assert!(
+        h.t.screen().contains("\u{203a} 5-hour limits"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.click(x, y);
+    h.advance(500);
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} Weekly limits"), "{screen}");
+    assert!(!screen.contains("\u{203a} 5-hour limits"), "{screen}");
+    // The cursor of the table left stays.
+    h.press("left");
+    assert!(
+        h.t.screen().contains("\u{203a} 5-hour limits"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// A click on a period of the report puts the cursor on it, in its table;
+/// a second click opens its details and a third closes them.
+#[test]
+fn clicking_a_period_selects_it_and_a_second_click_opens_it() {
+    let mut h = open("plan_many", 100, 30);
+    // The second 5-hour period; the first is the one in progress.
+    tap(&mut h, "Sep 2 05:00 \u{2013} Sep 2 10:00");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} Sep 2 05:00"), "{screen}");
+    assert!(!screen.contains("Tasks"), "{screen}");
+    tap(&mut h, "Sep 2 05:00 \u{2013} Sep 2 10:00");
+    assert!(h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    tap(&mut h, "Sep 2 05:00 \u{2013} Sep 2 10:00");
+    assert!(!h.t.screen().contains("Tasks"), "{}", h.t.screen());
+    // A period of the other table takes the front.
+    tap(&mut h, "Sep 1 00:00 \u{2013} Sep 8 00:00");
+    let screen = h.t.screen();
+    assert!(screen.contains("\u{203a} Weekly limits"), "{screen}");
+}
+
+/// `enter details` is offered where a period is under the cursor (oracle:
+/// `footer_lines`, `plan_details`).
+#[test]
+fn the_details_hint_needs_a_period_under_the_cursor() {
+    let h = open("plan", 120, 30);
+    assert!(h.t.screen().contains("enter details"), "{}", h.t.screen());
+    let h = open("plan_empty", 120, 30);
+    assert!(!h.t.screen().contains("details"), "{}", h.t.screen());
+}
+
+/// The dashboard's Plan card shows the first period of each table and the
+/// notes, no details (oracle: `plan_lines` of an unzoomed view).
+#[test]
+fn the_plan_card_shows_the_first_period_of_each_table() {
+    let mut h = open("plan_many", 144, 64);
+    h.press("z");
+    let screen = h.t.screen();
+    assert!(screen.contains("Plan \u{2500}"), "{screen}");
+    assert_eq!(screen.matches("Sep 2 05:00").count(), 0, "{screen}");
+    assert!(
+        screen.contains("Sep 2 10:00 \u{2013} Sep 2 15:00 *"),
+        "{screen}"
+    );
+    assert!(screen.contains("Usage as of Sep 2 12:00 UTC"), "{screen}");
+}
