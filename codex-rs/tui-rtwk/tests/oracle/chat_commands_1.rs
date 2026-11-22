@@ -540,7 +540,7 @@ fn unbound_queued_message_edit_does_not_fall_back_to_alt_up() {
 fn queued_message_edit_hint_displays_configured_chords() {
     kit::pending(
         Owner::ChatNavPane,
-        "no keymap seed for the chord ctrl-x up (keymap(..) is not read by the port yet) and no seed for a queued message on a running turn",
+        "the seed sets the chord (`.keymap(..)` is read), but the chat has no queued-message hint (`edit last queued message` is nowhere in the port) and no seed queues a message on a running turn",
     );
     let s = Screen::build(Owner::ChatNavPane)
         .size(100, 24)

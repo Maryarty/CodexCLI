@@ -153,7 +153,7 @@ fn slash_keymap_invalid_args_show_usage() {
 fn copy_shortcut_can_be_remapped() {
     kit::pending(
         Owner::ChatNavPane,
-        "the keymap seed (global.copy remapped to alt+v) is not registered: the port reads no key bindings from a config yet",
+        "the seed sets global.copy = alt+v (`.keymap(..)` is read), but the chat has no copy action (`No agent response to copy` is nowhere in the port): `alt+v` does nothing",
     );
     let mut s = Screen::build(Owner::ChatNavPane)
         .size(80, 24)

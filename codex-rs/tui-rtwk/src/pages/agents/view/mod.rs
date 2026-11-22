@@ -10,6 +10,8 @@
 
 use std::rc::Rc;
 
+use codex_tui_core::keymap::ActionId;
+use codex_tui_core::keymap::actions::*;
 use rtwk::AnyWidget;
 use rtwk::BuildCx;
 use rtwk::Handler;
@@ -38,6 +40,7 @@ use codex_tui_core::screens::agents::{
 };
 
 use super::help::{self, Ink};
+use super::hints::Hints;
 use super::path;
 use super::strings::Strings;
 use super::usage;
@@ -248,7 +251,7 @@ pub struct Controls {
 }
 
 /// A key table's handlers, name and handler (`KeyBindings`).
-pub type Table = Vec<(&'static str, Handler<()>)>;
+pub type Table = Vec<(String, Handler<()>)>;
 
 /// The key tables of the modes: each binds on the widget the mode shows, so
 /// the focus decides which one the key reaches.

@@ -5,9 +5,11 @@ use super::*;
 
 /// The three header rows (oracle: `render`): title and grouping, the tab
 /// strip with the filter hint, the rule.
+#[allow(clippy::too_many_arguments)]
 pub fn header(
     look: &Look,
     strings: &Strings,
+    hints: &Hints,
     num: &NumSyms,
     model: &Model,
     ui: &Ui,
@@ -39,9 +41,10 @@ pub fn header(
         taps: taps.tabs.clone(),
     }
     .widget();
-    let hint = (!ui.editing()).then(|| {
+    let keys = hints.filter();
+    let hint = (!ui.editing() && !keys.is_empty()).then(|| {
         one(vec![
-            span(strings.filter_keys, &look.plain),
+            span(keys, &look.plain),
             span(format!(" {}", strings.filter_label), &look.muted),
         ])
     });

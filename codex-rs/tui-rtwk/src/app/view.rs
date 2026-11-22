@@ -111,6 +111,10 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         .with(Provider::value_shared(app.core.requests().clone()))
         .with(Provider::value_shared(app.core.screens().clone()))
         .with(
+            Provider::value_shared(app.core.keymap().clone())
+                .update_should_notify(|old, new| old != new),
+        )
+        .with(
             Provider::value(app.core.agents_threads()).update_should_notify(|old, new| old != new),
         )
         .with(Provider::value_shared(Rc::new(hs)).update_should_notify(|_, _| false))

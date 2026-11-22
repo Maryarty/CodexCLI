@@ -25,6 +25,7 @@ use crate::ids::ThreadId;
 use crate::ids::Ticket;
 use crate::ids::TicketMint;
 use crate::ids::TurnId;
+use crate::keymap::Keymap;
 use crate::protocol::requests;
 use crate::protocol::targets;
 use crate::rpc::Answer;
@@ -202,6 +203,9 @@ pub enum AppEv {
     },
     Intent(Intent),
     Screen(ScreenEv),
+    /// The keymap the config makes (`tui.keymap.*`), sent by the host once
+    /// the config is read; until then the built-in defaults hold.
+    Keymap(Box<Keymap>),
 }
 
 /// An event with the connection epoch it was attached under, and the
@@ -400,6 +404,9 @@ pub struct CodexApp {
     /// The first thread's start waits for the startup steps to end
     /// (`FirstThread::AfterLaunch`).
     start_held: bool,
+    /// The key bindings every screen reads (`AppEv::Keymap`); one value, so a
+    /// widget that holds a binding hint can never hold a stale one.
+    keymap: Rc<Keymap>,
 }
 
 /// When the process's first thread starts.
@@ -453,6 +460,7 @@ impl CodexApp {
             attaching_events: VecDeque::new(),
             first_thread: FirstThread::OnConnect,
             start_held: false,
+            keymap: Rc::new(Keymap::defaults()),
         }
     }
 
@@ -484,6 +492,11 @@ impl CodexApp {
 
     pub fn screens(&self) -> &Rc<ScreenStates> {
         &self.screens
+    }
+
+    /// The key bindings (`tui.keymap.*` over the built-in defaults).
+    pub fn keymap(&self) -> &Rc<Keymap> {
+        &self.keymap
     }
 
     pub fn agents_threads(&self) -> agents::CenterThreads {
@@ -1006,6 +1019,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             apply_intent(app, intent, fx);
             release_held_start(app, fx);
         }
+        AppEv::Keymap(keymap) => app.keymap = Rc::new(*keymap),
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {

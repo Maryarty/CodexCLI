@@ -197,5 +197,41 @@ pub fn debug_entries() -> Vec<DebugEntry> {
                 .into()
             }),
         },
+        DebugEntry {
+            name: "keys_two",
+            description: "an idle and a working task, for the configured keys",
+            script: include_str!("fixtures/keys_two.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
+            name: "keys_empty",
+            description: "no tasks, the server has pins, for the configured keys' footer",
+            script: include_str!("fixtures/keys_empty.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
+        DebugEntry {
+            name: "keys_task",
+            description: "one task, the server has pins, for the configured keys' help",
+            script: include_str!("fixtures/keys_task.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| {
+                Screen {
+                    can_return: true,
+                    open: false,
+                }
+                .into()
+            }),
+        },
     ]
 }

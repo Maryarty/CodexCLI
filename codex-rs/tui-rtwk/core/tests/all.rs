@@ -23,6 +23,7 @@ mod composer_shell;
 mod dialogs;
 mod directives;
 mod import;
+mod keymap;
 mod model;
 mod onboarding;
 mod pets;
