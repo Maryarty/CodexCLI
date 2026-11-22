@@ -672,6 +672,93 @@ fn the_multi_select_yields_its_spacers_before_the_selected_row() {
     }
 }
 
+/// `multi_select_picker.rs` `picker_appearance_renders_checkboxes_preview_and_overflow`: the three
+/// frames of the oracle's snapshot (rows only: the dump's cell styles say `bg: Reset`, the debug host
+/// under the sheet paints its own background), each at the height the oracle drew it in. The rule row
+/// is a disabled row of its own that sizes the label column (`SECTION_BREAK_ROW`), so the details
+/// start at column 27. The oracle measures that column over the rows in the window (AutoVisible):
+/// once the rule scrolls out (frame 2) its details sit at column 17 there; ours keeps column 27, the
+/// open G39b (the rows below are ours, equal to the oracle's but for those spaces).
+#[test]
+fn the_multi_select_appearance_matches_the_oracle_in_three_frames() {
+    let mut h = sized(48, 17, "multi_appearance");
+    assert_eq!(
+        rows_of(&h),
+        [
+            "",
+            "  Status line",
+            "",
+            "  Type to search",
+            "",
+            "› [x] Field 0              Status detail",
+            "  ───────────────────────",
+            "  [ ] Field 1              Status detail",
+            "  [ ] Field 2              Status detail",
+            "  [ ] Field 3              Status detail",
+            "  [ ] Field 4              Status detail",
+            "  [ ] Field 5              Status detail",
+            "  [ ] Field 6              Status detail",
+            "↓",
+            "  Field 0",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "First page"
+    );
+    for key in ["end", "space", "left"] {
+        h.press(key);
+        h.t.pump_for(ms(100));
+    }
+    assert_eq!(
+        rows_of(&h),
+        [
+            "",
+            "  Status line",
+            "",
+            "  Type to search",
+            "↑",
+            "  [ ] Field 4              Status detail",
+            "  [ ] Field 5              Status detail",
+            "  [ ] Field 6              Status detail",
+            "  [ ] Field 7              Status detail",
+            "  [ ] Field 8              Status detail",
+            "  [ ] Field 9              Status detail",
+            "› [x] Field 11             Status detail",
+            "  [ ] Field 10             Status detail",
+            "",
+            "  Field 0 · Field 11",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "Last page"
+    );
+    h.press("z");
+    h.t.pump_for(ms(100));
+    // the sheet is as tall as its rows (10): the debug page shows around it
+    let shown = rows_of(&h);
+    let top = shown
+        .iter()
+        .position(|row| row == "  Status line")
+        .unwrap_or(1)
+        - 1;
+    assert_eq!(
+        shown[top..top + 10],
+        [
+            "",
+            "  Status line",
+            "",
+            "  z",
+            "",
+            "no matches",
+            "",
+            "  Field 0 · Field 11",
+            "  space toggle · ←/→ reorder · enter save · esc",
+            "  cancel",
+        ],
+        "No matches"
+    );
+}
+
 const BROWSER_PAGE: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__browser_page_navigation_uses_rows_that_fit.snap";
 
 #[test]

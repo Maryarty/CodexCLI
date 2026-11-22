@@ -381,7 +381,9 @@ impl State for PickerState {
 
         let search = list.searchable.then(|| self.search_line(&list, cx));
         let tabs = (!list.tabs.is_empty()).then(|| self.tab_strip(&list, &tokens, s, cx));
-        let rows = (!visible.is_empty()).then(|| {
+        // Nothing listed (a search without a match): no list under the controller, no arrows.
+        let listed = !visible.is_empty();
+        let rows = listed.then(|| {
             Rc::new(Rows {
                 rows: Rc::new(browse.rows(&visible)),
                 taps: Rc::new(
@@ -440,8 +442,8 @@ impl State for PickerState {
             search,
             rows,
             empty: (s.no_matches.to_string(), tokens.dim().attrs(Attrs::ITALIC)),
-            above: self.arrow(true, s.more_above, tokens.accent()),
-            below: self.arrow(false, s.more_below, tokens.accent()),
+            above: self.arrow(true, s.more_above, tokens.accent(), listed),
+            below: self.arrow(false, s.more_below, tokens.accent(), listed),
             side: list.side.clone().map(|side| (side, Style::new())),
             preview: list.preview_names().map(|names| names.join(s.preview_join)),
             note: list.footer_note.clone(),
@@ -674,7 +676,7 @@ impl PickerState {
     /// A row high, `glyph` while rows are scrolled out of view above (or
     /// below): the oracle's `↑` and `↓` of a picker, read from the list's
     /// position, so they follow its scroll.
-    fn arrow(&self, above: bool, glyph: &'static str, style: Style) -> AnyWidget {
+    fn arrow(&self, above: bool, glyph: &'static str, style: Style, listed: bool) -> AnyWidget {
         let scroll = self.scroll.clone();
         let watched = Rc::new((*self.scroll).clone());
         SizedBox::new(
@@ -682,13 +684,14 @@ impl PickerState {
             Some(1),
             Some(
                 ListenableBuilder::new(watched, move |_, _| {
-                    let shown = scroll.try_position().is_ok_and(|at| {
-                        if above {
-                            at.pixels() > 0
-                        } else {
-                            at.pixels() < at.max_scroll_extent()
-                        }
-                    });
+                    let shown = listed
+                        && scroll.try_position().is_ok_and(|at| {
+                            if above {
+                                at.pixels() > 0
+                            } else {
+                                at.pixels() < at.max_scroll_extent()
+                            }
+                        });
                     Text::line(if shown { glyph } else { "" })
                         .style(style.clone())
                         .into()

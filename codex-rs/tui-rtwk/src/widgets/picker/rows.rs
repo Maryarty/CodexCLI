@@ -200,10 +200,18 @@ impl Rows {
             // The label column keeps 30% of the room (less the gap) for the
             // descriptions: a longer label wraps inside it.
             let cap = (room * 70 / 100).saturating_sub(2).max(1);
+            // The oracle's rule is a disabled row of its own (`SECTION_BREAK_ROW`
+            // in multi_select_picker.rs): its width sizes the column too.
+            let rule = self
+                .rows
+                .iter()
+                .any(|row| row.section_break)
+                .then(|| width(self.words.section_break));
             let widest = self
                 .rows
                 .iter()
                 .map(|row| self.hang(row, width) + width(&self.words.name(row)))
+                .chain(rule)
                 .max()
                 .unwrap_or(0);
             self.name_width
