@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use rtwk::focus::{Focus, KeyPress};
+use rtwk::focus::{Focus, KeyBindings, KeyPress};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
@@ -36,6 +36,7 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 
+mod keys;
 pub mod overview;
 pub mod report;
 pub mod strings;
@@ -52,6 +53,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             name: "overview",
             description: "the Overview of a Plus account at 140 cells",
             script: include_str!("fixtures/overview.jsonl"),
+            open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
+        },
+        DebugEntry {
+            name: "credits_refund",
+            description: "an Enterprise account's Credits report with a refund, the focused report",
+            script: include_str!("fixtures/credits_refund.jsonl"),
             open: EntryOpen::Route(|_: &Seeded| Screen::seeded(false).into()),
         },
         DebugEntry {
@@ -110,10 +117,39 @@ struct Taps {
     model: Option<Handler<PointerEvent>>,
 }
 
-/// Widget state: the handlers of its clicks.
-#[derive(Default)]
+/// The reports of an account (the model's `Section`s).
+const SECTIONS: usize = 8;
+
+/// The days of the shortest range: the selected day starts at the last.
+const LAST_DAY: usize = 6;
+
+/// Widget state: the handlers of its clicks, the selected day and the open
+/// detail of each report, whether the report is the focused one (R14: indexes
+/// and flags, never what the model holds).
 pub struct ScreenState {
     taps: Taps,
+    cursors: [usize; SECTIONS],
+    details: [Option<usize>; SECTIONS],
+    zoomed: bool,
+}
+
+impl Default for ScreenState {
+    fn default() -> Self {
+        Self {
+            taps: Taps::default(),
+            cursors: [LAST_DAY; SECTIONS],
+            details: [None; SECTIONS],
+            zoomed: true,
+        }
+    }
+}
+
+/// A step of the selected day.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Day {
+    By(isize),
+    /// The first (false) or the last day.
+    Edge(bool),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,6 +165,12 @@ pub enum Msg {
     /// A key whose action is not built yet: the hint's index.
     NotYet(usize),
     Close,
+    /// An arrow, `h`, `l`, Home or End on a report.
+    Day(Day),
+    /// Enter and space: the numbers of the selected day, whole.
+    Details,
+    /// Esc closes the detail first, then the page.
+    Escape,
 }
 
 impl StatefulWidget for Screen {
@@ -142,9 +184,12 @@ impl StatefulWidget for Screen {
 impl_widget!(stateful eq Screen);
 
 /// The styles the dashboard draws with.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Look {
     pub dim: Style,
+    /// Labels and instructions (oracle: `secondary_style`, a blend of the
+    /// terminal's colours where it has them).
+    pub secondary: Style,
     pub bold: Style,
     pub accent: Style,
     pub selected: Style,
@@ -326,7 +371,24 @@ fn controls(
 
 /// The footer's two rows: what the page does, then the keys that go to
 /// other reports (oracle: `hints.rs`, wide spelling).
-fn footer(model: &Model, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWidget {
+fn footer(
+    model: &Model,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    shown: report::Shown,
+) -> AnyWidget {
+    let mut actions: Vec<(String, String)> = Vec::new();
+    if report::is_chart(model.section) {
+        actions.push((strings.hint_day.0.to_owned(), strings.hint_day.1.to_owned()));
+        if model.day_has_details(model.section, shown.cursor) {
+            actions.push((
+                strings.hint_details.0.to_owned(),
+                strings.hint_details.1.to_owned(),
+            ));
+        }
+    }
+    actions.push((strings.back.0.to_owned(), strings.back.1.to_owned()));
     let report = if model.visible_sections().is_empty() {
         vec![("R".to_owned(), "retry".to_owned())]
     } else {
@@ -345,29 +407,37 @@ fn footer(model: &Model, strings: &Strings, num: &NumSyms, look: &Look) -> AnyWi
     Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(crate::widgets::page_keys::footer(
-            [strings.back],
+        .child(crate::widgets::page_keys::footer_with(
+            actions,
             look.dim.clone(),
             look.dim.clone(),
+            " \u{b7} ",
         ))
         .child(crate::widgets::page_keys::footer_with(
             report,
             look.dim.clone(),
             look.dim.clone(),
-            " · ",
+            " \u{b7} ",
         ))
         .into()
 }
 
 /// The report below the controls.
-fn body(model: &Model, strings: &Strings, num: &NumSyms, look: &Look, width: i32) -> AnyWidget {
+fn body(
+    model: &Model,
+    strings: &Strings,
+    num: &NumSyms,
+    look: &Look,
+    width: i32,
+    shown: report::Shown,
+) -> AnyWidget {
     if model.visible_sections().is_empty() {
         let message = model.account.message().unwrap_or(strings.not_available);
         return line(message, Style::default()).into();
     }
     match model.section {
         Section::Summary => overview::body(model, strings, num, look, width),
-        section => report::body(model, section, strings),
+        section => report::body(model, section, strings, num, look, shown),
     }
 }
 
@@ -379,6 +449,7 @@ fn dashboard(
     look: &Look,
     taps: &Taps,
     width: i32,
+    shown: report::Shown,
 ) -> AnyWidget {
     let inset = i32::from(width > 2);
     let inner = (width - 2 * inset).max(1);
@@ -396,8 +467,11 @@ fn dashboard(
         ))
         .child(rule)
         .child(controls(model, strings, num, look, taps, inner))
-        .child(Expanded::new(1, body(model, strings, num, look, inner)))
-        .child(footer(model, strings, num, look));
+        .child(Expanded::new(
+            1,
+            body(model, strings, num, look, inner, shown),
+        ))
+        .child(footer(model, strings, num, look, shown));
     Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
 }
 
@@ -415,7 +489,7 @@ fn panels(model: &Model, strings: &Strings) -> AnyWidget {
                 Section::Activity,
             ]
             .into_iter()
-            .map(|section| report::body(model, section, strings)),
+            .map(|section| report::message(model, section, strings)),
         )
         .into()
 }
@@ -443,7 +517,57 @@ impl State for ScreenState {
         let hs = read::<Hs, _>(cx);
         let model = watch::<ScreenStates, _>(cx).usage.clone();
         let visible = model.visible_sections();
+        let section = model.section;
+        let mut rebuild = Rebuild::No;
         let intent = match msg {
+            Msg::Day(step) => {
+                let last = model.day_count(section).max(1) - 1;
+                let cursor = &mut self.cursors[section as usize];
+                let before = *cursor;
+                *cursor = match step {
+                    Day::By(delta) => (*cursor as isize + delta).clamp(0, last as isize) as usize,
+                    Day::Edge(false) => 0,
+                    Day::Edge(true) => last,
+                };
+                // An open detail follows the selected day.
+                let detail = &mut self.details[section as usize];
+                if detail.is_some() {
+                    *detail = Some(*cursor);
+                }
+                if *cursor != before {
+                    rebuild = Rebuild::Yes;
+                }
+                None
+            }
+            Msg::Details => {
+                let cursor = self.cursors[section as usize];
+                // The counted reports have nothing to open on an empty day.
+                let opens = report::is_chart(section)
+                    && (!matches!(
+                        section,
+                        Section::Plugins | Section::Activity | Section::Skills
+                    ) || model.day_has_details(section, cursor));
+                if opens {
+                    let detail = &mut self.details[section as usize];
+                    *detail = if *detail == Some(cursor) {
+                        None
+                    } else {
+                        Some(cursor)
+                    };
+                    rebuild = Rebuild::Yes;
+                }
+                None
+            }
+            Msg::Escape => {
+                if self.details[section as usize].take().is_some() {
+                    rebuild = Rebuild::Yes;
+                    None
+                } else {
+                    cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
+                    Navigator::maybe_pop(cx);
+                    None
+                }
+            }
             Msg::Pick(index) => visible
                 .get(index)
                 .map(|section| UsageIntent::Select(*section)),
@@ -456,7 +580,34 @@ impl State for ScreenState {
                 Some(UsageIntent::Select(visible[next]))
             }
             Msg::Step(_) => None,
-            Msg::Range => Some(UsageIntent::Range),
+            Msg::Range => {
+                // The days keep their dates: the 30 days hold the 7 after
+                // 23 older ones (oracle: `change_range`).
+                if model.control_available(Control::Range, false) {
+                    let group = model.range_group(section);
+                    let longer = model.ranges[group as usize] == 0;
+                    for other in visible.iter().filter(|other| {
+                        !matches!(other, Section::Chats | Section::Plan | Section::Summary)
+                            && model.range_group(**other) == group
+                    }) {
+                        let index = *other as usize;
+                        self.cursors[index] = if longer {
+                            self.cursors[index] + 23
+                        } else {
+                            self.cursors[index].saturating_sub(23)
+                        };
+                        self.details[index] = self.details[index].and_then(|day| {
+                            if longer {
+                                Some(day + 23)
+                            } else {
+                                day.checked_sub(23)
+                            }
+                        });
+                    }
+                    rebuild = Rebuild::Yes;
+                }
+                Some(UsageIntent::Range)
+            }
             Msg::Group => Some(UsageIntent::Group),
             Msg::Model => Some(UsageIntent::Model),
             Msg::Refresh => Some(UsageIntent::Refresh),
@@ -474,7 +625,7 @@ impl State for ScreenState {
         if let Some(intent) = intent {
             cx.emit(&hs.screen, ScreenIntent::Usage(intent));
         }
-        Rebuild::No
+        rebuild
     }
 
     fn build(&self, w: &Screen, cx: &mut Cx<'_, Self>) -> AnyWidget {
@@ -484,8 +635,15 @@ impl State for ScreenState {
         let screens = watch::<ScreenStates, _>(cx);
         let panels_only = w.panels;
         let taps = self.taps.clone();
+        let section = screens.usage.section as usize;
+        let shown = report::Shown {
+            cursor: self.cursors[section],
+            detail: self.details[section],
+            zoomed: self.zoomed,
+        };
         let look = Look {
             dim: tokens.dim(),
+            secondary: tokens.dim(),
             bold: tokens.bold(),
             accent: tokens.accent(),
             selected: tokens.selected().attrs(Attrs::REVERSE),
@@ -495,12 +653,19 @@ impl State for ScreenState {
             if panels_only {
                 panels(model, strings)
             } else {
-                dashboard(model, strings, &num, &look, &taps, constraints.max_width)
+                dashboard(
+                    model,
+                    strings,
+                    &num,
+                    &look,
+                    &taps,
+                    constraints.max_width,
+                    shown,
+                )
             }
         });
         let mut focus = Focus::new(body)
             .autofocus()
-            .bind(KeyPress::ESC, cx.send(Msg::Close))
             .bind(KeyPress::TAB, cx.send(Msg::Step(1)))
             .bind(KeyPress::BACKTAB, cx.send(Msg::Step(-1)))
             .bind('r', cx.send(Msg::Range))
@@ -515,6 +680,10 @@ impl State for ScreenState {
         for (index, key) in [(0, 'z'), (1, '?')] {
             focus = focus.bind(key, cx.send(Msg::NotYet(index)));
         }
-        focus.into()
+        let keys = keys::LIST_KEYS
+            .iter()
+            .map(|(name, msg)| (*name, cx.send(msg.clone())))
+            .collect::<Vec<_>>();
+        KeyBindings::new(keys, focus).into()
     }
 }

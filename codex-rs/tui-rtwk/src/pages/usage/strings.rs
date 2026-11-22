@@ -13,6 +13,8 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::screens::usage::report::Unit;
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -107,6 +109,40 @@ pub struct Strings {
     pub top_unavailable: &'static str,
     pub stats_error: &'static str,
     pub dash: &'static str,
+    /// Oracle: `chart.rs`: the report's total line, notes, summary and table.
+    pub unit_tokens: &'static str,
+    pub unit_messages: &'static str,
+    pub unit_calls: &'static str,
+    pub unit_uses: &'static str,
+    pub unit_credits: &'static str,
+    pub reported: &'static str,
+    total_line: Msg<3>,
+    pub relative_head: &'static str,
+    pub approximate: &'static str,
+    pub turn_start: &'static str,
+    no_unit_range: Msg<1>,
+    pub no_activity_range: &'static str,
+    pub summary_not_reported: &'static str,
+    pub summary_no_activity: &'static str,
+    summary_relative: Msg<1>,
+    summary_amount: Msg<2>,
+    day_not_reported: Msg<1>,
+    day_no_unit: Msg<2>,
+    pub head_plugin: &'static str,
+    pub head_skill: &'static str,
+    pub head_chat: &'static str,
+    pub head_tokens: &'static str,
+    pub head_share: &'static str,
+    pub head_messages: &'static str,
+    pub head_calls: &'static str,
+    pub head_uses: &'static str,
+    pub head_credits: &'static str,
+    pub bullet: &'static str,
+    pub fold_mark: &'static str,
+    more_rows: Msg<1>,
+    date_short: Msg<2>,
+    pub hint_day: (&'static str, &'static str),
+    pub hint_details: (&'static str, &'static str),
 }
 
 /// English: the oracle's text.
@@ -185,6 +221,40 @@ pub const EN: Strings = Strings {
     top_unavailable: "Plugin and skill usage unavailable.",
     stats_error: "Some profile statistics are unavailable.",
     dash: "\u{2014}",
+    // chart.rs
+    unit_tokens: "tokens",
+    unit_messages: "messages",
+    unit_calls: "calls",
+    unit_uses: "uses",
+    unit_credits: "credits",
+    reported: "reported ",
+    total_line: msg!("{0} {1}{2}"),
+    relative_head: "Total usage \u{b7} relative units",
+    approximate: "Approximate \u{b7} may be delayed up to 6 hours",
+    turn_start: "All usage by how each turn started",
+    no_unit_range: msg!("No {0} reported in this range."),
+    no_activity_range: "No activity reported in this range.",
+    summary_not_reported: " \u{b7} Not reported",
+    summary_no_activity: " \u{b7} No activity (0)",
+    summary_relative: msg!(" \u{b7} {0} usage units"),
+    summary_amount: msg!(" \u{b7} {0} {1}"),
+    day_not_reported: msg!("Data not reported for {0}."),
+    day_no_unit: msg!("No {0} reported for {1}."),
+    head_plugin: "Plugin",
+    head_skill: "Skill",
+    head_chat: "Chat",
+    head_tokens: "Tokens",
+    head_share: "Share",
+    head_messages: "Messages",
+    head_calls: "Calls",
+    head_uses: "Uses",
+    head_credits: "Credits",
+    bullet: "\u{25cf} ",
+    fold_mark: "\u{2026} ",
+    more_rows: msg!("{0} more"),
+    date_short: msg!("{0} {1}"),
+    hint_day: ("\u{2190}/\u{2192}", "day"),
+    hint_details: ("enter", "details"),
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -248,6 +318,84 @@ impl Strings {
             num,
         )
         .to_string()
+    }
+
+    /// The word of a unit.
+    pub fn unit(&self, unit: Unit) -> &'static str {
+        match unit {
+            Unit::Tokens => self.unit_tokens,
+            Unit::Messages => self.unit_messages,
+            Unit::Calls => self.unit_calls,
+            Unit::Uses => self.unit_uses,
+            Unit::Credits => self.unit_credits,
+        }
+    }
+
+    /// `1.5K tokens`, `12 reported messages`.
+    pub fn total_line(&self, amount: &str, unit: Unit, reported: bool, num: &NumSyms) -> String {
+        Fmt::new(
+            self.total_line,
+            [
+                Arg::Text(amount),
+                Arg::Text(if reported { self.reported } else { "" }),
+                Arg::Text(self.unit(unit)),
+            ],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn no_unit_range(&self, unit: Unit, num: &NumSyms) -> String {
+        Fmt::new(self.no_unit_range, [Arg::Text(self.unit(unit))], num).to_string()
+    }
+
+    pub fn summary_relative(&self, amount: &str, num: &NumSyms) -> String {
+        Fmt::new(self.summary_relative, [Arg::Text(amount)], num).to_string()
+    }
+
+    pub fn summary_amount(&self, amount: &str, unit: Unit, num: &NumSyms) -> String {
+        Fmt::new(
+            self.summary_amount,
+            [Arg::Text(amount), Arg::Text(self.unit(unit))],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn day_not_reported(&self, date: &str, num: &NumSyms) -> String {
+        Fmt::new(self.day_not_reported, [Arg::Text(date)], num).to_string()
+    }
+
+    pub fn day_no_unit(&self, unit: Unit, date: &str, num: &NumSyms) -> String {
+        Fmt::new(
+            self.day_no_unit,
+            [Arg::Text(self.unit(unit)), Arg::Text(date)],
+            num,
+        )
+        .to_string()
+    }
+
+    pub fn more_rows(&self, count: u64, num: &NumSyms) -> String {
+        Fmt::new(self.more_rows, [Arg::Int(count)], num).to_string()
+    }
+
+    /// `Sep 2` (chrono's `%b %-d`), or `2` without the month.
+    pub fn date_short(
+        &self,
+        (_, month, day): (i32, u32, u32),
+        with_month: bool,
+        num: &NumSyms,
+    ) -> String {
+        if with_month {
+            Fmt::new(
+                self.date_short,
+                [Arg::Text(self.month(month)), Arg::Int(u64::from(day))],
+                num,
+            )
+            .to_string()
+        } else {
+            day.to_string()
+        }
     }
 
     fn month(&self, month: u32) -> &'static str {
