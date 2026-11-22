@@ -1,0 +1,27 @@
+# resume (S18): parity pack
+
+Task `resume`, branch `claude/resume`. Oracle: `resume_picker.rs` + `resume_picker/` + `resume_picker_transcript_preview.rs`. Twin: page `src/pages/resume`, core `core/src/screens/resume{.rs,/}` (own listing cycle: generation, request and search ids, sources, pagination, archive/restore, previews; a pick goes to the app as `OpenThread`, ADR-003).
+
+## Shards (`--profile oracle`)
+`resume_1`: 26 pass, 6 pending. `resume_2`: 36 pass, 7 pending. 0 real failures. `shards.py --check`: 0 stale. Pending (owner: reason):
+- ctrl_o density persistence x2: the config write (`tui.session_picker_view`) is not built.
+- pager S16 x2: the cached/loaded transcript overlay (picker's part is `transcript_loading_overlay_snapshot` + core `a_transcript_is_asked_for_and_marked_loaded`).
+- `footer_prioritizes_active_sort_timestamp` (Created half; page test `the_meta_line_leads_with_the_created_time_once_the_sort_is_created`), `linked_worktree_sessions_follow_directory_scope` (needs the reload; core `the_repository_filter_shows_the_rows_of_linked_checkouts`).
+- `compact_picker_keeps_metadata...`, `narrow_toolbar_keeps_keyboard_focused_control_visible`: the kit names no `Resume WxH` snapshot frame headers (`tests/oracle_snap/mod.rs`, not my area); page tests of the same names compare every frame.
+- `expanded_session_snapshot` (link destination display, as markdown_streaming_3), `page_and_jump_navigation_use_list_keymap` (keymap slice), `thread_to_transcript_cells` x2 (not built), `thread_colors_and_selection_contrast` (title colour is `readable_color_on`, the kit cannot state the oracle's OSC 10/11 colours).
+
+## Tests added beyond the shard (shown biting once)
+Core: `a_picked_value_is_set_and_restarts_the_listing`, `picking_the_value_in_force_does_nothing`, `a_filter_the_picker_does_not_offer_is_refused` (mutating `pick_value`: no restart, no `offered` check). Page: `a_tap_on_a_status_value_picks_it`, `a_tap_on_the_sort_value_picks_it_and_the_control_takes_the_focus` (cell styles via `rtwk_test::style_of`), `a_tap_on_a_compact_value_moves_to_the_next_one` (removing the focus move and the compact next value). Mouse (ADR-011, beyond the oracle): `a_click_selects_the_row_and_a_second_click_opens_it` (row tap without cursor move or accept), `the_wheel_scrolls_the_resume_list` (`NeverScrollableScrollPhysics`): both red under the mutation.
+
+## Left, not built (no rtwk gap row: the app's own work)
+pager S16; density persistence (config write); live `repo_cwds` (the shell finds the checkouts); `thread_to_transcript_cells`; cwd prompt S05; link destination display; `readable_color_on` title colour; keymap seed; kit: snapshot frame headers.
+
+## Handover (outside my area)
+- The shell feeds nothing to the picker yet (`src/services/shell.rs` `ambient`, the launch): `ResumeEv::Clock(now)` and `Clock24` (else ages read `now`), `ResumeEv::Scope{cwd, repo_cwds}` (else the filter is `All` alone), `ResumeEv::Launched{density: Dense (config default `SessionPickerViewMode`), ..}` (else comfortable rows). Seen in the binary run below.
+- `tests/services/shell_agents.rs` (agents task): `the_picker_of_the_center_lists_the_sessions` and `a_hidden_task_comes_back_through_the_picker` are red since the picker lists on its own (oracle: `resume_source_kinds(false)` = cli + vscode, `include_non_interactive` false from the center, `event_dispatch.rs:572`, `session_picker.rs:56`). The fake `server` answers any non-empty `sourceKinds` with the Exec task only, and the old picker showed the center's own rows. The fixture needs `["cli","vscode"]` answered with the interactive sessions; `a_pick_in_the_picker_resumes_the_task` then needs the same fixture. Not edited: not my files.
+- `settings::{esc_goes_back..., enter_on_reset_all_memories..., space_flips_a_switch..., enter_on_the_reset_row_asks...}` flake on the tip alone (24 of 25 runs red, tip 04ff6c716, parallel); only the first is in known-red.
+- Area widened: `tests/kit_proof.rs`, `tests/app/navigation.rs`, `src/app/theme.rs` (token `attention()` fixed `Rgb 3b82f6`, the oracle's unread blue).
+- `page_keys::footer_fit` takes only key words: `plain_fit` (a `LayoutBuilder` over plain spellings) is local in `chrome.rs`. `up_from_bottom` translation fix; the `region` Cell, a `ListController` listener and the oracle's more-below rule (`has_more_below`) drive the `↑/↓ more` lines; the first-frame `ScrollMetricsNotification` is closed (G21 not a gap).
+
+## Binary run (codex-rtwk against the oracle, mock `text-100`, seed `agents-3`, 120x40)
+`check.py --only multi-turn --capture-dir /tmp/resume-cap --capture-resume` (both PASS): our `codex-rtwk resume` lists the saved row, End + Enter resumes it, the answer shows. Side-by-side of `codex resume` (keys: down, ctrl-o, tab tab right, search `parser`; files in `/tmp/resume-pack`): every row equal except (1) toolbar `Filter: Cwd  All` vs ours `Filter: All` (no `Scope`), (2) rows: the oracle is dense by default (`<t> ago    title`, hint `⌃o comfortable view`), ours comfortable with `now` (no `Launched`, no `Clock`), (3) the search checkpoint: the hardware cursor is visible at the search line (cursor (15,4)) where the oracle's is hidden: `TextField` has no hidden `cursor_shape`, found here, not yet given a gap row. Mouse (raw SGR on the pty): a tap on the third row moves `›` to it; the wheel and a toolbar tap re-list without a visible text change (styles are covered by the page tests).

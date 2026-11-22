@@ -333,8 +333,8 @@ fn on_toolbar(h: &Harness, word: &str) -> (u16, u16) {
         .find(word)
         .unwrap_or_else(|| panic!("no {word:?} on the toolbar: {}", rows[y]));
     (
-        u16::try_from(x + word.len() / 2).unwrap(),
-        u16::try_from(y).unwrap(),
+        u16::try_from(x + word.len() / 2).unwrap_or(u16::MAX),
+        u16::try_from(y).unwrap_or(u16::MAX),
     )
 }
 
