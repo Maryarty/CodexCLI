@@ -61,9 +61,7 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
         flags: states.chat.flags,
         task_running: thread.is_running(),
         side_conversation: states.chat.flags.side_conversation_active,
-        // TODO(session-core): `review_mode` is the thread's code-review state
-        // (`review.is_review_mode`); false until the session models review.
-        review_mode: false,
+        review_mode: thread.screen_slots().chat.review_mode(),
         thread_started: matches!(session.status, Session::Ready),
         has_backend_auth: states.chat.signed_in,
     };

@@ -1802,12 +1802,14 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
             }
         }
         ThreadEv::ItemStarted { key, item } => {
+            note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
                 steer_echoed(model, &item);
                 model.transcript.upsert(key, item);
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
+            note_review(model, &item);
             if !model.authoritative_turns.contains(&key.turn) {
                 if model.transcript.item(&key).is_none() {
                     steer_echoed(model, &item);
@@ -2135,6 +2137,16 @@ fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
         .unwrap_or_default();
     let key = model.transcript.mint(turn);
     model.transcript.upsert(key, item);
+}
+
+/// Entering or leaving code review is the thread's state (oracle
+/// `review.is_review_mode`), read by the slash-command gates.
+fn note_review(model: &mut ThreadModel, item: &Item) {
+    match item {
+        Item::Notice(Notice::EnteredReview(_)) => model.slots.chat.set_review_mode(true),
+        Item::Notice(Notice::ExitedReview(_)) => model.slots.chat.set_review_mode(false),
+        _ => {}
+    }
 }
 
 /// The warnings a startup update made, then what the settled round held back.

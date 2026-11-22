@@ -143,10 +143,6 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
 // ORACLE chatwidget/tests/review_mode.rs:131 live_review_prompt_item_is_not_rendered kind=ui owner=chat-live
 #[test]
 fn live_review_prompt_item_is_not_rendered() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the review banner is not drawn, and the review prompt item is not hidden",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("changes against 'main'"));
     s.assert_contains("Code review started");
@@ -164,7 +160,7 @@ fn live_review_prompt_item_is_not_rendered() {
 fn live_app_server_review_prompt_item_is_not_rendered() {
     kit::pending(
         Owner::ChatLive,
-        "no review mode on the chat screen: the entered-review item draws no banner and the completed review prompt item is not hidden",
+        "the review banner draws (review mode is the thread's state now) but the completed review prompt user item still adds a row: which live user-message items draw (the own-submit echo rule of live_app_server_user_message_item_completed_does_not_duplicate_rendered_prompt) is cells/transcript's (threads/user_prompt.rs, threads/message.rs)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("changes against 'main'"));
@@ -700,9 +696,10 @@ fn suppressed_interrupted_turn_notice_skips_history_warning() {
 fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation state on the chat screen: '/review' in a side conversation draws no 'unavailable in side conversations' error",
+        "the gate runs (the notice reaches the screen) but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): the command notices becoming transcript error rows is chat-commands' (core/src/commands, notice.rs)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/review");
     s.keys("enter");
     s.assert_contains(
@@ -719,9 +716,10 @@ fn slash_commands_without_side_flag_are_rejected_for_side_threads() {
 fn slash_side_is_rejected_for_side_threads() {
     kit::pending(
         Owner::ChatLive,
-        "no side-conversation state on the chat screen: '/side' in a side conversation draws no 'unavailable in side conversations' error",
+        "the gate runs but ours is a bare line above the composer that wraps at 80, where the oracle adds an error history cell '■ ...' (add_error_message): chat-commands' (command notices as transcript error rows)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
+    s.feed(r#"{"step":"screen","dir":"chat","ev":{"flags":{"side_conversation_active":true}}}"#);
     s.type_text("/side");
     s.keys("enter");
     s.assert_contains(
@@ -732,10 +730,6 @@ fn slash_side_is_rejected_for_side_threads() {
 // ORACLE chatwidget/tests/side.rs:135 side_aliases_are_rejected_during_review_mode kind=ui owner=chat-live
 #[test]
 fn side_aliases_are_rejected_during_review_mode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no side-conversation command gate on the chat screen: '/side' and '/btw' during a review draw no 'unavailable while code review is running' error",
-    );
     for (command, name) in [("/side", "side"), ("/btw", "btw")] {
         let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
         s.feed(&entered_review("current changes"));

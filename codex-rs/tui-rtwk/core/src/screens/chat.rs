@@ -328,6 +328,8 @@ pub struct ThreadPart {
     /// A retrying error's header, until the thread's next notification
     /// (oracle `retry_status_header`).
     retry_header: Option<String>,
+    /// A code review runs in this thread (oracle `review.is_review_mode`).
+    review_mode: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -354,6 +356,15 @@ impl ThreadPart {
     /// a retry, else MCP startup (oracle `set_status_header`).
     pub fn header(&self) -> Option<String> {
         self.retry_header.clone().or_else(|| self.mcp.header())
+    }
+
+    /// A code review runs in this thread (oracle `review.is_review_mode`).
+    pub fn review_mode(&self) -> bool {
+        self.review_mode
+    }
+
+    pub(crate) fn set_review_mode(&mut self, on: bool) {
+        self.review_mode = on;
     }
 
     /// Any notification of the thread but a retrying error ends the retry header.
