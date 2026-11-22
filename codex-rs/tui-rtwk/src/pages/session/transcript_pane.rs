@@ -414,6 +414,13 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
+                Item::LocalWarning(warning) => cell(
+                    separator,
+                    super::cells::warning::WarningCell {
+                        message: table.local_warning(*warning).to_string(),
+                    }
+                    .into(),
+                ),
                 Item::StartupWarning(warning) => cell(
                     separator,
                     super::cells::warning::WarningCell {

@@ -490,7 +490,12 @@ impl State for ChatState {
                     let hs = read::<Hs, _>(cx);
                     // Esc with steers waiting interrupts and sends them as one
                     // message (`submit_pending_steers_after_interrupt`).
-                    if thread.pending_steers().is_empty() {
+                    // In review mode a waiting rejected steer takes the same
+                    // path: the core answers with the review warning.
+                    let waiting = !thread.pending_steers().is_empty()
+                        || (thread.screen_slots().chat.review_mode()
+                            && !thread.rejected_steers().is_empty());
+                    if !waiting {
                         cx.emit(&hs.interrupt, thread.id().clone());
                     } else {
                         let intent =
