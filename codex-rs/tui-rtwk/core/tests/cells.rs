@@ -10,9 +10,10 @@ use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app}
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::rpc::Reply;
 use codex_tui_core::threads::{
-    AgentOutcome, AgentRef, CollabEvent, DelegatedMessage, GeneratedImage, HookEntryKind, HookRun,
-    HookStatus, Item, Notice, PatchChange, PatchKind, PlanUpdate, StepStatus, SubAgentKind,
-    ThreadEv, ToolStatus, WebAction, WebActivity, project, project_unrouted,
+    AgentOutcome, AgentRef, BlockBody, CollabEvent, DelegatedMessage, DynamicOutput,
+    GeneratedImage, HookEntryKind, HookRun, HookStatus, Item, Notice, PatchChange, PatchKind,
+    PlanUpdate, StepStatus, SubAgentKind, ThreadEv, ToolKind, ToolStatus, WebAction, WebActivity,
+    project, project_unrouted,
 };
 use serde_json::{Value, json};
 
@@ -1100,4 +1101,210 @@ mod link_display {
             LinkDisplay::WithDestination
         );
     }
+}
+
+// ---- MCP and dynamic calls (oracle history_cell/{mcp,mcp_result,dynamic}.rs):
+// the result is projected once into what the rows show ----
+
+fn mcp(
+    server: &str,
+    status: &str,
+    arguments: Value,
+    result: Value,
+    error: Value,
+) -> codex_tui_core::threads::McpCall {
+    let Item::Tool(tool) = completed(json!({
+        "type": "mcpToolCall", "id": "m", "server": server, "tool": "js", "status": status,
+        "arguments": arguments, "result": result, "error": error
+    })) else {
+        panic!("not a tool")
+    };
+    match &tool.kind {
+        ToolKind::Mcp(call) => call.clone(),
+        other => panic!("not an MCP call: {other:?}"),
+    }
+}
+
+fn blocks(content: Value) -> Value {
+    json!({"content": content, "structuredContent": null, "_meta": null, "isError": false})
+}
+
+#[test]
+fn an_mcp_result_keeps_what_each_block_shows() {
+    let call = mcp(
+        "docs",
+        "completed",
+        json!({}),
+        blocks(json!([
+            {"type": "text", "text": "plain\n\n"},
+            {"type": "image", "data": "AAAA", "mimeType": "image/png"},
+            {"type": "audio", "data": "AAAA", "mimeType": "audio/wav"},
+            {"type": "resource", "resource": {"uri": "file:///a.txt", "text": "body"}},
+            {"type": "resource_link", "uri": "https://x.test/a", "name": "a"},
+            {"type": "mystery", "x": 1}
+        ])),
+        Value::Null,
+    );
+    let Some(Ok(result)) = &call.result else {
+        panic!("no result")
+    };
+    let shown: Vec<BlockBody<'_>> = result
+        .content
+        .iter()
+        .map(|block| block.render_full())
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            BlockBody::Text("plain".into()),
+            BlockBody::Image,
+            BlockBody::Audio,
+            BlockBody::Resource("file:///a.txt"),
+            BlockBody::Link("https://x.test/a"),
+            BlockBody::Text(r#"{"type":"mystery","x":1}"#.into()),
+        ]
+    );
+    assert!(result.has_image && result.content[1].is_image && !result.is_error);
+    assert_eq!(call.success(), Some(true));
+}
+
+#[test]
+fn an_mcp_call_reads_as_failed_or_running_as_the_oracle_decides() {
+    // The status, not the wire `isError`, sets the flag.
+    let failed = mcp("docs", "failed", json!({}), blocks(json!([])), Value::Null);
+    assert_eq!(failed.success(), Some(false));
+    // An error wins over a result.
+    let errored = mcp(
+        "docs",
+        "failed",
+        json!({}),
+        blocks(json!([])),
+        json!({"message": "interrupted"}),
+    );
+    assert_eq!(errored.result, Some(Err("interrupted".to_owned())));
+    let bare = mcp("docs", "completed", json!({}), Value::Null, Value::Null);
+    assert_eq!(
+        bare.result,
+        Some(Err("MCP tool call completed without a result".to_owned()))
+    );
+    let running = mcp("docs", "inProgress", json!({}), Value::Null, Value::Null);
+    assert_eq!((running.result.is_none(), running.success()), (true, None));
+}
+
+#[test]
+fn code_mode_titles_outputs_and_computer_activity_follow_the_server() {
+    let ok = blocks(json!([
+        {"type": "text", "text": "Script completed\nOutput:\nrows"},
+        {"type": "text", "text": "{\"exit_code\":0,\"output\":\"from json\"}"},
+        {"type": "image", "data": "AAAA", "mimeType": "image/png", "text": "caption"}
+    ]));
+    let node = mcp(
+        "node_repl",
+        "completed",
+        json!({"title": "  Inspect \n page "}),
+        ok.clone(),
+        Value::Null,
+    );
+    assert_eq!(node.title(), "Inspect page");
+    assert!(!node.is_computer_activity());
+    let Some(Ok(result)) = &node.result else {
+        panic!("no result")
+    };
+    let previews: Vec<_> = result
+        .content
+        .iter()
+        .map(|block| node.preview_text(block))
+        .collect();
+    assert_eq!(previews[0], BlockBody::Text("rows".into()));
+    assert_eq!(previews[1], BlockBody::Text("from json".into()));
+    // A non-text block still reads its top-level text in code mode.
+    assert_eq!(result.content[2].text(), Some("caption"));
+    // Another server never reads a title.
+    let other = mcp("docs", "completed", json!({"title": "x"}), ok, Value::Null);
+    assert_eq!(other.title(), "docs.js");
+    let cua = mcp(
+        "cua_repl",
+        "inProgress",
+        json!({"title": "Open"}),
+        Value::Null,
+        Value::Null,
+    );
+    assert!(cua.is_computer_activity());
+    assert_eq!(cua.title(), "Open");
+}
+
+#[test]
+fn a_dynamic_call_keeps_its_name_status_and_media_markers() {
+    let Item::Tool(tool) = completed(json!({
+        "type": "dynamicToolCall", "id": "d", "namespace": "example", "tool": "inspect",
+        "arguments": {"path": "a"}, "status": "completed", "success": false, "durationMs": 7,
+        "contentItems": [
+            {"type": "inputText", "text": "Found"},
+            {"type": "inputImage", "imageUrl": "data:image/png;base64,AAAA"}
+        ]
+    })) else {
+        panic!("not a tool")
+    };
+    let ToolKind::Dynamic(call) = &tool.kind else {
+        panic!("not dynamic")
+    };
+    assert_eq!(call.name, "example.inspect");
+    // `success: false` fails a completed call.
+    assert_eq!(call.status, ToolStatus::Failed);
+    assert_eq!(
+        call.output.as_deref(),
+        Some(
+            &[
+                DynamicOutput::Text("Found".to_owned()),
+                DynamicOutput::Image
+            ][..]
+        )
+    );
+    assert_eq!(call.duration_ms, Some(7));
+}
+
+#[test]
+fn a_computer_failure_reads_as_its_first_line_of_words() {
+    let failed = |content: Value| {
+        mcp(
+            "cua_repl",
+            "failed",
+            json!({"title": " "}),
+            blocks(content),
+            Value::Null,
+        )
+    };
+    // A `Script error:` block wins over earlier text; its prefix and blank lines go.
+    let call = failed(json!([
+        {"type": "text", "text": "Page title"},
+        {"type": "text", "text": "Script error:\n\n  permission denied \nmore"}
+    ]));
+    assert_eq!(call.error_preview(), Some("permission denied"));
+    // Without one, the first text with words.
+    let call = failed(json!([
+        {"type": "text", "text": "  \n"},
+        {"type": "text", "text": "Browser state changed\nRe-query the browser"}
+    ]));
+    assert_eq!(call.error_preview(), Some("Browser state changed"));
+    // A transport error is the message; a call still running has none.
+    let call = mcp(
+        "cua_repl",
+        "failed",
+        json!({}),
+        Value::Null,
+        json!({"message": "interrupted"}),
+    );
+    assert_eq!(call.error_preview(), Some("interrupted"));
+    assert_eq!(call.action_title(), None);
+    let running = mcp(
+        "cua_repl",
+        "inProgress",
+        json!({"title": "Open"}),
+        Value::Null,
+        Value::Null,
+    );
+    assert_eq!(
+        (running.error_preview(), running.action_title()),
+        (None, Some("Open"))
+    );
 }

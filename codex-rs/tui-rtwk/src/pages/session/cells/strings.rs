@@ -111,6 +111,51 @@ pub struct Strings {
     pub collab_shutdown: &'static str,
     pub collab_not_found: &'static str,
     pub collab_tick: &'static str,
+    // history_cell/exec.rs, exec_cell/render.rs (the shell calls)
+    pub running_command: &'static str,
+    pub ran_command: &'static str,
+    pub user_ran_command: &'static str,
+    pub explored: &'static str,
+    pub exploring: &'static str,
+    pub explored_read: &'static str,
+    pub explored_list: &'static str,
+    pub explored_search: &'static str,
+    pub explored_search_in: &'static str,
+    pub tool_no_output: &'static str,
+    pub hidden_output_lines: &'static str,
+    pub hidden_output_line: &'static str,
+    pub command_exited: &'static str,
+    pub shell_prompt: &'static str,
+    pub exit_ok: &'static str,
+    pub exit_failed: &'static str,
+    pub exit_status: &'static str,
+    pub worked_for: &'static str,
+    // history_cell/{mcp,mcp_preview,dynamic}.rs (MCP and dynamic calls)
+    pub calling_tool: &'static str,
+    pub called_tool: &'static str,
+    pub failed_tool: &'static str,
+    pub tool_error: &'static str,
+    pub tool_result_image: &'static str,
+    pub tool_result_audio: &'static str,
+    pub tool_resource: &'static str,
+    pub tool_link: &'static str,
+    pub dynamic_image: &'static str,
+    pub dynamic_audio: &'static str,
+    pub tool_duration: &'static str,
+    pub tool_earlier_lines: &'static str,
+    pub tool_arguments: &'static str,
+    pub output_unavailable: &'static str,
+    // history_cell/computer_activity.rs
+    pub computer_using: &'static str,
+    pub computer_used: &'static str,
+    pub computer_action_one: &'static str,
+    pub computer_action_many: &'static str,
+    pub computer_failed_count: &'static str,
+    pub computer_failed_prefix: &'static str,
+    pub computer_title_error_gap: &'static str,
+    pub computer_screenshot: &'static str,
+    pub computer_default_title: &'static str,
+    pub computer_more: &'static str,
     // history_cell/delegated_message.rs, patches.rs
     pub delegated_attribution: &'static str,
     pub generated_heading: &'static str,
@@ -132,6 +177,12 @@ pub struct Strings {
 }
 
 /// English: the oracle's text (the slice names the oracle file per group).
+/// The invocation `server.tool(arguments)` of an MCP call, piece by piece
+/// (each piece has its own style).
+pub const INVOCATION_DOT: &str = ".";
+pub const INVOCATION_OPEN: &str = "(";
+pub const INVOCATION_CLOSE: &str = ")";
+
 pub const EN: Strings = Strings {
     title: "streaming and history cells",
     bullet: "• ",
@@ -214,6 +265,48 @@ pub const EN: Strings = Strings {
     collab_shutdown: "Shutdown",
     collab_not_found: "Not found",
     collab_tick: "`",
+    running_command: "Running",
+    ran_command: "Ran",
+    user_ran_command: "You ran",
+    explored: "Explored",
+    exploring: "Exploring",
+    explored_read: "Read {}",
+    explored_list: "List {}",
+    explored_search: "Search {}",
+    explored_search_in: "Search {0} in {1}",
+    tool_no_output: "(no output)",
+    hidden_output_lines: "+ {} lines (⌃t to expand)",
+    hidden_output_line: "+ 1 line (⌃t to expand)",
+    command_exited: "Exited (status {})",
+    shell_prompt: "$",
+    exit_ok: "✓",
+    exit_failed: "✗",
+    exit_status: " ({})",
+    worked_for: "Worked for {}",
+    calling_tool: "Calling",
+    called_tool: "Called",
+    failed_tool: "Failed",
+    tool_error: "Error: ",
+    tool_result_image: "Returned image",
+    tool_result_audio: "<audio content>",
+    tool_resource: "embedded resource: {}",
+    tool_link: "link: {}",
+    dynamic_image: "<image content>",
+    dynamic_audio: "<audio content>",
+    tool_duration: " · {}ms",
+    tool_earlier_lines: "… {} earlier lines hidden",
+    tool_arguments: "Arguments: {}",
+    output_unavailable: "(output unavailable)",
+    computer_using: "Using computer",
+    computer_used: "Used computer",
+    computer_action_one: " · {} action",
+    computer_action_many: " · {} actions",
+    computer_failed_count: " · {} failed",
+    computer_failed_prefix: "Failed: ",
+    computer_title_error_gap: " — ",
+    computer_screenshot: "Captured screenshot · {}",
+    computer_default_title: "Computer action",
+    computer_more: "{} more · ⌃t",
     delegated_attribution: "Sent by Codex from task {}",
     generated_heading: "Generated Image:",
     generated_failed: "Image generation failed",
@@ -243,6 +336,13 @@ static TABLES: Tables<Strings> = Tables::english(&EN);
 /// The table of the locale below `cx`.
 pub fn of(cx: &mut impl DependCx) -> &'static Strings {
     TABLES.pick(lang(cx))
+}
+
+impl Strings {
+    /// `template` with its `{}` read as `arg`.
+    pub fn label(&self, template: &str, arg: &str) -> String {
+        template.replace("{}", arg)
+    }
 }
 
 /// The title of the screen in `lang`, for code with no tree (the debug

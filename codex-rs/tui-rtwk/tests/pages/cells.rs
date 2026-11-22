@@ -2029,6 +2029,155 @@ mod streaming_preview {
     }
 }
 
+// ---- MCP, dynamic and computer-activity cells in the transcript (oracle
+// history_cell/{mcp,mcp_preview,dynamic,computer_activity}.rs: the compact
+// rows are `compact_hyperlink_lines`; the shared control, a tap or Enter on
+// the cell, reveals `transcript_hyperlink_lines`) ----
+
+mod tool_cells_in_transcript {
+    use codex_tui_core::fixtures::builders::turn_started;
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+    use serde_json::json;
+
+    use crate::common::{self, Harness};
+
+    fn item(payload: serde_json::Value) -> codex_tui_core::app::BackendEv {
+        match serde_json::from_value(json!({
+            "method": "item/completed",
+            "params": {"threadId": FAKE_THREAD, "turnId": "turn-1", "completedAtMs": 0,
+                "item": payload}
+        })) {
+            Ok(notification) => {
+                codex_tui_core::app::BackendEv::Notification(Box::new(notification))
+            }
+            Err(error) => panic!("not a server notification: {error}"),
+        }
+    }
+
+    fn mcp(
+        id: &str,
+        server: &str,
+        arguments: serde_json::Value,
+        rows: &[&str],
+    ) -> serde_json::Value {
+        let content: Vec<_> = rows
+            .iter()
+            .map(|text| json!({"type": "text", "text": text}))
+            .collect();
+        json!({"type": "mcpToolCall", "id": id, "server": server, "tool": "js",
+            "status": "completed", "arguments": arguments, "appContext": null, "mcpAppUi": null,
+            "pluginId": null, "readOnlyHint": null,
+            "result": {"content": content, "structuredContent": null, "_meta": null,
+                "isError": false},
+            "error": null, "durationMs": null})
+    }
+
+    fn show(items: Vec<serde_json::Value>, until: &str) -> Harness {
+        let mut h = common::start();
+        h.wait_idle();
+        let mut events = vec![turn_started(FAKE_THREAD, "turn-1")];
+        events.extend(items.into_iter().map(item));
+        h.fake.script_turn(events);
+        h.t.type_text("go");
+        h.press("enter");
+        h.wait_for("the cells", |screen| screen.contains(until));
+        h
+    }
+
+    fn row_of(h: &Harness, text: &str) -> (usize, usize) {
+        let screen = h.t.screen();
+        let y = screen
+            .lines()
+            .position(|row| row.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?}:\n{screen}"));
+        let x = screen
+            .lines()
+            .nth(y)
+            .and_then(|row| row.find(text))
+            .unwrap_or_default();
+        (x, y)
+    }
+
+    #[test]
+    fn an_mcp_call_keeps_the_last_rows_and_a_tap_on_the_control_reveals_all() {
+        let mut h = show(
+            vec![mcp(
+                "m1",
+                "docs",
+                json!({"q": "x"}),
+                &["one", "two", "three", "four", "five"],
+            )],
+            "five",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Called docs.js"), "{screen}");
+        assert!(
+            !screen.contains("one") && screen.contains("three"),
+            "{screen}"
+        );
+        assert!(screen.contains("+ Show details"), "{screen}");
+        let (x, y) = row_of(&h, "+ Show details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the whole result", |s| {
+            s.contains("− Hide details") && s.contains("one")
+        });
+        assert!(
+            h.t.screen().contains("docs.js({\"q\":\"x\"})"),
+            "{}",
+            h.t.screen()
+        );
+        let (x, y) = row_of(&h, "− Hide details");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("the compact form", |s| {
+            s.contains("+ Show details") && !s.contains("one")
+        });
+    }
+
+    #[test]
+    fn a_run_of_computer_calls_is_one_group_a_tap_on_its_header_reveals_each_call() {
+        let titled =
+            |id: &str, title: &str| mcp(id, "cua_repl", json!({"title": title}), &["done"]);
+        let mut h = show(
+            vec![
+                titled("c1", "Inspect page 1"),
+                titled("c2", "Inspect page 2"),
+            ],
+            "Inspect page 2",
+        );
+        let screen = h.t.screen();
+        assert!(screen.contains("• Used computer · 2 actions"), "{screen}");
+        assert!(
+            screen.contains("├ Inspect page 1") && screen.contains("└ Inspect page 2"),
+            "{screen}"
+        );
+        let (x, y) = row_of(&h, "Used computer");
+        h.t.click(x as u16, y as u16);
+        h.wait_for("each call", |s| s.contains("− Hide details"));
+        let screen = h.t.screen();
+        assert_eq!(screen.matches("Called cua_repl.js(").count(), 2, "{screen}");
+        h.press("enter");
+        h.wait_for("the group again", |s| {
+            s.contains("• Used computer · 2 actions")
+        });
+    }
+
+    #[test]
+    fn a_dynamic_call_names_its_duration_and_the_last_rows_of_its_output() {
+        let call = json!({"type": "dynamicToolCall", "id": "d1", "namespace": "example",
+            "tool": "inspect", "arguments": {"path": "a"}, "status": "completed",
+            "success": true, "durationMs": 25,
+            "contentItems": [{"type": "inputText", "text": "r1\nr2\nr3\nr4"}]});
+        let h = show(vec![call], "r4");
+        let screen = h.t.screen();
+        assert!(
+            screen.contains("• Called example.inspect · 25ms"),
+            "{screen}"
+        );
+        assert!(screen.contains("… 1 earlier lines hidden"), "{screen}");
+        assert!(!screen.contains("r1"), "{screen}");
+    }
+}
+
 // ---- the series token (owed to the usage plot: oracle plot/painting.rs, the
 // terminal's cyan, magenta and green, then its own ink) ----
 

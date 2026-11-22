@@ -1,9 +1,13 @@
 //! The activity shown alongside messages in live and restored turns.
 
+use std::borrow::Cow;
+
 use codex_app_server_protocol::{
     CommandAction, CommandExecutionSource, CommandExecutionStatus,
     DynamicToolCallOutputContentItem, DynamicToolCallStatus, McpToolCallStatus, ThreadItemPayload,
 };
+use codex_protocol::mcp::is_node_repl_backed_server;
+use serde_json::Value;
 
 use crate::ids::ItemId;
 
@@ -23,18 +27,276 @@ pub enum ToolKind {
         duration_ms: Option<u64>,
         user_shell: bool,
     },
-    Call {
-        namespace: Option<String>,
-        name: String,
-        arguments: serde_json::Value,
-        media: Vec<ToolMedia>,
-    },
+    /// An `mcpToolCall` item (oracle `McpToolCallCell`).
+    Mcp(McpCall),
+    /// A `dynamicToolCall` item (oracle `DynamicToolCallCell`).
+    Dynamic(DynamicCall),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolMedia {
+impl ToolActivity {
+    /// The call joins a computer-activity group (oracle
+    /// `McpInvocation::is_computer_activity`).
+    pub fn is_computer_activity(&self) -> bool {
+        matches!(&self.kind, ToolKind::Mcp(call) if call.is_computer_activity())
+    }
+}
+
+/// One MCP call with its result projected once: the wire result can hold
+/// multi-megabyte bodies, only what a row shows is kept (oracle
+/// `history_cell/mcp_result.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpCall {
+    pub server: String,
+    pub tool: String,
+    pub arguments: Value,
+    /// `None` while the call runs; an error is the wire error's message.
+    pub result: Option<Result<McpResult, String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpResult {
+    pub content: Vec<McpBlock>,
+    pub is_error: bool,
+    /// A valid image block came back (oracle: one that decodes; core has no
+    /// decoder, a block with its `data` and `mimeType` counts).
+    pub has_image: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpBlock {
+    display: BlockDisplay,
+    pub is_image: bool,
+    /// Code mode reads a top-level `text` even from a malformed or non-text block.
+    original_text: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum BlockDisplay {
+    Text(String),
     Image,
     Audio,
+    Resource(String),
+    Link(String),
+    Json(String),
+}
+
+/// What a block says, for the view to word (oracle `render_full`: the text,
+/// a marker for media and for an embedded resource).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlockBody<'a> {
+    Text(Cow<'a, str>),
+    Image,
+    Audio,
+    Resource(&'a str),
+    Link(&'a str),
+}
+
+/// What a result's text means (oracle `McpResultKind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpResultKind {
+    Standard,
+    NodeRepl,
+}
+
+impl McpCall {
+    pub fn is_computer_activity(&self) -> bool {
+        self.server == "cua_repl"
+    }
+
+    pub fn result_kind(&self) -> McpResultKind {
+        if self.is_computer_activity()
+            || (is_node_repl_backed_server(&self.server) && self.tool == "js")
+        {
+            McpResultKind::NodeRepl
+        } else {
+            McpResultKind::Standard
+        }
+    }
+
+    /// `Some(true)` called, `Some(false)` failed, `None` still running.
+    pub fn success(&self) -> Option<bool> {
+        match self.result.as_ref()? {
+            Ok(result) => Some(!result.is_error),
+            Err(_) => Some(false),
+        }
+    }
+
+    pub fn has_image(&self) -> bool {
+        matches!(&self.result, Some(Ok(result)) if result.has_image)
+    }
+
+    /// The `title` argument of a code-mode call, blanks collapsed (oracle
+    /// `compact_tool_name`); `server.tool` otherwise.
+    pub fn title(&self) -> String {
+        self.arguments
+            .get("title")
+            .filter(|_| self.result_kind() == McpResultKind::NodeRepl)
+            .and_then(Value::as_str)
+            .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| format!("{}.{}", self.server, self.tool))
+    }
+
+    /// The `title` argument as the call wrote it, `None` when blank.
+    pub fn action_title(&self) -> Option<&str> {
+        self.arguments
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|title| !title.trim().is_empty())
+    }
+
+    /// The first line of the failure a computer-activity row shows (oracle
+    /// `computer_activity.rs` `error_preview`): the error, a `Script error:`
+    /// block, else the first text block with words. CUA errors can append
+    /// whole API manuals; the later lines stay in the expanded form.
+    pub fn error_preview(&self) -> Option<&str> {
+        let text = match self.result.as_ref()? {
+            Err(error) => error.as_str(),
+            Ok(result) => result
+                .content
+                .iter()
+                .filter_map(McpBlock::text)
+                .find(|text| text.starts_with("Script error:"))
+                .or_else(|| {
+                    result
+                        .content
+                        .iter()
+                        .find_map(|block| block.text().filter(|text| !text.trim().is_empty()))
+                })?,
+        };
+        text.strip_prefix("Script error:")
+            .unwrap_or(text)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+    }
+
+    /// The row source of one block in the collapsed preview (oracle
+    /// `compact_mcp_lines`): a successful code-mode result shows its output.
+    pub fn preview_text<'a>(&self, block: &'a McpBlock) -> BlockBody<'a> {
+        if self.result_kind() == McpResultKind::NodeRepl
+            && self.success() == Some(true)
+            && let Some(text) = block.text()
+        {
+            if text.starts_with("Script completed\n")
+                && let Some((_, output)) = text.split_once("\nOutput:\n")
+            {
+                return BlockBody::Text(Cow::Borrowed(output));
+            }
+            if let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(text)
+                && fields.get("exit_code").and_then(Value::as_i64) == Some(0)
+                && let Some(output) = fields.get("output").and_then(Value::as_str)
+            {
+                return BlockBody::Text(Cow::Owned(output.to_owned()));
+            }
+        }
+        block.render_full()
+    }
+}
+
+impl McpResult {
+    fn project(content: &[Value], is_error: bool, kind: McpResultKind) -> Self {
+        let mut has_image = false;
+        let content = content
+            .iter()
+            .map(|block| {
+                let block = McpBlock::project(block, kind);
+                has_image |= block.is_image;
+                block
+            })
+            .collect();
+        Self {
+            content,
+            is_error,
+            has_image,
+        }
+    }
+}
+
+impl McpBlock {
+    fn project(block: &Value, kind: McpResultKind) -> Self {
+        let field = |name: &str| block.get(name).and_then(Value::as_str);
+        let valid_text =
+            block.get("type").and_then(Value::as_str) == Some("text") && field("text").is_some();
+        let (display, is_image) = match block.get("type").and_then(Value::as_str) {
+            Some("text") if let Some(text) = field("text") => {
+                (BlockDisplay::Text(text.to_owned()), false)
+            }
+            Some("image") if field("data").is_some() && field("mimeType").is_some() => {
+                (BlockDisplay::Image, true)
+            }
+            Some("audio") if field("data").is_some() && field("mimeType").is_some() => {
+                (BlockDisplay::Audio, false)
+            }
+            Some("resource")
+                if let Some(resource) = block.get("resource")
+                    && let Some(uri) = resource.get("uri").and_then(Value::as_str)
+                    && (resource.get("text").is_some_and(Value::is_string)
+                        || resource.get("blob").is_some_and(Value::is_string)) =>
+            {
+                (BlockDisplay::Resource(uri.to_owned()), false)
+            }
+            Some("resource_link") if field("uri").is_some() && field("name").is_some() => {
+                let uri = field("uri").unwrap_or_default();
+                (BlockDisplay::Link(uri.to_owned()), false)
+            }
+            _ => (BlockDisplay::Json(block.to_string()), false),
+        };
+        let original_text = match kind {
+            McpResultKind::NodeRepl if !valid_text => field("text").map(str::to_owned),
+            _ => None,
+        };
+        Self {
+            display,
+            is_image,
+            original_text,
+        }
+    }
+
+    /// All retained text, with a marker for media and embedded resources
+    /// (oracle `render_full`).
+    pub fn render_full(&self) -> BlockBody<'_> {
+        if let Some(text) = &self.original_text {
+            return BlockBody::Text(Cow::Borrowed(text.trim_end_matches('\n')));
+        }
+        match &self.display {
+            BlockDisplay::Text(text) | BlockDisplay::Json(text) => {
+                BlockBody::Text(Cow::Borrowed(text.trim_end_matches('\n')))
+            }
+            BlockDisplay::Image => BlockBody::Image,
+            BlockDisplay::Audio => BlockBody::Audio,
+            BlockDisplay::Resource(uri) => BlockBody::Resource(uri),
+            BlockDisplay::Link(uri) => BlockBody::Link(uri),
+        }
+    }
+
+    /// The top-level text code mode reads (oracle `text`).
+    pub fn text(&self) -> Option<&str> {
+        match &self.display {
+            BlockDisplay::Text(text) => Some(text),
+            _ => self.original_text.as_deref(),
+        }
+    }
+}
+
+/// One content item of a dynamic call's output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DynamicOutput {
+    Text(String),
+    Image,
+    Audio,
+}
+
+/// One dynamic tool call (oracle `DynamicToolCallData`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DynamicCall {
+    /// `namespace.tool`, or the tool alone.
+    pub name: String,
+    pub arguments: Value,
+    pub status: ToolStatus,
+    /// One entry per content item.
+    pub output: Option<Vec<DynamicOutput>>,
+    pub duration_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,54 +390,38 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
             result,
             error,
             ..
-        } => (
-            id,
-            ToolKind::Call {
-                namespace: Some(server.clone()),
-                name: tool.clone(),
+        } => {
+            let mut call = McpCall {
+                server: server.clone(),
+                tool: tool.clone(),
                 arguments: arguments.clone(),
-                media: result
-                    .iter()
-                    .flat_map(|result| &result.content)
-                    .filter_map(|block| match block.get("type")?.as_str()? {
-                        "image" => Some(ToolMedia::Image),
-                        "audio" => Some(ToolMedia::Audio),
-                        _ => None,
-                    })
-                    .collect(),
-            },
-            match status {
-                McpToolCallStatus::InProgress => Running,
-                McpToolCallStatus::Completed => Completed,
-                McpToolCallStatus::Failed => Failed,
-            },
-            error
-                .as_ref()
-                .map(|error| error.message.clone())
-                .or_else(|| {
-                    result.as_ref().map(|result| {
-                        let text = result
-                            .content
-                            .iter()
-                            .filter_map(|block| {
-                                (block.get("type")?.as_str()? == "text")
-                                    .then(|| block.get("text")?.as_str())
-                                    .flatten()
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if text.is_empty() {
-                            result
-                                .structured_content
-                                .as_ref()
-                                .map(ToString::to_string)
-                                .unwrap_or_default()
-                        } else {
-                            text
-                        }
-                    })
-                }),
-        ),
+                result: None,
+            };
+            // Oracle `McpHistory::from_item`: an error wins, a result takes
+            // `is_error` from the status, neither is an error of its own.
+            if *status != McpToolCallStatus::InProgress {
+                let kind = call.result_kind();
+                call.result = Some(match (result, error) {
+                    (_, Some(error)) => Err(error.message.clone()),
+                    (Some(result), None) => Ok(McpResult::project(
+                        &result.content,
+                        *status == McpToolCallStatus::Failed,
+                        kind,
+                    )),
+                    (None, None) => Err("MCP tool call completed without a result".to_owned()),
+                });
+            }
+            (
+                id,
+                ToolKind::Mcp(call),
+                match status {
+                    McpToolCallStatus::InProgress => Running,
+                    McpToolCallStatus::Completed => Completed,
+                    McpToolCallStatus::Failed => Failed,
+                },
+                None,
+            )
+        }
         ThreadItemPayload::DynamicToolCall {
             id,
             namespace,
@@ -183,43 +429,44 @@ pub(super) fn tool(payload: &ThreadItemPayload) -> Option<(ItemId, ToolActivity)
             status,
             arguments,
             content_items,
-            ..
-        } => (
-            id,
-            ToolKind::Call {
-                namespace: namespace.clone(),
-                name: tool.clone(),
-                arguments: arguments.clone(),
-                media: content_items
-                    .iter()
-                    .flatten()
-                    .filter_map(|item| match item {
-                        DynamicToolCallOutputContentItem::InputImage { .. } => {
-                            Some(ToolMedia::Image)
-                        }
-                        DynamicToolCallOutputContentItem::InputAudio { .. } => {
-                            Some(ToolMedia::Audio)
-                        }
-                        DynamicToolCallOutputContentItem::InputText { .. } => None,
-                    })
-                    .collect(),
-            },
-            match status {
-                DynamicToolCallStatus::InProgress => Running,
-                DynamicToolCallStatus::Completed => Completed,
-                DynamicToolCallStatus::Failed => Failed,
-            },
-            content_items.as_ref().map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| match item {
-                        DynamicToolCallOutputContentItem::InputText { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }),
-        ),
+            success,
+            duration_ms,
+        } => {
+            let status = match (success, status) {
+                (Some(false), _) | (_, DynamicToolCallStatus::Failed) => Failed,
+                (_, DynamicToolCallStatus::InProgress) => Running,
+                (_, DynamicToolCallStatus::Completed) => Completed,
+            };
+            (
+                id,
+                ToolKind::Dynamic(DynamicCall {
+                    name: namespace
+                        .as_ref()
+                        .map_or_else(|| tool.clone(), |namespace| format!("{namespace}.{tool}")),
+                    arguments: arguments.clone(),
+                    status,
+                    output: content_items.as_ref().map(|items| {
+                        items
+                            .iter()
+                            .map(|item| match item {
+                                DynamicToolCallOutputContentItem::InputText { text } => {
+                                    DynamicOutput::Text(text.clone())
+                                }
+                                DynamicToolCallOutputContentItem::InputImage { .. } => {
+                                    DynamicOutput::Image
+                                }
+                                DynamicToolCallOutputContentItem::InputAudio { .. } => {
+                                    DynamicOutput::Audio
+                                }
+                            })
+                            .collect()
+                    }),
+                    duration_ms: *duration_ms,
+                }),
+                status,
+                None,
+            )
+        }
         _ => return None,
     };
     Some((

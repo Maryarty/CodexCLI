@@ -91,21 +91,21 @@ impl ViewportState {
             return layout.rows.clone();
         }
         let mut rows: Vec<Range<usize>> = Vec::new();
-        let mut exploration = None;
+        let mut run = None;
         for (index, (key, item)) in transcript.iter().enumerate() {
             if !detailed && item.is_detailed_only() {
                 continue;
             }
-            let turn = item.is_exploration().then_some(&key.turn);
-            if turn.is_some()
-                && turn == exploration
+            let kind = item.group().map(|group| (group, &key.turn));
+            if kind.is_some()
+                && kind == run
                 && let Some(group) = rows.last_mut()
             {
                 group.end = index + 1;
             } else {
                 rows.push(index..index + 1);
             }
-            exploration = turn;
+            run = kind;
         }
         let rows: Rc<[_]> = rows.into();
         *cache = Some(RowLayout {
@@ -303,7 +303,7 @@ impl State for ViewportState {
                     .into()
                 }
                 Item::Tool(tool) => Padding::new(
-                    EdgeInsets::only(0, i32::from(separator), 1, 0),
+                    EdgeInsets::only(0, i32::from(separator), 0, 0),
                     super::transcript_activity::ToolRow {
                         first: tool.clone(),
                         rest: (index + 1..range.end)
@@ -444,8 +444,8 @@ impl State for ViewportState {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(row);
             if let Some(timing) = transcript.timing_after(range.end - 1) {
-                column = column.child(super::transcript_activity::completion(
-                    timing, now, table, &tokens,
+                column = column.child(super::cells::separator::completion(
+                    timing, now, cells, &tokens,
                 ));
             }
             let row: AnyWidget = column.into();

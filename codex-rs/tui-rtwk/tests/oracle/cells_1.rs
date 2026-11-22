@@ -25,6 +25,18 @@ fn cell_row(s: &Screen) -> usize {
     at
 }
 
+/// `count` screen rows from the first cell row, trailing blanks off (a literal region compare for a
+/// snapshot the oracle joined of several labelled sections).
+fn cell_rows(s: &Screen, count: usize) -> Vec<String> {
+    let at = cell_row(s);
+    s.rows()
+        .into_iter()
+        .skip(at)
+        .take(count)
+        .map(|row| row.trim_end().to_owned())
+        .collect()
+}
+
 // ---- oracle: diff_render.rs (23 screen-level tests here; 28 state tests left to chat-live)
 // ORACLE diff_render.rs:1379 syntax_colors_follow_the_actual_diff_background kind=snap owner=chat-live snap=syntax_colors_follow_the_actual_diff_background
 #[test]
@@ -299,9 +311,10 @@ fn ui_snapshot_theme_scope_background_resolution() {
 fn cpp_module_extensions_use_cpp_highlighting() {
     kit::pending(
         Owner::ChatLive,
-        "D4: the oracle's snapshot is the span splits syntect's C++ grammar makes for nine extensions \
-         (cpp cu cuh cppm CPPM cxxm CxXm ixx IXX), the highlighter rtwk ships has no lexer table \
-         for the module extensions until D4 (the syntect lexer) is decided",
+        "pending(G-syntax, number by the lander; decided 2026-11-22 D4: wait for rtwk): the oracle's snapshot is \
+         the span splits syntect's C++ grammar makes for nine extensions (cpp cu cuh cppm CPPM cxxm CxXm \
+         ixx IXX); rtwk's highlighter has no lexer for the module extensions and none at syntect's \
+         level (patch/exec cells and fences); no syntect lexer is carried",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 60)
@@ -617,21 +630,17 @@ fn raw_grouped_history_retains_terminal_input_and_omits_reasoning() {
 // ORACLE history_cell/computer_activity_tests.rs:68 computer_activity_active_and_interrupted kind=snap owner=chat-live snap=computer_activity_active snap=computer_activity_interrupted
 #[test]
 fn computer_activity_active_and_interrupted() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
             "fixtures/cells_1/computer_activity_active_and_interrupted.jsonl"
         ))
         .open();
-    s.assert_snap_region("computer_activity_active", 0, 0);
+    s.assert_snap_region("computer_activity_active", cell_row(&s), 0);
     s.feed(include_str!(
         "fixtures/cells_1/computer_activity_active_and_interrupted_interrupt.jsonl"
     ));
-    s.assert_snap_region("computer_activity_interrupted", 0, 0);
+    s.assert_snap_region("computer_activity_interrupted", cell_row(&s), 0);
 }
 
 // ORACLE history_cell/computer_activity_tests.rs:87 computer_activity_prioritizes_errors_and_images_without_reordering kind=snap owner=chat-live snap=computer_activity_compact snap=computer_activity_expanded snap=computer_activity_mixed snap=computer_activity_narrow
@@ -639,82 +648,123 @@ fn computer_activity_active_and_interrupted() {
 fn computer_activity_prioritizes_errors_and_images_without_reordering() {
     kit::pending(
         Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
+        "S27: five calls; the oracle asserts the inline `display_lines` (`└ 3 more · ⌃t` row), the owned transcript draws the group's two shown calls and the shared `+ Show details` control instead of that row",
     );
     let mut s = Screen::build(Owner::ChatLive).size(90, 12).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
-    s.assert_snap_region("computer_activity_mixed", 0, 0);
+    s.assert_snap_region("computer_activity_mixed", cell_row(&s), 0);
     s.resize(24, 12);
-    s.assert_snap_region("computer_activity_narrow", 0, 0);
+    s.assert_snap_region("computer_activity_narrow", cell_row(&s), 0);
 }
 
 // ORACLE history_cell/computer_activity_tests.rs:146 computer_activity_completed_and_transport_errors_keep_full_details kind=snap owner=chat-live snap=computer_activity_failed_result snap=computer_activity_success
 #[test]
 fn computer_activity_completed_and_transport_errors_keep_full_details() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 12).script(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details.jsonl")).open();
-    s.assert_snap_region("computer_activity_success", 0, 0);
+    s.assert_snap_region("computer_activity_success", cell_row(&s), 0);
     s.feed(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details_failure.jsonl"));
     s.resize(90, 12);
-    s.assert_snap_region("computer_activity_failed_result", 0, 0);
+    s.assert_snap_region("computer_activity_failed_result", cell_row(&s), 0);
 }
 
 // ORACLE history_cell/computer_activity_tests.rs:179 computer_activity_preview_handles_unicode_and_long_diagnostics kind=snap owner=chat-live snap=computer_activity_unicode
 #[test]
 fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
-    );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 12)
         .script(include_str!(
             "fixtures/cells_1/computer_activity_preview_handles_unicode_and_long_diagnostics.jsonl"
         ))
         .open();
-    s.assert_snap_region("computer_activity_unicode", 0, 0);
+    s.assert_snap_region("computer_activity_unicode", cell_row(&s), 0);
 }
 
 // ---- oracle: history_cell/dynamic_tests.rs (2 screen-level tests here; 0 state tests left to chat-live)
 // ORACLE history_cell/dynamic_tests.rs:29 dynamic_status_and_output_match_persisted_presentations kind=snap owner=chat-live snap=dynamic_status_and_output_match_persisted_presentations
 #[test]
 fn dynamic_status_and_output_match_persisted_presentations() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    // The oracle joins the compact rows of four calls, then the success call's full and raw forms,
+    // under bare labels, which a snapshot region cannot split: the compact rows are literals here
+    // (the owned transcript draws them as `compact_hyperlink_lines`); full is the expanded form
+    // below, raw is copy text (S27).
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/dynamic_status_and_output_match_persisted_presentations.jsonl"
         ))
         .open();
-    s.assert_snap_region(
-        "dynamic_status_and_output_match_persisted_presentations",
-        0,
-        0,
+    assert_eq!(
+        cell_rows(&s, 14),
+        [
+            "• Calling example.inspect",
+            "    + Show details",
+            "",
+            "• Called example.inspect",
+            "  └ Found the definition",
+            "    + Show details",
+            "",
+            "• Failed example.inspect",
+            "  └ Permission denied",
+            "    + Show details",
+            "",
+            "• Called example.inspect",
+            "  └ (output unavailable)",
+            "    + Show details",
+        ],
     );
+    // success, full
+    show_details(&mut s);
+    s.assert_has_row("  └ Arguments: {");
+    s.assert_has_row("      \"path\": \"src/main.rs\"");
+    s.assert_has_row("    }");
+    s.assert_has_row("    Found the definition");
 }
 
 // ORACLE history_cell/dynamic_tests.rs:80 dynamic_preview_reports_hidden_lines_and_retains_full_output kind=snap owner=chat-live snap=dynamic_preview_reports_hidden_lines_and_retains_full_output
 #[test]
 fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
-    );
-    let s = Screen::build(Owner::ChatLive)
+    let mut s = Screen::build(Owner::ChatLive)
         .size(80, 24)
         .script(include_str!(
             "fixtures/cells_1/dynamic_preview_reports_hidden_lines_and_retains_full_output.jsonl"
         ))
         .open();
-    s.assert_snap_region(
-        "dynamic_preview_reports_hidden_lines_and_retains_full_output",
-        0,
-        0,
+    // The oracle's snapshot is the 3-line and the 4-line output at widths 20 and 80 (labelled
+    // sections): a screen holds both calls at one width, 80 then 20; the control row is the shared
+    // disclosure's.
+    assert_eq!(
+        cell_rows(&s, 12),
+        [
+            "• Called example.inspect",
+            "  └ Result line 1: retained content",
+            "    Result line 2: retained content",
+            "    Result line 3: retained content",
+            "    + Show details",
+            "",
+            "• Called example.inspect",
+            "  … 1 earlier lines hidden",
+            "  └ Result line 2: retained content",
+            "    Result line 3: retained content",
+            "    Result line 4: retained content",
+            "    + Show details",
+        ],
+    );
+    s.resize(20, 24);
+    assert_eq!(
+        cell_rows(&s, 12),
+        [
+            "• Called example.in…",
+            "  └ Result line 1: …",
+            "    Result line 2: …",
+            "    Result line 3: …",
+            "    + Show details",
+            "",
+            "• Called example.in…",
+            "  … 1 earlier lines…",
+            "  └ Result line 2: …",
+            "    Result line 3: …",
+            "    Result line 4: …",
+            "    + Show details",
+        ],
     );
 }
 
@@ -888,12 +938,21 @@ fn code_mode_output_shares_a_row_budget_across_blocks() {
 // ORACLE history_cell/mcp_tests.rs:238 code_mode_output_preserves_trailing_failure_diagnostics_in_transcript kind=snap owner=chat-live
 #[test]
 fn code_mode_output_preserves_trailing_failure_diagnostics_in_transcript() {
-    kit::pending(
-        Owner::ChatLive,
-        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
-    );
-    let s = Screen::build(Owner::ChatLive).size(60, 24).script(include_str!("fixtures/cells_1/code_mode_output_preserves_trailing_failure_diagnostics_in_transcript.jsonl")).open();
+    // The oracle asserts the inline `display_lines` snapshot (`+6 lines (⌃t to view transcript)`,
+    // S27: no screen) and then that the transcript lines end with the diagnostics: the detailed
+    // transcript (Ctrl+T) draws `transcript_hyperlink_lines`.
+    let mut s = Screen::build(Owner::ChatLive).size(60, 24).script(include_str!("fixtures/cells_1/code_mode_output_preserves_trailing_failure_diagnostics_in_transcript.jsonl")).open();
+    show_details(&mut s);
     s.assert_in_order(&["Script failed", "Script error:", "permission denied"]);
+    let rows: Vec<String> = cell_rows(&s, 12)
+        .into_iter()
+        .take_while(|row| !row.is_empty())
+        .collect();
+    assert_eq!(
+        rows[rows.len() - 2..],
+        ["    Script error:", "    permission denied"],
+        "{rows:?}"
+    );
 }
 
 // ORACLE history_cell/mcp_tests.rs:282 code_mode_output_row_budget_applies_after_wrapping_and_to_errors kind=ui owner=chat-live
