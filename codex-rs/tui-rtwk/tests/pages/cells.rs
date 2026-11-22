@@ -2617,7 +2617,7 @@ mod text_contract {
                 false,
             )
             .into(),
-            Item::Agent { text } => agent::message(
+            Item::Agent { text, .. } => agent::message(
                 text,
                 false,
                 None,
@@ -2906,7 +2906,10 @@ mod text_contract {
     fn a_markdown_body_is_a_declared_gap() {
         let md = "Hello **bold**\n\n- one\n- two";
         for item in [
-            Item::Agent { text: md.into() },
+            Item::Agent {
+                text: md.into(),
+                phase: None,
+            },
             Item::Reasoning { summary: md.into() },
             Item::Plan { text: md.into() },
             Item::User(prompt(md)),

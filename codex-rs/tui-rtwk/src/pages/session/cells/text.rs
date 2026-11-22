@@ -133,6 +133,10 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         Item::Error { message } => one(error::line(message, cells)),
         Item::HighLoad => one(error::line(env.chat.high_load, cells)),
         Item::Warning { message } => Texts::Exact(warning::texts(message, cells)),
+        Item::LocalWarning(warning) => Texts::Exact(warning::texts(
+            &env.chat.local_warning(*warning).to_string(),
+            cells,
+        )),
         Item::StartupWarning(warning) => {
             Texts::Exact(warning::texts(&env.chat.mcp_warning(warning), cells))
         }
@@ -166,8 +170,11 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
         Item::Agent { .. } | Item::Reasoning { .. } | Item::Plan { .. } | Item::Delegated(_) => {
             Texts::Gap(Gap::Markdown)
         }
-        Item::Tool(_) | Item::Patch(_) | Item::PlanUpdate(_) | Item::Collab(_) => {
-            Texts::Gap(Gap::Rows)
-        }
+        Item::Tool(_)
+        | Item::Patch(_)
+        | Item::PlanUpdate(_)
+        | Item::Collab(_)
+        | Item::Decision(_)
+        | Item::Review(_) => Texts::Gap(Gap::Rows),
     }
 }

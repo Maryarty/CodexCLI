@@ -24,6 +24,12 @@ pub fn texts(notice: &Notice, strings: &Strings) -> Vec<Part> {
     let row = |text: String| vec![Part::text(text)];
     match notice {
         Notice::ContextCompacted => row([strings.bullet, strings.context_compacted].concat()),
+        Notice::Interrupted => row(strings.interrupted.to_owned()),
+        Notice::InterruptedForSteer => {
+            row([strings.bullet, strings.interrupted_for_steer].concat())
+        }
+        Notice::NoPreviousMessage => row([strings.bullet, strings.no_previous_message].concat()),
+        Notice::GoalBudgetReached => row(super::error::line(strings.goal_budget_reached, strings)),
         Notice::EnteredReview(review) => {
             row([strings.review_started.0, review, strings.review_started.1].concat())
         }
