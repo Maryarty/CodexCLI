@@ -278,3 +278,19 @@ line is gone; `tests/oracle.rs` and `test-shards.md` regenerated, `--check` clea
   its data (plot 10, plan 6, activity chart 4, navigation 2, chat panel 2, recovery 2, ...) before it can be written; none is a
   missing feature of the page. `tests/pages/usage.rs` and `core/tests/usage` already hold the behaviour as state and
   screen tests, 43 screens + 98 core tests.
+
+## chunk-usage: run in the binary (2026-11-22)
+`/usage` typed in both binaries (throwaway pty scenario with one turn `/usage`, no model request, `CODEX_HOME` empty, a dummy API
+key, 120x40; not committed: `check.py` has no usage scenario and a page that needs a ChatGPT sign-in cannot be walked by the mock
+model). The captures were compared with `examples/compare-transcript`; 10 of 40 rows differ:
+| row | oracle | rtwk |
+|---|---|---|
+| 5 (chat) | `■ Sign in with ChatGPT to use /usage.` (an error cell in the chat; the page never opens) | the page opens |
+| 1, 3, 6 | the chat's header cell | `Usage`, the rule, `Sign in locally with ChatGPT to view Analytics.` |
+| 36-40 | the composer and the status line | `esc back`, `R retry` |
+- Cause: the oracle's `/usage` command checks the ChatGPT sign-in before it opens the page (`chatwidget/usage.rs`); our slash
+  command opens `UsagePage` unconditionally and the page then says the account is not signed in. The check belongs to the command
+  dispatch (chunk-commands / core-wiring: `AppEv`/`ScreenIntent` for the account), not to the page: Needs.
+- Not walked in the binary: tabs, `z`, `?`, PgUp/PgDn, the mouse and the reports, because they need a signed-in account (the
+  backend's `AnalyticsSession::from_config`); they are held by `tests/pages/usage.rs` (43 tests, wheel, taps, keys) on the debug
+  entries.
