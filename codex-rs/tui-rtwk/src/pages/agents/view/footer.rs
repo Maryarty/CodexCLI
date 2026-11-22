@@ -6,13 +6,14 @@ use super::*;
 /// (key, label).
 pub enum Footer<'a> {
     Notice(Line),
-    Hints(Vec<(&'a str, &'a str)>),
+    Hints(Vec<(String, &'a str)>),
 }
 
 /// The footer: the hints, or the notice that replaces them.
 pub fn footer<'a>(
     look: &Look,
     strings: &'a Strings,
+    hints: &Hints,
     model: &Model,
     ui: &Ui,
     can_return: bool,
@@ -39,30 +40,44 @@ pub fn footer<'a>(
     if let Some(text) = notice.filter(|_| !ui.help) {
         return Footer::Notice(vec![span(text, &look.dim)]);
     }
+    // The oracle's `center_footer_hints`: a hint is there while its action is
+    // bound, and the list's keys a task action took are not offered.
     let editing = ui.editing();
-    let mut items: Vec<(&str, &str)> = Vec::new();
-    if !ui.help && !editing {
-        items.push((strings.key_help, strings.help));
+    let mut items: Vec<(String, &str)> = Vec::new();
+    if !ui.help && !editing && hints.help_is_offered() {
+        items.push((strings.key_help.to_owned(), strings.help));
     }
-    if ui.help || editing || can_return {
-        items.push((strings.key_back, strings.back));
+    let back = if ui.help {
+        hints.list_any(LIST_CANCEL)
+    } else if editing || can_return {
+        hints.list(LIST_CANCEL)
+    } else {
+        None
+    };
+    if let Some(key) = back {
+        items.push((key, strings.back));
     }
     if ui.help {
         return Footer::Hints(items);
     }
     if !editing {
-        items.push((strings.key_move, strings.move_));
+        let movement = hints.movement();
+        if !movement.is_empty() {
+            items.push((movement, strings.move_));
+        }
     }
-    items.push((
-        strings.key_open,
-        if ui.renaming {
-            strings.rename
-        } else {
-            strings.open
-        },
-    ));
-    if !editing {
-        items.push((strings.key_new, strings.new));
+    if let Some(key) = hints.list(LIST_ACCEPT) {
+        items.push((
+            key,
+            if ui.renaming {
+                strings.rename
+            } else {
+                strings.open
+            },
+        ));
+    }
+    if !editing && let Some(key) = hints.task(AGENTS_NEW_TASK) {
+        items.push((key, strings.new));
     }
     Footer::Hints(items)
 }
@@ -171,11 +186,12 @@ pub fn body(
 pub fn footer_row(
     look: &Look,
     strings: &Strings,
+    hints: &Hints,
     model: &Model,
     ui: &Ui,
     can_return: bool,
 ) -> AnyWidget {
-    match footer(look, strings, model, ui, can_return) {
+    match footer(look, strings, hints, model, ui, can_return) {
         Footer::Notice(line) => inset(one(line)),
         // The hints are the page's key list on the shared bottom menu
         // (`ui::page_keys::footer`); each key is one `KeyBindings` binds.

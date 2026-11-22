@@ -5,35 +5,74 @@ use super::*;
 /// The shortcut help in place of the list and the details (oracle:
 /// `center_help_lines` and the `help` arm of `render`): three groups flowed
 /// into as many columns as the width holds, cut to the room with a note.
-pub fn help(look: &Look, strings: &Strings, model: &Model, center: &Center) -> AnyWidget {
-    let pair = |entries: &[(&str, &str)]| -> Vec<(String, String)> {
-        entries
-            .iter()
-            .map(|(key, action)| ((*key).to_owned(), (*action).to_owned()))
-            .collect()
+pub fn help(
+    look: &Look,
+    strings: &Strings,
+    hints: &Hints,
+    model: &Model,
+    center: &Center,
+) -> AnyWidget {
+    // A row is there while its action is bound (`Group::push`).
+    let rows = |actions: &[&str], ids: &[ActionId], key: &dyn Fn(ActionId) -> Option<String>| {
+        ids.iter()
+            .zip(actions)
+            .filter_map(|(id, action)| Some((key(*id)?, (*action).to_owned())))
+            .collect::<Vec<_>>()
     };
+    let navigate_ids = [
+        LIST_MOVE_UP,
+        LIST_MOVE_DOWN,
+        LIST_ACCEPT,
+        LIST_PAGE_UP,
+        LIST_PAGE_DOWN,
+    ];
+    let mut navigate = rows(&strings.help_navigate_actions, &navigate_ids, &|id| {
+        hints.list(id)
+    });
+    navigate.push((
+        strings.help_quit.0.to_owned(),
+        strings.help_quit.1.to_owned(),
+    ));
     // Pinning is offered while the server has pins and a task is selected.
     let can_pin = model.pins_available() && center.selected_row().is_some();
-    let tasks: Vec<(&str, &str)> = strings
-        .help_entries_tasks
+    let task_ids = [
+        AGENTS_NEW_TASK,
+        AGENTS_NEW_WORKTREE,
+        AGENTS_RESUME,
+        AGENTS_FORK,
+        AGENTS_RENAME,
+        AGENTS_STOP,
+        AGENTS_ARCHIVE,
+        AGENTS_HIDE,
+        AGENTS_DELETE,
+        AGENTS_TOGGLE_PIN,
+    ];
+    let tasks: Vec<(String, String)> = task_ids
         .iter()
-        .copied()
-        .filter(|(_, action)| {
-            (can_pin || *action != "Pin/unpin") && (model.worktrees || *action != "New worktree")
+        .zip(strings.help_task_actions)
+        .filter(|(id, _)| {
+            (can_pin || **id != AGENTS_TOGGLE_PIN)
+                && (model.worktrees || **id != AGENTS_NEW_WORKTREE)
         })
+        .filter_map(|(id, action)| Some((hints.task(*id)?, action.to_owned())))
         .collect();
-    let mut view = vec![(
-        strings.filter_keys.to_owned(),
-        strings.help_filter.to_owned(),
-    )];
-    view.extend(pair(&strings.help_entries_view));
+    let mut view = Vec::new();
+    let filter = hints.filter();
+    if !filter.is_empty() {
+        view.push((filter, strings.help_filter.to_owned()));
+    }
+    view.extend(rows(
+        &strings.help_view_actions,
+        &[AGENTS_SEARCH, AGENTS_TOGGLE_GROUPING],
+        &|id| hints.task(id),
+    ));
     let group = |title: &str, entries| help::Group {
         title: title.to_owned(),
         entries,
     };
     let groups = [
-        group(strings.help_navigate, pair(&strings.help_entries_navigate)),
-        group(strings.help_tasks, pair(&tasks)),
+        group(strings.help_navigate, navigate),
+        group(strings.help_tasks, tasks),
         group(strings.help_view, view),
     ];
     let ink = Ink {

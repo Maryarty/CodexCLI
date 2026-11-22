@@ -24,6 +24,8 @@ use codex_tui_core::screens::seed_ev;
 use super::Screen;
 use super::verdict::{Owner, missing};
 use crate::common::{Harness, ms};
+use codex_tui_core::keymap::{Keymap, KeymapSpec};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy)]
 pub(super) enum Seed {
@@ -114,14 +116,6 @@ impl Open {
     }
 
     pub fn open(self) -> Screen {
-        if self.keymap.is_some() {
-            // The port has no keymap config yet (`src/keymap` is empty): the
-            // test is written in full under this pending.
-            missing(
-                Owner::ReuseCarry,
-                "no keymap seed: the port reads no key bindings from a config yet (the keymap slice); the test's remapped keys cannot be set",
-            );
-        }
         let gutter = self.gutter;
         let mut screen = match self.seed {
             Seed::Live => Screen::from(self.live_harness()),
@@ -132,9 +126,18 @@ impl Open {
         screen
     }
 
+    /// Hands the app the user's bindings, as the host does once it has read
+    /// the config (`AppEv::Keymap`): a debug entry's screen reads the keymap
+    /// the live app provides above it.
+    fn set_keymap(&self, h: &mut Harness) {
+        let Some(bindings) = self.keymap else { return };
+        h.inject([AppEv::Keymap(Box::new(keymap_of(bindings)))]);
+    }
+
     fn live_harness(&self) -> Harness {
         let mut h = crate::common::start_driven(false, self.width, self.height);
         connect(&mut h);
+        self.set_keymap(&mut h);
         // The session is started (`ready`) when `open` returns.
         h.quiesce();
         h
@@ -152,6 +155,10 @@ impl Open {
             );
         }
         let mut h = crate::common::start_driven(true, self.width, self.height);
+        if self.keymap.is_some() {
+            connect(&mut h);
+            self.set_keymap(&mut h);
+        }
         if self.first_frame {
             for _ in 0..crate::common::debug_row(dir, Some(entry)) {
                 h.press("down");
@@ -178,6 +185,38 @@ impl Open {
         feed(&mut h, text);
         Screen::from(h)
     }
+}
+
+/// The keymap the pairs make over the defaults. A pair names an action as the
+/// oracle's tests set the fields of its `RuntimeKeymap` (`list.move_down`;
+/// `app.` is the config's `global` table and a bare action is a global one)
+/// and a key as the config writes it (`ctrl+x enter` is `ctrl-x enter`); the
+/// pairs of one action add up, an empty key alone unbinds it. The oracle's
+/// tests set the fields without the config's checks, so the keymap is not
+/// checked either.
+fn keymap_of(bindings: &[(&str, &str)]) -> Keymap {
+    let mut table: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for (action, key) in bindings {
+        let (context, name) = action.split_once('.').unwrap_or(("global", action));
+        let context = if context == "app" { "global" } else { context };
+        let keys = table
+            .entry((context.to_owned(), name.to_owned()))
+            .or_default();
+        if !key.is_empty() {
+            keys.push(
+                key.split(' ')
+                    .map(|k| k.replace('+', "-"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+        }
+    }
+    let mut spec = KeymapSpec::default();
+    for ((context, name), keys) in &table {
+        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+        spec = spec.with(context, name, &keys);
+    }
+    Keymap::resolve_unchecked(&spec)
 }
 
 impl Screen {

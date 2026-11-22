@@ -485,14 +485,52 @@ fn screen_methods_reach_the_app() {
     s.mouse_down(2, 3).mouse_drag(8, 3).mouse_up(8, 3);
 }
 
-/// Gap 9: a keymap cannot be seeded yet; the test body is written under the
-/// kit's own pending.
+/// Gap 9: a keymap seed hands the app the bindings (`AppEv::Keymap`, as the
+/// host does once it has read the config) before the screen opens, and the
+/// screen reads them: here the agents command center, over a debug entry.
+/// Without the seed `f6` is no key of the page and `v` moves nothing; with it
+/// `f6` opens the search line and `v` steps the cursor. The oracle's own tests
+/// set the keys the same way (the fields of its `RuntimeKeymap`).
 #[test]
-#[should_panic(expected = "PENDING[reuse-carry]: no keymap seed")]
-fn a_keymap_seed_is_pending_until_the_port_reads_one() {
+fn a_keymap_seed_remaps_the_keys_of_a_debug_entry() {
+    let mut plain = Screen::build(Owner::DialogsPane)
+        .size(100, 24)
+        .entry("agents", "overview")
+        .open();
+    let before = plain.shot();
+    plain.keys("v f6");
+    plain.assert_same_rows(&before);
+
+    let mut seeded = Screen::build(Owner::DialogsPane)
+        .size(100, 24)
+        .entry("agents", "overview")
+        .keymap(&[("agents.search", "f6"), ("list.move_down", "v")])
+        .open();
+    let before = seeded.shot();
+    seeded.keys("v");
+    seeded.assert_rows_differ(&before);
+    seeded.keys("f6");
+    seeded.assert_contains("Search \u{203a}");
+}
+
+/// The seed writes the pairs the way the oracle's tests name them: an empty
+/// key unbinds the action (the hint of it goes), a chord is a prefix and a
+/// completion. The live chat takes the same seed.
+#[test]
+fn a_keymap_seed_unbinds_and_chords_what_the_page_shows() {
+    let mut s = Screen::build(Owner::DialogsPane)
+        .size(100, 24)
+        .entry("agents", "overview")
+        .keymap(&[("list.accept", ""), ("agents.search", "ctrl+x s")])
+        .open();
+    s.assert_absent("enter open");
+    s.keys("ctrl+x s");
+    s.assert_contains("Search \u{203a}");
     drop(
-        Screen::build(Owner::DialogsPane)
-            .keymap(&[("list.move_down", "z")])
+        Screen::build(Owner::ChatLive)
+            .size(80, 24)
+            .keymap(&[("app.open_transcript", "ctrl+k")])
+            .live()
             .open(),
     );
 }
