@@ -17,8 +17,6 @@ use codex_tui_core::app::effects::Ask;
 use codex_tui_core::app::effects::CopyFormat;
 use codex_tui_core::app::effects::CopyStatus;
 use codex_tui_core::app::effects::Done;
-use codex_tui_core::app::effects::ImageFormat;
-use codex_tui_core::app::effects::PastedImage;
 use codex_tui_core::screens::ScreenEv;
 use codex_tui_core::screens::popovers;
 
@@ -27,7 +25,6 @@ use super::clipboard::Destination;
 use super::clipboard::Format;
 use super::clipboard::Status;
 use super::clipboard::environment;
-use super::clipboard::read::EncodedImageFormat;
 use super::clipboard::read::TextReader;
 use super::clipboard::read::paste_image;
 use super::file_search::InProcessSearch;
@@ -131,7 +128,7 @@ impl Services {
         open_url::open_url(Arc::clone(&self.browser), url)
             .await
             .err()
-            .map(|failure| AppEv::OpenFailed {
+            .map(|failure| AppEv::ErrorLine {
                 message: format!(
                     "Failed to open browser for {}: {}",
                     failure.url, failure.error
@@ -171,22 +168,6 @@ impl Services {
                     .await;
                 (Done::ClipboardText(text), None)
             }
-            Ask::ClipboardImage => {
-                let image = paste_image()
-                    .await
-                    .map(|(path, info)| PastedImage {
-                        path: path.display().to_string(),
-                        width: info.width,
-                        height: info.height,
-                        format: match info.encoded_format {
-                            EncodedImageFormat::Png => ImageFormat::Png,
-                            EncodedImageFormat::Jpeg => ImageFormat::Jpeg,
-                            EncodedImageFormat::Other => ImageFormat::Other,
-                        },
-                    })
-                    .map_err(|error| error.to_string());
-                (Done::ClipboardImage(image), None)
-            }
             Ask::OpenDesktop { thread } => {
                 let opened = open_url::open_desktop_thread(thread.to_string()).await;
                 (Done::Desktop(opened), None)
@@ -210,6 +191,13 @@ impl Services {
                 let _ = self.mentions.record(identity).await;
                 None
             }
+            popovers::Ask::ClipboardImage => Some(match paste_image().await {
+                Ok((path, _)) => popover_ev(popovers::Ev::ImagePasted(path)),
+                // Oracle: `Failed to paste image: {error}` as an error line.
+                Err(error) => AppEv::ErrorLine {
+                    message: format!("Failed to paste image: {error}"),
+                },
+            }),
             popovers::Ask::FileSearch(ask) => {
                 if let Some(search) = &self.search {
                     search.ask(ask);
@@ -581,7 +569,7 @@ mod tests {
         let failed = rig.services.open_url("https://x.test".into()).await;
         assert!(matches!(
             failed,
-            Some(AppEv::OpenFailed { ref message })
+            Some(AppEv::ErrorLine { ref message })
                 if message == "Failed to open browser for https://x.test: no display"
         ));
     }

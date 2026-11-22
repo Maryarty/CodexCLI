@@ -1536,6 +1536,9 @@ mod notices {
             ThreadEv::Screen(ScreenThreadEv::Chat(ChatThreadEv::Metadata {
                 name: None,
                 cwd: "/tmp".into(),
+                path: None,
+                parent_owned: false,
+                ephemeral: false,
                 model: Some("gpt-5.6".into()),
                 effort: None,
                 provider: "openai".into(),
@@ -1647,7 +1650,7 @@ mod notices {
         let mut app = CodexApp::new();
         run(
             &mut app,
-            AppEv::OpenFailed {
+            AppEv::ErrorLine {
                 message: "Failed to open browser for https://x.test: no display".into(),
             },
         );
@@ -1655,7 +1658,7 @@ mod notices {
         assert_eq!(items(&app), vec![], "no conversation, no line");
         run(
             &mut app,
-            AppEv::OpenFailed {
+            AppEv::ErrorLine {
                 message: "Failed to open browser for https://x.test: no display".into(),
             },
         );
@@ -1724,7 +1727,7 @@ mod tui_settings {
 }
 
 mod host_asks {
-    use codex_tui_core::app::effects::{Ask, Done, ImageFormat, PastedImage};
+    use codex_tui_core::app::effects::{Ask, Done};
     use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent, apply_app};
     use codex_tui_core::ids::ThreadId;
     use pretty_assertions::assert_eq;
@@ -1754,7 +1757,6 @@ mod host_asks {
         };
         for (request, kind) in [
             (1, Ask::ClipboardText),
-            (2, Ask::ClipboardImage),
             (
                 3,
                 Ask::OpenDesktop {
@@ -1766,21 +1768,17 @@ mod host_asks {
             assert_eq!(ask(&mut app, request, kind.clone()), vec![(request, kind)]);
         }
         let mut fx = AppFx::default();
-        let image = PastedImage {
-            path: "/tmp/p.png".into(),
-            width: 4,
-            height: 2,
-            format: ImageFormat::Png,
-        };
         for (request, done) in [
             (1, Done::ClipboardText(Ok("pasted".into()))),
-            (2, Done::ClipboardImage(Ok(image.clone()))),
             (3, Done::Desktop(Err("not installed".into()))),
             (4, Done::Export(Ok("/work/talk.md".into()))),
         ] {
             apply_app(&mut app, AppEv::Effect { request, done }, &mut fx);
         }
-        assert_eq!(app.effect(2), Some(&Done::ClipboardImage(Ok(image))),);
+        assert_eq!(
+            app.effect(1),
+            Some(&Done::ClipboardText(Ok("pasted".into())))
+        );
         assert_eq!(
             app.effect(3),
             Some(&Done::Desktop(Err("not installed".into())))

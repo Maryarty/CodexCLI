@@ -74,28 +74,8 @@ pub enum Ask {
     ConfigWrite { edits: Vec<ConfigEdit> },
     /// The text the system clipboard holds (Ctrl+Shift+V, the right-click paste).
     ClipboardText,
-    /// The first image the system clipboard holds, written to a temporary PNG (Ctrl+V).
-    ClipboardImage,
     /// Opens `thread` in the Desktop app (`codex://threads/{id}`, `/app`).
     OpenDesktop { thread: ThreadId },
-}
-
-/// The encoding of a pasted image (oracle `EncodedImageFormat`; the `[Image #N]` label's words
-/// are the UI's).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ImageFormat {
-    Png,
-    Jpeg,
-    Other,
-}
-
-/// An image the clipboard held, written to `path` for the composer to attach.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PastedImage {
-    pub path: String,
-    pub width: u32,
-    pub height: u32,
-    pub format: ImageFormat,
 }
 
 /// What the host answers, one variant per `Ask`.
@@ -112,8 +92,6 @@ pub enum Done {
     Config(Result<(), String>),
     /// The clipboard's text, or why it could not be read.
     ClipboardText(Result<String, String>),
-    /// The pasted image, or the reader's diagnostic (`no image on clipboard: ...`).
-    ClipboardImage(Result<PastedImage, String>),
     /// Nothing, or the launch's own failure text.
     Desktop(Result<(), String>),
 }

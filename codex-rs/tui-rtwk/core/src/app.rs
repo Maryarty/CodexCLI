@@ -270,10 +270,11 @@ pub enum AppEv {
     /// The `[tui]` settings the config holds (the host sends them once the config is read, and
     /// again after a setting changed).
     Tui(facts::TuiSettings),
-    /// The browser did not open a page (`Command::OpenUrl`; no answer otherwise): the host's
-    /// error line (oracle `Failed to open browser for {url}: {err}`), which the shown
-    /// conversation keeps as an error row. The words are the host's: core holds no prose.
-    OpenFailed {
+    /// An error the host words for the shown conversation: the browser did not open a page
+    /// (`Command::OpenUrl`, oracle `Failed to open browser for {url}: {err}`), the clipboard has
+    /// no image to paste (`Failed to paste image: {err}`). The conversation keeps it as an error
+    /// row; the words are the host's, core holds no prose.
+    ErrorLine {
         message: String,
     },
 }
@@ -1219,7 +1220,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Announce(notice) => notices::announce(app, notice, fx),
         AppEv::Daybreak(access) => app.daybreak = access,
         AppEv::Tui(settings) => app.tui = settings,
-        AppEv::OpenFailed { message } => notices::open_failed(app, message, fx),
+        AppEv::ErrorLine { message } => notices::error_line(app, message, fx),
         AppEv::Effect { request, done } => app.effects.settle(request, done),
         AppEv::Verified {
             key,

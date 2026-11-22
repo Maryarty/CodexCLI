@@ -16,10 +16,9 @@ pub(super) fn announce(app: &mut CodexApp, notice: Notice, fx: &mut AppFx) {
     }
 }
 
-/// The browser did not open a page: the shown conversation says so as an error line (oracle
-/// `add_error_message("Failed to open browser for {url}: {err}")`, worded by the host); with
-/// none shown there is no line to add it to.
-pub(super) fn open_failed(app: &mut CodexApp, message: String, fx: &mut AppFx) {
+/// An error the host worded: the shown conversation keeps it as an error line (oracle
+/// `add_error_message`); with none shown there is no line to add it to.
+pub(super) fn error_line(app: &mut CodexApp, message: String, fx: &mut AppFx) {
     let Some(thread) = app.session.active.clone() else {
         return;
     };
