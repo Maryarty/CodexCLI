@@ -324,3 +324,31 @@ cache (200 to 300 s, see the table above).
 
 - Proposal 1: sccache cap 16 GiB (`~/.cache/rtwk/sccache-main/config` `size`, `sccache-config.sh` default 16); takes effect at the next start of the sccache server.
 - Proposal 2: `[profile.dev] strip = "none"`; `incremental = true` for `codex-tui-rtwk`, `codex-tui-core`, `codex-rtwk` only. `acargo check --tests` and the rules root green.
+
+## 7. kache instead of sccache (2026-11-22)
+
+The disk filled (ENOSPC) on 2026-11-22 ~02:30 and stopped every agent. Per-worktree targets were the cause (15-20 GB
+each), not the sccache cache (12 GB, 16 GiB cap). kache (crates.io `kache` 2.3.0, a rustc wrapper with a
+content-addressed store) restores cached outputs into `target/` as APFS clones, so the bytes are shared across
+worktrees instead of copied into each.
+
+Trial, `~/.cache/codexcli/kache-trial.sh`: three fresh worktrees at d8983030f, each running the land-check's compile
+(`nextest run --workspace --all-targets --no-run`) plus `build -p codex-rtwk --bin codex-rtwk`. Disk = drop in free
+space (`df`), because `du` counts clones in full. Four porters were building at the same time, so the numbers carry noise.
+
+| run | time | disk added | `du` target |
+|---|---|---|---|
+| A: kache, empty store | 422 s | 8 GiB | 6.5 G |
+| B: kache, second worktree | 32 s | ~1 GiB | 6.5 G |
+| C: sccache (warm), second worktree | 136 s | ~10 GiB | 7.3 G |
+
+kache stats after the trial: 205 crates restored without copying (2.8 GiB), 0 B copied. Under sccache the remap RUSTC
+printed 68 `stripping debug info with rust-objcopy failed (SIGABRT, libLLVM.dylib not found)` warnings; none under kache.
+Not covered: incremental state and test binaries of the checkout's own crates (they grow a porter's target to ~15 GB)
+are per worktree under both. kache removes the targets of deleted worktrees itself (`auto_clean_orphaned_targets`).
+
+Adopted (the person, 2026-11-22). `~/.cache/rtwk/acargo` picks the wrapper per checkout, because a wrapper change
+makes cargo rebuild everything: a checkout marked kache (`acargo-kache` in its git dir) or one with no target yet uses
+kache; one that already has a target stays on sccache until that target is gone; `ACARGO_KACHE=1/0` forces one.
+kache config `~/.config/kache/config.toml`: store `~/.cache/rtwk/kache-store`, `local_max_size` 30GiB, `local_only`
+(no remote, no Kunobi planner). The remap RUSTC is off under kache (kache normalizes paths itself).
