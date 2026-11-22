@@ -510,6 +510,20 @@ pub struct Written {
     pub warning: Option<String>,
 }
 
+/// `MemoriesSettingsView`: the two switches and whether the reset
+/// confirmation is up (`reset_confirmation`). The cursor of either list is
+/// the view's controller.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Memories {
+    pub use_memories: bool,
+    pub generate_memories: bool,
+    pub confirming: bool,
+}
+
+/// The ids of the two switches of the memories dialog (`Intent::Toggle`).
+pub const MEMORIES_USE: &str = "use";
+pub const MEMORIES_GENERATE: &str = "generate";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Open {
     Config(ConfigPanel),
@@ -517,6 +531,7 @@ pub enum Open {
     Setup(Setup),
     Keymap(KeymapPicker),
     Experimental(Experimental),
+    Memories(Memories),
 }
 
 /// What a settings dialog asked the app to do (the oracle's `AppEvent`s).
@@ -545,6 +560,13 @@ pub enum Edit {
     FeaturesSave(Vec<(String, bool)>),
     /// An action was picked in the keymap picker.
     KeymapPicked(String),
+    /// Enter on a switch of the memories dialog (`UpdateMemorySettings`).
+    MemoriesSaved {
+        use_memories: bool,
+        generate_memories: bool,
+    },
+    /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
+    MemoriesReset,
 }
 
 /// What the dialogs open from, read of the config and the disk by the host
@@ -558,6 +580,17 @@ pub struct Facts {
     /// That directory as the subtitle names it (`~/.codex/themes`); none when
     /// it is not below the home directory.
     pub themes_dir: Option<String>,
+    /// The memory tool is on (`Feature::MemoryTool`) with these switches
+    /// (`config.memories`); none: it is off and `/memories` offers to turn it
+    /// on (that prompt is not built).
+    pub memories: Option<MemoryFacts>,
+}
+
+/// `config.memories`: the two switches of the memories dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MemoryFacts {
+    pub use_memories: bool,
+    pub generate_memories: bool,
 }
 
 /// The bundled syntax themes in kebab-case, alphabetical
@@ -602,6 +635,8 @@ pub const BUILTIN_THEMES: [&str; 32] = [
 pub enum Dialog {
     /// `/theme`.
     Theme,
+    /// `/memories`.
+    Memories,
 }
 
 impl Facts {
@@ -680,7 +715,11 @@ pub enum Intent {
     Save,
     /// Enter in the keymap picker.
     KeymapPick(String),
-    /// Esc.
+    /// Enter on "Reset all memories": the confirmation opens.
+    ConfirmReset,
+    /// Enter on "Reset all memories" in the confirmation.
+    Reset,
+    /// Esc (the memories confirmation goes back to the switches).
     Close,
     /// A slash command opens a dialog, built from the facts.
     Open(Dialog),
@@ -770,6 +809,15 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
                 let picker = model.facts.theme_picker();
                 model.syntax_theme = picker.original.clone();
                 model.open = Some(Open::Theme(picker));
+            }
+            Dialog::Memories => {
+                if let Some(facts) = model.facts.memories {
+                    model.open = Some(Open::Memories(Memories {
+                        use_memories: facts.use_memories,
+                        generate_memories: facts.generate_memories,
+                        confirming: false,
+                    }));
+                }
             }
         }
         return;
@@ -881,6 +929,27 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
             });
             model.open = None;
         }
+        (Open::Memories(dialog), Intent::Toggle(id)) if !dialog.confirming => {
+            match id.as_str() {
+                MEMORIES_USE => dialog.use_memories = !dialog.use_memories,
+                MEMORIES_GENERATE => dialog.generate_memories = !dialog.generate_memories,
+                _ => {}
+            }
+        }
+        (Open::Memories(dialog), Intent::Save) if !dialog.confirming => {
+            model.edits.push(Edit::MemoriesSaved {
+                use_memories: dialog.use_memories,
+                generate_memories: dialog.generate_memories,
+            });
+            model.open = None;
+        }
+        (Open::Memories(dialog), Intent::ConfirmReset) => dialog.confirming = true,
+        (Open::Memories(dialog), Intent::Reset) if dialog.confirming => {
+            model.edits.push(Edit::MemoriesReset);
+            model.open = None;
+        }
+        // Esc, or "Go back": the confirmation goes back to the switches.
+        (Open::Memories(dialog), Intent::Close) if dialog.confirming => dialog.confirming = false,
         (Open::Keymap(picker), Intent::KeymapPick(name)) => {
             if picker
                 .tabs
@@ -968,7 +1037,8 @@ struct CatalogueItem {
 /// `rows`; `theme_picker` with `themes` and the `current` one;
 /// `status_line` with `use_theme_colors`, the `selected` ids in order, the
 /// `catalogue` and the runtime `values`; `title` the same without the colour
-/// preference; `keymap` with its `tabs`.
+/// preference; `keymap` with its `tabs`; `memories` with its two switches;
+/// `facts` with `memories`.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeedEv {
@@ -1021,6 +1091,17 @@ enum SeedEv {
         generation: u64,
         #[serde(default)]
         features: Option<Vec<Feature>>,
+    },
+    Memories {
+        use_memories: bool,
+        generate_memories: bool,
+        #[serde(default)]
+        confirming: bool,
+    },
+    /// The config's values the dialogs open from (`Ev::Facts`).
+    Facts {
+        #[serde(default)]
+        memories: Option<MemoryFacts>,
     },
 }
 
@@ -1102,6 +1183,21 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 features,
             });
         }
+        SeedEv::Facts { memories } => {
+            return Ok(Ev::Facts(Facts {
+                memories,
+                ..Facts::default()
+            }));
+        }
+        SeedEv::Memories {
+            use_memories,
+            generate_memories,
+            confirming,
+        } => Open::Memories(Memories {
+            use_memories,
+            generate_memories,
+            confirming,
+        }),
         SeedEv::Experimental {
             features,
             loading,

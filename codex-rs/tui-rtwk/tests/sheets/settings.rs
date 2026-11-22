@@ -8,7 +8,9 @@
 
 use rtwk_core::input::{Mods, MouseKind};
 
-use codex_tui_core::screens::settings::{Edit, Open};
+use codex_tui_core::app::AppEv;
+use codex_tui_core::screens::ScreenEv;
+use codex_tui_core::screens::settings::{Edit, Ev as SettingsEv, Facts, MemoryFacts, Open};
 use codex_tui_rtwk::app::UiApp;
 
 use crate::common::{Harness, ms, start, start_sized};
@@ -539,6 +541,193 @@ fn a_tap_moves_the_cursor_to_a_feature_and_a_second_tap_flips_it() {
     // the first row is untouched
     assert!(
         h.t.screen().contains("  [x] First feature"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+// ---- the memories dialog (`memories_settings_view.rs`): two switches, the
+// reset row and its confirmation
+
+/// The edits the model recorded (what the dialog asked the app to do): the
+/// real model, so the dialogs under test are opened by `/memories`.
+fn edits(h: &Harness) -> Vec<Edit> {
+    h.t.read_app(|app: &UiApp| app.core.screens().settings.edits.clone())
+}
+
+/// `/memories` with the memory tool on, use on and generate off
+/// (`popups_and_settings.rs:3289`).
+fn memories_command() -> Harness {
+    let mut h = start();
+    h.wait_idle();
+    h.inject([AppEv::Screen(ScreenEv::Settings(SettingsEv::Facts(
+        Facts {
+            memories: Some(MemoryFacts {
+                use_memories: true,
+                generate_memories: false,
+            }),
+            ..Facts::default()
+        },
+    )))]);
+    h.t.type_text("/memories");
+    h.press("enter");
+    h.wait_for("the dialog", |screen| {
+        screen.contains("Choose how Codex uses")
+    });
+    h.advance(600);
+    h
+}
+
+#[test]
+fn space_flips_a_switch_enter_saves_both_and_closes() {
+    let mut h = memories_command();
+    assert!(
+        h.t.screen().contains("› [x] Use memories"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("space");
+    assert!(
+        h.t.screen().contains("› [x] Generate memories"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("enter");
+    assert!(!h.t.screen().contains("Memories"), "{}", h.t.screen());
+    assert_eq!(
+        edits(&h),
+        vec![Edit::MemoriesSaved {
+            use_memories: true,
+            generate_memories: true
+        }]
+    );
+}
+
+#[test]
+fn space_on_the_reset_row_flips_nothing_and_the_cursor_goes_round_the_ends() {
+    let mut h = open("memories_settings");
+    h.press("up");
+    assert!(
+        h.t.screen().contains("› Reset all memories"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("space");
+    let screen = h.t.screen();
+    assert!(screen.contains("[x] Use memories"), "{screen}");
+    assert!(screen.contains("[ ] Generate memories"), "{screen}");
+    h.press("down");
+    assert!(
+        h.t.screen().contains("› [x] Use memories"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn enter_on_the_reset_row_asks_and_go_back_returns_with_the_cursor_on_the_reset_row() {
+    let mut h = memories_command();
+    h.press("up");
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(screen.contains("Reset all memories?"), "{screen}");
+    assert!(
+        screen.contains("› Reset all memories  Delete local"),
+        "{screen}"
+    );
+    // Space is no key of the confirmation
+    h.press("space");
+    assert!(
+        h.t.screen().contains("Reset all memories?"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("down");
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(screen.contains("Choose how Codex uses"), "{screen}");
+    assert!(screen.contains("› Reset all memories"), "{screen}");
+    assert_eq!(edits(&h), vec![]);
+}
+
+#[test]
+fn esc_goes_back_from_the_confirmation_then_closes_and_the_next_confirmation_starts_on_its_first_choice()
+ {
+    let mut h = memories_command();
+    h.press("up");
+    h.press("enter");
+    h.press("down");
+    h.press("esc");
+    assert!(
+        h.t.screen().contains("Choose how Codex uses"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("› Reset all memories  Delete local"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("esc");
+    h.press("esc");
+    assert!(!h.t.screen().contains("Memories"), "{}", h.t.screen());
+    assert_eq!(edits(&h), vec![]);
+}
+
+#[test]
+fn enter_on_reset_all_memories_sends_the_reset_and_closes() {
+    let mut h = memories_command();
+    h.press("up");
+    h.press("enter");
+    h.press("enter");
+    assert!(
+        !h.t.screen().contains("Reset all memories?"),
+        "{}",
+        h.t.screen()
+    );
+    assert_eq!(edits(&h), vec![Edit::MemoriesReset]);
+}
+
+/// ADR-011 (beyond the oracle): a tap puts the cursor on a row, a second tap
+/// does what Space (a switch) or Enter (the reset row, a choice) does.
+#[test]
+fn a_tap_moves_the_cursor_a_second_tap_flips_a_switch_asks_to_reset_or_chooses() {
+    let mut h = open("memories_settings");
+    let (y, x) = find(&h, "Generate memories");
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [ ] Generate memories"),
+        "{}",
+        h.t.screen()
+    );
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("› [x] Generate memories"),
+        "{}",
+        h.t.screen()
+    );
+    let (y, x) = find(&h, "Reset all memories");
+    h.t.click(x, y);
+    h.settle();
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("Reset all memories?"),
+        "{}",
+        h.t.screen()
+    );
+    let (y, x) = find(&h, "Go back");
+    h.t.click(x, y);
+    h.settle();
+    assert!(h.t.screen().contains("› Go back"), "{}", h.t.screen());
+    h.t.click(x, y);
+    h.settle();
+    assert!(
+        h.t.screen().contains("Choose how Codex uses"),
         "{}",
         h.t.screen()
     );

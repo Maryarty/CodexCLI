@@ -182,6 +182,7 @@ fn settings_dialog(command: SlashCommand) -> Option<codex_tui_core::screens::set
     use codex_tui_core::screens::settings::Dialog;
     match command {
         SlashCommand::Theme => Some(Dialog::Theme),
+        SlashCommand::Memories => Some(Dialog::Memories),
         _ => None,
     }
 }

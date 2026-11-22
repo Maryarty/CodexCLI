@@ -397,36 +397,33 @@ fn esc_routes_through_the_view() {
 // ORACLE bottom_pane/memories_settings_view_tests.rs:6 reset_confirmation_keeps_both_choices_at_wrap_boundary kind=snap owner=dialogs-pane snap=reset_confirmation_keeps_both_choices_at_wrap_boundary
 #[test]
 fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
-    kit::pending(
-        Owner::DialogsPane,
-        "no memories settings view in the port: no entry settings/memories_reset_confirmation",
-    );
+    // Each width is one screen; the heights are the view's desired_height(width):
+    // the sheet sits at the bottom edge of the screen over the debug menu.
     let mut s = Screen::build(Owner::DialogsPane)
-        .size(68, 14)
+        .size(68, 13)
         .entry("settings", "memories_reset_confirmation")
         .open();
-    // Each width is one screen; the heights are the view's desired_height(width).
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=68",
     );
     s.assert_contains("Go back");
-    s.resize(69, 14);
+    s.resize(69, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=69",
     );
-    s.resize(70, 14);
+    s.resize(70, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=70",
     );
-    s.resize(71, 14);
+    s.resize(71, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=71",
     );
-    s.resize(72, 14);
+    s.resize(72, 12);
     s.assert_snap_section(
         "reset_confirmation_keeps_both_choices_at_wrap_boundary",
         "width=72",

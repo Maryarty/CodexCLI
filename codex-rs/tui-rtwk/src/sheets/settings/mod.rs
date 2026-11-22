@@ -19,6 +19,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 
 pub mod features;
+pub mod memories;
 pub mod setup;
 pub mod strings;
 pub mod theme;
@@ -98,6 +99,16 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/experimental_changed_default.jsonl"),
         ),
         (
+            "memories_settings",
+            "the memories dialog: use on, generate off",
+            include_str!("fixtures/memories.jsonl"),
+        ),
+        (
+            "memories_reset_confirmation",
+            "the memories reset confirmation",
+            include_str!("fixtures/memories_reset_confirmation.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
@@ -141,6 +152,7 @@ enum Shown {
     Setup,
     Theme,
     Features,
+    Memories,
     Other,
 }
 
@@ -171,6 +183,7 @@ fn shown_of(cx: &mut Cx<'_, ScreenState>) -> Shown {
         Some(Open::Setup(_)) => Shown::Setup,
         Some(Open::Theme(_)) => Shown::Theme,
         Some(Open::Experimental(_)) => Shown::Features,
+        Some(Open::Memories(_)) => Shown::Memories,
         Some(_) => Shown::Other,
     })
 }
@@ -192,6 +205,7 @@ impl State for ScreenState {
             Shown::Setup => setup::SetupSheet.into(),
             Shown::Theme => theme::ThemeSheet.into(),
             Shown::Features => features::FeaturesSheet.into(),
+            Shown::Memories => memories::MemoriesSheet.into(),
             // No dialog seeded (the debug menu's row): the skeleton's
             // empty-slot line.
             Shown::Nothing | Shown::Other => {

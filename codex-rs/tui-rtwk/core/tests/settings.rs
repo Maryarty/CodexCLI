@@ -15,8 +15,8 @@ use codex_tui_core::app::{AppEv, Intent};
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::screens::settings::{
     ConfigPanel, Edit, Ev as SettingsEv, Experimental, Feature, FeaturesStatus,
-    Intent as SettingsIntent, Open, Section, SettingId, Setup, SetupKind, USE_THEME_COLORS, Value,
-    Written,
+    Intent as SettingsIntent, MEMORIES_GENERATE, MEMORIES_USE, Memories, Open, Section, SettingId,
+    Setup, SetupKind, USE_THEME_COLORS, Value, Written,
 };
 use codex_tui_core::screens::{ScreenEv, ScreenIntent};
 use pretty_assertions::assert_eq;
@@ -250,6 +250,7 @@ fn opening_the_theme_picker_builds_it_from_the_facts() {
             syntax_theme: Some("Zebra".into()),
             custom_themes: vec!["Zebra".into(), "my-night".into(), "nord".into()],
             themes_dir: Some("~/.codex/themes".into()),
+            memories: None,
         }),
         &mut fx,
     );
@@ -800,4 +801,124 @@ fn answers_of_another_open_and_read_only_rows_change_nothing() {
     send(&mut sandbox, SettingsIntent::Save);
     assert!(sandbox.app().screens().settings.open.is_none());
     assert_eq!(sandbox.app().screens().settings.edits, vec![]);
+}
+
+// ---- the memories dialog (`bottom_pane/memories_settings_view.rs`,
+// `chatwidget/tests/popups_and_settings.rs:3323..3344`)
+
+const MEMORIES: &str = include_str!("../../src/sheets/settings/fixtures/memories.jsonl");
+
+fn memories(sandbox: &Sandbox) -> Memories {
+    match &sandbox.app().screens().settings.open {
+        Some(Open::Memories(dialog)) => dialog.clone(),
+        other => panic!("memories dialog expected, got {other:?}"),
+    }
+}
+
+/// Space flips a switch (`toggle_selected`); Enter on one sends both switches
+/// as they stand and closes (`UpdateMemorySettings`). The confirmation's
+/// intents do nothing before it is asked for.
+#[test]
+fn memories_toggles_flip_and_enter_saves_both_switches() {
+    let mut sandbox = Sandbox::play(MEMORIES).expect("plays");
+    assert_eq!(
+        memories(&sandbox),
+        Memories {
+            use_memories: true,
+            generate_memories: false,
+            confirming: false
+        }
+    );
+    send(&mut sandbox, SettingsIntent::Reset);
+    send(&mut sandbox, SettingsIntent::Toggle("unknown".to_string()));
+    send(
+        &mut sandbox,
+        SettingsIntent::Toggle(MEMORIES_GENERATE.to_string()),
+    );
+    send(
+        &mut sandbox,
+        SettingsIntent::Toggle(MEMORIES_USE.to_string()),
+    );
+    assert_eq!(
+        memories(&sandbox),
+        Memories {
+            use_memories: false,
+            generate_memories: true,
+            confirming: false
+        }
+    );
+    assert_eq!(sandbox.app().screens().settings.edits, vec![]);
+    send(&mut sandbox, SettingsIntent::Save);
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::MemoriesSaved {
+            use_memories: false,
+            generate_memories: true
+        }]
+    );
+    assert_eq!(sandbox.app().screens().settings.open, None);
+}
+
+/// Enter on the reset row opens the confirmation, which takes neither
+/// toggles nor a save; Esc or "Go back" (`Close`) returns to the switches and
+/// closes only from there; "Reset all memories" sends `ResetMemories` and
+/// closes (`save`, `cancel`, `close_reset_confirmation`).
+#[test]
+fn memories_reset_is_confirmed_then_sent_and_close_goes_back_first() {
+    let mut sandbox = Sandbox::play(MEMORIES).expect("plays");
+    send(&mut sandbox, SettingsIntent::ConfirmReset);
+    assert!(memories(&sandbox).confirming);
+    send(
+        &mut sandbox,
+        SettingsIntent::Toggle(MEMORIES_USE.to_string()),
+    );
+    send(&mut sandbox, SettingsIntent::Save);
+    assert!(memories(&sandbox).use_memories);
+    assert!(memories(&sandbox).confirming);
+    send(&mut sandbox, SettingsIntent::Close);
+    assert!(!memories(&sandbox).confirming);
+    send(&mut sandbox, SettingsIntent::Reset);
+    assert!(sandbox.app().screens().settings.open.is_some());
+    send(&mut sandbox, SettingsIntent::ConfirmReset);
+    send(&mut sandbox, SettingsIntent::Reset);
+    assert_eq!(
+        sandbox.app().screens().settings.edits,
+        vec![Edit::MemoriesReset]
+    );
+    assert_eq!(sandbox.app().screens().settings.open, None);
+    // Esc from the switches closes with nothing sent
+    let mut sandbox = Sandbox::play(MEMORIES).expect("plays");
+    send(&mut sandbox, SettingsIntent::Close);
+    assert_eq!(sandbox.app().screens().settings.open, None);
+    assert_eq!(sandbox.app().screens().settings.edits, vec![]);
+}
+
+/// `/memories` builds the dialog from the facts (`open_memories_popup`: the
+/// switches of `config.memories` when the memory tool is on).
+#[test]
+fn slash_memories_opens_from_the_facts_when_the_memory_tool_is_on() {
+    use codex_tui_core::screens::settings::{Dialog, Facts, MemoryFacts};
+    let mut sandbox = Sandbox::play(MEMORIES).expect("plays");
+    send(&mut sandbox, SettingsIntent::Close);
+    send(&mut sandbox, SettingsIntent::Open(Dialog::Memories));
+    assert_eq!(sandbox.app().screens().settings.open, None);
+    answer(
+        &mut sandbox,
+        SettingsEv::Facts(Facts {
+            memories: Some(MemoryFacts {
+                use_memories: false,
+                generate_memories: true,
+            }),
+            ..Facts::default()
+        }),
+    );
+    send(&mut sandbox, SettingsIntent::Open(Dialog::Memories));
+    assert_eq!(
+        memories(&sandbox),
+        Memories {
+            use_memories: false,
+            generate_memories: true,
+            confirming: false
+        }
+    );
 }
