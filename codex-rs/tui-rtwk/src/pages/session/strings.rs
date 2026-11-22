@@ -119,6 +119,10 @@ pub struct Strings {
     pub banner_choose: &'static str,
     pub banner_choose_dismiss: &'static str,
     pub banner_dismiss: &'static str,
+    /// The Luna Reserve selector (`backend_banners.rs`): its local row, and the footer that
+    /// names the keys (`accept_cancel_hint_line`).
+    pub reserve_continue: &'static str,
+    reserve_hint: Msg<2>,
     pub warning_singular: &'static str,
     pub warning_plural: &'static str,
     pub warning_key: &'static str,
@@ -214,6 +218,8 @@ pub const EN: Strings = Strings {
     banner_choose: "Press a number to choose",
     banner_choose_dismiss: "Press a number to choose \u{b7} esc to dismiss \u{b7} type to continue",
     banner_dismiss: "esc to dismiss \u{b7} type to continue",
+    reserve_continue: "Continue with Luna Reserve",
+    reserve_hint: msg!("Press {0} to confirm or {1} to continue working"),
     warning_singular: "warning",
     warning_plural: "warnings",
     warning_key: "f2",
@@ -261,6 +267,16 @@ impl Strings {
             BannerHint::Dismiss => Some(self.banner_dismiss),
             BannerHint::None => None,
         }
+    }
+
+    /// The Luna selector's footer, with the keys the list's keymap names.
+    pub(super) fn reserve_hint(&self, accept: &str, cancel: &str) -> String {
+        Fmt::new(
+            self.reserve_hint,
+            [Arg::Text(accept), Arg::Text(cancel)],
+            &self.num,
+        )
+        .to_string()
     }
 
     pub(super) fn search_in(&self, query: &str, path: &str) -> String {

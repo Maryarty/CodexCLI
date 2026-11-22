@@ -163,6 +163,45 @@ impl Screen {
             .collect()
     }
 
+    /// The pages the app asked the browser to open (`AppEvent::OpenUrlInBrowser`), oldest first.
+    pub fn opened_urls(&self) -> Vec<String> {
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                codex_tui_core::app::Command::OpenUrl { url, .. } => Some(url),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The add-credits nudges the app asked the backend for (the fake leaves them unanswered),
+    /// oldest first.
+    pub fn nudges(&self) -> Vec<codex_tui_core::app::Command> {
+        self.h
+            .fake
+            .commands()
+            .into_iter()
+            .filter(|c| matches!(c, codex_tui_core::app::Command::SendAddCreditsNudge { .. }))
+            .collect()
+    }
+
+    /// The server answers the request `command` made with `result` (its JSON).
+    pub fn answer_request(
+        &mut self,
+        command: &codex_tui_core::app::Command,
+        result: serde_json::Value,
+    ) {
+        let (ticket, reply) =
+            codex_tui_core::protocol::reply(command, Ok(result)).expect("a command with a reply");
+        let epoch = self.h.fake.epoch().expect("attached");
+        self.h
+            .fake
+            .inject(epoch, codex_tui_core::app::AppEv::Reply(ticket, reply));
+        self.h.advance(100);
+    }
+
     /// Pastes text as a terminal with bracketed paste does.
     pub fn paste(&mut self, text: &str) -> &mut Screen {
         self.h.t.paste(text);

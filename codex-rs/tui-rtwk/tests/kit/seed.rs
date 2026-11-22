@@ -231,6 +231,7 @@ fn feed(h: &mut Harness, text: &str) {
                 h.fake
                     .inject(epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
             }
+            Step::Respond { method, result } => answer(h, method, result),
             Step::Key { keys } => inputs.push(script::Input::Key(keys)),
             Step::Resize { width, height } => {
                 inputs.push(script::Input::Resize { width, height });
@@ -239,4 +240,22 @@ fn feed(h: &mut Harness, text: &str) {
     }
     h.advance(200);
     h.play_inputs(&inputs);
+}
+
+thread_local! {
+    /// What the fake backend answers a client request with, by method (the
+    /// `respond` steps of this test's scripts).
+    static ANSWERS: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
+        std::sync::Arc::default();
+}
+
+/// `{"step":"respond"}`: the backend answers requests of `method` with `result`
+/// from now on (the responder reads this test's table, later steps replace an entry).
+fn answer(h: &mut Harness, method: String, result: serde_json::Value) {
+    let answers = ANSWERS.with(std::sync::Arc::clone);
+    answers.lock().expect("answers").insert(method, result);
+    h.fake.respond(move |request| {
+        let method = request["method"].as_str()?;
+        answers.lock().ok()?.get(method).cloned().map(Ok)
+    });
 }

@@ -210,6 +210,12 @@ pub enum Notice {
     ContextCompacted,
     EnteredReview(String),
     ExitedReview(String),
+    /// The e-mail to the owner of the workspace that a banner action asked for ended
+    /// (`finish_add_credits_nudge_email_request`).
+    AddCreditsNudge {
+        nudge: crate::screens::chat::Nudge,
+        outcome: crate::screens::chat::NudgeOutcome,
+    },
 }
 
 /// A message another task delegated to this thread (oracle

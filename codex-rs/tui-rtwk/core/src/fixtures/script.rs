@@ -11,6 +11,10 @@
 //! - `request`: a server request, the protocol's own JSON in `message`.
 //! - `lagged`: the app server's event stream dropped `skipped` events
 //!   (`{"step":"lagged","skipped":3}`; oracle: the `Lagged` event).
+//! - `respond`: what the backend answers a client request of that method
+//!   with (`{"step":"respond","method":"account/rateLimits/read","result":{..}}`);
+//!   the model has no backend, so `play` skips it and a tester's fake backend
+//!   answers with it.
 //! - `key` and `resize`: inputs for a tester; the model has no use for them,
 //!   `play` hands them back in order.
 //!
@@ -51,6 +55,10 @@ pub enum Step {
     },
     Lagged {
         skipped: usize,
+    },
+    Respond {
+        method: String,
+        result: serde_json::Value,
     },
     Key {
         keys: String,
@@ -168,6 +176,7 @@ impl Script {
                 Step::Lagged { skipped } => {
                     ingest(app, AppEv::Backend(BackendEv::Lagged(*skipped)));
                 }
+                Step::Respond { .. } => {}
                 Step::Key { keys } => inputs.push(Input::Key(keys.clone())),
                 Step::Resize { width, height } => inputs.push(Input::Resize {
                     width: *width,

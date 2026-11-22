@@ -81,7 +81,7 @@ impl Banner {
     }
 
     pub fn visible_for(&self, model: Option<&str>) -> bool {
-        if self.banner_type == "luna_reserve" {
+        if self.is_reserve() {
             return true;
         }
         match self.blocked_model_slug.as_deref() {
@@ -93,7 +93,13 @@ impl Banner {
     }
 
     pub fn reserve_pending(&self, model: Option<&str>) -> bool {
-        self.banner_type == "luna_reserve" && model != Some("gpt-reserve")
+        self.is_reserve() && model != Some("gpt-reserve")
+    }
+
+    /// The Luna Reserve banner: shown as a focused selector, not as the inline banner
+    /// (`LUNA_RESERVE_BANNER`).
+    pub fn is_reserve(&self) -> bool {
+        self.banner_type == "luna_reserve"
     }
 
     pub fn title(&self) -> &str {
@@ -192,6 +198,17 @@ pub enum Nudge {
     UsageLimit,
 }
 
+/// How the add-credits nudge ended (`finish_add_credits_nudge_email_request`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NudgeOutcome {
+    /// The e-mail went out.
+    Sent,
+    /// The owner was told recently (`cooldown_active`).
+    Cooldown,
+    /// The request failed.
+    Failed,
+}
+
 /// One numbered row of a banner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BannerCta {
@@ -231,8 +248,20 @@ impl BannerOccurrence {
         self.banner.presentation == Presentation::Dismissible
     }
 
+    /// The user dismissed the occurrence (Esc on a dismissible banner; Esc or a pick in the Luna
+    /// selector, whatever its presentation: `picker_dismissed`).
     pub(crate) fn dismiss(&mut self, ticket: Ticket) {
-        if self.ticket == ticket && self.is_dismissible() {
+        if self.ticket == ticket && (self.is_dismissible() || self.banner.is_reserve()) {
+            self.dismissed = true;
+        }
+    }
+
+    /// A submit starts a turn: a dismissible banner the user was shown (visible
+    /// for the model in use) is dismissed, any other stays (oracle
+    /// `dismiss_backend_banner_for_new_turn`; a model that hides it does not
+    /// dismiss it).
+    pub(crate) fn dismiss_for_new_turn(&mut self, model: Option<&str>) {
+        if self.is_dismissible() && self.is_visible(model) {
             self.dismissed = true;
         }
     }

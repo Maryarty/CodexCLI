@@ -11,11 +11,15 @@ pub mod onboarding;
 pub(crate) mod requests;
 pub(crate) mod targets;
 
+use codex_app_server_protocol::AddCreditsNudgeCreditType;
+use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
 use codex_app_server_protocol::ByteRange;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
+use codex_app_server_protocol::SendAddCreditsNudgeEmailResponse;
 use codex_app_server_protocol::TextElement;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
@@ -48,6 +52,17 @@ pub fn client_request(
             request_id,
             params: None,
         }),
+        Command::SendAddCreditsNudge { nudge, .. } => {
+            Some(ClientRequest::SendAddCreditsNudgeEmail {
+                request_id,
+                params: SendAddCreditsNudgeEmailParams {
+                    credit_type: match nudge {
+                        screens::chat::Nudge::Credits => AddCreditsNudgeCreditType::Credits,
+                        screens::chat::Nudge::UsageLimit => AddCreditsNudgeCreditType::UsageLimit,
+                    },
+                },
+            })
+        }
         Command::StartThread { model: chosen, .. } => Some(ClientRequest::ThreadStart {
             request_id,
             params: ThreadStartParams {
@@ -109,6 +124,22 @@ pub fn reply(
                     Reply::account_rate_limits(limits.into(), banner)
                 }
                 Err(error) => Reply::error(error),
+            },
+        )),
+        Command::SendAddCreditsNudge { ticket, .. } => Some((
+            *ticket,
+            match decode::<SendAddCreditsNudgeEmailResponse>(
+                "account/sendAddCreditsNudgeEmail",
+                result,
+            ) {
+                Ok(response) => Reply::add_credits_nudge(match response.status {
+                    AddCreditsNudgeEmailStatus::Sent => screens::chat::NudgeOutcome::Sent,
+                    AddCreditsNudgeEmailStatus::CooldownActive => {
+                        screens::chat::NudgeOutcome::Cooldown
+                    }
+                }),
+                // a failed request is told as the outcome, not as an error row
+                Err(_) => Reply::add_credits_nudge(screens::chat::NudgeOutcome::Failed),
             },
         )),
         Command::StartThread { ticket, .. } => Some((

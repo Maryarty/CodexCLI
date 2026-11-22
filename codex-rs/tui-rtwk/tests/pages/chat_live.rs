@@ -318,3 +318,92 @@ fn the_edit_queued_key_puts_the_newest_queued_message_back_in_the_composer() {
     let screen = h.t.screen();
     assert!(screen.contains("(queued) one"), "{screen}");
 }
+
+/// A chat on `model` whose account read carried the Luna Reserve banner; `draft` is typed first.
+fn with_reserve(model: &str, draft: &str) -> Harness {
+    let mut h = start();
+    h.wait_idle();
+    h.t.type_text(draft);
+    h.fake
+        .respond(move |request| match request["method"].as_str() {
+            Some("account/rateLimits/read") => Some(Ok(json!({
+                "accountId": "account-preview",
+                "rateLimits": {},
+                "rateLimitUpsell": {
+                    "banner_type": "luna_reserve",
+                    "presentation": "dismissible",
+                    "title": "You\u{2019}re now using Luna, a faster model for simpler tasks.",
+                    "description": "Add credits or upgrade to continue using the most advanced models.",
+                    "ctas": [{"action": "add_credits", "label": "Add credits"},
+                             {"action": "open_pricing_dialog", "label": "Upgrade"}],
+                },
+            }))),
+            _ => None,
+        });
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake.inject(
+        epoch,
+        AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+            chat::StatusFacts {
+                model: Some(model.to_owned()),
+                account_usage: true,
+                ..chat::StatusFacts::default()
+            },
+        )))),
+    );
+    h.wait_for("the selector", |s| s.contains("Add credits"));
+    h
+}
+
+/// The oracle's selector takes the bottom pane (`show_selection_view`): no composer, no footer;
+/// Esc gives the draft back, and the composer takes keys again.
+#[test]
+fn the_reserve_selector_replaces_the_composer_and_gives_the_draft_back() {
+    let mut h = with_reserve("gpt-reserve", "saved draft");
+    let screen = h.t.screen();
+    assert!(screen.contains("3. Continue with Luna Reserve"), "{screen}");
+    assert!(screen.contains("esc to continue working"), "{screen}");
+    assert!(!screen.contains("saved draft"), "{screen}");
+    h.press("esc");
+    h.settle();
+    let screen = h.t.screen();
+    assert!(!screen.contains("You\u{2019}re now using Luna"), "{screen}");
+    assert!(screen.contains("saved draft"), "{screen}");
+    h.t.type_text("!");
+    h.settle();
+    assert!(h.t.screen().contains("saved draft!"), "{}", h.t.screen());
+}
+
+/// ADR-011: a tap on a purchase row picks it and closes the selector; a tap on the local row closes
+/// it with no page.
+#[test]
+fn a_tap_on_a_reserve_row_picks_it() {
+    let mut h = with_reserve("gpt-reserve", "saved draft");
+    let (x, y) = cell_of(&h, "Upgrade");
+    h.t.click(x, y);
+    h.settle();
+    assert_eq!(
+        opened_urls(&h),
+        ["https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing".to_owned()]
+    );
+    assert!(!h.t.screen().contains("Luna, a faster"), "{}", h.t.screen());
+    assert!(h.t.screen().contains("saved draft"), "{}", h.t.screen());
+    let mut h = with_reserve("gpt-reserve", "saved draft");
+    let (x, y) = cell_of(&h, "Continue with Luna Reserve");
+    h.t.click(x, y);
+    h.settle();
+    assert!(opened_urls(&h).is_empty());
+    assert!(h.t.screen().contains("saved draft"), "{}", h.t.screen());
+}
+
+/// Another model than the reserve (the switch is pending): the usage-limit copy, the purchase rows
+/// only, and the list's own footer.
+#[test]
+fn the_selector_before_the_switch_has_no_local_row() {
+    let h = with_reserve("gpt-5", "");
+    let screen = h.t.screen();
+    assert!(screen.contains("Usage limit reached"), "{screen}");
+    assert!(screen.contains("2. Upgrade"), "{screen}");
+    assert!(!screen.contains("Continue with Luna Reserve"), "{screen}");
+    assert!(!screen.contains("esc to continue working"), "{screen}");
+}
