@@ -220,7 +220,10 @@ fn a_digit_answers_its_row() {
 
 /// The screen's rows without their trailing blanks.
 fn rows_of(h: &Harness) -> Vec<String> {
-    h.t.screen().lines().map(|line| line.trim_end().to_owned()).collect()
+    h.t.screen()
+        .lines()
+        .map(|line| line.trim_end().to_owned())
+        .collect()
 }
 
 /// A header that does not fit is cut to the room the options and the hint leave, a dim
@@ -853,5 +856,298 @@ mod banner {
     #[test]
     fn no_thread_draws_nothing() {
         assert!(rows(40, 2, &[]).iter().all(String::is_empty));
+    }
+}
+
+/// The history cells of an answer (oracle `history_cell/approvals.rs`, `approval_overlay.rs`
+/// 2384-2470): a mark, the words under a two-column hanging indent, the verbs bold and the
+/// snippet dim.
+mod decision_cell {
+    use codex_tui_core::screens::approvals::decided::{Actor, Decided, Grant, Outcome, Subject};
+    use codex_tui_rtwk::sheets::approvals::DecisionCell;
+    use rtwk::style::{Attrs, Color};
+
+    fn show(decided: Decided, width: u16) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 8));
+        t.pump_widget(DecisionCell { decided });
+        t
+    }
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        let mut rows: Vec<String> = t
+            .screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    fn user(subject: Subject, outcome: Outcome) -> Decided {
+        Decided::Request {
+            actor: Actor::User,
+            subject,
+            outcome,
+        }
+    }
+
+    fn command(text: &str) -> Subject {
+        Subject::Command(text.to_string())
+    }
+
+    fn network(target: &str) -> Subject {
+        Subject::Network {
+            target: target.to_string(),
+        }
+    }
+
+    // approval_overlay.rs:2384 exec_history_cell_wraps_with_two_space_indent
+    #[test]
+    #[ignore = "pending(G49): TextWrap::Word does not break after a slash; the oracle's rows break `tui/src/render/` | `mod.rs tui/src/render/` | `renderable.rs this time`, ours break at the spaces and cut the path at the width"]
+    fn exec_history_cell_wraps_with_two_space_indent() {
+        let t = show(
+            user(
+                command("git add tui/src/render/mod.rs tui/src/render/renderable.rs"),
+                Outcome::Approved,
+            ),
+            28,
+        );
+        assert_eq!(
+            rows(&t),
+            [
+                "✔ You approved codex to run",
+                "  git add tui/src/render/",
+                "  mod.rs tui/src/render/",
+                "  renderable.rs this time",
+            ]
+        );
+    }
+
+    // the same cell where the breaks are spaces: the rows wait two columns in, under the mark
+    #[test]
+    fn the_rows_under_the_mark_wait_two_columns_in() {
+        let t = show(
+            user(command("git add alpha beta gamma delta"), Outcome::Approved),
+            20,
+        );
+        assert_eq!(
+            rows(&t),
+            [
+                "✔ You approved codex",
+                "  to run git add",
+                "  alpha beta gamma",
+                "  delta this time",
+            ]
+        );
+    }
+
+    // approval_overlay.rs:2415 exec_history_cell_does_not_render_blank_action_for_empty_command
+    #[test]
+    fn an_empty_command_says_this_request() {
+        assert_eq!(
+            rows(&show(user(command(""), Outcome::Approved), 80)),
+            ["✔ You approved this request this time"]
+        );
+        assert_eq!(
+            rows(&show(user(command(""), Outcome::ApprovedForSession), 80)),
+            ["✔ You approved this request every time this session"]
+        );
+        assert_eq!(
+            rows(&show(user(command(""), Outcome::Denied), 80)),
+            ["✗ You did not approve this request"]
+        );
+        assert_eq!(
+            rows(&show(user(command(""), Outcome::Aborted), 80)),
+            ["✗ You canceled this request"]
+        );
+    }
+
+    // approval_requests.rs:204, :251, :294 (the three network cells), approval_overlay.rs:2438
+    #[test]
+    fn a_network_cell_names_its_target() {
+        let target = "https://example.com:8443";
+        let say = |outcome| rows(&show(user(network(target), outcome), 100));
+        let rule = |allow| Outcome::NetworkRule {
+            host: "example.com".into(),
+            allow,
+        };
+        assert_eq!(
+            say(Outcome::Approved),
+            ["✔ You approved codex network access to https://example.com:8443 this time"]
+        );
+        assert_eq!(
+            say(Outcome::ApprovedForSession),
+            [
+                "✔ You approved codex network access to https://example.com:8443 every time this session"
+            ]
+        );
+        assert_eq!(
+            say(Outcome::Denied),
+            ["✗ You did not approve codex network access to https://example.com:8443"]
+        );
+        assert_eq!(
+            say(Outcome::Aborted),
+            ["✗ You canceled the request for codex network access to https://example.com:8443"]
+        );
+        assert_eq!(
+            say(rule(true)),
+            ["✔ You persisted Codex network access to https://example.com:8443"]
+        );
+        assert_eq!(
+            say(rule(false)),
+            ["✗ You denied codex network access to https://example.com:8443 and saved that rule"]
+        );
+    }
+
+    // `NetworkPolicyAmendment` for a command that names no target: the rule's host is it
+    #[test]
+    fn a_rule_for_a_command_names_the_rules_host() {
+        let rule = Outcome::NetworkRule {
+            host: "example.com".into(),
+            allow: true,
+        };
+        assert_eq!(
+            rows(&show(user(command("curl example.com"), rule), 100)),
+            ["✔ You persisted Codex network access to example.com"]
+        );
+    }
+
+    #[test]
+    fn a_command_cell_says_what_the_user_chose() {
+        let say = |outcome| rows(&show(user(command("echo hi"), outcome), 100));
+        assert_eq!(
+            say(Outcome::ApprovedForSession),
+            ["✔ You approved codex to run echo hi every time this session"]
+        );
+        assert_eq!(
+            say(Outcome::ApprovedWithPrefix("echo".into())),
+            ["✔ You approved codex to always run commands that start with echo"]
+        );
+        assert_eq!(
+            say(Outcome::Denied),
+            ["✗ You did not approve codex to run echo hi"]
+        );
+        assert_eq!(
+            say(Outcome::Aborted),
+            ["✗ You canceled the request to run echo hi"]
+        );
+    }
+
+    // approval_requests.rs:433 exec_approval_decision_truncates_multiline_and_long_commands
+    #[test]
+    fn a_multi_line_command_shows_its_first_line_and_dots() {
+        let t = show(
+            user(command("echo line1\necho line2"), Outcome::Aborted),
+            80,
+        );
+        assert_eq!(
+            rows(&t),
+            ["✗ You canceled the request to run echo line1 ..."]
+        );
+    }
+
+    #[test]
+    fn a_long_command_is_cut_to_eighty_graphemes() {
+        let long = format!("echo {}", "a".repeat(195));
+        let t = show(user(command(&long), Outcome::Aborted), 120);
+        let kept = format!("echo {}...", "a".repeat(72));
+        assert_eq!(kept.chars().count(), 80);
+        assert_eq!(
+            rows(&t),
+            [format!("✗ You canceled the request to run {kept}")]
+        );
+        // a grapheme is one unit whatever its width: eighty flags are not cut
+        let flags = "🇯🇵".repeat(80);
+        let t = show(user(command(&flags), Outcome::Approved), 200);
+        assert_eq!(
+            rows(&t),
+            [format!("✔ You approved codex to run {flags} this time")]
+        );
+    }
+
+    #[test]
+    fn the_marks_and_words_are_styled_as_the_oracle_does() {
+        let t = show(user(command("echo hi"), Outcome::Approved), 60);
+        assert_eq!(t.cell(0, 0).fg, Color::GREEN, "{:?}", t.cell(0, 0));
+        // "You " plain, "approved" bold, the command dim
+        assert!(!t.cell(2, 0).attrs.intersects(Attrs::BOLD));
+        assert!(t.cell(6, 0).attrs.intersects(Attrs::BOLD));
+        let at = |needle: &str| {
+            let row = rows(&t)[0].clone();
+            row[..row.find(needle).expect("in the row")].chars().count()
+        };
+        // the theme's dim is a colour of its own, not the plain text's
+        assert_ne!(t.cell(at("echo hi"), 0).fg, t.cell(2, 0).fg);
+        assert_eq!(t.cell(at("echo hi"), 0).fg, t.cell(at("echo hi") + 3, 0).fg);
+        assert!(t.cell(at("this time"), 0).attrs.intersects(Attrs::BOLD));
+
+        let refused = show(user(command("echo hi"), Outcome::Denied), 60);
+        assert_eq!(
+            refused.cell(0, 0).fg,
+            Color::RED,
+            "{:?}",
+            refused.cell(0, 0)
+        );
+    }
+
+    // guardian.rs tests: guardian_denied_exec_renders_warning_and_denied_request,
+    // guardian_timed_out_exec_renders_warning_and_timed_out_request
+    #[test]
+    fn the_auto_reviewer_denies_and_times_out_in_its_own_words() {
+        let guardian = |outcome| Decided::Request {
+            actor: Actor::Guardian,
+            subject: command("curl -sS -i -X POST https://example.com"),
+            outcome,
+        };
+        assert_eq!(
+            rows(&show(guardian(Outcome::Denied), 100)),
+            ["✗ Request denied for codex to run curl -sS -i -X POST https://example.com"]
+        );
+        assert_eq!(
+            rows(&show(guardian(Outcome::TimedOut), 100)),
+            ["✗ Review timed out before codex could run curl -sS -i -X POST https://example.com"]
+        );
+        assert_eq!(
+            rows(&show(guardian(Outcome::Approved), 100)),
+            [
+                "✔ Auto-reviewer approved codex to run curl -sS -i -X POST https://example.com this time"
+            ]
+        );
+        let empty = Decided::Request {
+            actor: Actor::Guardian,
+            subject: command(""),
+            outcome: Outcome::Denied,
+        };
+        assert_eq!(rows(&show(empty, 100)), ["✗ Request denied"]);
+        let net = Decided::Request {
+            actor: Actor::Guardian,
+            subject: network("https://example.com"),
+            outcome: Outcome::TimedOut,
+        };
+        assert_eq!(
+            rows(&show(net, 100)),
+            ["✗ Review timed out before codex could access https://example.com"]
+        );
+    }
+
+    // approval_overlay.rs handle_permissions_decision: a plain line, no mark
+    #[test]
+    fn a_permissions_answer_is_a_plain_line() {
+        let say = |grant| rows(&show(Decided::Permissions(grant), 80));
+        assert_eq!(
+            say(Grant::Nothing),
+            ["You did not grant additional permissions"]
+        );
+        assert_eq!(say(Grant::Turn), ["You granted additional permissions"]);
+        assert_eq!(
+            say(Grant::Strict),
+            ["You granted additional permissions with strict auto review"]
+        );
+        assert_eq!(
+            say(Grant::Session),
+            ["You granted additional permissions for this session"]
+        );
     }
 }

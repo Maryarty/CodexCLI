@@ -12,7 +12,7 @@ use crate::kit::{self, Owner, Screen};
 fn exec_approval_emits_proposed_command_and_decision_history() {
     kit::pending(
         Owner::DialogsPane,
-        "the approval's decision cell is not drawn in the chat history after y: the approvals entry shows the modal only",
+        "the approval's decision cell is not drawn in the chat history after y: model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm",
     );
     // oracle: the proposed exec request (echo hello world, reason) renders as the modal, no history cell;
     // `y` answers it and the history gets the decision cell.
@@ -54,7 +54,7 @@ fn app_server_write_stdin_approval_renders_terminal_input() {
 fn network_exec_approval_history_describes_session_host_allowance() {
     kit::pending(
         Owner::DialogsPane,
-        "no network-access approval on the chat screen and no decision cell in its history (feed: fixtures/chat_approvals_1/network_session.jsonl)",
+        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_session.jsonl)",
     );
     // oracle: `a` (accept for the session) answers the network request; the decision cell names the host and the session.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -75,7 +75,7 @@ fn network_exec_approval_history_describes_session_host_allowance() {
 fn network_exec_approval_history_describes_one_time_host_allowance() {
     kit::pending(
         Owner::DialogsPane,
-        "no network-access approval on the chat screen and no decision cell in its history (feed: fixtures/chat_approvals_1/network_once.jsonl)",
+        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_once.jsonl)",
     );
     // oracle: `y` (accept once) answers the HTTP network request; the decision cell names the host.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -91,7 +91,7 @@ fn network_exec_approval_history_describes_one_time_host_allowance() {
 fn network_exec_approval_history_describes_canceled_host_request() {
     kit::pending(
         Owner::DialogsPane,
-        "no network-access approval on the chat screen and no decision cell in its history (feed: fixtures/chat_approvals_1/network_cancel.jsonl)",
+        "no network-access approval on the chat screen and the history holds no decision cell yet (model `approvals::decided::Decided` and widget `DecisionCell` are done; NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm) (feed: fixtures/chat_approvals_1/network_cancel.jsonl)",
     );
     // oracle: `n` cancels the SOCKS5 network request; the decision cell names the request and the URL.
     let mut s = Screen::build(Owner::DialogsPane)
@@ -121,7 +121,7 @@ fn exec_approval_uses_approval_id_when_present() {
 fn exec_approval_decision_truncates_multiline_and_long_commands() {
     kit::pending(
         Owner::DialogsPane,
-        "no approval entry for a multi-line command with a reason, and no decision cell for an aborted request on the chat screen (feeds: exec_multiline_lines.jsonl, exec_long.jsonl)",
+        "no approval entry for a multi-line command with a reason, and the history holds no decision cell yet (NEED threads.rs `Item::Decision`, app.rs recording on resolve, transcript_pane.rs arm; feeds: exec_multiline_lines.jsonl, exec_long.jsonl)",
     );
     // oracle: the multi-line request's first line shows in the modal; `n` aborts it into the history cell;
     // then the 200-character request (no reason) is aborted the same way and its cell is truncated.

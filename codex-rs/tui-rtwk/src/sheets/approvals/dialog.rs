@@ -21,8 +21,8 @@ use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
 use codex_tui_core::screens::approvals::{Decision, Intent, Prompt};
 
-use super::dismiss::DismissDialog;
 use super::clip::{Block, Pane};
+use super::dismiss::DismissDialog;
 use super::form::FormView;
 use super::present::{self, Body, Line, Piece, Tone};
 use super::strings;

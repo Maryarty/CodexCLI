@@ -1011,8 +1011,14 @@ mod auto_resolution {
     // auto_resolution_uses_is_blocking_without_auto_resolution_ms
     #[test]
     fn a_blocking_request_has_no_timer() {
-        assert_eq!(auto_resolution(false, false, SECS(0)), AutoResolution::Disabled);
-        assert_eq!(auto_resolution(false, false, SECS(500)), AutoResolution::Disabled);
+        assert_eq!(
+            auto_resolution(false, false, SECS(0)),
+            AutoResolution::Disabled
+        );
+        assert_eq!(
+            auto_resolution(false, false, SECS(500)),
+            AutoResolution::Disabled
+        );
     }
 
     // :1881 auto_resolution_hides_timer_during_grace_period
@@ -1020,7 +1026,9 @@ mod auto_resolution {
     fn the_grace_period_hides_the_countdown() {
         assert_eq!(
             auto_resolution(true, false, SECS(0)),
-            AutoResolution::HiddenGrace { remaining: SECS(60) }
+            AutoResolution::HiddenGrace {
+                remaining: SECS(60)
+            }
         );
         assert_eq!(
             auto_resolution(true, false, SECS(59)),
@@ -1033,7 +1041,9 @@ mod auto_resolution {
     fn the_countdown_shows_for_a_minute_then_the_request_is_due() {
         assert_eq!(
             auto_resolution(true, false, SECS(60)),
-            AutoResolution::VisibleCountdown { remaining: SECS(60) }
+            AutoResolution::VisibleCountdown {
+                remaining: SECS(60)
+            }
         );
         assert_eq!(
             auto_resolution(true, false, SECS(119)),
@@ -1045,8 +1055,14 @@ mod auto_resolution {
     // :2011 auto_resolution_key_interaction_snoozes_timer, :2038 ..._paste_...
     #[test]
     fn a_key_or_a_paste_stops_the_timer_for_good() {
-        assert_eq!(auto_resolution(true, true, SECS(0)), AutoResolution::Disabled);
-        assert_eq!(auto_resolution(true, true, SECS(200)), AutoResolution::Disabled);
+        assert_eq!(
+            auto_resolution(true, true, SECS(0)),
+            AutoResolution::Disabled
+        );
+        assert_eq!(
+            auto_resolution(true, true, SECS(200)),
+            AutoResolution::Disabled
+        );
     }
 
     #[test]
@@ -1073,5 +1089,195 @@ mod auto_resolution {
         assert!(!can(""));
         assert!(!can(r#","isBlocking":true"#));
         assert!(can(r#","isBlocking":false"#));
+    }
+}
+
+/// What the transcript keeps of an answer (the oracle's `new_approval_decision_cell` and the
+/// plain permissions line, `approval_overlay.rs` `handle_exec_decision` and
+/// `handle_permissions_decision`): the model says WHAT happened, the cell says it in words.
+mod decided {
+    use codex_tui_core::screens::approvals::decided::{Actor, Decided, Grant, Outcome, Subject};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn network(command: &str, context: &str) -> String {
+        format!(
+            r#"{{"method":"item/commandExecution/requestApproval","id":1,"params":{{"kind":"command","threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0,"approvalId":"call-1","environmentId":null,"command":"{command}","cwd":"/tmp"{context}}}}}"#
+        )
+    }
+
+    fn user(subject: Subject, outcome: Outcome) -> Option<Decided> {
+        Some(Decided::Request {
+            actor: Actor::User,
+            subject,
+            outcome,
+        })
+    }
+
+    fn command(text: &str) -> Subject {
+        Subject::Command(text.to_string())
+    }
+
+    fn target(text: &str) -> Subject {
+        Subject::Network {
+            target: text.to_string(),
+        }
+    }
+
+    // :2384 exec_history_cell_wraps_with_two_space_indent (the command, shell wrapper stripped)
+    #[test]
+    fn an_exec_answer_names_the_command_and_what_the_user_chose() {
+        let sandbox = play(&exec(r#","proposedExecpolicyAmendment":["echo","hello"]"#));
+        let prompt = prompt(&sandbox);
+        let of = |decision: Decision| Decided::of(&prompt, &decision);
+        let run = || command("echo hello world");
+        assert_eq!(of(Decision::Accept), user(run(), Outcome::Approved));
+        assert_eq!(
+            of(Decision::AcceptForSession),
+            user(run(), Outcome::ApprovedForSession)
+        );
+        assert_eq!(
+            of(Decision::AcceptWithPrefix("echo hello".into())),
+            user(run(), Outcome::ApprovedWithPrefix("echo hello".into()))
+        );
+        assert_eq!(of(Decision::Decline), user(run(), Outcome::Denied));
+        assert_eq!(of(Decision::Cancel), user(run(), Outcome::Aborted));
+    }
+
+    #[test]
+    fn a_decision_the_request_does_not_take_records_nothing() {
+        let sandbox = play(&exec(""));
+        let prompt = prompt(&sandbox);
+        for decision in [
+            Decision::AllowHost,
+            Decision::Verify,
+            Decision::GrantForTurn,
+            Decision::DenyPermissions,
+        ] {
+            assert_eq!(Decided::of(&prompt, &decision), None, "{decision:?}");
+        }
+    }
+
+    // network_access_command_history_uses_target_without_structured_context
+    #[test]
+    fn a_network_access_command_names_its_target() {
+        let sandbox = play(&network("network-access https://example.com:8443", ""));
+        assert_eq!(
+            Decided::of(&prompt(&sandbox), &Decision::Accept),
+            user(target("https://example.com:8443"), Outcome::Approved)
+        );
+    }
+
+    // network_exec_approval_history_describes_one_time_host_allowance: no target in the
+    // command, so the context's scheme and host are it
+    #[test]
+    fn a_network_context_names_its_scheme_and_host() {
+        let context = |protocol: &str| {
+            format!(r#","networkApprovalContext":{{"host":"example.com","protocol":"{protocol}"}}"#)
+        };
+        for (protocol, scheme) in [
+            ("http", "http"),
+            ("https", "https"),
+            ("socks5Tcp", "socks5-tcp"),
+            ("socks5Udp", "socks5-udp"),
+        ] {
+            let sandbox = play(&network("curl example.com", &context(protocol)));
+            assert_eq!(
+                Decided::of(&prompt(&sandbox), &Decision::Accept),
+                user(
+                    target(&format!("{scheme}://example.com")),
+                    Outcome::Approved
+                ),
+                "{protocol}"
+            );
+        }
+    }
+
+    // network_exec_approval_history_describes_canceled_host_request: the command's own target
+    // wins over the context
+    #[test]
+    fn the_target_of_the_command_wins_over_the_context() {
+        let sandbox = play(&network(
+            "network-access socks5-tcp://example.com:1080",
+            r#","networkApprovalContext":{"host":"example.com","protocol":"socks5Tcp"}"#,
+        ));
+        assert_eq!(
+            Decided::of(&prompt(&sandbox), &Decision::Cancel),
+            user(target("socks5-tcp://example.com:1080"), Outcome::Aborted)
+        );
+    }
+
+    #[test]
+    fn a_network_rule_names_the_rule_and_keeps_the_target() {
+        let sandbox = play(&network(
+            "curl example.com",
+            r#","networkApprovalContext":{"host":"example.com","protocol":"https"}"#,
+        ));
+        let rule = |allow| Decision::NetworkRule {
+            host: "example.com".into(),
+            allow,
+        };
+        let prompt = prompt(&sandbox);
+        assert_eq!(
+            Decided::of(&prompt, &rule(true)),
+            user(
+                target("https://example.com"),
+                Outcome::NetworkRule {
+                    host: "example.com".into(),
+                    allow: true
+                }
+            )
+        );
+        assert_eq!(
+            Decided::of(&prompt, &rule(false)),
+            user(
+                target("https://example.com"),
+                Outcome::NetworkRule {
+                    host: "example.com".into(),
+                    allow: false
+                }
+            )
+        );
+    }
+
+    // `if request.thread_label().is_none()`: the answer of another thread's request is not
+    // the shown thread's history
+    #[test]
+    fn a_request_of_another_thread_leaves_no_record() {
+        let sandbox = play(&exec(""));
+        let prompt = prompt(&sandbox).with_thread_label(Some("Robie".into()));
+        assert_eq!(Decided::of(&prompt, &Decision::Accept), None);
+    }
+
+    // handle_permissions_decision: a plain line, the four grants
+    #[test]
+    fn a_permissions_answer_says_what_was_granted() {
+        let sandbox = play(
+            r#"{"method":"item/permissions/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"test","environmentId":null,"startedAtMs":0,"cwd":"/tmp","reason":"need workspace access","permissions":{"network":{"enabled":true}}}}"#,
+        );
+        let prompt = prompt(&sandbox);
+        for (decision, grant) in [
+            (Decision::GrantForTurn, Grant::Turn),
+            (Decision::GrantForTurnStrict, Grant::Strict),
+            (Decision::GrantForSession, Grant::Session),
+            (Decision::DenyPermissions, Grant::Nothing),
+        ] {
+            assert_eq!(
+                Decided::of(&prompt, &decision),
+                Some(Decided::Permissions(grant)),
+                "{decision:?}"
+            );
+        }
+        assert_eq!(Decided::of(&prompt, &Decision::Accept), None);
+    }
+
+    // a patch, a form and a question leave no decision cell (the oracle records the two above)
+    #[test]
+    fn a_patch_records_no_decision() {
+        let sandbox = play(
+            r#"{"method":"item/fileChange/requestApproval","id":1,"params":{"threadId":"thread-1","turnId":"turn-1","itemId":"call-1","startedAtMs":0}}"#,
+        );
+        assert_eq!(Decided::of(&prompt(&sandbox), &Decision::Accept), None);
     }
 }

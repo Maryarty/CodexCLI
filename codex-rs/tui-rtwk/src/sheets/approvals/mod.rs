@@ -6,6 +6,7 @@
 
 mod banner;
 mod clip;
+mod decision_cell;
 mod dialog;
 mod dismiss;
 mod form;
@@ -28,6 +29,7 @@ use crate::app::debug::seeded::Seeded;
 pub mod strings;
 
 pub use banner::PendingThreadApprovals;
+pub use decision_cell::DecisionCell;
 
 /// What the debug menu lists for this directory: a screen per state worth
 /// opening, on the model a fixture script makes.

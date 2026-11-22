@@ -277,7 +277,10 @@ impl UserInputViewState {
     /// A second of the countdown: the clock decides how much time passed (a frame that came late
     /// counts what it missed); a request that ran out is answered empty.
     fn tick(&mut self, w: &UserInputView, cx: &mut Cx<'_, Self>) -> Rebuild {
-        self.elapsed = match (self.clock, AppBinding::maybe_of(cx).and_then(|b| b.ticker())) {
+        self.elapsed = match (
+            self.clock,
+            AppBinding::maybe_of(cx).and_then(|b| b.ticker()),
+        ) {
             (Some(start), Some(ticker)) => ticker.now().saturating_sub(start),
             _ => self.elapsed + Duration::from_secs(1),
         };
@@ -424,7 +427,8 @@ impl State for UserInputViewState {
             && let Some(binding) = AppBinding::maybe_of(cx)
         {
             self.clock = binding.ticker().map(|ticker| ticker.now());
-            self.timer = Some(binding.start_periodic(Duration::from_secs(1), cx.map(|(): ()| Msg::Tick)));
+            self.timer =
+                Some(binding.start_periodic(Duration::from_secs(1), cx.map(|(): ()| Msg::Tick)));
         }
     }
 
