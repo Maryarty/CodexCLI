@@ -18,7 +18,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## chunk-composer (the whole composer as one job; in progress, steps 1-5 of 11 landed)
+## chunk-composer (the whole composer as one job; in progress, steps 1-5 and 7 of 11 landed)
 Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
 
 Done:
@@ -36,12 +36,30 @@ Done:
   its own undo step (the draft inserts a plain paste itself in Vim, the step has to close with it).
   11 page tests in `tests/pages/composer_vim.rs` (`global.toggle_vim_mode` on F9).
 - Turned on: textarea 14 -> 18, composer_4 12 -> 16 (see counts).
+- Step 7, Ctrl+R as a mode of the composer (2c4294dbe): the search lives in the composer
+  because a paste reaches only a focused TextArea and the draft's `Snapshot` restores
+  text, caret, placeholders and shell mode exactly. Core `screens/popovers.rs`:
+  `HistorySearch` (pure: query, cursor, `Idle/Match/NoMatch`, `display_query` with `↵`/`⇥`,
+  `step`, `set_query`, `preview`; 4 state tests in `core/tests/popovers.rs`).
+  `widgets/composer_draft/search.rs`: `Session` (the search, the draft as it was, Vim's undo
+  steps kept aside), `search_begin/edit/step/accept/cancel`, `search_rev` (the page draws
+  again when it changes: the footer reads the draft, the page state holds a counter, R14).
+  `pages/session/composer/search.rs`: the keys (`handle_history_search_key`: bound keys and
+  Up/Down step, Esc/Ctrl+C cancel, Enter accepts a match only, Backspace/Ctrl+H/Ctrl+U edit,
+  a character extends, every other key is consumed), the paste into the query (sanitized,
+  whole), and the footer row (label dim, query info colour, `enter accept · esc cancel`
+  keys bold words dim, `no match` red). The old screen-state path (`ChatMsg::Search`,
+  `search_key.rs`, `Intent::Search*`, `Action::SearchPrevious/Next`) is gone. 5 page tests in
+  `tests/pages/popovers.rs` (paste into the query, `↵`/`⇥` marks, cancel restores the draft
+  with placeholder and caret for Esc and Ctrl+C, footer styles, a click in the preview), each
+  shown biting once.
 
 Counts now (`summary.py --run` of the six shards): composer_1 8/1/41/0 of 50, composer_2
 30/4/16/0 of 50, composer_3 33/2/21/0 of 56, composer_4 16/2/55/0 of 73, composer_popups
-12/0/31/0 of 43, textarea 18/2/39/0 of 59: 117 pass, 11 n/a, 203 pending, 0 red (109 pass
-before this job's Vim steps). `shards.py --check`: 0 files stale. Whole default nextest 914
-passed; fmt, clippy `--workspace --all-targets -D warnings`: clean.
+14/0/29/0 of 43, textarea 18/2/39/0 of 59: 119 pass, 11 n/a, 201 pending, 0 red (109 pass
+before this job's Vim steps). `shards.py --check`: 55 shards, 2560 tests, 0 files stale. Whole
+`--workspace` nextest 1906 passed, 17 skipped; fmt, clippy `--workspace --all-targets
+-D warnings`: clean.
 
 Imported oracle tests corrected (the kit's expectation was not the oracle's):
 - `removing_the_shell_prefix_is_its_own_undoable_edit`: the oracle compares the whole draft
@@ -50,6 +68,21 @@ Imported oracle tests corrected (the kit's expectation was not the oracle's):
   "alpha " and presses `i`; Esc leaves the caret on the space, so the test presses `A`.
 - `vim_e_advances_from_each_word_end` stays pending (the snapshot joins three states with
   caret rows; the page test drives the three `e` presses).
+
+Step 7 deltas: while the search is open the terminal cursor stays at the preview's caret (the
+oracle puts it at the end of the footer's query, clamped to the last column: `Some((31, 4))`,
+`Some((79, 4))`); the Flutter way is a focused read-only `TextField` for the query in the
+footer (rtwk's caret belongs to the focused editing widget), not built: the key owner would
+move to it. No match highlight (G-new-1: `TextArea` paints no per-range style, the Flutter
+`buildTextSpan` override). The `Searching` state of a background lookup and the lookup are
+step 6. The four paste snapshot tests (`history_search_pasted_query`, `_large_paste_cursor`,
+`_empty_paste`, `_pasted_separators`) are pending `BARE_COMPOSER`: the oracle renders a bare
+composer at 5 rows (textarea with a spare row, cursor in the footer), the chat draws the same
+composer one row lower under its gap row; the page tests hold the text, marks, footer and
+caret. `history_search_paste_preserves_original_draft_on_miss_and_cancel`: the shard body now
+sets the caret to offset 2 as the oracle does (`home right right`), it passes.
+Stale marker for its owner: `pane_footer_2::ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint`
+passes with the marker probing (ui-pane's shard, not edited here).
 
 Deltas (one line each): `word_pieces` by separator class, not UAX29; no counts (as in the
 oracle); a dot-repeated `Yank` replays the register text only; mouse selection is not in
@@ -69,11 +102,12 @@ Needs (other owners' files):
   click, parent-owned and disconnected seeds, a caret-row/multi-frame snapshot compare.
 - `CORE_DEPS` in `tests/rules/layers.rs` when core gets a dependency.
 
-Left (steps 6-11): persistent history (core `composer/history.rs`; Command/AppEv/host are
-needs); Ctrl+R history search (re-add `vim_normal_end_cursor` for history navigation, which
-also unblocks `remapped_history_search_does_not_fall_back_to_ctrl_r`); the `@` mentions popup
+Left (steps 6, 8-11): persistent history (core `composer/history.rs`, the `Searching` status
+and the lookup of a search; Command/AppEv/host are needs); re-add `vim_normal_end_cursor` for
+history navigation (also unblocks `remapped_history_search_does_not_fall_back_to_ctrl_r`);
+the `@` mentions popup
 with file search and tabs; images and attachments (Ctrl+V needs host); reconnect/offline and
-Ctrl+G (G67 pending); remaining tests, gap rows (G-new-1 Ctrl+R match highlight, G65, G66,
+Ctrl+G (G67 pending); remaining tests, gap rows (G-new-1 Ctrl+R match highlight and links, G65, G66,
 G67, G68, G11), the embedded plain-text composer (D4), the binary run and `check.py`.
 
 ## Shard counts (pass / n/a / pending / red of total), composer-2 third run (paste burst in)
