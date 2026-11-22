@@ -245,6 +245,32 @@ pub enum Notice {
         message: String,
         offer_update: bool,
     },
+    /// A write to (or a wait on) a background terminal (oracle
+    /// `UnifiedExecInteractionCell`): the command it runs and what was sent
+    /// to its stdin (empty: it only waited). Shown in the detailed transcript
+    /// only ([`Notice::detailed_only`]).
+    TerminalInteraction {
+        command: Option<String>,
+        stdin: String,
+    },
+    /// `/recap` is generating (oracle `ThreadRecapLoadingCell`).
+    RecapLoading,
+    /// A `request_user_input` exchange ended (oracle
+    /// `RequestUserInputResultCell`).
+    Questions {
+        questions: Vec<crate::screens::cells::AnsweredQuestion>,
+        interrupted: bool,
+    },
+    /// The startup card under the header (oracle `new_session_info`).
+    SessionInfo(crate::screens::cells::SessionInfo),
+}
+
+impl Notice {
+    /// Entries only the detailed transcript (Ctrl+T) shows; the app's
+    /// `Item::is_detailed_only` asks.
+    pub fn detailed_only(&self) -> bool {
+        matches!(self, Self::TerminalInteraction { .. })
+    }
 }
 
 /// A message another task delegated to this thread (oracle

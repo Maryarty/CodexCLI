@@ -19,10 +19,12 @@ pub mod computer_activity;
 pub mod delegated;
 pub mod deprecation;
 pub mod disclosure;
+pub mod dispatch;
 pub mod error;
 pub mod exec;
 pub mod generated_image;
 pub mod hook;
+pub mod interaction;
 pub mod markdown;
 pub mod note;
 pub mod notice;
@@ -30,9 +32,12 @@ pub mod one_row;
 pub mod patch;
 pub mod plan;
 pub mod plan_update;
+pub mod raw;
 pub mod reasoning;
+pub mod request_input;
 pub mod safety;
 pub mod separator;
+pub mod session_info;
 pub mod status;
 pub mod strings;
 pub mod text;
@@ -43,6 +48,8 @@ pub mod user;
 pub mod viewed_image;
 pub mod warning;
 pub mod web;
+
+pub use dispatch::{CellEnv, Place, cell};
 
 /// What the debug menu lists for this directory: nothing yet. A slice adds
 /// one entry per state worth opening (a screen on made-up data).

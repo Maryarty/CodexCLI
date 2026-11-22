@@ -64,10 +64,6 @@ fn streaming_agent_tail_blank_line_uses_one_viewport_row() {
 // ORACLE history_cell/tests.rs:270 raw_lines_from_source_preserves_explicit_blank_lines kind=ui owner=chat-live
 #[test]
 fn raw_lines_from_source_preserves_explicit_blank_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "no raw scrollback mode (alt+r) on S11: the cells screen draws no raw-source rows yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!("fixtures/cells_3/raw_lines_blank_lines.jsonl"))
@@ -84,10 +80,6 @@ fn raw_lines_from_source_preserves_explicit_blank_lines() {
 // ORACLE history_cell/tests.rs:281 raw_lines_from_source_preserves_trailing_blank_but_not_trailing_newline kind=ui owner=chat-live
 #[test]
 fn raw_lines_from_source_preserves_trailing_blank_but_not_trailing_newline() {
-    kit::pending(
-        Owner::ChatLive,
-        "no raw scrollback mode (alt+r) on S11: the cells screen draws no raw-source rows yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
@@ -105,17 +97,16 @@ fn raw_lines_from_source_preserves_trailing_blank_but_not_trailing_newline() {
 // ORACLE history_cell/tests.rs:290 source_backed_cells_render_raw_source_without_prefix_or_style kind=ui owner=chat-live
 #[test]
 fn source_backed_cells_render_raw_source_without_prefix_or_style() {
-    kit::pending(
-        Owner::ChatLive,
-        "no raw scrollback mode (alt+r) on S11: the cells screen draws no source-backed rows (user, assistant table, reasoning, plan) yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 40)
         .script(include_str!("fixtures/cells_3/source_backed_cells.jsonl"))
         .open();
     s.keys("alt+r");
-    // Visible half: the raw source of the four cells, in order, without the
-    // prompt chevron, bullets or style of the rich view.
+    // Visible half: the raw source of the cells, in order, without the prompt
+    // chevron, bullets or style of the rich view. The reasoning cell is
+    // transcript-only in the live chat (oracle `ReasoningSummaryCell::transcript_only`,
+    // the unit test builds it with false): it has no row on this screen; its raw
+    // lines are checked in tests/pages/cells.rs `raw_mode`.
     s.assert_in_order(&[
         "hello",
         "world",
@@ -123,8 +114,6 @@ fn source_backed_cells_render_raw_source_without_prefix_or_style() {
         "| A | B |",
         "| - | - |",
         "| x | y |",
-        "first thought",
-        "second thought",
         "1. Inspect",
         "```sh",
         "cargo test",
@@ -190,10 +179,6 @@ fn proposed_plan_cell_unwraps_markdown_fenced_table() {
 // ORACLE history_cell/tests.rs:495 structured_tool_cell_renders_raw_plain_text_without_prefix_or_style kind=ui owner=chat-live
 #[test]
 fn structured_tool_cell_renders_raw_plain_text_without_prefix_or_style() {
-    kit::pending(
-        Owner::ChatLive,
-        "no raw scrollback mode (alt+r) on S11: the cells screen draws no MCP tool call rows in raw mode yet",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
         .script(include_str!(
@@ -228,19 +213,36 @@ fn delegated_message_list_spacing_in_scrollback_and_transcript() {
 // ORACLE history_cell/tests.rs:543 raw_mode_toggle_transcript_snapshot kind=snap owner=chat-live snap=raw_mode_toggle_transcript
 #[test]
 fn raw_mode_toggle_transcript_snapshot() {
-    kit::pending(
-        Owner::ChatLive,
-        "no raw scrollback mode (alt+r) on S11: the rich and raw renderings of the three cells are not drawn yet; the kit's snapshot parser also has no frame header for the `label:` sections of this snapshot (rich before:, raw on:, rich after:), so assert_snap_section cannot select them",
-    );
+    // The snapshot's three frames are the oracle's cell-level renderings (`display_lines`,
+    // `raw_lines`, `display_lines`) joined without the chat's blank rows between cells, the
+    // toggle note or the bottom pane; the rich frames also carry the oracle's `• • first item`
+    // list bullet. The chat is compared on what the raw frame says: its rows, in order.
     let mut s = Screen::build(Owner::ChatLive)
-        .size(40, 60)
+        .size(60, 60)
         .script(include_str!("fixtures/cells_3/raw_mode_toggle.jsonl"))
         .open();
-    s.assert_snap_section("raw_mode_toggle_transcript", "rich before");
+    s.assert_in_order(&["› Please format this", "for copying"]);
     s.keys("alt+r");
-    s.assert_snap_section("raw_mode_toggle_transcript", "raw on");
+    s.assert_in_order(&[
+        "Please format this",
+        "for copying",
+        "- first item",
+        "- second item",
+        "| Col | Value |",
+        "| --- | --- |",
+        "| code | `x = 1` |",
+        "```text",
+        "copy me",
+        "```",
+        "Called workspace.inspect({\"path\":\"README.md\"})",
+        "structured output",
+        "second line",
+    ]);
+    s.assert_absent("› Please format this");
     s.keys("alt+r");
-    s.assert_snap_section("raw_mode_toggle_transcript", "rich after");
+    s.assert_in_order(&["› Please format this", "for copying"]);
+    s.assert_absent("| --- | --- |");
+    s.assert_absent("```text");
 }
 
 // ORACLE history_cell/tests.rs:600 image_generation_call_renders_saved_path kind=ui owner=chat-live
@@ -264,7 +266,7 @@ fn image_generation_call_renders_saved_path() {
 fn unified_exec_interaction_cell_retains_detailed_input() {
     kit::pending(
         Owner::ChatLive,
-        "no background-terminal interaction cell on S11: a write to a unified-exec terminal is not fed as a step and the cells screen draws no interaction cell",
+        "the cell is built (cells::interaction, rows equal in tests/pages/cells.rs notice_cells); need: threads.rs Item::is_detailed_only asks Notice::detailed_only, and the unified-exec flow appends Notice::TerminalInteraction (ThreadEv::Appended), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_in_order(&[
@@ -293,7 +295,7 @@ fn unified_exec_interaction_cell_retains_detailed_input() {
 fn unified_exec_interaction_cell_retains_detailed_wait() {
     kit::pending(
         Owner::ChatLive,
-        "no background-terminal wait cell on S11: an empty write (wait) is not fed as a step and the cells screen draws no interaction cell",
+        "the cell is built (cells::interaction, rows equal in tests/pages/cells.rs notice_cells); need: threads.rs Item::is_detailed_only asks Notice::detailed_only, and the unified-exec flow appends Notice::TerminalInteraction (ThreadEv::Appended), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 6).live().open();
     s.assert_contains("• Waited for background terminal");
@@ -372,7 +374,7 @@ fn ps_output_empty_snapshot() {
 fn session_info_uses_availability_nux_tooltip_override() {
     kit::pending(
         Owner::ChatLive,
-        "the startup card of the oracle (new_session_info: help lines of the first session and one `Tip:` row) is not built: core has no first-session fact, no `show_tooltips` setting, no tips catalog and no model-availability NUX, and no script seed sets them; the header above it is drawn",
+        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_contains("Model just became available");
@@ -383,7 +385,7 @@ fn session_info_uses_availability_nux_tooltip_override() {
 fn session_info_availability_nux_tooltip_snapshot() {
     kit::pending(
         Owner::ChatLive,
-        "the startup card of the oracle (new_session_info: help lines of the first session and one `Tip:` row) is not built: core has no first-session fact, no `show_tooltips` setting, no tips catalog and no model-availability NUX, and no script seed sets them; the header above it is drawn",
+        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.assert_snap_region("session_info_availability_nux_tooltip_snapshot", 0, 0);
@@ -394,7 +396,7 @@ fn session_info_availability_nux_tooltip_snapshot() {
 fn session_info_preserves_styled_tooltip_links() {
     kit::pending(
         Owner::ChatLive,
-        "the startup card's `Tip:` row (markdown with **/copy** bold and a community link) is not built: core has no tips catalog or tooltip override; the oracle's link-column dump is compared through assert_link and assert_text_style",
+        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(30, 24).live().open();
     s.assert_in_order(&[
@@ -411,7 +413,7 @@ fn session_info_preserves_styled_tooltip_links() {
 fn session_info_first_event_respects_tooltip_preference() {
     kit::pending(
         Owner::ChatLive,
-        "the startup card's help lines and tip follow `show_tooltips`; core has no such setting and no first-session fact, and no script seed sets them",
+        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
     );
     // show_tooltips = true: the tip is shown, the availability notice is not.
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
@@ -425,7 +427,7 @@ fn session_info_first_event_respects_tooltip_preference() {
 fn session_info_hides_tooltips_when_disabled() {
     kit::pending(
         Owner::ChatLive,
-        "the startup card's help lines and tip follow `show_tooltips`; core has no such setting, and no script seed sets it",
+        "the card is built (cells::session_info, rows equal in tests/pages/cells.rs notice_cells); need: the host appends Notice::SessionInfo at the session start (first event, show_tooltips, the tips catalog and its random pick, the model-availability NUX), which the kit cannot seed",
     );
     let s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     // The session banner is drawn without the tip: its header line is the oracle's.

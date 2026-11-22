@@ -19,13 +19,14 @@
 //! A cell whose text is made by a rtwk widget (Markdown, a diff) has no text
 //! here yet, and says [`Gap`]: the rows of the gap are in the pack.
 
-use codex_tui_core::threads::Item;
+use codex_tui_core::threads::{Item, Notice};
 
 use crate::pages::session::strings::Strings as Chat;
 
 use super::strings::Strings;
 use super::{
-    deprecation, error, generated_image, hook, note, notice, user, viewed_image, warning, web,
+    deprecation, error, generated_image, hook, note, notice, session_info, user, viewed_image,
+    warning, web,
 };
 
 /// What the texts are read with: the tables, and the two things of the
@@ -147,6 +148,9 @@ pub fn texts(item: &Item, env: &Env<'_>) -> Texts {
                 .map(Part::text)
                 .collect(),
         ),
+        Item::Notice(Notice::SessionInfo(info)) if session_info::has_markdown(info) => {
+            Texts::Gap(Gap::Markdown)
+        }
         Item::Notice(notice) => Texts::Exact(notice::texts(notice, cells)),
         Item::Note(note) => Texts::Exact(note::texts(note, env.chat, cells)),
         Item::Hook(run) => Texts::Exact(

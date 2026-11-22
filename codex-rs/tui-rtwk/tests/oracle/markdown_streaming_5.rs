@@ -14,8 +14,6 @@ const PLAN: &str = "G73: items 1 and 3, the oracle's plan item draws the `#` hea
 const MATH: &str = "G61: rtwk-rich MarkdownView has no math renderer; the chat draws math sources as their text: no unicode math renderer (inline, display, named delimiters, the unfinished display preview) is built in the chat's markdown yet";
 /// A mermaid fence draws as its source: no native mermaid renderer.
 const MERMAID: &str = "G62: rtwk-rich MarkdownView has no mermaid renderer; a mermaid fence draws as its source text: the native mermaid renderer and its holdback are not built in the chat's markdown yet";
-/// The chat has one render mode: no raw/rich history render mode to switch.
-const MODE: &str = "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way";
 /// `text` as the body of a JSON string.
 fn json_string(text: &str) -> String {
     let mut out = String::new();
@@ -720,7 +718,7 @@ fn unicode_math_aligned_stream_matches_complete_render() {
     );
     let source = "Before.\n\n\\[\n\\begin{aligned}\n\\underset{x}{\\min}&=\\sum_{i=1}^N x_{gpt}\\\\[2mm]\ny&=2\n\\end{aligned}\n\\]\n\nAfter $\\alpha$.\n";
     // The oracle streams one character at a time, at 80 and 12 columns (its Rich and Raw modes
-    // have no seed in the chat: MODE).
+    // are alt+r in the chat, pressed in the test).
     let chars: Vec<String> = source.chars().map(String::from).collect();
     let chunks: Vec<&str> = chars.iter().map(String::as_str).collect();
     for width in [80, 12] {
@@ -913,13 +911,17 @@ fn growing_single_top_level_blocks_render_and_scan_in_one_pass() {
 // ORACLE streaming/render_tests.rs:181 incremental_raw_render_preserves_blank_lines kind=ui owner=chat-live
 #[test]
 fn incremental_raw_render_preserves_blank_lines() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way; probe: the body passes without it (it checks less than the oracle claims)",
-    );
     // The oracle's raw render: the lines are "alpha", "", "beta", "".
-    let s = chat_chunks(80, 24, &["alpha\n", "\n", "beta\n", "\n"]);
-    s.assert_in_order(&["alpha", "beta"]);
+    let mut s = Screen::build(Owner::ChatLive)
+        .markdown(80, 24)
+        .live()
+        .open();
+    s.keys("alt+r");
+    s.feed(&answer_chunks(&["alpha\n", "\n", "beta\n", "\n"]));
+    let rows: Vec<String> = s.rows().iter().map(|r| r.trim_end().to_string()).collect();
+    let at = rows.iter().position(|r| r == "alpha").expect("alpha row");
+    assert_eq!(rows[at + 1], "");
+    assert_eq!(rows[at + 2], "beta");
 }
 
 // ORACLE streaming/render_tests.rs:205 compact_list_spacing_keeps_incremental_and_full_renders_aligned kind=ui owner=chat-live
@@ -993,10 +995,17 @@ fn inline_visualization_content_references_use_canonical_full_render() {
 // ORACLE streaming/render_tests.rs:357 inline_visualization_directive_survives_raw_to_rich_render_mode_switch kind=ui owner=chat-live
 #[test]
 fn inline_visualization_directive_survives_raw_to_rich_render_mode_switch() {
-    kit::pending(Owner::ChatLive, MODE);
     // The oracle streams the directive in Raw, then switches to Rich: the directive survives.
-    let s = chat(80, 24, "::codex-inline-vis{file=\"missing.html\"}\n");
+    // Raw rows have no bullet column: the screen is read whole, not through `markdown()`.
+    let mut s = Screen::build(Owner::ChatLive).size(83, 24).live().open();
+    s.keys("alt+r");
+    s.feed(&answer_chunks(&[
+        "::codex-inline-vis{file=\"missing.html\"}\n",
+    ]));
+    s.assert_has_row("::codex-inline-vis{file=\"missing.html\"}");
+    s.keys("alt+r");
     s.assert_absent("codex-inline-vis");
+    s.assert_has_row("• Visualization unavailable on this device.");
 }
 
 // ORACLE streaming/render_tests.rs:398 reference_link_definition_recomputes_earlier_and_later_blocks kind=ui owner=chat-live
@@ -1017,16 +1026,24 @@ fn reference_link_definition_recomputes_earlier_and_later_blocks() {
 // ORACLE streaming/render_tests.rs:426 reference_link_definition_survives_raw_to_rich_render_mode_switch kind=ui owner=chat-live
 #[test]
 fn reference_link_definition_survives_raw_to_rich_render_mode_switch() {
-    kit::pending(
-        Owner::ChatLive,
-        "the chat has no raw/rich history render mode (HistoryRenderMode) to set or switch: no seed or key reaches it, the chat renders its own way; probe: the body passes without it (it checks less than the oracle claims)",
-    );
-    let s = chat(
-        80,
-        24,
-        "[id]: https://example.com/reference\n\nEarlier [reference][id].\n",
-    );
-    s.assert_contains("Earlier");
+    // Raw rows have no bullet column: the screen is read whole, not through `markdown()`.
+    let chunks = [
+        "[id]: https://example.com/reference\n\n",
+        "First [reference][id].\n\n",
+        "Later [reference][id].\n",
+    ];
+    let mut s = Screen::build(Owner::ChatLive).size(83, 24).live().open();
+    s.keys("alt+r");
+    s.feed(&answer_chunks(&chunks));
+    s.assert_has_row("[id]: https://example.com/reference");
+    s.assert_has_row("First [reference][id].");
+    s.keys("alt+r");
+    s.assert_absent("[id]: https://example.com/reference");
+    // The definition resolved both references that came after it in raw mode.
+    s.assert_in_order(&[
+        "First reference (https://example.com/reference).",
+        "Later reference (https://example.com/reference).",
+    ]);
 }
 
 // ORACLE streaming/render_tests.rs:455 incremental_render_does_not_add_blank_line_before_html_block kind=ui owner=chat-live

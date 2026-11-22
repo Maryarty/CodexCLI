@@ -1694,7 +1694,7 @@ files."
 /// cyber policy, safety access block, update available, server version),
 /// mounted at the oracle's widths and compared with its snapshots.
 mod notice_cells {
-    use codex_tui_core::screens::cells::Daybreak;
+    use codex_tui_core::screens::cells::{AnsweredQuestion, Daybreak, SessionInfo};
     use codex_tui_core::threads::Notice;
     use codex_tui_rtwk::pages::session::cells::notice::NoticeCell;
     use rtwk::style::{Attrs, Color};
@@ -1706,7 +1706,11 @@ mod notice_cells {
     }
 
     fn show(notice: Notice, width: u16) -> rtwk_test::Tester {
-        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 14));
+        show_tall(notice, width, 14)
+    }
+
+    fn show_tall(notice: Notice, width: u16, height: u16) -> rtwk_test::Tester {
+        let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, height));
         t.pump_widget(NoticeCell { notice });
         t
     }
@@ -1892,6 +1896,380 @@ mod notice_cells {
             &rows(&t),
             &snap("local_daemon_version_notice_snapshot"),
         );
+    }
+
+    fn expected(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_owned()).collect()
+    }
+
+    fn interaction(command: Option<&str>, stdin: &str) -> Notice {
+        Notice::TerminalInteraction {
+            command: command.map(Into::into),
+            stdin: stdin.into(),
+        }
+    }
+
+    #[test]
+    fn a_terminal_write_keeps_every_input_line_under_the_branch() {
+        // oracle history_cell/tests.rs unified_exec_interaction_cell_retains_detailed_input
+        let input: String = (1..=16).map(|line| format!("line {line}\n")).collect();
+        let t = show_tall(interaction(Some("cat"), &input), 80, 20);
+        let mut want = vec![
+            "↳ Interacted with background terminal · cat".to_owned(),
+            "  └ line 1".to_owned(),
+        ];
+        want.extend((2..=16).map(|line| format!("    line {line}")));
+        let rows = rows(&t);
+        oracle_snap::assert_fragment("interaction", &rows, 0, &want);
+        let dim = t.cell(0, 0);
+        assert!(dim.attrs.intersects(Attrs::DIM), "{dim:?}");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+
+    #[test]
+    fn a_wait_is_one_bold_row() {
+        // oracle unified_exec_interaction_cell_retains_detailed_wait
+        let t = show(interaction(None, ""), 80);
+        assert_eq!(rows(&t)[0], "• Waited for background terminal");
+        let bullet = t.cell(0, 0);
+        assert!(bullet.attrs.intersects(Attrs::BOLD), "{bullet:?}");
+    }
+
+    const URL_LIKE: &str =
+        "example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890";
+
+    #[test]
+    fn a_long_stdin_line_wraps_under_its_branch() {
+        // oracle unified_exec_interaction_details_wrap_long_input
+        let t = show(interaction(Some("true"), URL_LIKE), 90);
+        assert_eq!(rows(&t)[1], format!("  └ {URL_LIKE}"));
+        let narrow = show(interaction(Some("true"), URL_LIKE), 24);
+        let rows = rows(&narrow);
+        assert!(rows[0].starts_with("↳ Interacted with"), "{rows:?}");
+        // the header wraps with no indent, the input under its branch
+        assert_eq!(rows[1], "background terminal ·", "{rows:?}");
+        assert!(rows[3].starts_with("  └ example"), "{rows:?}");
+        assert!(rows[4].starts_with("    "), "{rows:?}");
+    }
+
+    #[test]
+    #[ignore = "pending(G-urltoken): TextWrap::Word breaks a token longer than the row after a hyphen or a slash; the oracle's adaptive wrap keeps a URL-like token whole on one row (clipped)"]
+    fn a_url_like_stdin_token_stays_whole() {
+        // oracle unified_exec_interaction_details_do_not_split_url_like_stdin_token (24 columns)
+        let t = show(interaction(Some("true"), URL_LIKE), 24);
+        let whole = rows(&t).iter().filter(|row| row.contains(URL_LIKE)).count();
+        assert_eq!(whole, 1, "{:?}", rows(&t));
+    }
+
+    #[test]
+    fn the_recap_loading_row_is_a_static_bullet_and_the_bold_title() {
+        let t = show(Notice::RecapLoading, 80);
+        assert_eq!(rows(&t)[0], "• Generating conversation recap…");
+        let title = t.cell(3, 0);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+
+    fn question(text: &str, answers: &[&str]) -> AnsweredQuestion {
+        AnsweredQuestion {
+            question: text.into(),
+            secret: false,
+            has_options: true,
+            answers: answers.iter().map(|answer| (*answer).into()).collect(),
+        }
+    }
+
+    fn questions(list: Vec<AnsweredQuestion>, interrupted: bool) -> Notice {
+        Notice::Questions {
+            questions: list,
+            interrupted,
+        }
+    }
+
+    const ASK: &str = "Which approach should we use for the next step?";
+
+    #[test]
+    fn a_completed_exchange_lists_the_answer_and_the_note() {
+        // oracle request_user_input_tests.rs completed_and_interrupted_results, "completed" (40 columns)
+        let t = show(
+            questions(
+                vec![question(
+                    ASK,
+                    &["Keep it small", "user_note: Preserve the behavior"],
+                )],
+                false,
+            ),
+            40,
+        );
+        oracle_snap::assert_fragment(
+            "completed",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 1/1 answered",
+                "  • Which approach should we use for the",
+                "    next step?",
+                "    answer: Keep it small",
+                "    note: Preserve the behavior",
+            ]),
+        );
+        let label = t.cell(4, 3);
+        assert!(label.attrs.intersects(Attrs::DIM), "{label:?}");
+        let answer = t.cell(14, 3);
+        assert_ne!(answer.fg, Color::default(), "{answer:?}");
+        assert!(!answer.attrs.intersects(Attrs::DIM), "{answer:?}");
+    }
+
+    #[test]
+    fn an_interrupted_exchange_marks_what_was_not_answered() {
+        // the same test's "interrupted" frame
+        let t = show(questions(vec![question(ASK, &[])], true), 40);
+        oracle_snap::assert_fragment(
+            "interrupted",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 0/1 answered (interrupted)",
+                "  • Which approach should we use for the",
+                "    next step? (unanswered)",
+                "  ↳ interrupted with 1 unanswered",
+            ]),
+        );
+        let flag = t.cell(25, 0);
+        assert_ne!(flag.fg, Color::default(), "{flag:?}");
+    }
+
+    #[test]
+    fn a_secret_answer_is_bullets_and_a_note_without_options_reads_as_the_answer() {
+        let mut secret = question("Token?", &["hunter2"]);
+        secret.secret = true;
+        let mut free = question("Why?", &["user_note: because"]);
+        free.has_options = false;
+        let t = show(questions(vec![secret, free], false), 60);
+        oracle_snap::assert_fragment(
+            "secret",
+            &rows(&t),
+            0,
+            &expected(&[
+                "• Questions 2/2 answered",
+                "  • Token?",
+                "    answer: ••••••",
+                "  • Why?",
+                "    answer: because",
+            ]),
+        );
+    }
+
+    #[test]
+    fn the_first_session_card_is_the_help_under_a_blank_row() {
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                help: true,
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "help",
+            &rows(&t),
+            1,
+            &expected(&[
+                "  To get started, describe a task or try one of these commands:",
+                "",
+                "  /init - create an AGENTS.md file with instructions for Codex",
+                "  /status - show current session configuration",
+                "  /permissions - choose what Codex is allowed to do",
+                "  /model - choose what model and reasoning effort to use",
+                "  /review - review any changes and find issues",
+            ]),
+        );
+        assert_eq!(rows(&t)[0], "");
+        let words = t.cell(10, 3);
+        assert!(words.attrs.intersects(Attrs::DIM), "{words:?}");
+    }
+
+    #[test]
+    fn a_tip_is_markdown_two_columns_in() {
+        // oracle session_info_availability_nux_tooltip_snapshot (below the header's rows)
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                tip: Some("Model just became available".into()),
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "tip",
+            &rows(&t),
+            1,
+            &expected(&["  Tip: Model just became available"]),
+        );
+        // oracle session_info_preserves_styled_tooltip_links (30 columns)
+        let styled = show(
+            Notice::SessionInfo(SessionInfo {
+                tip: Some(
+                    "Use **/copy** or `ctrl+y`; visit the [Codex community forum](https://example.com)."
+                        .into(),
+                ),
+                ..SessionInfo::default()
+            }),
+            30,
+        );
+        oracle_snap::assert_fragment(
+            "styled tip",
+            &rows(&styled),
+            1,
+            &expected(&[
+                "  Tip: Use /copy or ctrl+y;",
+                "  visit the Codex community",
+                "  forum (https://example.com).",
+            ]),
+        );
+    }
+
+    #[test]
+    fn a_model_other_than_the_requested_one_is_a_three_row_block() {
+        let t = show(
+            Notice::SessionInfo(SessionInfo {
+                model_changed: Some(("gpt-5".into(), "gpt-5-mini".into())),
+                ..SessionInfo::default()
+            }),
+            80,
+        );
+        oracle_snap::assert_fragment(
+            "model changed",
+            &rows(&t),
+            1,
+            &expected(&["model changed:", "requested: gpt-5", "used: gpt-5-mini"]),
+        );
+        let title = t.cell(0, 1);
+        assert!(title.attrs.intersects(Attrs::BOLD), "{title:?}");
+    }
+}
+
+mod raw_mode {
+    use codex_tui_core::fixtures::builders::{agent_completed, turn_completed};
+    use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
+
+    use codex_tui_core::threads::Item;
+    use codex_tui_rtwk::pages::session::cells::{raw, strings};
+
+    use crate::common::{Harness, start};
+
+    const SOURCE: &str = "- first item\n\nfinalized **markdown**\n\n```text\ncopy me\n```";
+
+    fn chat_with_an_answer() -> Harness {
+        let mut h = start();
+        h.wait_idle();
+        h.fake.script_turn(vec![
+            agent_completed(FAKE_THREAD, "turn-1", "item-1", SOURCE),
+            turn_completed(FAKE_THREAD, "turn-1"),
+        ]);
+        h.t.type_text("hi");
+        h.press("enter");
+        h.wait_for("the answer", |s| s.contains("finalized"));
+        h.wait_idle();
+        h
+    }
+
+    #[test]
+    fn source_lines_keep_blank_lines_and_drop_the_trailing_newline() {
+        // oracle history_cell/tests.rs raw_lines_from_source_* (the lines of a source)
+        assert_eq!(raw::source_lines("alpha\n\nbeta"), ["alpha", "", "beta"]);
+        assert_eq!(raw::source_lines("alpha\n"), ["alpha"]);
+        assert_eq!(raw::source_lines("alpha\n\n"), ["alpha", ""]);
+        assert!(raw::source_lines("").is_empty());
+    }
+
+    #[test]
+    fn an_item_with_a_source_has_raw_lines_and_one_without_has_none() {
+        let text = |item: Item| raw::lines(&item, &strings::EN);
+        let agent = Item::Agent {
+            text: "- a\n\n| A |\n".into(),
+            phase: None,
+        };
+        assert_eq!(text(agent).unwrap(), ["- a", "", "| A |"]);
+        let plan = Item::Plan {
+            text: "1. Inspect\n\n```sh\ncargo test\n```".into(),
+        };
+        assert_eq!(
+            text(plan).unwrap(),
+            ["1. Inspect", "", "```sh", "cargo test", "```"]
+        );
+        let reasoning = Item::Reasoning {
+            summary: "first thought\n\nsecond thought\n".into(),
+        };
+        assert_eq!(
+            text(reasoning).unwrap(),
+            ["first thought", "", "second thought"]
+        );
+    }
+
+    #[test]
+    fn alt_r_flips_an_answer_between_its_rendering_and_its_source() {
+        // oracle history_cell/messages_tests.rs raw_markdown_bypasses_the_rich_render_cache,
+        // history_cell/tests.rs raw_mode_toggle_transcript_snapshot (the agent cell)
+        let mut h = chat_with_an_answer();
+        let rich = h.t.screen();
+        assert!(rich.contains("• "), "{rich}");
+        assert!(!rich.contains("**markdown**"), "{rich}");
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        let raw = h.t.screen();
+        let rows: Vec<&str> = raw.lines().map(str::trim_end).collect();
+        let at = rows
+            .iter()
+            .position(|row| *row == "- first item")
+            .unwrap_or_else(|| panic!("{raw}"));
+        // the source lines, a blank row kept, no bullet, no fence drawn as a rule
+        assert_eq!(rows[at + 1], "", "{raw}");
+        assert_eq!(rows[at + 2], "finalized **markdown**", "{raw}");
+        assert_eq!(rows[at + 4], "```text", "{raw}");
+        assert_eq!(rows[at + 5], "copy me", "{raw}");
+        assert_eq!(rows[at + 6], "```", "{raw}");
+        assert!(raw.contains("Raw output mode on"), "{raw}");
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("Raw output mode off"));
+    }
+
+    #[test]
+    fn a_prompt_is_its_text_without_the_chevron_in_raw_mode() {
+        // oracle source_backed_cells_render_raw_source_without_prefix_or_style (the prompt)
+        let mut h = chat_with_an_answer();
+        assert!(h.t.screen().contains("› hi"), "{}", h.t.screen());
+        h.press("alt+r");
+        h.wait_for("raw", |s| s.contains("Raw output mode on"));
+        let screen = h.t.screen();
+        assert!(!screen.contains("› hi"), "{screen}");
+        assert!(screen.lines().any(|row| row.trim_end() == "hi"), "{screen}");
+    }
+
+    #[test]
+    fn the_toggle_changes_the_cells_and_leaves_the_rest_of_the_page_alone() {
+        // Flutter: a ListView's items rebuild when the mode flag changes, the composer
+        // above/below them is a different subtree: its draft and caret stay.
+        let mut h = chat_with_an_answer();
+        h.t.type_text("a draft");
+        h.wait_for("the draft", |s| s.contains("› a draft"));
+        h.press("alt+r");
+        h.wait_for("the source", |s| s.contains("finalized **markdown**"));
+        assert!(h.t.screen().contains("› a draft"), "{}", h.t.screen());
+        h.t.type_text("!");
+        h.wait_for("the caret kept", |s| s.contains("› a draft!"));
+        h.press("alt+r");
+        h.wait_for("the rendering", |s| !s.contains("**markdown**"));
+        assert!(h.t.screen().contains("› a draft!"), "{}", h.t.screen());
+    }
+
+    #[test]
+    fn the_slash_command_and_the_key_are_one_toggle() {
+        let mut h = chat_with_an_answer();
+        h.t.type_text("/raw");
+        h.press("enter");
+        h.wait_for("raw on", |s| s.contains("finalized **markdown**"));
+        h.press("alt+r");
+        h.wait_for("raw off", |s| !s.contains("**markdown**"));
     }
 }
 
@@ -2807,6 +3185,57 @@ mod text_contract {
                 offer_update,
             }));
         }
+    }
+
+    #[test]
+    fn a_terminal_write_a_recap_a_question_result_and_the_card_agree_with_their_widget() {
+        use codex_tui_core::screens::cells::{AnsweredQuestion, SessionInfo};
+        agrees(Item::Notice(Notice::TerminalInteraction {
+            command: Some("cat".into()),
+            stdin: "one\ntwo\nthree\n".into(),
+        }));
+        agrees(Item::Notice(Notice::TerminalInteraction {
+            command: None,
+            stdin: String::new(),
+        }));
+        agrees(Item::Notice(Notice::RecapLoading));
+        let ask = |answers: &[&str], secret: bool| AnsweredQuestion {
+            question: "Which one?".into(),
+            secret,
+            has_options: true,
+            answers: answers.iter().map(|answer| (*answer).into()).collect(),
+        };
+        for interrupted in [false, true] {
+            agrees(Item::Notice(Notice::Questions {
+                questions: vec![
+                    ask(&["a", "user_note: because"], false),
+                    ask(&[], false),
+                    ask(&["x"], true),
+                ],
+                interrupted,
+            }));
+        }
+        agrees(Item::Notice(Notice::SessionInfo(SessionInfo {
+            help: true,
+            ..SessionInfo::default()
+        })));
+        agrees(Item::Notice(Notice::SessionInfo(SessionInfo {
+            model_changed: Some(("a".into(), "b".into())),
+            ..SessionInfo::default()
+        })));
+    }
+
+    #[test]
+    fn a_tip_makes_the_card_a_markdown_gap() {
+        use codex_tui_core::screens::cells::SessionInfo;
+        let item = Item::Notice(Notice::SessionInfo(SessionInfo {
+            tip: Some("Use **/copy**".into()),
+            ..SessionInfo::default()
+        }));
+        assert!(matches!(
+            texts(&item, &env(false, false)),
+            Texts::Gap(Gap::Markdown)
+        ));
     }
 
     #[test]
