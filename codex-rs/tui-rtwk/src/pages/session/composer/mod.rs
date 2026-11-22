@@ -39,6 +39,7 @@ pub mod editing;
 pub mod footer;
 pub mod strings;
 pub mod suggest;
+pub mod vim;
 
 use burst::BurstEnv;
 use editing::KeyData;
@@ -502,13 +503,26 @@ impl State for ComposerState {
                 burst::flush_held_with(&draft, &*tell, env, &pasted_into);
             }
             draft.burst(PasteBurst::clear_after_explicit_paste);
-            let took = draft.paste(
+            // a paste while the `/` query is typed goes into the query
+            if vim::paste_into_query(&draft, text) {
+                tell(ComposerMsg::Redraw);
+                return true;
+            }
+            draft.vim_begin_edit(&pasted_into);
+            let mut took = draft.paste(
                 &pasted_into,
                 text,
                 |chars| table.pasted(chars),
                 |n| table.image(n),
             );
+            // a plain paste is the field's own insert, after this returns;
+            // Vim's step has to close with it, so the draft inserts it here
+            if !took && draft.vim_enabled() {
+                pasted_into.insert(text);
+                took = true;
+            }
             if took {
+                vim::pasted(&draft, &pasted_into, text);
                 tell(ComposerMsg::Pasted);
             }
             took

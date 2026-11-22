@@ -7,8 +7,13 @@
 use crate::kit::{self, Owner, Screen};
 
 /// A chat screen at `w` x `h`, the composer live and empty.
+/// `global.toggle_vim_mode` is bound to F9 (it has no default key): the kit has no Vim seed, F9 turns Vim on.
 fn chat(w: u16, h: u16) -> Screen {
-    Screen::build(Owner::ChatLive).size(w, h).live().open()
+    Screen::build(Owner::ChatLive)
+        .size(w, h)
+        .live()
+        .keymap(&[("global.toggle_vim_mode", "f9")])
+        .open()
 }
 
 /// A chat screen with a turn running (Tab queues the draft), the composer live.
@@ -70,11 +75,10 @@ fn submit_once(s: &mut Screen, text: &str) {
 }
 
 /// The oracle's `vim_composer(text)`: the draft, Vim on, the caret on its first cell in Normal mode.
-/// No kit call turns Vim on yet: the keys are the oracle's, the mode is not seeded.
+/// F9 turns Vim on (Normal mode) and `g g` goes to the first cell.
 fn vim_draft(s: &mut Screen, text: &str) {
     type_lines(s, text);
-    s.keys("esc");
-    s.type_text("0");
+    s.keys("f9 g g");
 }
 
 /// The oracle's `rich_composer()`: a `$skill` mention, an attached image, a 1001-character paste,
@@ -674,10 +678,6 @@ fn undo_and_redo_preserve_confirmed_vim_search() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:245 normal_mode_explicit_paste_is_its_own_edit_and_replaces_stale_redo kind=ui owner=chat-live
 #[test]
 fn normal_mode_explicit_paste_is_its_own_edit_and_replaces_stale_redo() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Vim mode on the chat composer: `x`, `u`, Ctrl+R and the explicit paste as its own undo step are not drawn",
-    );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "abc");
     s.type_text("x");
@@ -771,18 +771,16 @@ fn vim_redo_keeps_its_binding_when_history_is_empty() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:415 removing_the_shell_prefix_is_its_own_undoable_edit kind=ui owner=chat-live
 #[test]
 fn removing_the_shell_prefix_is_its_own_undoable_edit() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Vim mode on the chat composer: the removal of the `!` shell prefix is not drawn as an undo step",
-    );
     let mut s = chat(100, 24);
     s.type_text("!foo");
-    s.keys("esc");
+    s.keys("f9");
     s.type_text("0");
     s.keys("backspace");
     s.assert_row(prompt(&s), "› foo");
+    // the oracle compares the whole draft (`draft_snapshot() == before`): shell
+    // mode with "foo", drawn with the `!` prompt
     s.type_text("u");
-    s.assert_row(prompt(&s), "› !foo");
+    s.assert_row(prompt(&s), "! foo");
 }
 
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:451 canceled_history_preview_preserves_active_vim_commands kind=ui owner=chat-live
@@ -821,14 +819,14 @@ fn canceled_history_preview_preserves_active_vim_commands() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:497 undo_and_redo_use_configured_bindings_and_support_unbinding kind=ui owner=chat-live
 #[test]
 fn undo_and_redo_use_configured_bindings_and_support_unbinding() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Vim mode on the chat composer and no keymap read by the chat screen (`.keymap(..)` is pending in the kit): the configured undo and redo keys are not bound",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(100, 24)
         .live()
-        .keymap(&[("vim_normal.undo", "z"), ("vim_normal.redo", "v")])
+        .keymap(&[
+            ("vim_normal.undo", "z"),
+            ("vim_normal.redo", "v"),
+            ("global.toggle_vim_mode", "f9"),
+        ])
         .open();
     vim_draft(&mut s, "abc");
     s.type_text("xu");
@@ -843,14 +841,14 @@ fn undo_and_redo_use_configured_bindings_and_support_unbinding() {
 // ORACLE bottom_pane/chat_composer/vim_history_tests.rs:561 undo_and_redo_restore_deleted_large_paste_payload kind=ui owner=chat-live
 #[test]
 fn undo_and_redo_restore_deleted_large_paste_payload() {
-    kit::pending(
-        Owner::ChatLive,
-        "no Vim mode on the chat composer: Vim undo does not restore a deleted placeholder",
-    );
     let mut s = chat(100, 24);
-    s.type_text("alpha ");
-    s.keys("esc");
+    s.keys("f9");
     s.type_text("i");
+    s.type_text("alpha ");
+    // the oracle sets the caret after "alpha " and presses `i`: `A` is that
+    // (Esc leaves the caret on the space)
+    s.keys("esc");
+    s.type_text("A");
     s.paste(&"x".repeat(1001));
     s.keys("esc");
     let p = prompt(&s);

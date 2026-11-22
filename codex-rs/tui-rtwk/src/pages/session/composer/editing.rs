@@ -18,13 +18,15 @@ use codex_tui_core::keymap::actions::{
     EDITOR_DELETE_FORWARD, EDITOR_DELETE_FORWARD_WORD, EDITOR_INSERT_NEWLINE, EDITOR_KILL_LINE_END,
     EDITOR_KILL_LINE_START, EDITOR_KILL_WHOLE_LINE, EDITOR_MOVE_DOWN, EDITOR_MOVE_LEFT,
     EDITOR_MOVE_LINE_END, EDITOR_MOVE_LINE_START, EDITOR_MOVE_RIGHT, EDITOR_MOVE_UP,
-    EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK,
+    EDITOR_MOVE_WORD_LEFT, EDITOR_MOVE_WORD_RIGHT, EDITOR_YANK, GLOBAL_TOGGLE_VIM_MODE,
 };
 use codex_tui_core::keymap::{ActionId, Keymap};
+use codex_tui_core::screens::composer::vim::{EditorAction, Pending};
 
 use super::ComposerMsg;
 use super::burst::{self, BurstEnv};
 use super::suggest::Suggest;
+use super::vim;
 use crate::keymap::pressed;
 use crate::widgets::composer_draft::ComposerDraft;
 
@@ -49,19 +51,35 @@ fn only(key: &KeyPress, mods: Mods) -> bool {
     key.mods == mods
 }
 
-/// Whether the composer takes `key` for `c` before the field: the paste-burst
-/// detector first (keys that arrive as fast as a paste are held), then the
-/// composer's own editing keys.
+/// Whether the composer takes `key` for `c` before the field: the modal
+/// (Vim) keys that precede everything, the paste-burst detector (keys that
+/// arrive as fast as a paste are held), then the composer's own editing keys.
 pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: KeyCx) -> bool {
     if kcx.read_only {
         return false;
     }
-    // a `$skill` completion's space lasts for the next key only
-    let skill_space = data.draft.take_skill_space();
-    if data.suggest.take_slash(c, key, &*data.tell) {
+    if pressed(&data.keymap, GLOBAL_TOGGLE_VIM_MODE, key) {
+        vim::toggle(data);
         return true;
     }
-    if let Some(env) = &data.burst
+    let mode = vim::mode(&data.draft);
+    if mode.searching {
+        return vim::search_key(data, c, key);
+    }
+    if mode.normal
+        && let Some(took) = vim::early(data, c, key, &mode)
+    {
+        return took;
+    }
+    // a `$skill` completion's space lasts for the next key only
+    let skill_space = data.draft.take_skill_space();
+    // `/` is a search in Normal mode, not a command's name being typed
+    if !mode.normal && data.suggest.take_slash(c, key, &*data.tell) {
+        return true;
+    }
+    // Normal mode's keys are commands: nothing is typed text to hold back
+    if !mode.normal
+        && let Some(env) = &data.burst
         && burst::take(data, env, c, key, skill_space)
     {
         return true;
@@ -71,10 +89,24 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
-    if let Some(took) = composer_key(data, c, key) {
+    // a command waiting for its next key takes Enter too (it is no submit)
+    let waiting = mode.normal && mode.pending != Pending::None;
+    if !waiting && let Some(took) = composer_key(data, c, key) {
         return took;
     }
-    edit_key(data, c, key, skill_space)
+    if mode.normal {
+        return vim::normal(data, c, key, &mode);
+    }
+    if mode.enabled
+        && let Some(took) = vim::insert(data, c, key, &mode)
+    {
+        return took;
+    }
+    let took = edit_key(data, c, key, skill_space);
+    if !took && mode.enabled {
+        vim::typed(data, key);
+    }
+    took
 }
 
 /// The Composer-context actions a key may be (`composer.submit`,
@@ -106,7 +138,7 @@ fn composer_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> Op
 /// The Editor-context actions the composer carries out itself, each with the
 /// key its editing is written for (`canonical`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Edit {
+pub(super) enum Edit {
     Newline,
     Left,
     Right,
@@ -174,7 +206,7 @@ impl Edit {
 }
 
 /// What a key is to the composer's editing under the user's bindings.
-enum Resolved {
+pub(super) enum Resolved {
     /// Not an editing key: the field's.
     None,
     /// The key of an action the user took away from it: nothing happens
@@ -184,7 +216,7 @@ enum Resolved {
     Edit { edit: Edit, via: Option<KeyPress> },
 }
 
-fn resolve(keymap: &Keymap, key: &KeyPress) -> Resolved {
+pub(super) fn resolve(keymap: &Keymap, key: &KeyPress) -> Resolved {
     for (edit, id) in EDITS {
         if pressed(keymap, id, key) {
             let via = edit.canonical().filter(|k| k != key);
@@ -199,6 +231,78 @@ fn resolve(keymap: &Keymap, key: &KeyPress) -> Resolved {
         Resolved::Nothing
     } else {
         Resolved::None
+    }
+}
+
+impl Edit {
+    /// The engine's name for the edit (Insert mode records it for `.`); the
+    /// line break is the engine's own typed text.
+    pub(super) fn action(self) -> Option<EditorAction> {
+        Some(match self {
+            Edit::Newline => return None,
+            Edit::Left => EditorAction::MoveLeft,
+            Edit::Right => EditorAction::MoveRight,
+            Edit::Up => EditorAction::MoveUp,
+            Edit::Down => EditorAction::MoveDown,
+            Edit::WordLeft => EditorAction::MoveWordLeft,
+            Edit::WordRight => EditorAction::MoveWordRight,
+            Edit::LineStart => EditorAction::MoveLineStart {
+                move_up_at_bol: false,
+            },
+            Edit::LineEnd => EditorAction::MoveLineEnd {
+                move_down_at_eol: false,
+            },
+            Edit::DeleteBackward => EditorAction::DeleteBackward,
+            Edit::DeleteForward => EditorAction::DeleteForward,
+            Edit::DeleteBackwardWord => EditorAction::DeleteBackwardWord,
+            Edit::DeleteForwardWord => EditorAction::DeleteForwardWord,
+            Edit::KillLineStart => EditorAction::KillLineStart,
+            Edit::KillWholeLine => EditorAction::KillLine,
+            Edit::KillLineEnd => EditorAction::KillLineEnd,
+            Edit::Yank => EditorAction::Yank,
+        })
+    }
+
+    fn of(action: EditorAction) -> Edit {
+        match action {
+            EditorAction::MoveLeft => Edit::Left,
+            EditorAction::MoveRight => Edit::Right,
+            EditorAction::MoveUp => Edit::Up,
+            EditorAction::MoveDown => Edit::Down,
+            EditorAction::MoveWordLeft => Edit::WordLeft,
+            EditorAction::MoveWordRight => Edit::WordRight,
+            EditorAction::MoveLineStart { .. } => Edit::LineStart,
+            EditorAction::MoveLineEnd { .. } => Edit::LineEnd,
+            EditorAction::DeleteBackward => Edit::DeleteBackward,
+            EditorAction::DeleteForward => Edit::DeleteForward,
+            EditorAction::DeleteBackwardWord => Edit::DeleteBackwardWord,
+            EditorAction::DeleteForwardWord => Edit::DeleteForwardWord,
+            EditorAction::KillLineStart => Edit::KillLineStart,
+            EditorAction::KillLine => Edit::KillWholeLine,
+            EditorAction::KillLineEnd => Edit::KillLineEnd,
+            EditorAction::Yank => Edit::Yank,
+        }
+    }
+}
+
+/// An editor action the Vim engine hands back (Insert mode, `.`): carried out
+/// as the composer's own editing does, the elements, shell mode, history and
+/// kill ring included.
+pub(super) fn carry_out(data: &KeyData, c: &TextEditingController, action: EditorAction) -> bool {
+    match Edit::of(action) {
+        Edit::KillWholeLine => {
+            kill_whole_line(&data.draft, c);
+            true
+        }
+        edit => {
+            let Some(key) = edit.canonical() else {
+                return false;
+            };
+            edit_arms(data, c, &key, None) || {
+                field_edit(c, &key);
+                true
+            }
+        }
     }
 }
 

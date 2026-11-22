@@ -9,16 +9,18 @@
 //! Counts (`3dw`) are not in the oracle's engine and not here either.
 
 mod engine;
+pub mod history;
 mod motions;
 
 use std::ops::Range;
 use std::rc::Rc;
 
-pub use engine::Vim;
+pub use engine::{Persistent, Vim};
+pub use history::History;
 
 /// What Vim mode the draft is in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Mode {
+pub enum VimMode {
     /// Printable keys are movements, operators and mode changes.
     Normal,
     /// The regular editing keys until Escape.
@@ -28,13 +30,13 @@ pub enum Mode {
     Replace,
 }
 
-impl Mode {
+impl VimMode {
     /// The footer label's word (`Vim: Normal`).
     pub fn label(self) -> &'static str {
         match self {
-            Mode::Normal => "Normal",
-            Mode::Insert => "Insert",
-            Mode::Replace => "Replace",
+            VimMode::Normal => "Normal",
+            VimMode::Insert => "Insert",
+            VimMode::Replace => "Replace",
         }
     }
 }

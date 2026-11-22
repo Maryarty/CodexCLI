@@ -27,6 +27,10 @@ use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
 
+mod vim;
+
+pub use vim::{Snapshot, VimHost};
+
 /// One atomic element of the text: the bytes `start..end` show `label`
 /// and stand for `payload` on submit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +74,9 @@ struct Inner {
     /// The paste-burst detector (`draft.paste_burst`): keys that arrive as
     /// fast as a paste are held and go in as one paste.
     burst: PasteBurst,
+    /// Modal (Vim) editing: the engine, the register's kind, the undo
+    /// history and the search query.
+    vim: vim::Modal,
 }
 
 /// A local history entry with its elements.
@@ -549,7 +556,10 @@ impl ComposerDraft {
             })
             .collect();
         let text = c.text()[from..to].to_string();
-        self.0.borrow_mut().kill = Some((text, held));
+        let mut inner = self.0.borrow_mut();
+        inner.kill = Some((text, held));
+        // a kill pastes as characters; Vim's linewise yank says otherwise after
+        inner.vim.register_kind = Default::default();
     }
 
     /// Puts the last kill back at the caret, its elements whole; `false`
@@ -632,6 +642,7 @@ impl ComposerDraft {
             self.clear();
             c.set_text("");
         }
+        self.0.borrow_mut().vim.history.reset();
         true
     }
 
@@ -656,6 +667,8 @@ impl ComposerDraft {
             inner.elements = elements;
             inner.seen = Some(c.buffer());
         }
+        // a recalled entry is a new draft: Vim's undo steps were of the old one
+        self.0.borrow_mut().vim.history.reset();
         c.set_selection(TextSelection::collapsed(text.len()));
     }
 
@@ -667,16 +680,20 @@ impl ComposerDraft {
     pub fn cleared(&self, c: &TextEditingController) {
         let elements = self.elements(c);
         let sent = self.expanded(c);
-        let mut inner = self.0.borrow_mut();
-        inner.recalled = None;
-        inner.shell = false;
-        if !elements.is_empty() {
-            inner.local.push(Local {
-                sent,
-                text: c.text().to_string(),
-                elements,
-            });
+        {
+            let mut inner = self.0.borrow_mut();
+            inner.recalled = None;
+            inner.shell = false;
+            inner.vim.history.reset();
+            if !elements.is_empty() {
+                inner.local.push(Local {
+                    sent,
+                    text: c.text().to_string(),
+                    elements,
+                });
+            }
         }
+        self.vim_reset_mode(c);
     }
 }
 

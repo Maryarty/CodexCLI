@@ -24,6 +24,8 @@ mod composer_mouse;
 mod composer_startup;
 #[path = "pages/composer_suggest.rs"]
 mod composer_suggest;
+#[path = "pages/composer_vim.rs"]
+mod composer_vim;
 #[path = "pages/startup_mouse.rs"]
 mod startup_mouse;
 #[path = "pages/transcript_follow.rs"]

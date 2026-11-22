@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use super::motions::{self, bol, bol_of, eol, eol_of, expand_to_elements, next_atomic, prev_atomic};
 use super::{
-    Direction, EditorAction, Find, Input, Mode, Motion, Normal, Object, Operator, OperatorKey,
+    Direction, EditorAction, Find, Input, VimMode, Motion, Normal, Object, Operator, OperatorKey,
     Pending, RegisterKind, Scope, SearchQuery, VimText, is_command_target, matching_ranges,
 };
 
@@ -86,7 +86,7 @@ pub struct Persistent {
 #[derive(Debug, Default)]
 pub struct Vim {
     enabled: bool,
-    mode: Mode,
+    mode: VimMode,
     pending: Pending,
     /// A `/` or `?` query is being typed (its text is the view's).
     searching: Option<Direction>,
@@ -117,10 +117,10 @@ impl Vim {
         self.searching = None;
         self.last_search = SearchQuery::default();
         self.commands = Commands::default();
-        self.mode = if enabled { Mode::Normal } else { Mode::Insert };
+        self.mode = if enabled { VimMode::Normal } else { VimMode::Insert };
     }
 
-    pub fn mode(&self) -> Mode {
+    pub fn mode(&self) -> VimMode {
         self.mode
     }
 
@@ -134,22 +134,22 @@ impl Vim {
     }
 
     pub fn is_normal(&self) -> bool {
-        self.enabled && self.mode == Mode::Normal
+        self.enabled && self.mode == VimMode::Normal
     }
 
     pub fn is_replace(&self) -> bool {
-        self.enabled && self.mode == Mode::Replace
+        self.enabled && self.mode == VimMode::Replace
     }
 
     /// Whether typing goes in as characters at the caret (paste-burst
     /// detection is off in Normal mode).
     pub fn types_text(&self) -> bool {
-        !self.enabled || matches!(self.mode, Mode::Insert | Mode::Replace)
+        !self.enabled || matches!(self.mode, VimMode::Insert | VimMode::Replace)
     }
 
     /// Whether the caret is the block-less insert one (Insert mode).
     pub fn uses_insert_cursor(&self) -> bool {
-        self.enabled && self.mode == Mode::Insert
+        self.enabled && self.mode == VimMode::Insert
     }
 
     /// A command, a query or a text object waits for its next key.
@@ -159,7 +159,7 @@ impl Vim {
 
     /// Escape is the editor's, not the turn's: Insert/Replace mode or a command waiting.
     pub fn owns_escape(&self) -> bool {
-        self.enabled && (self.mode != Mode::Normal || self.is_operator_pending())
+        self.enabled && (self.mode != VimMode::Normal || self.is_operator_pending())
     }
 
     pub fn searching(&self) -> Option<Direction> {
@@ -185,7 +185,7 @@ impl Vim {
 
     /// Normal mode's key: the command it is, given what waits.
     pub fn input(&mut self, t: &mut dyn VimText, input: Input) {
-        if !self.enabled || self.mode != Mode::Normal {
+        if !self.enabled || self.mode != VimMode::Normal {
             return;
         }
         match std::mem::take(&mut self.pending) {
@@ -216,7 +216,7 @@ impl Vim {
 
     /// Escape in Insert or Replace mode: back to Normal, one grapheme left.
     pub fn escape(&mut self, t: &mut dyn VimText) {
-        if !self.enabled || self.mode == Mode::Normal {
+        if !self.enabled || self.mode == VimMode::Normal {
             return;
         }
         self.leave_insert(t);
@@ -237,7 +237,7 @@ impl Vim {
         if !self.enabled {
             return;
         }
-        self.mode = Mode::Insert;
+        self.mode = VimMode::Insert;
         self.pending = Pending::None;
         self.commands.replace_steps.clear();
         self.searching = None;
@@ -248,7 +248,7 @@ impl Vim {
 
     pub fn enter_normal(&mut self, _t: &mut dyn VimText) {
         if self.enabled {
-            self.mode = Mode::Normal;
+            self.mode = VimMode::Normal;
             self.pending = Pending::None;
             self.searching = None;
             self.commands.replace_steps.clear();
@@ -261,14 +261,14 @@ impl Vim {
     pub fn record_text(&mut self, text: &str) {
         let c = &mut self.commands;
         if !self.enabled
-            || self.mode == Mode::Normal
+            || self.mode == VimMode::Normal
             || c.replaying
             || c.pending_change.is_empty()
             || text.is_empty()
         {
             return;
         }
-        if self.mode == Mode::Insert
+        if self.mode == VimMode::Insert
             && let Some(Edit(EditStep::Text(pending))) = c.pending_change.last_mut()
         {
             pending.push_str(text);
@@ -295,7 +295,7 @@ impl Vim {
                 | EditorAction::KillLineEnd
         );
         let recording = self.enabled
-            && self.mode != Mode::Normal
+            && self.mode != VimMode::Normal
             && !self.commands.replaying
             && !self.commands.pending_change.is_empty();
         let prior_len = t.text().len();
@@ -397,7 +397,7 @@ impl Vim {
             return false;
         }
         self.commands.changed = t.text().len() != prior_len || matches!(action, Action::Replace(_));
-        if self.mode == Mode::Normal {
+        if self.mode == VimMode::Normal {
             self.finish_pending_change();
         }
         true
@@ -423,7 +423,7 @@ impl Vim {
             let done = match step {
                 EditStep::Action(action) => self.apply_action(t, action),
                 EditStep::Text(text) => {
-                    if self.mode == Mode::Normal {
+                    if self.mode == VimMode::Normal {
                         false
                     } else {
                         self.insert_str(t, &text);
@@ -435,7 +435,7 @@ impl Vim {
                 break;
             }
         }
-        if self.mode != Mode::Normal {
+        if self.mode != VimMode::Normal {
             self.leave_insert(t);
         }
         self.pending = Pending::None;
@@ -450,7 +450,7 @@ impl Vim {
         }
         let prior_len = t.text().len();
         match action {
-            Action::EnterReplace => self.mode = Mode::Replace,
+            Action::EnterReplace => self.mode = VimMode::Replace,
             Action::RestoreReplaced => return self.restore_replaced(t),
             Action::Insert(at) => {
                 match at {
@@ -470,7 +470,7 @@ impl Vim {
                         t.set_cursor(if e < prior_len { insert_at } else { insert_at + 1 });
                     }
                 }
-                self.mode = Mode::Insert;
+                self.mode = VimMode::Insert;
             }
             Action::Delete(target) => return self.operate(t, Operator::Delete, target, prior_len),
             Action::Change(target) => return self.operate(t, Operator::Change, target, prior_len),
@@ -517,7 +517,7 @@ impl Vim {
                     self.kill(t, cursor..end, RegisterKind::Characterwise);
                 }
                 if op == Operator::Change {
-                    self.mode = Mode::Insert;
+                    self.mode = VimMode::Insert;
                 }
             }
             Target::Line => {
@@ -527,7 +527,7 @@ impl Vim {
                 } else {
                     let line = bol(t)..eol(t);
                     self.kill(t, line, RegisterKind::Linewise);
-                    self.mode = Mode::Insert;
+                    self.mode = VimMode::Insert;
                 }
             }
             Target::LineEnd => {
@@ -537,7 +537,7 @@ impl Vim {
                     self.kill(t, cursor..line_end, RegisterKind::Characterwise);
                 }
                 if op == Operator::Change {
-                    self.mode = Mode::Insert;
+                    self.mode = VimMode::Insert;
                 }
             }
             Target::Motion(motion) => self.apply_operator(t, op, motion),
@@ -560,7 +560,7 @@ impl Vim {
             Target::BufferJump { last } => self.jump_to_line(t, last, Some(op)),
         }
         if op == Operator::Change {
-            return self.mode == Mode::Insert;
+            return self.mode == VimMode::Insert;
         }
         t.text().len() != prior_len
     }
@@ -730,13 +730,13 @@ impl Vim {
                 let cursor = t.cursor();
                 self.operate_range(t, op, cursor..target);
             } else {
-                self.mode = Mode::Insert;
+                self.mode = VimMode::Insert;
             }
             return;
         }
         let Some(range) = self.range_for_motion(t, motion) else {
             if op == Operator::Change && motion == Motion::LineEnd {
-                self.mode = Mode::Insert;
+                self.mode = VimMode::Insert;
             }
             return;
         };
@@ -754,7 +754,7 @@ impl Vim {
                 t.replace(start..start, "\n");
                 t.set_cursor(start);
             }
-            self.mode = Mode::Insert;
+            self.mode = VimMode::Insert;
             return;
         }
         self.operate_range(t, op, range);
@@ -766,7 +766,7 @@ impl Vim {
             Operator::Yank => self.yank(t, range, RegisterKind::Characterwise),
             Operator::Change => {
                 self.kill(t, range, RegisterKind::Characterwise);
-                self.mode = Mode::Insert;
+                self.mode = VimMode::Insert;
             }
         }
     }
@@ -920,7 +920,7 @@ impl Vim {
                 Operator::Yank => self.yank(t, range, RegisterKind::Linewise),
                 Operator::Change => {
                     self.kill(t, range, RegisterKind::Linewise);
-                    self.mode = Mode::Insert;
+                    self.mode = VimMode::Insert;
                 }
             }
             return;
