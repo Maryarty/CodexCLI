@@ -1712,17 +1712,24 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 },
             )
         }),
-        ServerNotification::Warning(n) => n.thread_id.as_deref().map(|thread| {
-            (
-                ThreadId::new(thread),
-                ThreadEv::Appended {
-                    turn: None,
-                    item: Item::Warning {
-                        message: n.message.clone(),
-                    },
-                },
-            )
-        }),
+        // A diagnostic naming a thread is a row of that thread (the oracle's `new_warning_event`).
+        notification
+            if screens::dialogs::incoming(notification).is_some_and(|w| w.thread.is_some()) =>
+        {
+            screens::dialogs::incoming(notification).and_then(|warning| {
+                warning.thread.map(|thread| {
+                    (
+                        ThreadId::new(&thread),
+                        ThreadEv::Appended {
+                            turn: None,
+                            item: Item::Warning {
+                                message: warning.message,
+                            },
+                        },
+                    )
+                })
+            })
+        }
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)
             .map(|(thread, ev)| match ev {
                 ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),
@@ -1796,9 +1803,14 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
 /// `on_deprecation_notice`). The app picks the thread and applies the event.
 pub fn project_unrouted(notification: &ServerNotification) -> Option<ThreadEv> {
     let item = match notification {
-        ServerNotification::Warning(n) if n.thread_id.is_none() => Item::Warning {
-            message: n.message.clone(),
-        },
+        // One without a thread is the displayed one's.
+        notification
+            if screens::dialogs::incoming(notification).is_some_and(|w| w.thread.is_none()) =>
+        {
+            Item::Warning {
+                message: screens::dialogs::incoming(notification)?.message,
+            }
+        }
         ServerNotification::DeprecationNotice(n) => Item::Deprecation {
             summary: n.summary.clone(),
             details: n.details.clone(),
