@@ -13,10 +13,7 @@ use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
 use rtwk::widgets::Text;
-use rtwk::{
-    AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, StatelessWidget,
-    impl_widget,
-};
+use rtwk::{AnyWidget, Cx, Key, NotificationListener, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::ThreadId;
 use codex_tui_core::screens::ScreenStates;
@@ -30,23 +27,6 @@ use crate::widgets::thread_ui::Follow;
 
 use super::cells::strings as cells_strings;
 use super::strings as chat_strings;
-
-/// The chat's transcript: the reader, and whether the detailed rows show.
-#[derive(Clone, PartialEq)]
-pub(super) struct TranscriptPane(pub Follow, pub bool);
-
-impl StatelessWidget for TranscriptPane {
-    fn build(&self, _: &mut Cx<'_>) -> AnyWidget {
-        Pane {
-            follow: self.0.clone(),
-            detailed: self.1,
-            mark: None,
-        }
-        .into()
-    }
-}
-
-impl_widget!(stateless eq TranscriptPane);
 
 /// The transcript with a prompt marked (Flutter: a `ListView` whose item
 /// `selected: true` is drawn highlighted and scrolled into view when it

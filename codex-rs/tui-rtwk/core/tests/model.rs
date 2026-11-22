@@ -2128,3 +2128,15 @@ fn esc_with_steers_in_review_mode_warns_and_does_not_interrupt() {
         ))
     );
 }
+
+/// Esc Esc with no prompt to edit: the chat says so, as an info line of the
+/// history (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
+#[test]
+fn no_previous_message_is_a_line_of_the_history() {
+    let mut app = running();
+    chat_intent(&mut app, chat::ThreadIntent::NoPreviousMessage);
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::NoPreviousMessage))
+    );
+}

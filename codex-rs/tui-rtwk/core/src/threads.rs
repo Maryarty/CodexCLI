@@ -1676,6 +1676,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ConnectionLost => {}
         ThreadEv::Reverted => {
+            // the edit of a past prompt waits for this (`ThreadReverted`)
+            screens::apply_thread_ev(
+                &mut model.slots,
+                ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
+                fx,
+            );
             model.transcript.reset();
             model.history_next = None;
             Rc::make_mut(&mut model.finished_turns).clear();
@@ -1847,6 +1853,10 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
+        // a line of the chat's own: a read-only thread says it too
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::NoPreviousMessage,
+        )) => apply_appended(model, None, Item::Notice(Notice::NoPreviousMessage)),
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,
         )) if model.has_writer() => {

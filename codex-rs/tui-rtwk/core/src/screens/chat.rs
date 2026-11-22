@@ -428,6 +428,9 @@ pub enum ThreadIntent {
     /// The edit-queued key: the newest queued message goes back to the
     /// composer (`pop_latest_queued_composer_state`).
     EditQueued,
+    /// Esc Esc found no prompt to edit: the chat says so
+    /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
+    NoPreviousMessage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

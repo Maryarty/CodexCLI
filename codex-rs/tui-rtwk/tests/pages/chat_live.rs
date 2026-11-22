@@ -10,6 +10,7 @@ use codex_tui_core::fixtures::builders::{agent_delta, turn_completed};
 use codex_tui_core::screens::{ScreenEv, chat};
 use codex_tui_rtwk::services::backend::fake::FAKE_THREAD;
 use rtwk_core::input::{Mods, MouseKind};
+use rtwk_core::style::Attrs;
 use serde_json::json;
 
 use crate::common::{Harness, start, start_quittable};
@@ -407,4 +408,189 @@ fn the_selector_before_the_switch_has_no_local_row() {
     assert!(screen.contains("2. Upgrade"), "{screen}");
     assert!(!screen.contains("Continue with Luna Reserve"), "{screen}");
     assert!(!screen.contains("esc to continue working"), "{screen}");
+}
+
+// ---- the detailed transcript and Esc Esc (Modes: `detailed`, `primed`) ----
+
+/// A chat with one finished exchange: the prompt `go` and the answer `so far`.
+fn answered() -> Harness {
+    let mut h = running();
+    let epoch = h.fake.epoch().expect("attached");
+    h.fake
+        .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
+    h.wait_for("the turn to end", |s| !s.contains("esc to interrupt"));
+    h
+}
+
+/// The first cell of `needle` is drawn reversed (the marked prompt).
+fn reversed(h: &Harness, needle: &str) -> bool {
+    let (x, y) = cell_of(h, needle);
+    h.t.cell(usize::from(x), usize::from(y))
+        .attrs
+        .intersects(Attrs::REVERSE)
+}
+
+/// Ctrl+T shows the details in the chat's own transcript (`set_presentation`): no
+/// page, no pager keys, the composer under it keeps what is typed and pasted.
+#[test]
+fn ctrl_t_leaves_the_composer_live() {
+    let mut h = answered();
+    h.press("ctrl+t");
+    h.t.type_text("zz");
+    h.wait_for("the composer", |s| s.contains("zz"));
+    // `q` is text here, not the pager's close
+    h.t.type_text("q");
+    h.wait_for("the composer", |s| s.contains("zzq"));
+    h.press("ctrl+t");
+    h.t.type_text("!");
+    h.wait_for("the composer", |s| s.contains("zzq!"));
+}
+
+/// The first Esc says what the second does; any other key takes it back.
+#[test]
+fn the_first_esc_primes_and_any_other_key_takes_it_back() {
+    let mut h = answered();
+    h.press("escape");
+    h.wait_for("the hint", |s| {
+        s.contains("Esc again to edit the previous message")
+    });
+    h.t.type_text("x");
+    h.wait_for("the hint gone", |s| {
+        !s.contains("Esc again to edit the previous message")
+    });
+    // the pair is over: the next Esc primes again
+    h.press("backspace");
+    h.press("escape");
+    h.wait_for("the hint", |s| {
+        s.contains("Esc again to edit the previous message")
+    });
+}
+
+/// The second Esc marks the newest prompt in the transcript; Esc ends the
+/// browsing and the composer is the chat's again.
+#[test]
+fn esc_esc_marks_the_newest_prompt_and_esc_ends_the_browsing() {
+    let mut h = answered();
+    h.press("escape");
+    h.press("escape");
+    h.wait_for("the mark", |s| s.contains("go") && s.contains("so far"));
+    assert!(reversed(&h, "go"), "{}", h.t.screen());
+    assert!(
+        !h.t.screen()
+            .contains("Esc again to edit the previous message"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(100));
+    assert!(!reversed(&h, "go"), "{}", h.t.screen());
+    // the arrow keys are the composer's again (`q` is text)
+    h.t.type_text("qr");
+    h.wait_for("the composer", |s| s.contains("qr"));
+}
+
+/// While prompts are browsed another key ends the browsing and is the
+/// composer's (`app.rs`: leave browsing before unhandled editing input).
+#[test]
+fn a_key_that_is_text_ends_the_browsing_and_types() {
+    let mut h = answered();
+    h.press("escape");
+    h.press("escape");
+    h.wait_until("the mark", |h| reversed(h, "go"));
+    h.t.type_text("@");
+    h.wait_until("the mark gone", |h| !reversed(h, "go"));
+    h.wait_for("the composer", |s| s.contains('@'));
+}
+
+/// Enter in the browsing is the prompt chosen: the browsing is over.
+#[test]
+fn enter_while_browsing_chooses_the_prompt() {
+    let mut h = answered();
+    h.press("escape");
+    h.press("escape");
+    h.wait_until("the mark", |h| reversed(h, "go"));
+    h.press("enter");
+    h.wait_until("the mark gone", |h| !reversed(h, "go"));
+    h.t.type_text("abc");
+    h.wait_for("the composer", |s| s.contains("abc"));
+}
+
+/// `q` in the browsing is the pager's close (`navigate_pager`): the transcript
+/// is the chat's again.
+#[test]
+fn q_while_browsing_closes_it() {
+    let mut h = answered();
+    h.press("escape");
+    h.press("escape");
+    h.wait_until("the mark", |h| reversed(h, "go"));
+    h.press("q");
+    h.wait_until("the mark gone", |h| !reversed(h, "go"));
+    h.t.type_text("abc");
+    h.wait_for("the composer", |s| s.contains("abc"));
+}
+
+/// Esc on the detailed transcript with an empty composer begins the browsing
+/// (`begin_overlay_backtrack_preview`); Ctrl+T in it only changes the details.
+#[test]
+fn esc_on_the_detailed_transcript_browses_and_ctrl_t_keeps_the_mark() {
+    let mut h = answered();
+    h.press("ctrl+t");
+    h.press("escape");
+    h.wait_until("the mark", |h| reversed(h, "go"));
+    h.press("ctrl+t");
+    h.t.pump_for(crate::common::ms(100));
+    assert!(reversed(&h, "go"), "{}", h.t.screen());
+    h.press("escape");
+    h.wait_until("the mark gone", |h| !reversed(h, "go"));
+}
+
+/// With text in the composer Esc is the composer's even on the detailed
+/// transcript: nothing is browsed.
+#[test]
+fn esc_with_a_draft_on_the_detailed_transcript_browses_nothing() {
+    let mut h = answered();
+    h.press("ctrl+t");
+    h.t.type_text("draft");
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(200));
+    assert!(h.t.screen().contains("draft"), "{}", h.t.screen());
+    assert!(!reversed(&h, "go"), "{}", h.t.screen());
+}
+
+/// With no prompt to edit the second Esc says so and opens nothing.
+#[test]
+fn esc_esc_with_no_prompt_says_there_is_nothing_to_edit() {
+    let mut h = start();
+    h.wait_idle();
+    h.press("escape");
+    h.press("escape");
+    h.wait_for("the line", |s| s.contains("No previous message to edit."));
+    h.t.type_text("abc");
+    h.wait_for("the composer", |s| s.contains("abc"));
+}
+
+/// An Esc with a draft is the composer's: nothing is primed.
+#[test]
+fn esc_with_a_draft_primes_nothing() {
+    let mut h = answered();
+    h.t.type_text("draft");
+    h.press("escape");
+    h.press("escape");
+    h.t.pump_for(crate::common::ms(200));
+    assert!(h.t.screen().contains("draft"), "{}", h.t.screen());
+    assert!(
+        !h.t.screen()
+            .contains("Esc again to edit the previous message"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// F3 shows the details the find will search; the composer stays live.
+#[test]
+fn f3_shows_the_details() {
+    let mut h = answered();
+    h.press("f3");
+    h.t.type_text("abc");
+    h.wait_for("the composer", |s| s.contains("abc"));
 }

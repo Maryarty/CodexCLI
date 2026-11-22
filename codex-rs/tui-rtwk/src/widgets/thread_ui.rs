@@ -3,7 +3,7 @@
 //! reader of its transcript (`Follow`). They are UI state, never seen by
 //! `apply`; `ingest` creates a thread's controllers after the thread appears.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -30,13 +30,20 @@ pub struct ThreadUi {
 }
 
 /// The mode of one thread's transcript sheet, as Flutter's
-/// `ValueNotifier<Mode>` a controller owns: the backtrack machine of core
-/// (which prompt is highlighted, never thread data) and a notifier that
-/// ticks when it moves. Whoever draws what depends on the mode listens to
+/// `ValueNotifier<Mode>` a controller owns: whether the detailed transcript
+/// is open (Ctrl+T), the backtrack machine of core (primed by the first Esc,
+/// which prompt is highlighted; never thread data) and a notifier that ticks
+/// when either moves. Whoever draws what depends on the mode listens to
 /// `listenable()`; the keys that move it call the methods.
 #[derive(Clone)]
 pub struct Modes {
     machine: Rc<RefCell<Backtrack>>,
+    /// The transcript shows its details (Ctrl+T).
+    detailed: Rc<Cell<bool>>,
+    /// Whether it showed them when browsing began: browsing shows the plain
+    /// transcript, and ending it puts the presentation back
+    /// (`remember_browsing_origin`, `set_browsing_details`).
+    origin: Rc<Cell<Option<bool>>>,
     ticks: Rc<ValueNotifier<u32>>,
 }
 
@@ -44,6 +51,8 @@ impl Default for Modes {
     fn default() -> Self {
         Modes {
             machine: Rc::default(),
+            detailed: Rc::default(),
+            origin: Rc::default(),
             ticks: Rc::new(ValueNotifier::new(0)),
         }
     }
@@ -62,6 +71,77 @@ impl Modes {
         result
     }
 
+    /// The first Esc has been pressed: the next starts browsing.
+    pub fn primed(&self) -> bool {
+        self.machine.borrow().is_primed()
+    }
+
+    /// The transcript shows its details.
+    pub fn detailed(&self) -> bool {
+        self.detailed.get()
+    }
+
+    /// Ctrl+T: the details show, or hide. While prompts are browsed it only
+    /// changes what the browsed transcript shows (`handle_backtrack_preview_key`).
+    pub fn toggle_detailed(&self) {
+        if self.browsing() {
+            self.moved(|_| self.detailed.set(!self.detailed()));
+        } else if self.detailed() {
+            self.close();
+        } else {
+            self.open();
+        }
+    }
+
+    /// Shows the details (F3 and Ctrl+T), whatever mode the chat was in.
+    pub fn open(&self) {
+        self.moved(|machine| {
+            machine.reset();
+            self.origin.set(None);
+            self.detailed.set(true);
+        });
+    }
+
+    /// Back to the chat: no mode, no details (`close_transcript_overlay`).
+    pub fn close(&self) {
+        self.moved(|machine| {
+            machine.reset();
+            self.origin.set(None);
+            self.detailed.set(false);
+        });
+    }
+
+    /// Esc in the chat (`handle_backtrack_esc_key`): the first primes, the
+    /// second begins browsing the prompts, the newest marked.
+    pub fn chat_esc(
+        &self,
+        thread: Option<&ThreadId>,
+        composer_empty: bool,
+        targets: Targets,
+    ) -> EscStep {
+        self.moved(|machine| {
+            let step = machine.esc(thread, composer_empty, targets);
+            if matches!(step, EscStep::Browse { .. }) {
+                self.begin_browsing();
+            }
+            step
+        })
+    }
+
+    /// Browsing shows the plain transcript, and remembers how it looked.
+    fn begin_browsing(&self) {
+        self.origin.set(Some(self.detailed()));
+        self.detailed.set(false);
+    }
+
+    /// Any other input between the two Escs ends the pair
+    /// (`cancel_primed_browsing_for_event`).
+    pub fn interrupt(&self) {
+        if self.primed() {
+            self.moved(Backtrack::interrupt);
+        }
+    }
+
     /// Prompts are being browsed.
     pub fn browsing(&self) -> bool {
         matches!(*self.machine.borrow(), Backtrack::Browsing { .. })
@@ -72,17 +152,39 @@ impl Modes {
         self.machine.borrow().selected()
     }
 
-    /// Esc in the sheet: browsing starts (`begin_overlay_backtrack_preview`),
-    /// and ends when it is under way.
+    /// Esc on the detailed transcript with an empty composer: browsing
+    /// starts (`begin_overlay_backtrack_preview`).
     pub fn esc(&self, thread: Option<&ThreadId>, targets: Targets) -> EscStep {
         self.moved(|machine| {
             if matches!(machine, Backtrack::Browsing { .. }) {
                 machine.reset();
+                self.end_browsing();
                 EscStep::Cancelled
             } else {
-                machine.begin_from_detailed(thread, targets)
+                let step = machine.begin_from_detailed(thread, targets);
+                if matches!(step, EscStep::Browse { .. }) {
+                    self.begin_browsing();
+                }
+                step
             }
         })
+    }
+
+    /// Esc while browsing, or a key that is the composer's: browsing ends and
+    /// the transcript is as it was (`cancel_transcript_browsing`).
+    pub fn leave_browsing(&self) {
+        if self.browsing() {
+            self.moved(|machine| {
+                machine.reset();
+                self.end_browsing();
+            });
+        }
+    }
+
+    fn end_browsing(&self) {
+        if let Some(detailed) = self.origin.take() {
+            self.detailed.set(detailed);
+        }
     }
 
     /// Left: the next older prompt.
@@ -102,6 +204,7 @@ impl Modes {
 
     /// Back to no mode (the sheet closed).
     pub fn reset(&self) {
+        self.origin.set(None);
         self.moved(Backtrack::reset);
     }
 

@@ -3,7 +3,7 @@
 //! chat, read with the pager's keys, and the prompts browsed with Esc.
 //!
 //! Flutter's full-screen route of a `Column`: the title row, the same
-//! transcript list the chat shows (`TranscriptPane`, detailed), the status
+//! transcript list the chat shows (`Pane`, detailed), the status
 //! row (the news and the select key, or the browsing keys), two hint rows;
 //! the rows around the list are the `Chrome` the opener asks for.
 //! The scroll state is the thread's `Follow` controller, shared with the chat
@@ -22,12 +22,14 @@ use rtwk::style::{Span, Style};
 use rtwk::text::{Text, TextOverflow, segmenter_of};
 use rtwk::{AnyWidget, Cx, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
-use codex_tui_core::screens::backtrack::Targets;
+use codex_tui_core::screens::backtrack::{EscStep, Targets};
+use codex_tui_core::screens::{ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
 use super::pager;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
+use crate::app::view::Hs;
 use crate::pages::session::transcript_pane::Pane;
 use crate::widgets::thread_ui::{Follow, Modes};
 
@@ -108,15 +110,22 @@ impl State for SheetState {
             Msg::Pager(pager::Msg::HalfPages(pages)) => w.follow.half_page(pages),
             Msg::Pager(pager::Msg::Top) => w.follow.jump_to_first(),
             Msg::Pager(pager::Msg::Bottom) => w.follow.jump_to_latest(),
-            // closing is the sheet's; what the opener does with it (the chat
-            // clears its `detailed` flag) is the opener's
+            // closing is the sheet's; what the opener does with it is the opener's
             Msg::Pager(pager::Msg::Close | pager::Msg::Action) => {
                 w.modes.reset();
                 Navigator::maybe_pop(cx);
             }
-            // one Esc starts browsing, the next ends it (`overlay_forward_event`)
+            // one Esc starts browsing, the next ends it (`overlay_forward_event`);
+            // with no prompt to browse the transcript closes and the chat says so
+            // (`begin_overlay_backtrack_preview`)
             Msg::Esc => {
-                w.modes.esc(Some(thread.id()), targets);
+                if w.modes.esc(Some(thread.id()), targets) == EscStep::NoPrevious {
+                    let hs = read::<Hs, _>(cx);
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                    cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    w.modes.reset();
+                    Navigator::maybe_pop(cx);
+                }
             }
             Msg::Older if w.modes.browsing() => {
                 w.modes.older(targets.count);

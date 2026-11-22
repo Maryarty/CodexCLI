@@ -8,6 +8,7 @@ use std::rc::Rc;
 use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
+use rtwk::foundation::ListenableBuilder;
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute};
@@ -20,6 +21,7 @@ use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{BackendId, ThreadId, Ticket};
+use codex_tui_core::screens::backtrack::{EscStep, Targets};
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat};
 use codex_tui_core::threads::ThreadModel;
 
@@ -36,16 +38,17 @@ use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
 use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
-use crate::widgets::thread_ui::ThreadUi;
+use crate::widgets::thread_ui::{Modes, ThreadUi};
 
 use super::actions::*;
 use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
+use super::live::browse::{self, Browse};
 use super::live::put_back;
 use super::pending_input::PendingInput;
 use super::status_surfaces::StatusContext;
 use super::transcript;
-use super::transcript_pane::TranscriptPane;
+use super::transcript_pane::Pane;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]
@@ -66,13 +69,9 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
-    /// Escape was pressed on an empty composer: the next one starts
-    /// backtrack (`app_backtrack.rs`).
-    esc_primed: bool,
     /// The shortcut overlay is expanded above the composer (the oracle's
     /// `FooterMode::ShortcutOverlay`).
     shortcuts: bool,
-    detailed_transcript: bool,
     draft_empty: bool,
     /// The revision of the composer's reverse history search (Ctrl+R) this
     /// page drew: its footer stands in the key footer's place, and a change of
@@ -100,6 +99,9 @@ pub struct ChatState {
     composer: Rc<RefCell<TextEditingController>>,
     /// Its draft: the two shortcuts wait while keys are held as a paste.
     draft: Rc<RefCell<ComposerDraft>>,
+    /// The modes of its transcript: browsing the prompts takes keys before
+    /// the field does.
+    modes: Rc<RefCell<Modes>>,
 }
 
 /// What keeps the banner's keys from the banner (`handle_inline_banner_key`).
@@ -134,6 +136,8 @@ pub enum ChatMsg {
     Action(Action),
     /// PageUp (-1) and PageDown (1): the transcript a page.
     Page(i8),
+    /// A key of the mode that browses the prompts.
+    Browse(Browse),
     /// A suggestion was put in: a command is run, the others are text.
     Picked(Rc<str>),
     Escape,
@@ -152,9 +156,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
-            esc_primed: false,
             shortcuts: false,
-            detailed_transcript: false,
             draft_empty: self.ui.composer.text().is_empty(),
             search_rev: self.ui.draft.search_rev(),
             draft_shell: self.ui.draft.shell(),
@@ -165,6 +167,7 @@ impl StatefulWidget for Chat {
             banner_blocked: Rc::new(Cell::new(BannerBlocked::default())),
             composer: Rc::new(RefCell::new(self.ui.composer.clone())),
             draft: Rc::new(RefCell::new(self.ui.draft.clone())),
+            modes: Rc::new(RefCell::new(self.ui.modes.clone())),
         }
     }
 }
@@ -193,9 +196,21 @@ impl State for ChatState {
         let send = cx.local_sender();
         let composer = self.composer.clone();
         let draft = self.draft.clone();
+        let modes = self.modes.clone();
         let (leader, control) = (self.leader.clone(), self.control.clone());
         let (banner, blocked) = (self.banner.clone(), self.banner_blocked.clone());
         self.node.set_on_key_event(Some(Rc::new(move |_, key| {
+            // browsing the prompts: its keys come first, any other key ends it
+            // and goes on to the field
+            if modes.borrow().browsing() {
+                match browse::key(&key) {
+                    Some(step) => {
+                        send(ChatMsg::Browse(step));
+                        return KeyEventResult::Handled;
+                    }
+                    None => send(ChatMsg::Browse(Browse::Leave)),
+                }
+            }
             // `change_host` is the leader chord `Ctrl+X b`, live while the
             // backend control shows (`visible_new_backend_control`), and it
             // works with a draft in the composer.
@@ -267,9 +282,10 @@ impl State for ChatState {
         if old != w {
             *self.composer.borrow_mut() = w.ui.composer.clone();
             *self.draft.borrow_mut() = w.ui.draft.clone();
+            *self.modes.borrow_mut() = w.ui.modes.clone();
             self.sync_draft(w);
-            self.esc_primed = false;
-            self.detailed_transcript = false;
+            // the thread under the page changed: what it had open closes
+            old.ui.modes.close();
             self.leader.set(false);
         }
     }
@@ -341,16 +357,18 @@ impl State for ChatState {
 
     fn update(&mut self, msg: ChatMsg, w: &Chat, cx: &mut Cx<'_, Self>) -> Rebuild {
         let hs = read::<Hs, _>(cx);
+        let modes = &w.ui.modes;
         let previous = (
             self.shortcuts,
-            self.esc_primed,
+            modes.primed(),
             self.draft_empty,
             self.draft_shell,
             self.search_rev,
-            self.detailed_transcript,
+            modes.detailed(),
         );
+        // any other input between the two Escs ends the pair
         if !matches!(msg, ChatMsg::Escape) {
-            self.esc_primed = false;
+            modes.interrupt();
         }
         match msg {
             ChatMsg::BannerPick(backend, ticket, row) => {
@@ -374,6 +392,18 @@ impl State for ChatState {
                 }
             }
             ChatMsg::Page(pages) => w.ui.follow.page(i64::from(pages)),
+            ChatMsg::Browse(step) => {
+                let thread = read::<ThreadModel, _>(cx);
+                let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                browse::take(&step, modes, &w.ui.follow, targets.count);
+                // the prompt chosen: the transcript is the chat's again; the
+                // edit itself is the thread's intent (`ThreadIntent::EditPrompt`)
+                if step == Browse::Confirm
+                    && modes.confirm(Some(thread.id()), targets.count).is_some()
+                {
+                    modes.close();
+                }
+            }
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
                 if !draft.is_empty() {
@@ -438,6 +468,8 @@ impl State for ChatState {
             }
             ChatMsg::Changed(text) => {
                 self.sync_draft(w);
+                // a paste or an edit while prompts are browsed ends browsing
+                modes.leave_browsing();
                 if self.shortcuts && !text.is_empty() {
                     // Any other edit puts the overlay away (`FooterMode`).
                     self.shortcuts = false;
@@ -455,7 +487,10 @@ impl State for ChatState {
                 drop(Navigator::of(cx).push::<()>(PageRoute::<()>::new(|_| DebugMenu.into())));
             }
             ChatMsg::Action(action) => match action {
-                Action::OpenTranscript => self.detailed_transcript = !self.detailed_transcript,
+                Action::OpenTranscript => modes.toggle_detailed(),
+                // the find prompt is the sheet's (steps 4-7 of the transcript);
+                // F3 opens the sheet it will search
+                Action::FindTranscript => modes.open(),
                 Action::ToggleSide => {
                     let notice = codex_tui_core::commands::Notice::NotAvailable(SlashCommand::Side);
                     cx.emit(&hs.screen, ScreenIntent::from(chat::Intent::Notice(notice)));
@@ -472,11 +507,20 @@ impl State for ChatState {
                     self.shortcuts = false;
                     return Rebuild::Yes;
                 }
-                if self.detailed_transcript {
-                    self.detailed_transcript = false;
+                let thread = read::<ThreadModel, _>(cx);
+                // the detailed transcript with an empty composer: Esc begins
+                // browsing the prompts, and with none to browse the transcript
+                // closes and the chat says so (`begin_overlay_backtrack_preview`)
+                if modes.detailed() && w.ui.composer.text().is_empty() {
+                    let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                    if modes.esc(Some(thread.id()), targets) == EscStep::NoPrevious {
+                        modes.close();
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                     return Rebuild::Yes;
                 }
-                let thread = read::<ThreadModel, _>(cx);
                 // Esc is the reader's way back before it is the chat's
                 // (`handle_scroll_key`); on an empty composer it also primes
                 // the backtrack, below.
@@ -512,24 +556,28 @@ impl State for ChatState {
                 if Navigator::maybe_pop(cx) {
                     return Rebuild::No;
                 }
-                if !w.ui.composer.text().is_empty() {
-                    self.esc_primed = false;
-                } else if self.esc_primed {
-                    self.esc_primed = false;
-                    open(cx, Target::Backtrack);
-                } else {
-                    self.esc_primed = true;
+                // the first Esc primes, the second opens the detailed transcript
+                // with the newest prompt marked (`handle_backtrack_esc_key`); while
+                // an edit is under way no other starts
+                if !thread.screen_slots().backtrack.editing() {
+                    let targets = Targets::of(thread.transcript(), thread.can_load_history());
+                    let empty = w.ui.composer.text().is_empty();
+                    if modes.chat_esc(Some(thread.id()), empty, targets) == EscStep::NoPrevious {
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::NoPreviousMessage);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                 }
             }
         }
         if previous
             == (
                 self.shortcuts,
-                self.esc_primed,
+                modes.primed(),
                 self.draft_empty,
                 self.draft_shell,
                 self.search_rev,
-                self.detailed_transcript,
+                modes.detailed(),
             )
         {
             Rebuild::No
@@ -550,12 +598,21 @@ impl State for ChatState {
         let facts = &states.chat.status;
         // Reverse history search: the footer's row and what it takes from the page
         let searching = w.ui.draft.search_state();
-        let mut transcript = Stack::new()
-            .alignment(Alignment::CENTER)
-            .child(TranscriptPane(
-                w.ui.follow.clone(),
-                self.detailed_transcript,
-            ));
+        // Ctrl+T shows the details in the chat's own transcript, the composer
+        // below keeps the keys; browsing the prompts marks one in it. The
+        // modes tick when either moves (Flutter's `ListenableBuilder`).
+        let reader = {
+            let (follow, modes) = (w.ui.follow.clone(), w.ui.modes.clone());
+            ListenableBuilder::new(w.ui.modes.listenable(), move |_, _| {
+                Pane {
+                    follow: follow.clone(),
+                    detailed: modes.detailed(),
+                    mark: modes.selected(),
+                }
+                .into()
+            })
+        };
+        let mut transcript = Stack::new().alignment(Alignment::CENTER).child(reader);
         if facts.animations
             && facts.empty_state
             && self.draft_empty
@@ -592,7 +649,9 @@ impl State for ChatState {
                 let line = if self.shortcuts {
                     // Open: the footer is the close hint (`close_hint`).
                     FooterLine::Close(close)
-                } else if self.esc_primed && !thread.transcript().is_empty() {
+                } else if w.ui.modes.primed()
+                    && Targets::of(thread.transcript(), thread.can_load_history()).count > 0
+                {
                     FooterLine::Hint(strings.chat.backtrack_hint)
                 } else if running && !self.draft_empty {
                     FooterLine::Hint(strings.chat.queue_hint)
@@ -604,7 +663,7 @@ impl State for ChatState {
                     transcript::follow::footer(
                         cx,
                         w.ui.follow.clone(),
-                        self.draft_empty && !self.esc_primed,
+                        self.draft_empty && !w.ui.modes.primed(),
                         footer,
                     )
                 } else {

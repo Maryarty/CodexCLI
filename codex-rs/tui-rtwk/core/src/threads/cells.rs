@@ -217,6 +217,8 @@ pub enum Notice {
     InterruptedForSteer,
     /// The goal's token budget stopped the turn (`Goal budget reached`).
     GoalBudgetReached,
+    /// Esc Esc with no prompt to edit (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
+    NoPreviousMessage,
     /// The e-mail to the owner of the workspace that a banner action asked for ended
     /// (`finish_add_credits_nudge_email_request`).
     AddCreditsNudge {
