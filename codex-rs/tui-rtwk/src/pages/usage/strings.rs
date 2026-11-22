@@ -61,10 +61,10 @@ pub struct Strings {
     pub months: [&'static str; 12],
     /// Oracle: `hints.rs` `footer_lines`.
     /// The first row: `esc back`.
-    pub back: (&'static str, &'static str),
+    /// Oracle: `hints.rs`: the words of the footer rows (the keys are the keymap's).
+    pub back: &'static str,
     /// The second row: the key as the oracle writes it, its hint.
     hint_report: Msg<1>,
-    pub hints: [(&'static str, &'static str); 3],
     /// Oracle: `render.rs`: no account, and the message of an account the
     /// dashboard cannot show.
     pub not_available: &'static str,
@@ -141,8 +141,41 @@ pub struct Strings {
     pub fold_mark: &'static str,
     more_rows: Msg<1>,
     date_short: Msg<2>,
-    pub hint_day: (&'static str, &'static str),
-    pub hint_details: (&'static str, &'static str),
+    pub hint_day: &'static str,
+    pub hint_details: &'static str,
+    /// Oracle: `chrome.rs` `help_lines`, `controls.rs`: the help's heading
+    /// (in the controls' place) and its lines; `{n}` are key labels.
+    pub help_heading: &'static str,
+    help_tabs: Msg<1>,
+    help_digits: Msg<1>,
+    help_days: Msg<2>,
+    help_rows: Msg<2>,
+    help_details: Msg<1>,
+    help_scroll: Msg<2>,
+    pub help_mouse: &'static str,
+    pub help_range: &'static str,
+    pub help_group: &'static str,
+    pub help_model: &'static str,
+    pub help_metric: &'static str,
+    pub help_zero: &'static str,
+    pub help_refresh: &'static str,
+    help_zoom: Msg<1>,
+    pub help_toggle: &'static str,
+    help_close: Msg<2>,
+    /// Oracle: `hints.rs`: the words of the footer rows.
+    pub hint_focus: &'static str,
+    pub hint_card: &'static str,
+    pub hint_period: &'static str,
+    pub hint_row: &'static str,
+    pub hint_scroll: &'static str,
+    pub hint_close_help: &'static str,
+    pub hint_report_word: &'static str,
+    pub hint_all: &'static str,
+    pub hint_dashboard: &'static str,
+    pub hint_help: &'static str,
+    pub hint_refresh: &'static str,
+    pub hint_retry: &'static str,
+    pub hint_tab_key: &'static str,
 }
 
 /// English: the oracle's text.
@@ -178,9 +211,8 @@ pub const EN: Strings = Strings {
     months: [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ],
-    back: ("esc", "back"),
+    back: "back",
     hint_report: msg!("tab/1\u{2013}{0}"),
-    hints: [("z", "dashboard"), ("?", "help"), ("R", "refresh")],
     not_available: "Analytics is not available for this account type.",
     lifetime_tokens: "Lifetime tokens",
     peak_tokens: "Peak tokens",
@@ -253,8 +285,38 @@ pub const EN: Strings = Strings {
     fold_mark: "\u{2026} ",
     more_rows: msg!("{0} more"),
     date_short: msg!("{0} {1}"),
-    hint_day: ("\u{2190}/\u{2192}", "day"),
-    hint_details: ("enter", "details"),
+    hint_day: "day",
+    hint_details: "details",
+    help_heading: "Usage shortcuts",
+    help_tabs: msg!("Tab / {0} \u{b7} next / previous report"),
+    help_digits: msg!("1\u{2013}{0} \u{b7} open a report directly"),
+    help_days: msg!("{0} / {1} \u{b7} select chart day or plan window"),
+    help_rows: msg!("{0} / {1} \u{b7} select chat or plan period; scroll Overview"),
+    help_details: msg!("{0} \u{b7} expand or collapse details"),
+    help_scroll: msg!("{0} / {1} \u{b7} scroll report"),
+    help_mouse: "In alternate screen: mouse wheel \u{b7} scroll; click tabs or report controls",
+    help_range: "r \u{b7} switch between 7 and 30 days",
+    help_group: "g \u{b7} change grouping / Overview aggregation",
+    help_model: "m \u{b7} cycle model filter",
+    help_metric: "s \u{b7} change chat sort metric",
+    help_zero: "a \u{b7} show zero-credit groups in expanded details",
+    help_refresh: "R \u{b7} refresh all reports",
+    help_zoom: msg!("z \u{b7} dashboard / focused report; {0} \u{b7} focus dashboard card"),
+    help_toggle: "? \u{b7} toggle this help",
+    help_close: msg!("{0} \u{b7} back; q / {1} \u{b7} close usage"),
+    hint_focus: "focus",
+    hint_card: "card",
+    hint_period: "period",
+    hint_row: "row",
+    hint_scroll: "scroll",
+    hint_close_help: "close help",
+    hint_report_word: "report",
+    hint_all: "all",
+    hint_dashboard: "dashboard",
+    hint_help: "help",
+    hint_refresh: "refresh",
+    hint_retry: "retry",
+    hint_tab_key: "tab",
 };
 
 static TABLES: Tables<Strings> = Tables::english(&EN);
@@ -285,6 +347,43 @@ impl Strings {
 
     pub fn hint_report(&self, count: u64, num: &NumSyms) -> String {
         Fmt::new(self.hint_report, [Arg::Int(count)], num).to_string()
+    }
+
+    pub fn help_tabs(&self, shift_tab: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_tabs, [Arg::Text(shift_tab)], num).to_string()
+    }
+
+    pub fn help_digits(&self, count: u64, num: &NumSyms) -> String {
+        Fmt::new(self.help_digits, [Arg::Int(count)], num).to_string()
+    }
+
+    pub fn help_days(&self, left: &str, right: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_days, [Arg::Text(left), Arg::Text(right)], num).to_string()
+    }
+
+    pub fn help_rows(&self, up: &str, down: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_rows, [Arg::Text(up), Arg::Text(down)], num).to_string()
+    }
+
+    pub fn help_details(&self, accept: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_details, [Arg::Text(accept)], num).to_string()
+    }
+
+    pub fn help_scroll(&self, up: &str, down: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_scroll, [Arg::Text(up), Arg::Text(down)], num).to_string()
+    }
+
+    pub fn help_zoom(&self, accept: &str, num: &NumSyms) -> String {
+        Fmt::new(self.help_zoom, [Arg::Text(accept)], num).to_string()
+    }
+
+    pub fn help_close(&self, cancel: &str, interrupt: &str, num: &NumSyms) -> String {
+        Fmt::new(
+            self.help_close,
+            [Arg::Text(cancel), Arg::Text(interrupt)],
+            num,
+        )
+        .to_string()
     }
 
     pub fn days(&self, count: u64, num: &NumSyms) -> String {

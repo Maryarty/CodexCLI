@@ -13,15 +13,17 @@ use rtwk::focus::{Focus, KeyBindings, KeyPress};
 use rtwk::gestures::{GestureDetector, PointerEvent};
 use rtwk::l10n::NumSyms;
 use rtwk::layout::{
-    BorderType, Column, CrossAxisAlignment, Divider, EdgeInsets, Expanded, MainAxisSize, Padding,
-    Row, SizedBox,
+    BorderType, BoxConstraints, Center, Column, ConstrainedBox, CrossAxisAlignment, Divider,
+    EdgeInsets, Expanded, Padding, Row, SizedBox, UNBOUNDED,
 };
 use rtwk::navigation::{Navigator, PageRoute};
 use rtwk::provider::{read, watch};
+use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextWrap};
 use rtwk::{AnyWidget, Cx, Handler, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
+use codex_tui_core::keymap::Keymap;
 use codex_tui_core::screens::usage::models::plan_label;
 use codex_tui_core::screens::usage::{
     Control, Intent as UsageIntent, Model, Section, TokenActivityView,
@@ -36,7 +38,10 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as shared;
 
+mod help;
+mod hints;
 mod keys;
+mod list;
 pub mod overview;
 pub mod report;
 pub mod strings;
@@ -131,7 +136,17 @@ pub struct ScreenState {
     cursors: [usize; SECTIONS],
     details: [Option<usize>; SECTIONS],
     zoomed: bool,
+    /// `?` is open: the help replaces the report.
+    help: bool,
+    /// One scroll controller per surface: each report, then the help and
+    /// the dashboard (oracle: the offset of each retained surface).
+    scrolls: Vec<ScrollController>,
 }
+
+/// The surface the controllers are indexed by: a report, the help or the
+/// dashboard.
+const HELP_SCROLL: usize = SECTIONS;
+const DASHBOARD_SCROLL: usize = SECTIONS + 1;
 
 impl Default for ScreenState {
     fn default() -> Self {
@@ -140,16 +155,10 @@ impl Default for ScreenState {
             cursors: [LAST_DAY; SECTIONS],
             details: [None; SECTIONS],
             zoomed: true,
+            help: false,
+            scrolls: (0..SECTIONS + 2).map(|_| ScrollController::new()).collect(),
         }
     }
-}
-
-/// A step of the selected day.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Day {
-    By(isize),
-    /// The first (false) or the last day.
-    Edge(bool),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -162,15 +171,13 @@ pub enum Msg {
     Group,
     Model,
     Refresh,
-    /// A key whose action is not built yet: the hint's index.
-    NotYet(usize),
     Close,
-    /// An arrow, `h`, `l`, Home or End on a report.
-    Day(Day),
-    /// Enter and space: the numbers of the selected day, whole.
-    Details,
-    /// Esc closes the detail first, then the page.
-    Escape,
+    /// What the list keys ask of the surface in front (`keys::ListAct`).
+    List(keys::ListAct),
+    /// `z`: the dashboard of cards and the focused report, by turns.
+    Zoom,
+    /// `?`: the help.
+    Help,
 }
 
 impl StatefulWidget for Screen {
@@ -372,110 +379,144 @@ fn controls(
     SizedBox::new(None, Some(height), Some(column.into())).into()
 }
 
-/// The footer's two rows: what the page does, then the keys that go to
-/// other reports (oracle: `hints.rs`, wide spelling).
-fn footer(
-    model: &Model,
-    strings: &Strings,
-    num: &NumSyms,
-    look: &Look,
+/// What the dashboard is drawn from: the model and the widget's own state
+/// (R14), borrowed for one build.
+struct Page<'a> {
+    model: &'a Model,
+    strings: &'a Strings,
+    num: &'a NumSyms,
+    look: &'a Look,
+    taps: &'a Taps,
+    keymap: &'a Rc<Keymap>,
     shown: report::Shown,
-) -> AnyWidget {
-    let mut actions: Vec<(String, String)> = Vec::new();
-    if report::is_chart(model.section) {
-        actions.push((strings.hint_day.0.to_owned(), strings.hint_day.1.to_owned()));
-        if model.day_has_details(model.section, shown.cursor) {
-            actions.push((
-                strings.hint_details.0.to_owned(),
-                strings.hint_details.1.to_owned(),
-            ));
+    help: bool,
+    /// An expanded detail is open (the help lists `a` then).
+    detail_open: bool,
+    scrolls: &'a [ScrollController],
+}
+
+impl Page<'_> {
+    /// The scroll controller of the surface in front.
+    fn scroll(&self) -> &ScrollController {
+        let at = if self.help {
+            HELP_SCROLL
+        } else if self.shown.zoomed {
+            self.model.section as usize
+        } else {
+            DASHBOARD_SCROLL
+        };
+        &self.scrolls[at]
+    }
+
+    /// The report below the controls, scrolled by the surface's controller.
+    fn body(&self, width: i32) -> AnyWidget {
+        let Page {
+            model,
+            strings,
+            num,
+            look,
+            ..
+        } = self;
+        if self.help {
+            let lines = help::lines(model, strings, num, self.keymap, self.detail_open);
+            return SingleChildScrollView::new(help::body(lines))
+                .controller(self.scroll().clone())
+                .into();
+        }
+        if model.visible_sections().is_empty() {
+            let message = model.account.message().unwrap_or(strings.not_available);
+            return line(message, Style::default()).wrap(TextWrap::Word).into();
+        }
+        match model.section {
+            Section::Summary => {
+                // The profile block is centred in the room (oracle: the
+                // padding above it) and scrolls once it is taller.
+                let content = overview::body(model, strings, num, look, width);
+                let centred = model.profile.ready().is_some();
+                let controller = self.scroll().clone();
+                LayoutBuilder::new(move |_, constraints| {
+                    let room = if centred { constraints.max_height } else { 0 };
+                    SingleChildScrollView::new(ConstrainedBox::new(
+                        BoxConstraints::new(0, UNBOUNDED, room, UNBOUNDED),
+                        Center::new(content.clone()),
+                    ))
+                    .controller(controller.clone())
+                    .into()
+                })
+                .into()
+            }
+            section => report::body(
+                model,
+                section,
+                strings,
+                num,
+                look,
+                self.shown,
+                self.scroll().clone(),
+            ),
         }
     }
-    actions.push((strings.back.0.to_owned(), strings.back.1.to_owned()));
-    let report = if model.visible_sections().is_empty() {
-        vec![("R".to_owned(), "retry".to_owned())]
-    } else {
-        let mut hints = vec![(
-            strings.hint_report(model.visible_sections().len() as u64, num),
-            "report".to_owned(),
-        )];
-        hints.extend(
-            strings
-                .hints
-                .iter()
-                .map(|(key, hint)| ((*key).to_owned(), (*hint).to_owned())),
-        );
-        hints
-    };
-    Column::new()
-        .main_axis_size(MainAxisSize::Min)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(crate::widgets::page_keys::footer_with(
-            actions,
-            look.dim.clone(),
-            look.dim.clone(),
-            " \u{b7} ",
-        ))
-        .child(crate::widgets::page_keys::footer_with(
-            report,
-            look.dim.clone(),
-            look.dim.clone(),
-            " \u{b7} ",
-        ))
-        .into()
-}
 
-/// The report below the controls.
-fn body(
-    model: &Model,
-    strings: &Strings,
-    num: &NumSyms,
-    look: &Look,
-    width: i32,
-    shown: report::Shown,
-) -> AnyWidget {
-    if model.visible_sections().is_empty() {
-        let message = model.account.message().unwrap_or(strings.not_available);
-        return line(message, Style::default()).into();
+    /// The controls' place: the controls, or the help's heading.
+    fn controls(&self, inner: i32) -> AnyWidget {
+        if self.help {
+            return SizedBox::new(
+                None,
+                Some(if inner >= 100 { 2 } else { 3 }),
+                Some(line(self.strings.help_heading, self.look.bold.clone()).into()),
+            )
+            .into();
+        }
+        controls(
+            self.model,
+            self.strings,
+            self.num,
+            self.look,
+            self.taps,
+            inner,
+        )
     }
-    match model.section {
-        Section::Summary => overview::body(model, strings, num, look, width),
-        section => report::body(model, section, strings, num, look, shown),
-    }
-}
 
-/// The whole dashboard (oracle: `render.rs`).
-fn dashboard(
-    model: &Model,
-    strings: &Strings,
-    num: &NumSyms,
-    look: &Look,
-    taps: &Taps,
-    width: i32,
-    shown: report::Shown,
-) -> AnyWidget {
-    let inset = i32::from(width > 2);
-    let inner = (width - 2 * inset).max(1);
-    let rule = Divider::new()
-        .kind(BorderType::Single)
-        .style(look.dim.clone())
-        .merge(false);
-    let column = Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(heading(model, strings, num, look))
-        .child(SizedBox::new(
-            None,
-            Some(1),
-            Some(tabs(model, strings, num, look, taps, inner)),
-        ))
-        .child(rule)
-        .child(controls(model, strings, num, look, taps, inner))
-        .child(Expanded::new(
-            1,
-            body(model, strings, num, look, inner, shown),
-        ))
-        .child(footer(model, strings, num, look, shown));
-    Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
+    /// The whole dashboard (oracle: `render.rs`).
+    fn dashboard(&self, width: i32) -> AnyWidget {
+        let Page {
+            model,
+            strings,
+            num,
+            look,
+            taps,
+            ..
+        } = self;
+        let inset = i32::from(width > 2);
+        let inner = (width - 2 * inset).max(1);
+        let rule = Divider::new()
+            .kind(BorderType::Single)
+            .style(look.dim.clone())
+            .merge(false);
+        let column = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(heading(model, strings, num, look))
+            .child(SizedBox::new(
+                None,
+                Some(1),
+                Some(tabs(model, strings, num, look, taps, inner)),
+            ))
+            .child(rule)
+            .child(self.controls(inner))
+            .child(Expanded::new(1, self.body(inner)))
+            .child(hints::footer(hints::Footer {
+                model: (*model).clone(),
+                strings: **strings,
+                num: **num,
+                keymap: self.keymap.clone(),
+                shown: self.shown,
+                help: self.help,
+                controller: self.scroll().clone(),
+                key: look.dim.clone(),
+                hint: look.dim.clone(),
+            }));
+        Padding::new(EdgeInsets::only(inset, 0, inset, 0), column).into()
+    }
 }
 
 /// Four reports' bodies, one under the other with a blank row between
@@ -523,63 +564,35 @@ impl State for ScreenState {
         let section = model.section;
         let mut rebuild = Rebuild::No;
         let intent = match msg {
-            Msg::Day(step) => {
-                let last = model.day_count(section).max(1) - 1;
-                let cursor = &mut self.cursors[section as usize];
-                let before = *cursor;
-                *cursor = match step {
-                    Day::By(delta) => (*cursor as isize + delta).clamp(0, last as isize) as usize,
-                    Day::Edge(false) => 0,
-                    Day::Edge(true) => last,
-                };
-                // An open detail follows the selected day.
-                let detail = &mut self.details[section as usize];
-                if detail.is_some() {
-                    *detail = Some(*cursor);
-                }
-                if *cursor != before {
-                    rebuild = Rebuild::Yes;
-                }
+            Msg::List(act) => {
+                let intent = self.list(act, &model, section, cx);
+                rebuild = Rebuild::Yes;
+                intent
+            }
+            Msg::Zoom => {
+                // The dashboard of cards is not built yet and says so.
+                let action = strings::of(cx).hint_dashboard;
+                drop(crate::widgets::page_keys::not_yet(cx, action));
                 None
             }
-            Msg::Details => {
-                let cursor = self.cursors[section as usize];
-                // The counted reports have nothing to open on an empty day.
-                let opens = report::is_chart(section)
-                    && (!matches!(
-                        section,
-                        Section::Plugins | Section::Activity | Section::Skills
-                    ) || model.day_has_details(section, cursor));
-                if opens {
-                    let detail = &mut self.details[section as usize];
-                    *detail = if *detail == Some(cursor) {
-                        None
-                    } else {
-                        Some(cursor)
-                    };
-                    rebuild = Rebuild::Yes;
-                }
+            Msg::Help => {
+                self.help = !self.help;
+                rebuild = Rebuild::Yes;
                 None
             }
-            Msg::Escape => {
-                if self.details[section as usize].take().is_some() {
-                    rebuild = Rebuild::Yes;
-                    None
-                } else {
-                    cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
-                    Navigator::maybe_pop(cx);
-                    None
-                }
+            Msg::Pick(index) => {
+                self.help = false;
+                visible
+                    .get(index)
+                    .map(|section| UsageIntent::Select(*section))
             }
-            Msg::Pick(index) => visible
-                .get(index)
-                .map(|section| UsageIntent::Select(*section)),
             Msg::Step(delta) if !visible.is_empty() => {
                 let at = visible
                     .iter()
                     .position(|section| *section == model.section)
                     .unwrap_or(0);
                 let next = (at as isize + delta).rem_euclid(visible.len() as isize) as usize;
+                self.help = false;
                 Some(UsageIntent::Select(visible[next]))
             }
             Msg::Step(_) => None,
@@ -614,11 +627,6 @@ impl State for ScreenState {
             Msg::Group => Some(UsageIntent::Group),
             Msg::Model => Some(UsageIntent::Model),
             Msg::Refresh => Some(UsageIntent::Refresh),
-            Msg::NotYet(index) => {
-                let action = strings::of(cx).hints[index].1;
-                drop(crate::widgets::page_keys::not_yet(cx, action));
-                None
-            }
             Msg::Close => {
                 cx.emit(&hs.screen, ScreenIntent::Usage(UsageIntent::Close));
                 Navigator::maybe_pop(cx);
@@ -635,6 +643,7 @@ impl State for ScreenState {
         let tokens = theme::Tokens::of(cx);
         let strings = strings::of(cx);
         let num = shared::of(cx).num;
+        let keymap = crate::keymap::keymap(cx);
         let screens = watch::<ScreenStates, _>(cx);
         let panels_only = w.panels;
         let taps = self.taps.clone();
@@ -644,6 +653,7 @@ impl State for ScreenState {
             detail: self.details[section],
             zoomed: self.zoomed,
         };
+        let (help, scrolls) = (self.help, self.scrolls.clone());
         let look = Look {
             dim: tokens.dim(),
             secondary: tokens.dim(),
@@ -657,42 +667,55 @@ impl State for ScreenState {
             accent: tokens.accent(),
             selected: tokens.selected().attrs(Attrs::REVERSE),
         };
+        let shown_keymap = keymap.clone();
         let body = LayoutBuilder::new(move |_, constraints| {
             let model = &screens.usage;
             if panels_only {
                 panels(model, strings)
             } else {
-                dashboard(
+                Page {
                     model,
                     strings,
-                    &num,
-                    &look,
-                    &taps,
-                    constraints.max_width,
+                    num: &num,
+                    look: &look,
+                    taps: &taps,
+                    keymap: &shown_keymap,
                     shown,
-                )
+                    help,
+                    detail_open: shown.detail.is_some(),
+                    scrolls: &scrolls,
+                }
+                .dashboard(constraints.max_width)
             }
         });
-        let mut focus = Focus::new(body)
-            .autofocus()
-            .bind(KeyPress::TAB, cx.send(Msg::Step(1)))
-            .bind(KeyPress::BACKTAB, cx.send(Msg::Step(-1)))
-            .bind('r', cx.send(Msg::Range))
-            .bind('g', cx.send(Msg::Group))
-            .bind('m', cx.send(Msg::Model))
-            .bind('R', cx.send(Msg::Refresh));
-        for index in 0..TABS {
+        // The page's own keys yield to a key a list action has taken.
+        let mut focus = Focus::new(body).autofocus();
+        let mut own: Vec<(&str, KeyPress, Msg)> = vec![
+            ("tab", KeyPress::TAB, Msg::Step(1)),
+            ("shift+tab", KeyPress::BACKTAB, Msg::Step(-1)),
+            ("r", 'r'.into(), Msg::Range),
+            ("g", 'g'.into(), Msg::Group),
+            ("m", 'm'.into(), Msg::Model),
+            ("shift+r", 'R'.into(), Msg::Refresh),
+            ("z", 'z'.into(), Msg::Zoom),
+            ("q", 'q'.into(), Msg::Close),
+        ];
+        for (index, name) in ["1", "2", "3", "4", "5", "6", "7"].into_iter().enumerate() {
             let digit = char::from_digit(index as u32 + 1, 10).unwrap_or('1');
-            focus = focus.bind(digit, cx.send(Msg::Pick(index)));
+            own.push((name, digit.into(), Msg::Pick(index)));
         }
-        // The dashboard and the help are not built yet and say so.
-        for (index, key) in [(0, 'z'), (1, '?')] {
-            focus = focus.bind(key, cx.send(Msg::NotYet(index)));
+        if keys::help_available(&keymap) {
+            own.push(("?", '?'.into(), Msg::Help));
         }
-        let keys = keys::LIST_KEYS
-            .iter()
-            .map(|(name, msg)| (*name, cx.send(msg.clone())))
+        for (name, key, msg) in own {
+            if keys::free(&keymap, name) {
+                focus = focus.bind(key, cx.send(msg));
+            }
+        }
+        let list = keys::messages(&keymap)
+            .into_iter()
+            .map(|(name, msg)| (name, cx.send(msg)))
             .collect::<Vec<_>>();
-        KeyBindings::new(keys, focus).into()
+        KeyBindings::new(list, focus).into()
     }
 }

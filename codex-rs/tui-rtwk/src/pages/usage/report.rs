@@ -11,6 +11,7 @@ use rtwk::layout::{
     CellPainter, Column, CrossAxisAlignment, CustomPaint, Divider, Expanded, MainAxisSize, Row,
     SizedBox,
 };
+use rtwk::scroll::{ScrollController, SingleChildScrollView};
 use rtwk::style::{Attrs, Span, Style};
 use rtwk::text::{Text, TextOverflow, TextWrap};
 use rtwk::{AnyWidget, LayoutBuilder};
@@ -69,6 +70,7 @@ pub fn body(
     num: &NumSyms,
     look: &Look,
     shown: Shown,
+    scroll: ScrollController,
 ) -> AnyWidget {
     if !is_chart(section) || model.histories[section as usize].ready().is_none() {
         return message(model, section, strings);
@@ -86,7 +88,9 @@ pub fn body(
         };
         let width = constraints.max_width.max(0) as usize;
         match model.focused(section, view, width, &date_label) {
-            Some(report) => report_view(&report, &strings, &num, &look),
+            Some(report) => SingleChildScrollView::new(report_view(&report, &strings, &num, &look))
+                .controller(scroll.clone())
+                .into(),
             None => message(&model, section, &strings),
         }
     })

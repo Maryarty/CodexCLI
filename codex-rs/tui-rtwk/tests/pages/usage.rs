@@ -118,3 +118,166 @@ fn enter_opens_the_whole_numbers_and_escape_closes_them_first() {
     h.press("escape");
     assert!(!h.t.screen().contains("Product"), "{}", h.t.screen());
 }
+
+/// `?` shows the page's shortcuts in the report's place, the footer reads
+/// `esc back` and `? close help`, Esc closes the help before the page and
+/// `?` closes it too (oracle: `help_lines`, `footer_lines`, `handle_key`).
+#[test]
+fn question_mark_opens_the_help_and_escape_closes_it_before_the_page() {
+    let mut h = open("credits_refund", 100, 32);
+    assert!(!h.t.screen().contains("Usage shortcuts"));
+    h.press("?");
+    let screen = h.t.screen();
+    assert!(screen.contains("Usage shortcuts"), "{screen}");
+    assert!(screen.contains("next / previous report"), "{screen}");
+    assert!(
+        screen.contains("1\u{2013}6 \u{b7} open a report directly"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("r \u{b7} switch between 7 and 30 days"),
+        "{screen}"
+    );
+    assert!(screen.contains("R \u{b7} refresh all reports"), "{screen}");
+    assert!(screen.contains("? \u{b7} toggle this help"), "{screen}");
+    assert!(
+        !screen.contains("Product"),
+        "the help replaces the report: {screen}"
+    );
+    assert!(screen.contains("? close help"), "{screen}");
+    // Esc closes the help first, the page stays.
+    h.press("escape");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Usage shortcuts"), "{screen}");
+    assert!(screen.contains("Product"), "{screen}");
+    // `?` toggles it, a digit goes to its report and closes it.
+    h.press("?");
+    h.press("?");
+    assert!(!h.t.screen().contains("Usage shortcuts"));
+    h.press("?");
+    h.press("2");
+    assert!(
+        !h.t.screen().contains("Usage shortcuts"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+/// `q` closes the page, as Esc does on a report without an open detail
+/// (oracle: `is_done`).
+#[test]
+fn q_closes_the_page() {
+    let mut h = open("credits_refund", 100, 32);
+    h.press("q");
+    assert!(!h.t.screen().contains("Product"), "{}", h.t.screen());
+}
+
+/// A report taller than its room scrolls with the page keys and the footer
+/// offers them only then (oracle: `footer_lines(.., scrollable)`,
+/// `summary_action`).
+#[test]
+fn the_page_keys_scroll_a_report_taller_than_its_room() {
+    let mut h = open("overview", 140, 18);
+    let screen = h.t.screen();
+    assert!(screen.contains("pgup/pgdn scroll"), "{screen}");
+    assert!(screen.contains("Example User"), "{screen}");
+    assert!(!screen.contains("Statistics as of"), "{screen}");
+    h.press("pagedown");
+    let screen = h.t.screen();
+    assert!(!screen.contains("Example User"), "{screen}");
+    h.press("end");
+    assert!(
+        h.t.screen().contains("Statistics as of"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("pageup");
+    h.press("home");
+    assert!(h.t.screen().contains("Example User"), "{}", h.t.screen());
+    // A tall terminal has nothing to scroll: no hint.
+    let h = open("overview", 140, 44);
+    assert!(!h.t.screen().contains("pgup/pgdn"), "{}", h.t.screen());
+}
+
+/// Up and Down scroll the Overview by a row (oracle: `summary_action`).
+#[test]
+fn the_arrows_scroll_the_overview_a_row() {
+    let mut h = open("overview", 140, 18);
+    let before = h.t.screen();
+    h.press("down");
+    let after = h.t.screen();
+    assert_ne!(before, after);
+    h.press("up");
+    assert_eq!(before, h.t.screen());
+}
+
+/// A click on `label` (the first row that holds it).
+fn tap(h: &mut Harness, label: &str) {
+    let screen = h.t.screen();
+    let (y, row) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, row)| row.contains(label))
+        .unwrap_or_else(|| panic!("no `{label}` on\n{screen}"));
+    let x = row[..row.find(label).unwrap_or(0)].chars().count();
+    h.t.click(x as u16 + 1, y as u16);
+    h.settle();
+}
+
+/// A click on a tab picks its report (oracle: `mouse.rs`, the tab hits).
+#[test]
+fn clicking_a_tab_picks_the_report() {
+    let mut h = open("overview", 140, 44);
+    assert!(h.t.screen().contains("Lifetime tokens"));
+    tap(&mut h, "2 Usage");
+    assert!(
+        !h.t.screen().contains("Lifetime tokens"),
+        "{}",
+        h.t.screen()
+    );
+    tap(&mut h, "1 Overview");
+    assert!(h.t.screen().contains("Lifetime tokens"), "{}", h.t.screen());
+}
+
+/// A click on a control does what its key does: `r` switches the range,
+/// `g` the grouping (oracle: `controls.rs` hits).
+#[test]
+fn clicking_the_controls_switches_the_range_and_the_grouping() {
+    let mut h = open("credits_refund", 120, 32);
+    assert!(h.t.screen().contains("r 7d/30d"), "{}", h.t.screen());
+    let before = h.t.screen();
+    tap(&mut h, "r 7d/30d");
+    assert_ne!(before, h.t.screen());
+    let grouped = h.t.screen();
+    tap(&mut h, "g ");
+    assert_ne!(grouped, h.t.screen());
+}
+
+/// The wheel scrolls the report in front by rows (oracle: `mouse.rs`).
+#[test]
+fn the_wheel_scrolls_the_overview() {
+    let mut h = open("overview", 140, 18);
+    assert!(h.t.screen().contains("Example User"));
+    for _ in 0..3 {
+        h.t.mouse(
+            rtwk_core::input::MouseKind::WheelDown,
+            40,
+            8,
+            0,
+            rtwk_core::input::Mods::NONE,
+        );
+    }
+    h.settle();
+    assert!(!h.t.screen().contains("Example User"), "{}", h.t.screen());
+    for _ in 0..12 {
+        h.t.mouse(
+            rtwk_core::input::MouseKind::WheelUp,
+            40,
+            8,
+            0,
+            rtwk_core::input::Mods::NONE,
+        );
+    }
+    h.settle();
+    assert!(h.t.screen().contains("Example User"), "{}", h.t.screen());
+}
