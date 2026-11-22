@@ -1583,3 +1583,106 @@ fn choosing_a_banner_row_opens_its_page_and_keeps_the_banner() {
     // the read's own ticket is not the banner occurrence's
     assert!(pick(&mut app, read_ticket, 0).commands().is_empty());
 }
+
+/// The account read answered with `banner` as its upsell (a `Status` open asks
+/// for it); returns the backend the banner belongs to.
+fn read_banner(app: &mut CodexApp, banner: serde_json::Value) -> codex_tui_core::ids::BackendId {
+    use codex_tui_core::protocol;
+    use codex_tui_core::screens::status::Intent as StatusIntent;
+
+    let fx = run(
+        app,
+        AppEv::Intent(Intent::Screen(ScreenIntent::Status(StatusIntent::Open))),
+    );
+    let [read @ Command::ReadRateLimits { backend, .. }] = fx.commands() else {
+        panic!("expected the account read: {:?}", fx.commands());
+    };
+    let backend = *backend;
+    let (ticket, reply) = protocol::reply(
+        read,
+        Ok(serde_json::json!({"accountId": "workspace-a", "rateLimits": {}, "rateLimitUpsell": banner})),
+    )
+    .expect("a reply");
+    run(app, AppEv::Reply(ticket, reply));
+    backend
+}
+
+fn model_is(app: &mut CodexApp, model: &str) {
+    run(
+        app,
+        AppEv::Screen(codex_tui_core::screens::ScreenEv::Chat(chat::Ev::Status(
+            Box::new(chat::StatusFacts {
+                model: Some(model.to_owned()),
+                ..chat::StatusFacts::default()
+            }),
+        ))),
+    );
+}
+
+fn model_banner(presentation: &str) -> serde_json::Value {
+    serde_json::json!({
+        "banner_type": "selected_model_limit", "model_slug": "test-model-a",
+        "title": "Selected model usage exhausted",
+        "description": "Ask your owner for credits or switch to another model.",
+        "ctas": [], "presentation": presentation,
+    })
+}
+
+/// Oracle `dismiss_backend_banner_for_new_turn`: a submit dismisses a dismissible banner the user was
+/// shown, and only that one; an inline banner stays, and so does one the model in use hides.
+#[test]
+fn a_submit_dismisses_only_the_dismissible_banner_that_was_shown() {
+    let mut app = ready();
+    model_is(&mut app, "test-model-a");
+    let backend = read_banner(&mut app, model_banner("dismissible"));
+    assert!(app.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+    submit(&mut app, "hello");
+    assert!(!app.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+
+    let mut inline = ready();
+    model_is(&mut inline, "test-model-a");
+    let backend = read_banner(&mut inline, model_banner("inline"));
+    submit(&mut inline, "hello");
+    assert!(inline.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+
+    // another model hides the dismissible banner without dismissing it: the turn on
+    // that model leaves the occurrence for when the first model is back.
+    let mut hidden = ready();
+    model_is(&mut hidden, "test-model-b");
+    let backend = read_banner(&mut hidden, model_banner("dismissible"));
+    assert!(!hidden.session().backend_banners[&backend].is_visible(Some("test-model-b")));
+    submit(&mut hidden, "hello");
+    assert!(hidden.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+}
+
+/// The oracle's `backend_banner_invalid_content_and_absence_restore_fallback`, banner half: a
+/// replacement the client cannot show (an unknown or null presentation, a blank title) and the
+/// banner's absence both drop the shown occurrence, as the account read is authoritative.
+#[test]
+fn an_unusable_or_absent_banner_replaces_the_shown_occurrence() {
+    for replacement in [
+        serde_json::Value::Null,
+        serde_json::json!({"presentation": "future_mode"}),
+        serde_json::json!({"presentation": null}),
+        serde_json::json!({"title": " "}),
+    ] {
+        let mut app = ready();
+        model_is(&mut app, "test-model-a");
+        let backend = read_banner(&mut app, model_banner("inline"));
+        assert!(app.session().backend_banners[&backend].is_visible(Some("test-model-a")));
+        let mut banner = model_banner("inline");
+        if replacement.is_null() {
+            banner = serde_json::Value::Null;
+        } else {
+            for (key, value) in replacement.as_object().expect("an object") {
+                banner[key.as_str()] = value.clone();
+            }
+        }
+        read_banner(&mut app, banner);
+        assert!(
+            !app.session().backend_banners.contains_key(&backend),
+            "{replacement}: {:?}",
+            app.session().backend_banners
+        );
+    }
+}

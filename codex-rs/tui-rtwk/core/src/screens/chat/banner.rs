@@ -236,6 +236,16 @@ impl BannerOccurrence {
             self.dismissed = true;
         }
     }
+
+    /// A submit starts a turn: a dismissible banner the user was shown (visible
+    /// for the model in use) is dismissed, any other stays (oracle
+    /// `dismiss_backend_banner_for_new_turn`; a model that hides it does not
+    /// dismiss it).
+    pub(crate) fn dismiss_for_new_turn(&mut self, model: Option<&str>) {
+        if self.is_dismissible() && self.is_visible(model) {
+            self.dismissed = true;
+        }
+    }
 }
 
 #[cfg(test)]

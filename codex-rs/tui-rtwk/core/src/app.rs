@@ -1991,7 +1991,29 @@ fn submit(app: &mut CodexApp, thread: &ThreadId, message: UserMessage, fx: &mut 
     if message.is_empty() || !app.threads.contains(thread) {
         return;
     }
+    dismiss_banner_for_new_turn(app, thread);
     apply_thread(app, thread, ThreadEv::Submit { message }, fx);
+}
+
+/// The model the thread runs on: its own settings, else the config's.
+fn model_in_use(app: &CodexApp, thread: &ThreadId) -> Option<String> {
+    app.threads
+        .get(thread)
+        .and_then(|model| model.screen_slots().chat.model.clone())
+        .or_else(|| app.screens.chat.status.model.clone())
+}
+
+/// Oracle `dismiss_backend_banner_for_new_turn`, at the submit.
+fn dismiss_banner_for_new_turn(app: &mut CodexApp, thread: &ThreadId) {
+    let backend = app.screens.agents.owner_of(thread.as_str());
+    let model = model_in_use(app, thread);
+    if app.session.backend_banners.contains_key(&backend)
+        && let Some(occurrence) = Rc::make_mut(&mut app.session)
+            .backend_banners
+            .get_mut(&backend)
+    {
+        occurrence.dismiss_for_new_turn(model.as_deref());
+    }
 }
 
 /// A thread event routed to its thread. Used by `apply_app` and by tests.
