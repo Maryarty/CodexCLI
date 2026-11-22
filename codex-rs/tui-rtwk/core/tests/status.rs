@@ -668,3 +668,268 @@ mod cell {
         }
     }
 }
+
+// What a read of the account's limits gives and why it was asked (oracle
+// `RateLimitRefreshOrigin`, `rate_limit_snapshots_by_limit_id`,
+// `app_server_rate_limit_snapshots`): the app keeps every bucket of a read per
+// backend, a read replaces only the buckets it names, a rolling update never
+// writes them, an account change forgets them.
+mod rates {
+    use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, Intent, apply_app};
+    use codex_tui_core::ids::{BackendId, ThreadId};
+    use codex_tui_core::protocol;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::status::{self, Credits, ResetCredits, Window};
+    use codex_tui_core::screens::{ScreenEv, ScreenIntent, chat, usage};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a thread starts on connect");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new("thread-1"))),
+        );
+        app
+    }
+
+    /// The clock the shell moves on (`status::Ev::Clock`).
+    fn clock(app: &mut CodexApp, now: i64) {
+        run(
+            app,
+            AppEv::Screen(ScreenEv::Status(status::Ev::Clock {
+                now,
+                utc_offset_secs: 3600,
+            })),
+        );
+    }
+
+    /// The reads of the account's limits in `fx`.
+    fn reads(fx: &AppFx) -> Vec<Command> {
+        fx.commands()
+            .iter()
+            .filter(|command| matches!(command, Command::ReadRateLimits { .. }))
+            .cloned()
+            .collect()
+    }
+
+    /// A usage menu asks for a read.
+    fn ask(app: &mut CodexApp) -> Vec<Command> {
+        let fx = run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Usage(
+                usage::Intent::RefreshRateLimits,
+            ))),
+        );
+        reads(&fx)
+    }
+
+    fn answer(app: &mut CodexApp, read: &Command, response: serde_json::Value) {
+        let (ticket, reply) = protocol::reply(read, Ok(response)).expect("a reply");
+        run(app, AppEv::Reply(ticket, reply));
+    }
+
+    /// The one read in `commands` and the backend it goes to.
+    fn the_read(commands: Vec<Command>) -> (Command, BackendId) {
+        let [read] = commands.try_into().expect("one read");
+        let Command::ReadRateLimits { backend, .. } = read else {
+            panic!("a read of the limits: {read:?}");
+        };
+        (read, backend)
+    }
+
+    fn window(used_percent: i32, minutes: i64, resets_at: i64) -> serde_json::Value {
+        json!({"usedPercent": used_percent, "windowDurationMins": minutes, "resetsAt": resets_at})
+    }
+
+    fn two_buckets() -> serde_json::Value {
+        let codex = json!({"limitId": "codex", "primary": window(30, 300, 2_000_000_000)});
+        json!({
+            "rateLimits": codex,
+            "rateLimitsByLimitId": {
+                "codex": codex,
+                "spark": {
+                    "limitId": "spark",
+                    "limitName": "GPT-5 Spark",
+                    "primary": window(10, 60, 2_000_000_100),
+                    "credits": {"hasCredits": true, "unlimited": false, "balance": "5"},
+                },
+            },
+            "rateLimitResetCredits": {
+                "availableCount": 2,
+                "credits": [{
+                    "id": "credit-1",
+                    "resetType": "codexRateLimits",
+                    "status": "available",
+                    "grantedAt": 1_700_000_000,
+                    "expiresAt": null,
+                    "title": "Reset",
+                    "description": null,
+                }],
+            },
+        })
+    }
+
+    fn names(app: &CodexApp, backend: BackendId) -> Vec<String> {
+        app.session().rate_snapshots[&backend]
+            .snapshots()
+            .map(|snapshot| snapshot.name.clone())
+            .collect()
+    }
+
+    fn first_used(app: &CodexApp, backend: BackendId) -> Option<i32> {
+        let store = &app.session().rate_snapshots[&backend];
+        let codex = store.snapshots().next().expect("codex");
+        codex.primary.map(|window| window.used_percent)
+    }
+
+    #[test]
+    fn a_read_keeps_every_bucket_once_with_the_captured_moment() {
+        let mut app = ready();
+        clock(&mut app, 1_704_164_645);
+        let (read, backend) = the_read(ask(&mut app));
+        answer(&mut app, &read, two_buckets());
+
+        // `codex` is the top-level view and the map's own entry: one bucket.
+        assert_eq!(names(&app, backend), ["codex", "GPT-5 Spark"]);
+        let store = &app.session().rate_snapshots[&backend];
+        let spark = store.snapshots().nth(1).expect("the second bucket");
+        assert_eq!(spark.captured_at, 1_704_164_645);
+        assert_eq!(
+            spark.primary,
+            Some(Window {
+                used_percent: 10,
+                window_minutes: Some(60),
+                resets_at: Some(2_000_000_100),
+            })
+        );
+        assert_eq!(
+            spark.credits,
+            Some(Credits {
+                has_credits: true,
+                unlimited: false,
+                balance: Some("5".to_owned()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_read_keeps_the_reset_credits_it_carried() {
+        let mut app = ready();
+        let (read, backend) = the_read(ask(&mut app));
+        answer(&mut app, &read, two_buckets());
+
+        let credits: &ResetCredits = app.session().rate_snapshots[&backend]
+            .reset_credits()
+            .expect("credits");
+        assert_eq!(credits.available_count, 2);
+        let listed = credits.credits.as_ref().expect("details");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "credit-1");
+        assert_eq!(listed[0].title.as_deref(), Some("Reset"));
+        assert_eq!(listed[0].expires_at, None);
+    }
+
+    #[test]
+    fn a_later_read_replaces_the_buckets_it_names_and_keeps_the_others() {
+        let mut app = ready();
+        let (read, backend) = the_read(ask(&mut app));
+        answer(&mut app, &read, two_buckets());
+        let (again, _) = the_read(ask(&mut app));
+        answer(
+            &mut app,
+            &again,
+            json!({"rateLimits": {"limitId": "codex", "primary": window(60, 300, 2_000_000_500)}}),
+        );
+
+        assert_eq!(names(&app, backend), ["codex", "GPT-5 Spark"]);
+        assert_eq!(first_used(&app, backend), Some(60));
+    }
+
+    #[test]
+    fn a_rolling_update_never_writes_the_buckets() {
+        let mut app = ready();
+        let (read, backend) = the_read(ask(&mut app));
+        answer(&mut app, &read, two_buckets());
+        let update = serde_json::from_value(json!({
+            "method": "account/rateLimits/updated",
+            "params": {"rateLimits": {"limitId": "codex", "primary": window(99, 300, 2_000_000_900)}},
+        }))
+        .expect("a notification");
+        run(
+            &mut app,
+            AppEv::Backend(BackendEv::Notification(Box::new(update))),
+        );
+
+        assert_eq!(first_used(&app, backend), Some(30));
+        // the status line's summary moves with it
+        let summary = app.session().rate_limits[&backend].primary;
+        assert_eq!(summary.map(|window| window.used_percent), Some(99));
+    }
+
+    #[test]
+    fn an_account_change_forgets_the_buckets() {
+        let mut app = ready();
+        let (read, backend) = the_read(ask(&mut app));
+        answer(&mut app, &read, two_buckets());
+        let changed = serde_json::from_value(json!({
+            "method": "account/updated",
+            "params": {"authMode": "chatgpt", "planType": "pro"},
+        }))
+        .expect("a notification");
+        run(
+            &mut app,
+            AppEv::Backend(BackendEv::Notification(Box::new(changed))),
+        );
+
+        assert_eq!(names(&app, backend), Vec::<String>::new());
+        assert_eq!(app.session().rate_snapshots[&backend].reset_credits(), None);
+    }
+
+    #[test]
+    fn a_usage_menu_read_is_asked_every_time() {
+        let mut app = ready();
+        assert_eq!(ask(&mut app).len(), 1);
+        assert_eq!(ask(&mut app).len(), 1);
+    }
+
+    #[test]
+    fn a_background_refresh_folds_into_the_read_in_flight() {
+        let mut app = ready();
+        let facts = || {
+            AppEv::Screen(ScreenEv::Chat(chat::Ev::Status(Box::new(
+                chat::StatusFacts {
+                    account_usage: true,
+                    ..chat::StatusFacts::default()
+                },
+            ))))
+        };
+        assert_eq!(reads(&run(&mut app, facts())).len(), 1);
+        assert_eq!(reads(&run(&mut app, facts())).len(), 0);
+        // a read the menu asks is its own, whatever is in flight
+        assert_eq!(ask(&mut app).len(), 1);
+    }
+
+    #[test]
+    fn the_clock_event_moves_the_status_clock() {
+        let mut app = ready();
+        clock(&mut app, 1_704_164_645);
+        let status = &app.screens().status;
+        assert_eq!((status.now, status.utc_offset_secs), (1_704_164_645, 3600));
+    }
+}

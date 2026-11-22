@@ -34,15 +34,24 @@ pub(super) fn active_backend(app: &CodexApp) -> BackendId {
         .map_or(agents.displayed, |thread| agents.owner_of(thread.as_str()))
 }
 
-pub(super) fn refresh_rates(app: &mut CodexApp, backend: BackendId, fx: &mut AppFx) {
-    if app
-        .outgoing
-        .any(|ctx| matches!(ctx, AppCtx::RateLimits { backend: target } if *target == backend))
+/// Reads the limits of `backend`'s account for `origin`; a refresh nobody
+/// waits for folds into a read already in flight.
+pub(super) fn refresh_rates(
+    app: &mut CodexApp,
+    backend: BackendId,
+    origin: status::RateLimitOrigin,
+    fx: &mut AppFx,
+) {
+    if origin.folds_into_a_read_in_flight()
+        && app.outgoing.any(
+            |ctx| matches!(ctx, AppCtx::RateLimits { backend: target, .. } if *target == backend),
+        )
     {
         return;
     }
     let ticket = app.mint.next();
-    app.outgoing.insert(ticket, AppCtx::RateLimits { backend });
+    app.outgoing
+        .insert(ticket, AppCtx::RateLimits { backend, origin });
     fx.commands
         .push(Command::ReadRateLimits { ticket, backend });
 }
@@ -63,7 +72,7 @@ fn status_command(app: &mut CodexApp, source: Option<ThreadId>, fx: &mut AppFx) 
     let item = Item::Status(Arc::new(card));
     apply_thread(app, &id, ThreadEv::Appended { turn: None, item }, fx);
     // The limits the next card shows.
-    refresh_rates(app, backend, fx);
+    refresh_rates(app, backend, status::RateLimitOrigin::Status(0), fx);
 }
 
 /// The card of a `/status` that runs now, from the facts the app holds: the

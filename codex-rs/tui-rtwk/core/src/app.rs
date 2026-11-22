@@ -91,6 +91,8 @@ pub struct SessionSlice {
     /// (`return_to_agents_after_removal`).
     pub removed: u32,
     pub rate_limits: BTreeMap<BackendId, status::RateLimits>,
+    /// Every bucket the full reads of each backend left, and its reset credits.
+    pub rate_snapshots: BTreeMap<BackendId, status::RateLimitStore>,
     pub connections: BTreeMap<BackendId, ConnectionState>,
     pub backend_notices: BTreeMap<BackendId, String>,
     pub backend_banners: BTreeMap<BackendId, chat::BannerOccurrence>,
@@ -482,8 +484,10 @@ enum AppCtx {
     Resume(resume::Ctx),
     /// `model/list` and the permission profiles for the pickers of S14.
     Select(crate::screens::select::Ctx),
+    /// A read of the account's limits and why it was asked.
     RateLimits {
         backend: BackendId,
+        origin: status::RateLimitOrigin,
     },
     /// The e-mail to the workspace owner a banner action asked for; the notice goes to the
     /// thread that was open (`add_credits_nudge_email_in_flight`).
@@ -616,6 +620,7 @@ impl CodexApp {
                 switched_from: None,
                 removed: 0,
                 rate_limits: BTreeMap::new(),
+                rate_snapshots: BTreeMap::new(),
                 connections: BTreeMap::new(),
                 backend_notices: BTreeMap::new(),
                 backend_banners: BTreeMap::new(),
@@ -1008,7 +1013,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
     match ev {
         AppEv::Connected if origin != BackendId::default() => {
             if app.screens.chat.status.account_usage {
-                refresh_rates(app, origin, fx);
+                refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
             }
         }
         AppEv::Connected => {
@@ -1065,7 +1070,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 ServerNotification::AccountRateLimitsUpdated(note) => {
                     // The notification is newer than any in-flight read.
                     app.outgoing.retain(
-                        |ctx| !matches!(ctx, AppCtx::RateLimits { backend } if *backend == origin),
+                        |ctx| !matches!(ctx, AppCtx::RateLimits { backend, .. } if *backend == origin),
                     );
                     install_rates(app, origin, note.rate_limits.clone().into());
                     // never reuse the permission from before a new hard stop
@@ -1082,7 +1087,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             || note.rate_limits.spend_control_reached == Some(true)
                             || app.session.backend_banners.contains_key(&origin))
                     {
-                        refresh_rates(app, origin, fx);
+                        refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                     }
                     return;
                 }
@@ -1112,6 +1117,9 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                         .backend_banners
                         .remove(&origin);
                     Rc::make_mut(&mut app.session).reserve.remove(&origin);
+                    if let Some(store) = Rc::make_mut(&mut app.session).rate_snapshots.get_mut(&origin) {
+                        store.clear();
+                    }
                     app.outgoing.retain(
                         |ctx| !matches!(ctx, AppCtx::Nudge { backend, .. } if *backend == origin),
                     );
@@ -1369,7 +1377,12 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
         AppEv::Screen(ev) => {
             match &ev {
                 ScreenEv::Chat(chat::Ev::Status(facts)) if facts.account_usage => {
-                    refresh_rates(app, active_backend(app), fx);
+                    refresh_rates(
+                        app,
+                        active_backend(app),
+                        status::RateLimitOrigin::Startup,
+                        fx,
+                    );
                 }
                 // The details under a thread's status row are the thread's.
                 ScreenEv::Chat(chat::Ev::Details { thread, details }) => {
@@ -1444,7 +1457,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                             | AppCtx::OpenThread { backend, .. }
                             | AppCtx::NewConversation { backend, .. }
                             | AppCtx::Nudge { backend, .. }
-                            | AppCtx::RateLimits { backend } => *backend != origin,
+                            | AppCtx::RateLimits { backend, .. } => *backend != origin,
                             AppCtx::SessionRead => origin != BackendId::default(),
                             AppCtx::Resume(ctx) if ctx.backend() == origin => {
                                 lost.borrow_mut().push(ctx.clone());
@@ -1506,7 +1519,7 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
             release_held_start(app, fx);
             if reconnected {
                 if app.screens.chat.status.account_usage {
-                    refresh_rates(app, origin, fx);
+                    refresh_rates(app, origin, status::RateLimitOrigin::Startup, fx);
                 }
                 if let Some(id) = app.session.active.clone()
                     && app.screens.agents.owner_of(id.as_str()) == origin
@@ -1674,17 +1687,24 @@ fn apply_reply(app: &mut CodexApp, ticket: Ticket, reply: Reply, fx: &mut AppFx)
             AppCtx::Agents(ctx) => screen_answer(app, ctx, answer, fx),
             AppCtx::Resume(ctx) => resume_answer(app, ctx, answer, fx),
             AppCtx::Select(ctx) => select::answer(app, ctx, answer, fx),
-            AppCtx::RateLimits { backend } => {
+            AppCtx::RateLimits { backend, .. } => {
                 if let Answer::RateLimits {
                     limits,
                     banner,
                     reserve,
+                    read,
                 } = answer
                 {
                     Rc::make_mut(&mut app.session)
                         .reserve
                         .insert(backend, reserve);
                     install_rates(app, backend, limits);
+                    let now = app.screens.status.now;
+                    Rc::make_mut(&mut app.session)
+                        .rate_snapshots
+                        .entry(backend)
+                        .or_default()
+                        .install(*read, now);
                     install_banner(app, backend, banner.map(|banner| *banner));
                 }
             }
@@ -1930,7 +1950,12 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
             }
         }
         Intent::Screen(ScreenIntent::Usage(crate::screens::usage::Intent::RefreshRateLimits)) => {
-            refresh_rates(app, active_backend(app), fx)
+            refresh_rates(
+                app,
+                active_backend(app),
+                status::RateLimitOrigin::UsageMenu,
+                fx,
+            )
         }
         Intent::Interrupt(thread) => apply_thread(app, &thread, ThreadEv::Interrupt, fx),
         Intent::ThreadScreen { thread, intent } => {

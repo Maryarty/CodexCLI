@@ -16,6 +16,7 @@ use crate::threads::ThreadFx;
 mod card;
 mod helpers;
 mod limits;
+mod rates;
 
 pub use card::{
     Account, ApprovalLabel, ModelDetail, Permissions, PermissionsLabel, Reasoning, Remote,
@@ -28,6 +29,11 @@ pub use helpers::{
 pub use limits::{
     Credits, CreditsText, Data as LimitData, Limits, Row as LimitRow, RowLabel, RowValue,
     Snapshot, SpendLimit, SpendUsed, Window, WindowName, window_name,
+};
+
+pub use rates::{
+    Bucket, CreditStatus, RateLimitOrigin, RateLimitStore, RateRead, ResetCredit, ResetCredits,
+    ResetKind,
 };
 
 pub const NAME: &str = "status";
