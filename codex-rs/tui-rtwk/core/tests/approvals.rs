@@ -968,7 +968,9 @@ mod user_verification {
         assert_eq!(waiting.decisions(), vec![Decision::Cancel]);
     }
 
-    /// Cancel answers the elicitation as cancelled; accepting needs the device's proof, so a
+    /// Cancel answers the elicitation as cancelled and says why (oracle
+    /// `user_verification_cancellation_invalidates_the_inflight_result`: `_meta`
+    /// `openai/userVerificationReason: userCancelled`); accepting needs the device's proof, so a
     /// plain Accept (or Verify, which only starts the controller) sends nothing and keeps the
     /// request.
     #[test]
@@ -990,8 +992,221 @@ mod user_verification {
         };
         assert_eq!(
             *result,
-            json!({ "action": "cancel", "content": null, "_meta": null })
+            json!({
+                "action": "cancel",
+                "content": null,
+                "_meta": { "openai/userVerificationReason": "userCancelled" }
+            })
         );
+    }
+}
+
+/// The controller's state (`approvals::verify`): oracle `app/user_verification_requests_tests.rs`
+/// and `user_verification_errors_tests.rs`.
+mod verification_controller {
+    use codex_app_server_protocol::{
+        ServerRequest, UserVerificationErrorDetails, UserVerificationFailureReason,
+        UserVerificationProof, UserVerificationUnavailableReason,
+    };
+    use codex_tui_core::ids::{ConnEpoch, RequestKey, ServerRequestId, ThreadId};
+    use codex_tui_core::screens::approvals::verify::{Cause, Failure, Outcome, Verifications};
+    use codex_tui_core::screens::approvals::{Decision, RequestAnswer};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    fn request(id: u64) -> ServerRequest {
+        serde_json::from_value(json!({
+            "method": "mcpServer/elicitation/request",
+            "id": id,
+            "params": {
+                "threadId": "thread-1", "turnId": null, "serverName": "deployments",
+                "mode": "openai/userVerification", "_meta": null,
+                "title": "Approve deployment?",
+                "description": "Deploy the reviewed change.",
+                "challenge": "AQID"
+            }
+        }))
+        .expect("request")
+    }
+
+    fn key(thread: &str, epoch: u64, id: u64) -> RequestKey {
+        RequestKey {
+            backend: Default::default(),
+            epoch: ConnEpoch(epoch),
+            thread: ThreadId::new(thread),
+            id: ServerRequestId::new(id.to_string()),
+        }
+    }
+
+    /// An attempt is begun once per request and carries what the device signs, from the request.
+    #[test]
+    fn an_attempt_begins_once_and_carries_the_challenge() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        assert_eq!(verifications.begin(&key), None, "nothing noted yet");
+        verifications.note(key.clone(), &request(7));
+        let attempt = verifications.begin(&key).expect("pending request");
+        assert_eq!(attempt.params.title, "Approve deployment?");
+        assert_eq!(attempt.params.description, "Deploy the reviewed change.");
+        assert_eq!(attempt.params.challenge, "AQID");
+        assert_eq!(verifications.begin(&key), None, "one attempt at a time");
+        assert!(verifications.is_pending(&key, attempt.id));
+    }
+
+    /// A request that is not a user verification is not kept (the controller never saw it).
+    #[test]
+    fn another_request_is_not_noted() {
+        let mut verifications = Verifications::default();
+        let other: ServerRequest = serde_json::from_value(json!({
+            "method": "item/tool/requestUserInput", "id": 1,
+            "params": { "threadId": "thread-1", "turnId": "t", "itemId": "i", "questions": [] }
+        }))
+        .expect("request");
+        verifications.note(key("thread-1", 1, 1), &other);
+        assert_eq!(verifications.begin(&key("thread-1", 1, 1)), None);
+    }
+
+    /// Cancelled or resolved by the server: the request leaves, the in-flight result is void.
+    #[test]
+    fn answering_or_resolving_voids_the_inflight_result() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        verifications.note(key.clone(), &request(7));
+        let attempt = verifications.begin(&key).expect("attempt");
+        verifications.remove(&key);
+        assert!(!verifications.is_pending(&key, attempt.id));
+        assert_eq!(verifications.begin(&key), None);
+    }
+
+    /// A discarded thread voids only its own attempts.
+    #[test]
+    fn a_discarded_thread_voids_only_its_attempts() {
+        let mut verifications = Verifications::default();
+        let (gone, kept) = (key("thread-1", 1, 7), key("thread-2", 1, 7));
+        verifications.note(gone.clone(), &request(7));
+        verifications.note(kept.clone(), &request(7));
+        let gone_attempt = verifications.begin(&gone).expect("attempt");
+        let kept_attempt = verifications.begin(&kept).expect("attempt");
+        assert_eq!(
+            verifications.cancel_thread(&ThreadId::new("thread-1")),
+            vec![gone.clone()]
+        );
+        assert!(!verifications.is_pending(&gone, gone_attempt.id));
+        assert!(verifications.is_pending(&kept, kept_attempt.id));
+    }
+
+    /// After a reconnect the old connection's proof cannot answer the request that comes again
+    /// with the same id: the new attempt is another generation, and a request of the old epoch
+    /// is another key.
+    #[test]
+    fn a_reconnect_cannot_accept_a_previous_connections_proof() {
+        let mut verifications = Verifications::default();
+        let key = key("thread-1", 1, 7);
+        verifications.note(key.clone(), &request(7));
+        let previous = verifications.begin(&key).expect("first");
+        verifications.clear();
+        assert!(!verifications.is_pending(&key, previous.id));
+        verifications.note(key.clone(), &request(7));
+        let current = verifications.begin(&key).expect("second");
+        assert_ne!(previous.id, current.id);
+        assert!(!verifications.is_pending(&key, previous.id));
+        assert!(verifications.is_pending(&key, current.id));
+        // the same id on the next connection is another request
+        assert!(!verifications.is_pending(&self::key("thread-1", 2, 7), current.id));
+    }
+
+    /// Accept sends the proof as `content` and no `_meta`; cancel and failure send the closed
+    /// reason only (oracle `take_resolution`, `user_verification_proof_is_sent_to_the_server_*`).
+    #[test]
+    fn the_outcomes_answer_the_elicitation() {
+        let proof = UserVerificationProof {
+            credential_id: "private-credential".into(),
+            signature: "private-signature".into(),
+        };
+        assert_eq!(
+            Outcome::Accepted(proof).answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Accept,
+                content: Some(json!({
+                    "credentialId": "private-credential",
+                    "signature": "private-signature"
+                })),
+                meta: None,
+            })
+        );
+        assert_eq!(
+            Outcome::Cancelled.answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Cancel,
+                content: None,
+                meta: Some(json!({ "openai/userVerificationReason": "userCancelled" })),
+            })
+        );
+        assert_eq!(
+            Outcome::Failed(UserVerificationErrorDetails::Unavailable {
+                reason: UserVerificationUnavailableReason::BiometricsUnavailable,
+            })
+            .answer(),
+            Some(RequestAnswer::Elicitation {
+                decision: Decision::Cancel,
+                content: None,
+                meta: Some(json!({ "openai/userVerificationReason": "biometricsUnavailable" })),
+            })
+        );
+    }
+
+    /// The failure is read from the typed `data` only; the native diagnostics of `message` are
+    /// never looked at, and a payload outside the closed categories is a service error.
+    #[test]
+    fn a_failure_reads_the_typed_reason_and_nothing_else() {
+        let of = |data: serde_json::Value| Failure::of_server(Some(&data)).cause;
+        let unavailable = |reason: &str| json!({ "type": "unavailable", "reason": reason });
+        assert_eq!(
+            of(unavailable("credentialMissing")),
+            Cause::CredentialMissing
+        );
+        assert_eq!(
+            of(unavailable("biometricsUnavailable")),
+            Cause::BiometricsUnavailable
+        );
+        assert_eq!(
+            of(unavailable("providerUnavailable")),
+            Cause::ProviderUnavailable
+        );
+        assert_eq!(
+            of(json!({ "type": "invalidRequest", "reason": "invalidParams" })),
+            Cause::InvalidParams
+        );
+        assert_eq!(
+            of(json!({ "type": "cancelled", "reason": "userCancelled" })),
+            Cause::UserCancelled
+        );
+        assert_eq!(
+            of(json!({ "type": "cancelled", "reason": "interrupted" })),
+            Cause::Interrupted
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "authenticationFailed" })),
+            Cause::AuthenticationFailed
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "timeout" })),
+            Cause::Timeout
+        );
+        assert_eq!(
+            of(json!({ "type": "failed", "reason": "providerError" })),
+            Cause::Service
+        );
+        assert_eq!(of(unavailable("secret native failure")), Cause::Service);
+        let malformed = Failure::of_server(Some(&unavailable("secret native failure")));
+        assert_eq!(
+            malformed.details,
+            UserVerificationErrorDetails::Failed {
+                reason: UserVerificationFailureReason::ServiceError
+            }
+        );
+        assert_eq!(Failure::of_server(None).cause, Cause::Service);
+        assert_eq!(Failure::unreachable().cause, Cause::Unreachable);
     }
 }
 

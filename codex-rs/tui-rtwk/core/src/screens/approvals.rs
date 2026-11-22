@@ -19,6 +19,7 @@ pub mod form;
 pub mod guardian;
 pub mod input;
 pub mod order;
+pub mod verify;
 
 pub use form::{Entered, Form};
 /// The projection `screens::project_thread` asks, as the other screens' `project`.

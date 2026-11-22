@@ -1656,3 +1656,66 @@ mod auto_review {
         );
     }
 }
+
+/// The words of a failed user verification: oracle `app/user_verification_errors_tests.rs` (the
+/// typed reason is read in core, `verify::Failure`; the sentences are the view's).
+mod verification_words {
+    use codex_tui_core::screens::approvals::verify::{Cause, Failure};
+    use codex_tui_rtwk::sheets::approvals::strings::EN;
+    use serde_json::json;
+
+    fn message(data: serde_json::Value) -> &'static str {
+        EN.verification_failure(Failure::of_server(Some(&data)).cause)
+    }
+
+    #[test]
+    fn a_failure_is_worded_by_its_typed_reason_without_the_providers_diagnostics() {
+        assert_eq!(
+            message(json!({ "type": "unavailable", "reason": "credentialMissing" })),
+            "No user-verification credential is available in the local Codex binary."
+        );
+        assert_eq!(
+            message(json!({ "type": "unavailable", "reason": "secret native failure" })),
+            "The local Codex binary could not complete user verification."
+        );
+    }
+
+    #[test]
+    fn unavailable_reasons_use_device_and_session_neutral_copy() {
+        assert_eq!(
+            message(json!({ "type": "unavailable", "reason": "biometricsUnavailable" })),
+            "Biometric verification is currently unavailable on this device."
+        );
+        assert_eq!(
+            message(json!({ "type": "unavailable", "reason": "providerUnavailable" })),
+            "User verification is unavailable for this request."
+        );
+    }
+
+    #[test]
+    fn the_other_reasons_have_their_sentences() {
+        let of = |cause| EN.verification_failure(cause);
+        assert_eq!(
+            of(Failure::unreachable().cause),
+            "Could not complete user verification with the local Codex binary."
+        );
+        assert_eq!(of(Cause::UserCancelled), "User verification was cancelled.");
+        assert_eq!(of(Cause::Interrupted), "User verification was interrupted.");
+        assert_eq!(
+            of(Cause::AuthenticationFailed),
+            "Biometric verification did not succeed. The request was cancelled."
+        );
+        assert_eq!(
+            of(Cause::Timeout),
+            "User verification timed out. The request was cancelled."
+        );
+        assert_eq!(
+            of(Cause::InvalidParams),
+            "The local Codex binary could not verify this request."
+        );
+        assert_eq!(
+            EN.verify_remote,
+            "User verification is unavailable for remote workspaces."
+        );
+    }
+}

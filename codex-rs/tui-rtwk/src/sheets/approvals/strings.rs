@@ -13,6 +13,8 @@ use rtwk::l10n::Msg;
 use rtwk::l10n::NumSyms;
 use rtwk::l10n::msg;
 
+use codex_tui_core::screens::approvals::verify::Cause;
+
 use crate::l10n::Lang;
 use crate::l10n::Tables;
 use crate::l10n::lang;
@@ -210,6 +212,20 @@ pub struct Strings {
     pub retry_approved_hint: &'static str,
     pub denial_gone: &'static str,
     pub unlocalized: Msg<1>,
+    /// What the history warns when a user verification did not complete (oracle
+    /// `user_verification_errors.rs`, safe messages only, never the provider's diagnostics).
+    pub verify_unreachable: &'static str,
+    pub verify_invalid_params: &'static str,
+    pub verify_credential_missing: &'static str,
+    pub verify_biometrics_unavailable: &'static str,
+    pub verify_provider_unavailable: &'static str,
+    pub verify_user_cancelled: &'static str,
+    pub verify_interrupted: &'static str,
+    pub verify_authentication_failed: &'static str,
+    pub verify_timeout: &'static str,
+    pub verify_service: &'static str,
+    /// The warning of a user verification on a remote workspace.
+    pub verify_remote: &'static str,
     /// What a permissions answer says (`handle_permissions_decision`).
     pub granted_nothing: &'static str,
     pub granted_turn: &'static str,
@@ -403,6 +419,17 @@ pub const EN: Strings = Strings {
     retry_approved_hint: "The model will see the approval context; the retry still goes through auto-review.",
     denial_gone: "That auto-review denial is no longer available.",
     unlocalized: msg!("failed to localize guardian filesystem paths: {0}"),
+    verify_unreachable: "Could not complete user verification with the local Codex binary.",
+    verify_invalid_params: "The local Codex binary could not verify this request.",
+    verify_credential_missing: "No user-verification credential is available in the local Codex binary.",
+    verify_biometrics_unavailable: "Biometric verification is currently unavailable on this device.",
+    verify_provider_unavailable: "User verification is unavailable for this request.",
+    verify_user_cancelled: "User verification was cancelled.",
+    verify_interrupted: "User verification was interrupted.",
+    verify_authentication_failed: "Biometric verification did not succeed. The request was cancelled.",
+    verify_timeout: "User verification timed out. The request was cancelled.",
+    verify_service: "The local Codex binary could not complete user verification.",
+    verify_remote: "User verification is unavailable for remote workspaces.",
     // What a permissions answer says (`handle_permissions_decision`).
     granted_nothing: "You did not grant additional permissions",
     granted_turn: "You granted additional permissions",
@@ -571,6 +598,22 @@ impl Strings {
     pub fn review_more(&self, more: usize) -> Fmt<'_, 1> {
         let count = Arg::Int(u64::try_from(more).unwrap_or(u64::MAX));
         Fmt::new(self.review_more, [count], &self.num)
+    }
+
+    /// The safe message of a failed verification (`verify::Failure::cause`).
+    pub fn verification_failure(&self, cause: Cause) -> &'static str {
+        match cause {
+            Cause::Unreachable => self.verify_unreachable,
+            Cause::InvalidParams => self.verify_invalid_params,
+            Cause::CredentialMissing => self.verify_credential_missing,
+            Cause::BiometricsUnavailable => self.verify_biometrics_unavailable,
+            Cause::ProviderUnavailable => self.verify_provider_unavailable,
+            Cause::UserCancelled => self.verify_user_cancelled,
+            Cause::Interrupted => self.verify_interrupted,
+            Cause::AuthenticationFailed => self.verify_authentication_failed,
+            Cause::Timeout => self.verify_timeout,
+            Cause::Service => self.verify_service,
+        }
     }
 
     pub fn unlocalized<'a>(&'a self, error: &'a str) -> Fmt<'a, 1> {
