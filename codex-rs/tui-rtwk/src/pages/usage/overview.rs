@@ -175,6 +175,9 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
         _ => 1,
     };
     let row = |chunk: &[(String, &'static str)], bold: bool| -> AnyWidget {
+        // Oracle: the room divides evenly among the row's figures; the
+        // remainder stays unused at the right.
+        let cell = inner / i32::try_from(chunk.len()).unwrap_or(1);
         Row::new()
             .children(chunk.iter().map(|(amount, label)| {
                 let (shown, style) = if bold {
@@ -182,7 +185,12 @@ fn figures(stats: &Stats, inner: i32, strings: &Strings, num: &NumSyms, look: &L
                 } else {
                     ((*label).to_owned(), look.dim.clone())
                 };
-                Expanded::new(1, line(shown, style).text_align(TextAlign::Center)).into()
+                SizedBox::new(
+                    Some(cell),
+                    Some(1),
+                    Some(line(shown, style).text_align(TextAlign::Center).into()),
+                )
+                .into()
             }))
             .into()
     };
