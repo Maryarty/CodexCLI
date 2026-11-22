@@ -101,6 +101,14 @@ pass it as `RTWK_BIN` to the scenarios.
   The old all-roots form `-E 'test(<page>) | binary(rules)'` still works and is the slow one.
   A new worktree's first build is ~1 to 2 min now (sccache hits across worktrees, acargo wires it);
   never export CARGO_TARGET_DIR (it makes every crate miss).
+- A partial (a step handed on as `partial ready: <tip>` in a checkpoint)
+  carries the scoped checks above only — fmt, check --tests, your test
+  root(s), clippy `-q --all-targets`, `shards.py --check` if a shard file
+  changed — then commit and checkpoint. NO clippy `--workspace`, whole
+  nextest or oracle run per step or per partial: the landing's
+  `land-check.sh` is the partial's full gate, and a red there comes back to
+  you. A brief that asks for the full gate after each step is outdated —
+  follow this rule (measured 2026-11-22: 31 % of porter time).
 - Once, before `task_done`: rebase onto the integration tip (the orchestrator
   names it in tm notes), then `acargo fmt -- --check`, clippy `--workspace`,
   the whole nextest, your oracle shard(s) with `--profile oracle`,

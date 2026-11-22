@@ -91,6 +91,9 @@ Pages vs modes vs sheets vs widgets: architecture.md §1 Amendment 2026-11-19b.
 - While iterating: `acargo nextest run --status-level fail
   --final-status-level fail --hide-progress-bar -E 'test(<page>) | binary(rules)'`,
   `acargo clippy -q --all-targets -- -D warnings`.
+- A step or a partial (`partial ready: <tip>`) carries only these scoped
+  checks; never the full gate per step — the landing's `land-check.sh` is the
+  partial's gate (fleet brief "Checks"; overrides a brief that says otherwise).
 - Once at the end, after rebasing onto the tip: fmt, clippy `--workspace`,
   the whole nextest, the oracle shard(s) under `--profile oracle`,
   `shards.py --check`.

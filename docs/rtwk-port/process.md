@@ -565,7 +565,10 @@ and rtwk's measurement:
   registry) before oracle and rtwk source; rtwk's reference and gallery as
   the model for a view, never a landed screen.
 - **No double checks.** A porter runs the crate's full check once before
-  `task_done`; the candidate check runs once per candidate; the scenario
+  `task_done`, never per step or per partial: a partial carries the scoped
+  checks only and the candidate check (`land-check.sh`) is its full gate
+  (person, 2026-11-22, after the full gate per step measured 31 % of porter
+  time — research/porter-steps); the candidate check runs once per candidate; the scenario
   suite and perf only at wave end. No porter waits on its own long command:
   `bgrun`.
 - **Batching.** Small tasks two to one porter; review notes and doc fixes
