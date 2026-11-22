@@ -5,10 +5,12 @@
 //! grows.
 
 mod banner;
+pub mod facts;
 mod mcp;
 
 use std::rc::Rc;
 
+pub use facts::{Ev as FactEv, Facts, Footer, Probe};
 pub use banner::{Banner, BannerAction, BannerCta, BannerOccurrence, Nudge, NudgeOutcome};
 pub use mcp::{McpHeader, McpStartup, McpStatus, McpWarning};
 
@@ -48,6 +50,9 @@ pub struct Model {
     pub raw_output: bool,
     /// What the status line shows, read by the host (config, cwd, git).
     pub status: Rc<StatusFacts>,
+    /// The footer's and the status line's other facts: the workspace probes, the side and
+    /// agent labels (`facts`).
+    pub facts: Facts,
 }
 
 /// The oracle's default list (`DEFAULT_STATUS_LINE_ITEMS`) when the config
@@ -242,6 +247,7 @@ impl Default for Model {
             notes: Vec::new(),
             raw_output: false,
             status: Rc::default(),
+            facts: Facts::default(),
         }
     }
 }
@@ -255,6 +261,8 @@ pub enum Ev {
     SignedIn(bool),
     /// The host read the config and the workspace.
     Status(Box<StatusFacts>),
+    /// An app-wide fact of the footer or the status line (`facts`).
+    Facts(FactEv),
 }
 
 /// The intents of this screen; a variant of the root `ScreenIntent`.
@@ -288,7 +296,10 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::ServiceTiers(tiers) => model.service_tiers = tiers,
         Ev::SignedIn(on) => model.signed_in = on,
         Ev::Status(facts) => model.status = Rc::from(facts),
+        Ev::Facts(ev) => model.facts.apply(ev),
     }
+    // what the configured items need is asked for after every change that may alter it
+    model.facts.sync(&model.status, model.signed_in);
 }
 
 pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
@@ -323,6 +334,10 @@ pub struct ThreadPart {
     pub provider: Option<String>,
     pub service_tier: Option<Option<String>>,
     pub daybreak: Option<bool>,
+    /// The collaboration mode (`thread/settings/updated`); read through `mode()`.
+    mode: codex_protocol::config_types::ModeKind,
+    /// Resumed with history: the token usage is pending until `status` counts one.
+    awaiting_usage: bool,
     pub activity: ActivityPhase,
     live_compaction: bool,
     pub progress: Option<(usize, usize)>,
@@ -459,6 +474,8 @@ pub enum ThreadEv {
         effort: Option<String>,
         provider: String,
         daybreak: Option<bool>,
+        /// The thread came with turns (a resume or a fork): its token usage is yet to come.
+        resumed: bool,
     },
     Settings {
         cwd: String,
@@ -466,6 +483,7 @@ pub enum ThreadEv {
         effort: Option<String>,
         provider: String,
         service_tier: Option<String>,
+        mode: codex_protocol::config_types::ModeKind,
     },
     Phase { turn: TurnId, phase: ActivityPhase },
     Compaction { turn: TurnId, running: bool },
@@ -533,6 +551,7 @@ pub(crate) fn metadata(thread: &codex_app_server_protocol::Thread) -> ThreadEv {
         effort: thread.reasoning_effort.as_ref().map(|effort| effort.as_str().to_string()),
         provider: thread.model_provider.clone(),
         daybreak: thread.daybreak_enabled,
+        resumed: !thread.turns.is_empty(),
     }
 }
 
@@ -549,6 +568,7 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 effort: settings.effort.as_ref().map(|effort| effort.as_str().to_string()),
                 provider: settings.model_provider.clone(),
                 service_tier: settings.service_tier.clone(),
+                mode: settings.collaboration_mode.mode,
             })
         }
         ServerNotification::Error(note) if note.will_retry => {
@@ -660,7 +680,7 @@ pub fn apply_thread_intent(
 pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
     let _ = fx;
     match ev {
-        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak } => {
+        ThreadEv::Metadata { name, cwd, path, parent_owned, ephemeral, model, effort, provider, daybreak, resumed } => {
             part.name = name;
             part.daybreak = daybreak;
             part.cwd = Some(cwd);
@@ -670,8 +690,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
             part.model = model;
             part.effort = effort;
             part.provider = (!provider.is_empty()).then_some(provider);
+            // a later `thread/started` without turns does not make a resumed thread fresh
+            part.awaiting_usage |= resumed;
         }
-        ThreadEv::Settings { cwd, model, effort, provider, service_tier } => {
+        ThreadEv::Settings { cwd, model, effort, provider, service_tier, mode } => {
+            part.mode = mode;
             part.cwd = Some(cwd);
             part.model = Some(model);
             part.effort = effort;
@@ -752,7 +775,7 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// The seed form of this screen's events:
 /// `{"flags":{"voice_command_enabled":true}}` (the named gates switch on, the
 /// others keep their defaults), `{"service_tiers":[{id,name,description}]}`,
-/// `{"signed_in":false}`, `{"status":{StatusFacts}}`.
+/// `{"signed_in":false}`, `{"status":{StatusFacts}}`, `{"facts":{"cwd":"/w"}}` (`FactEv`).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -760,6 +783,7 @@ enum SeedEv {
     ServiceTiers(Vec<SeedTier>),
     SignedIn(bool),
     Status(Box<StatusFacts>),
+    Facts(FactEv),
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -830,5 +854,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
         ),
         SeedEv::SignedIn(on) => Ev::SignedIn(on),
         SeedEv::Status(facts) => Ev::Status(facts),
+        SeedEv::Facts(ev) => Ev::Facts(ev),
     })
 }
