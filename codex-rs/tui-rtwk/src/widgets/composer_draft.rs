@@ -36,6 +36,7 @@ use crate::services::images;
 mod clipboard;
 mod mentions;
 mod remote;
+mod restricted;
 mod search;
 mod vim;
 

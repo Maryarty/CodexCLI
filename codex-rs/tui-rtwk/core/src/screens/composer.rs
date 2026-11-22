@@ -17,6 +17,7 @@ pub mod clipboard;
 pub mod history;
 pub mod mentions;
 pub mod paste_burst;
+pub mod restricted;
 pub mod vim;
 
 pub const NAME: &str = "composer";

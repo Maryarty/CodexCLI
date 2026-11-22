@@ -18,7 +18,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## chunk-composer (the whole composer as one job; in progress, steps 1-9 of 11 landed; 10 reconnect/offline next)
+## chunk-composer (the whole composer as one job; in progress, steps 1-9 of 11 landed; 10 reconnect/offline first half (core + draft) landed, the view wiring next)
 Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
 
 Done:
@@ -166,6 +166,41 @@ Done:
     `selected_text_navigation_does_not_recall_history_or_select_images`; the first also needs the
     oracle's own footer (pane-footer). (4) The oracle's cap of the rows at `min(count, height-2)` is
     not drawn: a window shorter than the rows would clip the draft (risk).
+- Step 10, reconnect / offline / unavailable thread / draft handoff (`chat_composer/reconnect.rs`),
+  FIRST HALF (the pure parts, no view wiring yet):
+  - Core `core/src/screens/composer/restricted.rs`: `Restricted::{Disconnected, UnavailableThread,
+    DraftHandoff}`, `dispatches(text)` (what Enter may run: one line, `parse_slash_name` +
+    `SlashCommand::parse`, an argument only for `supports_inline_args`; Disconnected runs only
+    the four local commands `Warnings|Config|Quit|Exit`, UnavailableThread adds
+    `available_when_thread_unavailable`, DraftHandoff runs nothing) and `keeps_placeholders()`
+    (only DraftHandoff). 5 core tests mapped from `reconnect_tests.rs`
+    (`unavailable_thread_dispatches_recovery_and_local_commands`, `..._inline_commands...`,
+    `disconnected_input_dispatches_local_config_command`, `restricted_input_preserves_blocked_drafts...`,
+    handoff runs nothing).
+  - Draft `src/widgets/composer_draft/restricted.rs`: `restrict(c)` (ends the history search with the
+    draft as it was, clears the remote row selection, closes the mention popup, expands the pastes)
+    and `expand_pastes(c)` (placeholders replaced by their text last first, elements after move with
+    the change through `sync`, the caret keeps its place, images and mentions stay). 3 draft tests
+    (`reconnect_expands_pastes_preserving_images_and_cursor` mapped; one shown biting: with the caret
+    restore commented out two failed; a caret before a paste stays; `restrict` ends the remote row).
+  - LEFT (second half, the view): `restricted: Option<Restricted>` in `KeyData` (`editing.rs`) and
+    in `Composer` (`mod.rs`, its `PartialEq`) with a `Composer::restricted(mode)` builder;
+    `Disconnected` derived in `build` from `watch::<SessionSlice>` (`connections`) and
+    `ScreenStates.agents.owner_of`, never for `bare`; `take_key` gated on it (Enter/Tab swallowed, a
+    submit through `tell(ComposerMsg::Submitted(text))` only when `mode.dispatches(text)` and no
+    paste was expanded by that key); a self-sent `ComposerMsg::Restrict` on the transition (flush the
+    held burst, `draft.restrict(c)`, close the suggest popup); `expand_pastes` in the paste handler
+    when Disconnected/UnavailableThread; key tests in `editing.rs` `tests::restricted` (the oracle's
+    `handoff_edit_discards_stale_command_before_ordinary_enter`,
+    `reconnect_edit_removes_deleted_attachment_and_paste_metadata` (Ctrl+U),
+    `reconnect_edit_cancels_history_preview_without_losing_original_draft`,
+    `offline_delete_reveals_the_edited_row_without_moving_the_caret`); page tests in
+    `tests/pages/composer_draft.rs` through an injected `agents::Ev::Reconnecting`/`Reconnected`.
+  - NEEDS (not mine, for the second half too): UnavailableThread needs a pub accessor for the
+    thread's attachment (`core/src/threads.rs`); DraftHandoff needs a cloud-switch state in the app;
+    the footer's "Ctrl+C quit" override is chat-status's; Left-key agents navigation in
+    UnavailableThread is not built; the 6 screen-level reconnect tests of composer_4 stay pending
+    (kit seeds for disconnected / handoff / unavailable); Ctrl+G stays pending G67.
 - Step 7, Ctrl+R as a mode of the composer (2c4294dbe): the search lives in the composer
   because a paste reaches only a focused TextArea and the draft's `Snapshot` restores
   text, caret, placeholders and shell mode exactly. Core `screens/popovers.rs`:
