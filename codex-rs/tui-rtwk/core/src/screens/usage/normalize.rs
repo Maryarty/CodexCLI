@@ -7,18 +7,68 @@ use super::report_data::AnalyticsData;
 use super::date::NaiveDate;
 use std::collections::BTreeMap;
 
+/// What a report could not be turned into display data: which field and what
+/// was wrong with it, never the wire's own text (the page words each variant).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Error {
+    /// A record's `date` is not a calendar date.
+    InvalidDate,
+    /// The message count report is not grouped by model or surface.
+    UnsupportedMessageGrouping(Grouping),
+    /// The attribution rows cannot be split by this grouping.
+    UnsupportedAttributionGrouping(Grouping),
+    /// A number that must be finite (and not negative, but for credits).
+    InvalidAmount(Amount),
+    /// A number the record does not carry.
+    Unreported(Gap),
+}
+
+/// Which number of a record was not a valid amount.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Amount {
+    /// A usage value of a surface or model.
+    Usage,
+    /// An attribution entry's value.
+    Attribution,
+    /// A credit amount of a surface.
+    Credits,
+    /// A record's total number of turns.
+    MessageTotal,
+    /// The turns of one model.
+    ModelTurns,
+    /// The turns of one client.
+    ClientTurns,
+    /// The invocations of one plugin or skill.
+    ToolInvocations,
+    /// The sum of a day, or one of its values.
+    Day,
+}
+
+/// Which number a record does not carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gap {
+    /// A model's plan credits.
+    PlanCredits,
+    /// A record's total number of turns.
+    MessageTotal,
+    /// The turns of one model.
+    ModelTurns,
+    /// The plugin or skill overviews.
+    ToolActivity,
+}
+
 /// Out-of-range legacy rows do not change attribution semantics for the requested period.
 pub fn has_complete_attribution(
     response: &AnalyticsData,
     start: NaiveDate,
     end: NaiveDate,
-) -> Result<bool, String> {
+) -> Result<bool, Error> {
     response
         .data
         .iter()
         .try_fold(/*init*/ true, |complete, record| {
             let date = NaiveDate::parse_ymd(record.date.get(..10).unwrap_or(&record.date))
-                .ok_or_else(|| String::from("Analytics returned an invalid date."))?;
+                .ok_or(Error::InvalidDate)?;
             Ok(complete && (date < start || date > end || record.attribution.is_some()))
         })
 }
@@ -29,7 +79,7 @@ pub fn history(
     grouping: Grouping,
     start: NaiveDate,
     end: NaiveDate,
-) -> Result<Option<AccountAnalyticsHistory>, String> {
+) -> Result<Option<AccountAnalyticsHistory>, Error> {
     if report == Report::Messages {
         match grouping {
             Grouping::Model | Grouping::Surface => {}
@@ -38,7 +88,7 @@ pub fn history(
             | Grouping::Speed
             | Grouping::Reasoning
             | Grouping::TokenType => {
-                return Err(String::from("Unsupported message count grouping."));
+                return Err(Error::UnsupportedMessageGrouping(grouping));
             }
         }
     }
@@ -47,7 +97,7 @@ pub fn history(
     let mut days: BTreeMap<NaiveDate, (f64, BTreeMap<String, f64>)> = BTreeMap::new();
     for record in response.data {
         let date = NaiveDate::parse_ymd(record.date.get(..10).unwrap_or(&record.date))
-            .ok_or_else(|| String::from("Analytics returned an invalid date."))?;
+            .ok_or(Error::InvalidDate)?;
         if date < start || date > end {
             continue;
         }
@@ -61,12 +111,12 @@ pub fn history(
                         Grouping::Surface => record.product_surface_usage_values,
                         Grouping::Model => record
                             .models
-                            .map(|models| -> Result<_, String> {
+                            .map(|models| -> Result<_, Error> {
                                 let mut values = BTreeMap::new();
                                 for model in models {
                                     let amount = model
                                         .credits
-                                        .ok_or("Plan usage amount was not reported.")?;
+                                        .ok_or(Error::Unreported(Gap::PlanCredits))?;
                                     *values.entry(model.model).or_insert(/*default*/ 0.0) += amount;
                                 }
                                 Ok(values)
@@ -78,7 +128,7 @@ pub fn history(
                 if let Some(daily) = daily {
                     for (key, amount) in daily {
                         if !amount.is_finite() || amount < 0.0 {
-                            return Err(String::from("Analytics returned an invalid amount."));
+                            return Err(Error::InvalidAmount(Amount::Usage));
                         }
                         let key = if grouping == Grouping::Surface {
                             if key.starts_with("work_") {
@@ -98,7 +148,7 @@ pub fn history(
                 } else if let Some(attribution) = record.attribution.filter(|_| attributed) {
                     for entry in attribution {
                         if !entry.value.is_finite() || entry.value < 0.0 {
-                            return Err(String::from("Analytics returned an invalid amount."));
+                            return Err(Error::InvalidAmount(Amount::Attribution));
                         }
                         *total += entry.value;
                         let key = match grouping {
@@ -109,7 +159,7 @@ pub fn history(
                                 entry.turn_trigger.map(|trigger| ["start-", trigger.as_str()].concat())
                             }
                             Grouping::Speed | Grouping::Reasoning | Grouping::TokenType => {
-                                return Err(String::from("unsupported analytics grouping"));
+                                return Err(Error::UnsupportedAttributionGrouping(grouping));
                             }
                         }
                         .unwrap_or_else(|| "unknown".to_string());
@@ -146,7 +196,7 @@ pub fn history(
                 } else if let Some(premium) = record.premium_usage_values {
                     for (surface, amount) in premium.credit_usage_credits {
                         if !amount.is_finite() {
-                            return Err(String::from("Analytics returned an invalid amount."));
+                            return Err(Error::InvalidAmount(Amount::Credits));
                         }
                         *values.entry(surface).or_default() += amount;
                         *total += amount;
@@ -163,10 +213,10 @@ pub fn history(
             Report::Messages => {
                 let authoritative = record
                     .totals
-                    .ok_or_else(|| String::from("Message count is unavailable."))?
+                    .ok_or(Error::Unreported(Gap::MessageTotal))?
                     .turns;
                 if !authoritative.is_finite() || authoritative < 0.0 {
-                    return Err(String::from("Analytics returned an invalid amount."));
+                    return Err(Error::InvalidAmount(Amount::MessageTotal));
                 }
                 let mut record_values = BTreeMap::<String, f64>::new();
                 if grouping == Grouping::Model {
@@ -180,16 +230,16 @@ pub fn history(
                         };
                         let count = model
                             .turns
-                            .ok_or_else(|| String::from("Turn count is unavailable."))?;
+                            .ok_or(Error::Unreported(Gap::ModelTurns))?;
                         if !count.is_finite() || count < 0.0 {
-                            return Err(String::from("Analytics returned an invalid amount."));
+                            return Err(Error::InvalidAmount(Amount::ModelTurns));
                         }
                         *record_values.entry(key).or_default() += count;
                     }
                 } else {
                     for client in record.clients.unwrap_or_default() {
                         if !client.turns.is_finite() || client.turns < 0.0 {
-                            return Err(String::from("Analytics returned an invalid amount."));
+                            return Err(Error::InvalidAmount(Amount::ClientTurns));
                         }
                         let key = match client.client_id.as_str() {
                             "CODEX_CLI" => "cli",
@@ -220,10 +270,10 @@ pub fn history(
                 } else {
                     record.plugin_usage_overviews
                 }
-                .ok_or_else(|| String::from("Tool activity is unavailable."))?;
+                .ok_or(Error::Unreported(Gap::ToolActivity))?;
                 for tool in overviews {
                     if !tool.invocation_counts.is_finite() || tool.invocation_counts < 0.0 {
-                        return Err(String::from("Analytics returned an invalid amount."));
+                        return Err(Error::InvalidAmount(Amount::ToolInvocations));
                     }
                     *values.entry(tool.display_name).or_default() += tool.invocation_counts;
                     *total += tool.invocation_counts;
@@ -235,7 +285,7 @@ pub fn history(
                 .values()
                 .any(|value| !value.is_finite() || (report != Report::Credits && *value < 0.0))
         {
-            return Err(String::from("Analytics returned an invalid amount."));
+            return Err(Error::InvalidAmount(Amount::Day));
         }
     }
     if report == Report::Usage

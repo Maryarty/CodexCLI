@@ -19,7 +19,7 @@ use codex_tui_core::screens::usage::models::{
 };
 use codex_tui_core::screens::usage::plot::categories;
 use codex_tui_core::screens::usage::report_data::AnalyticsData;
-use codex_tui_core::screens::usage::{NaiveDate, ReportReply, normalize, tokens};
+use codex_tui_core::screens::usage::{LoadError, NaiveDate, ReportReply, normalize, tokens};
 use tokio::sync::{Mutex, OnceCell};
 
 use super::convert;
@@ -139,12 +139,12 @@ impl Live {
         days: u32,
         grouping: Grouping,
         model_filter: Option<&str>,
-    ) -> Result<ReportReply, String> {
+    ) -> Result<ReportReply, LoadError> {
         let end = self.end_date;
         let start = days
             .checked_sub(/*rhs*/ 1)
             .and_then(|offset| end.checked_sub_days(u64::from(offset)))
-            .ok_or("Invalid analytics date range.")?;
+            .ok_or_else(|| "Invalid analytics date range.".to_string())?;
         let session = self.session().await?;
         self.ensure_identity().await?;
         let enterprise_tokens = report == Report::Usage
@@ -189,7 +189,7 @@ impl Live {
             token_models: None,
             attributed_usage: None,
         };
-        let history = (|| -> Result<Option<History>, String> {
+        let history = (|| -> Result<Option<History>, LoadError> {
             if enterprise_tokens {
                 let models = tokens::history(response.clone(), Grouping::Model, start, end)?;
                 reply.token_models = Some(
@@ -200,6 +200,7 @@ impl Live {
                 );
                 tokens::filtered_history(response.clone(), grouping, start, end, model_filter)
                     .map(Some)
+                    .map_err(LoadError::from)
             } else {
                 let grouping = if report == Report::Usage {
                     let attributed = normalize::has_complete_attribution(&response, start, end)?;
@@ -213,6 +214,7 @@ impl Live {
                     grouping
                 };
                 normalize::history(response.clone(), report, grouping, start, end)
+                    .map_err(LoadError::from)
             }
         })();
         let mut cache = session.cache.lock().await;
