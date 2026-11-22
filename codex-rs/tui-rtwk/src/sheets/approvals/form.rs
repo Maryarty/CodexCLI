@@ -28,9 +28,9 @@ use rtwk::{AnyWidget, Cx, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::ids::RequestKey;
 use codex_tui_core::screens::ScreenIntent;
-use codex_tui_core::screens::approvals::form::{Action, FieldInput, Form};
+use codex_tui_core::screens::approvals::form::{Action, Field, FieldInput, Form};
 use codex_tui_core::screens::approvals::{ElicitationPrompt, Entered, Intent, Prompt};
-use codex_tui_core::screens::composer::MAX_INPUT_CHARS;
+use codex_tui_core::screens::composer::{MAX_INPUT_CHARS, too_large};
 
 use super::strings::{self, Strings};
 use crate::app::theme::Tokens;
@@ -63,6 +63,20 @@ struct FieldState {
     text: TextEditingController,
     node: FocusNode,
     committed: bool,
+}
+
+impl FieldState {
+    /// A field's own state: the cursor of its options, its text and its focus node.
+    fn new(field: &Field) -> FieldState {
+        let options = Options::new();
+        options.set(field.input.start());
+        FieldState {
+            options,
+            text: TextEditingController::new(""),
+            node: FocusNode::new(),
+            committed: field.input.preselected(),
+        }
+    }
 }
 
 /// Why the last submit did not go (the footer's accent line).
@@ -110,20 +124,7 @@ impl StatefulWidget for FormView {
 
     fn create_state(&self) -> FormViewState {
         let (_, form) = self.parts();
-        let fields = form
-            .fields
-            .iter()
-            .map(|field| {
-                let options = Options::new();
-                options.set(field.input.start());
-                FieldState {
-                    options,
-                    text: TextEditingController::new(""),
-                    node: FocusNode::new(),
-                    committed: field.input.preselected(),
-                }
-            })
-            .collect();
+        let fields = form.fields.iter().map(FieldState::new).collect();
         FormViewState {
             fields,
             current: 0,
@@ -349,8 +350,7 @@ impl State for FormViewState {
                 self.go_next_or_submit(w, form, cx);
             }
             Msg::Submitted(answer) if text => {
-                let typed = answer.chars().count();
-                if typed > MAX_INPUT_CHARS {
+                if let Some(typed) = too_large(&answer) {
                     self.fail = Some(Fail::TooLong(typed));
                 } else {
                     self.fields[self.current].committed = !answer.trim().is_empty();
@@ -608,7 +608,8 @@ fn footer(
             keys.to_string(),
             tokens.bold().attrs(Attrs::DIM),
         ));
-        spans.push(Span::styled(format!(" {label}"), dim.clone()));
+        spans.push(Span::styled(s.key_gap, dim.clone()));
+        spans.push(Span::styled(label.to_string(), dim.clone()));
     };
     let mut spans: Vec<Span> = Vec::new();
     let separate = |spans: &mut Vec<Span>| {

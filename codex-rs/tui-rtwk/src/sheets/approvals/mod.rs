@@ -109,12 +109,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "mcp_tool_persist",
-            "approval_form_tool_approval_with_persist_options_snapshot",
+            "approval_form_tool_approval_with_persist_options",
             include_str!("fixtures/mcp_tool_persist.jsonl"),
         ),
         (
             "mcp_param_summary",
-            "approval_form_tool_approval_with_param_summary_snapshot",
+            "approval_form_tool_approval_with_param_summary",
             include_str!("fixtures/mcp_param_summary.jsonl"),
         ),
         (
@@ -144,12 +144,12 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "mcp_text_chords",
-            "text_fields_inherit_composer_chord_context_and_submit_binding",
+            "text_fields_inherit_composer_chord_context",
             include_str!("fixtures/mcp_text_chords.jsonl"),
         ),
         (
             "mcp_wrapped_url_form",
-            "form_prompt_preserves_the_complete_wrapped_url_destination",
+            "form_prompt_preserves_wrapped_url_destination",
             include_str!("fixtures/mcp_wrapped_url_form.jsonl"),
         ),
         (
@@ -164,22 +164,22 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "user_input_options",
-            "question_with_options, the area taller than the overlay (notes visible)",
+            "question_with_options, a tall frame",
             include_str!("fixtures/user_input_options.jsonl"),
         ),
         (
             "user_input_freeform",
-            "question_without_options: the freeform input takes the area",
+            "question_without_options: the input takes the area",
             include_str!("fixtures/user_input_freeform.jsonl"),
         ),
         (
             "user_input_two_options",
-            "two questions with options: the footer tips wrap at 52 columns",
+            "two questions with options, the footer tips wrap",
             include_str!("fixtures/user_input_two_options.jsonl"),
         ),
         (
             "user_input_what_next",
-            "five options in a short area: the footer says which one",
+            "five options in a short area: the footer names one",
             include_str!("fixtures/user_input_what_next.jsonl"),
         ),
         (
@@ -189,17 +189,17 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "user_input_options_then_freeform",
-            "an options question, then a freeform one (question_with_options, question_without_options)",
+            "an options question, then a freeform one",
             include_str!("fixtures/user_input_options_then_freeform.jsonl"),
         ),
         (
             "user_input_freeform_then_options",
-            "a freeform question, then an options question (question_without_options, question_with_options)",
+            "a freeform question, then an options one",
             include_str!("fixtures/user_input_freeform_then_options.jsonl"),
         ),
         (
             "user_input_secret",
-            "a freeform question whose answer is a secret: drawn as `*`",
+            "a freeform question with a secret answer: drawn as `*`",
             include_str!("fixtures/user_input_secret.jsonl"),
         ),
         (
@@ -209,17 +209,17 @@ pub fn debug_entries() -> Vec<DebugEntry> {
         ),
         (
             "user_verification",
-            "a user-verification request: verify and approve, or cancel",
+            "verify and approve, or cancel the request",
             include_str!("fixtures/user_verification.jsonl"),
         ),
         (
             "user_verification_waiting",
-            "the verification runs: the device's proof is awaited",
+            "the verification runs: the proof is awaited",
             include_str!("fixtures/user_verification_waiting.jsonl"),
         ),
         (
             "user_verification_long_urls",
-            "URLs longer than the width in the title and the description",
+            "long URLs in the title and the description",
             include_str!("fixtures/user_verification_long_urls.jsonl"),
         ),
     ];

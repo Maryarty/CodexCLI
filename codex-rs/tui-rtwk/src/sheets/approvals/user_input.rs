@@ -64,6 +64,21 @@ struct QuestionState {
     node: FocusNode,
 }
 
+impl QuestionState {
+    /// A question's own state: its options' cursor, its notes and their focus node.
+    fn new(question: &Question) -> QuestionState {
+        let options = input::has_options(question);
+        QuestionState {
+            options: Options::new(),
+            selected: options,
+            committed: false,
+            notes_open: !options,
+            notes: TextEditingController::new(""),
+            node: FocusNode::new(),
+        }
+    }
+}
+
 pub struct UserInputViewState {
     questions: Vec<QuestionState>,
     current: usize,
@@ -113,21 +128,8 @@ impl StatefulWidget for UserInputView {
     type State = UserInputViewState;
 
     fn create_state(&self) -> UserInputViewState {
-        let questions: Vec<QuestionState> = self
-            .questions()
-            .iter()
-            .map(|question| {
-                let options = input::has_options(question);
-                QuestionState {
-                    options: Options::new(),
-                    selected: options,
-                    committed: false,
-                    notes_open: !options,
-                    notes: TextEditingController::new(""),
-                    node: FocusNode::new(),
-                }
-            })
-            .collect();
+        let questions: Vec<QuestionState> =
+            self.questions().iter().map(QuestionState::new).collect();
         let notes_focus = self
             .questions()
             .first()
@@ -679,7 +681,8 @@ impl UserInputViewState {
         let key = |keys: &str, label: &str| -> Vec<Span> {
             vec![
                 Span::styled(keys.to_string(), tokens.bold().attrs(Attrs::DIM)),
-                Span::styled(format!(" {label}"), dim.clone()),
+                Span::styled(s.key_gap, dim.clone()),
+                Span::styled(label.to_string(), dim.clone()),
             ]
         };
         let has_options = input::has_options(question);
@@ -694,7 +697,8 @@ impl UserInputViewState {
                 Span::styled(s.key_tab.to_string(), tokens.bold().attrs(Attrs::DIM)),
                 Span::styled(s.hint_or.to_string(), dim.clone()),
                 Span::styled(s.key_esc.to_string(), tokens.bold().attrs(Attrs::DIM)),
-                Span::styled(format!(" {}", s.tip_clear_notes), dim.clone()),
+                Span::styled(s.key_gap, dim.clone()),
+                Span::styled(s.tip_clear_notes.to_string(), dim.clone()),
             ]);
         }
         let submit = if count > 1 && self.current + 1 >= count {

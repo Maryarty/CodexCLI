@@ -72,6 +72,8 @@ pub struct Strings {
     pub hint_confirm: &'static str,
     pub hint_cancel: &'static str,
     pub hint_or: &'static str,
+    /// Between a key and what it does in the tips.
+    pub key_gap: &'static str,
     pub key_open: &'static str,
     pub hint_open: &'static str,
     // approval_overlay.rs: the plain approval of an elicitation that has no form
@@ -197,6 +199,7 @@ pub const EN: Strings = Strings {
     hint_confirm: " to confirm or ",
     hint_cancel: " to cancel",
     hint_or: " or ",
+    key_gap: " ",
     key_open: "o",
     hint_open: " to open thread",
     elicit_title: msg!("{0} needs your approval."),
