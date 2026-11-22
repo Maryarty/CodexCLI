@@ -23,16 +23,21 @@ use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::screens::composer;
 use codex_tui_core::screens::composer::history::{
-    History as Prompts, HistoryEntry, Lookup, Store, TextElement,
+    History as Prompts, HistoryEntry, Lookup, MentionBinding, Store, TextElement,
 };
+use codex_tui_core::screens::composer::mentions::rebind::find_next_mention_token_range;
+use codex_tui_core::screens::composer::mentions::session::Binding;
+use codex_tui_core::screens::composer::mentions::task::valid_thread_path;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
 
+mod mentions;
 mod search;
 mod vim;
 
+pub use mentions::Mentions;
 pub use vim::{Snapshot, VimHost};
 
 /// One atomic element of the text: the bytes `start..end` show `label`
@@ -49,6 +54,9 @@ pub struct Element {
     /// When it was attached: images are numbered in this order
     /// (`AttachmentState::relabel_local_images`).
     pub seq: u64,
+    /// What a picked `$skill`, `@plugin` or task mention stands for
+    /// (`ComposerMentionBinding`), `None` for a paste or an image.
+    pub binding: Option<Binding>,
 }
 
 #[derive(Default)]
@@ -80,6 +88,8 @@ struct Inner {
     vim: vim::Modal,
     /// Reverse history search (Ctrl+R), while it is open.
     search: Option<search::Session>,
+    /// The mention popups (`@`, `$`): rows, highlight and scroll.
+    mentions: Mentions,
     /// Counts the changes of that search: a page that shows its footer asks
     /// whether it is the one it drew (`ComposerDraft::search_rev`).
     search_rev: u64,
@@ -105,6 +115,11 @@ impl std::fmt::Debug for ComposerDraft {
 }
 
 impl ComposerDraft {
+    /// The mention popups of this draft (a handle).
+    pub fn mentions(&self) -> Mentions {
+        self.0.borrow().mentions.clone()
+    }
+
     /// A mention completion `text` (`… $skill `, `… @file `) was put in
     /// before the caret with a separator space of its own. As the oracle's
     /// `advance_past_completion_separator`: a plain space already after the
@@ -269,7 +284,14 @@ impl ComposerDraft {
     /// Puts an element showing `label` for `payload` in place of the
     /// selection, the caret after it.
     pub fn insert_element(&self, c: &TextEditingController, label: &str, payload: &str) {
-        self.insert_with(c, label, payload, None);
+        self.insert_with(c, label, payload, None, None);
+    }
+
+    /// Puts the mention `text` (`$skill`, `@plugin`) in place of the
+    /// selection as one atomic element, the caret after it; `binding` is
+    /// what it stands for on submit (`insert_selected_mention`).
+    pub fn insert_mention(&self, c: &TextEditingController, text: &str, binding: Option<Binding>) {
+        self.insert_with(c, text, text, None, binding);
     }
 
     /// Attaches the image file `path` at the selection as the next
@@ -286,7 +308,7 @@ impl ComposerDraft {
             .filter(|e| e.image.is_some())
             .count();
         let label = image(images + 1);
-        self.insert_with(c, &label, &label, Some(Rc::new(path)));
+        self.insert_with(c, &label, &label, Some(Rc::new(path)), None);
     }
 
     fn insert_with(
@@ -295,6 +317,7 @@ impl ComposerDraft {
         label: &str,
         payload: &str,
         image: Option<Rc<PathBuf>>,
+        binding: Option<Binding>,
     ) {
         self.sync(c);
         let selection = c.selection();
@@ -314,6 +337,7 @@ impl ComposerDraft {
                 payload: Rc::from(payload),
                 image,
                 seq,
+                binding,
             },
         );
     }
@@ -574,7 +598,7 @@ impl ComposerDraft {
             if at < e.start {
                 c.insert(&text[at..e.start]);
             }
-            self.insert_with(c, &e.label, &e.payload, e.image.clone());
+            self.insert_with(c, &e.label, &e.payload, e.image.clone(), e.binding.clone());
             at = e.end;
         }
         if at < text.len() {
@@ -706,9 +730,14 @@ impl ComposerDraft {
                 end: e.end + skip,
                 placeholder: Some(e.label.to_string()),
             });
-            match &e.image {
-                Some(path) => entry.local_image_paths.push((**path).clone()),
-                None => entry
+            match (&e.image, &e.binding) {
+                (Some(path), _) => entry.local_image_paths.push((**path).clone()),
+                (None, Some(binding)) => entry.mention_bindings.push(MentionBinding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                }),
+                (None, None) => entry
                     .pending_pastes
                     .push((e.label.to_string(), e.payload.to_string())),
             }
@@ -730,6 +759,12 @@ impl ComposerDraft {
                     placeholder: Some(e.label.to_string()),
                 });
                 entry.local_image_paths.push((**path).clone());
+            } else if let Some(binding) = &e.binding {
+                entry.mention_bindings.push(MentionBinding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                });
             }
         }
         entry
@@ -770,8 +805,10 @@ impl ComposerDraft {
                 payload,
                 image,
                 seq: 0,
+                binding: None,
             });
         }
+        bind_mentions(&text, &entry, skip, &mut elements);
         self.clear();
         self.set_shell(shell);
         c.set_text(&text);
@@ -822,6 +859,47 @@ impl ComposerDraft {
 
 /// The changed part of `b` against `a`: `(start, old_end, new_end)` after
 /// the common head and tail, on character boundaries.
+/// The mentions of `entry` as elements of `text` again
+/// (`bind_mentions_from_snapshot`): a task's where the entry's text
+/// elements hold its token, any other at the next place its token stands as
+/// a word of its own; each after the one before.
+fn bind_mentions(text: &str, entry: &HistoryEntry, skip: usize, elements: &mut Vec<Element>) {
+    let mut scan_from = 0;
+    for binding in &entry.mention_bindings {
+        let token = format!("{}{}", binding.sigil, binding.mention);
+        let range = if valid_thread_path(&binding.path).is_some() {
+            entry
+                .text_elements
+                .iter()
+                .filter_map(|e| Some(e.start.checked_sub(skip)?..e.end.checked_sub(skip)?))
+                .find(|r| r.start >= scan_from && text.get(r.clone()) == Some(token.as_str()))
+        } else {
+            find_next_mention_token_range(text, &token, scan_from)
+        };
+        let Some(range) = range else { continue };
+        let taken = elements
+            .iter()
+            .any(|e| e.start < range.end && range.start < e.end);
+        if !taken {
+            elements.push(Element {
+                start: range.start,
+                end: range.end,
+                label: Rc::from(token.as_str()),
+                payload: Rc::from(token.as_str()),
+                image: None,
+                seq: 0,
+                binding: Some(Binding {
+                    sigil: binding.sigil,
+                    mention: binding.mention.clone(),
+                    path: binding.path.clone(),
+                }),
+            });
+        }
+        scan_from = range.end;
+    }
+    elements.sort_by_key(|e| e.start);
+}
+
 fn changed(a: &str, b: &str) -> (usize, usize, usize) {
     let head = a
         .char_indices()

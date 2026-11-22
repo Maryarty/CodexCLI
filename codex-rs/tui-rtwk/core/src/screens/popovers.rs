@@ -16,6 +16,7 @@ use crate::screens::Shared;
 use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
 use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
+use crate::screens::composer::mentions::session::Sources;
 use crate::screens::composer::mentions::task::TaskMention;
 use crate::screens::composer::mentions::usage::MentionUsage;
 pub use crate::screens::composer::mentions::catalog::{Mention, MentionKind};
@@ -91,6 +92,16 @@ impl Model {
     /// The asks since the last call, oldest first: what the host runs.
     pub fn take_asks(&mut self) -> Vec<Ask> {
         std::mem::take(&mut self.asks)
+    }
+
+    /// What the mention popups are fed from.
+    pub fn sources(&self) -> Sources<'_> {
+        Sources {
+            mentions: &self.mentions,
+            tasks: &self.tasks,
+            usage: &self.usage,
+            file_matches: &self.file_matches,
+        }
     }
 
     /// The asks not taken yet, oldest first.
@@ -334,6 +345,8 @@ pub enum Intent {
     SearchFiles(FileSearchAsk),
     /// A `$` mention was picked (by the skill's path).
     RecordMention(String),
+    /// A task was picked: the list of tasks the search found is spent.
+    SpendTasks,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -380,6 +393,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         }
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
         Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
+        Intent::SpendTasks => model.tasks.clear(),
         Intent::RecordMention(identity) => {
             model.usage.record(&identity);
             model.asks.push(Ask::RecordMention(identity));

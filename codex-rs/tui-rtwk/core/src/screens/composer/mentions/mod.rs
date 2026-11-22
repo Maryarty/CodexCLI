@@ -10,6 +10,7 @@ pub mod dollar;
 pub mod files;
 pub mod filter;
 pub mod popup;
+pub mod rebind;
 pub mod search_mode;
 pub mod session;
 pub mod target;
