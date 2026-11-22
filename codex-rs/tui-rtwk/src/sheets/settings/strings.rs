@@ -140,6 +140,79 @@ pub struct Strings {
     pub reset_no: &'static str,
     pub reset_no_description: &'static str,
     pub reset_hint: &'static str,
+    // bottom_pane/hooks_browser_view.rs, hooks_browser_render.rs
+    pub hooks_title: &'static str,
+    pub hooks_subtitle: &'static str,
+    pub hooks_col_event: &'static str,
+    pub hooks_col_installed: &'static str,
+    pub hooks_col_active: &'static str,
+    pub hooks_col_review: &'static str,
+    pub hooks_col_description: &'static str,
+    /// The narrow table's second column and the mark of an event to review.
+    pub hooks_col_counts: &'static str,
+    pub hooks_review_mark: &'static str,
+    /// `{active}/{installed}` of the narrow table.
+    pub hooks_counts: Msg<2>,
+    pub hooks_warning_mark: &'static str,
+    pub hooks_error_mark: &'static str,
+    pub hooks_issues: &'static str,
+    /// The error of a file: its path, then the message.
+    pub hooks_error: Msg<2>,
+    pub hooks_review_one: &'static str,
+    pub hooks_review_many: Msg<1>,
+    /// The events, in `HookEvent::ALL` order.
+    pub hooks_event_labels: [&'static str; 14],
+    pub hooks_event_descriptions: [&'static str; 14],
+    /// `{event} hooks`.
+    pub hooks_handlers_title: Msg<1>,
+    pub hooks_handlers_subtitle: &'static str,
+    pub hooks_unnamed: &'static str,
+    pub hooks_suffix_modified: &'static str,
+    pub hooks_suffix_new: &'static str,
+    /// The check of a hook waiting for a review.
+    pub hooks_check_review: &'static str,
+    pub hooks_none: &'static str,
+    // The detail rows' labels and values.
+    pub hooks_label_event: &'static str,
+    pub hooks_label_matcher: &'static str,
+    pub hooks_label_source: &'static str,
+    pub hooks_label_command: &'static str,
+    pub hooks_label_mode: &'static str,
+    pub hooks_label_server: &'static str,
+    pub hooks_label_tool: &'static str,
+    pub hooks_label_handler: &'static str,
+    pub hooks_label_timeout: &'static str,
+    pub hooks_label_context: &'static str,
+    pub hooks_label_trust: &'static str,
+    pub hooks_mode_sync: &'static str,
+    pub hooks_mode_async: &'static str,
+    pub hooks_handler_prompt: &'static str,
+    pub hooks_handler_agent: &'static str,
+    pub hooks_timeout: Msg<1>,
+    pub hooks_context_unlimited: &'static str,
+    pub hooks_context_limit: Msg<1>,
+    pub hooks_trust_managed: &'static str,
+    pub hooks_trust_trusted: &'static str,
+    pub hooks_trust_untrusted: &'static str,
+    pub hooks_trust_modified: &'static str,
+    pub hooks_source_admin: &'static str,
+    pub hooks_source_user: &'static str,
+    pub hooks_source_project: &'static str,
+    pub hooks_source_session: &'static str,
+    pub hooks_source_cloud: &'static str,
+    pub hooks_source_unknown: &'static str,
+    pub hooks_source_plugin: &'static str,
+    /// `Plugin - {id}`, `Environment - {id}` and `{label} - {path}`.
+    pub hooks_source_plugin_id: Msg<1>,
+    pub hooks_source_environment: Msg<1>,
+    pub hooks_source_path: Msg<2>,
+    // The footers (the oracle's key hints, with the default keymap).
+    pub hooks_hint_events: &'static str,
+    pub hooks_hint_events_review: &'static str,
+    pub hooks_hint_handlers_toggle: &'static str,
+    pub hooks_hint_handlers_trust: &'static str,
+    pub hooks_hint_handlers_managed: &'static str,
+    pub hooks_hint_handlers: &'static str,
     // keymap_setup/picker.rs
     pub keymap_search_placeholder: &'static str,
     pub keymap_hint: &'static str,
@@ -282,6 +355,99 @@ pub const EN: Strings = Strings {
     features_hint: "space toggle \u{b7} enter save \u{b7} esc save/close",
     features_hint_saving: "Saving\u{2026} Closing this popup will not cancel the write.",
     features_hint_retained: "Selections retained. Save to retry, or cancel to close.",
+    hooks_title: "Hooks",
+    hooks_subtitle: "Lifecycle hooks from config and enabled plugins.",
+    hooks_col_event: "Event",
+    hooks_col_installed: "Installed",
+    hooks_col_active: "Active",
+    hooks_col_review: "Review",
+    hooks_col_description: "Description",
+    hooks_col_counts: "Active/Installed",
+    hooks_review_mark: " !",
+    hooks_counts: msg!("{0}/{1}"),
+    hooks_warning_mark: "\u{26a0} ",
+    hooks_error_mark: "\u{25a0} ",
+    hooks_issues: "Issues",
+    hooks_error: msg!("{0}: {1}"),
+    hooks_review_one: "1 hook needs review before it can run.",
+    hooks_review_many: msg!("{0} hooks need review before they can run."),
+    hooks_event_labels: [
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+        "Interrupt",
+        "PreModelRequest",
+        "PostModelRequest",
+    ],
+    hooks_event_descriptions: [
+        "Before a tool executes",
+        "When permission is requested",
+        "After a tool executes",
+        "Before context compaction",
+        "After context compaction",
+        "When a new session starts",
+        "Right before a session ends",
+        "When the user submits a prompt",
+        "When a subagent is created",
+        "Right before a subagent ends its turn",
+        "Right before Codex ends its turn",
+        "Right before an interrupted turn is aborted",
+        "Before a model request",
+        "After a model request, including failures",
+    ],
+    hooks_handlers_title: msg!("{0} hooks"),
+    hooks_handlers_subtitle: "Turn hooks on or off. Your changes are saved automatically.",
+    hooks_unnamed: "Unnamed hook",
+    hooks_suffix_modified: " \u{b7} modified",
+    hooks_suffix_new: " \u{b7} new",
+    hooks_check_review: "[!] ",
+    hooks_none: "No hooks installed for this event.",
+    hooks_label_event: "Event",
+    hooks_label_matcher: "Matcher",
+    hooks_label_source: "Source",
+    hooks_label_command: "Command",
+    hooks_label_mode: "Mode",
+    hooks_label_server: "MCP Server",
+    hooks_label_tool: "MCP Tool",
+    hooks_label_handler: "Handler",
+    hooks_label_timeout: "Timeout",
+    hooks_label_context: "Context",
+    hooks_label_trust: "Trust",
+    hooks_mode_sync: "Sync",
+    hooks_mode_async: "Async",
+    hooks_handler_prompt: "Prompt",
+    hooks_handler_agent: "Agent",
+    hooks_timeout: msg!("{0}s"),
+    hooks_context_unlimited: "unlimited",
+    hooks_context_limit: msg!("limit: {0} approximate tokens"),
+    hooks_trust_managed: "Managed",
+    hooks_trust_trusted: "Trusted",
+    hooks_trust_untrusted: "New hook - review required",
+    hooks_trust_modified: "Modified since last trusted - review required",
+    hooks_source_admin: "Admin config",
+    hooks_source_user: "User config",
+    hooks_source_project: "Project config",
+    hooks_source_session: "Session flags",
+    hooks_source_cloud: "Cloud-managed config",
+    hooks_source_unknown: "Unknown source",
+    hooks_source_plugin: "Plugin",
+    hooks_source_plugin_id: msg!("Plugin - {0}"),
+    hooks_source_environment: msg!("Environment - {0}"),
+    hooks_source_path: msg!("{0} - {1}"),
+    hooks_hint_events: "enter details \u{b7} esc close",
+    hooks_hint_events_review: "t trust all \u{b7} enter review \u{b7} esc close",
+    hooks_hint_handlers_toggle: "space/enter toggle \u{b7} esc back",
+    hooks_hint_handlers_trust: "t trust \u{b7} esc back",
+    hooks_hint_handlers_managed: "Managed (always on) \u{b7} esc back",
+    hooks_hint_handlers: "esc back",
     keymap_search_placeholder: "Type to search shortcuts",
     keymap_hint: "left/right group \u{b7} enter edit shortcut \u{b7} * custom \u{b7} - unbound \u{b7} esc close",
     keymap_empty: "No shortcuts in this group",
@@ -322,6 +488,62 @@ impl Strings {
         Fmt::new(
             self.keymap_actions_many,
             [Arg::Int(count as u64)],
+            &self.num,
+        )
+    }
+
+    /// "1/2".
+    pub fn counts(&self, active: usize, installed: usize) -> Fmt<'_, 2> {
+        Fmt::new(
+            self.hooks_counts,
+            [Arg::Int(active as u64), Arg::Int(installed as u64)],
+            &self.num,
+        )
+    }
+
+    /// "3 hooks need review before they can run.".
+    pub fn review_many(&self, count: usize) -> Fmt<'_, 1> {
+        Fmt::new(self.hooks_review_many, [Arg::Int(count as u64)], &self.num)
+    }
+
+    /// "/tmp/hooks.json: failed to parse hooks config".
+    pub fn hooks_error<'a>(&'a self, path: &'a str, message: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.hooks_error,
+            [Arg::Text(path), Arg::Text(message)],
+            &self.num,
+        )
+    }
+
+    /// "PreToolUse hooks".
+    pub fn handlers_title<'a>(&'a self, event: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(self.hooks_handlers_title, [Arg::Text(event)], &self.num)
+    }
+
+    /// "30s".
+    pub fn timeout(&self, seconds: u64) -> Fmt<'_, 1> {
+        Fmt::new(self.hooks_timeout, [Arg::Int(seconds)], &self.num)
+    }
+
+    /// "limit: 400 approximate tokens".
+    pub fn context_limit(&self, limit: usize) -> Fmt<'_, 1> {
+        Fmt::new(
+            self.hooks_context_limit,
+            [Arg::Int(limit as u64)],
+            &self.num,
+        )
+    }
+
+    /// "Plugin - superpowers@openai-curated", "Environment - {id}".
+    pub fn source_of<'a>(&'a self, msg: Msg<1>, id: &'a str) -> Fmt<'a, 1> {
+        Fmt::new(msg, [Arg::Text(id)], &self.num)
+    }
+
+    /// "User config - /tmp/h.json".
+    pub fn source_path<'a>(&'a self, label: &'a str, path: &'a str) -> Fmt<'a, 2> {
+        Fmt::new(
+            self.hooks_source_path,
+            [Arg::Text(label), Arg::Text(path)],
             &self.num,
         )
     }

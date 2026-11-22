@@ -807,3 +807,223 @@ fn enter_picks_the_theme_under_the_cursor_and_asks_for_it_to_be_saved() {
     assert_eq!(edits, vec![Edit::ThemeSelected("base16".to_string())]);
     assert!(!h.t.screen().contains("Select Syntax Theme"));
 }
+
+// ---- the hooks browser (`hooks_browser_view.rs`): two pages over the model's
+// hooks; the cursors and the scroll are the view's controllers
+
+/// The browser opened from the debug menu on a driven harness: a key's intent
+/// travels to the shell and back, and the model's answer is on the screen
+/// before the test reads it.
+fn hooks(entry: &str, width: u16, height: u16) -> Harness {
+    let mut h = start_driven(true, width, height);
+    h.open_debug_row("settings", Some(entry));
+    h.advance(800);
+    h
+}
+
+#[test]
+fn hooks_keys_open_an_event_toggle_its_hooks_and_esc_goes_back_then_closes() {
+    let mut h = hooks("hooks_events", 112, 24);
+    let screen = h.t.screen();
+    assert!(
+        screen.contains("Lifecycle hooks from config and enabled plugins."),
+        "{screen}"
+    );
+    assert!(screen.contains("enter details · esc close"), "{screen}");
+    assert!(cursor_row(&h).starts_with("› PreToolUse"), "{screen}");
+    h.press("down");
+    assert!(
+        cursor_row(&h).starts_with("› PermissionRequest"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("up");
+    h.press("up");
+    assert!(
+        cursor_row(&h).starts_with("› PostModelRequest"),
+        "up wraps to the last: {}",
+        h.t.screen()
+    );
+    h.press("down");
+    assert!(
+        cursor_row(&h).starts_with("› PreToolUse"),
+        "{}",
+        h.t.screen()
+    );
+
+    h.press("enter");
+    let screen = h.t.screen();
+    assert!(screen.contains("PreToolUse hooks"), "{screen}");
+    assert!(screen.contains("space/enter toggle · esc back"), "{screen}");
+    assert!(cursor_row(&h).starts_with("› [x]"), "{screen}");
+    h.press("space");
+    assert!(cursor_row(&h).starts_with("› [ ]"), "{}", h.t.screen());
+    h.press("down");
+    h.press("enter");
+    assert!(cursor_row(&h).starts_with("› [x]"), "{}", h.t.screen());
+
+    // Esc: back on the events page, on the event it came from; Esc: closed.
+    h.press("esc");
+    assert!(
+        cursor_row(&h).starts_with("› PreToolUse"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(
+        h.t.screen().contains("enter details · esc close"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("esc");
+    assert!(
+        !h.t.screen().contains("Lifecycle hooks"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn hooks_ctrl_c_closes_from_either_page() {
+    let mut h = hooks("hooks_events", 112, 24);
+    h.press("ctrl+c");
+    assert!(
+        !h.t.screen().contains("Lifecycle hooks"),
+        "{}",
+        h.t.screen()
+    );
+    let mut h = hooks("hooks_events", 112, 24);
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("PreToolUse hooks"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("ctrl+c");
+    assert!(
+        !h.t.screen().contains("PreToolUse hooks"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(
+        !h.t.screen().contains("Lifecycle hooks"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn hooks_t_trusts_every_hook_to_review_from_the_events_and_one_from_its_page() {
+    let mut h = hooks("hooks_events_review_mixed", 112, 24);
+    assert!(
+        h.t.screen()
+            .contains("t trust all · enter review · esc close"),
+        "{}",
+        h.t.screen()
+    );
+    h.press("t");
+    assert!(
+        h.t.screen().contains("enter details · esc close"),
+        "nothing is left to review: {}",
+        h.t.screen()
+    );
+
+    let mut h = hooks("hooks_review_needed", 112, 24);
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("t trust · esc back"),
+        "{}",
+        h.t.screen()
+    );
+    // Space and Enter leave a hook waiting for a review as it is.
+    h.press("space");
+    h.press("enter");
+    h.press("t");
+    assert!(
+        h.t.screen().contains("space/enter toggle · esc back"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn hooks_the_cursor_walks_a_long_page_by_the_window_and_to_its_ends() {
+    let mut h = hooks("hooks_many", 112, 30);
+    h.press("enter");
+    assert!(
+        h.t.screen().contains("↓"),
+        "rows below the window: {}",
+        h.t.screen()
+    );
+    assert!(!h.t.screen().contains("↑"), "{}", h.t.screen());
+    h.press("end");
+    assert!(cursor_row(&h).contains("11"), "{}", h.t.screen());
+    assert!(
+        h.t.screen().contains("↑"),
+        "rows above the window: {}",
+        h.t.screen()
+    );
+    assert!(!h.t.screen().contains("↓"), "{}", h.t.screen());
+    h.press("home");
+    assert!(cursor_row(&h).contains(" 1 "), "{}", h.t.screen());
+    h.press("pagedown");
+    assert!(
+        cursor_row(&h).contains(" 9 "),
+        "a page is the window: {}",
+        h.t.screen()
+    );
+    h.press("pageup");
+    assert!(cursor_row(&h).contains(" 1 "), "{}", h.t.screen());
+}
+
+#[test]
+fn hooks_a_tap_moves_the_cursor_to_an_event_and_a_second_tap_opens_it() {
+    let mut h = hooks("hooks_events", 112, 24);
+    let (y, x) = find(&h, "PermissionRequest");
+    h.t.click(x, y);
+    h.advance(100);
+    assert!(
+        cursor_row(&h).starts_with("› PermissionRequest"),
+        "{}",
+        h.t.screen()
+    );
+    assert!(h.t.screen().contains("Lifecycle hooks"), "{}", h.t.screen());
+    h.t.click(x, y);
+    h.advance(100);
+    assert!(
+        h.t.screen().contains("PermissionRequest hooks"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn hooks_a_tap_moves_the_cursor_to_a_hook_and_a_second_tap_toggles_it_and_the_wheel_scrolls() {
+    let mut h = hooks("hooks_events", 112, 24);
+    h.press("enter");
+    let (y, x) = find(&h, "[ ]");
+    h.t.click(x + 6, y);
+    h.advance(100);
+    assert!(cursor_row(&h).starts_with("› [ ]"), "{}", h.t.screen());
+    h.t.click(x + 6, y);
+    h.advance(100);
+    assert!(cursor_row(&h).starts_with("› [x]"), "{}", h.t.screen());
+
+    let mut h = hooks("hooks_many", 112, 30);
+    h.press("enter");
+    let (y, x) = find(&h, "Check tool 3");
+    assert!(
+        h.t.screen().contains("↓") && !h.t.screen().contains("↑"),
+        "{}",
+        h.t.screen()
+    );
+    for _ in 0..4 {
+        h.t.mouse(MouseKind::WheelDown, x, y, 0, Mods::NONE);
+    }
+    h.advance(100);
+    assert!(
+        h.t.screen().contains("↑"),
+        "the wheel scrolled the window: {}",
+        h.t.screen()
+    );
+    assert!(!h.t.screen().contains("↓"), "{}", h.t.screen());
+}

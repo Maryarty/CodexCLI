@@ -19,6 +19,10 @@ pub const KIND: Kind = Kind::Sheet;
 
 use std::collections::BTreeMap;
 
+pub mod hooks;
+
+use hooks::{Hook, HookEvent, HookIssue, Hooks};
+
 /// The groups of the configuration panel (`config_panel/mod.rs`:
 /// `ConfigSection`), in the oracle's order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -532,6 +536,7 @@ pub enum Open {
     Keymap(KeymapPicker),
     Experimental(Experimental),
     Memories(Memories),
+    Hooks(Hooks),
 }
 
 /// What a settings dialog asked the app to do (the oracle's `AppEvent`s).
@@ -567,6 +572,14 @@ pub enum Edit {
     },
     /// Enter on "Reset all memories" in its confirmation (`ResetMemories`).
     MemoriesReset,
+    /// A hook was switched (`AppEvent::SetHookEnabled`): its key, its value.
+    HookEnabled { key: String, enabled: bool },
+    /// A hook was trusted (`AppEvent::TrustHook`): its key and the hash
+    /// vouched for.
+    HookTrusted { key: String, current_hash: String },
+    /// Every hook waiting for a review was trusted (`AppEvent::TrustHooks`):
+    /// the keys and hashes.
+    HooksTrusted(Vec<(String, String)>),
 }
 
 /// What the dialogs open from, read of the config and the disk by the host
@@ -719,7 +732,18 @@ pub enum Intent {
     ConfirmReset,
     /// Enter on "Reset all memories" in the confirmation.
     Reset,
-    /// Esc (the memories confirmation goes back to the switches).
+    /// Enter on an event of the hooks browser: its hooks open.
+    HookOpen(HookEvent),
+    /// Space or Enter on a hook: switches it.
+    HookToggle(String),
+    /// `t` on a hook: trusts it.
+    HookTrust(String),
+    /// `t` on the events page: trusts every hook waiting for a review.
+    HookTrustAll,
+    /// Ctrl+C in the hooks browser: it closes from either page (`on_ctrl_c`).
+    HookClose,
+    /// Esc (the memories confirmation goes back to the switches; the hooks
+    /// of an event, to the events).
     Close,
     /// A slash command opens a dialog, built from the facts.
     Open(Dialog),
@@ -950,6 +974,28 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         }
         // Esc, or "Go back": the confirmation goes back to the switches.
         (Open::Memories(dialog), Intent::Close) if dialog.confirming => dialog.confirming = false,
+        (Open::Hooks(browser), Intent::HookOpen(event)) if browser.page.is_none() => {
+            browser.page = Some(event);
+        }
+        (Open::Hooks(browser), Intent::HookToggle(key)) => {
+            if let Some(enabled) = browser.toggle(&key) {
+                model.edits.push(Edit::HookEnabled { key, enabled });
+            }
+        }
+        (Open::Hooks(browser), Intent::HookTrust(key)) => {
+            if let Some(current_hash) = browser.trust(&key) {
+                model.edits.push(Edit::HookTrusted { key, current_hash });
+            }
+        }
+        (Open::Hooks(browser), Intent::HookTrustAll) => {
+            let updates = browser.trust_all();
+            if !updates.is_empty() {
+                model.edits.push(Edit::HooksTrusted(updates));
+            }
+        }
+        (Open::Hooks(_), Intent::HookClose) => model.open = None,
+        // Esc: the hooks of an event go back to the events.
+        (Open::Hooks(browser), Intent::Close) if browser.page.is_some() => browser.page = None,
         (Open::Keymap(picker), Intent::KeymapPick(name)) => {
             if picker
                 .tabs
@@ -1098,6 +1144,13 @@ enum SeedEv {
         #[serde(default)]
         confirming: bool,
     },
+    Hooks {
+        hooks: Vec<Hook>,
+        #[serde(default)]
+        warnings: Vec<String>,
+        #[serde(default)]
+        errors: Vec<HookIssue>,
+    },
     /// The config's values the dialogs open from (`Ev::Facts`).
     Facts {
         #[serde(default)]
@@ -1189,6 +1242,11 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 ..Facts::default()
             }));
         }
+        SeedEv::Hooks {
+            hooks,
+            warnings,
+            errors,
+        } => Open::Hooks(Hooks::new(hooks, warnings, errors)),
         SeedEv::Memories {
             use_memories,
             generate_memories,

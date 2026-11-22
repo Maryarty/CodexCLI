@@ -19,6 +19,7 @@ use crate::app::debug::DebugOpen;
 use crate::app::debug::EntryOpen;
 
 pub mod features;
+pub mod hooks;
 pub mod memories;
 pub mod setup;
 pub mod strings;
@@ -109,6 +110,91 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             include_str!("fixtures/memories_reset_confirmation.jsonl"),
         ),
         (
+            "hooks_events",
+            "the hooks browser: three hooks, the events page",
+            include_str!("fixtures/hooks_events.jsonl"),
+        ),
+        (
+            "hooks_events_review_column",
+            "the hooks browser with one untrusted hook: the review column",
+            include_str!("fixtures/hooks_events_review_column.jsonl"),
+        ),
+        (
+            "hooks_events_issues",
+            "the hooks browser with no hooks, a skipped matcher and a parse error",
+            include_str!("fixtures/hooks_events_issues.jsonl"),
+        ),
+        (
+            "hooks_status_messages",
+            "the hooks browser: two status messages, one blank",
+            include_str!("fixtures/hooks_status_messages.jsonl"),
+        ),
+        (
+            "hooks_mcp_tool",
+            "the hooks browser: one plugin hook with an MCP tool handler",
+            include_str!("fixtures/hooks_mcp_tool.jsonl"),
+        ),
+        (
+            "hooks_context_limit",
+            "the hooks browser: one hook with an unlimited additional context",
+            include_str!("fixtures/hooks_context_limit.jsonl"),
+        ),
+        (
+            "hooks_untrusted_enabled",
+            "the hooks browser: one untrusted, enabled, async hook",
+            include_str!("fixtures/hooks_untrusted_enabled.jsonl"),
+        ),
+        (
+            "hooks_trusted_and_review",
+            "the hooks browser: a trusted hook and an untrusted one",
+            include_str!("fixtures/hooks_trusted_and_review.jsonl"),
+        ),
+        (
+            "hooks_two_managed",
+            "the hooks browser: two system hooks of PreToolUse",
+            include_str!("fixtures/hooks_two_managed.jsonl"),
+        ),
+        (
+            "hooks_many",
+            "the hooks browser: eleven hooks of PreToolUse, every second one named",
+            include_str!("fixtures/hooks_many.jsonl"),
+        ),
+        (
+            "hooks_long_command",
+            "the hooks browser: one hook with a command of twenty words and a title",
+            include_str!("fixtures/hooks_long_command.jsonl"),
+        ),
+        (
+            "hooks_empty",
+            "the hooks browser with no hooks at all",
+            include_str!("fixtures/hooks_empty.jsonl"),
+        ),
+        (
+            "hooks_review_needed",
+            "the hooks browser: one untrusted, disabled hook",
+            include_str!("fixtures/hooks_review_needed.jsonl"),
+        ),
+        (
+            "hooks_managed_handler",
+            "the hooks browser: one managed hook of PreToolUse",
+            include_str!("fixtures/hooks_managed_handler.jsonl"),
+        ),
+        (
+            "hooks_modified_handler",
+            "the hooks browser: one modified, disabled hook",
+            include_str!("fixtures/hooks_modified_handler.jsonl"),
+        ),
+        (
+            "hooks_events_review_mixed",
+            "the hooks browser: an untrusted, a modified and a trusted hook",
+            include_str!("fixtures/hooks_events_review_mixed.jsonl"),
+        ),
+        (
+            "hooks_wrapped_url",
+            "the hooks browser: a command holding a URL longer than the details column",
+            include_str!("fixtures/hooks_wrapped_url.jsonl"),
+        ),
+        (
             "theme_picker_all",
             "the syntax theme picker over the built-in themes and a custom one",
             include_str!("fixtures/theme_picker_all.jsonl"),
@@ -153,6 +239,7 @@ enum Shown {
     Theme,
     Features,
     Memories,
+    Hooks,
     Other,
 }
 
@@ -184,6 +271,7 @@ fn shown_of(cx: &mut Cx<'_, ScreenState>) -> Shown {
         Some(Open::Theme(_)) => Shown::Theme,
         Some(Open::Experimental(_)) => Shown::Features,
         Some(Open::Memories(_)) => Shown::Memories,
+        Some(Open::Hooks(_)) => Shown::Hooks,
         Some(_) => Shown::Other,
     })
 }
@@ -206,6 +294,7 @@ impl State for ScreenState {
             Shown::Theme => theme::ThemeSheet.into(),
             Shown::Features => features::FeaturesSheet.into(),
             Shown::Memories => memories::MemoriesSheet.into(),
+            Shown::Hooks => hooks::HooksSheet.into(),
             // No dialog seeded (the debug menu's row): the skeleton's
             // empty-slot line.
             Shown::Nothing | Shown::Other => {
