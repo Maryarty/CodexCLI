@@ -17,8 +17,8 @@ use codex_tui_core::screens::agents::{
 };
 use codex_tui_core::screens::resume::{
     Action, ArchiveState, Command as ResumeCommand, Control, CwdFilter, Density, Dir, Ev, Filter,
-    Intent as ResumeIntent, Launch, Load, PageMode, Preview, Problem, Reply as ResumeReply, Row,
-    Scope, Sort, Status, TranscriptState,
+    Intent as ResumeIntent, Launch, Load, PageMode, Pick, Preview, Problem, Reply as ResumeReply,
+    Row, Scope, Sort, Status, TranscriptState,
 };
 use codex_tui_core::screens::{ScreenCommand, ScreenEv, ScreenIntent, ScreenReply};
 use codex_tui_core::threads::ThreadAsk;
@@ -570,6 +570,119 @@ fn the_toolbar_changes_restart_the_listing_with_what_they_ask_for() {
         command,
         ResumeCommand::List { archived: true, .. }
     ));
+}
+
+/// A scope with a working directory and one linked checkout: the three
+/// filters are on offer.
+fn scoped_app() -> CodexApp {
+    let mut app = CodexApp::new();
+    event(
+        &mut app,
+        Ev::Scope(Scope {
+            cwd: Some("/work/app".into()),
+            repo_cwds: vec!["/work/app".into(), "/work/app-wt".into()],
+        }),
+    );
+    app
+}
+
+#[test]
+fn a_picked_value_is_set_and_restarts_the_listing() {
+    // A tap names the value (Flutter's `SegmentedButton.onSelectionChanged`),
+    // where an arrow steps to the neighbour: the listing restarts either way.
+    let mut app = scoped_app();
+    let (first, _) = only(&intent(&mut app, ResumeIntent::Open));
+    let generation = app.screens().resume.listing.generation;
+    let (second, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Pick(Pick::Sort(Sort::Created)),
+    ));
+    assert_eq!(app.screens().resume.sort, Sort::Created);
+    assert!(matches!(
+        command,
+        ResumeCommand::List {
+            sort: Sort::Created,
+            ..
+        }
+    ));
+    assert!(app.screens().resume.listing.generation > generation);
+    // The page of the listing it replaced is dropped.
+    answer(&mut app, first, page(&[("old", 5)], None));
+    assert!(app.screens().resume.rows.is_empty());
+    answer(&mut app, second, page(&[("new", 6)], None));
+    // (The rows kept, not the visible ones: the directory filter is on.)
+    assert_eq!(app.screens().resume.rows.len(), 1);
+    let (_, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Pick(Pick::Status(Status::Archived)),
+    ));
+    assert_eq!(app.screens().resume.status, Status::Archived);
+    assert!(matches!(
+        command,
+        ResumeCommand::List { archived: true, .. }
+    ));
+    let (_, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Pick(Pick::Filter(Filter::Repo)),
+    ));
+    assert_eq!(app.screens().resume.filter, Filter::Repo);
+    assert!(matches!(
+        command,
+        ResumeCommand::List {
+            cwd: Some(CwdFilter::Many(_)),
+            ..
+        }
+    ));
+    // A pick jumps over the values between (the arrows step through them).
+    let (_, command) = only(&intent(
+        &mut app,
+        ResumeIntent::Pick(Pick::Filter(Filter::All)),
+    ));
+    assert_eq!(app.screens().resume.filter, Filter::All);
+    assert!(matches!(command, ResumeCommand::List { cwd: None, .. }));
+}
+
+#[test]
+fn picking_the_value_in_force_does_nothing() {
+    let mut app = scoped_app();
+    let (ticket, _) = only(&intent(&mut app, ResumeIntent::Open));
+    let generation = app.screens().resume.listing.generation;
+    for pick in [
+        Pick::Filter(Filter::Cwd),
+        Pick::Status(Status::Active),
+        Pick::Sort(Sort::Updated),
+    ] {
+        let fx = intent(&mut app, ResumeIntent::Pick(pick));
+        assert!(asked(&fx).is_empty(), "{pick:?} asks nothing");
+    }
+    assert_eq!(app.screens().resume.listing.generation, generation);
+    // The listing already asked for still counts.
+    answer(&mut app, ticket, page(&[("a", 1)], None));
+    assert_eq!(app.screens().resume.rows.len(), 1);
+}
+
+#[test]
+fn a_filter_the_picker_does_not_offer_is_refused() {
+    // No repository checkouts: the repository filter is not offered; no
+    // working directory: neither is the directory filter.
+    let mut app = CodexApp::new();
+    event(
+        &mut app,
+        Ev::Scope(Scope {
+            cwd: Some("/work/app".into()),
+            repo_cwds: Vec::new(),
+        }),
+    );
+    intent(&mut app, ResumeIntent::Open);
+    let fx = intent(&mut app, ResumeIntent::Pick(Pick::Filter(Filter::Repo)));
+    assert!(asked(&fx).is_empty());
+    assert_eq!(app.screens().resume.filter, Filter::Cwd);
+    let mut app = CodexApp::new();
+    intent(&mut app, ResumeIntent::Open);
+    assert_eq!(app.screens().resume.filter, Filter::All);
+    let fx = intent(&mut app, ResumeIntent::Pick(Pick::Filter(Filter::Cwd)));
+    assert!(asked(&fx).is_empty());
+    assert_eq!(app.screens().resume.filter, Filter::All);
 }
 
 #[test]

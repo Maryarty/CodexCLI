@@ -360,3 +360,75 @@ fn a_tap_on_a_status_value_picks_it() {
         "{rows:?}"
     );
 }
+
+/// The style of the toolbar cell where `word` stands.
+fn toolbar_style(h: &Harness, word: &str) -> String {
+    let (x, y) = on_toolbar(h, word);
+    rtwk_test::style_of(&h.t.cell(usize::from(x), usize::from(y)))
+}
+
+#[test]
+fn a_tap_on_the_sort_value_picks_it_and_the_control_takes_the_focus() {
+    let mut h = open("toolbar_repo_cwd", 102, 24);
+    // The filter has the focus: its value in force wears the tab style, the
+    // sort value in force the plain one, the other one the dim one.
+    let focused = toolbar_style(&h, "Cwd");
+    let in_force = toolbar_style(&h, "Updated");
+    let other = toolbar_style(&h, "Created");
+    assert_ne!(focused, in_force);
+    assert_ne!(focused, other);
+    let (x, y) = on_toolbar(&h, "Created");
+    h.t.click(x, y);
+    h.settle();
+    // The tapped value is the one in force, and its control has the focus now.
+    assert_eq!(toolbar_style(&h, "Created"), focused);
+    assert_eq!(toolbar_style(&h, "Updated"), other);
+    assert_eq!(toolbar_style(&h, "Cwd"), in_force);
+    let rows = oracle_snap::screen(&h.t);
+    assert!(
+        rows.iter().any(|row| row.contains("Loading sessions")),
+        "the list restarts under the new sort: {rows:?}"
+    );
+    // A tap on the value in force changes nothing.
+    let (x, y) = on_toolbar(&h, "Created");
+    h.t.click(x, y);
+    h.settle();
+    assert_eq!(toolbar_style(&h, "Created"), focused);
+}
+
+#[test]
+fn a_tap_on_a_compact_value_moves_to_the_next_one() {
+    let mut h = open("toolbar_repo_cwd", 60, 24);
+    // The compact strip names the value in force of each control; the
+    // filter has the focus.
+    let focused = toolbar_style(&h, "Cwd");
+    let (x, y) = on_toolbar(&h, "Updated");
+    h.t.click(x, y);
+    h.settle();
+    let rows = oracle_snap::screen(&h.t);
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("Sort") && row.contains("Created")),
+        "{rows:?}"
+    );
+    assert_eq!(
+        toolbar_style(&h, "Created"),
+        focused,
+        "the sort has the focus"
+    );
+    // The filter's lone value taps to its next value: the repository's checkouts.
+    let (x, y) = on_toolbar(&h, "Cwd");
+    h.t.click(x, y);
+    h.settle();
+    let rows = oracle_snap::screen(&h.t);
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("Filter") && row.contains("Repo")),
+        "{rows:?}"
+    );
+    assert_eq!(
+        toolbar_style(&h, "Repo"),
+        focused,
+        "the filter has the focus"
+    );
+}
