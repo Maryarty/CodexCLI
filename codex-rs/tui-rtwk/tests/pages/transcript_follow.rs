@@ -265,6 +265,7 @@ fn the_page_keys_are_the_transcripts_with_a_multiline_draft() {
     // the caret stays where it was: the keys were not the field's
     s.assert_contains("› second");
     s.keys("pagedown");
+    s.keys("pagedown");
     s.assert_absent("Back to bottom");
 }
 

@@ -14,7 +14,11 @@
 
 pub mod entries;
 pub mod hints;
+mod status_rows;
+pub use status_rows::StatusRows;
 mod strings;
+
+use std::rc::Rc;
 
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row, SizedBox};
 use rtwk::provider::{select, watch};
@@ -101,34 +105,51 @@ enum Meter {
 
 impl StatelessWidget for Footer {
     fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        if let Some(line) = self.transient(cx) {
+            return line;
+        }
+        let spec = self.spec(cx);
+        LayoutBuilder::new(move |cx, constraints| {
+            let seg = segmenter_of(cx);
+            spec.row(
+                &|text: &str| seg.width(text),
+                usize::try_from(constraints.max_width).unwrap_or(0),
+            )
+        })
+        .into()
+    }
+}
+
+impl Footer {
+    /// The transient line (`Quit`, `EscIdle`, `EscPrimed`, `Close`), if the
+    /// footer is one.
+    fn transient(&self, cx: &mut Cx<'_>) -> Option<AnyWidget> {
         let tokens = Tokens::of(cx);
         let own = strings::of(cx);
         match self.line {
-            Line::Passive => {}
-            Line::Quit => {
-                return transient(vec![
-                    Span::styled(own.key_ctrl_c, tokens.bold()),
-                    Span::styled(own.quit_again, tokens.dim()),
-                ]);
-            }
-            Line::EscIdle => {
-                return transient(vec![
-                    Span::styled(own.esc_key, tokens.bold()),
-                    Span::styled(own.esc_between, tokens.dim()),
-                    Span::styled(own.esc_key, tokens.bold()),
-                    Span::styled(own.esc_idle_rest, tokens.dim()),
-                ]);
-            }
-            Line::EscPrimed => {
-                return transient(vec![
-                    Span::styled(own.esc_key, tokens.bold()),
-                    Span::styled(own.esc_primed_rest, tokens.dim()),
-                ]);
-            }
-            Line::Close(text) => {
-                return transient(vec![Span::styled(text, tokens.dim())]);
-            }
+            Line::Passive => None,
+            Line::Quit => Some(transient(vec![
+                Span::styled(own.key_ctrl_c, tokens.bold()),
+                Span::styled(own.quit_again, tokens.dim()),
+            ])),
+            Line::EscIdle => Some(transient(vec![
+                Span::styled(own.esc_key, tokens.bold()),
+                Span::styled(own.esc_between, tokens.dim()),
+                Span::styled(own.esc_key, tokens.bold()),
+                Span::styled(own.esc_idle_rest, tokens.dim()),
+            ])),
+            Line::EscPrimed => Some(transient(vec![
+                Span::styled(own.esc_key, tokens.bold()),
+                Span::styled(own.esc_primed_rest, tokens.dim()),
+            ])),
+            Line::Close(text) => Some(transient(vec![Span::styled(text, tokens.dim())])),
         }
+    }
+
+    /// What the passive hints are made of, read from the providers.
+    fn spec(&self, cx: &mut Cx<'_>) -> Rc<Spec> {
+        let tokens = Tokens::of(cx);
+        let own = strings::of(cx);
         let pages = l10n::of(cx).pages;
         let shell_label = composer_strings::of(cx).shell_mode;
         let (running, received, percent, used) =
@@ -154,7 +175,7 @@ impl StatelessWidget for Footer {
             (None, true) if used > 0 => Meter::Used(used),
             _ => Meter::Unknown,
         };
-        let spec = Spec {
+        Rc::new(Spec {
             running,
             agents: self.agents,
             draft_empty: self.draft_empty,
@@ -170,15 +191,7 @@ impl StatelessWidget for Footer {
             shortcuts: (pages.key_shortcuts, pages.hint_shortcuts),
             shell_label,
             warning_style: Tokens::of(cx).warning(),
-        };
-        LayoutBuilder::new(move |cx, constraints| {
-            let seg = segmenter_of(cx);
-            spec.row(
-                &|text: &str| seg.width(text),
-                usize::try_from(constraints.max_width).unwrap_or(0),
-            )
         })
-        .into()
     }
 }
 
@@ -188,6 +201,24 @@ fn transient(spans: Vec<Span>) -> AnyWidget {
         .child(SizedBox::new(Some(INDENT), None, None))
         .child(Text::rich_line(spans))
         .into()
+}
+
+/// The cells the hints share: the width less the indent and the clear cell.
+fn room_of(total: usize) -> usize {
+    total
+        .saturating_sub(INDENT as usize)
+        .saturating_sub(RIGHT_CLEAR as usize)
+}
+
+/// The widths of each hint's spellings, for `hints::fit`.
+fn labels_of(hints: &[(Kind, Vec<Form>)]) -> Vec<Label> {
+    hints
+        .iter()
+        .map(|(kind, forms)| Label {
+            kind: *kind,
+            widths: forms.iter().map(|form| form.cells).collect(),
+        })
+        .collect()
 }
 
 /// What the passive hints are made of, with the styles and strings.
@@ -334,19 +365,18 @@ impl Spec {
             .collect()
     }
 
+    /// The rows the hints want at `total` cells (`desired_rows`).
+    fn wanted_rows(&self, width: &dyn Fn(&str) -> usize, total: usize) -> usize {
+        let hints = self.forms(width);
+        let labels = labels_of(&hints);
+        usize::from(hints::desired_rows(&labels, room_of(total)))
+    }
+
     /// The footer at `total` cells: the spellings that fit, in one row or two.
     fn row(&self, width: &dyn Fn(&str) -> usize, total: usize) -> AnyWidget {
         let mut hints = self.forms(width);
-        let room = total
-            .saturating_sub(INDENT as usize)
-            .saturating_sub(RIGHT_CLEAR as usize);
-        let labels: Vec<Label> = hints
-            .iter()
-            .map(|(kind, forms)| Label {
-                kind: *kind,
-                widths: forms.iter().map(|form| form.cells).collect(),
-            })
-            .collect();
+        let room = room_of(total);
+        let labels = labels_of(&hints);
         let rows = usize::from(hints::desired_rows(&labels, room)).max(1);
         let layout = hints::fit(&labels, room, rows > 1);
         let separator = || -> AnyWidget { Text::line(SEPARATOR).style(self.tokens.dim()).into() };
@@ -378,7 +408,10 @@ impl Spec {
                         .into(),
                 );
             }
-            // the indent cell holds the row's one cell of height: a row of no labels stays a row
+            // a row of no labels is no row (`desired_rows` is 0 when no label fits)
+            if left.is_empty() && right.is_empty() {
+                continue;
+            }
             let mut line = Row::new().child(SizedBox::new(Some(INDENT), Some(1), None));
             for widget in left {
                 line = line.child(widget);

@@ -1,8 +1,9 @@
-# chunk-status — parity (in progress: step 1 of 8 landed on the branch)
+# chunk-status — parity (in progress: steps 1 and 2 of 8 landed on the branch)
 Chunk of docs/rtwk-port/research/briefs/chat-status.md §6 (8 steps). Branch `worktree-agent-ae21c7b1bd5dacf8e`.
 Shard counts (summary.py, oracle profile; pass / n-a / pending / todo):
 before: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 0/11/63 — total 0 / 19 / 259 of 278.
 after step 1: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 0/0/55 · pane_footer_2 1/11/62 — total 1 / 19 / 258 of 278, 0 red, 0 stale.
+after step 2: chat_status_1 0/6/52 · _2 0/1/58 · _3 0/1/31 · pane_footer_1 1/0/54 · pane_footer_2 1/11/62 — total 2 / 19 / 257 of 278, 0 red, 0 stale (whole nextest 1917 passed).
 Step 1 turns almost no shard test on by design: `footer_snapshots` (24 entries, one test) needs all 24 entries, and 17 of them need facts the model
 does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, the `?` overlay). 7 entries are done and compared one by one in
 `tests/pages/chat_status.rs` (`the_footer_entries_equal_the_oracle_snapshots`, bitten once: `esc_idle_rest` shortened → the esc-idle entry red).
@@ -20,6 +21,18 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
   queues (`(queued) later`); click on the warning notice opens the warnings; a draft takes the hints away and the row stays.
 - `ctrl_c_cancels_history_search_without_clearing_draft_or_showing_quit_hint` (pane_footer_2) un-pended: passes as is.
 
+## Step 2 — status rows (done as far as the model allows)
+- `footer/status_rows.rs` (mine): `StatusRows { spans, composer, hints }`. Flutter: `Text(maxLines: n)` with `n` from a `LayoutBuilder` over the frame the page gives its
+  bottom pane (rtwk gives an inflexible child of a bounded `Column` the whole height: no `MediaQuery` needed). `rows_for(frame, input, hints)` is `FooterLayout`
+  (`composer_height_limit` = two thirds of the frame, at least 8; cap = a quarter of that, 2 to 4 rows; the draft keeps its rows, the hints keep theirs); the draft's rows
+  come from the composer's own `TextEditingController` (`ListenableBuilder`, measured by `measure::rows`), the hints' rows from the footer's own fit (`Footer::spec`). Nothing
+  is cut here: `Text` wraps and puts the ellipsis on the last row. 3 unit tests, 2 page tests (the line yields rows to a growing draft, bitten once: draft not measured → red;
+  the line stays under the composer while the popup is open), oracle `status_rows_respect_host_budget_and_yield_to_the_draft` turned on (row by row against the snapshot).
+- `widgets/status_line.rs`: `status_spans` (the spans) beside `status_line` (the title setup's preview, 3 rows).
+- The footer row collapses when no label fits (`footer_hint_height` is 0 then; step 1 kept an empty row): a draft with the status line on and nothing to hint leaves no blank row.
+- pane_footer_1 pending reasons rewritten one by one (they all said "not built"): extension status (ui_tree; person decision), provider status, link (PR fact), agent label,
+  Plan/side (collaboration fact), goal, queue/flash (step 5), popup rows (popups chunk's), effort (step 6).
+
 ## Deltas
 - The oracle has `DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED = false`: Ctrl+C / Ctrl+D never show `ctrl c again to quit`, the double press does not exist. The brief's quit-reminder
   page tests are therefore not written; `Line::Quit` and `Line::EscIdle` exist for the snapshot entries only (`footer_ctrl_c_quit_idle`, `footer_esc_hint_idle`).
@@ -35,6 +48,15 @@ does not have yet (see Needs) or steps 2 and 4 (status line in the footer row, t
   wrap stays only for the read-only thread (the Footer carries its own notice). A lander that has chunk-live's newer `session_page.rs` re-applies exactly these hunks.
 - `tests/pages.rs` (registration, one line: `mod chat_status;`) and `tests/pages/transcript_follow.rs` (chunk-transcript-2's; two assertions `edit the previous
   message` → `edit previous message`, the oracle's `esc again to edit previous message`).
+- `tests/pages/transcript_follow.rs` (second edit, step 2): `the_page_keys_are_the_transcripts_with_a_multiline_draft` presses `pagedown` twice: with the status line on and
+  nothing to hint the footer row is gone (oracle `footer_hint_height` 0), so the viewport is one row taller at the bottom than while the follow control's footer shows, and the
+  page-down from the away state ends one row short (the page is the viewport at the time of the key).
+- `src/pages/session/session_page.rs` (second edit, step 2): the status `Row` block is `StatusRows { spans, composer: w.ui.composer.clone(), hints }` (+ `let mut hints` set by
+  the non-search arm, `status_spans` instead of `status_line`).
+- `src/pages/session/composer/footer.rs` and its `mod footer;` in `composer/mod.rs` (transcript/composer's): dead since step 1 (nothing names `FooterLine`, `footer`, `with_shell_mode`);
+  the lander deletes both.
+- Kit (tests/oracle_snap/mod.rs, the kit owner's): the oracle's `frame()` snapshots (rows between `|`) are not read; `status_rows_respect_host_budget...` compares row by row until
+  they are. A palette seed for the terminal's default colours (`light_status_line_corrects_pale_custom_theme_colors`) and a colour-depth option.
 - `tests/pages/status_data.rs` (old unowned test): one assertion changed (see Deltas).
 - `tests/oracle/pane_footer_2.rs` (un-pend of the Ctrl+C history-search test): in my area (widened on the record).
 

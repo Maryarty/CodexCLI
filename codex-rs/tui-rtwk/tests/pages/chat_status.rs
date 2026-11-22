@@ -89,12 +89,67 @@ fn a_click_on_the_warning_notice_opens_the_warnings() {
 }
 
 /// With a draft in the composer the footer carries no shortcut hints (the
-/// oracle's `ComposerHasDraft`), and keeps its row.
+/// oracle's `ComposerHasDraft`), and a footer with no label is no row
+/// (`footer_hint_height` is 0 when no label fits): the composer sits one row
+/// lower.
 #[test]
-fn a_draft_takes_the_shortcut_hints_away_and_the_row_stays() {
-    let mut s = page(IDLE, 80, 12);
+fn a_draft_takes_the_shortcut_hints_and_their_row_away() {
+    // the status line is on: the context meter is in it, not in the hints
+    let mut s = page(status_script("model"), 80, 12);
     s.assert_contains("? for shortcuts");
+    let prompt = |s: &Screen| s.rows().iter().position(|r| r.starts_with("› "));
+    let before = prompt(&s).expect("composer row");
     s.type_text("hi");
     s.assert_absent("? for shortcuts");
     s.assert_absent("for agents");
+    assert_eq!(prompt(&s), Some(before + 1), "{}", s.text());
+}
+
+fn status_script(model: &str) -> &'static str {
+    let script = format!(
+        "{{\"step\":\"screen\",\"dir\":\"chat\",\"ev\":{{\"status\":{{\"model\":\"{model}\",\"items\":[\"model-name\"]}}}}}}\n"
+    );
+    Box::leak(script.into_boxed_str())
+}
+
+/// The status line yields to the draft as the draft grows (`status_budget`:
+/// the composer first), and takes its rows back as it shrinks.
+#[test]
+fn the_status_line_yields_rows_to_a_growing_draft() {
+    let mut s = page(status_script("one two three four five"), 7, 10);
+    s.paste("a");
+    s.assert_in_order(&["one", "two…"]);
+    s.paste("\nb\nc\nd\ne");
+    s.assert_contains("one…");
+    s.assert_absent("two");
+    // a key line of the draft taken back: the line has its second row again
+    for _ in 0..3 {
+        s.keys("backspace");
+        s.keys("backspace");
+    }
+    s.assert_in_order(&["one", "two…"]);
+}
+
+/// The status line stays under the composer, at its two cells, while the
+/// command popup is open above it (`slash_popup_preserves_footer_and_selection_style`:
+/// the popup's bottom is the composer's top, the composer's bottom the status).
+#[test]
+fn the_status_line_stays_under_the_composer_while_the_popup_is_open() {
+    let script: &'static str = Box::leak(
+        r#"{"step":"screen","dir":"chat","ev":{"status":{"model":"model","effort":"high","project_root":"fast","items":["model-name","reasoning","project-root"],"colors":false}}}"#
+            .to_owned()
+            .into_boxed_str(),
+    );
+    let mut s = page(script, 80, 12);
+    s.type_text("/m");
+    s.keys("down");
+    let row = |s: &Screen, text: &str| s.rows().iter().position(|r| r.contains(text));
+    let composer = row(&s, "› /m").expect("composer row");
+    let status = row(&s, "model · high · fast").expect("status row");
+    assert_eq!(status, composer + 2, "{}", s.text());
+    s.assert_row(status, "  model · high · fast");
+    s.resize(32, 12);
+    let composer = row(&s, "› /m").expect("composer row");
+    let status = row(&s, "model · high · fast").expect("status row");
+    assert_eq!(status, composer + 2, "{}", s.text());
 }

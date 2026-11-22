@@ -28,13 +28,13 @@ use crate::app::theme;
 use crate::app::view::Hs;
 use crate::l10n::strings as l10n;
 use crate::pages::session::composer::{Composer, clear_sent, submission};
-use crate::pages::session::footer::{Footer, Line};
+use crate::pages::session::footer::{Footer, Line, StatusRows};
 use crate::pages::session::keys::{self, Action};
 use crate::pages::session::open::open;
 use crate::pages::session::strings as chat_strings;
 use crate::sheets::dialogs::shortcut_panel;
 use crate::widgets::composer_draft::ComposerDraft;
-use crate::widgets::status_line::{Notice, status_line, with_warning_notice};
+use crate::widgets::status_line::{Notice, status_spans, with_warning_notice};
 use crate::widgets::thread_ui::ThreadUi;
 
 use super::actions::*;
@@ -567,7 +567,7 @@ impl State for ChatState {
         let compacting = run.compacting();
         let (panel, close) = shortcut_panel(cx);
         let chat_strings = chat_strings::of(cx);
-
+        let mut hints: Option<Footer> = None;
         let (composer, footer): (AnyWidget, AnyWidget) = if thread.read_only() {
             (
                 super::external_writer::notice(cx, chat_strings, &tokens),
@@ -591,15 +591,16 @@ impl State for ChatState {
                 } else {
                     Line::Passive
                 };
-                let footer: AnyWidget = Footer {
+                let props = Footer {
                     line,
                     agents: true,
                     draft_empty: self.draft_empty,
                     shell: self.draft_shell,
                     on_queue: Some(cx.send(ChatMsg::QueueDraft)),
                     on_warnings: Some(cx.send(ChatMsg::Action(Action::OpenWarnings))),
-                }
-                .into();
+                };
+                hints = Some(props.clone());
+                let footer: AnyWidget = props.into();
                 if line == Line::Passive {
                     transcript::follow::footer(
                         cx,
@@ -662,7 +663,7 @@ impl State for ChatState {
             run_state: Some(run.word(&session, reconnecting)),
             strings,
         };
-        let line = status_line(context.items_for(facts), facts.colors, &tokens);
+        let line = status_spans(context.items_for(facts), facts.colors, &tokens);
         // The backend control above the composer (`rendering.rs`,
         // `visible_new_backend_control`): the displayed backend, and the key.
         let control = session
@@ -709,12 +710,12 @@ impl State for ChatState {
                 .with_key(Key::value("composer")),
             )
         };
-        if let Some(line) = line.filter(|_| !thread.read_only()) {
-            body = body.child(
-                Row::new()
-                    .child(SizedBox::new(Some(2), None, None))
-                    .child(Expanded::new(1, line)),
-            );
+        if !line.is_empty() && !thread.read_only() {
+            body = body.child(StatusRows {
+                spans: line,
+                composer: w.ui.composer.clone(),
+                hints,
+            });
         }
         let body = body.child(footer);
         // the terminal title keeps being told while the selector takes the bottom pane
