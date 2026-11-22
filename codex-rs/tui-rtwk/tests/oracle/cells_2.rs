@@ -12,34 +12,37 @@ use crate::kit::{self, Owner, Screen};
 fn typed_prompt_markdown_keeps_the_prompt_gutter_and_links() {
     kit::pending(
         Owner::ChatLive,
-        "the transcript draws a user prompt as plain text rows (src/screens/chat/home.rs:328): no prompt gutter, markdown bold and italic, hyperlinks, or wrap at the prompt width",
+        "G73 code padded one cell (the fence row reads `   echo '*literal*'`, the oracle's `  echo '*literal*'`; at width 20 it wraps its last quote); G49 no break after a slash (the link destination at width 20 wraps `(https://example.` / `test/docs)`, the oracle's `(https://` / `example.test/` / `docs)`); the gutter, the bold, italic and link styles and width 64 equal",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(64, 6)
+        .size(64, 20)
         .script(include_str!(
             "fixtures/cells_2/typed_prompt_markdown_keeps_the_prompt_gutter_and_links.jsonl"
         ))
         .open();
-    s.assert_row(0, "› testing hello example documentation");
-    s.assert_row(1, "  (https://example.test/docs)");
-    s.assert_row(2, "");
-    s.assert_row(3, "  • Try the command");
-    s.assert_row(4, "");
-    s.assert_row(5, "  echo '*literal*'");
+    // The oracle's snapshot is the cell alone: the screen holds it among the chat's rows.
+    let y = row_of(&s, "› testing");
+    s.assert_row(y, "› testing hello example documentation");
+    s.assert_row(y + 1, "  (https://example.test/docs)");
+    s.assert_row(y + 2, "");
+    s.assert_row(y + 3, "  • Try the command");
+    s.assert_row(y + 4, "");
+    s.assert_row(y + 5, "  echo '*literal*'");
     s.assert_text_style("testing", "bold");
     s.assert_text_style("hello", "italic");
     s.assert_link("example documentation", "https://example.test/docs");
-    s.resize(20, 10);
-    s.assert_row(0, "› testing hello");
-    s.assert_row(1, "  example");
-    s.assert_row(2, "  documentation");
-    s.assert_row(3, "  (https://");
-    s.assert_row(4, "  example.test/");
-    s.assert_row(5, "  docs)");
-    s.assert_row(6, "");
-    s.assert_row(7, "  • Try the command");
-    s.assert_row(8, "");
-    s.assert_row(9, "  echo '*literal*'");
+    s.resize(20, 24);
+    let y = row_of(&s, "› testing");
+    s.assert_row(y, "› testing hello");
+    s.assert_row(y + 1, "  example");
+    s.assert_row(y + 2, "  documentation");
+    s.assert_row(y + 3, "  (https://");
+    s.assert_row(y + 4, "  example.test/");
+    s.assert_row(y + 5, "  docs)");
+    s.assert_row(y + 6, "");
+    s.assert_row(y + 7, "  • Try the command");
+    s.assert_row(y + 8, "");
+    s.assert_row(y + 9, "  echo '*literal*'");
 }
 
 // ORACLE history_cell/messages_tests.rs:51 user_prompt_urls_keep_destinations_across_widths kind=snap owner=chat-live snap=user_prompt_urls_keep_destinations_across_widths
@@ -47,50 +50,53 @@ fn typed_prompt_markdown_keeps_the_prompt_gutter_and_links() {
 fn user_prompt_urls_keep_destinations_across_widths() {
     kit::pending(
         Owner::ChatLive,
-        "the transcript draws a user prompt as plain text rows (src/screens/chat/home.rs:328): no URL hyperlinks and no wrap at the prompt width; the oracle's per-width link text at width 24 needs wrapped links",
+        "G48 TextWrap::Word breaks after a hyphen inside the URL: at 120 columns `.../solid-` ends the prose row and `octants` follows, the oracle keeps the token whole on a row of its own and cuts it only at the width (`terminal-link-wrappin` / `g/solid-octants` at 24); G49 no break before a slash (`(https://example.test` / `/a).`); the link destinations, the gutter and the image label equal",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(120, 4)
+        .size(120, 20)
         .script(include_str!(
             "fixtures/cells_2/user_prompt_urls_keep_destinations_across_widths.jsonl"
         ))
         .open();
+    let y = row_of(&s, "› from this site");
     s.assert_row(
-        0,
+        y,
         "› from this site, write out the ascii for solid octants 18 columns",
     );
     s.assert_row(
-        1,
+        y + 1,
         "  https://example.test/terminal-link-wrapping/solid-octants",
     );
-    s.assert_row(2, "  [Image #1] See (https://example.test/a).");
+    s.assert_row(y + 2, "  [Image #1] See (https://example.test/a).");
     s.assert_link(
         "https://example.test/terminal-link-wrapping/solid-octants",
         "https://example.test/terminal-link-wrapping/solid-octants",
     );
     s.assert_link("https://example.test/a", "https://example.test/a");
-    s.resize(60, 4);
+    s.resize(60, 20);
+    let y = row_of(&s, "› from this site");
     s.assert_row(
-        0,
+        y,
         "› from this site, write out the ascii for solid octants 18",
     );
-    s.assert_row(1, "  columns");
+    s.assert_row(y + 1, "  columns");
     s.assert_row(
-        2,
+        y + 2,
         "  https://example.test/terminal-link-wrapping/solid-octants",
     );
-    s.assert_row(3, "  [Image #1] See (https://example.test/a).");
-    s.resize(24, 10);
-    s.assert_row(0, "› from this site, write");
-    s.assert_row(1, "  out the ascii for");
-    s.assert_row(2, "  solid octants 18");
-    s.assert_row(3, "  columns");
-    s.assert_row(4, "  https://example.test/");
-    s.assert_row(5, "  terminal-link-wrappin");
-    s.assert_row(6, "  g/solid-octants");
-    s.assert_row(7, "  [Image #1] See");
-    s.assert_row(8, "  (https://example.test");
-    s.assert_row(9, "  /a).");
+    s.assert_row(y + 3, "  [Image #1] See (https://example.test/a).");
+    s.resize(24, 24);
+    let y = row_of(&s, "› from this site");
+    s.assert_row(y, "› from this site, write");
+    s.assert_row(y + 1, "  out the ascii for");
+    s.assert_row(y + 2, "  solid octants 18");
+    s.assert_row(y + 3, "  columns");
+    s.assert_row(y + 4, "  https://example.test/");
+    s.assert_row(y + 5, "  terminal-link-wrappin");
+    s.assert_row(y + 6, "  g/solid-octants");
+    s.assert_row(y + 7, "  [Image #1] See");
+    s.assert_row(y + 8, "  (https://example.test");
+    s.assert_row(y + 9, "  /a).");
 }
 
 // ORACLE history_cell/messages_tests.rs:107 local_image_only_user_message_remains_visible kind=snap owner=chat-live snap=local_image_only_user_message_remains_visible
@@ -172,12 +178,12 @@ fn spoken_user_messages_have_a_red_chevron_without_changing_raw_text() {
 // ORACLE history_cell/messages_tests.rs:261 finalized_markdown_reuses_rendered_transcript_lines kind=ui owner=chat-live
 #[test]
 fn finalized_markdown_reuses_rendered_transcript_lines() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "a finalized agent message is drawn as plain text (src/screens/chat/home.rs:333), not the rich markdown cell with its transcript lines; the oracle's render-cache seed (replace_cached_lines) is internal and not reachable through the kit",
+        "asserts the cell's render cache (its transcript lines equal the cached display lines): internal state, nothing is drawn differently; the drawn half is checked below",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+        .size(48, 10)
         .script(include_str!(
             "fixtures/cells_2/finalized_markdown_reuses_rendered_transcript_lines.jsonl"
         ))
@@ -187,7 +193,8 @@ fn finalized_markdown_reuses_rendered_transcript_lines() {
     // file-citation snapshot).
     s.assert_has_row("• finalized markdown");
     let before = s.shot();
-    s.resize(48, 4);
+    s.resize(40, 10);
+    s.resize(48, 10);
     s.assert_same_rows(&before);
 }
 
@@ -207,12 +214,12 @@ fn finalized_assistant_file_citation_renders_as_local_path_snapshot() {
 // ORACLE history_cell/messages_tests.rs:294 finalized_markdown_cache_misses_when_width_or_render_style_changes kind=ui owner=chat-live
 #[test]
 fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "a finalized agent message is drawn as plain text (src/screens/chat/home.rs:333), not the rich markdown cell; the oracle's cache-key edits (width, syntax theme, terminal fg) are internal and not reachable through the kit",
+        "asserts the cell's render-cache key (a cache built for another width, syntax theme or terminal foreground misses): internal state, nothing is drawn differently; the drawn half is checked below",
     );
     let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+        .size(48, 10)
         .script(include_str!(
             "fixtures/cells_2/finalized_markdown_cache_misses_when_width_or_render_style_changes.jsonl"
         ))
@@ -220,7 +227,8 @@ fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
     s.assert_has_row("• finalized markdown");
     // The visible half: after a re-render at the same width the rows are the same.
     let before = s.shot();
-    s.resize(48, 4);
+    s.resize(40, 10);
+    s.resize(48, 10);
     s.assert_same_rows(&before);
 }
 
@@ -229,10 +237,10 @@ fn finalized_markdown_cache_misses_when_width_or_render_style_changes() {
 fn raw_markdown_bypasses_the_rich_render_cache() {
     kit::pending(
         Owner::ChatLive,
-        "the rich markdown row is not drawn (src/screens/chat/home.rs:333); the raw view `finalized **markdown**` (toggle_raw_output, keymap/bindings.rs:343) is not built in the S11 transcript",
+        "the raw view of the cell (`finalized **markdown**`, toggle_raw_output, keymap/bindings.rs:343) is step 11 of the cells brief (alt+r, `CellMode.raw`); the rich half below is drawn",
     );
     let s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
+        .size(48, 10)
         .script(include_str!(
             "fixtures/cells_2/raw_markdown_bypasses_the_rich_render_cache.jsonl"
         ))

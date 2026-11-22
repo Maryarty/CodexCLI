@@ -2279,3 +2279,73 @@ mod series_token {
         assert_eq!(tokens.series(9), Style::new());
     }
 }
+
+/// The assistant's and the user's message cells at the widths the oracle's
+/// `wrapped_and_prefixed_cells_handle_tiny_widths` draws them at: the mark is
+/// cut when the cell is narrower than it, never an overflow (the cells alone;
+/// the chat's composer and status rows are not in the way here). Width 3 is
+/// left out: the oracle's wrap width never goes below one column (`› t`), the
+/// port's body loses its column to the free column on its right (`›`).
+mod message_cells_at_tiny_widths {
+    use codex_tui_core::threads::UserPrompt;
+    use codex_tui_rtwk::pages::session::cells::strings::EN as CELLS;
+    use codex_tui_rtwk::pages::session::cells::{agent, user};
+    use codex_tui_rtwk::pages::session::strings::EN as CHAT;
+    use rtwk::style::Style;
+    use rtwk_rich::markdown::MarkdownTheme;
+
+    fn rows(t: &rtwk_test::Tester) -> Vec<String> {
+        t.screen()
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn an_agent_message_narrower_than_its_bullet_shows_the_bullet_cut() {
+        let theme = MarkdownTheme::default();
+        for (width, first) in [(1, "•"), (2, "•"), (4, "• t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 6));
+            t.pump_widget(agent::message(
+                "tiny width agent line",
+                false,
+                None,
+                &agent::Look {
+                    bullet: "• ",
+                    bullet_style: Style::new(),
+                    markdown: &theme,
+                    cells: &CELLS,
+                },
+            ));
+            assert_eq!(rows(&t)[0], first, "width {width}");
+        }
+    }
+
+    #[test]
+    fn a_user_prompt_narrower_than_its_mark_shows_the_mark_cut() {
+        let tokens = codex_tui_rtwk::app::theme::Tokens::new(std::rc::Rc::new(
+            rtwk::prelude::ThemeData::DARK,
+        ));
+        let theme = MarkdownTheme::default();
+        let prompt = UserPrompt {
+            text: "tiny width user line".into(),
+            ..UserPrompt::default()
+        };
+        for (width, first) in [(1, "›"), (2, "›"), (4, "› t")] {
+            let mut t = rtwk_test::Tester::with(rtwk_test::Options::new().size(width, 8));
+            t.pump_widget(user::panel(
+                &prompt,
+                &user::Look {
+                    surface: Style::new(),
+                    tokens: &tokens,
+                    chat: &CHAT,
+                    cells: &CELLS,
+                    markdown: &theme,
+                },
+                false,
+            ));
+            // the cell's blank row of the surface above the mark
+            assert_eq!(rows(&t)[1], first, "width {width}");
+        }
+    }
+}

@@ -140,6 +140,8 @@ pub struct Strings {
     pub time_twelve_hour: &'static str,
     pub time_twenty_four_hour: &'static str,
     pub separator_join: &'static str,
+    /// The label of an attached image above a user's message (`local_image_label_text`).
+    pub image_label: &'static str,
     // history_cell/separators.rs runtime_metrics_label
     pub metric_local_tools: &'static str,
     pub metric_inference: &'static str,
@@ -319,6 +321,7 @@ pub const EN: Strings = Strings {
     time_twelve_hour: "%-I:%M %p",
     time_twenty_four_hour: "%H:%M",
     separator_join: " • ",
+    image_label: "[Image #{}]",
     metric_local_tools: "Local tools: {0} {1} ({2})",
     metric_inference: "Inference: {0} {1} ({2})",
     metric_websocket_sent: "WebSocket: {0} events send ({1})",

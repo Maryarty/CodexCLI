@@ -1376,3 +1376,67 @@ mod separator_facts {
         assert_eq!(later.runtime_metrics[&turn()].api_calls.count, 1);
     }
 }
+
+/// What the transcript shows of a user's message (`sanitize_user_text`,
+/// history_cell/messages.rs): CSI sequences and control characters removed,
+/// tabs and newlines kept, the inline elements dropped when a removal moved
+/// their byte ranges.
+mod user_prompt_shown {
+    use super::*;
+
+    fn prompt(text: &str, elements: Value) -> codex_tui_core::threads::UserPrompt {
+        let item = item(
+            "item/started",
+            json!({"type": "userMessage", "id": "u", "clientId": null, "content": [
+                {"type": "text", "text": text, "text_elements": elements}]}),
+        );
+        match item {
+            Some(Item::User(prompt)) => prompt,
+            other => panic!("a user prompt, got {other:?}"),
+        }
+    }
+
+    fn bounds(elements: &[std::ops::Range<usize>]) -> Vec<(usize, usize)> {
+        elements
+            .iter()
+            .map(|range| (range.start, range.end))
+            .collect()
+    }
+
+    #[test]
+    fn a_control_sequence_and_a_control_character_are_removed() {
+        let raw = "_count_r\u{1b}[13;2:3uows\tx\u{7}y\nz";
+        let prompt = prompt(raw, json!([]));
+        assert_eq!(prompt.text, raw, "the text the model has is not changed");
+        assert_eq!(prompt.shown().text, "_count_rows\txy\nz");
+    }
+
+    #[test]
+    fn a_lone_escape_goes_and_an_unfinished_sequence_takes_the_rest() {
+        assert_eq!(prompt("a\u{1b}b", json!([])).shown().text, "ab");
+        assert_eq!(prompt("a\u{1b}[31", json!([])).shown().text, "a");
+        assert_eq!(
+            prompt("a\u{1b}[31mb\u{1b}[0m", json!([])).shown().text,
+            "ab"
+        );
+    }
+
+    #[test]
+    fn a_clean_text_is_borrowed_and_keeps_its_elements() {
+        let elements = json!([{"byteRange": {"start": 0, "end": 3}, "placeholder": "abc"}]);
+        let prompt = prompt("abc def", elements);
+        let shown = prompt.shown();
+        assert!(matches!(shown.text, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(bounds(shown.elements), [(0, 3)]);
+    }
+
+    #[test]
+    fn a_changed_text_drops_the_elements_whose_ranges_it_moved() {
+        let elements = json!([{"byteRange": {"start": 4, "end": 7}, "placeholder": "def"}]);
+        let prompt = prompt("\u{7}abc def", elements);
+        assert_eq!(bounds(&prompt.elements), [(4, 7)]);
+        let shown = prompt.shown();
+        assert_eq!(shown.text, "abc def");
+        assert!(shown.elements.is_empty());
+    }
+}

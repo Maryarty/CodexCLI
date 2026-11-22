@@ -8,7 +8,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rtwk::gestures::SelectionArea;
-use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, Expanded, MainAxisSize, Padding, Row};
+use rtwk::layout::{Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding};
 use rtwk::provider::{read, select, watch};
 use rtwk::scroll::{ListView, ScrollNotification};
 use rtwk::style::Attrs;
@@ -216,6 +216,7 @@ impl State for ViewportState {
         let tokens = theme::Tokens::of(cx);
         let prompt_surface = tokens.prompt_surface(cx, true);
         let agent_style = tokens.dim().attrs(Attrs::DIM);
+        let bullet = strings.agent_line("").to_string();
         let table = chat_strings::of(cx);
         let now = rtwk::provider::read::<ScreenStates, _>(cx).agents.now;
         let clock = select::<ScreenStates, _, _>(cx, |states| states.cells.clock);
@@ -266,14 +267,17 @@ impl State for ViewportState {
                 Item::User(prompt) => {
                     let joins_prompt = matches!(previous, Some((_, Item::User(_))))
                         && transcript.timing_after(index.saturating_sub(1)).is_none();
-                    let panel = super::transcript_prompt::panel(
+                    let panel = super::cells::user::panel(
                         prompt,
-                        prompt_surface.clone(),
-                        &tokens,
-                        table,
+                        &super::cells::user::Look {
+                            surface: prompt_surface.clone(),
+                            tokens: &tokens,
+                            chat: table,
+                            cells,
+                            markdown: &markdown,
+                            highlighted: marked.as_ref() == Some(key),
+                        },
                         joins_prompt,
-                        &markdown,
-                        marked.as_ref() == Some(key),
                     );
                     // A separator belongs to the transcript, outside the prompt surface.
                     Padding::new(
@@ -282,29 +286,20 @@ impl State for ViewportState {
                     )
                     .into()
                 }
-                Item::Agent { text } => {
-                    let markdown = crate::widgets::markdown::themed(
-                        super::cells::citation::view(
-                            text,
-                            transcript.is_agent_streaming(key),
-                            cwd.as_deref(),
+                Item::Agent { text } => cell(
+                    separator,
+                    super::cells::agent::message(
+                        text,
+                        transcript.is_agent_streaming(key),
+                        cwd.as_deref(),
+                        &super::cells::agent::Look {
+                            bullet: &bullet,
+                            bullet_style: agent_style.clone(),
+                            markdown: &markdown,
                             cells,
-                        ),
-                        markdown.clone(),
-                    );
-                    Padding::new(
-                        EdgeInsets::only(0, i32::from(separator), 1, 0),
-                        Row::new()
-                            .cross_axis_alignment(CrossAxisAlignment::Start)
-                            .spacing(1)
-                            .child(
-                                Text::new(strings.agent_line("").to_string())
-                                    .style(agent_style.clone()),
-                            )
-                            .child(Expanded::new(1, markdown)),
-                    )
-                    .into()
-                }
+                        },
+                    ),
+                ),
                 Item::Tool(tool) => Padding::new(
                     EdgeInsets::only(0, i32::from(separator), 0, 0),
                     super::transcript_activity::ToolRow {

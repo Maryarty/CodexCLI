@@ -28,7 +28,7 @@ pub use cells::{
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
-pub use user_prompt::UserPrompt;
+pub use user_prompt::{Shown, UserPrompt};
 
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};

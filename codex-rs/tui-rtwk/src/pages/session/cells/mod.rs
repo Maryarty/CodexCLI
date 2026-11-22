@@ -12,6 +12,7 @@ use codex_tui_core::screens::cells::{ID, NAME};
 use crate::app::debug::DebugEntry;
 use crate::app::debug::DebugOpen;
 
+pub mod agent;
 pub mod citation;
 pub mod collab;
 pub mod computer_activity;
@@ -34,6 +35,7 @@ pub mod status;
 pub mod strings;
 pub mod tool_call;
 pub mod tool_rows;
+pub mod user;
 pub mod viewed_image;
 pub mod warning;
 pub mod web;
