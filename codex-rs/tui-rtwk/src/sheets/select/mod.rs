@@ -20,7 +20,7 @@ pub mod strings;
 /// What the debug menu lists for this directory: one entry per
 /// parameterisation, on the model a fixture script made.
 pub fn debug_entries() -> Vec<DebugEntry> {
-    let entries: [(&'static str, &'static str, &'static str); 48] = [
+    let entries: [(&'static str, &'static str, &'static str); 52] = [
         (
             "model_picker",
             "three models, the first in use",
@@ -255,6 +255,26 @@ pub fn debug_entries() -> Vec<DebugEntry> {
             "multi_fields_twelve",
             "twelve orderable fields",
             include_str!("fixtures/multi_fields_twelve.jsonl"),
+        ),
+        (
+            "browser_keymap",
+            "the keymap browser: five tabs of thirty actions, search",
+            include_str!("fixtures/browser_keymap.jsonl"),
+        ),
+        (
+            "browser_single_line",
+            "the browser, single-line rows, the cursor on the eighth",
+            include_str!("fixtures/browser_single_line.jsonl"),
+        ),
+        (
+            "browser_wrapped",
+            "the browser, wrapped rows, the cursor on the eighth",
+            include_str!("fixtures/browser_wrapped.jsonl"),
+        ),
+        (
+            "shared_menu",
+            "the shared menu: a title, a subtitle, three rows",
+            include_str!("fixtures/shared_menu.jsonl"),
         ),
         (
             "multi_twelve",

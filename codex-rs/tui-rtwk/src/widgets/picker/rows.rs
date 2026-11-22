@@ -17,15 +17,15 @@ use std::rc::Rc;
 use rtwk::controls::SelectionController;
 use rtwk::foundation::ListenableBuilder;
 use rtwk::gestures::{GestureDetector, PointerEvent};
-use rtwk::layout::{CrossAxisAlignment, Expanded, Flexible, Row as Line, SizedBox};
+use rtwk::layout::{CrossAxisAlignment, Expanded, Row as Line, SizedBox};
 use rtwk::scroll::{ListController, ListView};
 use rtwk::style::Style;
-use rtwk::text::{Text, TextOverflow, TextWrap, segmenter_of};
-use rtwk::{AnyWidget, Handler, LayoutBuilder};
+use rtwk::text::{Text, TextOverflow, TextWrap};
+use rtwk::{AnyWidget, Handler};
 
 use codex_tui_core::screens::select::list::Row;
 
-use crate::widgets::measure;
+use crate::widgets::measure::{self, Measure};
 
 /// The styles of the rows.
 #[derive(Clone, Debug)]
@@ -107,7 +107,7 @@ pub struct Rows {
 }
 
 /// Where the cells of the rows go, measured at one width.
-struct Layout {
+pub struct Layout {
     /// The label column, none when no row has a description.
     label: Option<i32>,
     /// The lines each row takes.
@@ -115,34 +115,37 @@ struct Layout {
 }
 
 impl Rows {
-    pub fn view(self) -> AnyWidget {
-        let this = Rc::new(self);
-        // As tall as its rows, the room permitting: a `Flexible` in the
-        // dialog's `Column` around the measuring `LayoutBuilder`.
-        let measured = LayoutBuilder::new(move |cx, constraints| {
-            let room = usize::try_from(constraints.max_width).unwrap_or(0);
-            let seg = segmenter_of(cx);
-            let layout = this.layout(
-                &|text| seg.width(text),
-                &|text, width| measure::rows(seg, text, width.max(1)).len().max(1),
-                room,
-            );
-            let height = this.tallest(&layout.heights);
-            let rows = this.clone();
-            let label = layout.label;
-            // A rule is an entry of its own: it takes one of the list's rows.
-            let entries = Rc::new(this.entries());
-            let list = ListView::builder(entries.len(), move |index| {
-                match entries.get(index).copied().flatten() {
-                    Some(row) => rows.row(row, label),
-                    None => rows.rule(),
-                }
-            })
-            .controller(this.list.clone())
-            .can_request_focus(false);
-            SizedBox::new(None, Some(height), Some(list.into())).into()
-        });
-        Flexible::new(1, measured).into()
+    /// Measures the rows at `room` cells with the tree's segmenter.
+    pub fn measure(&self, seg: Measure, room: usize) -> Layout {
+        self.layout(
+            &|text| seg.width(text),
+            &|text, width| measure::rows(seg, text, width.max(1)).len().max(1),
+            room,
+        )
+    }
+
+    /// The most lines the list wants: the `max_rows` consecutive rows that
+    /// take most (the oracle shows that many items at once).
+    pub fn wanted(&self, layout: &Layout) -> i32 {
+        self.tallest(&layout.heights)
+    }
+
+    /// The list, `height` lines high: a `ListView` over every entry, which
+    /// scrolls under the `ListController` when the room is less than it wants.
+    pub fn list(self: &Rc<Self>, layout: &Layout, height: i32) -> AnyWidget {
+        let rows = self.clone();
+        let label = layout.label;
+        // A rule is an entry of its own: it takes one of the list's rows.
+        let entries = Rc::new(self.entries());
+        let list = ListView::builder(entries.len(), move |index| {
+            match entries.get(index).copied().flatten() {
+                Some(row) => rows.row(row, label),
+                None => rows.rule(),
+            }
+        })
+        .controller(self.list.clone())
+        .can_request_focus(false);
+        SizedBox::new(None, Some(height), Some(list.into())).into()
     }
 
     /// The label column and the height of each row at `room` cells.

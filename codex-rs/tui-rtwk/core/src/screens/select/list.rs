@@ -175,6 +175,9 @@ pub struct List {
     /// A line under the rows names the toggled-on ones in list order
     /// (`on_preview` of the multi-select picker).
     pub preview: bool,
+    /// Drawn on the panel of the bottom-pane pickers (`PickerSurface::Panel`:
+    /// a blank row on top, the panel colour) instead of the terminal's own.
+    pub panel: bool,
 }
 
 impl Default for List {
@@ -199,6 +202,7 @@ impl Default for List {
             multi: false,
             ordering: false,
             preview: false,
+            panel: false,
         }
     }
 }
@@ -225,6 +229,18 @@ pub struct Row {
 }
 
 impl List {
+    /// What the list is drawn on.
+    pub fn surface(&self) -> super::layout::Surface {
+        use super::layout::Surface;
+        if self.multi {
+            Surface::Multi
+        } else if self.panel {
+            Surface::Panel
+        } else {
+            Surface::Terminal
+        }
+    }
+
     pub fn max_rows(&self) -> usize {
         self.max_rows.unwrap_or(MAX_ROWS).max(1)
     }

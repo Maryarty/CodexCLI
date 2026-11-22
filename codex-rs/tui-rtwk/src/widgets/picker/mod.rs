@@ -22,14 +22,12 @@ use rtwk::editing::{TextEditingController, TextField};
 use rtwk::focus::{Focus, FocusNode, KeyEventResult, KeyPress};
 use rtwk::foundation::{Listenable, ListenableBuilder};
 use rtwk::gestures::PointerEvent;
-use rtwk::layout::{
-    BoxWidget, Column, CrossAxisAlignment, EdgeInsets, MainAxisSize, Padding, Row, SizedBox,
-};
+use rtwk::layout::{BoxWidget, Expanded, Row, SizedBox};
 use rtwk::overlay::Dialog;
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::scroll::ListController;
 use rtwk::style::{Attrs, Style};
-use rtwk::text::{Text, TextWrap};
+use rtwk::text::Text;
 use rtwk::{AnyWidget, Cx, Handler, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::screens::select::list::{Browse, List, normalize_paste};
@@ -38,10 +36,12 @@ use crate::app::theme;
 use crate::widgets::session_list::page_rows;
 use crate::widgets::tab_strip::Tabs;
 
+mod pane;
 mod rows;
 mod side;
 pub mod strings;
 
+use self::pane::Pane;
 use self::rows::{RowStyles, Rows, Words};
 
 /// What the user did in the picker: the opener turns each into its intent.
@@ -96,6 +96,8 @@ pub struct PickerState {
     /// The scroll of the rows: asked to show the cursor row, read for the
     /// arrows and the size of a page.
     scroll: ListController,
+    /// The rows the list showed when last heard from (a resize moves it).
+    viewport: usize,
 }
 
 /// A key the list answers.
@@ -125,6 +127,8 @@ pub enum Msg {
     /// A tap on this tab of the strip.
     TapTab(usize),
     Row(usize),
+    /// The list's position moved: its window may have shrunk.
+    Viewport,
 }
 
 impl StatefulWidget for Picker {
@@ -139,6 +143,7 @@ impl StatefulWidget for Picker {
             tabs: None,
             cursor: SelectionController::new(),
             scroll: ListController::new(),
+            viewport: 0,
         }
     }
 }
@@ -234,6 +239,11 @@ impl State for PickerState {
             tabs.add_listener(Rc::new(move || send(Msg::Tab(seen.index()))));
             self.tabs = Some(tabs);
         }
+        // A shorter window (a smaller terminal) keeps the cursor row in view:
+        // Flutter's `Scrollable.ensureVisible` after a change of size.
+        let send = cx.local_sender();
+        self.scroll
+            .add_listener(Rc::new(move || send(Msg::Viewport)));
         self.settle(&w.list, None);
     }
 
@@ -290,6 +300,13 @@ impl State for PickerState {
                 self.pick(list, w, cx);
             }
             Msg::Act(act) => self.act(act, list, w, cx),
+            Msg::Viewport => {
+                let rows = page_rows(&self.scroll);
+                if rows < std::mem::replace(&mut self.viewport, rows) {
+                    self.show_cursor(list);
+                }
+                return Rebuild::No;
+            }
         }
         Rebuild::Yes
     }
@@ -314,137 +331,63 @@ impl State for PickerState {
             secondary: selected.and_then(|item| item.secondary.as_ref().map(|a| a.key)),
         });
 
-        let inset = |child: AnyWidget| -> AnyWidget {
-            Padding::new(EdgeInsets::symmetric(2, 0), child).into()
-        };
-        let mut pane = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch);
-        let mut header = false;
-        if let Some(title) = &list.title {
-            header = true;
-            pane = pane.child(inset(
-                Text::new(title.clone())
-                    .style(tokens.bold())
-                    .wrap(TextWrap::Word)
-                    .into(),
-            ));
-        }
-        if let Some(subtitle) = &list.subtitle {
-            header = true;
-            pane = pane.child(inset(
-                Text::new(subtitle.clone())
-                    .style(tokens.dim())
-                    .wrap(TextWrap::Word)
-                    .into(),
-            ));
-        }
-        if header {
-            pane = pane.child(Text::new(String::new()));
-        }
-        if !list.tabs.is_empty() {
-            pane = pane.child(inset(self.tab_strip(&list, &tokens, s, cx)));
-            if list.searchable {
-                pane = pane.child(Text::new(String::new()));
-            }
-        }
-        if list.searchable {
-            let placeholder = list.search_placeholder.clone().unwrap_or_default();
-            pane = pane.child(
-                Row::new().child(SizedBox::new(Some(2), None, None)).child(
-                    rtwk::layout::Expanded::new(
-                        1,
-                        TextField::new()
-                            .controller(self.query.clone())
-                            .placeholder(placeholder)
-                            .focus_node(self.node.clone())
-                            .autofocus(true)
-                            .on_changed(cx.map(|_: Rc<str>| Msg::Query))
-                            .on_paste({
-                                // Whitespace folds to one blank; nothing left: ignored.
-                                let query = self.query.clone();
-                                let send = cx.local_sender();
-                                move |text| {
-                                    if let Some(text) = normalize_paste(text) {
-                                        query.insert(&text);
-                                        send(Msg::Query);
-                                    }
-                                    true
-                                }
-                            }),
-                    ),
+        let search = list.searchable.then(|| self.search_line(&list, cx));
+        let tabs = (!list.tabs.is_empty()).then(|| self.tab_strip(&list, &tokens, s, cx));
+        let rows = (!visible.is_empty()).then(|| {
+            Rc::new(Rows {
+                rows: Rc::new(browse.rows(&visible)),
+                taps: Rc::new(
+                    visible
+                        .iter()
+                        .map(|item| {
+                            let item = *item;
+                            cx.map(move |_: PointerEvent| Msg::Row(item))
+                        })
+                        .collect(),
                 ),
-            );
-        }
-        pane = pane.child(self.arrow(true, s.more_above, tokens.accent()));
-        if visible.is_empty() {
-            pane = pane.child(
-                Text::line(s.no_matches.to_string()).style(tokens.dim().attrs(Attrs::ITALIC)),
-            );
-        } else {
-            pane = pane.child(
-                Rows {
-                    rows: Rc::new(browse.rows(&visible)),
-                    taps: Rc::new(
-                        visible
-                            .iter()
-                            .map(|item| {
-                                let item = *item;
-                                cx.map(move |_: PointerEvent| Msg::Row(item))
-                            })
-                            .collect(),
-                    ),
-                    items: Rc::new(visible),
-                    selection: self.cursor.clone(),
-                    list: self.scroll.clone(),
-                    max_rows: list.max_rows(),
-                    styles: RowStyles {
-                        cursor: tokens.accent().attrs(Attrs::BOLD),
-                        label: Style::new(),
-                        description: tokens.dim(),
-                        disabled: tokens.dim(),
-                    },
-                    single_line: list.single_line,
-                    name_width: list.name_column_width,
-                    words: Words {
-                        current: s.current,
-                        disabled: s.disabled_mark,
-                        reason_after: s.reason_after,
-                        reason_alone: s.reason_alone,
-                        reason_close: s.reason_close,
-                        mark_on: s.mark_on,
-                        mark_off: s.mark_off,
-                        section_break: s.section_break,
-                    },
-                }
-                .view(),
-            );
-        }
-        pane = pane.child(self.arrow(false, s.more_below, tokens.accent()));
-        let mut body: AnyWidget = pane.into();
-        if let Some(side) = list.side.clone() {
-            body = side::with_preview(body, side, Style::new());
-        }
-        let mut pane = Column::new()
-            .main_axis_size(MainAxisSize::Min)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(body);
-        if let Some(names) = list.preview_names() {
-            pane = pane.child(inset(Text::line(names.join(s.preview_join)).into()));
-        }
-        if let Some(note) = list.footer_note.clone() {
-            pane = pane.child(inset(Text::new(note).wrap(TextWrap::Word).into()));
-        }
+                items: Rc::new(visible),
+                selection: self.cursor.clone(),
+                list: self.scroll.clone(),
+                max_rows: list.max_rows(),
+                styles: RowStyles {
+                    cursor: tokens.accent().attrs(Attrs::BOLD),
+                    label: Style::new(),
+                    description: tokens.dim(),
+                    disabled: tokens.dim(),
+                },
+                single_line: list.single_line,
+                name_width: list.name_column_width,
+                words: Words {
+                    current: s.current,
+                    disabled: s.disabled_mark,
+                    reason_after: s.reason_after,
+                    reason_alone: s.reason_alone,
+                    reason_close: s.reason_close,
+                    mark_on: s.mark_on,
+                    mark_off: s.mark_off,
+                    section_break: s.section_break,
+                },
+            })
+        });
         let hint = selected
             .and_then(|item| item.footer_hint.clone())
             .or_else(|| list.footer_hint.clone());
-        if let Some(hint) = hint {
-            pane = pane.child(Padding::new(
-                EdgeInsets::only(2, 0, 0, 0),
-                Text::new(hint).style(tokens.dim()).wrap(TextWrap::Word),
-            ));
-        }
-        let dialog = Dialog::bare(BoxWidget::new().style(Style::new()).child(pane));
+        let pane = Pane {
+            surface: list.surface(),
+            title: list.title.clone().map(|title| (title, tokens.bold())),
+            subtitle: list.subtitle.clone().map(|text| (text, tokens.dim())),
+            tabs,
+            search,
+            rows,
+            empty: (s.no_matches.to_string(), tokens.dim().attrs(Attrs::ITALIC)),
+            above: self.arrow(true, s.more_above, tokens.accent()),
+            below: self.arrow(false, s.more_below, tokens.accent()),
+            side: list.side.clone().map(|side| (side, Style::new())),
+            preview: list.preview_names().map(|names| names.join(s.preview_join)),
+            note: list.footer_note.clone(),
+            hint: hint.map(|hint| (hint, tokens.dim())),
+        };
+        let dialog = Dialog::bare(BoxWidget::new().style(Style::new()).child(pane.view()));
         if list.searchable {
             Focus::new(dialog).can_request_focus(false).into()
         } else {
@@ -481,6 +424,21 @@ impl PickerState {
             .set_cursor(pos.and_then(|pos| visible.get(pos).copied()));
         self.scroll.jump_to_index(0);
         if let Some(pos) = pos {
+            self.scroll
+                .ensure_index_visible(browse.entry_of(&visible, pos));
+        }
+    }
+
+    /// Scrolls the least that shows the cursor row.
+    fn show_cursor(&self, list: &List) {
+        let query = self.query.text();
+        let browse = self.browse(list, &query);
+        let visible = browse.visible();
+        let at = self
+            .cursor
+            .cursor()
+            .and_then(|item| visible.iter().position(|v| *v == item));
+        if let Some(pos) = at {
             self.scroll
                 .ensure_index_visible(browse.entry_of(&visible, pos));
         }
@@ -590,6 +548,37 @@ impl PickerState {
         if let Some(id) = self.id(list) {
             Self::send(w, cx, Event::Secondary(id));
         }
+    }
+
+    /// The search line: a `TextField` over the query controller, two cells in
+    /// on both sides.
+    fn search_line(&self, list: &List, cx: &mut Cx<'_, Self>) -> AnyWidget {
+        let placeholder = list.search_placeholder.clone().unwrap_or_default();
+        Row::new()
+            .child(SizedBox::new(Some(2), None, None))
+            .child(Expanded::new(
+                1,
+                TextField::new()
+                    .controller(self.query.clone())
+                    .placeholder(placeholder)
+                    .focus_node(self.node.clone())
+                    .autofocus(true)
+                    .on_changed(cx.map(|_: Rc<str>| Msg::Query))
+                    .on_paste({
+                        // Whitespace folds to one blank; nothing left: ignored.
+                        let query = self.query.clone();
+                        let send = cx.local_sender();
+                        move |text| {
+                            if let Some(text) = normalize_paste(text) {
+                                query.insert(&text);
+                                send(Msg::Query);
+                            }
+                            true
+                        }
+                    }),
+            ))
+            .child(SizedBox::new(Some(2), None, None))
+            .into()
     }
 
     /// The tab labels, the active one marked: the shared filled strip of whole

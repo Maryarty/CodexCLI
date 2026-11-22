@@ -14,6 +14,16 @@ use codex_tui_core::screens::select::list::{SIDE_GAP, Side};
 /// Cells the popup keeps free on either side of its content.
 const INSET: u16 = 2;
 
+/// The cells the rows have to themselves in a pane `width` cells wide: less
+/// the preview and its gap when it sits beside them.
+pub fn body_width(side: &Side, width: usize) -> usize {
+    let cells = u16::try_from(width).unwrap_or(u16::MAX);
+    match side.beside(cells.saturating_sub(2 * INSET)) {
+        Some(preview) => usize::from(cells.saturating_sub(SIDE_GAP + preview + INSET)),
+        None => width,
+    }
+}
+
 /// `body` with the preview `side` beside or below it.
 pub fn with_preview(body: AnyWidget, side: Side, style: Style) -> AnyWidget {
     LayoutBuilder::new(move |_, constraints| {

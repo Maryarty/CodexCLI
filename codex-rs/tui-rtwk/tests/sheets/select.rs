@@ -584,3 +584,115 @@ fn the_sheet_holds_no_window_cursor_or_tab_of_its_own() {
     }
     assert!(found.is_empty(), "{found:#?}");
 }
+
+// ---- the pane at the heights of the oracle's tests (Picker `Pane`, core
+// `select::layout`): the whole screen equals one frame of the oracle's
+// snapshot, which the oracle joined of several.
+
+/// The rows of the frame whose first line is `header` in the oracle snapshot
+/// `path` (relative to `codex-rs/tui/src`): up to the next frame, the
+/// separator row between frames dropped.
+#[allow(clippy::disallowed_methods)]
+fn frame(path: &str, header: &str) -> Vec<String> {
+    let full = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../tui/src")
+        .join(path);
+    let text = std::fs::read_to_string(&full)
+        .unwrap_or_else(|err| panic!("oracle snapshot {}: {err}", full.display()));
+    let body = text.splitn(3, "---\n").nth(2).unwrap_or_default();
+    let starts =
+        |line: &str| line.starts_with("height=") || line.ends_with(':') && line.contains('×');
+    if header.is_empty() {
+        // A snapshot of one screen: every row.
+        let mut rows: Vec<String> = body
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        return rows;
+    }
+    let mut lines = body.lines().skip_while(|line| *line != header).skip(1);
+    let mut rows: Vec<String> = Vec::new();
+    for line in lines.by_ref() {
+        if line == "---" || starts(line) {
+            break;
+        }
+        rows.push(line.trim_end().to_string());
+    }
+    // `\n\n` between two frames leaves one blank row after the last.
+    if rows.last().is_some_and(String::is_empty) {
+        rows.pop();
+    }
+    rows
+}
+
+fn sized(width: u16, height: u16, entry: &str) -> Harness {
+    let mut h = start_sized(true, width, height);
+    h.open_debug_row("select", Some(entry));
+    h.t.pump_for(ms(800));
+    h
+}
+
+fn rows_of(h: &Harness) -> Vec<String> {
+    h.t.screen()
+        .lines()
+        .map(|line| line.trim_end().to_string())
+        .collect()
+}
+
+const SHORT_BROWSER: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__short_browser_keeps_header_tabs_search_and_footer.snap";
+
+#[test]
+fn the_browser_keeps_header_tabs_search_and_footer_at_short_heights() {
+    for (width, height) in [(48, 6), (48, 7), (48, 13), (24, 6), (24, 7)] {
+        let h = sized(width, height, "browser_keymap");
+        assert_eq!(
+            rows_of(&h),
+            frame(SHORT_BROWSER, &format!("{width}×{height}:")),
+            "{width}x{height}"
+        );
+    }
+}
+
+const MULTI_SHORT: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__multi_select_picker__tests__short_picker_preserves_selected_row_when_overflow_spacers_yield.snap";
+
+#[test]
+fn the_multi_select_yields_its_spacers_before_the_selected_row() {
+    for height in 1..=7 {
+        let mut h = sized(80, height, "multi_fields_twelve");
+        h.press("end");
+        h.t.pump_for(ms(300));
+        assert_eq!(
+            rows_of(&h),
+            frame(MULTI_SHORT, &format!("height={height}")),
+            "height {height}"
+        );
+    }
+}
+
+const BROWSER_PAGE: &str = "bottom_pane/snapshots/codex_tui__bottom_pane__list_selection_view__picker_tests__browser_page_navigation_uses_rows_that_fit.snap";
+
+#[test]
+fn page_down_moves_by_the_rows_that_fit() {
+    let mut h = sized(60, 18, "browser_keymap");
+    h.press("pagedown");
+    h.t.pump_for(ms(300));
+    assert_eq!(rows_of(&h), frame(BROWSER_PAGE, ""));
+}
+
+#[test]
+fn shrinking_the_browser_keeps_the_selected_row_visible() {
+    for entry in ["browser_single_line", "browser_wrapped"] {
+        let mut h = sized(60, 24, entry);
+        h.t.resize(60, 13);
+        h.t.pump_for(ms(300));
+        let screen = h.t.screen();
+        let focused = screen.lines().find(|line| line.starts_with('›'));
+        assert!(
+            focused.is_some_and(|line| line.contains("Action 07")),
+            "{entry}:\n{screen}"
+        );
+    }
+}
