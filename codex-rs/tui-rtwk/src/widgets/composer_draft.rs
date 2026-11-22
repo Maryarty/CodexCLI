@@ -22,6 +22,9 @@ use std::rc::Rc;
 use rtwk::editing::{TextBuffer, TextEditingController, TextSelection};
 
 use codex_tui_core::screens::composer;
+use codex_tui_core::screens::composer::history::{
+    History as Prompts, HistoryEntry, Lookup, Store, TextElement,
+};
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::threads::{LocalImage, UserMessage};
 
@@ -58,14 +61,10 @@ struct Inner {
     /// What the last `Ctrl+K` / `Ctrl+W` killed (`textarea.rs`
     /// `kill_buffer`), put back by `Ctrl+Y`, with the elements it held.
     kill: Option<(String, Vec<Element>)>,
-    /// The history entry Up and Down last recalled (none: a search's pick
-    /// is a recalled text with no place in the walk), and its text
-    /// (`chat_composer_history.rs`: `history_cursor`, `last_history_text`).
-    recalled: Option<(Option<usize>, String)>,
-    /// The drafts this composer submitted or cleared with placeholders in
-    /// them, by the text they sent: Up brings an entry back with its
-    /// placeholders (`HistoryEntry::pending_pastes`).
-    local: Vec<Local>,
+    /// The prompts history of this composer: what it sent or cleared, the
+    /// walk of Up and Down and the Ctrl+R search over them and the file's
+    /// (`ChatComposerHistory`; the file is the app's `Store`).
+    prompts: Prompts,
     /// Shell mode (`is_bash_mode`): a `!` typed at the draft's start left
     /// the text and became the prompt; a submit sends it back in front.
     shell: bool,
@@ -84,14 +83,6 @@ struct Inner {
     /// Counts the changes of that search: a page that shows its footer asks
     /// whether it is the one it drew (`ComposerDraft::search_rev`).
     search_rev: u64,
-}
-
-/// A local history entry with its elements.
-#[derive(Clone, Debug)]
-struct Local {
-    sent: String,
-    text: String,
-    elements: Vec<Element>,
 }
 
 /// The draft's elements and kill ring, shared by every clone (a handle,
@@ -594,111 +585,236 @@ impl ComposerDraft {
 }
 
 impl ComposerDraft {
-    /// Whether Up and Down walk the history now (`should_handle_navigation`):
-    /// on an empty draft, or on the text they recalled last with the caret
-    /// at one of its ends.
-    pub fn walks_history(&self, c: &TextEditingController, entries: usize) -> bool {
-        if entries == 0 {
+    /// Up (`up`) or Down at the draft's ends (`navigate_up`,
+    /// `navigate_down`, behind `should_handle_navigation`): the entry it
+    /// finds replaces the draft, caret at its end. A persistent entry the
+    /// store does not hold yet is asked for in `fx` and the draft waits
+    /// for `history_poll`. `false`: the key is the field's (the caret
+    /// moves).
+    pub fn history_step(
+        &self,
+        c: &TextEditingController,
+        store: &Store,
+        up: bool,
+        fx: &mut Vec<Lookup>,
+    ) -> bool {
+        let Some((text, cursor)) = self.navigation(c) else {
             return false;
+        };
+        let entry = {
+            let mut inner = self.0.borrow_mut();
+            if !inner.prompts.should_handle_navigation(store, &text, cursor) {
+                return false;
+            }
+            if up {
+                inner.prompts.navigate_up(store, fx)
+            } else {
+                inner.prompts.navigate_down(store, fx)
+            }
+        };
+        let Some(entry) = entry else {
+            return false;
+        };
+        self.recall(c, entry);
+        true
+    }
+
+    /// Whether a read the history asked for is outstanding: the composer
+    /// polls when the store changes.
+    pub fn history_waiting(&self) -> bool {
+        self.0.borrow().prompts.is_waiting()
+    }
+
+    /// The store changed: the entry Up or Down waited for goes into the
+    /// draft; a search's answer is returned for `search_poll`'s owner.
+    /// `true` when the draft or the search changed.
+    pub fn history_poll(
+        &self,
+        c: &TextEditingController,
+        store: &Store,
+        fx: &mut Vec<Lookup>,
+    ) -> bool {
+        use codex_tui_core::screens::composer::history::Response;
+        let response = self.0.borrow_mut().prompts.poll(store, fx);
+        match response {
+            Some(Response::Found(entry)) => {
+                self.recall(c, entry);
+                true
+            }
+            Some(Response::Search(result)) => {
+                self.search_result(c, result);
+                true
+            }
+            Some(Response::Ignored) | None => false,
         }
-        let text = c.text();
-        if text.is_empty() {
-            return true;
-        }
+    }
+
+    /// What the walk sees of the draft: its text as the oracle's
+    /// `current_text()` (shell mode's `!` in front) and the caret in it
+    /// (`history_navigation_cursor`: Vim's Normal mode rests on the last
+    /// character, which counts as the end). None while text is selected.
+    fn navigation(&self, c: &TextEditingController) -> Option<(String, usize)> {
         let selection = c.selection();
         if !selection.is_collapsed() {
-            return false;
+            return None;
         }
-        let caret = selection.extent_offset;
-        if caret != 0 && caret != text.len() {
-            return false;
-        }
-        matches!(&self.0.borrow().recalled, Some((_, last)) if **last == *text)
-    }
-
-    /// Up: the entry before the one recalled (the newest first), its text
-    /// in the draft with the caret at its end; `false` at the oldest
-    /// (`navigate_up`).
-    pub fn history_up(&self, c: &TextEditingController, history: &[String]) -> bool {
-        let at = match self.0.borrow().recalled {
-            None | Some((None, _)) => history.len().checked_sub(1),
-            Some((Some(0), _)) => None,
-            Some((Some(i), _)) => Some(i - 1),
-        };
-        let Some(at) = at else {
-            return false;
-        };
-        self.recall(c, Some(at), &history[at]);
-        true
-    }
-
-    /// Down: the entry after the one recalled, or past the newest an empty
-    /// draft and the walk over; `false` when not walking (`navigate_down`).
-    pub fn history_down(&self, c: &TextEditingController, history: &[String]) -> bool {
-        let Some((Some(i), _)) = self.0.borrow().recalled.clone() else {
-            return false;
-        };
-        if i + 1 < history.len() {
-            self.recall(c, Some(i + 1), &history[i + 1]);
+        let shell = self.shell();
+        let text = c.text();
+        let full = if shell {
+            format!("!{text}")
         } else {
-            {
-                let mut inner = self.0.borrow_mut();
-                inner.recalled = None;
-                inner.shell = false;
-            }
-            self.clear();
-            c.set_text("");
-        }
-        self.0.borrow_mut().vim.history.reset();
-        true
+            text.to_string()
+        };
+        let caret = selection.extent_offset;
+        let cursor = if shell && caret == 0 {
+            0
+        } else if !text.is_empty()
+            && self.0.borrow().vim.vim.is_normal()
+            && caret == self.vim_end(c)
+        {
+            full.len()
+        } else {
+            caret + usize::from(shell)
+        };
+        Some((full, cursor))
     }
 
-    fn recall(&self, c: &TextEditingController, at: Option<usize>, entry: &str) {
-        let local = {
-            let inner = self.0.borrow();
-            inner.local.iter().rev().find(|l| l.sent == entry).cloned()
-        };
-        // `imported_text_for_textarea`: a leading `!` is shell mode again.
-        let shell = entry.starts_with('!');
-        let (text, elements) = match local {
-            Some(l) => (l.text, l.elements),
-            None if shell => (entry[1..].to_string(), Vec::new()),
-            None => (entry.to_string(), Vec::new()),
-        };
+    /// The caret that stands for the last item in Vim's Normal mode
+    /// (`vim_normal_end_cursor`): the start of the last character or
+    /// element.
+    fn vim_end(&self, c: &TextEditingController) -> usize {
+        let len = c.text().len();
+        match self.ending_at(c, len) {
+            Some(e) => e.start,
+            None => c.buffer().character_start_before(len),
+        }
+    }
+
+    /// The draft as a history entry: the text as it shows (`!` in front in
+    /// shell mode) with its placeholders, the images they stand for and the
+    /// pastes (`clear_for_ctrl_c`).
+    fn kept_entry(&self, c: &TextEditingController) -> HistoryEntry {
+        let skip = usize::from(self.shell());
+        let mut entry = HistoryEntry::new(if skip == 1 {
+            format!("!{}", c.text())
+        } else {
+            c.text().to_string()
+        });
+        for e in self.elements(c) {
+            entry.text_elements.push(TextElement {
+                start: e.start + skip,
+                end: e.end + skip,
+                placeholder: Some(e.label.to_string()),
+            });
+            match &e.image {
+                Some(path) => entry.local_image_paths.push((**path).clone()),
+                None => entry
+                    .pending_pastes
+                    .push((e.label.to_string(), e.payload.to_string())),
+            }
+        }
+        entry
+    }
+
+    /// The draft as the submit sends it, as a history entry: pastes
+    /// expanded, the image placeholders kept (`prepare_submission_text`
+    /// records the expanded text).
+    fn sent_entry(&self, c: &TextEditingController) -> HistoryEntry {
+        let (text, placed) = self.expand(c);
+        let mut entry = HistoryEntry::new(text);
+        for (range, e) in placed {
+            if let Some(path) = &e.image {
+                entry.text_elements.push(TextElement {
+                    start: range.start,
+                    end: range.end,
+                    placeholder: Some(e.label.to_string()),
+                });
+                entry.local_image_paths.push((**path).clone());
+            }
+        }
+        entry
+    }
+
+    /// `entry` put in the draft's place (`apply_history_entry`): its text
+    /// without a leading `!` (shell mode again, `imported_text_for_textarea`),
+    /// its placeholders as elements with the payload or the image they
+    /// stand for, the caret at the end, and the text noted as the one the
+    /// walk goes on from.
+    pub(super) fn recall(&self, c: &TextEditingController, entry: HistoryEntry) {
+        let shell = entry.text.starts_with('!');
+        let skip = usize::from(shell);
+        let text = entry.text[skip..].to_string();
+        let mut images = entry.local_image_paths.iter();
+        let mut elements = Vec::new();
+        for e in &entry.text_elements {
+            let (Some(start), Some(end)) = (e.start.checked_sub(skip), e.end.checked_sub(skip))
+            else {
+                continue;
+            };
+            let Some(label) = text.get(start..end) else {
+                continue;
+            };
+            let label: Rc<str> = Rc::from(label);
+            let paste = entry.pending_pastes.iter().find(|(p, _)| **p == *label);
+            let (payload, image) = if let Some((_, payload)) = paste {
+                (Rc::from(payload.as_str()), None)
+            } else if let Some(path) = images.next() {
+                (label.clone(), Some(Rc::new(path.clone())))
+            } else {
+                continue;
+            };
+            elements.push(Element {
+                start,
+                end,
+                label,
+                payload,
+                image,
+                seq: 0,
+            });
+        }
         self.clear();
         self.set_shell(shell);
         c.set_text(&text);
         {
             let mut inner = self.0.borrow_mut();
-            inner.recalled = Some((at, text.clone()));
+            for e in &mut elements {
+                e.seq = inner.next_seq;
+                inner.next_seq += 1;
+            }
             inner.elements = elements;
             inner.seen = Some(c.buffer());
+            // a recalled entry is a new draft: Vim's undo steps were of the old one
+            inner.vim.history.reset();
         }
-        // a recalled entry is a new draft: Vim's undo steps were of the old one
-        self.0.borrow_mut().vim.history.reset();
         c.set_selection(TextSelection::collapsed(text.len()));
+        let shown = if shell { format!("!{text}") } else { text };
+        self.0.borrow_mut().prompts.record_recalled_text(shown);
     }
 
     /// The composer cleared (the thread took the submit, a command opened a
-    /// screen, `Ctrl+C`): the placeholders stay with the entry it sent
-    /// (`record_local_submission`), the history walk is over and shell mode
-    /// left. A submit the thread did not take clears nothing, and keeps all
-    /// of it.
+    /// screen): the line it sent is kept for Up and Ctrl+R with its
+    /// pastes expanded (`record_local_submission`), the history walk is
+    /// over and shell mode left. A submit the thread did not take clears
+    /// nothing, and keeps all of it.
     pub fn cleared(&self, c: &TextEditingController) {
-        let elements = self.elements(c);
-        let sent = self.expanded(c);
+        let entry = self.sent_entry(c);
+        self.clear_into_history(c, entry);
+    }
+
+    /// Ctrl+C on a draft (`clear_for_ctrl_c`): the draft is kept for Up and
+    /// Ctrl+R whole, its placeholders and what they stand for with it.
+    pub fn cancelled(&self, c: &TextEditingController) {
+        let entry = self.kept_entry(c);
+        self.clear_into_history(c, entry);
+    }
+
+    fn clear_into_history(&self, c: &TextEditingController, entry: HistoryEntry) {
         {
             let mut inner = self.0.borrow_mut();
-            inner.recalled = None;
             inner.shell = false;
             inner.vim.history.reset();
-            if !elements.is_empty() {
-                inner.local.push(Local {
-                    sent,
-                    text: c.text().to_string(),
-                    elements,
-                });
-            }
+            inner.prompts.reset_navigation();
+            inner.prompts.record_local_submission(entry);
         }
         self.vim_reset_mode(c);
     }

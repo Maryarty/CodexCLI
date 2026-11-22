@@ -21,6 +21,7 @@ use rtwk::style::{Attrs, Style, Theme};
 use rtwk::{AnyWidget, Cx, Handler, State, StatefulWidget, impl_widget};
 use rtwk_core::presenter::CursorShape;
 
+use codex_tui_core::screens::composer::history::Lookup;
 use codex_tui_core::screens::composer::paste_burst::PasteBurst;
 use codex_tui_core::screens::{ScreenIntent, ScreenStates, popovers};
 
@@ -162,6 +163,13 @@ pub fn submission(ui: &ThreadUi) -> Rc<str> {
     Rc::from(ui.draft.expanded(&ui.composer))
 }
 
+/// The composer of `ui` emptied by Ctrl+C: the draft is kept whole for Up
+/// and Ctrl+R (`clear_for_ctrl_c`), the file is not written.
+pub fn clear_cancelled(ui: &ThreadUi) {
+    ui.draft.cancelled(&ui.composer);
+    ui.composer.clear();
+}
+
 /// The composer of `ui` emptied for a line that went out or a command that
 /// took it (not for a submit the thread did not accept: that clears
 /// nothing): the draft's history entry, walk and shell mode end with the
@@ -215,6 +223,12 @@ pub enum ComposerMsg {
     Dismiss,
     /// Ctrl+C on a draft: it is cleared and kept in history.
     ClearForCtrlC,
+    /// The history needs reads the store lacks: the app gets them from the
+    /// file.
+    Lookups(Vec<Lookup>),
+    /// The store changed while the draft waits for a read: it takes what
+    /// came in.
+    Polled,
     /// The draft entered or left shell mode.
     Shell,
     /// The queue key (`composer.queue`) other than Tab.
@@ -225,6 +239,21 @@ pub enum ComposerMsg {
     /// The timer of the paste-burst detector: what it holds goes in if its
     /// time is up.
     BurstDue,
+}
+
+/// The reads the history needs from the file go to the app, which asks the
+/// host (`popovers::Intent::Lookup`).
+fn ask(cx: &mut Cx<'_, ComposerState>, lookups: Vec<Lookup>) {
+    if lookups.is_empty() {
+        return;
+    }
+    let hs = read::<Hs, _>(cx);
+    for lookup in lookups {
+        cx.emit(
+            &hs.screen,
+            ScreenIntent::from(popovers::Intent::Lookup(lookup)),
+        );
+    }
 }
 
 impl ComposerState {
@@ -384,13 +413,27 @@ impl State for ComposerState {
                 return rtwk::Rebuild::Yes;
             }
             ComposerMsg::ClearForCtrlC => {
-                let text = submission(&w.ui);
-                clear_sent(&w.ui);
-                let hs = read::<Hs, _>(cx);
-                cx.emit(
-                    &hs.screen,
-                    ScreenIntent::from(popovers::Intent::Record(text.to_string())),
-                );
+                clear_cancelled(&w.ui);
+                if let Some(h) = &w.on_changed {
+                    cx.emit(h, w.ui.composer.text());
+                }
+                return rtwk::Rebuild::Yes;
+            }
+            ComposerMsg::Lookups(lookups) => {
+                ask(cx, lookups);
+                return rtwk::Rebuild::No;
+            }
+            ComposerMsg::Polled => {
+                let states = read::<ScreenStates, _>(cx);
+                let mut asks = Vec::new();
+                let changed =
+                    w.ui.draft
+                        .history_poll(&w.ui.composer, &states.popovers.history, &mut asks);
+                ask(cx, asks);
+                if !changed {
+                    return rtwk::Rebuild::No;
+                }
+                // the page's footer and the app hear of the new draft
                 if let Some(h) = &w.on_changed {
                     cx.emit(h, w.ui.composer.text());
                 }
@@ -485,9 +528,13 @@ impl State for ComposerState {
         }
         let states = watch::<ScreenStates, _>(cx);
         let table = strings::of(cx);
+        if w.ui.draft.history_waiting() {
+            // a read the history waits for may be in the store now
+            cx.local_sender()(ComposerMsg::Polled);
+        }
         let data = KeyData {
             draft: w.ui.draft.clone(),
-            history: Rc::from(states.popovers.history.as_slice()),
+            history: states.popovers.history.clone(),
             tell: cx.local_sender(),
             burst: AppBinding::maybe_of(cx).map(|binding| burst_env(&binding, cx, table)),
             suggest: self.suggest.clone(),

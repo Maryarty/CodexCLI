@@ -6,8 +6,9 @@
 
 use rtwk::editing::{TextEditingController, TextSelection};
 
+use codex_tui_core::screens::composer::history::{Lookup, SearchResult, Store};
 use codex_tui_core::screens::composer::vim::History;
-use codex_tui_core::screens::popovers::{Direction, HistorySearch, SearchStatus};
+use codex_tui_core::screens::popovers::{Direction, HistorySearch, Preview, SearchStatus};
 
 use super::{ComposerDraft, Snapshot};
 
@@ -54,7 +55,7 @@ impl ComposerDraft {
         let original = self.snapshot(c);
         let mut inner = self.0.borrow_mut();
         let vim_history = std::mem::take(&mut inner.vim.history);
-        inner.recalled = None;
+        inner.prompts.reset_search();
         inner.search_rev += 1;
         inner.search = Some(Session {
             search: HistorySearch::new(),
@@ -65,25 +66,35 @@ impl ComposerDraft {
 
     /// The query edited by `edit` and the search restarted from the newest
     /// entry; an empty query puts the draft back and stays open
-    /// (`update_history_search_query`).
+    /// (`update_history_search_query`). A read the search needs is asked
+    /// for in `fx`.
     pub fn search_edit(
         &self,
         c: &TextEditingController,
-        history: &[String],
+        store: &Store,
+        fx: &mut Vec<Lookup>,
         edit: impl FnOnce(&mut String),
     ) {
         let Some(mut query) = self.search_query() else {
             return;
         };
         edit(&mut query);
-        self.search_with(c, history, |search| search.set_query(query, history));
+        self.search_with(c, |search, prompts| {
+            search.set_query(query, prompts, store, fx)
+        });
     }
 
     /// Up and Ctrl+R (older), Down and Ctrl+S (newer): the next match; at
     /// the end of the matches the current one stays
     /// (`history_search_in_direction`).
-    pub fn search_step(&self, c: &TextEditingController, history: &[String], dir: Direction) {
-        self.search_with(c, history, |search| search.step(dir, history));
+    pub fn search_step(
+        &self,
+        c: &TextEditingController,
+        store: &Store,
+        dir: Direction,
+        fx: &mut Vec<Lookup>,
+    ) {
+        self.search_with(c, |search, prompts| search.step(dir, prompts, store, fx));
     }
 
     /// Enter: a match ends the search and stays in the draft, caret at its
@@ -100,6 +111,7 @@ impl ComposerDraft {
             }
             inner.search = None;
             inner.search_rev += 1;
+            inner.prompts.reset_search();
         }
         c.set_selection(TextSelection::collapsed(c.text().len()));
         true
@@ -116,7 +128,7 @@ impl ComposerDraft {
         self.restore(c, &session.original);
         let mut inner = self.0.borrow_mut();
         inner.vim.history = session.vim_history;
-        inner.recalled = None;
+        inner.prompts.reset_navigation();
         true
     }
 
@@ -126,28 +138,43 @@ impl ComposerDraft {
     fn search_with(
         &self,
         c: &TextEditingController,
-        history: &[String],
-        step: impl FnOnce(&mut HistorySearch),
+        step: impl FnOnce(&mut HistorySearch, &mut super::Prompts) -> Preview,
     ) {
-        let (preview, original) = {
+        let shown = {
+            let mut guard = self.0.borrow_mut();
+            let inner = &mut *guard;
+            let Some(session) = inner.search.as_mut() else {
+                return;
+            };
+            let preview = step(&mut session.search, &mut inner.prompts);
+            let original = session.original.clone();
+            inner.search_rev += 1;
+            (preview, original)
+        };
+        self.show(c, shown.0, &shown.1);
+    }
+
+    /// A read the search waited for came in (`apply_history_search_result`
+    /// from `on_history_entry_response`).
+    pub(super) fn search_result(&self, c: &TextEditingController, result: SearchResult) {
+        let shown = {
             let mut inner = self.0.borrow_mut();
             let Some(session) = inner.search.as_mut() else {
                 return;
             };
-            step(&mut session.search);
-            let shown = (
-                session.search.preview(history).map(str::to_owned),
-                session.original.clone(),
-            );
+            let preview = session.search.apply(result);
+            let original = session.original.clone();
             inner.search_rev += 1;
-            shown
+            (preview, original)
         };
+        self.show(c, shown.0, &shown.1);
+    }
+
+    fn show(&self, c: &TextEditingController, preview: Preview, original: &Snapshot) {
         match preview {
-            Some(entry) => self.recall(c, None, &entry),
-            None => {
-                self.restore(c, &original);
-                self.0.borrow_mut().recalled = None;
-            }
+            Preview::Show(entry) => self.recall(c, entry),
+            Preview::Original => self.restore(c, original),
+            Preview::Keep => {}
         }
     }
 }

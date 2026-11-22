@@ -5,6 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+use codex_tui_core::screens::composer::history::{History, Lookup, Store};
 use codex_tui_core::screens::composer::{Trigger, TriggerKind, trigger};
 use codex_tui_core::screens::popovers::*;
 use pretty_assertions::assert_eq;
@@ -48,37 +49,90 @@ fn a_blank_after_the_mention_closes_the_popup() {
 }
 
 fn model() -> Model {
-    Model {
-        files: vec![
-            "src/shared/long_directory/parser_alpha.rs".into(),
-            "src/shared/long_directory/parser_beta.rs".into(),
-            "README.md".into(),
-        ],
-        mentions: vec![
-            Mention {
-                kind: MentionKind::App,
-                name: "Shared".into(),
-                description: "Secondary details".into(),
-                insert: "shared".into(),
-            },
-            Mention {
-                kind: MentionKind::Skill,
-                name: "Shared".into(),
-                description: "Secondary details".into(),
-                insert: "shared".into(),
-            },
-            Mention {
-                kind: MentionKind::Plugin,
-                name: "Sample Plugin".into(),
-                description: "Plugin with skills and an MCP server".into(),
-                insert: "sample".into(),
-            },
-        ],
-        history: vec![
-            "cargo build".into(),
-            "git status".into(),
-            "cargo test".into(),
-        ],
+    let mut m = Model::default();
+    m.files = vec![
+        "src/shared/long_directory/parser_alpha.rs".into(),
+        "src/shared/long_directory/parser_beta.rs".into(),
+        "README.md".into(),
+    ];
+    m.mentions = vec![
+        Mention {
+            kind: MentionKind::App,
+            name: "Shared".into(),
+            description: "Secondary details".into(),
+            insert: "shared".into(),
+        },
+        Mention {
+            kind: MentionKind::Skill,
+            name: "Shared".into(),
+            description: "Secondary details".into(),
+            insert: "shared".into(),
+        },
+        Mention {
+            kind: MentionKind::Plugin,
+            name: "Sample Plugin".into(),
+            description: "Plugin with skills and an MCP server".into(),
+            insert: "sample".into(),
+        },
+    ];
+    m
+}
+
+fn model_with_history() -> Model {
+    let mut m = model();
+    *m.history = Store::seeded(vec![
+        "cargo build".into(),
+        "git status".into(),
+        "cargo test".into(),
+    ]);
+    m
+}
+
+/// A search over the model's history with what the draft shows: the
+/// preview a step put in, `None` for the draft as it was.
+struct Walk {
+    s: HistorySearch,
+    history: History,
+    store: Store,
+    fx: Vec<Lookup>,
+    shown: Option<String>,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Walk {
+            s: HistorySearch::new(),
+            history: History::new(),
+            store: (*model_with_history().history).clone(),
+            fx: Vec::new(),
+            shown: None,
+        }
+    }
+
+    fn show(&mut self, preview: Preview) {
+        match preview {
+            Preview::Show(entry) => self.shown = Some(entry.text),
+            Preview::Original => self.shown = None,
+            Preview::Keep => {}
+        }
+    }
+
+    fn set_query(&mut self, query: &str) {
+        let preview = self
+            .s
+            .set_query(query.into(), &mut self.history, &self.store, &mut self.fx);
+        self.show(preview);
+    }
+
+    fn step(&mut self, direction: Direction) {
+        let preview = self
+            .s
+            .step(direction, &mut self.history, &self.store, &mut self.fx);
+        self.show(preview);
+    }
+
+    fn preview(&self) -> Option<&str> {
+        self.shown.as_deref()
     }
 }
 
@@ -106,81 +160,88 @@ fn at_lists_files_and_plugins() {
 
 #[test]
 fn history_search_shows_the_newest_match_and_walks_older_and_newer() {
-    let m = model();
-    let mut s = HistorySearch::new();
-    assert_eq!(s.status, SearchStatus::Idle);
-    s.set_query("c".into(), &m.history);
-    assert_eq!(s.preview(&m.history), Some("cargo test"));
-    s.step(Direction::Older, &m.history);
-    assert_eq!(s.preview(&m.history), Some("cargo build"));
-    s.step(Direction::Older, &m.history);
-    assert_eq!(s.preview(&m.history), Some("cargo build"), "the end stays");
-    s.step(Direction::Newer, &m.history);
-    assert_eq!(s.preview(&m.history), Some("cargo test"));
+    let mut w = Walk::new();
+    assert_eq!(w.s.status, SearchStatus::Idle);
+    w.set_query("c");
+    assert_eq!(w.preview(), Some("cargo test"));
+    w.step(Direction::Older);
+    assert_eq!(w.preview(), Some("cargo build"));
+    w.step(Direction::Older);
+    assert_eq!(w.preview(), Some("cargo build"), "the end stays");
+    assert_eq!(w.s.status, SearchStatus::Match, "no flicker at the end");
+    w.step(Direction::Newer);
+    assert_eq!(w.preview(), Some("cargo test"));
 }
 
 #[test]
 fn history_search_is_case_insensitive_and_reports_no_match() {
-    let m = model();
-    let mut s = HistorySearch::new();
-    s.set_query("GIT".into(), &m.history);
-    assert_eq!(s.preview(&m.history), Some("git status"));
-    s.set_query("zzz".into(), &m.history);
-    assert_eq!(s.status, SearchStatus::NoMatch);
-    assert_eq!(s.preview(&m.history), None);
-    s.set_query(String::new(), &m.history);
-    assert_eq!(s.status, SearchStatus::Idle);
+    let mut w = Walk::new();
+    w.set_query("GIT");
+    assert_eq!(w.preview(), Some("git status"));
+    w.set_query("zzz");
+    assert_eq!(w.s.status, SearchStatus::NoMatch);
+    assert_eq!(w.preview(), None);
+    w.set_query("");
+    assert_eq!(w.s.status, SearchStatus::Idle);
 }
 
 // ------------------------------------------------- the search's own state: the composer holds it
 
 #[test]
 fn a_query_built_key_by_key_matches_as_one_typed_at_once() {
-    let m = model();
-    let mut s = HistorySearch::new();
+    let mut w = Walk::new();
     let mut query = String::new();
     for typed in ["g", "it"] {
         query.push_str(typed);
-        s.set_query(query.clone(), &m.history);
+        w.set_query(&query);
     }
-    assert_eq!(s.query, "git");
-    assert_eq!(s.status, SearchStatus::Match);
-    assert_eq!(s.preview(&m.history), Some("git status"));
+    assert_eq!(w.s.query, "git");
+    assert_eq!(w.s.status, SearchStatus::Match);
+    assert_eq!(w.preview(), Some("git status"));
 }
 
 #[test]
 fn shortening_or_emptying_the_query_restarts_from_the_newest() {
-    let m = model();
-    let mut s = HistorySearch::new();
-    s.set_query("gitx".into(), &m.history);
-    assert_eq!(s.status, SearchStatus::NoMatch);
-    s.set_query("git".into(), &m.history);
-    assert_eq!(s.status, SearchStatus::Match);
-    s.set_query(String::new(), &m.history);
-    assert_eq!(s.status, SearchStatus::Idle);
-    assert_eq!(s.index(), None);
+    let mut w = Walk::new();
+    w.set_query("gitx");
+    assert_eq!(w.s.status, SearchStatus::NoMatch);
+    w.set_query("git");
+    assert_eq!(w.s.status, SearchStatus::Match);
+    w.set_query("");
+    assert_eq!(w.s.status, SearchStatus::Idle);
+    assert_eq!(w.preview(), None);
 }
 
 /// `history_search.rs:213-230`: Enter accepts only a match, which is the
-/// composer's decision on `status`: no preview and no index otherwise.
+/// composer's decision on `status`: no preview otherwise.
 #[test]
-fn only_a_match_has_a_preview_and_an_index() {
-    let m = model();
-    let mut s = HistorySearch::new();
-    assert_eq!((s.status, s.index()), (SearchStatus::Idle, None));
-    s.set_query("zzz".into(), &m.history);
-    assert_eq!((s.status, s.index()), (SearchStatus::NoMatch, None));
-    s.set_query("cargo".into(), &m.history);
-    assert_eq!((s.status, s.index()), (SearchStatus::Match, Some(2)));
+fn only_a_match_has_a_preview() {
+    let mut w = Walk::new();
+    assert_eq!((w.s.status, w.preview()), (SearchStatus::Idle, None));
+    w.set_query("zzz");
+    assert_eq!((w.s.status, w.preview()), (SearchStatus::NoMatch, None));
+    w.set_query("cargo");
+    assert_eq!(
+        (w.s.status, w.preview()),
+        (SearchStatus::Match, Some("cargo test"))
+    );
 }
 
-/// `display_query`: a newline and a tab are shown as marks; the query that
-/// is matched is the original.
+/// `apply_history_search_result`: a read that is out shows `searching` and
+/// keeps the preview; a failed read returns to the draft saying nothing.
 #[test]
-fn the_displayed_query_marks_newlines_and_tabs() {
-    let m = model();
-    let mut s = HistorySearch::new();
-    s.set_query("foo\nbar\tbaz".into(), &m.history);
-    assert_eq!(s.display_query(), "foo\u{21b5}bar\u{21e5}baz");
-    assert_eq!(s.query, "foo\nbar\tbaz");
+fn a_pending_read_keeps_the_preview_and_an_unavailable_one_restores_the_draft() {
+    use codex_tui_core::screens::composer::history::SearchResult;
+    let mut w = Walk::new();
+    w.set_query("cargo");
+    assert_eq!(w.preview(), Some("cargo test"));
+    let preview = w.s.apply(SearchResult::Pending);
+    w.show(preview);
+    assert_eq!(
+        (w.s.status, w.preview()),
+        (SearchStatus::Searching, Some("cargo test"))
+    );
+    let preview = w.s.apply(SearchResult::Unavailable);
+    w.show(preview);
+    assert_eq!((w.s.status, w.preview()), (SearchStatus::Idle, None));
 }
