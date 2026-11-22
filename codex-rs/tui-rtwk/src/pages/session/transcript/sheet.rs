@@ -30,6 +30,7 @@ use super::pager;
 use super::strings::{self, Strings};
 use crate::app::debug::seeded::Seeded;
 use crate::app::view::Hs;
+use crate::pages::session::backtrack;
 use crate::pages::session::transcript_pane::Pane;
 use crate::widgets::thread_ui::{Follow, Modes};
 
@@ -136,7 +137,11 @@ impl State for SheetState {
             // the prompt chosen: the sheet closes; the edit itself is the
             // thread's intent (`ThreadIntent::EditPrompt`), the chat's to send
             Msg::Confirm => {
-                if w.modes.confirm(Some(thread.id()), targets.count).is_some() {
+                if let Some(chosen) = w.modes.confirm(Some(thread.id()), targets.count) {
+                    if let Some(intent) = backtrack::edit_intent(cx, &thread, &chosen) {
+                        let hs = read::<Hs, _>(cx);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                     Navigator::maybe_pop(cx);
                 }
             }
