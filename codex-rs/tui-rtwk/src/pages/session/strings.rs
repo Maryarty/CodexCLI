@@ -16,6 +16,7 @@ use rtwk::l10n::msg;
 use codex_tui_core::commands::{Notice, SlashCommand, UsageKey};
 use codex_tui_core::screens::chat::{McpHeader, McpWarning, Retry, StatusHeader};
 use codex_tui_core::screens::composer;
+use codex_tui_core::threads::LocalWarning;
 
 use crate::l10n::Lang;
 use crate::l10n::Tables;
@@ -138,6 +139,8 @@ pub struct Strings {
     pub retry_busy: Msg<1>,
     /// `on_server_overloaded_error`: an overloaded server that said nothing.
     pub high_load: &'static str,
+    /// `REVIEW_STEER_UNAVAILABLE_MESSAGE` (`interaction.rs`).
+    pub review_steer_unavailable: &'static str,
     /// The hint of the `/` popup is the framework's; this is the empty one.
     pub num: NumSyms,
 }
@@ -233,6 +236,7 @@ pub const EN: Strings = Strings {
     mcp_incomplete: msg!("MCP startup incomplete (failed: {0})"),
     retry_busy: msg!("Server is busy, reconnecting {0}"),
     high_load: "Codex is currently experiencing high load.",
+    review_steer_unavailable: "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.",
     num: NumSyms::ENGLISH,
 };
 
@@ -328,6 +332,13 @@ impl Strings {
                 )
                 .to_string()
             }
+        }
+    }
+
+    /// The words of a warning the client raised itself.
+    pub fn local_warning(&self, warning: LocalWarning) -> &'static str {
+        match warning {
+            LocalWarning::ReviewSteerUnavailable => self.review_steer_unavailable,
         }
     }
 

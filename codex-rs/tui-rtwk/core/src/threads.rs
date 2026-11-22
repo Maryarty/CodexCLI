@@ -139,6 +139,9 @@ pub enum Item {
     Warning {
         message: String,
     },
+    /// A warning the client itself raises, shown only in the detailed
+    /// transcript like every `new_warning_event`; its words are the view's.
+    LocalWarning(LocalWarning),
     /// An overloaded server that said nothing (oracle `on_server_overloaded_error`):
     /// the error row the UI words as high load.
     HighLoad,
@@ -164,7 +167,10 @@ impl Item {
     pub fn is_detailed_only(&self) -> bool {
         matches!(
             self,
-            Self::Reasoning { .. } | Self::Warning { .. } | Self::Deprecation { .. }
+            Self::Reasoning { .. }
+                | Self::Warning { .. }
+                | Self::LocalWarning(_)
+                | Self::Deprecation { .. }
         )
     }
 
@@ -598,6 +604,14 @@ pub struct RunningTurn {
     pub turn: TurnId,
     pub started_at: Option<i64>,
     interrupt_sent: bool,
+}
+
+/// What the client itself warns of (the words are the view's, ADR-010).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalWarning {
+    /// Esc with steers waiting while a review runs: a review turn takes no
+    /// steer (`REVIEW_STEER_UNAVAILABLE_MESSAGE`).
+    ReviewSteerUnavailable,
 }
 
 /// How a turn ended.
@@ -1839,6 +1853,12 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         }
         ThreadEv::ConnectionLost => {}
         ThreadEv::Reverted => {
+            // the edit of a past prompt waits for this (`ThreadReverted`)
+            screens::apply_thread_ev(
+                &mut model.slots,
+                ScreenThreadEv::Backtrack(screens::backtrack::ThreadEv::Reverted),
+                fx,
+            );
             model.transcript.reset();
             model.history_next = None;
             model.history_ask = HistoryAsk::Idle;
@@ -2004,11 +2024,26 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::InterruptForSteers,
         )) if model.has_writer() => {
-            if model.can_interrupt() && !model.pending_steers.is_empty() {
+            if !model.can_interrupt() {
+                return;
+            }
+            let waiting = !model.pending_steers.is_empty() || !model.rejected_steers.is_empty();
+            if model.slots.chat.review_mode() && waiting {
+                // a review turn takes no steer: say so, and keep going
+                apply_appended(
+                    model,
+                    None,
+                    Item::LocalWarning(LocalWarning::ReviewSteerUnavailable),
+                );
+            } else if !model.pending_steers.is_empty() {
                 model.steers_after_interrupt = true;
                 apply_ev(model, ThreadEv::Interrupt, fx);
             }
         }
+        // a line of the chat's own: a read-only thread says it too
+        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
+            screens::chat::ThreadIntent::NoPreviousMessage,
+        )) => apply_appended(model, None, Item::Notice(Notice::NoPreviousMessage)),
         ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
             screens::chat::ThreadIntent::EditQueued,
         )) if model.has_writer() => {
@@ -2056,15 +2091,18 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
         ThreadEv::ItemStarted { key, item } => {
             note_review(model, &item);
             if !model.finished_turns.contains(&key.turn) && model.transcript.item(&key).is_none() {
-                steer_echoed(model, &item);
-                model.transcript.upsert(key, item);
+                let echo = steer_echoed(model, &item);
+                if !review_prompt(model, &item, echo) {
+                    model.transcript.upsert(key, item);
+                }
             }
         }
         ThreadEv::ItemUpsert { key, item } => {
             note_review(model, &item);
             if !model.authoritative_turns.contains(&key.turn) {
-                if model.transcript.item(&key).is_none() {
-                    steer_echoed(model, &item);
+                let echo = model.transcript.item(&key).is_none() && steer_echoed(model, &item);
+                if review_prompt(model, &item, echo) {
+                    return;
                 }
                 if !model.finished_turns.contains(&key.turn) && matches!(item, Item::Agent { .. }) {
                     model.completed_items.insert(key.clone());
@@ -2162,6 +2200,17 @@ fn interrupted(model: &mut ThreadModel, turn: &TurnId, fx: &mut ThreadFx<'_>) {
         .into_iter()
         .partition(|steer| steer.admitted.as_ref().is_some_and(|id| id != turn));
     let submit = std::mem::take(&mut model.steers_after_interrupt);
+    // `on_interrupted_turn`: the steer notice when Esc sent the steers, else
+    // the budget's message when the goal stopped the turn, else the plain one.
+    let budget = model.slots.chat.take_budget_limited(turn);
+    let notice = if submit {
+        Notice::InterruptedForSteer
+    } else if budget {
+        Notice::GoalBudgetReached
+    } else {
+        Notice::Interrupted
+    };
+    apply_appended(model, Some(turn.clone()), Item::Notice(notice));
     if submit && !mine.is_empty() {
         let merged = merge_messages(mine.into_iter().map(|steer| steer.message).collect());
         fx.start_turn(merged);
@@ -2211,7 +2260,7 @@ fn give_back(model: &mut ThreadModel, messages: Vec<UserMessage>, replace: bool)
 }
 
 /// The user's item of a steer came back: its pending entry is done.
-fn steer_echoed(model: &mut ThreadModel, item: &Item) {
+fn steer_echoed(model: &mut ThreadModel, item: &Item) -> bool {
     if let Item::User(prompt) = item
         && let Some(index) = model
             .pending_steers
@@ -2219,7 +2268,16 @@ fn steer_echoed(model: &mut ThreadModel, item: &Item) {
             .position(|steer| steer.message.text == prompt.text)
     {
         model.pending_steers.remove(index);
+        return true;
     }
+    false
+}
+
+/// In review mode the server's user item is the review prompt, not something
+/// the user typed: it adds no row unless it is a steer's echo
+/// (`on_committed_user_message`: `!self.review.is_review_mode`).
+fn review_prompt(model: &ThreadModel, item: &Item, echo: bool) -> bool {
+    matches!(item, Item::User(_)) && !echo && model.slots.chat.review_mode()
 }
 
 /// How the server refused a `turn/steer` (`active_turn_steer_race`,

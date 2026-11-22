@@ -210,6 +210,15 @@ pub enum Notice {
     ContextCompacted,
     EnteredReview(String),
     ExitedReview(String),
+    /// Esc or Ctrl+C ended the turn (`new_interruption_notice`).
+    Interrupted,
+    /// The turn was interrupted to send the steers that waited
+    /// (`Model interrupted to submit steer instructions.`).
+    InterruptedForSteer,
+    /// The goal's token budget stopped the turn (`Goal budget reached`).
+    GoalBudgetReached,
+    /// Esc Esc with no prompt to edit (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
+    NoPreviousMessage,
     /// The e-mail to the owner of the workspace that a banner action asked for ended
     /// (`finish_add_credits_nudge_email_request`).
     AddCreditsNudge {

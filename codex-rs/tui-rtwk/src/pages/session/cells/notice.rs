@@ -36,6 +36,25 @@ impl StatelessWidget for NoticeCell {
                 Span::styled(strings.context_compacted, Style::new()),
             ])
             .into(),
+            // `new_interruption_notice`: one line in the plain secondary style
+            Notice::Interrupted => Text::new(strings.interrupted).into(),
+            // `new_info_event`
+            Notice::InterruptedForSteer => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(strings.interrupted_for_steer, Style::new()),
+            ])
+            .into(),
+            // `add_info_message`: the bullet, then the line
+            Notice::NoPreviousMessage => Text::rich(vec![
+                Span::styled(strings.bullet, tokens.dim()),
+                Span::styled(strings.no_previous_message, Style::new()),
+            ])
+            .into(),
+            // `new_error_event`
+            Notice::GoalBudgetReached => super::error::ErrorCell {
+                message: strings.goal_budget_reached.to_owned(),
+            }
+            .into(),
             Notice::EnteredReview(text) => review(strings.review_started, text),
             Notice::ExitedReview(text) => review(strings.review_finished, text),
             // `new_info_event`: the bullet, then the message

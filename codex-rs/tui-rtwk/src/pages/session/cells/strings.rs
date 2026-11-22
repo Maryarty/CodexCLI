@@ -123,6 +123,12 @@ pub struct Strings {
     pub collab_request_effort: &'static str,
     // thread_transcript/other_items.rs
     pub context_compacted: &'static str,
+    // chatwidget/input_restore.rs `on_interrupted_turn`, history_cell/notices.rs `new_interruption_notice`
+    pub interrupted: &'static str,
+    pub interrupted_for_steer: &'static str,
+    pub goal_budget_reached: &'static str,
+    /// `NO_PREVIOUS_MESSAGE_TO_EDIT` (`app_backtrack.rs`).
+    pub no_previous_message: &'static str,
     pub review_started: (&'static str, &'static str),
     pub review_finished: (&'static str, &'static str),
     // chatwidget/rate_limits.rs: `finish_add_credits_nudge_email_request`; per kind of nudge
@@ -224,6 +230,10 @@ pub const EN: Strings = Strings {
     collab_request: "({model} {effort})",
     collab_request_effort: "({})",
     context_compacted: "Context compacted",
+    interrupted: "■ Conversation interrupted - use /feedback if something went wrong",
+    interrupted_for_steer: "Model interrupted to submit steer instructions.",
+    goal_budget_reached: "Goal budget reached - the turn was stopped.",
+    no_previous_message: "No previous message to edit.",
     review_started: (">> Code review started: ", " <<"),
     review_finished: ("<< Code review finished: ", " >>"),
     nudge_credits: [

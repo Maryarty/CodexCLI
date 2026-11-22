@@ -1908,3 +1908,239 @@ fn an_account_update_drops_the_banner_and_the_nudge_in_flight() {
         fx.commands()
     );
 }
+
+// ---- step 7: interruption notices, goal budget, the review prompt, the review steer gate
+
+fn items_of(app: &CodexApp) -> Vec<Item> {
+    thread(app)
+        .transcript()
+        .iter()
+        .map(|(_, item)| item.clone())
+        .collect()
+}
+
+/// `item/started` of the review banner (the oracle's `handle_entered_review_mode`).
+fn entered_review(thread: &str, turn: &str, review: &str) -> BackendEv {
+    use codex_app_server_protocol::{
+        ItemStartedNotification, ServerNotification, ThreadItem, ThreadItemPayload,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::ItemStarted(
+        ItemStartedNotification {
+            item: ThreadItem::untimed(ThreadItemPayload::EnteredReviewMode {
+                id: "review-start".into(),
+                review: review.into(),
+            }),
+            thread_id: thread.into(),
+            turn_id: turn.into(),
+            started_at_ms: 0,
+        },
+    )))
+}
+
+/// `thread/goal/updated` with `status` for `turn`.
+fn goal_updated(
+    thread: &str,
+    turn: Option<&str>,
+    status: codex_app_server_protocol::ThreadGoalStatus,
+) -> BackendEv {
+    use codex_app_server_protocol::{
+        ServerNotification, ThreadGoal, ThreadGoalUpdatedNotification,
+    };
+    BackendEv::Notification(Box::new(ServerNotification::ThreadGoalUpdated(
+        ThreadGoalUpdatedNotification {
+            thread_id: thread.into(),
+            turn_id: turn.map(str::to_owned),
+            goal: ThreadGoal {
+                thread_id: thread.into(),
+                objective: "Run until the token budget is limited".into(),
+                status,
+                token_budget: Some(10_000),
+                tokens_used: 10_500,
+                time_used_seconds: 0,
+                created_at: 0,
+                updated_at: 1,
+            },
+        },
+    )))
+}
+
+/// A plain interruption says so: `new_interruption_notice`.
+#[test]
+fn an_interrupted_turn_ends_with_the_interruption_notice() {
+    let mut app = running();
+    notification(&mut app, agent_delta(T, "turn-1", "msg-1", "partial"));
+    notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::Interrupted))
+    );
+    // a completed turn adds none
+    notification(&mut app, turn_started(T, "turn-2"));
+    notification(&mut app, turn_completed(T, "turn-2"));
+    assert_eq!(
+        items_of(&app)
+            .iter()
+            .filter(|item| matches!(item, Item::Notice(threads::Notice::Interrupted)))
+            .count(),
+        1
+    );
+}
+
+/// Esc with steers waiting: the notice names the steer, and the steers go out merged.
+#[test]
+fn an_interrupt_for_steers_says_the_model_was_interrupted_to_submit_them() {
+    let mut app = running();
+    submit(&mut app, "one");
+    chat_intent(&mut app, chat::ThreadIntent::InterruptForSteers);
+    let fx = notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert_eq!(start_turns(&fx).len(), 1);
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::InterruptedForSteer))
+    );
+}
+
+/// The goal's budget stopped the turn: the interruption reads as the budget message,
+/// once (`take_budget_limited`).
+#[test]
+fn a_budget_limited_turn_ends_with_the_budget_notice_once() {
+    let mut app = running();
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            Some("turn-1"),
+            codex_app_server_protocol::ThreadGoalStatus::BudgetLimited,
+        ),
+    );
+    notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::GoalBudgetReached))
+    );
+    notification(&mut app, turn_started(T, "turn-2"));
+    notification(&mut app, turn_interrupted(T, "turn-2"));
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::Interrupted)),
+        "the mark was consumed by the first turn"
+    );
+}
+
+/// Only a budget-limited goal with a turn marks it; an active goal does not.
+#[test]
+fn only_a_budget_limited_goal_marks_the_turn() {
+    let mut app = running();
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            Some("turn-1"),
+            codex_app_server_protocol::ThreadGoalStatus::Active,
+        ),
+    );
+    notification(
+        &mut app,
+        goal_updated(
+            T,
+            None,
+            codex_app_server_protocol::ThreadGoalStatus::BudgetLimited,
+        ),
+    );
+    notification(&mut app, turn_interrupted(T, "turn-1"));
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::Interrupted))
+    );
+}
+
+/// In review mode the server's user item is the review prompt: it adds no row
+/// (`on_committed_user_message`: `!self.review.is_review_mode`).
+#[test]
+fn the_review_prompt_user_item_adds_no_row_in_review_mode() {
+    let mut app = running();
+    notification(
+        &mut app,
+        entered_review(T, "turn-1", "changes against 'main'"),
+    );
+    notification(
+        &mut app,
+        user_item(T, "turn-1", "review-prompt", "Review the code changes."),
+    );
+    assert!(
+        !items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_))),
+        "{:?}",
+        items_of(&app)
+    );
+    // outside review mode the same item is a row
+    let mut app = running();
+    notification(&mut app, user_item(T, "turn-1", "user-1", "hello"));
+    assert!(
+        items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_)))
+    );
+}
+
+/// A steer's echo is the user's own message, drawn even in review mode.
+#[test]
+fn the_echo_of_a_steer_is_drawn_in_review_mode() {
+    let mut app = running();
+    notification(&mut app, entered_review(T, "turn-1", "current changes"));
+    submit(&mut app, "follow-up");
+    notification(&mut app, user_item(T, "turn-1", "echo", "follow-up"));
+    assert!(
+        items_of(&app)
+            .iter()
+            .any(|item| matches!(item, Item::User(_)))
+    );
+}
+
+/// Esc with a steer waiting during /review does not interrupt: it warns that
+/// steers are not supported, and keeps the steer.
+#[test]
+fn esc_with_steers_in_review_mode_warns_and_does_not_interrupt() {
+    let mut app = running();
+    notification(&mut app, entered_review(T, "turn-1", "feature branch"));
+    submit(&mut app, "review follow-up");
+    let fx = chat_intent(&mut app, chat::ThreadIntent::InterruptForSteers);
+    assert!(fx.commands().is_empty(), "{:?}", fx.commands());
+    assert_eq!(pending_steers(&app), vec!["review follow-up".to_string()]);
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::LocalWarning(
+            threads::LocalWarning::ReviewSteerUnavailable
+        ))
+    );
+    // a refused steer parked in the rejected list gives the same warning
+    let mut app = running();
+    notification(&mut app, entered_review(T, "turn-1", "feature branch"));
+    let sent = steers(&submit(&mut app, "refused"));
+    run(
+        &mut app,
+        AppEv::Reply(sent[0].0, Reply::failed("cannot steer a review turn")),
+    );
+    assert_eq!(rejected_steers(&app), vec!["refused".to_string()]);
+    let fx = chat_intent(&mut app, chat::ThreadIntent::InterruptForSteers);
+    assert!(fx.commands().is_empty());
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::LocalWarning(
+            threads::LocalWarning::ReviewSteerUnavailable
+        ))
+    );
+}
+
+/// Esc Esc with no prompt to edit: the chat says so, as an info line of the
+/// history (`NO_PREVIOUS_MESSAGE_TO_EDIT`).
+#[test]
+fn no_previous_message_is_a_line_of_the_history() {
+    let mut app = running();
+    chat_intent(&mut app, chat::ThreadIntent::NoPreviousMessage);
+    assert_eq!(
+        items_of(&app).last(),
+        Some(&Item::Notice(threads::Notice::NoPreviousMessage))
+    );
+}

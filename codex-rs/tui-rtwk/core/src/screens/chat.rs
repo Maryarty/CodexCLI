@@ -330,6 +330,9 @@ pub struct ThreadPart {
     retry_header: Option<Retry>,
     /// A code review runs in this thread (oracle `review.is_review_mode`).
     review_mode: bool,
+    /// Turns the goal's budget stopped, until their interrupted completion
+    /// is seen (oracle `budget_limited_turn_ids`).
+    budget_limited: Vec<TurnId>,
 }
 
 /// What owns the status row's header besides the activity phase; the UI's
@@ -388,6 +391,13 @@ impl ThreadPart {
     }
 
     /// Any notification of the thread but a retrying error ends the retry header.
+    /// The turn's interruption is the budget's (`take_budget_limited`): true once.
+    pub(crate) fn take_budget_limited(&mut self, turn: &TurnId) -> bool {
+        let before = self.budget_limited.len();
+        self.budget_limited.retain(|marked| marked != turn);
+        self.budget_limited.len() != before
+    }
+
     pub(crate) fn clear_retry(&mut self) {
         self.retry_header = None;
     }
@@ -418,6 +428,9 @@ pub enum ThreadIntent {
     /// The edit-queued key: the newest queued message goes back to the
     /// composer (`pop_latest_queued_composer_state`).
     EditQueued,
+    /// Esc Esc found no prompt to edit: the chat says so
+    /// (`NO_PREVIOUS_MESSAGE_TO_EDIT`, an info line in the history).
+    NoPreviousMessage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -443,6 +456,9 @@ pub enum ThreadEv {
     Plan { turn: TurnId, completed: usize, total: usize, step: Option<String> },
     /// The server retries the turn's request: the header says so.
     Retry { turn: TurnId, retry: Retry },
+    /// The thread's goal reached its token budget during `turn`
+    /// (`on_thread_goal_updated` with `BudgetLimited`).
+    BudgetLimited { turn: TurnId },
 }
 
 impl ThreadEv {
@@ -451,7 +467,8 @@ impl ThreadEv {
             Self::Plan { turn, .. }
             | Self::Phase { turn, .. }
             | Self::Compaction { turn, .. }
-            | Self::Retry { turn, .. } => Some(turn),
+            | Self::Retry { turn, .. }
+            | Self::BudgetLimited { turn } => Some(turn),
             _ => None,
         }
     }
@@ -511,6 +528,12 @@ pub(crate) fn project(notification: &codex_app_server_protocol::ServerNotificati
                 _ => Retry::Server(note.error.message.clone()),
             };
             (&note.thread_id, ThreadEv::Retry { turn: TurnId::new(&note.turn_id), retry })
+        }
+        ServerNotification::ThreadGoalUpdated(note)
+            if note.goal.status == codex_app_server_protocol::ThreadGoalStatus::BudgetLimited =>
+        {
+            let turn = TurnId::new(note.turn_id.as_deref()?);
+            (&note.thread_id, ThreadEv::BudgetLimited { turn })
         }
         ServerNotification::ReasoningSummaryPartAdded(note) => (&note.thread_id, ThreadEv::Phase {
             turn: TurnId::new(&note.turn_id),
@@ -614,6 +637,11 @@ pub fn apply_thread(part: &mut ThreadPart, ev: ThreadEv, fx: &mut ThreadFx<'_>) 
         ThreadEv::Compaction { running, .. } => part.live_compaction = running,
         ThreadEv::Name(name) => part.name = name,
         ThreadEv::Retry { retry, .. } => part.retry_header = Some(retry),
+        ThreadEv::BudgetLimited { turn } => {
+            if !part.budget_limited.contains(&turn) {
+                part.budget_limited.push(turn);
+            }
+        }
         ThreadEv::Plan { completed, total, step, .. } => {
             part.progress = (total > 0).then_some((completed, total));
             part.step = step;
