@@ -421,19 +421,19 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     for text in ["two", "three"] {
         h.t.type_text(text);
         h.press("tab");
-        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+        h.wait_for("queued", |s| s.contains(&format!("↳ {text}")));
     }
     let epoch = h.fake.epoch().expect("attached");
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-1")));
     h.wait_for("the second turn", |s| s.contains("• second"));
     let screen = h.t.screen();
-    assert!(!screen.contains("(queued) two"), "{screen}");
-    assert!(screen.contains("(queued) three"), "{screen}");
+    assert!(!screen.contains("↳ two"), "{screen}");
+    assert!(screen.contains("↳ three"), "{screen}");
     assert_eq!(turn_texts(&h), ["one", "two"].map(String::from).to_vec());
     h.fake
         .inject(epoch, AppEv::Backend(turn_completed(FAKE_THREAD, "turn-2")));
-    h.wait_for("the third turn", |s| !s.contains("(queued) three"));
+    h.wait_for("the third turn", |s| !s.contains("↳ three"));
     h.settle();
     assert_eq!(
         turn_texts(&h),
@@ -454,11 +454,11 @@ fn a_queue_survives_a_second_submit() {
     for text in ["two", "three"] {
         h.t.type_text(text);
         h.press("tab");
-        h.wait_for("queued", |s| s.contains(&format!("(queued) {text}")));
+        h.wait_for("queued", |s| s.contains(&format!("↳ {text}")));
     }
     let screen = h.t.screen();
-    assert!(screen.contains("(queued) two"), "{screen}");
-    assert!(screen.contains("(queued) three"), "{screen}");
+    assert!(screen.contains("↳ two"), "{screen}");
+    assert!(screen.contains("↳ three"), "{screen}");
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     h.t.type_text("two");
     h.wait_for("queue hint", |s| s.contains("tab to queue message"));
     h.press("tab");
-    h.wait_for("queued message", |s| s.contains("(queued) two"));
+    h.wait_for("queued message", |s| s.contains("↳ two"));
     h.press("ctrl+c");
     let fake = h.fake.clone();
     h.wait_for("interrupt request", |_| {
@@ -523,7 +523,7 @@ fn streaming_markdown_fits_inside_the_transcript_viewport() {
     // Scroll the transcript backwards and keep reading the same area as more
     // Markdown arrives. The composer is outside that viewport.
     for _ in 0..4 {
-        h.t.input(b"\x1b[<64;12;5M");
+        h.t.input(b"\x1b[<64;12;2M");
         h.t.pump_for(crate::common::ms(40));
     }
     let screen = h.t.screen();

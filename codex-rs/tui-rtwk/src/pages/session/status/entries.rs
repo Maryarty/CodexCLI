@@ -5,11 +5,91 @@
 //! column there); the preview and terminals entries draw their widget alone, as
 //! the oracle's unit snapshots do.
 
-use rtwk::AnyWidget;
+use rtwk::{AnyWidget, Cx, StatelessWidget, impl_widget};
+
+use codex_tui_core::keymap::actions::CHAT_INTERRUPT_TURN;
+use codex_tui_core::screens::chat::{StatusDetails, StatusFacts};
 
 use crate::app::debug::{DebugEntry, EntryOpen};
 
+use super::super::activity::{Activity, effects};
 use super::{PendingInput, TerminalsLine};
+
+/// The Working row alone, as the oracle's `StatusIndicatorWidget` unit
+/// snapshots draw it: the switches of the animations, the interrupt hint, the
+/// details and the summary after the label are the case's.
+#[derive(Clone, Debug, PartialEq)]
+struct WorkingRow {
+    animations: bool,
+    shimmer: bool,
+    progress: bool,
+    /// The interrupt key after the elapsed label; none while the turn cannot be interrupted.
+    hint: bool,
+    /// The details under the header; the flag keeps their case.
+    details: Option<(&'static str, bool)>,
+    /// The background-terminal summary after the label.
+    terminal: bool,
+    hook: Option<&'static str>,
+}
+
+impl WorkingRow {
+    const DEFAULT: WorkingRow = WorkingRow {
+        animations: true,
+        shimmer: true,
+        progress: true,
+        hint: true,
+        details: None,
+        terminal: false,
+        hook: None,
+    };
+}
+
+impl_widget!(stateless eq WorkingRow);
+
+impl StatelessWidget for WorkingRow {
+    fn build(&self, cx: &mut Cx<'_>) -> AnyWidget {
+        let facts = StatusFacts {
+            animations: self.animations,
+            shimmer_effect: self.shimmer,
+            progress_effect: self.progress,
+            ..StatusFacts::default()
+        };
+        let (spinner, shimmer) = effects(&facts);
+        let keymap = crate::keymap::keymap(cx);
+        let strings = super::strings::of(cx);
+        Activity {
+            interrupt: self
+                .hint
+                .then(|| crate::keymap::label(&keymap, CHAT_INTERRUPT_TURN))
+                .flatten(),
+            spinner,
+            shimmer,
+            header: crate::l10n::strings::of(cx).chat.working.to_string(),
+            details: self.details.map(|(text, preserve)| {
+                if preserve {
+                    StatusDetails::preserved(text, codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES)
+                } else {
+                    StatusDetails::new(text.to_string(), codex_tui_core::screens::chat::STATUS_DETAILS_MAX_LINES)
+                }
+            }),
+            inline: self.terminal.then(|| strings.terminals(1)),
+            hook: self.hook.map(str::to_string),
+            offset_seconds: 0,
+        }
+        .into()
+    }
+}
+
+macro_rules! row {
+    ($name:literal, $description:literal, $case:expr) => {
+        DebugEntry {
+            name: $name,
+            description: $description,
+            script: include_str!("fixtures/working_row.jsonl"),
+            open: EntryOpen::Route(|_| -> AnyWidget { $case.into() }),
+        }
+    };
+}
 
 macro_rules! preview {
     ($name:literal, $file:literal, $description:literal) => {
@@ -47,6 +127,68 @@ macro_rules! terminals {
 /// The entries of this directory.
 pub fn debug_entries() -> Vec<DebugEntry> {
     vec![
+        row!("working_row", "the Working row alone", WorkingRow::DEFAULT),
+        row!(
+            "working_row_wrapped_details",
+            "details that wrap, no interrupt hint, no effects",
+            WorkingRow {
+                animations: false,
+                hint: false,
+                details: Some(("A man a plan a canal panama", false)),
+                ..WorkingRow::DEFAULT
+            }
+        ),
+        row!(
+            "working_row_no_animations",
+            "the animations switched off: no bullet",
+            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+        ),
+        row!(
+            "working_row_remapped_interrupt",
+            "the interrupt key remapped (run with a keymap)",
+            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+        ),
+        row!(
+            "working_row_hook",
+            "a hook message and details, no background terminal",
+            WorkingRow {
+                animations: false,
+                details: Some(("existing details", true)),
+                hook: Some("checking 日本語 ｶﾞﾊﾟ policy"),
+                ..WorkingRow::DEFAULT
+            }
+        ),
+        row!(
+            "working_row_hook_terminal",
+            "a hook message, details and a background terminal",
+            WorkingRow {
+                animations: false,
+                details: Some(("existing details", true)),
+                terminal: true,
+                hook: Some("checking 日本語 ｶﾞﾊﾟ policy"),
+                ..WorkingRow::DEFAULT
+            }
+        ),
+        row!(
+            "working_row_effects_plain",
+            "animations on, shimmer and progress off",
+            WorkingRow { shimmer: false, progress: false, ..WorkingRow::DEFAULT }
+        ),
+        row!(
+            "working_row_effects_progress",
+            "animations on, progress only",
+            WorkingRow { shimmer: false, ..WorkingRow::DEFAULT }
+        ),
+        row!(
+            "working_row_effects_shimmer",
+            "animations on, shimmer only",
+            WorkingRow { progress: false, ..WorkingRow::DEFAULT }
+        ),
+        row!(
+            "working_row_effects_master_off",
+            "the master switch off, shimmer and progress on",
+            WorkingRow { animations: false, ..WorkingRow::DEFAULT }
+        ),
         preview!("render_one_message", "preview_render_one_message", "one queued message"),
         preview!("render_two_messages", "preview_render_two_messages", "two queued messages"),
         preview!(

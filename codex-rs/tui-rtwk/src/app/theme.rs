@@ -138,12 +138,6 @@ impl Tokens {
         }
     }
 
-    pub(crate) fn shimmer_colors(&self) -> Option<(Color, Color)> {
-        let base = self.0.accent.fg.filter(|color| color.is_rgb())?;
-        let highlight = self.0.text.fg.filter(|color| color.is_rgb())?;
-        Some((base, highlight))
-    }
-
     pub(crate) fn blossom_palette(&self) -> BlossomPalette {
         let channels = |color: Color| (color.r(), color.g(), color.b());
         BlossomPalette {
@@ -189,8 +183,36 @@ impl Tokens {
     }
 }
 
-pub(crate) fn shimmer_style(style: &Style, base: Color, highlight: Color, strength: f64) -> Style {
-    style.clone().fg(Color::lerp(base, highlight, strength))
+/// The terminal's default foreground and background as it told them (the
+/// oracle's `default_fg()` and `default_bg()`): what the status shimmer blends.
+pub(crate) fn terminal_colors<S>(cx: &mut Cx<'_, S>) -> Option<(Rgb, Rgb)> {
+    let channels = |rgb: u32| {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        (r, g, b)
+    };
+    Some((
+        channels(TerminalBrightness::foreground_of(cx)?),
+        channels(TerminalBrightness::background_of(cx)?),
+    ))
+}
+
+/// A colour as channels.
+pub(crate) type Rgb = (u8, u8, u8);
+
+/// The oracle's `color::blend`: `fg` over `bg` by `alpha` (channels cut off),
+/// as a foreground.
+pub(crate) fn blended(fg: Rgb, bg: Rgb, alpha: f64) -> Style {
+    let channel = |f: u8, b: u8| (f64::from(f) * alpha + f64::from(b) * (1.0 - alpha)) as u8;
+    Style::new().fg(Color::rgb(
+        channel(fg.0, bg.0),
+        channel(fg.1, bg.1),
+        channel(fg.2, bg.2),
+    ))
+}
+
+/// The terminal's own foreground (`key_hint`'s key labels: bold in it).
+pub(crate) fn terminal_foreground(fg: Rgb) -> Style {
+    Style::new().fg(Color::rgb(fg.0, fg.1, fg.2))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

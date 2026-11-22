@@ -9,14 +9,14 @@ use rtwk::binding::TerminalTitle;
 use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::foundation::ListenableBuilder;
-use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
+use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack, StackFit};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
 use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
-use rtwk::style::Theme;
+use rtwk::style::{Style, Theme};
 use rtwk::widgets::Text;
-use rtwk::{AnyWidget, Cx, Key, Rebuild, State, StatefulWidget, impl_widget};
+use rtwk::{AnyWidget, Cx, Key, LayoutBuilder, Rebuild, State, StatefulWidget, impl_widget};
 
 use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
@@ -44,10 +44,13 @@ use super::activity::{Run, StatusSlot};
 use super::banners::{BackendBanners, BannerGate, NoticeLine, ReserveSelector, reserve_of};
 use super::live::browse::{self, Browse};
 use super::live::put_back;
-use super::status::PendingInput;
+
 use super::status_surfaces::{StatusContext, TitleInputs};
 use super::transcript;
 use super::transcript_pane::Pane;
+
+/// The window height under which the chat draws nothing.
+const HIDDEN_BELOW_ROWS: i32 = 4;
 
 /// The chat screen of one thread's controllers.
 #[derive(Clone)]
@@ -744,6 +747,7 @@ impl State for ChatState {
         // apart from it with a blank row.
         let status_above = !run.read_only
             && (run.word(&session, reconnecting) != "Ready"
+                || run.has_activity_rows()
                 || matches!(session.status, codex_tui_core::app::Session::Starting));
         // The bottom pane (`bottom_pane_renderable`): everything below the
         // transcript, which gets the rows left; the reader's gap above the
@@ -751,8 +755,8 @@ impl State for ChatState {
         let mut body = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .main_axis_size(MainAxisSize::Min)
+            .overflow_intended(true)
             .child(StatusSlot)
-            .child(PendingInput)
             .child(NoticeLine);
         if self.shortcuts && searching.is_none() {
             body = body.child(panel);
@@ -854,10 +858,24 @@ impl State for ChatState {
         for title in titles {
             body = body.child(title);
         }
-        let body = Column::new()
+        // a window of three rows or fewer shows nothing, the running state
+        // included (`ui_snapshots_small_heights_idle`): the page keeps its
+        // layout and clips, and a blank sheet laid over it by a layout builder
+        // that holds no state covers it, so that nothing of the page's own
+        // state stands under a builder
+        let page = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
+            .overflow_intended(true)
             .child(Expanded::new(1, transcript))
             .child(body);
+        let blank = LayoutBuilder::new(|_, constraints| {
+            if constraints.max_height < HIDDEN_BELOW_ROWS {
+                BoxWidget::new().style(Style::new()).into()
+            } else {
+                SizedBox::shrink().into()
+            }
+        });
+        let body = Stack::new().fit(StackFit::Expand).child(page).child(blank);
         let mut focus = Focus::new(body)
             .bind(
                 KeyPress::char('c').with_mods(Mods::CTRL),

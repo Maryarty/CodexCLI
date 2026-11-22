@@ -262,14 +262,12 @@ fn interrupted_answer_flushes_queued_subagent_activity() {
 // ORACLE chatwidget/tests/terminal_program_status.rs:11 session_status_follows_existing_lifecycle_state kind=ui owner=ui-pane
 #[test]
 fn session_status_follows_existing_lifecycle_state() {
-    kit::pending(
-        Owner::UiPane,
-        "no turn, exec-approval and background-terminal seed in the live chat; the program-status sequence is not on screen",
-    );
     // The oracle's sequence of program states (Idle, Working, Blocked, Working, Done, Idle)
     // is state; the visible part is the background-terminal line in the bottom popup.
-    let mut s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.keys("y");
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 24)
+        .script(include_str!("fixtures/chat_status_3/session_status.jsonl"))
+        .open();
     s.assert_contains("1 background terminal running");
 }
 
@@ -408,13 +406,10 @@ fn image_result_live_and_replay_render_in_the_owning_call() {
 // ORACLE status_indicator_widget.rs:367 renders_with_working_header kind=snap owner=ui-pane snap=renders_with_working_header
 #[test]
 fn renders_with_working_header() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row (working header, timer, interrupt hint) is not on the ported chat screen, and no 80x2 screen shows it alone",
-    );
     Screen::build(Owner::UiPane)
         .size(80, 2)
-        .live()
+        .entry("chat", "working_row")
+        .first_frame()
         .open()
         .assert_snap("renders_with_working_header");
 }
@@ -422,13 +417,10 @@ fn renders_with_working_header() {
 // ORACLE status_indicator_widget.rs:387 renders_truncated kind=snap owner=ui-pane snap=renders_truncated
 #[test]
 fn renders_truncated() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row is not on the ported chat screen, and no 20x2 screen shows it alone",
-    );
     Screen::build(Owner::UiPane)
         .size(20, 2)
-        .live()
+        .entry("chat", "working_row")
+        .first_frame()
         .open()
         .assert_snap("renders_truncated");
 }
@@ -436,13 +428,10 @@ fn renders_truncated() {
 // ORACLE status_indicator_widget.rs:407 renders_wrapped_details_panama_two_lines kind=snap owner=ui-pane snap=renders_wrapped_details_panama_two_lines
 #[test]
 fn renders_wrapped_details_panama_two_lines() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row is not on the ported chat screen; no seed sets the details (the panama phrase, capitalized first), hides the interrupt hint, pauses the timer",
-    );
     Screen::build(Owner::UiPane)
         .size(30, 3)
-        .live()
+        .entry("chat", "working_row_wrapped_details")
+        .first_frame()
         .open()
         .assert_snap("renders_wrapped_details_panama_two_lines");
 }
@@ -450,26 +439,22 @@ fn renders_wrapped_details_panama_two_lines() {
 // ORACLE status_indicator_widget.rs:437 renders_without_spinner_when_animations_disabled kind=ui owner=ui-pane
 #[test]
 fn renders_without_spinner_when_animations_disabled() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row is not on the ported chat screen; no seed turns the animations setting off",
-    );
-    // The oracle renders the row at 80x1 with animations off.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
-    s.assert_has_row("Working (0s • esc to interrupt)");
-    s.assert_absent("• Working");
+    let s = Screen::build(Owner::UiPane)
+        .size(80, 1)
+        .entry("chat", "working_row_no_animations")
+        .first_frame()
+        .open();
+    s.assert_row_starts_with(0, "Working (0s • esc to interrupt)");
 }
 
 // ORACLE status_indicator_widget.rs:462 renders_remapped_interrupt_hint kind=snap owner=ui-pane snap=renders_remapped_interrupt_hint
 #[test]
 fn renders_remapped_interrupt_hint() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row is not on the ported chat screen; no seed remaps the interrupt key to F12",
-    );
     Screen::build(Owner::UiPane)
         .size(80, 1)
-        .live()
+        .keymap(&[("chat.interrupt_turn", "f12")])
+        .entry("chat", "working_row_remapped_interrupt")
+        .first_frame()
         .open()
         .assert_snap("renders_remapped_interrupt_hint");
 }
@@ -479,22 +464,28 @@ fn renders_remapped_interrupt_hint() {
 fn hook_status_reflows_without_displacing_controls_or_details() {
     kit::pending(
         Owner::UiPane,
-        "the hook message, details and background line have no seed, and the status row is not on the ported chat screen",
+        "G44: rtwk's text engine clusters a halfwidth katakana and its sound mark (`ｶﾞ`) into one cell, the oracle counts the mark as its own cell: the hook text `checking 日本語 ｶﾞﾊﾟ policy` is one cell narrower per mark, so the fit width (61 / 124) and the rows at 24 columns differ; the rest of the row (the reflow under the label, the details, the ellipsis) is the oracle's",
     );
     // The oracle draws the row alone at four widths: the fit width (2 rows), one column less
-    // (3 rows), 24 columns (3 rows) and the fit width again. The row's place on our screen is
-    // set by ui-pane with the seed; row 0 stands for it.
-    let mut s = Screen::build(Owner::UiPane).size(124, 24).live().open();
-    for (snap, widths) in [
+    // (3 rows), 24 columns (3 rows) and the fit width again.
+    for (entry, snap, widths) in [
         (
+            "working_row_hook",
             "hook_status_reflows_without_background_activity",
             [61u16, 60, 24, 61],
         ),
         (
+            "working_row_hook_terminal",
             "hook_status_reflows_with_background_activity",
             [124u16, 123, 24, 124],
         ),
     ] {
+        let mut s = Screen::build(Owner::UiPane)
+            // wider than every frame: a resize to the opening size would blank the screen
+            .size(130, 24)
+            .entry("chat", entry)
+            .first_frame()
+            .open();
         for (i, width) in widths.into_iter().enumerate() {
             s.resize(width, 24);
             let frame = if i == 3 {
@@ -511,22 +502,30 @@ fn hook_status_reflows_without_displacing_controls_or_details() {
 // ORACLE status_indicator_widget/effects_tests.rs:9 shimmer_and_progress_are_independent_and_obey_master_switch kind=snap owner=ui-pane snap=codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch
 #[test]
 fn shimmer_and_progress_are_independent_and_obey_master_switch() {
-    kit::pending(
-        Owner::UiPane,
-        "the status-indicator row is not on the ported chat screen; the animations, shimmer and progress settings have no seed",
-    );
-    // The oracle's four settings (animations, shimmer, progress), default foreground (240, 240, 240).
-    // Each is its own seed; the checks below are the first frame of each setting, in order.
-    let s = Screen::build(Owner::UiPane).size(80, 24).live().open();
+    fn open(entry: &'static str) -> Screen {
+        Screen::build(Owner::UiPane)
+            .size(80, 2)
+            // the oracle's `with_test_default_colors`
+            .terminal_colors(0xf0_f0_f0, 0x10_10_10)
+            .entry("chat", entry)
+            .first_frame()
+            .open()
+    }
     // (true, false, false): the plain label, "esc" bold, the rest dim.
+    let s = open("working_row_effects_plain");
     s.assert_has_row("Working (0s • esc to interrupt)");
     s.assert_text_style("esc", "fg=Rgb(240, 240, 240) bold !dim");
-    s.assert_text_style("(0s • ", "dim");
-    s.assert_text_style(" to interrupt)", "dim");
+    // (without the blanks at the edges: G46, the presenter drops DIM on a blank cell)
+    s.assert_text_style("(0s •", "dim");
+    s.assert_text_style("to interrupt)", "dim");
     // (true, false, true): the same label behind the progress bullet.
-    s.assert_has_row("• Working (0s • esc to interrupt)");
+    open("working_row_effects_progress").assert_has_row("• Working (0s • esc to interrupt)");
     // (true, true, false): each label letter is one shimmer step, the first grey Rgb(128, 128, 128).
+    let s = open("working_row_effects_shimmer");
+    s.assert_has_row("Working (0s • esc to interrupt)");
     s.assert_text_style("W", "fg=Rgb(128, 128, 128)");
     // (false, true, true): the master switch is off: the plain row, no bullet, no shimmer.
+    let s = open("working_row_effects_master_off");
+    s.assert_has_row("Working (0s • esc to interrupt)");
     s.assert_absent("• Working");
 }
