@@ -201,7 +201,24 @@ pub enum Intent {
     /// ctrl+c: the queued requests are dropped unanswered (rejected), the
     /// one on screen included (oracle `ChatWidget::on_ctrl_c` with approvals).
     CancelRequests,
+    /// `/auto-review` on a thread: the list found nothing, or one denial was picked.
+    AutoReview {
+        thread: ThreadId,
+        what: AutoReview,
+    },
     Screen(ScreenIntent),
+}
+
+/// What `/auto-review` does to a thread (oracle `open_auto_review_denials_popup`,
+/// `approve_recent_auto_review_denial`): the denials kept are the thread's own
+/// (`screen_slots().approvals.recent_denials`), the view opens the list and says which was
+/// picked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AutoReview {
+    /// The thread has no denial to list.
+    NoDenials,
+    /// The user picked the denial with this review id: one retry is approved.
+    Approve { id: String },
 }
 
 /// Everything that reaches `apply_app`, through one ordered stream.
@@ -1623,6 +1640,18 @@ fn apply_intent(app: &mut CodexApp, intent: Intent, fx: &mut AppFx) {
         Intent::ThreadScreen { thread, intent } => {
             apply_thread(app, &thread, ThreadEv::ScreenIntent(intent), fx)
         }
+        Intent::AutoReview { thread, what } => {
+            let ev = match what {
+                AutoReview::NoDenials => approvals::ThreadEv::NoDenials,
+                AutoReview::Approve { id } => approvals::ThreadEv::ApproveDenied { id },
+            };
+            apply_thread(
+                app,
+                &thread,
+                ThreadEv::Screen(ScreenThreadEv::Approvals(ev)),
+                fx,
+            );
+        }
         Intent::CycleBackend => {
             let switching = app
                 .outgoing
@@ -1774,10 +1803,28 @@ fn resolve_request(
     let Some(entry) = app.requests.get(&key) else {
         return false;
     };
+    let decision = match &answer {
+        approvals::RequestAnswer::Choice(decision)
+        | approvals::RequestAnswer::Elicitation { decision, .. } => Some(decision),
+        approvals::RequestAnswer::UserInput(_) => None,
+    };
+    // What the answer leaves in the thread's history (the oracle's decision cell): only for
+    // the requests it records, none for a thread that is not the one shown.
+    let decided = entry
+        .prompt
+        .as_deref()
+        .zip(decision)
+        .and_then(|(prompt, decision)| approvals::decided::Decided::of(prompt, decision));
     let Some(result) = requests::answer(&entry.request, entry.prompt.as_deref(), answer) else {
         return false;
     };
     remove_request(app, &key);
+    if let Some(decided) = decided {
+        let ev = ThreadEv::Screen(ScreenThreadEv::Approvals(approvals::ThreadEv::Decided(
+            decided,
+        )));
+        apply_thread(app, &key.thread, ev, fx);
+    }
     fx.commands.push(Command::ResolveRequest { key, result });
     true
 }

@@ -491,9 +491,8 @@ mod composer_asks {
 mod thread_asks {
     use codex_app_server_protocol::{
         ClientRequest, RequestId, ReviewDelivery, ReviewStartParams, ReviewTarget as Wire,
-        ServerNotification, ThreadApproveGuardianDeniedActionParams,
-        ThreadBackgroundTerminalsCleanParams, ThreadGoalClearParams, ThreadGoalGetParams,
-        ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
+        ServerNotification, ThreadBackgroundTerminalsCleanParams, ThreadGoalClearParams,
+        ThreadGoalGetParams, ThreadGoalMutationOrigin, ThreadGoalSetParams, ThreadGoalStatus,
         ThreadSettingsUpdateParams,
     };
     use codex_tui_core::app::{AppEv, AppFx, BackendEv, CodexApp, Command, apply_app};
@@ -608,27 +607,13 @@ mod thread_asks {
     }
 
     #[test]
-    fn background_terminals_are_cleaned_and_a_denial_is_retried() {
+    fn background_terminals_are_cleaned() {
         assert_eq!(
             wire(ThreadAsk::CleanTerminals { thread: T.into() }),
             ClientRequest::ThreadBackgroundTerminalsClean {
                 request_id: RequestId::Integer(1),
                 params: ThreadBackgroundTerminalsCleanParams {
                     thread_id: T.into(),
-                },
-            }
-        );
-        let event = json!({ "id": "review-1", "status": "denied" });
-        assert_eq!(
-            wire(ThreadAsk::ApproveGuardianDenied {
-                thread: T.into(),
-                event: event.clone()
-            }),
-            ClientRequest::ThreadApproveGuardianDeniedAction {
-                request_id: RequestId::Integer(1),
-                params: ThreadApproveGuardianDeniedActionParams {
-                    thread_id: T.into(),
-                    event,
                 },
             }
         );
@@ -751,5 +736,299 @@ mod thread_asks {
             goal_of_response(json!({ "goal": { "objective": 3 } })),
             Err(RpcError::Malformed(_))
         ));
+    }
+}
+
+/// The approvals slot of a thread through the app: the auto-reviewer's notifications reach the
+/// thread, what they leave is appended to its history in order, an answer is recorded once the
+/// request is resolved, and `/auto-review` asks the server for one retry. Expected values are the
+/// oracle's (`chatwidget/tool_requests.rs` `on_guardian_assessment`, `auto_review_denials.rs`,
+/// `permission_popups.rs`, `bottom_pane/approval_overlay.rs` `handle_exec_decision`).
+mod guardian {
+    use codex_app_server_protocol::{ClientRequest, RequestId, ServerNotification};
+    use codex_tui_core::app::{
+        AppEv, AppFx, AutoReview, BackendEv, CodexApp, Command, Intent, apply_app,
+    };
+    use codex_tui_core::fixtures::builders::{turn_completed, turn_started};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::approvals::Decision;
+    use codex_tui_core::screens::approvals::decided::{Actor, Decided, Outcome, Subject};
+    use codex_tui_core::screens::{self, ScreenIntent};
+    use codex_tui_core::threads::{Item, ReviewLine};
+    use pretty_assertions::assert_eq;
+
+    const T: &str = "thread-1";
+
+    fn run(app: &mut CodexApp, ev: AppEv) -> AppFx {
+        let mut fx = AppFx::default();
+        apply_app(app, ev, &mut fx);
+        fx
+    }
+
+    /// The app with its thread started, as after `Connected` and the reply.
+    fn ready() -> CodexApp {
+        let mut app = CodexApp::new();
+        let fx = run(&mut app, AppEv::Connected);
+        let ticket = fx
+            .commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::StartThread { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("a StartThread");
+        run(
+            &mut app,
+            AppEv::Reply(ticket, Reply::thread_started(ThreadId::new(T))),
+        );
+        app
+    }
+
+    fn notify(app: &mut CodexApp, method: &str, params: &str) -> AppFx {
+        let notification: ServerNotification =
+            serde_json::from_str(&format!(r#"{{"method":"{method}","params":{params}}}"#))
+                .expect("a notification");
+        run(
+            app,
+            AppEv::Backend(BackendEv::Notification(Box::new(notification))),
+        )
+    }
+
+    /// A review of `id` in the state `status` of the command `command` (an in-progress review
+    /// has no completion).
+    fn review(app: &mut CodexApp, id: &str, status: &str, command: &str) -> AppFx {
+        let (method, done) = if status == "inProgress" {
+            ("item/autoApprovalReview/started", String::new())
+        } else {
+            (
+                "item/autoApprovalReview/completed",
+                r#","completedAtMs":1,"decisionSource":"agent""#.to_string(),
+            )
+        };
+        notify(
+            app,
+            method,
+            &format!(
+                r#"{{"threadId":"{T}","turnId":"turn-1","startedAtMs":0{done},"reviewId":"{id}","targetItemId":null,"review":{{"status":"{status}","riskLevel":null,"userAuthorization":null,"rationale":"too risky"}},"action":{{"type":"command","source":"shell","command":{command:?},"cwd":"/tmp"}}}}"#
+            ),
+        )
+    }
+
+    fn history(app: &CodexApp) -> Vec<Item> {
+        let thread = app.active_thread();
+        let transcript = thread.transcript();
+        (0..transcript.len())
+            .filter_map(|index| transcript.get(index).map(|(_, item)| item.clone()))
+            .collect()
+    }
+
+    fn guardian_denied(command: &str) -> Item {
+        Item::Decision(Decided::Request {
+            actor: Actor::Guardian,
+            subject: Subject::Command(command.into()),
+            outcome: Outcome::Denied,
+        })
+    }
+
+    #[test]
+    fn a_review_under_way_is_listed_and_a_denial_leaves_a_decision() {
+        let mut app = ready();
+        review(&mut app, "g1", "inProgress", "rm -rf /tmp/a");
+        assert_eq!(
+            app.active_thread().screen_slots().approvals.reviews.len(),
+            1
+        );
+        assert_eq!(history(&app), vec![]);
+        review(&mut app, "g1", "denied", "rm -rf /tmp/a");
+        let thread = app.active_thread();
+        let slot = &thread.screen_slots().approvals;
+        assert!(slot.reviews.is_empty());
+        assert_eq!(slot.recent_denials.iter().count(), 1);
+        assert_eq!(history(&app), vec![guardian_denied("rm -rf /tmp/a")]);
+    }
+
+    #[test]
+    fn an_approved_review_leaves_nothing() {
+        let mut app = ready();
+        review(&mut app, "g1", "inProgress", "ls");
+        review(&mut app, "g1", "approved", "ls");
+        assert_eq!(history(&app), vec![]);
+        assert!(
+            app.active_thread()
+                .screen_slots()
+                .approvals
+                .reviews
+                .is_empty()
+        );
+    }
+
+    /// The reviewer's warning is a warning of the detailed transcript; the one that says an
+    /// action was approved is not shown at all.
+    #[test]
+    fn the_reviewers_warning_is_kept_but_not_an_approval_notice() {
+        let mut app = ready();
+        notify(
+            &mut app,
+            "guardianWarning",
+            r#"{"threadId":"thread-1","message":"Automatic approval review approved (risk: low): ls"}"#,
+        );
+        assert_eq!(history(&app), vec![]);
+        notify(
+            &mut app,
+            "guardianWarning",
+            r#"{"threadId":"thread-1","message":"Automatic approval review denied the requested action."}"#,
+        );
+        assert_eq!(
+            history(&app),
+            vec![Item::Warning {
+                message: "Automatic approval review denied the requested action.".into()
+            }]
+        );
+    }
+
+    /// The reviews of a turn are over with it (oracle `on_task_complete`).
+    #[test]
+    fn the_end_of_the_turn_ends_the_reviews() {
+        let mut app = ready();
+        run(&mut app, AppEv::Backend(turn_started(T, "turn-1")));
+        review(&mut app, "g1", "inProgress", "ls");
+        assert_eq!(
+            app.active_thread().screen_slots().approvals.reviews.len(),
+            1
+        );
+        run(&mut app, AppEv::Backend(turn_completed(T, "turn-1")));
+        assert!(
+            app.active_thread()
+                .screen_slots()
+                .approvals
+                .reviews
+                .is_empty()
+        );
+    }
+
+    fn auto_review(app: &mut CodexApp, what: AutoReview) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::AutoReview {
+                thread: ThreadId::new(T),
+                what,
+            }),
+        )
+    }
+
+    #[test]
+    fn auto_review_without_denials_says_so() {
+        let mut app = ready();
+        auto_review(&mut app, AutoReview::NoDenials);
+        assert_eq!(history(&app), vec![Item::Review(ReviewLine::NoDenials)]);
+    }
+
+    /// A pick approves one retry: the server is asked once with the denial's assessment, the
+    /// history says so; the same denial is gone afterwards.
+    #[test]
+    fn a_picked_denial_is_approved_once() {
+        let mut app = ready();
+        review(&mut app, "g1", "denied", "rm -rf /tmp/a");
+        let fx = auto_review(&mut app, AutoReview::Approve { id: "g1".into() });
+        let wires: Vec<ClientRequest> = fx
+            .commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Screen {
+                    thread, command, ..
+                } => Some(screens::wire(command, thread, RequestId::Integer(1))),
+                _ => None,
+            })
+            .collect();
+        let [ClientRequest::ThreadApproveGuardianDeniedAction { params, .. }] = wires.as_slice()
+        else {
+            panic!("one approveGuardianDeniedAction, got {wires:?}");
+        };
+        assert_eq!(params.thread_id, T);
+        assert_eq!(params.event["id"], "g1");
+        assert_eq!(params.event["status"], "denied");
+        assert_eq!(params.event["action"]["command"], "rm -rf /tmp/a");
+        assert_eq!(
+            history(&app),
+            vec![
+                guardian_denied("rm -rf /tmp/a"),
+                Item::Review(ReviewLine::RetryApproved)
+            ]
+        );
+        let again = auto_review(&mut app, AutoReview::Approve { id: "g1".into() });
+        assert!(
+            again
+                .commands()
+                .iter()
+                .all(|command| !matches!(command, Command::Screen { .. })),
+            "a denial retried once is gone"
+        );
+        assert_eq!(
+            history(&app).last(),
+            Some(&Item::Review(ReviewLine::DenialGone))
+        );
+    }
+
+    fn exec_request(id: u64) -> codex_app_server_protocol::ServerRequest {
+        serde_json::from_value(serde_json::json!({
+            "method": "item/commandExecution/requestApproval",
+            "id": id,
+            "params": {
+                "threadId": T, "turnId": "turn-1", "itemId": format!("call-{id}"),
+                "startedAtMs": 0, "approvalId": format!("call-{id}"), "environmentId": null,
+                "command": "echo hi", "cwd": "/tmp"
+            }
+        }))
+        .expect("request")
+    }
+
+    fn answer(app: &mut CodexApp, decision: Decision) {
+        let key = app.requests().entries[0].key.clone();
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Approvals(
+                codex_tui_core::screens::approvals::Intent::Answer { key, decision },
+            ))),
+        );
+    }
+
+    /// An answer is recorded once the request is resolved (the oracle's decision cell): the
+    /// user's, with the command, for a request of the thread that is shown.
+    #[test]
+    fn an_answered_request_of_the_shown_thread_is_recorded() {
+        let mut app = ready();
+        run(
+            &mut app,
+            AppEv::Backend(BackendEv::Request(Box::new(exec_request(1)))),
+        );
+        answer(&mut app, Decision::Accept);
+        assert_eq!(
+            history(&app),
+            vec![Item::Decision(Decided::Request {
+                actor: Actor::User,
+                subject: Subject::Command("echo hi".into()),
+                outcome: Outcome::Approved,
+            })]
+        );
+    }
+
+    /// Esc / ctrl+c on the dialog answers with the cancelling decision, which is recorded too.
+    #[test]
+    fn a_cancelled_request_is_recorded_as_aborted() {
+        let mut app = ready();
+        run(
+            &mut app,
+            AppEv::Backend(BackendEv::Request(Box::new(exec_request(1)))),
+        );
+        run(&mut app, AppEv::Intent(Intent::CancelRequests));
+        assert_eq!(
+            history(&app),
+            vec![Item::Decision(Decided::Request {
+                actor: Actor::User,
+                subject: Subject::Command("echo hi".into()),
+                outcome: Outcome::Aborted,
+            })]
+        );
     }
 }

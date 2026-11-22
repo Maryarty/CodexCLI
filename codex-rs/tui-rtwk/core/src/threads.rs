@@ -10,6 +10,7 @@ mod activity;
 mod cells;
 pub mod citations;
 mod collab;
+pub mod decision;
 pub mod directives;
 pub mod followups;
 pub mod goal;
@@ -25,6 +26,7 @@ pub use cells::{
     WebActivity,
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
+pub use decision::ReviewLine;
 pub use goal::{Goal, GoalStatus, ReviewTarget, SettingsPatch, goal_of_response};
 pub use message::{LocalImage, UserMessage};
 pub use user_prompt::UserPrompt;
@@ -40,7 +42,6 @@ use codex_app_server_protocol::ReviewDelivery;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SortDirection;
-use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
 use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
 use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
@@ -143,6 +144,11 @@ pub enum Item {
         summary: String,
         details: Option<String>,
     },
+    /// What an answer to an approval request or the auto-reviewer's verdict left (oracle
+    /// `new_approval_decision_cell`, the plain permissions line).
+    Decision(screens::approvals::decided::Decided),
+    /// A line `/auto-review` or the reviewer's paths added.
+    Review(ReviewLine),
 }
 
 impl Item {
@@ -1173,12 +1179,6 @@ pub enum ThreadAsk {
         thread: String,
         patch: SettingsPatch,
     },
-    /// `thread/approveGuardianDeniedAction`: one retry of an action Auto Review denied; `event`
-    /// is the serialized assessment the review kept.
-    ApproveGuardianDenied {
-        thread: String,
-        event: serde_json::Value,
-    },
 }
 
 /// How many turns one page of a thread's history holds.
@@ -1209,7 +1209,6 @@ impl ThreadAsk {
             | ThreadAsk::GoalClear { thread }
             | ThreadAsk::CleanTerminals { thread }
             | ThreadAsk::SettingsUpdate { thread, .. }
-            | ThreadAsk::ApproveGuardianDenied { thread, .. }
             | ThreadAsk::Unsubscribe { thread } => Some(thread),
             ThreadAsk::Start { .. } => None,
         }
@@ -1404,15 +1403,6 @@ impl ThreadAsk {
                 request_id,
                 params: patch.wire(thread),
             },
-            ThreadAsk::ApproveGuardianDenied { thread, event } => {
-                ClientRequest::ThreadApproveGuardianDeniedAction {
-                    request_id,
-                    params: ThreadApproveGuardianDeniedActionParams {
-                        thread_id: thread.clone(),
-                        event: event.clone(),
-                    },
-                }
-            }
         }
     }
 }
@@ -1597,9 +1587,16 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
         )),
         _ => None,
     };
-    transcript.or_else(|| {
-        screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
-    })
+    transcript
+        .or_else(|| {
+            screens::project_thread(notification).map(|(thread, ev)| (thread, ThreadEv::Screen(ev)))
+        })
+        .or_else(|| {
+            // The auto-reviewer's notifications (`screens::project_thread` is the popups'
+            // file: the approvals slot is routed here until it adds the arm).
+            screens::approvals::project(notification)
+                .map(|(thread, ev)| (thread, ThreadEv::Screen(ScreenThreadEv::Approvals(ev))))
+        })
 }
 
 /// What the server sends without a thread and the chat shows in the thread
@@ -1971,6 +1968,7 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 return;
             }
             screens::apply_thread_ev(&mut model.slots, ev, fx);
+            append_history(model);
         }
         ThreadEv::TurnError { turn, fault } => {
             // Oracle `on_error`: the turn is finalized, then the error row, then
@@ -2068,6 +2066,9 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
 }
 
 fn end_turn(model: &mut ThreadModel, turn: TurnId, end: TurnEnd, fx: &mut ThreadFx<'_>) {
+    // The reviews of the turn are over with it (oracle `on_task_complete`).
+    let over = ScreenThreadEv::Approvals(screens::approvals::ThreadEv::TurnEnded);
+    screens::apply_thread_ev(&mut model.slots, over, fx);
     Rc::make_mut(&mut model.finished_turns).insert(turn.clone());
     model.transcript.finish_streams(&turn);
     model.completed_items.retain(|key| key.turn != turn);
@@ -2329,6 +2330,14 @@ fn apply_appended(model: &mut ThreadModel, turn: Option<TurnId>, item: Item) {
         .unwrap_or_default();
     let key = model.transcript.mint(turn);
     model.transcript.upsert(key, item);
+}
+
+/// What the approvals slot owes the history (`History`: decisions, the reviewer's warnings and
+/// the `/auto-review` lines), appended in the order it came.
+fn append_history(model: &mut ThreadModel) {
+    for history in model.slots.approvals.take_history() {
+        apply_appended(model, None, decision::item_of(history));
+    }
 }
 
 /// Entering or leaving code review is the thread's state (oracle

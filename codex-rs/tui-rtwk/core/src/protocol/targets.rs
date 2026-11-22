@@ -39,6 +39,9 @@ pub(crate) fn notification_thread(notification: &ServerNotification) -> Option<&
         N::ReasoningSummaryPartAdded(n) => &n.thread_id,
         N::ServerRequestResolved(n) => &n.thread_id,
         N::Error(n) => &n.thread_id,
+        N::ItemGuardianApprovalReviewStarted(n) => &n.thread_id,
+        N::ItemGuardianApprovalReviewCompleted(n) => &n.thread_id,
+        N::GuardianWarning(n) => &n.thread_id,
         _ => return None,
     })
 }

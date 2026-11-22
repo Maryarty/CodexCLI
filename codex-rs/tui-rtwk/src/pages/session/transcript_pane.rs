@@ -428,6 +428,17 @@ impl State for ViewportState {
                     }
                     .into(),
                 ),
+                Item::Decision(decided) => cell(
+                    separator,
+                    crate::sheets::approvals::DecisionCell {
+                        decided: decided.clone(),
+                    }
+                    .into(),
+                ),
+                Item::Review(line) => cell(
+                    separator,
+                    crate::sheets::approvals::ReviewLineCell { line: line.clone() }.into(),
+                ),
                 Item::Reasoning { summary } => cell(
                     separator,
                     super::cells::reasoning::ReasoningCell {
