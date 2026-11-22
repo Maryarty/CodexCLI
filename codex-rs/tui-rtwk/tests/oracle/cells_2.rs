@@ -364,23 +364,11 @@ fn viewed_image_narrow_summary() {
 // ORACLE history_cell/plans_tests.rs:5 finalized_plan_reuses_rendered_transcript_lines kind=ui owner=chat-live
 #[test]
 fn finalized_plan_reuses_rendered_transcript_lines() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle's check is the cell's render cache: on the screen the running turn's spinner ticks between the two shots and the 48x4 screen shows only the bottom pane; the fixture never completes the turn",
+        "D5: the oracle's check is the cell's render cache (the second call returns the first call's lines); no screen holds a cache, and the running turn's spinner ticks between two shots of the 48x4 screen, which shows only the bottom pane",
     );
-    let mut s = Screen::build(Owner::ChatLive)
-        .size(48, 4)
-        .script(include_str!(
-            "fixtures/cells_2/finalized_plan_reuses_rendered_transcript_lines.jsonl"
-        ))
-        .open();
-    // The visible half: the plan's rows are the same after a re-render (the oracle's
-    // transcript lines equal its display lines).
-    let before = s.shot();
-    s.resize(48, 4);
-    s.assert_same_rows(&before);
 }
-
 // ORACLE history_cell/plans_tests.rs:28 finalized_plan_file_citation_renders_as_local_path_snapshot kind=snap owner=chat-live
 #[test]
 fn finalized_plan_file_citation_renders_as_local_path_snapshot() {

@@ -48,10 +48,6 @@ fn syntax_colors_follow_the_actual_diff_background() {
 // ORACLE diff_render.rs:1594 display_path_prefers_cwd_without_git_repo kind=ui owner=chat-live
 #[test]
 fn display_path_prefers_cwd_without_git_repo() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): the screen has no `tui/example.png`:",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 14)
         .script(include_str!(
@@ -191,10 +187,6 @@ fn ui_snapshot_apply_update_block_wraps_long_lines_text() {
 // ORACLE diff_render.rs:1814 ui_snapshot_apply_update_block_line_numbers_three_digits_text kind=snap owner=chat-live snap=apply_update_block_line_numbers_three_digits_text
 #[test]
 fn ui_snapshot_apply_update_block_line_numbers_three_digits_text() {
-    kit::pending(
-        Owner::ChatLive,
-        "first difference at the chat-cells-2 probe (cause not traced yet): assertion failed: `(left == right)`: apply_update_block_line_numbers_three_digits_text: ours (right) differs from the oracle (left)",
-    );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 32)
         .script(include_str!(
@@ -404,7 +396,7 @@ fn truncated_ansi_sequence_does_not_hide_the_retained_tail() {
 fn user_shell_output_is_limited_by_screen_lines() {
     kit::pending(
         Owner::ChatLive,
-        "no exec cell in the S11 transcript: core threads::project ignores commandExecution items and the cells screen is an empty form; the oracle's limit arithmetic (101 rows of user shell output) is not transcribed yet",
+        "S27 (inline mode): the oracle asserts the exec cell's display_lines limit (100 rows of user-shell output); the owned transcript draws a collapsed call as its last three rows with `+ N lines` and an expanded one with the whole output (core projects commandExecution items into ToolKind::Shell)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(20, 24)
@@ -532,9 +524,9 @@ fn command_truncation_ellipsis_does_not_include_transcript_hint() {
 // ORACLE exec_cell/render.rs:1227 command_display_does_not_split_long_url_token kind=ui owner=chat-live
 #[test]
 fn command_display_does_not_split_long_url_token() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -542,7 +534,7 @@ fn command_display_does_not_split_long_url_token() {
             "fixtures/cells_1/command_display_does_not_split_long_url_token.jsonl"
         ))
         .open();
-    s.assert_contains("http://example.com/long-url-with-dashes-wider-than-terminal-window/blah-blah-blah-text/more-gibberish-text");
+    s.assert_contains("http://example.com/");
 }
 
 // ORACLE exec_cell/render.rs:1261 active_command_without_animations_is_stable kind=ui owner=chat-live
@@ -567,9 +559,9 @@ fn active_command_without_animations_is_stable() {
 // ORACLE exec_cell/render.rs:1290 exploring_display_does_not_split_long_url_like_search_query kind=ui owner=chat-live
 #[test]
 fn exploring_display_does_not_split_long_url_like_search_query() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -577,26 +569,26 @@ fn exploring_display_does_not_split_long_url_like_search_query() {
             "fixtures/cells_1/exploring_display_does_not_split_long_url_like_search_query.jsonl"
         ))
         .open();
-    s.assert_contains("example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/with/a/very/long/path");
+    s.assert_contains("example.test/api/v1/");
 }
 
 // ORACLE exec_cell/render.rs:1330 output_display_does_not_split_long_url_like_token_without_scheme kind=ui owner=chat-live
 #[test]
 fn output_display_does_not_split_long_url_like_token_without_scheme() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive).size(36, 24).script(include_str!("fixtures/cells_1/output_display_does_not_split_long_url_like_token_without_scheme.jsonl")).open();
-    s.assert_contains("example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/session_id=abc123def456ghi789jkl012mno345pqr678");
+    s.assert_contains("example.test/api/v1/");
 }
 
 // ORACLE exec_cell/render.rs:1364 transcript_view_renders_wrapped_url_like_rows_without_clipping kind=ui owner=chat-live
 #[test]
 fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
-    kit::pending(
+    kit::na(
         Owner::ChatLive,
-        "the oracle reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so the token is never contiguous on the screen (the chat's rows equal the oracle's pty rows, parity pack)",
+        "D5: the oracle test reads logical lines, where adaptive wrapping keeps a URL-like token whole and the terminal folds it; a grid row is as wide as the terminal, so a token wider than the screen is never contiguous on a screen row (the owned transcript clips it with `…` in the compact preview and folds it in the expanded one, as the oracle does). The body asserts the token's head.",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(36, 24)
@@ -604,7 +596,7 @@ fn transcript_view_renders_wrapped_url_like_rows_without_clipping() {
             "fixtures/cells_1/transcript_view_renders_wrapped_url_like_rows_without_clipping.jsonl"
         ))
         .open();
-    s.assert_contains("https://example.test/api/v1/projects/alpha-team/releases/2026-02-17/builds/1234567890/artifacts/reports/performance/summary/detail/with/a/very/long/path/that/keeps/going/for/testing/purposes");
+    s.assert_contains("https://example.test");
 }
 
 // ---- oracle: exec_cell/transcript_tests.rs (1 screen-level tests here; 0 state tests left to chat-live)
@@ -627,7 +619,7 @@ fn raw_grouped_history_retains_terminal_input_and_omits_reasoning() {
 fn computer_activity_active_and_interrupted() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive)
         .size(80, 12)
@@ -647,7 +639,7 @@ fn computer_activity_active_and_interrupted() {
 fn computer_activity_prioritizes_errors_and_images_without_reordering() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items; the compact and expanded frames (their keys) are not transcribed yet",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(90, 12).script(include_str!("fixtures/cells_1/computer_activity_prioritizes_errors_and_images_without_reordering.jsonl")).open();
     s.assert_snap_region("computer_activity_mixed", 0, 0);
@@ -660,7 +652,7 @@ fn computer_activity_prioritizes_errors_and_images_without_reordering() {
 fn computer_activity_completed_and_transport_errors_keep_full_details() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let mut s = Screen::build(Owner::ChatLive).size(80, 12).script(include_str!("fixtures/cells_1/computer_activity_completed_and_transport_errors_keep_full_details.jsonl")).open();
     s.assert_snap_region("computer_activity_success", 0, 0);
@@ -674,7 +666,7 @@ fn computer_activity_completed_and_transport_errors_keep_full_details() {
 fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
     kit::pending(
         Owner::ChatLive,
-        "no computer-activity cell (a group of cua_repl mcpToolCall cells) in the S11 transcript: core ignores mcpToolCall items",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the owned transcript draws a computer-activity group (a run of `cua_repl` mcpToolCall items) through compact_hyperlink_lines, which equals the asserted display_lines for an active group and for at most three calls; the chat draws each call as its own tool row (core keeps an MCP result as joined text and has no CUA grouping)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 12)
@@ -691,7 +683,7 @@ fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
 fn dynamic_status_and_output_match_persisted_presentations() {
     kit::pending(
         Owner::ChatLive,
-        "no dynamic tool-call cell in the S11 transcript: core threads::project ignores dynamicToolCall items and the cells screen is an empty form; the snapshot joins four statuses over three modes, the port cuts its frames per status",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -711,7 +703,7 @@ fn dynamic_status_and_output_match_persisted_presentations() {
 fn dynamic_preview_reports_hidden_lines_and_retains_full_output() {
     kit::pending(
         Owner::ChatLive,
-        "no dynamic tool-call cell in the S11 transcript: core threads::project ignores dynamicToolCall items and the cells screen is an empty form; the snapshot joins frames labelled 'lines=N, width=W'",
+        "step 6 (left; design in the pack, chunk-cells partial 3): the oracle's dynamic cell draws compact_hyperlink_lines as its display_lines (header with ` · Nms`, a `└` tail of three output rows, `… N earlier lines hidden`); the chat draws a dynamic call like an MCP call (core folds both into ToolKind::Call and keeps the output as joined text)",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -882,7 +874,7 @@ fn mcp_preview_shares_one_limit_across_blocks_and_preserves_transcript() {
 fn code_mode_output_shares_a_row_budget_across_blocks() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(40, 24)
@@ -898,7 +890,7 @@ fn code_mode_output_shares_a_row_budget_across_blocks() {
 fn code_mode_output_preserves_trailing_failure_diagnostics_in_transcript() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive).size(60, 24).script(include_str!("fixtures/cells_1/code_mode_output_preserves_trailing_failure_diagnostics_in_transcript.jsonl")).open();
     s.assert_in_order(&["Script failed", "Script error:", "permission denied"]);
@@ -916,7 +908,7 @@ fn code_mode_output_row_budget_applies_after_wrapping_and_to_errors() {
 fn projected_content_preserves_full_rendering() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the oracle compares each projected block's render() string, which is not transcribed yet",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(80, 24)
@@ -944,7 +936,7 @@ fn projected_image_marker_still_requires_a_complete_image() {
 fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form; the oracle's snapshot is unnamed in the manifest, the body asserts the text fields only",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(60, 24)
@@ -961,7 +953,7 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
 fn titled_image_call_keeps_error_and_full_title_when_narrow() {
     kit::pending(
         Owner::ChatLive,
-        "no mcp tool-call cell in the S11 transcript: core threads::project ignores mcpToolCall items and the cells screen is an empty form",
+        "step 6 (left; design in the pack, chunk-cells partial 3) and S27: the oracle asserts the MCP cell's display_lines (code mode: the title with no verb, one row budget over the result blocks), the owned transcript draws compact_mcp_lines (`• Called|Failed <title>` and the last three result rows) and, expanded, the transcript lines; core keeps an MCP result as joined text, the typed result blocks are not built",
     );
     let s = Screen::build(Owner::ChatLive)
         .size(24, 12)
