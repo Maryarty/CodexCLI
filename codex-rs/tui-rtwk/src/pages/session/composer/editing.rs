@@ -87,6 +87,10 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
         vim::toggle(data);
         return true;
     }
+    // the clipboard's image is the chat's key, before any of the composer's
+    if paste_image(data, key) {
+        return true;
+    }
     // reverse history search owns every key while it is open
     if data.draft.searching() {
         return search::key(data, c, key);
@@ -121,6 +125,10 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     if data.suggest.take_key(c, key, &*data.tell) {
         return true;
     }
+    // the rows of remote images above the draft take Up, Down and Delete
+    if remote_key(data, c, key) {
+        return true;
+    }
     // Ctrl+R opens the search (Vim's Normal mode keeps it for redo)
     if !mode.normal && search::opens(data, key) {
         search::begin(data, c);
@@ -142,6 +150,53 @@ pub fn take_key(data: &KeyData, c: &TextEditingController, key: &KeyPress, kcx: 
     let took = edit_key(data, c, key, skill_space);
     if !took && mode.enabled {
         vim::typed(data, key);
+    }
+    took
+}
+
+/// Ctrl+V or Alt+V (`fixed.paste_image`): the clipboard's image is asked
+/// for, and the answer is attached where the caret is
+/// (`image_paste_key_action`). A repeat within a quarter of a second is
+/// swallowed. Outside an app there is no clipboard to ask: the field's key.
+fn paste_image(data: &KeyData, key: &KeyPress) -> bool {
+    let is_v = key.code == KeyCode::Char && key.ch.is_some_and(|ch| ch.eq_ignore_ascii_case(&'v'));
+    if !is_v || !(key.mods.contains(Mods::CTRL) || key.mods.contains(Mods::ALT)) {
+        return false;
+    }
+    let Some(env) = &data.burst else {
+        return false;
+    };
+    let answers = data.states.popovers.pasted.answers();
+    if data.draft.ask_for_image((env.now)(), answers) {
+        (data.tell)(ComposerMsg::PasteImage);
+    }
+    true
+}
+
+/// Up at the draft's start selects the last remote image row, Up and Down
+/// move the selection, Delete and Backspace remove the selected row; any
+/// other key ends the selection and goes on
+/// (`handle_remote_image_selection_key`). Removing a row is an edit of its
+/// own in Vim.
+fn remote_key(data: &KeyData, c: &TextEditingController, key: &KeyPress) -> bool {
+    let draft = &data.draft;
+    let Some(env) = &data.burst else {
+        return false;
+    };
+    let took = key.mods == Mods::NONE
+        && match key.code {
+            KeyCode::Up => draft.remote_up(c),
+            KeyCode::Down => draft.remote_down(c),
+            KeyCode::Delete | KeyCode::Backspace => {
+                draft.remote_removable(c) && {
+                    draft.vim_direct(c, || draft.remote_remove(c, &*env.image));
+                    true
+                }
+            }
+            _ => false,
+        };
+    if took || draft.clear_remote_selection() {
+        (data.tell)(ComposerMsg::Remote);
     }
     took
 }
@@ -830,5 +885,157 @@ mod tests {
         // the killed line is in the ring
         press(&d, &c, ctrl('y'));
         assert_eq!(c.text().as_ref(), "abc\ndef");
+    }
+    /// What the keys of the clipboard image and of the remote image rows ask
+    /// of the composer: the messages it is told, in order.
+    mod images {
+        use std::cell::{Cell, RefCell};
+        use std::time::Duration;
+
+        use super::*;
+
+        struct Rig {
+            data: KeyData,
+            told: Rc<RefCell<Vec<String>>>,
+            now: Rc<Cell<Duration>>,
+        }
+
+        fn image(n: usize) -> String {
+            ["[Image #", &n.to_string(), "]"].concat()
+        }
+
+        fn rig() -> Rig {
+            let told: Rc<RefCell<Vec<String>>> = Rc::default();
+            let now: Rc<Cell<Duration>> = Rc::default();
+            let (log, clock) = (told.clone(), now.clone());
+            let data = KeyData {
+                tell: Rc::new(move |msg| log.borrow_mut().push(format!("{msg:?}"))),
+                burst: Some(BurstEnv {
+                    now: Rc::new(move || clock.get()),
+                    arm: Rc::new(|| {}),
+                    label: Rc::new(|n| ["[Pasted Content ", &n.to_string(), " chars]"].concat()),
+                    image: Rc::new(image),
+                }),
+                ..data()
+            };
+            Rig { data, told, now }
+        }
+
+        fn urls(n: usize) -> Vec<String> {
+            (1..=n)
+                .map(|i| ["https://example.com/", &i.to_string(), ".png"].concat())
+                .collect()
+        }
+
+        fn key(code: KeyCode) -> KeyPress {
+            KeyPress::code(code)
+        }
+
+        #[test]
+        fn ctrl_v_and_alt_v_ask_for_the_clipboard_image_once_per_quarter_second() {
+            let r = rig();
+            assert!(paste_image(&r.data, &ctrl('v')));
+            assert_eq!(*r.told.borrow(), ["PasteImage"]);
+            // the repeat of a held key, 100 ms later, is swallowed
+            r.now.set(Duration::from_millis(100));
+            assert!(paste_image(&r.data, &ctrl('v')));
+            assert_eq!(r.told.borrow().len(), 1);
+            // a press 250 ms after the last asks again, whichever its modifier
+            r.now.set(Duration::from_millis(350));
+            let alt = KeyPress::char('v').with_mods(Mods::ALT);
+            assert!(paste_image(&r.data, &alt));
+            assert_eq!(r.told.borrow().len(), 2);
+        }
+
+        #[test]
+        fn a_plain_v_is_typed_and_ctrl_v_outside_an_app_is_the_fields() {
+            let r = rig();
+            assert!(!paste_image(&r.data, &KeyPress::char('v')));
+            assert!(r.told.borrow().is_empty());
+            let outside = KeyData {
+                burst: None,
+                ..data()
+            };
+            assert!(!paste_image(&outside, &ctrl('v')));
+        }
+
+        #[test]
+        fn up_at_the_start_selects_the_last_row_and_up_down_move_it() {
+            let r = rig();
+            let c = at("hello", 0);
+            r.data.draft.set_remote_images(&c, urls(3), image);
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert_eq!(r.data.draft.remote_selected(), Some(2));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert_eq!(
+                r.data.draft.remote_selected(),
+                Some(0),
+                "the first row stays"
+            );
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert_eq!(r.data.draft.remote_selected(), Some(1));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert_eq!(r.data.draft.remote_selected(), None, "past the last row");
+            assert!(r.told.borrow().iter().all(|m| m == "Remote"));
+        }
+
+        #[test]
+        fn up_elsewhere_than_the_start_and_down_with_no_row_selected_are_not_its() {
+            let r = rig();
+            let c = at("hello", 2);
+            r.data.draft.set_remote_images(&c, urls(2), image);
+            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            let c = at("hello", 0);
+            assert!(!remote_key(&r.data, &c, &key(KeyCode::Down)));
+            assert_eq!(r.data.draft.remote_selected(), None);
+            // a selected stretch of text keeps Up for the text
+            c.set_selection(TextSelection {
+                base_offset: 0,
+                extent_offset: 3,
+            });
+            assert!(!remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(r.told.borrow().is_empty());
+        }
+
+        #[test]
+        fn delete_removes_the_selected_row_and_renumbers_the_local_images() {
+            let r = rig();
+            let c = at("", 0);
+            r.data.draft.set_remote_images(&c, urls(2), image);
+            r.data
+                .draft
+                .attach_image(&c, std::path::PathBuf::from("/tmp/a.png"), image);
+            assert_eq!(&*c.text(), "[Image #3]");
+            c.set_selection(TextSelection::collapsed(0));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Delete)));
+            assert_eq!(r.data.draft.remote_images(), urls(2)[1..].to_vec());
+            assert_eq!(
+                &*c.text(),
+                "[Image #2]",
+                "the local image follows the one row"
+            );
+            assert_eq!(r.data.draft.remote_selected(), Some(0));
+            // Backspace removes the last one; no row is left to select
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Backspace)));
+            assert_eq!(r.data.draft.remote_count(), 0);
+            assert_eq!(r.data.draft.remote_selected(), None);
+            assert_eq!(&*c.text(), "[Image #1]");
+        }
+
+        #[test]
+        fn any_other_key_ends_the_selection_and_goes_on() {
+            let r = rig();
+            let c = at("", 0);
+            r.data.draft.set_remote_images(&c, urls(1), image);
+            assert!(remote_key(&r.data, &c, &key(KeyCode::Up)));
+            assert!(!remote_key(&r.data, &c, &KeyPress::char('a')));
+            assert_eq!(r.data.draft.remote_selected(), None);
+        }
     }
 }

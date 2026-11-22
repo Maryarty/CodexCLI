@@ -326,7 +326,7 @@ fn backspace_deletes_a_body_selection_before_an_absorbed_prefix() {
 fn selected_text_navigation_does_not_recall_history_or_select_images() {
     kit::pending(
         Owner::ChatLive,
-        "no mouse selection on the chat composer; the remote-image case (set_remote_image_urls) has no seed: the rows above the draft are not drawn",
+        "no mouse selection on the chat composer; the remote-image case has no kit seed for set_remote_image_urls (the port draws the rows)",
     );
     for (key, from, to) in [("up", 8, 2), ("down", 2, 8)] {
         let mut s = chat(80, 24);
@@ -699,7 +699,7 @@ fn normal_mode_explicit_paste_is_its_own_edit_and_replaces_stale_redo() {
 fn deleting_a_selected_remote_image_is_one_undoable_vim_edit() {
     kit::pending(
         Owner::ChatLive,
-        "no Vim mode and no remote image rows on the chat composer (no seed for set_remote_image_urls): the selected remote image is not drawn and Delete does not remove it",
+        "no Vim toggle in the kit and no seed for set_remote_image_urls: the port selects and deletes the row as one Vim edit (tests/pages/composer_images.rs, composer/editing.rs)",
     );
     let mut s = chat(100, 24);
     vim_draft(&mut s, "abc");

@@ -12,6 +12,7 @@ use crate::ids::ThreadId;
 use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::screens::Shared;
+use crate::screens::composer::clipboard::Pasted;
 use crate::screens::composer::history::{History, HistoryEntry, Lookup, SearchResult, Store};
 use crate::screens::composer::mentions::candidate::Capability;
 use crate::screens::composer::mentions::files::{FileMatch, FileMatches, FileSearchAsk, MatchType};
@@ -39,6 +40,8 @@ pub struct Model {
     pub file_matches: FileMatches,
     /// The window of recent `$` picks.
     pub usage: MentionUsage,
+    /// The images the host took from the clipboard (Ctrl+V).
+    pub pasted: Pasted,
     /// The message history file as far as it was read. Shared: `ScreenStates`
     /// is cloned on every change of any screen, a long history is not.
     pub history: Shared<Store>,
@@ -57,6 +60,10 @@ pub enum Ask {
     FileSearch(FileSearchAsk),
     /// A `$` pick was made: the usage file keeps its identity.
     RecordMention(String),
+    /// Ctrl+V: write the clipboard's image to a file; answered with
+    /// `Ev::ImagePasted`. A clipboard with no image, or none at all, is the
+    /// host's to tell the user (`Failed to paste image: ...`), no answer.
+    ClipboardImage,
     /// Append a submitted prompt to the file (`AppendMessageHistoryEntry`);
     /// no answer.
     Append(String),
@@ -225,6 +232,8 @@ pub enum Ev {
     FileMatches { query: String, matches: Vec<FileMatch> },
     /// The recent `$` picks the usage file held, oldest first.
     MentionUsage(Vec<String>),
+    /// The clipboard's image was written to this file (`Ask::ClipboardImage`).
+    ImagePasted(std::path::PathBuf),
     /// A history file of these prompts, oldest first, all read (a script's
     /// seed).
     History(Vec<String>),
@@ -262,6 +271,8 @@ pub enum Intent {
     RecordMention(String),
     /// A task was picked: the list of tasks the search found is spent.
     SpendTasks,
+    /// Ctrl+V: the clipboard's image is wanted (`Ask::ClipboardImage`).
+    PasteImage,
 }
 
 pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
@@ -271,6 +282,7 @@ pub fn apply(model: &mut Model, ev: Ev, fx: &mut AppFx) {
         Ev::Tasks(tasks) => model.tasks = tasks,
         Ev::FileMatches { query, matches } => model.file_matches = FileMatches { query, matches },
         Ev::MentionUsage(recent) => model.usage = MentionUsage::from_recent(recent),
+        Ev::ImagePasted(path) => model.pasted.on_image(path),
         Ev::History(history) => *model.history = Store::seeded(history),
         Ev::HistoryMetadata {
             log_id,
@@ -308,6 +320,7 @@ pub fn apply_intent(model: &mut Model, intent: Intent, fx: &mut AppFx) {
         Intent::Lookup(lookup) => model.asks.push(Ask::Lookup(lookup)),
         Intent::SearchFiles(ask) => model.asks.push(Ask::FileSearch(ask)),
         Intent::SpendTasks => model.tasks.clear(),
+        Intent::PasteImage => model.asks.push(Ask::ClipboardImage),
         Intent::RecordMention(identity) => {
             model.usage.record(&identity);
             model.asks.push(Ask::RecordMention(identity));
@@ -368,7 +381,8 @@ pub fn decode(command: &Command, result: serde_json::Value) -> Result<Reply, Rpc
 /// `{"mentions":[{kind,name,description,insert,path?,plugin_id?,capabilities?}]}` (capabilities: `"skills"`, `{"mcp_servers":2}`, `{"apps":1}`),
 /// `{"tasks":[{thread,title,cwd?,snippet?}]}`,
 /// `{"file_matches":{"query":"q","matches":[{path,dir?,score?,indices?}]}}`,
-/// `{"mention_usage":["path"]}` and `{"history":["..."]}` (oldest first).
+/// `{"mention_usage":["path"]}`, `{"image_pasted":"/path/to.png"}` and
+/// `{"history":["..."]}` (oldest first).
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SeedEv {
@@ -376,6 +390,7 @@ enum SeedEv {
     Tasks(Vec<SeedTask>),
     FileMatches(SeedFileMatches),
     MentionUsage(Vec<String>),
+    ImagePasted(std::path::PathBuf),
     History(Vec<String>),
 }
 
@@ -496,5 +511,6 @@ pub fn seed(value: serde_json::Value) -> Result<Ev, crate::screens::SeedError> {
                 .collect(),
         },
         SeedEv::MentionUsage(recent) => Ev::MentionUsage(recent),
+        SeedEv::ImagePasted(path) => Ev::ImagePasted(path),
     })
 }

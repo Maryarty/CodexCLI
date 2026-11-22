@@ -13,6 +13,7 @@ use crate::rpc::RpcError;
 use crate::screens::Kind;
 use crate::threads::ThreadFx;
 
+pub mod clipboard;
 pub mod history;
 pub mod mentions;
 pub mod paste_burst;

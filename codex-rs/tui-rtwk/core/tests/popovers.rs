@@ -193,3 +193,33 @@ fn a_pending_read_keeps_the_preview_and_an_unavailable_one_restores_the_draft() 
     w.show(preview);
     assert_eq!((w.s.status, w.preview()), (SearchStatus::Idle, None));
 }
+
+/// Ctrl+V: the host answers with a file, and a composer takes the first
+/// answer after the one it counted when it asked (an answer that came
+/// before is another's).
+#[test]
+fn a_clipboard_image_answers_only_the_asks_before_it() {
+    use codex_tui_core::screens::composer::clipboard::Pasted;
+    use std::path::Path;
+    let mut pasted = Pasted::default();
+    assert_eq!(pasted.after(0), None);
+    pasted.on_image("/tmp/a.png".into());
+    assert_eq!(pasted.after(0), Some(Path::new("/tmp/a.png")));
+    assert_eq!(
+        pasted.after(1),
+        None,
+        "asked after the answer: waits for the next"
+    );
+    pasted.on_image("/tmp/b.png".into());
+    assert_eq!(pasted.after(1), Some(Path::new("/tmp/b.png")));
+    assert_eq!(
+        (pasted.answers(), pasted.latest()),
+        (2, Some(Path::new("/tmp/b.png")))
+    );
+}
+
+#[test]
+fn the_image_pasted_seed_is_an_event() {
+    let ev = seed(serde_json::json!({"image_pasted": "/tmp/a.png"})).expect("seed");
+    assert_eq!(ev, Ev::ImagePasted("/tmp/a.png".into()));
+}

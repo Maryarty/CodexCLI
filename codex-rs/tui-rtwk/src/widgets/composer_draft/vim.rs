@@ -24,6 +24,8 @@ pub struct Snapshot {
     caret: usize,
     elements: Vec<Element>,
     shell: bool,
+    /// The remote images above the text (a deleted row is one undoable edit).
+    remote: Vec<String>,
 }
 
 impl Snapshot {
@@ -35,6 +37,7 @@ impl Snapshot {
                 .iter()
                 .map(|e| e.label.len() + e.payload.len() + std::mem::size_of::<Element>())
                 .sum::<usize>()
+            + self.remote.iter().map(String::len).sum::<usize>()
     }
 
     pub fn text(&self) -> &str {
@@ -144,6 +147,7 @@ impl ComposerDraft {
             caret: c.selection().extent_offset,
             elements: self.elements(c),
             shell: self.shell(),
+            remote: self.remote_images(),
         }
     }
 
@@ -156,6 +160,8 @@ impl ComposerDraft {
             let mut inner = self.0.borrow_mut();
             inner.elements = snapshot.elements.clone();
             inner.seen = Some(c.buffer());
+            inner.remote.urls = snapshot.remote.clone();
+            inner.remote.selected = None;
         }
         c.set_selection(TextSelection::collapsed(
             snapshot.caret.min(snapshot.text.len()),
@@ -171,6 +177,27 @@ impl ComposerDraft {
         let snapshot = self.snapshot(c);
         let bytes = snapshot.bytes();
         self.with_vim_history(|h| h.begin(snapshot, bytes));
+    }
+
+    /// `edit`, an edit that no key made (an image from the clipboard, a
+    /// remote image row removed): in Vim it is a step of undo of its own,
+    /// and `.` does not repeat it (`begin_direct_vim_edit`,
+    /// `finish_vim_edit`). Not while a command waits for its next key, a
+    /// step is open or the history search is.
+    pub fn vim_direct<R>(&self, c: &TextEditingController, edit: impl FnOnce() -> R) -> R {
+        let own = self.vim_enabled()
+            && !self.searching()
+            && !self.with_vim(|v| v.is_operator_pending())
+            && !self.with_vim_history(|h| h.has_pending());
+        if own {
+            self.vim_begin_edit(c);
+            self.with_vim(Vim::forget_repeat);
+        }
+        let out = edit();
+        if own {
+            self.vim_finish_edit(c);
+        }
+        out
     }
 
     /// A Normal-mode command or an insert session ended: its step is kept

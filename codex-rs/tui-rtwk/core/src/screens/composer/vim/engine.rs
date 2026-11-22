@@ -152,6 +152,13 @@ impl Vim {
         self.enabled && self.mode == VimMode::Insert
     }
 
+    /// `.` repeats nothing until the next change: an edit outside the
+    /// keys (an image from the clipboard) is not one to repeat
+    /// (`begin_direct_vim_edit` clears `last_change`).
+    pub fn forget_repeat(&mut self) {
+        self.commands.last_change.clear();
+    }
+
     /// A command, a query or a text object waits for its next key.
     pub fn is_operator_pending(&self) -> bool {
         self.searching.is_some() || self.pending != Pending::None

@@ -18,7 +18,7 @@ blockquote_paste_tests}.rs`. View `src/pages/session/composer/`:
 Core (no rtwk), `core/src/screens/composer.rs`: `large_paste`, `blockquote_paste`,
 `sanitize_paste` (unit test in the file); `screens/popovers.rs` lists skills under `@`.
 
-## chunk-composer (the whole composer as one job; in progress, steps 1-8 of 11 landed; 9 images next)
+## chunk-composer (the whole composer as one job; in progress, steps 1-9 of 11 landed; 10 reconnect/offline next)
 Branch `worktree-agent-a8b7d6f0f27a204d2` (rebased on `claude/tui-rtwk` 2026-11-22).
 
 Done:
@@ -123,6 +123,49 @@ Done:
     (5) A PostToolUse hook reported that one of my commands wrote
     `docs/rtwk-port/research/pending-clusters/clusters.json`: it did not (that file is untracked in
     the main checkout, not in this worktree).
+- Step 9, images and attachments:
+  - Remote image rows (`chat_composer/attachment_state.rs`): `src/widgets/composer_draft/remote.rs`
+    holds the URLs, the selected row and the caret the row was selected at (`remote_up`/`remote_down`
+    /`remote_remove`, `set_remote_images`/`take_remote_images`/`forget_remote_images`); local images are
+    numbered after the remote ones (`attach_image`, `relabel_images`), a kept entry and a sent entry
+    carry `remote_image_urls`, `recall` restores them, the Vim `Snapshot` holds them (undo restores
+    a deleted row). The view (`composer/mod.rs`) draws a `Column` of `Padding(2)`+`Text` rows
+    (`tokens.info()`, selected = reversed), a one-row `SizedBox`, then the draft row. Keys in
+    `composer/editing.rs` `remote_key`: Up at caret 0 selects the last row, Up/Down move, Delete or
+    Backspace remove one row as one Vim edit (`vim_direct`, the `.` repeat is forgotten:
+    `Engine::forget_repeat`), any other key clears the selection; a caret that stands elsewhere than
+    where the row was selected ends it (checked in the `Refresh` arm, not on every controller
+    notification: the relabel after a delete would clear it otherwise).
+  - Ctrl+V (and Alt+V, any `v` with CONTROL/ALT; a plain `v` is typed): a chat-level key before the
+    bottom pane, a repeat within 250 ms is swallowed (`composer_draft/clipboard.rs`, `REPEAT_WINDOW`).
+    The view only emits `Intent::PasteImage`; core `popovers`: `Ask::ClipboardImage` (the host reads the
+    clipboard into a temp PNG), `Ev::ImagePasted(path)` (seed `{"image_pasted":"/path"}`) and
+    `clipboard::Pasted{answers, latest}` (core/src/screens/composer/clipboard.rs). The composer that
+    asked records `answers` and attaches the latest once it grows (`image_arrived` /
+    `take_pasted_image`, a self-sent `ComposerMsg::ImageArrived` from `build`, never a mutation in
+    build), so a composer that did not ask never attaches an answer. The attach is the oracle's
+    `attach_image` under `begin_direct_vim_edit`/`finish_vim_edit`.
+  - Tests: `tests/pages/composer_images.rs` 20 (6 new draft tests: numbering after remote rows,
+    renumbering on set/take, Up/Delete walk, Down past the last, a moved caret ends the selection, a
+    kept draft comes back with its rows; 7 on the whole page: rows `["  [Image #1]","  [Image #2]","",
+    "› describe these"]` (rows 1-4 of `remote_image_rows`) and after `home up up delete`
+    (`remote_image_rows_after_delete_first`), up-up-delete with a local image renumbered, Up off the
+    start is the field's, a click ends the selection, Ctrl+V + `Ev::ImagePasted` attaches and the
+    turn carries the file, an unasked answer is not attached, a second Ctrl+V within the window asks
+    once), 6 key-level tests in `composer/editing.rs` `tests::images` (shown biting: the 250 ms
+    window made 0), 2 core tests (`Pasted::after`, the `image_pasted` seed). The remote presets go
+    through the blank `ThreadUi` of `UiApp.ui.thread_ui.get(None)` before the thread exists.
+  - NEEDS (not mine): (1) host: run `Ask::ClipboardImage` (arboard, G11: temp PNG, answer
+    `Ev::ImagePasted`, the error cell `Failed to paste image: {err}` on failure), host/src and the
+    drain of `take_asks` in `core/src/app.rs`. (2) `UserMessage` has no `remote_images`: a submit
+    drops the URLs (the oracle sends them as `UserInput::Image` items before the local ones); and
+    nothing calls `set_remote_images` on a restored message yet (the restore wiring of a
+    rejected/queued message). (3) kit: a seed for remote image URLs (`Screen::remote_images`), the
+    reason of `remote_image_rows_snapshots`, `history_navigation_restores_remote_only_submissions`,
+    `deleting_a_selected_remote_image_is_one_undoable_vim_edit` and
+    `selected_text_navigation_does_not_recall_history_or_select_images`; the first also needs the
+    oracle's own footer (pane-footer). (4) The oracle's cap of the rows at `min(count, height-2)` is
+    not drawn: a window shorter than the rows would clip the draft (risk).
 - Step 7, Ctrl+R as a mode of the composer (2c4294dbe): the search lives in the composer
   because a paste reaches only a focused TextArea and the draft's `Snapshot` restores
   text, caret, placeholders and shell mode exactly. Core `screens/popovers.rs`:

@@ -33,7 +33,9 @@ use codex_tui_core::threads::{LocalImage, UserMessage};
 
 use crate::services::images;
 
+mod clipboard;
 mod mentions;
+mod remote;
 mod search;
 mod vim;
 
@@ -90,6 +92,10 @@ struct Inner {
     search: Option<search::Session>,
     /// The mention popups (`@`, `$`): rows, highlight and scroll.
     mentions: Mentions,
+    /// The remote images above the text and the row selected.
+    remote: remote::Remote,
+    /// The Ctrl+V the draft waits an answer for.
+    clipboard: clipboard::Waiting,
     /// Counts the changes of that search: a page that shows its footer asks
     /// whether it is the one it drew (`ComposerDraft::search_rev`).
     search_rev: u64,
@@ -307,7 +313,7 @@ impl ComposerDraft {
             .iter()
             .filter(|e| e.image.is_some())
             .count();
-        let label = image(images + 1);
+        let label = image(self.remote_count() + images + 1);
         self.insert_with(c, &label, &label, Some(Rc::new(path)), None);
     }
 
@@ -353,8 +359,9 @@ impl ComposerDraft {
             .collect();
         by_seq.sort_by_key(|&i| elements[i].seq);
         let mut want: Vec<Option<String>> = vec![None; elements.len()];
+        let remote = self.remote_count();
         for (rank, &i) in by_seq.iter().enumerate() {
-            let label = image(rank + 1);
+            let label = image(remote + rank + 1);
             if *elements[i].label != *label {
                 want[i] = Some(label);
             }
@@ -756,6 +763,7 @@ impl ComposerDraft {
                     .push((e.label.to_string(), e.payload.to_string())),
             }
         }
+        entry.remote_image_urls = self.remote_images();
         entry
     }
 
@@ -781,6 +789,7 @@ impl ComposerDraft {
                 });
             }
         }
+        entry.remote_image_urls = self.remote_images();
         entry
     }
 
@@ -834,6 +843,8 @@ impl ComposerDraft {
             }
             inner.elements = elements;
             inner.seen = Some(c.buffer());
+            inner.remote.urls = entry.remote_image_urls.clone();
+            inner.remote.selected = None;
             // a recalled entry is a new draft: Vim's undo steps were of the old one
             inner.vim.history.reset();
         }
@@ -863,6 +874,7 @@ impl ComposerDraft {
         {
             let mut inner = self.0.borrow_mut();
             inner.shell = false;
+            inner.remote = remote::Remote::default();
             inner.vim.history.reset();
             inner.prompts.reset_navigation();
             inner.prompts.record_local_submission(entry);
