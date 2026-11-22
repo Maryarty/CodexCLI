@@ -1730,6 +1730,20 @@ pub fn project(notification: &ServerNotification) -> Option<(ThreadId, ThreadEv)
                 })
             })
         }
+        ServerNotification::AuthRecoveryStarted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::Appended {
+                turn: None,
+                item: Item::Note(Note::from(NoteKey::Server(n.message.clone()))),
+            },
+        )),
+        ServerNotification::AuthRecoveryCompleted(n) => Some((
+            ThreadId::new(&n.thread_id),
+            ThreadEv::Appended {
+                turn: None,
+                item: Item::Note(Note::from(NoteKey::ServerDone(n.message.clone()))),
+            },
+        )),
         ServerNotification::ItemStarted(n) => item_upsert(&n.thread_id, &n.turn_id, &n.item, false)
             .map(|(thread, ev)| match ev {
                 ThreadEv::ItemUpsert { key, item } => (thread, ThreadEv::ItemStarted { key, item }),

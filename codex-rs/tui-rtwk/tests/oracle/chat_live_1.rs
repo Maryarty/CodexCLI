@@ -790,10 +790,6 @@ fn live_app_server_turn_started_sets_feedback_turn_id() {
 // ORACLE chatwidget/tests/app_server.rs:1069 live_app_server_warning_notification_renders_message kind=snap owner=chat-live
 #[test]
 fn live_app_server_warning_notification_renders_message() {
-    kit::pending(
-        Owner::ChatLive,
-        "the warning half passes (retained, counted in the footer, listed by F2); the authentication-recovery rows are not drawn: modelProvider/authRecoveryStarted and Completed have no transcript row (a NoteKey carrying the server's text as an info note `• `, and a green `✓ ` row, need cells/note.rs and pages/session/strings.rs)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&notify(
         "warning",

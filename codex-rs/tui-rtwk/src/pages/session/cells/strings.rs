@@ -19,6 +19,7 @@ pub struct Strings {
     pub title: &'static str,
     /// The mark before every cell's first row (history_cell `"• ".dim()`).
     pub bullet: &'static str,
+    pub check: &'static str,
     /// The indent of a cell's later rows.
     pub indent: &'static str,
     // history_cell/search.rs WebSearchCell::summary
@@ -278,6 +279,7 @@ pub const INVOCATION_CLOSE: &str = ")";
 pub const EN: Strings = Strings {
     title: "streaming and history cells",
     bullet: "• ",
+    check: "✓ ",
     indent: "  ",
     opened_page: "Opened page",
     opened: "Opened",
