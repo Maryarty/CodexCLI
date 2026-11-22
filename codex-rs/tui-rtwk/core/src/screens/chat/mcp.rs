@@ -88,7 +88,7 @@ impl McpStartup {
             .collect();
         let first = starting.first()?;
         let completed = total.saturating_sub(starting.len());
-        let mut shown: Vec<String> = starting.iter().take(3).map(|name| name.to_string()).collect();
+        let mut shown: Vec<String> = starting.iter().take(3).map(ToString::to_string).collect();
         if starting.len() > 3 {
             shown.push("…".to_string());
         }

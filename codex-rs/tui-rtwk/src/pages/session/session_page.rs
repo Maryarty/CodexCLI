@@ -237,7 +237,10 @@ impl State for ChatState {
         // Messages the model gave back (an interrupt, a failed steer, the
         // edit-queued key) go into the composer, once each.
         let restore = select::<ThreadModel, (ThreadId, Option<u64>), _>(cx, |thread| {
-            (thread.id().clone(), thread.restore().map(|r| r.seq()))
+            (
+                thread.id().clone(),
+                thread.restore().map(codex_tui_core::threads::Restore::seq),
+            )
         });
         if let Some((thread, before)) = &self.restored
             && *thread == restore.0
