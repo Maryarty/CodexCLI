@@ -9,7 +9,9 @@ use rtwk::{AnyWidget, Cx};
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch};
 use codex_tui_core::screens::composer::{self, ShellLine};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, dialogs, popovers};
+use codex_tui_core::screens::{
+    ScreenIntent, ScreenStates, ScreenThreadIntent, chat, dialogs, popovers,
+};
 use codex_tui_core::threads::{Failure, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
@@ -48,7 +50,15 @@ pub(super) fn open_warnings(cx: &mut Cx<'_, ChatState>, hs: &Hs) {
     open(cx, Target::Dialogs);
 }
 
-pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs) {
+/// What a line that is a message for the model does while a turn runs:
+/// Enter steers it (`apply` decides), Tab queues it behind the turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Delivery {
+    Submit,
+    Queue,
+}
+
+pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs, send: Delivery) {
     // An empty line is nothing to run: the composer was already taken by the
     // pick or the submit that came with the same Enter.
     if line.trim().is_empty() {
@@ -127,7 +137,13 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                 } else {
                     UserMessage::text(line)
                 };
-                cx.emit(&hs.submit, message);
+                match send {
+                    Delivery::Submit => cx.emit(&hs.submit, message),
+                    Delivery::Queue => {
+                        let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::Queue(message));
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
+                }
             }
         }
         Outcome::Open(opened) => {

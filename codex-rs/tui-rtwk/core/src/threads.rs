@@ -1770,25 +1770,6 @@ fn apply_ev(model: &mut ThreadModel, ev: ThreadEv, fx: &mut ThreadFx<'_>) {
                 give_back(model, vec![message], true);
             }
         }
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(screens::chat::ThreadIntent::Queue(
-            message,
-        ))) if model.has_writer() => enqueue(model, message, fx),
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::InterruptForSteers,
-        )) if model.has_writer() => {
-            if model.can_interrupt() && !model.pending_steers.is_empty() {
-                model.steers_after_interrupt = true;
-                apply_ev(model, ThreadEv::Interrupt, fx);
-            }
-        }
-        ThreadEv::ScreenIntent(ScreenThreadIntent::Chat(
-            screens::chat::ThreadIntent::EditQueued,
-        )) if model.has_writer() => {
-            let message = model.queue.pop().or_else(|| model.rejected_steers.pop());
-            if let Some(message) = message {
-                give_back(model, vec![message], true);
-            }
-        }
         ThreadEv::ScreenIntent(intent) if model.has_writer() => {
             let busy = model.is_running() || model.outgoing.any(is_start_turn);
             screens::apply_thread_intent(&mut model.slots, intent, busy, fx);

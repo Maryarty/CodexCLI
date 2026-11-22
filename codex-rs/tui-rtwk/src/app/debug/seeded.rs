@@ -18,7 +18,7 @@ use codex_tui_core::app::CodexApp;
 use codex_tui_core::app::Intent;
 use codex_tui_core::fixtures::sandbox::Sandbox;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::view::Hs;
@@ -49,6 +49,7 @@ pub enum SeededMsg {
     Dismiss(RequestKey),
     DismissBanner(BackendId, Ticket),
     Screen(ScreenIntent),
+    ThreadScreen(ThreadId, ScreenThreadIntent),
     OpenThread(ThreadId),
     LoadHistory(ThreadId),
     Interrupt(ThreadId),
@@ -92,6 +93,7 @@ impl State for SeededScopeState {
                 Intent::DismissBackendBanner { backend, ticket }
             }
             SeededMsg::Screen(intent) => Intent::Screen(intent),
+            SeededMsg::ThreadScreen(thread, intent) => Intent::ThreadScreen { thread, intent },
             SeededMsg::OpenThread(id) => Intent::OpenThread(id),
             SeededMsg::LoadHistory(id) => Intent::LoadOlderHistory(id),
             SeededMsg::Interrupt(id) => Intent::Interrupt(id),
@@ -117,6 +119,7 @@ impl State for SeededScopeState {
             dismiss: cx.map(SeededMsg::Dismiss),
             dismiss_banner: cx.map(|(backend, ticket)| SeededMsg::DismissBanner(backend, ticket)),
             screen: cx.map(SeededMsg::Screen),
+            thread_screen: cx.map(|(thread, intent)| SeededMsg::ThreadScreen(thread, intent)),
             open_thread: cx.map(SeededMsg::OpenThread),
             load_history: cx.map(SeededMsg::LoadHistory),
             interrupt: cx.map(SeededMsg::Interrupt),

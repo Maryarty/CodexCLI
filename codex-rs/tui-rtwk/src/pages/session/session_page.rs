@@ -21,7 +21,7 @@ use codex_tui_core::app::{ConnectionState, RequestQueue, SessionSlice};
 use codex_tui_core::commands::{SlashCommand, Target};
 use codex_tui_core::ids::{ThreadId, Ticket};
 use codex_tui_core::screens::popovers::{Direction, SearchStatus};
-use codex_tui_core::screens::{ScreenIntent, ScreenStates, chat, popovers};
+use codex_tui_core::screens::{ScreenIntent, ScreenStates, ScreenThreadIntent, chat, popovers};
 use codex_tui_core::threads::ThreadModel;
 
 use crate::app::debug::menu::DebugMenu;
@@ -100,6 +100,8 @@ pub enum ChatMsg {
     Cycle,
     Submit(Rc<str>),
     QueueDraft,
+    /// The edit-queued key: the newest queued message goes back to the composer.
+    EditQueued,
     CtrlC,
     RetryWriter,
     ForkWriter,
@@ -296,7 +298,7 @@ impl State for ChatState {
             ChatMsg::Submit(text) => {
                 // The same Enter may have run it through a popup's pick.
                 if !w.ui.composer.text().is_empty() {
-                    run_line(&text, w, cx, &hs);
+                    run_line(&text, w, cx, &hs, Delivery::Submit);
                     // a command that took the line cleared the composer
                     self.sync_draft(w);
                 } else if !previous.1 {
@@ -309,8 +311,23 @@ impl State for ChatState {
             ChatMsg::QueueDraft => {
                 let draft = submission(&w.ui);
                 if !draft.is_empty() {
-                    run_line(&draft, w, cx, &hs);
+                    // Tab queues behind a running turn and submits otherwise.
+                    let running = read::<ThreadModel, _>(cx).is_running();
+                    let send = if running {
+                        Delivery::Queue
+                    } else {
+                        Delivery::Submit
+                    };
+                    run_line(&draft, w, cx, &hs, send);
                     self.sync_draft(w);
+                }
+            }
+            ChatMsg::EditQueued => {
+                // `has_queued_follow_up_messages`: something waits behind the turn.
+                let thread = read::<ThreadModel, _>(cx);
+                if !thread.queue().is_empty() || !thread.rejected_steers().is_empty() {
+                    let intent = ScreenThreadIntent::Chat(chat::ThreadIntent::EditQueued);
+                    cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
                 }
             }
             ChatMsg::Picked(text) => {
@@ -318,7 +335,7 @@ impl State for ChatState {
                 // runs as the pick names it (the command clears the composer
                 // itself); what `$` and `@` put in is text and stays.
                 if text.starts_with('/') {
-                    run_line(&text, w, cx, &hs);
+                    run_line(&text, w, cx, &hs, Delivery::Submit);
                     self.sync_draft(w);
                 }
             }
@@ -413,7 +430,15 @@ impl State for ChatState {
                 }
                 if thread.can_interrupt() {
                     let hs = read::<Hs, _>(cx);
-                    cx.emit(&hs.interrupt, thread.id().clone());
+                    // Esc with steers waiting interrupts and sends them as one
+                    // message (`submit_pending_steers_after_interrupt`).
+                    if thread.pending_steers().is_empty() {
+                        cx.emit(&hs.interrupt, thread.id().clone());
+                    } else {
+                        let intent =
+                            ScreenThreadIntent::Chat(chat::ThreadIntent::InterruptForSteers);
+                        cx.emit(&hs.thread_screen, (thread.id().clone(), intent));
+                    }
                     return Rebuild::No;
                 }
                 if thread.read_only() {
@@ -739,17 +764,21 @@ impl State for ChatState {
         // bound here.
         let pages = strings.pages;
         let focus = AnyWidget::from(focus).with_key(Key::value(thread.read_only()));
-        KeyBindings::new(
-            [
-                ("left", cx.send(ChatMsg::Agents)),
-                (pages.key_shortcuts, cx.send(ChatMsg::Shortcuts)),
-            ],
-            focus,
-        )
-        .hints([
-            ("left", pages.hint_agents),
-            (pages.key_shortcuts, pages.hint_shortcuts),
-        ])
-        .into()
+        let keymap = crate::keymap::keymap(cx);
+        let mut keys = vec![
+            ("left".to_string(), cx.send(ChatMsg::Agents)),
+            (pages.key_shortcuts.to_string(), cx.send(ChatMsg::Shortcuts)),
+        ];
+        keys.extend(crate::keymap::bindings(
+            &keymap,
+            codex_tui_core::keymap::actions::CHAT_EDIT_QUEUED_MESSAGE,
+            &cx.send(ChatMsg::EditQueued),
+        ));
+        KeyBindings::new(crate::keymap::first_of_each(keys), focus)
+            .hints([
+                ("left", pages.hint_agents),
+                (pages.key_shortcuts, pages.hint_shortcuts),
+            ])
+            .into()
     }
 }

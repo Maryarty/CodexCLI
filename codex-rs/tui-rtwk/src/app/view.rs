@@ -14,7 +14,7 @@ use rtwk::provider::{MultiProvider, Provider};
 use codex_tui_core::app::AppEv;
 use codex_tui_core::app::Intent;
 use codex_tui_core::ids::{BackendId, RequestKey, ThreadId, Ticket};
-use codex_tui_core::screens::ScreenIntent;
+use codex_tui_core::screens::{ScreenIntent, ScreenThreadIntent};
 use codex_tui_core::threads::UserMessage;
 
 use crate::app::UiApp;
@@ -33,6 +33,9 @@ pub struct Hs {
     pub dismiss_banner: Handler<(BackendId, Ticket)>,
     /// An intent of a screen slot.
     pub screen: Handler<ScreenIntent>,
+    /// An intent of a screen slot of one thread (the queue, Esc with
+    /// steers, the edit of a queued message): `apply` owns the outcome.
+    pub thread_screen: Handler<(ThreadId, ScreenThreadIntent)>,
     pub open_thread: Handler<ThreadId>,
     pub load_history: Handler<ThreadId>,
     pub interrupt: Handler<ThreadId>,
@@ -60,6 +63,11 @@ pub fn view(app: &UiApp, cx: &mut ViewCx<'_, '_, UiApp>) -> AnyWidget {
         screen: cx.on_with(|app: &mut UiApp, intent: ScreenIntent, _cx| {
             app.send(AppEv::Intent(Intent::Screen(intent)));
         }),
+        thread_screen: cx.on_with(
+            |app: &mut UiApp, (thread, intent): (ThreadId, ScreenThreadIntent), _cx| {
+                app.send(AppEv::Intent(Intent::ThreadScreen { thread, intent }));
+            },
+        ),
         open_thread: cx.on_with(|app: &mut UiApp, id: ThreadId, _cx| {
             app.send(AppEv::Intent(Intent::OpenThread(id)));
         }),

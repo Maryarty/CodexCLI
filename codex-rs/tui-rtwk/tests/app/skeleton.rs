@@ -405,10 +405,8 @@ fn a_message_typed_while_a_turn_runs_is_steered() {
     assert_eq!(turn_texts(&h), vec!["one".to_string()], "no second turn");
 }
 
-/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
-/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
-#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn queued_messages_are_sent_in_order_one_per_turn_end() {
     let mut h = start();
     h.wait_idle();
@@ -442,10 +440,8 @@ fn queued_messages_are_sent_in_order_one_per_turn_end() {
     );
 }
 
-/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
-/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
-#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn a_queue_survives_a_second_submit() {
     let mut h = start();
     h.wait_idle();
@@ -481,10 +477,8 @@ fn escape_interrupts_the_visible_turn_while_its_answer_streams() {
     }));
 }
 
-/// Tab queues, Enter steers (the person, 2026-11-22): the page cannot emit the
-/// queue until `Hs` has a thread-screen handler (src/app/view.rs, keymap).
+/// Tab queues, Enter steers (the person, 2026-11-22).
 #[test]
-#[ignore = "pending(chat-live): Tab queues through `ThreadIntent::Queue`, which the page can emit only through an `Hs.thread_screen` handler in src/app/view.rs (keymap holds the file); a Tab now submits and steers"]
 fn running_chat_shows_elapsed_and_tab_queue_and_ctrl_c_interrupts() {
     let mut h = start_quittable(false);
     h.wait_idle();
