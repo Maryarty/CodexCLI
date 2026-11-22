@@ -26,7 +26,7 @@ pub use cells::{
 };
 pub use collab::{AgentOutcome, AgentRef, CollabEvent, SpawnRequest, SubAgentKind};
 pub use message::{LocalImage, UserMessage};
-pub use note::{CdRefusal, Note, NoteKey, Stub, Tone};
+pub use note::{CdRefusal, Note, NoteKey, RemoveNote, Stub, Tone};
 pub use user_prompt::UserPrompt;
 
 use std::collections::BTreeMap;
@@ -930,6 +930,12 @@ impl ThreadSet {
             .iter()
             .find(|(_, model)| model.outgoing.contains(ticket))
             .map(|(id, _)| id.clone())
+    }
+
+    /// The thread is gone (archived or deleted): the app holds no model of it
+    /// any more (`discard_thread_local_state`).
+    pub(crate) fn forget(&mut self, id: &ThreadId) {
+        self.held.remove(id);
     }
 
     /// The projection of "no thread yet".

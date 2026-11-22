@@ -4,7 +4,10 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::disallowed_methods)]
 
+use codex_tui_core::app::{AppEv, Command};
 use codex_tui_core::commands::SlashCommand;
+use codex_tui_core::rpc::Reply as AppReply;
+use codex_tui_core::screens::{ScreenCommand, ScreenReply, agents};
 use codex_tui_rtwk::l10n::Lang;
 use codex_tui_rtwk::pages::session::strings;
 
@@ -316,5 +319,124 @@ fn cd_in_a_conversation_with_history_says_what_it_cannot_carry_over() {
             .any(|r| r["method"] == "thread/start" && r["params"]["cwd"] == "/tmp"),
         "{:?}",
         h.fake.requests()
+    );
+}
+
+/// The tickets of the removals the app asked of the server (`/archive`, `/delete`).
+fn removals(h: &Harness) -> Vec<(codex_tui_core::ids::Ticket, agents::Command)> {
+    h.fake
+        .commands()
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Screen {
+                ticket,
+                command: ScreenCommand::Agents(command),
+                ..
+            } if matches!(
+                command,
+                agents::Command::Archive { .. } | agents::Command::Delete { .. }
+            ) =>
+            {
+                Some((ticket, command))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn answer(h: &mut Harness, ticket: codex_tui_core::ids::Ticket, reply: AppReply) {
+    let epoch = h.fake.epoch().expect("connected");
+    h.fake.inject(epoch, AppEv::Reply(ticket, reply));
+}
+
+/// The cell of `needle` on the screen (x, y).
+fn find(h: &Harness, needle: &str) -> (u16, u16) {
+    let screen = h.t.screen();
+    for (y, line) in screen.lines().enumerate() {
+        if let Some(byte) = line.find(needle) {
+            return (line[..byte].chars().count() as u16, y as u16);
+        }
+    }
+    panic!("`{needle}` is not on the screen:\n{screen}");
+}
+
+#[test]
+fn a_click_on_yes_in_the_confirmation_asks_the_server_to_archive() {
+    let mut h = chat();
+    send(&mut h, "/archive");
+    h.wait_for("the confirmation", |s| s.contains("Archive this session?"));
+    h.settle();
+    assert!(removals(&h).is_empty(), "the question alone asks nothing");
+    let (x, y) = find(&h, "Yes, archive");
+    h.t.click(x, y);
+    h.settle();
+    let asked = removals(&h);
+    assert_eq!(asked.len(), 1, "{:?}", h.fake.commands());
+    assert!(
+        matches!(asked[0].1, agents::Command::Archive { .. }),
+        "{:?}",
+        asked[0]
+    );
+    assert!(
+        !h.t.screen().contains("Archive this session?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn a_click_on_no_in_the_confirmation_asks_nothing() {
+    let mut h = chat();
+    send(&mut h, "/delete");
+    h.wait_for("the confirmation", |s| s.contains("Delete this session?"));
+    h.settle();
+    let (x, y) = find(&h, "No, keep this session");
+    h.t.click(x, y);
+    h.settle();
+    assert!(removals(&h).is_empty(), "{:?}", h.fake.commands());
+    assert!(
+        !h.t.screen().contains("Delete this session?"),
+        "{}",
+        h.t.screen()
+    );
+}
+
+#[test]
+fn the_server_removing_the_thread_opens_the_command_center() {
+    let mut h = chat();
+    send(&mut h, "/delete");
+    h.wait_for("the confirmation", |s| s.contains("Delete this session?"));
+    h.settle();
+    let (x, y) = find(&h, "Yes, delete and return to command center");
+    h.t.click(x, y);
+    h.settle();
+    let (ticket, command) = removals(&h).remove(0);
+    assert!(matches!(command, agents::Command::Delete { .. }));
+    answer(
+        &mut h,
+        ticket,
+        AppReply::screen(ScreenReply::Agents(agents::Reply::Done)),
+    );
+    h.wait_for("the command center", |s| s.contains("Agent command center"));
+}
+
+#[test]
+fn a_refusal_of_the_server_is_said_in_the_chat_and_the_chat_stays() {
+    let mut h = chat();
+    send(&mut h, "/archive");
+    h.wait_for("the confirmation", |s| s.contains("Archive this session?"));
+    h.settle();
+    let (x, y) = find(&h, "Yes, archive");
+    h.t.click(x, y);
+    h.settle();
+    let (ticket, _) = removals(&h).remove(0);
+    answer(&mut h, ticket, AppReply::failed("denied"));
+    h.wait_for("the refusal", |s| {
+        s.contains("Failed to archive current thread: failed to archive session")
+    });
+    assert!(
+        !h.t.screen().contains("Agent command center"),
+        "{}",
+        h.t.screen()
     );
 }

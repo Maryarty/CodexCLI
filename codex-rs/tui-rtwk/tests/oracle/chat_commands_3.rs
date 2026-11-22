@@ -4,6 +4,9 @@
 //! Replace each `kit::todo();` by the port, by `kit::pending(..)` + the port, or by
 //! `kit::na(..)`; add the imports you need (`use crate::kit::{Owner, Screen};`).
 
+use codex_tui_core::app::Command;
+use codex_tui_core::screens::{ScreenCommand, agents};
+
 use crate::kit::{self, Owner, Screen};
 
 /// A running turn (the oracle's `handle_turn_started`).
@@ -286,20 +289,97 @@ fn slash_clear_is_disabled_while_task_running() {
     );
 }
 
+/// The oracle's `AppEvent::ArchiveCurrentThread`: the port asks the agents backend to archive the thread.
+fn archives(s: &Screen) -> usize {
+    removals(s, |command| {
+        matches!(command, agents::Command::Archive { .. })
+    })
+}
+
+/// The oracle's `AppEvent::DeleteCurrentThread`: the port asks the agents backend to delete the thread.
+fn deletes(s: &Screen) -> usize {
+    removals(s, |command| {
+        matches!(command, agents::Command::Delete { .. })
+    })
+}
+
+fn removals(s: &Screen, which: fn(&agents::Command) -> bool) -> usize {
+    s.commands()
+        .iter()
+        .filter(|command| match command {
+            Command::Screen {
+                command: ScreenCommand::Agents(command),
+                ..
+            } => which(command),
+            _ => false,
+        })
+        .count()
+}
+
+/// The oracle's snapshots of the confirmations (`slash_archive_confirmation_popup`,
+/// `slash_archive_running_confirmation_popup`, `slash_delete_confirmation_command_center`)
+/// render its bottom pane only: the composer shows through in the four columns
+/// left of the dialog ("› As", "  GP", "• Wo"), which a frame of the whole
+/// screen does not hold. The dialog is the rows from column 4 on, the rows
+/// below are the snapshot's with those four columns blank.
+const ARCHIVE_ROWS: &[&str] = &[
+    "      Archive this session?",
+    "      Are you sure? This will archive the current session",
+    "",
+    "",
+    "    › 1. No, don't archive  Return to the current session",
+    "      2. Yes, archive       Archive this session now",
+    "",
+    "      enter select · esc back",
+];
+
+const ARCHIVE_RUNNING_ROWS: &[&str] = &[
+    "      Archive this session?",
+    "      This will stop the current turn and archive the session.",
+    "",
+    "",
+    "    › 1. No, don't archive  Return to the current session",
+    "      2. Yes, archive       Archive this session now",
+    "",
+    "      enter select · esc back",
+];
+
+const DELETE_ROWS: &[&str] = &[
+    "      Delete this session?",
+    "      Also deletes subagents and saved side chats. Cannot be undone.",
+    "",
+    "",
+    "    › 1. No, keep this session                     Return to the current",
+    "                                                   session",
+    "      2. Yes, delete and return to command center  Permanently delete this",
+    "                                                   session now",
+    "",
+    "      enter select · esc back",
+];
+
+/// The confirmation is a dialog centered on the 80x24 screen (the oracle's
+/// `ViewPresentation::Centered`, `dialog_area`: the rows of the dialog in the
+/// middle of the frame, 72 cells wide from column 4).
+fn dialog(s: &Screen, rows: &[&str]) {
+    let top = (24 - rows.len()) / 2;
+    for (i, row) in rows.iter().enumerate() {
+        s.assert_row(top + i, row);
+    }
+}
+
 // ORACLE chatwidget/tests/slash_commands.rs:2947 slash_archive_cancellation_keeps_task_running kind=ui owner=chat-nav-pane
 #[test]
 fn slash_archive_cancellation_keeps_task_running() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "a running task seed and the archive confirmation popup are not reachable black-box; the popup text is the oracle's slash_archive_running_confirmation_popup",
-    );
-    let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut s = Screen::build(Owner::ChatNavPane).script(RUNNING).open();
     s.type_text("/archive");
     s.keys("enter");
+    s.assert_contains("Archive this session?");
+    s.assert_contains("This will stop the current turn and archive the session.");
     s.keys("enter");
-    // The oracle asserts the popup is dismissed and the task still running, with no ArchiveCurrentThread
-    // or core op: the dismissed popup and the running status row are drawn, their text is not yet
-    // written here because the popup text is only in the snapshot of the next test.
+    // The popup is dismissed and the task still runs, with no archive asked.
+    s.assert_absent("Archive this session?");
+    s.assert_contains("esc to interrupt");
+    assert_eq!(archives(&s), 0);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:2963 slash_memory_maintenance_reports_stubbed_feature kind=ui owner=chat-nav-pane
@@ -345,37 +425,40 @@ fn slash_memories_opens_memory_menu() {
 // ORACLE chatwidget/tests/slash_commands.rs:3095 slash_archive_confirmation_requests_current_thread_archive kind=snap owner=chat-nav-pane snap=slash_archive_confirmation_popup snap=slash_archive_running_confirmation_popup
 #[test]
 fn slash_archive_confirmation_requests_current_thread_archive() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /archive confirmation popup is not built; the running variant needs a running task seed (set_task_running), not reachable black-box",
-    );
     // Not running: the idle popup, then down and enter confirms the archive.
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/archive");
     s.keys("enter");
-    s.assert_snap("slash_archive_confirmation_popup");
+    assert_eq!(archives(&s), 0);
+    dialog(&s, ARCHIVE_ROWS);
     s.keys("down");
     s.keys("enter");
+    assert_eq!(archives(&s), 1);
     // Running: the same popup with the running text, from a running task seed.
-    let mut r = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
+    let mut r = Screen::build(Owner::ChatNavPane)
+        .size(80, 24)
+        .script(RUNNING)
+        .open();
     r.type_text("/archive");
     r.keys("enter");
-    r.assert_snap("slash_archive_running_confirmation_popup");
+    assert_eq!(archives(&r), 0);
+    dialog(&r, ARCHIVE_RUNNING_ROWS);
+    r.keys("down");
+    r.keys("enter");
+    assert_eq!(archives(&r), 1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3121 slash_delete_confirmation_requests_current_thread_delete kind=snap owner=chat-nav-pane snap=slash_delete_confirmation_command_center
 #[test]
 fn slash_delete_confirmation_requests_current_thread_delete() {
-    kit::pending(
-        Owner::ChatNavPane,
-        "the /delete confirmation popup (command center) is not built",
-    );
     let mut s = Screen::build(Owner::ChatNavPane).size(80, 24).live().open();
     s.type_text("/delete");
     s.keys("enter");
-    s.assert_snap("slash_delete_confirmation_command_center");
+    assert_eq!(deletes(&s), 0);
+    dialog(&s, DELETE_ROWS);
     s.keys("down");
     s.keys("enter");
+    assert_eq!(deletes(&s), 1);
 }
 
 // ORACLE chatwidget/tests/slash_commands.rs:3134 slash_resume_with_arg_requests_named_session_while_mcp_startup_is_running kind=ui owner=chat-nav-pane

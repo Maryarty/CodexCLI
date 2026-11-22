@@ -8,7 +8,7 @@ use rtwk::{AnyWidget, Cx};
 
 use codex_tui_core::app::{Session, SessionSlice};
 use codex_tui_core::commands::{
-    DispatchCx, Notice, Outcome, SlashCommand, Target, dispatch, parent_owned_takes,
+    DispatchCx, Notice, Outcome, SessionIntent, SlashCommand, Target, dispatch, parent_owned_takes,
 };
 use codex_tui_core::screens::composer::{self, ShellLine};
 use codex_tui_core::screens::{
@@ -18,7 +18,7 @@ use codex_tui_core::threads::{Failure, Note, NoteKey, ThreadModel, UserMessage};
 
 use crate::app::view::Hs;
 use crate::pages::session::composer::clear_sent;
-use crate::pages::session::open::open;
+use crate::pages::session::open::{open, open_confirmation};
 
 /// The chat screen of one thread's controllers.
 use super::session_page::*;
@@ -175,7 +175,19 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
                     ScreenIntent::Settings(codex_tui_core::screens::settings::Intent::Open(dialog)),
                 );
             }
-            if opened.command == SlashCommand::Warnings {
+            // The confirmation of `/archive` and `/delete` is the model's
+            // question (is a turn running?), then the select sheet shows it.
+            if let Some(intent) = removal_intent(opened.command) {
+                screen(
+                    cx,
+                    chat::Intent::Session {
+                        thread: session.active.clone(),
+                        command: opened.command,
+                        intent,
+                    },
+                );
+                open_confirmation(cx);
+            } else if opened.command == SlashCommand::Warnings {
                 open_warnings(cx, hs);
             } else {
                 open(cx, opened.target);
@@ -208,6 +220,16 @@ pub(super) fn run_line(line: &str, w: &Chat, cx: &mut Cx<'_, ChatState>, hs: &Hs
             }
             say(cx, Note::from(notice));
         }
+    }
+}
+
+/// What the model is asked before the select sheet shows the confirmation of
+/// `/archive` or `/delete`.
+fn removal_intent(command: SlashCommand) -> Option<SessionIntent> {
+    match command {
+        SlashCommand::Archive => Some(SessionIntent::Archive),
+        SlashCommand::Delete => Some(SessionIntent::Delete),
+        _ => None,
     }
 }
 

@@ -4,6 +4,7 @@
 //! it was said. Typed keys, the UI's string tables hold the words (ADR-010).
 
 use crate::commands::Notice;
+use crate::screens::agents::Action;
 
 /// How a note reads: the oracle's `add_info_message` (a dim bullet, then the
 /// message) or `add_error_message` (a red `■ `).
@@ -32,6 +33,17 @@ pub enum CdRefusal {
     HistoryNotSaved,
 }
 
+/// Why `/archive` or `/delete` did not remove the thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoveNote {
+    /// No thread has started (`archive_current_thread`).
+    NotStarted,
+    /// The thread is a side conversation of another.
+    SideConversation,
+    /// The server refused or the request failed.
+    Failed,
+}
+
 /// What a note says, before the UI words it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoteKey {
@@ -54,6 +66,8 @@ pub enum NoteKey {
     ParentOwned,
     /// `/cd` was refused.
     CdRefused(CdRefusal),
+    /// `/archive` or `/delete` did not remove the thread.
+    Remove(Action, RemoveNote),
 }
 
 impl NoteKey {
@@ -61,7 +75,10 @@ impl NoteKey {
     pub fn tone(&self) -> Tone {
         match self {
             NoteKey::Command(notice) if !notice.is_info() => Tone::Error,
-            NoteKey::Stub(_) | NoteKey::ParentOwned | NoteKey::CdRefused(_) => Tone::Error,
+            NoteKey::Stub(_)
+            | NoteKey::ParentOwned
+            | NoteKey::CdRefused(_)
+            | NoteKey::Remove(..) => Tone::Error,
             NoteKey::Command(_)
             | NoteKey::WorkingDirectory(_)
             | NoteKey::Rollout(_)

@@ -76,6 +76,15 @@ pub struct Strings {
     pub cd_not_started: &'static str,
     pub cd_not_idle: &'static str,
     pub cd_history_not_saved: &'static str,
+    /// `event_dispatch.rs` `archive_current_thread`, `delete_current_thread`:
+    /// why the thread was not removed (the failure carries the oracle's context
+    /// message, `thread_archive`, `thread_delete`).
+    pub archive_not_started: &'static str,
+    pub delete_not_started: &'static str,
+    pub archive_side: &'static str,
+    pub delete_side: &'static str,
+    pub archive_failed: &'static str,
+    pub delete_failed: &'static str,
     /// `skill_popup.rs`, `mentions_v2/candidate.rs`: the tags of a row.
     pub tag_skill: &'static str,
     pub tag_app: &'static str,
@@ -197,6 +206,12 @@ pub const EN: Strings = Strings {
     cd_not_started: "The session must start before you can change its working directory.",
     cd_not_idle: "Changing directories requires an idle primary session without queued input.",
     cd_history_not_saved: "Conversation history is not saved.",
+    archive_not_started: "A thread must start before it can be archived.",
+    delete_not_started: "A thread must start before it can be deleted.",
+    archive_side: "'/archive' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
+    delete_side: "'/delete' is unavailable in side conversations. Press Ctrl+C to return to the main thread first.",
+    archive_failed: "Failed to archive current thread: failed to archive session",
+    delete_failed: "Failed to delete current thread: failed to delete session",
     tag_skill: "[Skill]",
     tag_app: "[App]",
     tag_plugin: "Plugin",
@@ -395,7 +410,8 @@ impl Strings {
 
     /// The words of a note of the transcript (a command line's answer).
     pub fn note(&self, key: &codex_tui_core::threads::NoteKey) -> String {
-        use codex_tui_core::threads::{CdRefusal, NoteKey, Stub};
+        use codex_tui_core::screens::agents::Action;
+        use codex_tui_core::threads::{CdRefusal, NoteKey, RemoveNote, Stub};
         let text = |msg: Msg<1>, arg: &str| Fmt::new(msg, [Arg::Text(arg)], &self.num).to_string();
         match key {
             NoteKey::Command(notice) => self.notice(notice),
@@ -411,6 +427,20 @@ impl Strings {
             NoteKey::CdRefused(CdRefusal::NotStarted) => self.cd_not_started.to_string(),
             NoteKey::CdRefused(CdRefusal::NotIdle) => self.cd_not_idle.to_string(),
             NoteKey::CdRefused(CdRefusal::HistoryNotSaved) => self.cd_history_not_saved.to_string(),
+            NoteKey::Remove(Action::Archive, RemoveNote::NotStarted) => {
+                self.archive_not_started.to_string()
+            }
+            NoteKey::Remove(Action::Delete, RemoveNote::NotStarted) => {
+                self.delete_not_started.to_string()
+            }
+            NoteKey::Remove(Action::Archive, RemoveNote::SideConversation) => {
+                self.archive_side.to_string()
+            }
+            NoteKey::Remove(Action::Delete, RemoveNote::SideConversation) => {
+                self.delete_side.to_string()
+            }
+            NoteKey::Remove(Action::Archive, RemoveNote::Failed) => self.archive_failed.to_string(),
+            NoteKey::Remove(Action::Delete, RemoveNote::Failed) => self.delete_failed.to_string(),
         }
     }
 

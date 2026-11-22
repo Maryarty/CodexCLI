@@ -10,7 +10,7 @@ use rtwk::editing::TextEditingController;
 use rtwk::focus::{Focus, FocusNode, KeyBindings, KeyEventResult, KeyPress};
 use rtwk::layout::{Alignment, BoxWidget, EdgeInsets, SizedBox, Stack};
 use rtwk::layout::{Column, CrossAxisAlignment, Expanded, MainAxisSize, Row};
-use rtwk::navigation::{Navigator, PageRoute};
+use rtwk::navigation::{Navigator, PageRoute, Route};
 use rtwk::prelude::{KeyCode, Mods};
 use rtwk::provider::{read, select, watch};
 use rtwk::style::Theme;
@@ -66,6 +66,9 @@ pub struct ChatState {
     /// The last restore (`Restore::seq`) the composer took from the model: a
     /// number is applied once, in the thread that made it.
     restored: Option<(ThreadId, Option<u64>)>,
+    /// How many removals (the app counts them) the chat has answered with
+    /// the command center.
+    removed: Option<u32>,
     /// Escape was pressed on an empty composer: the next one starts
     /// backtrack (`app_backtrack.rs`).
     esc_primed: bool,
@@ -152,6 +155,7 @@ impl StatefulWidget for Chat {
         ChatState {
             seen: None,
             restored: None,
+            removed: None,
             esc_primed: false,
             shortcuts: false,
             detailed_transcript: false,
@@ -312,6 +316,19 @@ impl State for ChatState {
             }
         }
         self.restored = Some(restore);
+        // The thread was archived or deleted (`/archive`, `/delete`): the chat
+        // is empty again and the command center opens over it
+        // (`return_to_agents_after_removal`); under a sheet it waits until the
+        // chat is in front.
+        let removed = select::<SessionSlice, u32, _>(cx, |session| session.removed);
+        match self.removed {
+            None => self.removed = Some(removed),
+            Some(before) if removed > before && Route::is_current_of(cx) => {
+                self.removed = Some(removed);
+                open(cx, Target::Agents);
+            }
+            Some(_) => {}
+        }
         let states = watch::<ScreenStates, _>(cx);
         let session = watch::<SessionSlice, _>(cx);
         let thread = read::<ThreadModel, _>(cx);

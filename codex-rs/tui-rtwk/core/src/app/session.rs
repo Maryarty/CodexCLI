@@ -4,8 +4,14 @@ use std::rc::Rc;
 
 use super::{AppCtx, AppFx, CodexApp, Command, apply_thread};
 use crate::ids::{BackendId, ThreadId};
-use crate::screens::{ScreenCommand, ScreenThreadIntent, agents, chat, status};
-use crate::threads::{CdRefusal, Item, Note, NoteKey, Stub, ThreadAsk, ThreadEv, UserMessage};
+use crate::rpc::Answer;
+use crate::screens::select::{Confirm, Menu, Picked};
+use crate::screens::{
+    ScreenCommand, ScreenReply, ScreenThreadIntent, agents, chat, select, status,
+};
+use crate::threads::{
+    CdRefusal, Item, Note, NoteKey, RemoveNote, Stub, ThreadAsk, ThreadEv, UserMessage,
+};
 
 /// The Desktop app's link to a thread (`desktop_thread_deeplink`), the thread's
 /// id after it.
@@ -117,6 +123,8 @@ pub(super) fn session_intent(
             fx.commands.push(request);
         }
         S::Cd { path } => change_directory(app, source, &path, fx),
+        S::Archive => ask_removal(app, source, agents::Action::Archive, fx),
+        S::Delete => ask_removal(app, source, agents::Action::Delete, fx),
         S::Compact | S::Rename { name: Some(_) } => {
             if let Some(thread) = source {
                 let ev = match intent {
@@ -196,8 +204,6 @@ pub(super) fn session_intent(
         // What another chunk or a later step builds: until then the answer
         // that says so. Every variant is named, so a new one cannot slip by.
         S::Recap
-        | S::Archive
-        | S::Delete
         | S::Worktree
         | S::Rename { name: None }
         | S::Plan { .. }
@@ -306,6 +312,118 @@ fn change_directory(app: &mut CodexApp, source: Option<ThreadId>, path: &str, fx
         thread: ThreadId::default(),
         command: ScreenCommand::Agents(agents::Command::Thread(ask)),
     });
+}
+
+/// `/archive`, `/delete` (`slash_dispatch.rs`): the confirmation opens in the
+/// select sheet, whatever the session is (the checks are the answer Yes's).
+fn ask_removal(
+    app: &mut CodexApp,
+    source: Option<ThreadId>,
+    action: agents::Action,
+    fx: &mut AppFx,
+) {
+    let confirm = match action {
+        agents::Action::Archive => Confirm::Archive {
+            running: source
+                .and_then(|id| app.threads.get(&id).map(|model| model.is_running()))
+                .unwrap_or(false),
+        },
+        agents::Action::Delete => Confirm::Delete,
+    };
+    select::apply_intent(
+        &mut Rc::make_mut(&mut app.screens).select,
+        select::Intent::Open(Menu::Confirm(confirm)),
+        fx,
+    );
+}
+
+/// The answer Yes of a confirmation the select sheet closed on: the pick is
+/// taken off the screen's record and acted on (No picks nothing).
+pub(super) fn confirmed(app: &mut CodexApp, fx: &mut AppFx) {
+    let yes = |picked: &Picked| matches!(picked, Picked::Confirmed(_));
+    if !app.screens.select.picked.iter().any(yes) {
+        return;
+    }
+    let mut asked = Vec::new();
+    Rc::make_mut(&mut app.screens)
+        .select
+        .picked
+        .retain(|picked| match picked {
+            Picked::Confirmed(confirm) => {
+                asked.push(*confirm);
+                false
+            }
+            _ => true,
+        });
+    for confirm in asked {
+        let action = match confirm {
+            Confirm::Archive { .. } => agents::Action::Archive,
+            Confirm::Delete => agents::Action::Delete,
+        };
+        remove_current_thread(app, action, fx);
+    }
+}
+
+/// `archive_current_thread`, `delete_current_thread` (app/event_dispatch.rs):
+/// the server is asked to remove the thread the chat shows. Saved side chats
+/// and the voice session of the thread are not carried (no `/side`, no voice
+/// session in the port).
+fn remove_current_thread(app: &mut CodexApp, action: agents::Action, fx: &mut AppFx) {
+    let source = app.session.active.clone();
+    let refuse = |app: &mut CodexApp, why, fx: &mut AppFx| {
+        let note = Note::from(NoteKey::Remove(action, why));
+        session_note(app, source.clone(), note, fx);
+    };
+    let Some(thread) = source.clone() else {
+        return refuse(app, RemoveNote::NotStarted, fx);
+    };
+    if app.screens.chat.flags.side_conversation_active {
+        return refuse(app, RemoveNote::SideConversation, fx);
+    }
+    let asked =
+        |ctx: &AppCtx| matches!(ctx, AppCtx::Removal { thread: held, .. } if *held == thread);
+    if app.outgoing.any(asked) {
+        return;
+    }
+    let command = match action {
+        agents::Action::Archive => agents::Command::Archive {
+            thread: thread.to_string(),
+        },
+        agents::Action::Delete => agents::Command::Delete {
+            thread: thread.to_string(),
+        },
+    };
+    let ticket = app.mint.next();
+    app.outgoing
+        .insert(ticket, AppCtx::Removal { thread, action });
+    fx.commands.push(Command::Screen {
+        ticket,
+        thread: ThreadId::default(),
+        command: ScreenCommand::Agents(command),
+    });
+}
+
+/// The server answered the removal of `thread`: true when it is gone (the
+/// caller empties the chat when it was the shown one, and the command center
+/// takes its place: `return_to_agents_after_removal`); refused, the thread
+/// stays and the chat says so.
+pub(super) fn removed(
+    app: &mut CodexApp,
+    thread: &ThreadId,
+    action: agents::Action,
+    answer: Answer,
+    fx: &mut AppFx,
+) -> bool {
+    if !matches!(
+        answer,
+        Answer::Screen(ScreenReply::Agents(agents::Reply::Done))
+    ) {
+        let note = Note::from(NoteKey::Remove(action, RemoveNote::Failed));
+        session_note(app, Some(thread.clone()), note, fx);
+        return false;
+    }
+    app.threads.forget(thread);
+    true
 }
 
 /// `config.cwd`: the directory of the thread, else the one the host read for

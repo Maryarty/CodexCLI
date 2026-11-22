@@ -1955,7 +1955,8 @@ mod directory {
     /// The oracle's table of `can_change_working_directory`.
     #[test]
     fn the_directory_is_not_changed_unless_the_session_is_idle_and_the_primary_one() {
-        let states: [(&str, fn(&mut CodexApp)); 7] = [
+        type State = (&'static str, fn(&mut CodexApp));
+        let states: [State; 7] = [
             ("pending", submit),
             ("active", turn_started),
             ("queued", |app| {
@@ -2144,5 +2145,274 @@ mod directory {
             resolve_directory("~", "/tmp/project", None),
             "/tmp/project/~"
         );
+    }
+}
+
+/// `/archive` and `/delete`: the confirmation the oracle shows
+/// (`chatwidget/slash_dispatch.rs`) and what the answer Yes does
+/// (`archive_current_thread`, `delete_current_thread` of
+/// `app/event_dispatch.rs`).
+mod removal {
+    use codex_tui_core::app::{AppEv, AppFx, CodexApp, Command, Intent};
+    use codex_tui_core::ids::ThreadId;
+    use codex_tui_core::rpc::Reply;
+    use codex_tui_core::screens::agents::Action;
+    use codex_tui_core::screens::select::{Confirm, Intent as Select, Menu};
+    use codex_tui_core::screens::{
+        ScreenCommand, ScreenEv, ScreenIntent, ScreenReply, agents, chat,
+    };
+    use codex_tui_core::threads::{Note, NoteKey, RemoveNote};
+    use pretty_assertions::assert_eq;
+
+    use super::notes::{T, notes_of, ready, run};
+    use super::*;
+
+    fn select(app: &mut CodexApp, intent: Select) -> AppFx {
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Select(intent))),
+        )
+    }
+
+    /// The confirmation opens and `row` is picked.
+    fn pick(app: &mut CodexApp, confirm: Confirm, row: usize) -> AppFx {
+        select(app, Select::Open(Menu::Confirm(confirm)));
+        select(app, Select::Pick(row))
+    }
+
+    fn removals(fx: &AppFx) -> Vec<agents::Command> {
+        fx.commands()
+            .iter()
+            .filter_map(|command| match command {
+                Command::Screen {
+                    command:
+                        ScreenCommand::Agents(
+                            command @ (agents::Command::Archive { .. }
+                            | agents::Command::Delete { .. }),
+                        ),
+                    ..
+                } => Some(command.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn ticket_of(fx: &AppFx) -> codex_tui_core::ids::Ticket {
+        fx.commands()
+            .iter()
+            .find_map(|command| match command {
+                Command::Screen { ticket, .. } => Some(*ticket),
+                _ => None,
+            })
+            .expect("the request")
+    }
+
+    fn removal(action: Action, note: RemoveNote) -> Vec<Note> {
+        vec![Note::from(NoteKey::Remove(action, note))]
+    }
+
+    fn turn_started(app: &mut CodexApp) {
+        let notification: codex_app_server_protocol::ServerNotification =
+            serde_json::from_value(serde_json::json!({
+                "method": "turn/started",
+                "params": {"threadId": T, "turn": {
+                    "id": "turn-1", "items": [], "itemsView": "full",
+                    "status": "inProgress", "error": null}}}))
+            .expect("notification");
+        run(
+            app,
+            AppEv::Backend(codex_tui_core::app::BackendEv::Notification(Box::new(
+                notification,
+            ))),
+        );
+    }
+
+    fn typed(app: &mut CodexApp, thread: Option<&str>, command: SlashCommand) {
+        let intent = match command {
+            SlashCommand::Archive => SessionIntent::Archive,
+            _ => SessionIntent::Delete,
+        };
+        run(
+            app,
+            AppEv::Intent(Intent::Screen(ScreenIntent::Chat(chat::Intent::Session {
+                thread: thread.map(ThreadId::new),
+                command,
+                intent,
+            }))),
+        );
+    }
+
+    /// `SlashCommand::Archive` and `Delete` of `dispatch_command`: the
+    /// confirmation opens whatever the session is; the archive of a running
+    /// turn says it stops it.
+    #[test]
+    fn the_commands_open_the_confirmation_the_oracle_shows() {
+        let mut app = ready();
+        typed(&mut app, Some(T), SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu,
+            Some(Menu::Confirm(Confirm::Archive { running: false }))
+        );
+        turn_started(&mut app);
+        typed(&mut app, Some(T), SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu,
+            Some(Menu::Confirm(Confirm::Archive { running: true }))
+        );
+        typed(&mut app, Some(T), SlashCommand::Delete);
+        assert_eq!(
+            app.screens().select.menu,
+            Some(Menu::Confirm(Confirm::Delete))
+        );
+        // before any thread: the question still opens, the refusal is Yes's
+        let mut app = CodexApp::new();
+        typed(&mut app, None, SlashCommand::Archive);
+        assert_eq!(
+            app.screens().select.menu,
+            Some(Menu::Confirm(Confirm::Archive { running: false }))
+        );
+    }
+
+    #[test]
+    fn yes_asks_the_server_to_archive_or_delete_the_thread() {
+        for (confirm, expected) in [
+            (
+                Confirm::Archive { running: false },
+                agents::Command::Archive {
+                    thread: T.to_string(),
+                },
+            ),
+            (
+                Confirm::Archive { running: true },
+                agents::Command::Archive {
+                    thread: T.to_string(),
+                },
+            ),
+            (
+                Confirm::Delete,
+                agents::Command::Delete {
+                    thread: T.to_string(),
+                },
+            ),
+        ] {
+            let mut app = ready();
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [expected], "{confirm:?}");
+            assert_eq!(app.screens().select.menu, None, "{confirm:?}");
+            assert_eq!(app.session().active, Some(ThreadId::new(T)), "not yet gone");
+        }
+    }
+
+    #[test]
+    fn no_leaves_the_session_as_it_is() {
+        for confirm in [Confirm::Archive { running: true }, Confirm::Delete] {
+            let mut app = ready();
+            let fx = pick(&mut app, confirm, 0);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(app.screens().select.menu, None, "{confirm:?}");
+            assert_eq!(notes_of(&app.active_thread()), [], "{confirm:?}");
+        }
+    }
+
+    #[test]
+    fn a_pick_of_the_confirmation_is_not_left_for_later() {
+        let mut app = ready();
+        pick(&mut app, Confirm::Delete, 1);
+        assert_eq!(app.screens().select.picked, []);
+    }
+
+    #[test]
+    fn without_a_thread_the_answer_says_it_must_start_first() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = CodexApp::new();
+            run(&mut app, AppEv::Connected);
+            // the thread of the connection is never answered: none is active
+            assert_eq!(app.session().active, None);
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(
+                app.screens().chat.notes,
+                removal(action, RemoveNote::NotStarted),
+                "{confirm:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_side_conversation_is_not_removed() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = ready();
+            run(
+                &mut app,
+                AppEv::Screen(ScreenEv::Chat(chat::Ev::Flags(CommandFlags {
+                    side_conversation_active: true,
+                    ..CommandFlags::default()
+                }))),
+            );
+            let fx = pick(&mut app, confirm, 1);
+            assert_eq!(removals(&fx), [], "{confirm:?}");
+            assert_eq!(
+                notes_of(&app.active_thread()),
+                removal(action, RemoveNote::SideConversation),
+                "{confirm:?}"
+            );
+        }
+    }
+
+    /// `return_to_agents_after_removal`: the chat forgets the thread and the
+    /// command center takes its place.
+    #[test]
+    fn the_server_removing_the_thread_takes_the_chat_back_to_the_command_center() {
+        let mut app = ready();
+        let before = app.session().removed;
+        let fx = pick(&mut app, Confirm::Archive { running: false }, 1);
+        run(
+            &mut app,
+            AppEv::Reply(
+                ticket_of(&fx),
+                Reply::screen(ScreenReply::Agents(agents::Reply::Done)),
+            ),
+        );
+        assert_eq!(app.session().active, None);
+        assert_eq!(app.thread(&ThreadId::new(T)).map(|_| ()), None);
+        assert_eq!(app.session().removed, before + 1);
+    }
+
+    #[test]
+    fn a_refusal_of_the_server_is_said_in_the_chat() {
+        for (confirm, action) in [
+            (Confirm::Archive { running: false }, Action::Archive),
+            (Confirm::Delete, Action::Delete),
+        ] {
+            let mut app = ready();
+            let before = app.session().removed;
+            let fx = pick(&mut app, confirm, 1);
+            run(
+                &mut app,
+                AppEv::Reply(ticket_of(&fx), Reply::failed("the server said no")),
+            );
+            assert_eq!(
+                notes_of(&app.active_thread()),
+                removal(action, RemoveNote::Failed),
+                "{confirm:?}"
+            );
+            assert_eq!(app.session().active, Some(ThreadId::new(T)), "{confirm:?}");
+            assert_eq!(app.session().removed, before, "{confirm:?}");
+        }
+    }
+
+    #[test]
+    fn a_second_yes_while_the_first_is_unanswered_asks_once() {
+        let mut app = ready();
+        let first = pick(&mut app, Confirm::Delete, 1);
+        let second = pick(&mut app, Confirm::Delete, 1);
+        assert_eq!(removals(&first).len(), 1);
+        assert_eq!(removals(&second), []);
     }
 }

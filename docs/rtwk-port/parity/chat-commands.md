@@ -4,6 +4,12 @@ Shard counts (summary.py, oracle profile; pass / n-a / pending / todo / red):
 start (claude/tui-rtwk af5799546): chat_commands_1 0/15/35/0/0 · _2 4/9/31/0/2 · _3 1/14/50/0/0.
 step 1:                              chat_commands_1 0/15/35/0/0 · _2 7/9/30/0/0 · _3 3/14/48/0/0 (0 red, 0 stale).
 step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/0 · _3 10/14/41/0/0 (0 red, 0 stale).
+step 4 (no shard test turned on):    unchanged.
+step 5:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/0 · _3 13/14/38/0/0 (0 red, 0 stale).
+Whole nextest at step 5 (`--workspace --no-fail-fast`, 2135 tests, machine loaded): 5 reds, none left: `session_sse::embedded_server_resolves_exec_approval` and
+`standalone_escape_disconnects_the_live_stream` (SIGABRT at 72 s / 162 s under load; pass alone), `shell_agents::typing_a_word_asks_the_server_once` (known flake),
+`rules layers::the_shown_thread_is_set_only_in_apply_app` and `r14_widget_state_fields_hold_no_model_types` (mine: the removal answer cleared the shown thread in
+session.rs, a comment named a model type; fixed: the clearing is in app.rs, the comment reworded; the rules pass).
 
 ## Step 1 — notes as transcript items, record rule (oracle history_cell/notices.rs:334-357, chat_composer.rs:3432-3563)
 - Core: `threads/note.rs` (`Note { tone, key }`, `NoteKey::Command(Notice)`, `Tone::{Info, Error}`; `From<Notice>`: two answers are information
@@ -61,6 +67,32 @@ step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/
   method and a command for it in src/services/agents/workspace.rs, host-services), the remote-workspace refusal (needs a fact from the host), the unified-exec
   process and MCP-inventory-loading refusals (core holds neither state), trust confirmation of an untrusted directory, the permission-profile checks.
 
+## Step 5 — /archive and /delete (oracle slash_dispatch.rs, chatwidget/slash_commands.rs, bottom_pane/selection_view `confirmation()`, app/thread_routing.rs `return_to_agents_after_removal`)
+- Core: `select::Menu::Confirm(Confirm::{Archive{running}, Delete})` (2 rows), `Picked::Confirmed(Confirm)`; `Pick(1)` (Yes) logs the pick and closes, `Pick(0)`
+  (No) closes with nothing. `session_intent` (`Archive`, `Delete`) opens the menu (`running` = the thread has a turn); `confirmed` (after every select intent in
+  `apply_app`) drains the picks and `remove_current_thread` asks the agents backend (`agents::Command::Archive|Delete`, an app-scoped command, not a thread RPC:
+  ADR-003 unchanged) under `AppCtx::Removal{thread, action}`. No thread: "… must start before …" note; a side conversation: refusal note; a second Yes while the
+  first is unanswered asks once. The answer (`removed`): `Done` forgets the thread (`ThreadSet::forget`) and the `apply_reply` arm in app.rs (the one place that sets the shown thread,
+  a rules test) sets `session.active = None` and `SessionSlice.removed += 1` when it is still the chat's; anything else is a `NoteKey::Remove(action, RemoveNote::Failed)` error note in the thread's transcript. A disconnect drops the
+  outstanding removals of its origin.
+- View: the sheet is the select sheet (`MenuDialog`) opened centered: `sheets::select::open_centered` (`DialogOptions{alignment: CENTER}` over `sheet_options()`),
+  the picker wrapped in `Padding(symmetric(2, 0)) > Dialog::bare(picker).max_width(72)` for a `Menu::Confirm` (the oracle's `ViewPresentation::Centered`, `dialog_area`:
+  72 wide at most, 2 cells in). `pages/session/actions.rs` emits the model's question (`chat::Intent::Session`) and opens it with `open_confirmation`
+  (`last_opened()` stays `Target::Select`). `SessionPage` opens the command center (`Target::Agents`) when `SessionSlice.removed` grows and the chat is the route in
+  front (`Route::is_current_of`); under another sheet it waits until the chat is in front. Words: `sheets/select/strings.rs` (confirmation), `pages/session/strings.rs` (notes).
+- Tests: core/tests/commands.rs `removal` (10: the menus, Yes asks, No leaves, a pick is not left for later, no thread, side conversation, the server removing
+  the thread, a refusal, the second Yes); page tests (tests/pages/commands.rs, 4, incl. the mouse: a tap on "Yes, archive" asks the archive once and closes the sheet,
+  a tap on "No, keep this session" asks nothing, `Done` opens the command center, a refusal is the error note and the chat stays); oracle s3
+  `slash_archive_cancellation_keeps_task_running`, `slash_archive_confirmation_requests_current_thread_archive`, `slash_delete_confirmation_requests_current_thread_delete`.
+  Bitten: `threads.forget` removed (core test red), the `open(cx, Target::Agents)` trigger removed (page test red).
+- The snapshots are the oracle's bottom pane only (the composer shows through left of the dialog: "› As", "  GP", "• Wo", which a full frame has no row for), so the
+  three tests compare the rows of the dialog (cols 4.., the snapshot's rows with the four backdrop columns blank) at the centered position of the 80x24 screen
+  (`(24 - rows) / 2`), the way chat_live_3.rs does for the review popup; the rows equal the oracle's, wrapped descriptions of `/delete` included.
+- Not carried: the saved side chats of "Also deletes subagents and saved side chats" (no `/side` store in the port) and the voice-session stop of the oracle's
+  confirmed archive; the oracle's `track_agents_overview_notification` is not synthesized (the port relies on the server's `thread/archived|deleted`
+  notification, which `agents` already applies); the `Screen::requests(method)` kit helper was not added (the tests count `commands()`: the oracle's
+  `ArchiveCurrentThread` event is the port's `agents::Command::Archive`).
+
 ## Outside-area edits (minimal, additive unless noted)
 - core/src/threads.rs (chunk-live): `mod note; pub use note::{Note, NoteKey, Tone};`, variant `Item::Note(Note)`.
 - core/src/app.rs (chunk-live): one arm `Intent::Screen(ScreenIntent::Chat(chat::Intent::Note{..})) => session_note(..)`; `session_note` in the `use session::{..}`.
@@ -77,3 +109,10 @@ step 3:                              chat_commands_1 1/15/34/0/0 · _2 8/9/29/0/
 - core/src/app.rs (chunk-live), step 4: the `NewConversation` answer also takes `agents::Reply::Started` (a fresh thread in a directory).
 - core/src/screens/chat.rs (chunk-live), step 4: `ThreadPart.ephemeral`, `ThreadEv::Metadata.ephemeral`.
 - core/src/threads.rs (chunk-live), step 4: re-export of `CdRefusal`; core/src/threads/note.rs: `CdRefusal`, `NoteKey::CdRefused`.
+- core/src/app.rs (chunk-live), step 5: `SessionSlice.removed`, `AppCtx::Removal`, its arms in the disconnect `retain` and in `apply_reply`, one arm
+  `Intent::Screen(ScreenIntent::Select(_))` (applies the select intent, then `confirmed`), `confirmed`/`removed` in the `use session::{..}`.
+- core/src/threads.rs (chunk-live), step 5: `ThreadSet::forget`, re-export of `RemoveNote`; core/src/threads/note.rs: `RemoveNote`, `NoteKey::Remove`.
+- core/src/screens/select.rs (chunk-popups), step 5: `Confirm`, `Menu::Confirm`, `Picked::Confirmed`, the `Pick` arm of a confirmation.
+- src/sheets/select/{mod,dialog,lists,strings}.rs (chunk-popups), step 5: `open_centered`, the `Menu::Confirm` wrapper in `MenuDialog::build`, `confirmation()`, the
+  confirmation words (additive).
+- src/pages/session/session_page.rs, open.rs (chunk-live), step 5: `ChatState.removed` and the trigger in `did_change_dependencies`; `open_confirmation`.
