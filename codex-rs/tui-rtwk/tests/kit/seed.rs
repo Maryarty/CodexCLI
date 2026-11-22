@@ -227,6 +227,10 @@ fn feed(h: &mut Harness, text: &str) {
                 h.fake
                     .inject(epoch, AppEv::Backend(BackendEv::Request(message)));
             }
+            Step::Lagged { skipped } => {
+                h.fake
+                    .inject(epoch, AppEv::Backend(BackendEv::Lagged(skipped)));
+            }
             Step::Key { keys } => inputs.push(script::Input::Key(keys)),
             Step::Resize { width, height } => {
                 inputs.push(script::Input::Resize { width, height });

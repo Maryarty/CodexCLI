@@ -6,6 +6,9 @@
 
 use crate::kit::{self, Owner, Screen};
 
+/// The app server dropped events (oracle: the `Lagged` event of the stream).
+const LAGGED: &str = r#"{"step":"lagged","skipped":1}"#;
+
 // Expected rows, copied from the oracle (mcp_startup.rs assertions and runtime_mcp_warning.snap).
 const MCP_ERR: &str = "MCP client for `alpha` failed to start: handshake failed";
 const FAILED_ROW: &str = "⚠ MCP client for `alpha` failed to start: handshake failed";
@@ -123,10 +126,6 @@ fn review_opens_during_mcp_startup() {
 // ORACLE chatwidget/tests/mcp_startup.rs:242 inline_review_submits_during_mcp_startup kind=ui owner=chat-live
 #[test]
 fn inline_review_submits_during_mcp_startup() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen: the starting slow server is not applied, so /review is not held back and the submit path is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&mcp("slow", "starting"));
     s.type_text("/review check regressions");
@@ -170,10 +169,6 @@ fn review_and_fork_during_mcp_startup_preserve_drafts_when_foreground_work_is_pe
 // ORACLE chatwidget/tests/mcp_startup.rs:347 pending_mcp_startup_dispatches_queued_slash_commands kind=ui owner=chat-live
 #[test]
 fn pending_mcp_startup_dispatches_queued_slash_commands() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen and no resume picker opened by Tab on /resume; the empty-state animation has no feed step",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&mcp("slow", "starting"));
     s.type_text("/resume");
@@ -187,10 +182,6 @@ fn pending_mcp_startup_dispatches_queued_slash_commands() {
 // ORACLE chatwidget/tests/mcp_startup.rs:376 pending_mcp_startup_does_not_reject_queued_compaction kind=ui owner=chat-live
 #[test]
 fn pending_mcp_startup_does_not_reject_queued_compaction() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen; the queued /compact of a running turn is not held back by it yet",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("slow", "starting"),
@@ -206,10 +197,6 @@ fn pending_mcp_startup_does_not_reject_queued_compaction() {
 // ORACLE chatwidget/tests/mcp_startup.rs:394 pending_mcp_startup_does_not_drain_follow_up_before_review_starts kind=ui owner=chat-live
 #[test]
 fn pending_mcp_startup_does_not_drain_follow_up_before_review_starts() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state and no queued-message rows on the chat screen; the queued /review starts a review that no feed step makes",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("slow", "starting"),
@@ -251,10 +238,6 @@ fn pending_mcp_startup_does_not_unblock_external_review() {
 // ORACLE chatwidget/tests/mcp_startup.rs:461 pending_mcp_startup_does_not_unblock_foreground_shell kind=ui owner=chat-live
 #[test]
 fn pending_mcp_startup_does_not_unblock_foreground_shell() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen and no queued-message row for a prompt sent while a shell runs; the /fork cell text is not in the oracle assertion",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&mcp("slow", "starting"));
     s.type_text("!echo hi");
@@ -309,17 +292,14 @@ fn mcp_startup_failure_restores_running_status_header() {
 // ORACLE chatwidget/tests/mcp_startup.rs:694 app_server_mcp_startup_lag_settles_startup_and_tracks_new_starts kind=snap owner=chat-live
 #[test]
 fn app_server_mcp_startup_lag_settles_startup_and_tracks_new_starts() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("beta", "starting"),
         mcp("alpha", "starting"),
         mcp_err("alpha", MCP_ERR),
     ]));
-    // oracle: the lag settles the startup here (finish_mcp_startup_after_lag): the summary cell is drawn.
+    // The lag settles the startup here (finish_mcp_startup_after_lag): the summary cell is drawn.
+    s.feed(LAGGED);
     s.assert_has_row(INCOMPLETE_ROW);
     // oracle: a new start after the lag draws no history; a ready for it settles without a cell.
     let settled = s.shot();
@@ -331,30 +311,24 @@ fn app_server_mcp_startup_lag_settles_startup_and_tracks_new_starts() {
 // ORACLE chatwidget/tests/mcp_startup.rs:732 app_server_mcp_startup_lag_reports_only_explicit_cancellations kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_lag_reports_only_explicit_cancellations() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("beta", "starting"),
         mcp("alpha", "starting"),
         mcp("alpha", "cancelled"),
     ]));
-    // oracle: the lag runs here; only the explicit cancellation of alpha is named.
+    // The lag runs here; only the explicit cancellation of alpha is named.
+    s.feed(LAGGED);
     s.assert_has_row(INTERRUPTED_ROW);
 }
 
 // ORACLE chatwidget/tests/mcp_startup.rs:757 app_server_mcp_startup_reports_failure_after_lag kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_reports_failure_after_lag() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&mcp("alpha", "starting"));
-    // oracle: the lag runs here and draws nothing.
+    // The lag runs here and draws nothing.
+    s.feed(LAGGED);
     s.assert_absent("MCP startup");
     s.feed(&mcp_err("alpha", MCP_ERR));
     s.assert_has_row(FAILED_ROW);
@@ -365,13 +339,10 @@ fn app_server_mcp_startup_reports_failure_after_lag() {
 // ORACLE chatwidget/tests/mcp_startup.rs:794 app_server_mcp_startup_reports_cancellation_after_lag kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_reports_cancellation_after_lag() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&mcp("alpha", "starting"));
-    // oracle: the lag runs here and draws nothing.
+    // The lag runs here and draws nothing.
+    s.feed(LAGGED);
     s.assert_absent("MCP startup");
     s.feed(&mcp("alpha", "cancelled"));
     s.assert_has_row(INTERRUPTED_ROW);
@@ -380,12 +351,9 @@ fn app_server_mcp_startup_reports_cancellation_after_lag() {
 // ORACLE chatwidget/tests/mcp_startup.rs:815 app_server_mcp_startup_after_lag_can_settle_without_starting_updates kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_after_lag_can_settle_without_starting_updates() {
-    kit::pending(
-        Owner::ChatLive,
-        "no MCP startup state on the chat screen, and the script has no step for the app-server lag (finish_mcp_startup_after_lag): kit gap",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
-    // oracle: the lag runs first, with no server started yet.
+    // The lag runs first, with no server started yet.
+    s.feed(LAGGED);
     s.feed(&mcp_err("alpha", MCP_ERR));
     s.assert_has_row(FAILED_ROW);
     s.assert_has_row(INCOMPLETE_ROW);
@@ -398,31 +366,29 @@ fn app_server_mcp_startup_after_lag_can_settle_without_starting_updates() {
 // ORACLE chatwidget/tests/mcp_startup.rs:846 app_server_mcp_startup_late_failure_does_not_reopen_the_next_round kind=ui owner=chat-live
 #[test]
 fn app_server_mcp_startup_late_failure_does_not_reopen_the_next_round() {
-    kit::pending(
-        Owner::ChatLive,
-        "the oracle runs the app-server lag between the steps (finish_mcp_startup_after_lag): the script has no lagged step and core/src/app.rs no BackendEv::Lagged arm for the chat thread (keymap holds both); ThreadEv::McpLagged is built",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&script_of(&[
         mcp("alpha", "starting"),
         mcp_err("alpha", MCP_ERR),
         mcp("beta", "starting"),
     ]));
-    // oracle: the lag runs here and settles the round.
-    // oracle: a stale failure of alpha after that is drawn as a new warning.
+    // The lag runs here and settles the round; a stale failure of alpha
+    // after that is drawn as a new warning.
+    s.feed(LAGGED);
     s.feed(&mcp_err(
         "alpha",
         "MCP client for `alpha` failed to start: stale handshake failed",
     ));
     s.assert_contains("MCP client for `alpha` failed to start: stale handshake failed");
-    // oracle: beta starting and alpha ready draw nothing; beta ready draws no summary.
+    // oracle: beta starting and alpha ready draw nothing; beta ready draws no
+    // summary and the turn is not running: the rows are the ones before.
     let before = s.shot();
     s.feed(&script_of(&[
         mcp("beta", "starting"),
         mcp("alpha", "ready"),
         mcp("beta", "ready"),
     ]));
-    s.assert_rows_differ(&before);
+    s.assert_same_rows(&before);
 }
 
 // ORACLE chatwidget/tests/mcp_startup.rs:890 app_server_mcp_startup_completed_failure_does_not_carry_into_the_next_round kind=ui owner=chat-live

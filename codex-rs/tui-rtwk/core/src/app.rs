@@ -1004,6 +1004,8 @@ fn apply_event(app: &mut CodexApp, origin: BackendId, ev: AppEv, fx: &mut AppFx)
                 && active_backend(app) == origin
             {
                 apply_thread(app, &id, ThreadEv::Failure(Failure::Lagged(skipped)), fx);
+                // What was missed cannot settle MCP startup: it settles now.
+                apply_thread(app, &id, ThreadEv::McpLagged, fx);
             }
         }
         AppEv::Reply(ticket, reply) => apply_reply(app, ticket, reply, fx),

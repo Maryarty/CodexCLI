@@ -9,6 +9,8 @@
 //!   `seed` (`core/src/screens/<dir>.rs`), so a slice never edits this file.
 //! - `notify`: a server notification, the protocol's own JSON in `message`.
 //! - `request`: a server request, the protocol's own JSON in `message`.
+//! - `lagged`: the app server's event stream dropped `skipped` events
+//!   (`{"step":"lagged","skipped":3}`; oracle: the `Lagged` event).
 //! - `key` and `resize`: inputs for a tester; the model has no use for them,
 //!   `play` hands them back in order.
 //!
@@ -46,6 +48,9 @@ pub enum Step {
     },
     Request {
         message: Box<ServerRequest>,
+    },
+    Lagged {
+        skipped: usize,
     },
     Key {
         keys: String,
@@ -159,6 +164,9 @@ impl Script {
                 Step::Request { message } => {
                     let ev = BackendEv::Request(message.clone());
                     ingest(app, AppEv::Backend(ev));
+                }
+                Step::Lagged { skipped } => {
+                    ingest(app, AppEv::Backend(BackendEv::Lagged(*skipped)));
                 }
                 Step::Key { keys } => inputs.push(Input::Key(keys.clone())),
                 Step::Resize { width, height } => inputs.push(Input::Resize {

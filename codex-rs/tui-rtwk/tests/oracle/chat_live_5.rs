@@ -203,10 +203,6 @@ fn esc_with_review_queued_steers_shows_warning_and_does_not_interrupt() {
 // ORACLE chatwidget/tests/review_mode.rs:316 live_agent_message_renders_during_review_mode kind=ui owner=chat-live
 #[test]
 fn live_agent_message_renders_during_review_mode() {
-    kit::pending(
-        Owner::ChatLive,
-        "no review mode on the chat screen: the agent message completed during the review is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&entered_review("current changes"));
     s.feed(&item_completed(&agent_message(
@@ -235,10 +231,6 @@ fn steer_enter_queues_while_plan_stream_is_active() {
 // ORACLE chatwidget/tests/review_mode.rs:516 steer_enter_uses_pending_steers_while_turn_is_running_without_streaming kind=ui owner=chat-live
 #[test]
 fn steer_enter_uses_pending_steers_while_turn_is_running_without_streaming() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer on the chat screen: Enter while a turn runs without a stream is not sent as a steer, and its item completion is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.type_text("queued while running");
@@ -255,10 +247,6 @@ fn steer_enter_uses_pending_steers_while_turn_is_running_without_streaming() {
 // ORACLE chatwidget/tests/review_mode.rs:551 steer_enter_uses_pending_steers_while_final_answer_stream_is_active kind=ui owner=chat-live
 #[test]
 fn steer_enter_uses_pending_steers_while_final_answer_stream_is_active() {
-    kit::pending(
-        Owner::ChatLive,
-        "no pending steer on the chat screen: Enter during a streamed final answer is not sent as a steer, and its item completion is not drawn",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -335,10 +323,6 @@ fn steer_enter_during_final_stream_preserves_follow_up_prompts_in_order() {
 // ORACLE chatwidget/tests/review_mode.rs:826 manual_interrupt_restores_pending_steers_to_composer kind=ui owner=chat-live
 #[test]
 fn manual_interrupt_restores_pending_steers_to_composer() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupt restore on the chat screen: an interrupted turn does not put the pending steer back into the composer",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -413,10 +397,6 @@ fn manual_interrupt_restores_pending_steer_mention_bindings_to_composer() {
 // ORACLE chatwidget/tests/review_mode.rs:1017 manual_interrupt_restores_pending_steers_before_queued_messages kind=ui owner=chat-live
 #[test]
 fn manual_interrupt_restores_pending_steers_before_queued_messages() {
-    kit::pending(
-        Owner::ChatLive,
-        "no interrupt restore on the chat screen: after an interrupt the composer does not read the pending steer above the queued draft",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.feed(&agent_delta("Final answer line\\n"));
@@ -441,10 +421,6 @@ fn ctrl_c_shutdown_works_with_caps_lock() {
 // ORACLE chatwidget/tests/review_mode.rs:1069 ctrl_c_interrupts_without_arming_quit_when_double_press_disabled kind=ui owner=chat-live
 #[test]
 fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
-    kit::pending(
-        Owner::ChatLive,
-        "no running turn to interrupt with Ctrl+C on the chat screen (turn/started is not applied to the bottom pane)",
-    );
     let mut s = Screen::build(Owner::ChatLive).size(80, 24).live().open();
     s.feed(&turn_started("turn-1"));
     s.keys("ctrl+c");
